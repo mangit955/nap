@@ -2,7 +2,7 @@ import { expectTypeOf } from "vitest";
 import type { NapEvent, NapEventType, ToolName } from "../events.ts";
 import type { Result } from "../result.ts";
 import type { AgentService, AgentTurnRequest } from "./agent-service.ts";
-import type { BuiltContext, ContextEngine } from "./context-engine.ts";
+import type { BuiltContext, ContextEngine, ContextRequest } from "./context-engine.ts";
 import type { EventBus, Unsubscribe } from "./event-bus.ts";
 import type { EventStore, PendingEvent, StoredEvent } from "./event-store.ts";
 import type {
@@ -132,6 +132,10 @@ expectTypeOf(noopMemoryStub).toExtend<MemoryProvider>();
 
 expectTypeOf<ContextEngine["build"]>().returns.resolves.toEqualTypeOf<BuiltContext>();
 expectTypeOf<BuiltContext["systemPrompt"]>().toEqualTypeOf<string>();
+
+// Conversation history arrives as data, not as a store to read from — see the note on
+// `ContextRequest`. Pinned here because the difference is what keeps assembly free of I/O.
+expectTypeOf<ContextRequest["history"]>().toEqualTypeOf<StoredEvent[]>();
 
 const contextStub: ContextEngine = {
   build: async () => ({ systemPrompt: "", messages: [], estimatedTokens: 0 }),
