@@ -14,9 +14,9 @@
  *   - **Payloads are strict.** An unknown key is a bug in the producer, not something to
  *     silently drop on the way into the log.
  *
- * `sessionId` and `turnId` are non-empty strings rather than UUIDs on purpose: docs/PLAN.md §5
- * names the `id` columns but does not fix their format, so the database schema owns that
- * decision and may tighten this.
+ * `sessionId` and `turnId` are UUIDs, matching the `uuid` primary keys the database schema
+ * uses. Validating the format here means a malformed id is caught at the boundary rather
+ * than by Postgres several layers later.
  */
 
 import { z } from "zod";
@@ -46,8 +46,8 @@ export type TurnFailureReason = z.infer<typeof TurnFailureReasonSchema>;
 
 /** Carried by every event. `seq` is assigned by `EventStore.append`, not by the emitter. */
 const envelope = {
-  sessionId: z.string().min(1),
-  turnId: z.string().min(1),
+  sessionId: z.uuid(),
+  turnId: z.uuid(),
   seq: z.int().nonnegative(),
   createdAt: z.iso.datetime(),
 };

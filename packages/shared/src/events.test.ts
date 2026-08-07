@@ -10,8 +10,8 @@ import { type NapEvent, NapEventSchema } from "./events.ts";
  */
 
 const ENVELOPE = {
-  sessionId: "sess_1",
-  turnId: "turn_1",
+  sessionId: "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f",
+  turnId: "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f",
   seq: 0,
   createdAt: "2026-08-07T12:00:00.000Z",
 } as const;

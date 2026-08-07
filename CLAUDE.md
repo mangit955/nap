@@ -15,7 +15,8 @@ Keep each fact in exactly one of these. This file must never restate a task spec
 ## Commands
 
 ```bash
-bun run test              # unit + type suites — fakes only, deterministic, no network
+bun run test              # unit + type + db suites — deterministic and free; db needs Docker
+bun run test:fast         # unit + type only — the Docker-free inner loop
 bun run test:integration  # real E2B + real Anthropic; run at milestone boundaries only
 bun run typecheck         # turbo: tsc --noEmit per workspace, then a root pass for test/ + configs
 bun run lint              # biome check
@@ -90,7 +91,8 @@ Drift here is the most expensive kind of mistake. Before adding code to a compon
 
 ## Testing
 
-- **`*.test.ts` → unit suite. `*.integration.test.ts` → integration suite. `*.test-d.ts` → type suite.** Filename decides, not directory, so all three can sit side by side in one package.
+- **`*.test.ts` → unit. `*.test-d.ts` → types. `*.db.test.ts` → db. `*.integration.test.ts` → integration.** Filename decides, not directory, so all four can sit side by side in one package. The infix names still match `*.test.ts`, so each new suite must also be *excluded* from `unit` in `vitest.config.ts` or it runs twice.
+- **The `db` suite runs against a real Postgres in a throwaway container**, one per run, migrated by `globalSetup`. It is deterministic and free, so `docs/PLAN.md` §3 keeps it in the default suite — but it needs Docker and costs seconds, hence `test:fast`. Tests share the container, so none of them may assume an empty table. Assert on SQLSTATE codes (`23505`, `23503`), not driver message text: drizzle wraps errors, so `.message` is `"Failed query: …"` and the real reason is on `.cause`.
 - **Type tests are compile-time only, so they need their own runner.** `expectTypeOf` has no runtime effect: without the `types` project in `vitest.config.ts`, a `*.test-d.ts` file is never collected and a *wrong* assertion in it passes silently. That project needs `tsconfig.test-d.json` — the root `tsconfig.json` covers only `test/`, and each package's covers only its own `src`, so neither is a program containing every type test. `bun run typecheck` catches these too, via each package's own tsconfig; the two are deliberate belt and braces.
 - Unit tests are deterministic and free. **If a test needs the network, it belongs in `test:integration`.**
 - **Never assert on model prose.** Assert on tool-call sequences, event types and ordering, and filesystem effects.
