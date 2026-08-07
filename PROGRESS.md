@@ -61,7 +61,7 @@ here so it isn't mistaken for product work.
 
 | ID | Task | Deps | Status | Notes |
 |----|------|------|--------|-------|
-| M2-1 | `LLMProvider` + `ScriptedLLMProvider` | M0-4 | TODO | |
+| M2-1 | `LLMProvider` + `ScriptedLLMProvider` | M0-4 | IN_PROGRESS | |
 | M2-2 | `MemoryProvider` + `NoopMemoryProvider` | M0-4 | TODO | |
 | M2-3 | `ContextEngine` | M2-2, M0-3 | TODO | |
 | M2-4 | System prompt | M2-3 | TODO | |
