@@ -22,7 +22,7 @@ bun run typecheck         # turbo: tsc --noEmit per workspace, then a root pass 
 bun run lint              # biome check
 bun run format            # biome check --write — Biome owns formatting, don't hand-format
 bun run build             # turbo build
-bun run dev               # turbo dev
+bun run dev               # turbo dev — starts apps/api; copy apps/api/.env.example to .env first
 ```
 
 > ⚠️ **Always `bun run test`, never `bun test`.** `test` is a Bun built-in command that shadows the package.json script; bare `bun test` runs Bun's own runner over our Vitest files and reports nonsense.
@@ -107,6 +107,8 @@ Learned the hard way; don't rediscover them.
 - **Adding a cross-package dependency requires re-running `bun install`** to create the workspace symlink, or the import resolves at typecheck but fails at runtime.
 - **For any M2 work, read the `claude-api` skill first — don't answer from memory.** M2 hardcodes `claude-opus-5`, `effort: "xhigh"`, `display: "summarized"`, `stop_reason: "refusal"` handling, disabled SDK built-ins and in-process MCP tools. Every one of those is an API detail that changes, and M2 is the milestone where a stale recollection costs the most.
 - **A `PostToolUse` hook reformats each file after you write it.** So an `Edit` whose `old_string` came from text you wrote earlier in the turn can fail to match — Biome may have reflowed it. Re-read the file rather than guessing at the diff.
+- **Turbo runs tasks in strict env mode**, so an exported variable does *not* reach a task unless it is listed in that task's `passThroughEnv` in `turbo.json`. `DATABASE_URL=… bun run dev` silently produced a "missing DATABASE_URL" boot failure until `dev` declared it. The normal path is a `.env` file, which Bun auto-loads from the app directory.
+- **`apps/api` env is validated at boot by a pure `parseEnv(record)`**, not by reading `process.env` at import time. Keep it that way — it is what lets the env tests run without mutating global state, and it keeps boot order independent of import order.
 - **Bun installs and dispatches; Node executes.** `bun run` honours a binary's shebang, so Vitest and Next.js run under Node. Only `apps/api` and our own entrypoints use the Bun runtime. This is deliberate — see "Bun/Node split" in `docs/PLAN.md`.
 
 ## Session protocol
