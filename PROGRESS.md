@@ -13,7 +13,7 @@ Statuses: `TODO` · `IN_PROGRESS` · `DONE` · `BLOCKED` (with reason) · `SKIPP
 | ID | Task | Status | Notes |
 |----|------|--------|-------|
 | M0-1 | Workspace scaffold | DONE | Bun replaces pnpm (see PLAN.md "Bun/Node split"). Vitest kept — run it as `bun run test`, never `bun test`. Packages resolve to `.ts` source via subpath exports, so no build step for test/typecheck; needs `allowImportingTsExtensions`. |
-| M0-2 | `CLAUDE.md` + `PROGRESS.md` | TODO | |
+| M0-2 | `CLAUDE.md` + `PROGRESS.md` | IN_PROGRESS | |
 | M0-3 | Event schemas | TODO | |
 | M0-4 | Interface declarations | TODO | |
 | M0-5 | DB schema + migrations | TODO | |
