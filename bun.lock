@@ -53,6 +53,9 @@
     "packages/context": {
       "name": "@nap/context",
       "version": "0.0.0",
+      "dependencies": {
+        "@nap/shared": "workspace:*",
+      },
     },
     "packages/db": {
       "name": "@nap/db",
