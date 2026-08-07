@@ -12,9 +12,9 @@
  * between an agent that remembers what it was asked and one that quietly forgets. So the
  * order below is fixed, written down, and tested; it is not an implementation detail.
  *
- * The one thing that is never dropped is the stack contract. An agent that has forgotten
- * which framework it is writing against produces confidently wrong code, which is worse than
- * an agent that has forgotten the conversation and asks.
+ * The one thing that is never dropped is the system prompt. An agent that has forgotten which
+ * framework it is writing against produces confidently wrong code, which is worse than an
+ * agent that has forgotten the conversation and asks.
  */
 
 import type { NapEvent } from "@nap/shared/events";
@@ -22,7 +22,7 @@ import type { BuiltContext, ContextEngine, ContextRequest } from "@nap/shared/po
 import type { LLMContentBlock, LLMMessage } from "@nap/shared/ports/llm-provider";
 import type { Memory } from "@nap/shared/ports/memory-provider";
 import { buildFileTreeDigest } from "./file-tree.ts";
-import { STACK_CONTRACT } from "./system-prompt.ts";
+import { SYSTEM_PROMPT } from "./system-prompt.ts";
 import { estimateTokens } from "./tokens.ts";
 
 /**
@@ -46,7 +46,7 @@ const USER_MESSAGE_FLOOR_TOKENS = 256;
  * The smallest budget that can produce anything worth sending. Derived rather than written
  * down, so editing the contract can never leave a stale floor behind it.
  */
-export const MIN_BUDGET_TOKENS = estimateTokens(STACK_CONTRACT) + USER_MESSAGE_FLOOR_TOKENS;
+export const MIN_BUDGET_TOKENS = estimateTokens(SYSTEM_PROMPT) + USER_MESSAGE_FLOOR_TOKENS;
 
 const DEFAULT_MAX_TURNS = 20;
 
@@ -261,7 +261,7 @@ export class NapContextEngine implements ContextEngine {
  * this one's.
  */
 function systemPrompt(digest: string, memories: Memory[]): string {
-  const sections = [STACK_CONTRACT];
+  const sections = [SYSTEM_PROMPT];
 
   if (digest !== "") {
     sections.push(`<project_files>\n${digest}\n</project_files>`);

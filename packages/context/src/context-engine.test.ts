@@ -11,7 +11,7 @@ import {
   NapContextEngine,
 } from "./context-engine.ts";
 import { NoopMemoryProvider } from "./noop-memory-provider.ts";
-import { STACK_CONTRACT } from "./system-prompt.ts";
+import { SYSTEM_PROMPT } from "./system-prompt.ts";
 import { type FileTree, stubSandbox } from "./testing/stub-sandbox.ts";
 import { estimateTokens } from "./tokens.ts";
 
@@ -153,11 +153,11 @@ function engine(overrides = {}) {
 // ---------------------------------------------------------------------------
 
 describe("NapContextEngine", () => {
-  describe("the stack contract", () => {
-    it("is in the system prompt", async () => {
+  describe("the system prompt", () => {
+    it("is in the assembled prompt", async () => {
       const context = await engine().build(request());
 
-      expect(context.systemPrompt).toContain(STACK_CONTRACT);
+      expect(context.systemPrompt).toContain(SYSTEM_PROMPT);
     });
 
     it("comes first, so the cacheable part of the prompt is stable", async () => {
@@ -166,7 +166,7 @@ describe("NapContextEngine", () => {
       // or the cache is invalidated on every request.
       const context = await engine().build(request());
 
-      expect(context.systemPrompt.startsWith(STACK_CONTRACT)).toBe(true);
+      expect(context.systemPrompt.startsWith(SYSTEM_PROMPT)).toBe(true);
     });
 
     it("is present at the smallest permitted budget", async () => {
@@ -174,7 +174,7 @@ describe("NapContextEngine", () => {
         request({ history: [...toolTurn(1, 8000), ...toolTurn(2, 8000)] }),
       );
 
-      expect(context.systemPrompt).toContain(STACK_CONTRACT);
+      expect(context.systemPrompt).toContain(SYSTEM_PROMPT);
     });
 
     it("survives a history vastly larger than the budget", async () => {
@@ -182,7 +182,7 @@ describe("NapContextEngine", () => {
 
       const context = await engine({ budgetTokens: MIN_BUDGET_TOKENS }).build(request({ history }));
 
-      expect(context.systemPrompt).toContain(STACK_CONTRACT);
+      expect(context.systemPrompt).toContain(SYSTEM_PROMPT);
     });
   });
 
@@ -298,7 +298,7 @@ describe("NapContextEngine", () => {
         request({ sandbox: stubSandbox({}, { failing: [ROOT] }) }),
       );
 
-      expect(context.systemPrompt).toContain(STACK_CONTRACT);
+      expect(context.systemPrompt).toContain(SYSTEM_PROMPT);
       expect(context.systemPrompt).not.toContain("<project_files>");
     });
   });
@@ -350,7 +350,7 @@ describe("NapContextEngine", () => {
   });
 
   describe("the token budget", () => {
-    it("rejects a budget too small to hold the stack contract", () => {
+    it("rejects a budget too small to hold the system prompt", () => {
       // Programmer error, not an expected failure: there is no useful context to assemble
       // below this, and silently exceeding the number the caller asked for would be worse.
       expect(() => new NapContextEngine({ budgetTokens: MIN_BUDGET_TOKENS - 1 })).toThrow();
@@ -391,7 +391,7 @@ describe("NapContextEngine", () => {
       );
 
       expect(context.estimatedTokens).toBeLessThanOrEqual(MIN_BUDGET_TOKENS);
-      expect(context.systemPrompt).toContain(STACK_CONTRACT);
+      expect(context.systemPrompt).toContain(SYSTEM_PROMPT);
     });
 
     it("leaves everything intact when the budget is ample", async () => {
@@ -449,7 +449,7 @@ describe("NapContextEngine", () => {
       );
 
       expect(context.systemPrompt).not.toContain("<project_files>");
-      expect(context.systemPrompt).toContain(STACK_CONTRACT);
+      expect(context.systemPrompt).toContain(SYSTEM_PROMPT);
       expect(texts(context.messages).at(-1)).toBe("add a dark mode toggle");
     });
 
