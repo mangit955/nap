@@ -1,0 +1,35 @@
+@import "tailwindcss";
+
+/*
+ * Tailwind v4 is configured in CSS rather than a JS file. Tokens declared here become
+ * utilities automatically — `--color-panel` gives `bg-panel`, `border-panel`, and so on.
+ *
+ * The palette is deliberately narrow: one surface, one raised panel, one border, two text
+ * weights and a single accent. A builder UI is a frame around the user's app, so the frame
+ * should recede — anything more colourful here competes with the preview it surrounds.
+ */
+@theme {
+  --color-surface: #0a0a0c;
+  --color-panel: #101014;
+  --color-edge: #22222a;
+  --color-ink: #e8e8ee;
+  --color-muted: #8b8b99;
+  --color-accent: #7c5cff;
+
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background-color: var(--color-surface);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}

@@ -175,7 +175,7 @@ Hono server, `/health`, pino logger with `sessionId`/`turnId` in context, Zod-va
 **Done when:** `bun run dev` starts the API; a missing env var produces a clear boot failure.
 
 **M0-7 — Web skeleton** · deps: M0-1
-Next.js 15 App Router, three-pane layout shell (chat | preview | file tree), Tailwind, placeholder content.
+Next.js 16 App Router, three-pane layout shell (chat | preview | file tree), Tailwind v4, placeholder content.
 **Tests:** render test asserting all three panes mount.
 **Done when:** `bun run dev` serves the shell.
 

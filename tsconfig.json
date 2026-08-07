@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  // Covers the TypeScript that belongs to no workspace. Package tsconfigs each
+  // include only their own "src", so without this root pass everything here —
+  // including the architecture and doc-consistency checks that enforce the
+  // rules in docs/PLAN.md — would sit outside typecheck entirely.
+  "extends": "./tsconfig.base.json",
+  "include": ["test", "vitest.config.ts"]
+}

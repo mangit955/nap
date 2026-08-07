@@ -1,0 +1,29 @@
+# Postgres for local development (`bun run dev`).
+#
+# Tests do NOT use this — the `db` suite starts its own throwaway container, so a running
+# test run cannot corrupt whatever you have been poking at by hand, and a clean checkout
+# needs no setup step before `bun run test` works.
+#
+# The image tag is pinned to match packages/db/src/testing/global-setup.ts. If they drift,
+# development and CI stop agreeing about what Postgres does.
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: nap
+      POSTGRES_PASSWORD: nap
+      POSTGRES_DB: nap
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nap -d nap"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres-data:

@@ -1,78 +1,102 @@
 # Nap v1 Progress
 
-Current milestone: **M0 — Scaffold & Contracts**   (branch: `feat/m0-scaffold`)
+Current milestone: **M1 — Execution Plane** (branch `feat/m1-execution-plane`).
+M0 — Scaffold & Contracts is COMPLETE, on `feat/m0-scaffold`.
 
-Task definitions live in `docs/PLAN.md` §4. This file tracks status only.
+## How to use this file
+
+This file tracks **status only**. What each task actually means is in `docs/PLAN.md` §4,
+under the matching ID; how to work in this repo is in `CLAUDE.md`.
+
+Pick the next task whose status is `TODO` **and** whose `Deps` are all `DONE`.
+`Deps` are transcribed from `docs/PLAN.md` §4 — if the two ever disagree, the plan wins.
+
 Statuses: `TODO` · `IN_PROGRESS` · `DONE` · `BLOCKED` (with reason) · `SKIPPED` (with reason).
 
-> Seeded at M0-1 so the session protocol has something to read. M0-2 owns the
-> full conventions write-up in `CLAUDE.md`.
+## Tooling & infrastructure
+
+Not `docs/PLAN.md` §4 tasks — repo tooling added alongside the milestones, tracked
+here so it isn't mistaken for product work.
+
+| ID | Task | Status | Notes |
+|----|------|--------|-------|
+| T-1 | Dependency-direction test | DONE | `test/architecture.ts`. PLAN.md §0 called the direction "enforced" but nothing enforced it; now a test does, including "agent must not depend on e2b". Verified by injecting a real violation. |
+| T-2 | Hook blocking bare `bun test` | DONE | `.claude/settings.json` PreToolUse. |
+| T-3 | `nap-session` skill | DONE | `.claude/skills/nap-session/` — automates the §1 protocol. |
+| T-4 | `nap-events` skill | DONE | `.claude/skills/nap-events/` — event test discipline. Updated at M0-3 with the concrete 11-type table and the two jsonb rules (no `Date`/`undefined`, strict payloads). |
+| T-5 | GitHub Actions CI | DONE | `.github/workflows/ci.yml` — lint/typecheck/test on push to main + `feat/**`, and on PRs. Integration suite deliberately excluded (costs real spend). |
+| T-6 | Permission allowlist | DONE | `.claude/settings.json`. Only `bun run <script>` exact forms — everything else we run (git/gh read-only, jq, rg, grep) is already auto-allowed. No `bun run *` wildcard (arbitrary code execution) and no `test:integration` (the prompt is the only checkpoint before real spend). |
+| T-7 | Auto-format on write | DONE | PostToolUse `Write\|Edit` → `biome check --write` on the touched file. Removes the write→lint-fails→format→retry loop. |
+| T-8 | Dirty-tree Stop hook | DONE | Warns (does not block) when the tree is dirty at session end — mechanises §1's "never end a session with uncommitted work". |
+| T-9 | PLAN↔PROGRESS consistency test | DONE | `test/docs.ts`. The Deps column is a hand transcription of PLAN.md §4; this stops the two silently disagreeing. Verified by injecting drift. |
+| T-10 | "Definition of done" gate | DONE | Five-point gate in `CLAUDE.md`, executable form in `nap-session` finish. The retroactive audit that produced it found a real bug: `test/` sat outside typecheck for two commits (T-1, T-9 both shipped unchecked), because package tsconfigs only include `src`. Fixed by a root `tsconfig.json` + `tsc --noEmit` appended to the typecheck script; lefthook and CI inherit it. Audit re-verified T-1…T-9 otherwise sound. |
+| T-11 | No-task-IDs-in-source test | DONE | `test/comments.ts`. Task IDs in comments read as tracker residue to anyone outside the project — they date the code instead of explaining it. Found 3 pre-existing cases from M0-1 plus 4 of my own in M0-3, so it was already a habit. Plan *section* refs (`docs/PLAN.md §5`) stay legal. Verified by injecting a real violation. |
 
 ## M0 — Scaffold & Contracts
 
-| ID | Task | Status | Notes |
-|----|------|--------|-------|
-| M0-1 | Workspace scaffold | DONE | Bun replaces pnpm (see PLAN.md "Bun/Node split"). Vitest kept — run it as `bun run test`, never `bun test`. Packages resolve to `.ts` source via subpath exports, so no build step for test/typecheck; needs `allowImportingTsExtensions`. |
-| M0-2 | `CLAUDE.md` + `PROGRESS.md` | TODO | |
-| M0-3 | Event schemas | TODO | |
-| M0-4 | Interface declarations | TODO | |
-| M0-5 | DB schema + migrations | TODO | |
-| M0-6 | API skeleton + env validation | TODO | apps/api is a placeholder until this task |
-| M0-7 | Web skeleton | TODO | apps/web is a placeholder until this task |
+| ID | Task | Deps | Status | Notes |
+|----|------|------|--------|-------|
+| M0-1 | Workspace scaffold | — | DONE | Bun replaces pnpm (see PLAN.md "Bun/Node split"). Vitest kept — run it as `bun run test`, never `bun test`. Packages resolve to `.ts` source via subpath exports, so no build step for test/typecheck; needs `allowImportingTsExtensions`. |
+| M0-2 | `CLAUDE.md` + `PROGRESS.md` | M0-1 | DONE | PROGRESS.md was already seeded during M0-1. Added a `Deps` column so this file alone answers "what's next?", as §1 requires. |
+| M0-3 | Event schemas | M0-1 | DONE | zod 4.4.3 (`z.iso.datetime`, `z.strictObject`). Envelope nests `payload` to mirror the `events` row. `createdAt` is an ISO **string** and payloads are strict — both are jsonb survival rules, both proven by breaking them. IDs were left as non-empty strings pending the id format; M0-5 settled on `uuid` and tightened them. |
+| M0-4 | Interface declarations | M0-3 | DONE | 8 ports in `packages/shared/src/ports/` + a shared `Result` for expected failures. Two traps found: `*.test-d.ts` files were not collected at all (a deliberately wrong assertion passed) until a `types` project + `tsconfig.test-d.json` were added; and `Omit<NapEvent,"seq">` silently flattens the union, decorrelating `type` from `payload` — needs a distributive omit. Also set `"types": ["node"]` in `tsconfig.base.json`; @types/node was not being auto-included, so `AbortSignal` did not resolve. |
+| M0-5 | DB schema + migrations | M0-1 | DONE | drizzle-orm 0.45.2 + postgres.js, migrations committed under `packages/db/drizzle/`. **Deviates from §5:** `events` gets a `turn_id` column — §5 sketches the tables, the event union is the contract and carries `turnId`. IDs are `uuid`, so M0-3's `events.ts` tightened to `z.uuid()`. **`created_at` is `timestamptz` but the contract types `createdAt` as an ISO string** — whatever implements `EventStore` must map with `.toISOString()`; there is a test proving that mapping yields a valid `NapEvent`. New `db` vitest project (one container per run, `*.db.test.ts`); `bun run test:fast` is the Docker-free loop. `projects.status` values are provisional — M4-4 owns that vocabulary. |
+| M0-6 | API skeleton + env validation | M0-1 | DONE | Hono 4.13.1 + pino 10.3.1. Required env is only what the API reads today (`DATABASE_URL` + three defaulted keys); later keys sit commented in `.env.example` and become required in the task that reads them. Log context is `AsyncLocalStorage`, so `sessionId`/`turnId` reach code the M0-4 ports give no logger to. **pino is fine under Bun** — plain JSON to a stream, no transports (transports use worker threads; don't add one). **Gotcha found:** turbo's strict env mode meant `DATABASE_URL=… bun run dev` failed until `dev` got a `passThroughEnv`; the normal path is a `.env` file, which Bun auto-loads. Boot failure prints and exits 1 rather than throwing a Zod stack trace. |
+| M0-7 | Web skeleton | M0-1 | DONE | **Next 16, not 15** — PLAN.md amended; App Router is unchanged, the "15" predated 16. Tailwind v4 (CSS-first, `@theme` in `globals.css`; Biome needs `css.parser.tailwindDirectives`). New `web` vitest project (jsdom + `@vitejs/plugin-react`, which must live in the *root* devDeps since the root config imports it). **Closed two live gaps: `.tsx` matched no vitest glob, and `test/comments.ts` was blind to every `.tsx` file.** `next-env.d.ts` is gitignored — it references `.next/` artifacts CI never builds, and typecheck is green without it. Render tests query by role + accessible name; that caught four `banner` landmarks from `<header>` inside each pane. |
 
 ## M1 — Execution Plane
 
-| ID | Task | Status | Notes |
-|----|------|--------|-------|
-| M1-1 | `SandboxManager` interface + `InMemorySandboxManager` | TODO | |
-| M1-2 | E2B adapter | TODO | |
-| M1-3 | Project template | TODO | record cold-start time here |
-| M1-4 | Dev server boot + preview URL | TODO | |
-| M1-5 | Git helpers | TODO | |
+| ID | Task | Deps | Status | Notes |
+|----|------|------|--------|-------|
+| M1-1 | `SandboxManager` interface + `InMemorySandboxManager` | M0-4 | DONE | The interface itself already landed in M0-4, so this was the fake + the conformance suite (`packages/sandbox/src/testing/`). **Two contract decisions M1-2 must honour:** post-`destroy` ops return `destroyed`, never `not_found` — the E2B adapter needs to track ids it killed, since E2B alone can't tell the two apart; and `listFiles` returns *direct children only*, with directories synthesized. The suite is parameterised by a harness supplying `root` and two concrete shell commands, because it cannot assume a shell. Unscripted `exec` **throws** rather than returning a bland success — a test running an unscripted command asserts on nothing. Verified by breaking the fake three ways and watching the matching cases fail. |
+| M1-2 | E2B adapter | M1-1 | DONE | e2b 2.38.0. **Conformance suite passes 13/13 against real E2B; the orphan check (`Sandbox.getInfo` per created id) is green.** The SDK is injected as a narrow `E2BClient` so error-mapping tests run against a stub with no network — no `vi.mock` needed, contrary to the "Bun/Node split" note in `docs/PLAN.md`. Three divergences found and handled, now in `CLAUDE.md`: `commands.run` throws on non-zero exit; `AuthenticationError` doesn't extend `SandboxError`; an arbitrary sandbox id is a 400, not a 404 — which forced a new `unknownSandboxId()` on the harness, since the suite cannot invent a well-formed id. Handles are cached per sandbox: without it every file op was a fresh `connect` round-trip. `E2B_API_KEY` is read by the integration suite only, so it stays out of `apps/api/src/env.ts` until the server builds a SandboxManager. |
+| M1-3 | Project template | M1-2 | TODO | record cold-start time here |
+| M1-4 | Dev server boot + preview URL | M1-3 | TODO | |
+| M1-5 | Git helpers | M1-1 | TODO | |
 
 ## M2 — Intelligence Plane
 
-| ID | Task | Status | Notes |
-|----|------|--------|-------|
-| M2-1 | `LLMProvider` + `ScriptedLLMProvider` | TODO | |
-| M2-2 | `MemoryProvider` + `NoopMemoryProvider` | TODO | |
-| M2-3 | `ContextEngine` | TODO | |
-| M2-4 | System prompt | TODO | |
-| M2-5 | Sandbox-proxy tools | TODO | |
-| M2-6 | Safety hooks | TODO | |
-| M2-7 | `AgentService` | TODO | |
-| M2-8 | `Runtime` | TODO | |
-| M2-9 | CLI harness | TODO | M2 acceptance gate |
+| ID | Task | Deps | Status | Notes |
+|----|------|------|--------|-------|
+| M2-1 | `LLMProvider` + `ScriptedLLMProvider` | M0-4 | TODO | |
+| M2-2 | `MemoryProvider` + `NoopMemoryProvider` | M0-4 | TODO | |
+| M2-3 | `ContextEngine` | M2-2, M0-3 | TODO | |
+| M2-4 | System prompt | M2-3 | TODO | |
+| M2-5 | Sandbox-proxy tools | M1-1, M0-3 | TODO | |
+| M2-6 | Safety hooks | M2-5 | TODO | |
+| M2-7 | `AgentService` | M2-1, M2-5, M2-6 | TODO | |
+| M2-8 | `Runtime` | M2-7, M2-3, M1-5, M0-5 | TODO | |
+| M2-9 | CLI harness | M2-8 | TODO | M2 acceptance gate |
 
 ## M3 — Presentation & Streaming
 
-| ID | Task | Status | Notes |
-|----|------|--------|-------|
-| M3-1 | `EventStore` (Postgres) + `EventBus` | TODO | |
-| M3-2 | WebSocket endpoint | TODO | |
-| M3-3 | Client WS hook + reconnect | TODO | |
-| M3-4 | Chat pane | TODO | |
-| M3-5 | Preview pane | TODO | |
-| M3-6 | File tree | TODO | |
-| M3-7 | Turn submission wiring | TODO | |
+| ID | Task | Deps | Status | Notes |
+|----|------|------|--------|-------|
+| M3-1 | `EventStore` (Postgres) + `EventBus` | M0-5 | TODO | |
+| M3-2 | WebSocket endpoint | M3-1 | TODO | |
+| M3-3 | Client WS hook + reconnect | M3-2 | TODO | |
+| M3-4 | Chat pane | M3-3, M0-3 | TODO | |
+| M3-5 | Preview pane | M1-4 | TODO | |
+| M3-6 | File tree | M1-1 | TODO | |
+| M3-7 | Turn submission wiring | M3-4, M2-8 | TODO | |
 
 ## M4 — Persistence
 
-| ID | Task | Status | Notes |
-|----|------|--------|-------|
-| M4-1 | Snapshot on teardown | TODO | |
-| M4-2 | Restore on open | TODO | |
-| M4-3 | Idle reaper | TODO | |
-| M4-4 | Project CRUD + list page | TODO | |
-| M4-5 | Full-cycle integration test | TODO | |
+| ID | Task | Deps | Status | Notes |
+|----|------|------|--------|-------|
+| M4-1 | Snapshot on teardown | M1-5, M0-5 | TODO | |
+| M4-2 | Restore on open | M4-1, M1-3 | TODO | |
+| M4-3 | Idle reaper | M4-1 | TODO | |
+| M4-4 | Project CRUD + list page | M0-5, M4-2 | TODO | |
+| M4-5 | Full-cycle integration test | M4-2, M4-3 | TODO | |
 
 ## M5 — Auth & Hardening
 
-| ID | Task | Status | Notes |
-|----|------|--------|-------|
-| M5-1 | Auth | TODO | |
-| M5-2 | Authorization on every route | TODO | |
-| M5-3 | Rate limits & quotas | TODO | |
-| M5-4 | Error surfaces | TODO | |
-| M5-5 | Observability baseline | TODO | |
-| M5-6 | v1 acceptance run | TODO | record cost/latency per turn here |
+| ID | Task | Deps | Status | Notes |
+|----|------|------|--------|-------|
+| M5-1 | Auth | M0-5 | TODO | |
+| M5-2 | Authorization on every route | M5-1, M4-4 | TODO | |
+| M5-3 | Rate limits & quotas | M5-1 | TODO | |
+| M5-4 | Error surfaces | M3-4, M3-5 | TODO | |
+| M5-5 | Observability baseline | M0-6 | TODO | |
+| M5-6 | v1 acceptance run | all | TODO | record cost/latency per turn here |

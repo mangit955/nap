@@ -8,5 +8,9 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@nap/shared": "workspace:*",
+    "e2b": "2.38.0"
   }
 }
