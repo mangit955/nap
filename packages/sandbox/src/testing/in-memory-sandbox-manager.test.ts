@@ -17,6 +17,8 @@ describeSandboxManagerConformance({
   name: "InMemorySandboxManager",
   root: "/home/user",
   commands: { streamsOutput: STREAMS_OUTPUT, failsWithCode3: FAILS_WITH_CODE_3 },
+  // Any string is a well-formed id here: the fake validates nothing.
+  unknownSandboxId: () => `unknown-${crypto.randomUUID()}`,
   createManager: async () => ({
     manager: scriptedManager(),
     cleanup: async () => {

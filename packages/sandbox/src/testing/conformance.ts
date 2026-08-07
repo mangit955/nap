@@ -32,6 +32,15 @@ export type SandboxManagerHarness = {
   root: string;
 
   /**
+   * An id that is *well-formed* for this implementation but belongs to no sandbox.
+   *
+   * The suite cannot invent one: a real provider validates the shape of an id before
+   * looking it up, so an arbitrary string comes back as "malformed request" rather than
+   * "no such sandbox" — a different failure, and not the one these cases are about.
+   */
+  unknownSandboxId(): string;
+
+  /**
    * Concrete commands, because the suite asserts on output and exit codes and cannot
    * assume a shell. Each implementation supplies invocations meeting these contracts.
    */
@@ -148,8 +157,21 @@ export function describeSandboxManagerConformance(harness: SandboxManagerHarness
 
         // Streaming is the point: the handler must have seen the output before the
         // promise resolved, and stdout must have arrived before stderr.
-        expect(chunks.map((c) => c.stream)).toEqual(["stdout", "stderr"]);
-        expect(chunks.map((c) => c.data.trim())).toEqual(["one", "two"]);
+        //
+        // Asserted per stream rather than chunk by chunk, because how a real
+        // implementation splits a stream is its own business — a process writing one
+        // line may deliver it as one callback or several, and pinning the chunk count
+        // would test the transport instead of the contract.
+        const joined = (stream: string) =>
+          chunks
+            .filter((c) => c.stream === stream)
+            .map((c) => c.data)
+            .join("");
+
+        expect(chunks.length).toBeGreaterThan(0);
+        expect(joined("stdout").trim()).toBe("one");
+        expect(joined("stderr").trim()).toBe("two");
+        expect(chunks[0]?.stream).toBe("stdout");
       });
     });
 
@@ -194,7 +216,7 @@ export function describeSandboxManagerConformance(harness: SandboxManagerHarness
 
     it("reports an unknown sandbox id as not_found", async () => {
       await withSandbox(async ({ manager }) => {
-        const resumed = await manager.resume(`unknown-${crypto.randomUUID()}`);
+        const resumed = await manager.resume(harness.unknownSandboxId());
 
         expect(resumed.ok).toBe(false);
         if (resumed.ok) return;
@@ -231,7 +253,7 @@ export function describeSandboxManagerConformance(harness: SandboxManagerHarness
 
     it("reports destroying an unknown sandbox as not_found", async () => {
       await withSandbox(async ({ manager }) => {
-        const result = await manager.destroy(`unknown-${crypto.randomUUID()}`);
+        const result = await manager.destroy(harness.unknownSandboxId());
 
         expect(result.ok).toBe(false);
         if (result.ok) return;
