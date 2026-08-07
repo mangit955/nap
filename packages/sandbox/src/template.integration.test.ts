@@ -12,7 +12,7 @@
 
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { E2BSandboxManager } from "./e2b-sandbox-manager.ts";
-import { NAP_TEMPLATE, TEMPLATE_FILES, TEMPLATE_WORKDIR } from "./template.ts";
+import { NAP_TEMPLATE, TEMPLATE_DEV_PORT, TEMPLATE_FILES, TEMPLATE_WORKDIR } from "./template.ts";
 
 if (process.env.E2B_API_KEY === undefined || process.env.E2B_API_KEY === "") {
   throw new Error(
@@ -24,8 +24,11 @@ if (process.env.E2B_API_KEY === undefined || process.env.E2B_API_KEY === "") {
 const manager = new E2BSandboxManager({ template: NAP_TEMPLATE });
 
 let sandboxId: string;
-/** Time from "create a project" to "sandbox usable" — the number this task must record. */
+/** Time from "create a project" to "sandbox usable". */
 let coldStartMs: number;
+/** Time from "create a project" to "the preview URL serves" — what a user actually waits for. */
+let previewReadyMs: number;
+let previewUrl: string;
 
 beforeAll(async () => {
   const startedAt = Date.now();
@@ -39,6 +42,13 @@ beforeAll(async () => {
     );
   }
   sandboxId = created.value.id;
+
+  const ready = await manager.waitForPreview(sandboxId, TEMPLATE_DEV_PORT);
+  previewReadyMs = Date.now() - startedAt;
+  if (!ready.ok) {
+    throw new Error(`preview never became ready: ${ready.error.message}`);
+  }
+  previewUrl = ready.value;
 });
 
 afterAll(async () => {
@@ -106,10 +116,49 @@ it("does not track node_modules, so snapshots stay small", async () => {
   expect(tracked.stdout.trim()).toBe("");
 });
 
-it("records the cold start time", () => {
-  // Not an upper bound — hardware and region move it around, and a flaky threshold in
-  // an integration suite teaches people to re-run rather than to look. The task asks
-  // for the number to be measured and written down; this prints it.
-  console.log(`\n  cold start (create → usable): ${(coldStartMs / 1000).toFixed(2)}s\n`);
+it("serves the starter app over the public preview URL", async () => {
+  const response = await fetch(previewUrl);
+  const body = await response.text();
+
+  expect(response.status).toBe(200);
+  // The mount point and the module script the app actually boots from.
+  expect(body).toContain('<div id="root">');
+  expect(body).toContain("/src/main.tsx");
+});
+
+it("serves modules through Vite rather than as files off disk", async () => {
+  // The distinction that matters: a plain file server would hand back the raw TSX and
+  // the browser would fail on the first angle bracket. Requesting the entry module and
+  // finding no JSX left in it is what proves a dev server is really running.
+  const response = await fetch(new URL("/src/main.tsx", previewUrl));
+  const body = await response.text();
+
+  expect(response.status).toBe(200);
+  expect(response.headers.get("content-type")).toContain("javascript");
+  expect(body).not.toContain("<StrictMode>");
+});
+
+it("reports a typed timeout when nothing serves a port, instead of hanging", async () => {
+  // The task's explicit failure requirement. 39517 is arbitrary and unused; the point is
+  // that an unreachable preview ends the wait rather than the turn.
+  const startedAt = Date.now();
+  const result = await manager.waitForPreview(sandboxId, 39_517, { timeoutMs: 3_000 });
+
+  expect(result.ok).toBe(false);
+  if (result.ok) return;
+  expect(result.error.code).toBe("timeout");
+  expect(Date.now() - startedAt).toBeLessThan(15_000);
+});
+
+it("records the cold start and preview boot times", () => {
+  // Not upper bounds — hardware and region move them around, and a flaky threshold in an
+  // integration suite teaches people to re-run rather than to look. The task asks for the
+  // numbers to be measured and written down; this prints them.
+  console.log(
+    `\n  cold start (create → usable):        ${(coldStartMs / 1000).toFixed(2)}s` +
+      `\n  preview ready (create → serves 200): ${(previewReadyMs / 1000).toFixed(2)}s` +
+      `\n  preview URL: ${previewUrl}\n`,
+  );
   expect(coldStartMs).toBeGreaterThan(0);
+  expect(previewReadyMs).toBeGreaterThanOrEqual(coldStartMs);
 });

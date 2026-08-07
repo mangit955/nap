@@ -17,8 +17,8 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { defaultBuildLogger, Template } from "e2b";
-import { NAP_TEMPLATE, TEMPLATE_WORKDIR } from "../src/template.ts";
+import { defaultBuildLogger, Template, waitForPort } from "e2b";
+import { NAP_TEMPLATE, TEMPLATE_DEV_PORT, TEMPLATE_WORKDIR } from "../src/template.ts";
 
 const TEMPLATE_DIR = join(import.meta.dirname, "..", "template");
 
@@ -87,7 +87,12 @@ const template = Template({
   .copy("package.json", TEMPLATE_WORKDIR, { user: "user" })
   .runCmd("bun install", { user: "user" })
   .copy(".", TEMPLATE_WORKDIR, { user: "user" })
-  .runCmd(GIT_INIT, { user: "user" });
+  .runCmd(GIT_INIT, { user: "user" })
+  // Last by construction — setStartCmd returns a finalised template. E2B runs this when
+  // a sandbox starts and holds creation open until the ready check passes, so a project
+  // is serving by the time anyone has its id. `cd` is explicit rather than relying on the
+  // build-time workdir carrying over to a start command run much later.
+  .setStartCmd(`cd ${TEMPLATE_WORKDIR} && bun run dev`, waitForPort(TEMPLATE_DEV_PORT));
 
 const startedAt = Date.now();
 const info = await Template.build(template, NAP_TEMPLATE, {

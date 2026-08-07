@@ -130,6 +130,49 @@ describe("InMemorySandboxManager exec scripting", () => {
   });
 });
 
+describe("InMemorySandboxManager preview readiness", () => {
+  // The conformance suite cannot cover the success path — it runs against a sandbox with
+  // nothing serving — so the fake carries it, and it is what lets downstream tests drive
+  // a preview pane through both outcomes without a network.
+  it("resolves with the preview URL once a port is marked as serving", async () => {
+    const manager = new InMemorySandboxManager();
+    const created = await manager.create("project");
+    if (!created.ok) throw new Error(created.error.message);
+    manager.listen(created.value.id, 5173);
+
+    const ready = await manager.waitForPreview(created.value.id, 5173, { timeoutMs: 50 });
+    const url = await manager.getPreviewUrl(created.value.id, 5173);
+
+    expect(ready.ok).toBe(true);
+    if (!ready.ok || !url.ok) return;
+    // The same address `getPreviewUrl` composes — a caller must not get two answers.
+    expect(ready.value).toBe(url.value);
+  });
+
+  it("times out on a port nothing is serving", async () => {
+    const manager = new InMemorySandboxManager();
+    const created = await manager.create("project");
+    if (!created.ok) throw new Error(created.error.message);
+
+    const ready = await manager.waitForPreview(created.value.id, 5173, { timeoutMs: 20 });
+
+    expect(ready.ok).toBe(false);
+    if (ready.ok) return;
+    expect(ready.error.code).toBe("timeout");
+  });
+
+  it("distinguishes ports, so one served port does not imply another", async () => {
+    const manager = new InMemorySandboxManager();
+    const created = await manager.create("project");
+    if (!created.ok) throw new Error(created.error.message);
+    manager.listen(created.value.id, 5173);
+
+    const other = await manager.waitForPreview(created.value.id, 3000, { timeoutMs: 20 });
+
+    expect(other.ok).toBe(false);
+  });
+});
+
 describe("InMemorySandboxManager filesystem", () => {
   it("exposes a written file to a resumed handle on the same sandbox", async () => {
     const manager = new InMemorySandboxManager();
