@@ -8,7 +8,7 @@ import {
   SandboxNotFoundError,
   TimeoutError,
 } from "e2b";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { E2BClient, E2BSandboxHandle } from "./e2b-sandbox-manager.ts";
 import { E2BSandboxManager, toSandboxError } from "./e2b-sandbox-manager.ts";
 
@@ -170,6 +170,108 @@ describe("E2BSandboxManager exec", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.code).toBe("timeout");
+  });
+});
+
+describe("E2BSandboxManager preview readiness", () => {
+  // Restoring globals belongs in a hook registered on the suite, not inside a test: a
+  // stub that outlived its test would silently answer every later one.
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * Answers each successive fetch from `responses`, repeating the last one forever so a
+   * polling test can keep failing without needing an entry per attempt.
+   */
+  function stubFetch(responses: Array<Response | Error>): { calls: () => number } {
+    let index = 0;
+    vi.stubGlobal("fetch", () => {
+      const next = responses[Math.min(index, responses.length - 1)];
+      index += 1;
+      return next instanceof Error ? Promise.reject(next) : Promise.resolve(next);
+    });
+    return { calls: () => index };
+  }
+
+  it("returns the preview URL as soon as the address answers", async () => {
+    const fetches = stubFetch([new Response("<!doctype html>", { status: 200 })]);
+    const { manager, sandboxId } = await managerWith(stubHandle());
+
+    const result = await manager.waitForPreview(sandboxId, 5173);
+
+    expect(result).toEqual({ ok: true, value: "https://5173-sbx_stub.e2b.app" });
+    expect(fetches.calls()).toBe(1);
+  });
+
+  it("keeps polling through connection failures while the server boots", async () => {
+    // A refused connection is the normal state for the first second or two of a dev
+    // server's life, so treating the first failure as fatal would fail every cold start.
+    const fetches = stubFetch([
+      new TypeError("fetch failed"),
+      new TypeError("fetch failed"),
+      new Response("ok", { status: 200 }),
+    ]);
+    const { manager, sandboxId } = await managerWith(stubHandle());
+
+    const result = await manager.waitForPreview(sandboxId, 5173, { timeoutMs: 5_000 });
+
+    expect(result.ok).toBe(true);
+    expect(fetches.calls()).toBe(3);
+  });
+
+  it("keeps polling while the address answers with an error status", async () => {
+    // E2B's proxy answers before the sandbox behind it does, so a 502 means "not yet",
+    // not "broken".
+    const fetches = stubFetch([
+      new Response("bad gateway", { status: 502 }),
+      new Response("ok", { status: 200 }),
+    ]);
+    const { manager, sandboxId } = await managerWith(stubHandle());
+
+    const result = await manager.waitForPreview(sandboxId, 5173, { timeoutMs: 5_000 });
+
+    expect(result.ok).toBe(true);
+    expect(fetches.calls()).toBe(2);
+  });
+
+  it("gives up with a typed timeout, within the budget, when nothing ever answers", async () => {
+    stubFetch([new TypeError("fetch failed")]);
+    const { manager, sandboxId } = await managerWith(stubHandle());
+
+    const startedAt = Date.now();
+    const result = await manager.waitForPreview(sandboxId, 5173, { timeoutMs: 600 });
+    const elapsed = Date.now() - startedAt;
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe("timeout");
+    // The budget is the contract: a caller sizes a turn around it.
+    expect(elapsed).toBeLessThan(3_000);
+  });
+
+  it("reports the last failure, so a stuck preview can be diagnosed", async () => {
+    stubFetch([new Response("nope", { status: 500 })]);
+    const { manager, sandboxId } = await managerWith(stubHandle());
+
+    const result = await manager.waitForPreview(sandboxId, 5173, { timeoutMs: 300 });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.message).toContain("500");
+  });
+
+  it("does not poll at all for a destroyed sandbox", async () => {
+    const fetches = stubFetch([new Response("ok", { status: 200 })]);
+    const { manager, sandboxId } = await managerWith(stubHandle());
+    await manager.destroy(sandboxId);
+
+    const result = await manager.waitForPreview(sandboxId, 5173, { timeoutMs: 300 });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe("destroyed");
+    expect(fetches.calls()).toBe(0);
   });
 });
 

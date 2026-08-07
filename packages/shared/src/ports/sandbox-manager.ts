@@ -61,4 +61,20 @@ export interface SandboxManager {
   ): Promise<Result<ExecResult, SandboxError>>;
 
   getPreviewUrl(sandboxId: string, port: number): Promise<Result<string, SandboxError>>;
+
+  /**
+   * Resolves once the preview URL actually serves, or fails with `timeout`.
+   *
+   * Distinct from `getPreviewUrl`, which only composes an address and says nothing about
+   * whether anything answers at it. A dev server takes time to boot, and the address is
+   * reachable through a public proxy that becomes ready separately — so a caller that
+   * showed the URL as soon as it had one would show an error page. Waiting for a real
+   * response is the only honest signal, and it carries a deadline so a server that never
+   * comes up reports a failure instead of hanging a turn.
+   */
+  waitForPreview(
+    sandboxId: string,
+    port: number,
+    opts?: { timeoutMs?: number },
+  ): Promise<Result<string, SandboxError>>;
 }

@@ -55,6 +55,8 @@ type SandboxState = {
   projectId: string;
   files: Map<string, string>;
   commands: string[];
+  /** Ports a test has declared to be serving; see `listen`. */
+  listening: Set<number>;
 };
 
 /** Absolute POSIX paths with no trailing slash and no repeated separators. */
@@ -97,6 +99,17 @@ export class InMemorySandboxManager implements SandboxManager {
     return this;
   }
 
+  /**
+   * Declares that something is serving `port`, which is what makes `waitForPreview`
+   * resolve. There is no process here to bind anything, so readiness has to be stated
+   * rather than observed — and being able to *not* state it is the point: it is how a
+   * test drives the "dev server never came up" path without waiting on a real timeout.
+   */
+  listen(sandboxId: string, port: number): this {
+    this.#sandboxes.get(sandboxId)?.listening.add(port);
+    return this;
+  }
+
   /** Every command `exec` was asked to run on a sandbox, in order. */
   commands(sandboxId: string): string[] {
     return [...(this.#sandboxes.get(sandboxId)?.commands ?? [])];
@@ -104,7 +117,12 @@ export class InMemorySandboxManager implements SandboxManager {
 
   async create(projectId: string): Promise<Result<Sandbox, SandboxError>> {
     const id = crypto.randomUUID();
-    this.#sandboxes.set(id, { projectId, files: new Map(), commands: [] });
+    this.#sandboxes.set(id, {
+      projectId,
+      files: new Map(),
+      commands: [],
+      listening: new Set(),
+    });
     return { ok: true, value: { id, projectId } };
   }
 
@@ -207,6 +225,24 @@ export class InMemorySandboxManager implements SandboxManager {
     // Shaped like E2B's real preview host so callers that parse it work unchanged,
     // but on a reserved TLD that can never resolve.
     return { ok: true, value: `https://${port}-${sandboxId}.sandbox.invalid` };
+  }
+
+  async waitForPreview(
+    sandboxId: string,
+    port: number,
+    _opts?: { timeoutMs?: number },
+  ): Promise<Result<string, SandboxError>> {
+    const found = this.#lookup(sandboxId);
+    if (!found.ok) return found;
+
+    if (!found.value.listening.has(port)) {
+      // Reported immediately rather than after burning the caller's budget: readiness
+      // here is a fact the test already decided, so sleeping would only slow the suite
+      // down without making the outcome any more true.
+      return err("timeout", `nothing is serving port ${port} in sandbox ${sandboxId}`);
+    }
+
+    return this.getPreviewUrl(sandboxId, port);
   }
 
   #lookup(sandboxId: string): Result<SandboxState, SandboxError> {

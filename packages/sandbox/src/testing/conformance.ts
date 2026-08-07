@@ -52,6 +52,12 @@ export type SandboxManagerHarness = {
   };
 };
 
+/**
+ * A port nothing in a bare sandbox listens on, used to exercise the readiness timeout.
+ * High enough to sit outside anything a base image might start on its own.
+ */
+const UNSERVED_PORT = 39_517;
+
 /** A distinct directory per test, so a shared real sandbox cannot collide with itself. */
 function uniqueDir(root: string): string {
   return `${root.replace(/\/$/, "")}/conformance-${crypto.randomUUID()}`;
@@ -156,12 +162,15 @@ export function describeSandboxManagerConformance(harness: SandboxManagerHarness
         expect(result.value.stderr).toContain("two");
 
         // Streaming is the point: the handler must have seen the output before the
-        // promise resolved, and stdout must have arrived before stderr.
+        // promise resolved.
         //
         // Asserted per stream rather than chunk by chunk, because how a real
-        // implementation splits a stream is its own business — a process writing one
-        // line may deliver it as one callback or several, and pinning the chunk count
-        // would test the transport instead of the contract.
+        // implementation splits and schedules a stream is its own business. A process
+        // writing one line may deliver it as one callback or several, and stdout and
+        // stderr travel independently — so their *relative* arrival order is not
+        // something an implementation can promise, and asserting it produced a test
+        // that failed roughly one run in three against real E2B. Order within a single
+        // stream is guaranteed, and that is what is checked here.
         const joined = (stream: string) =>
           chunks
             .filter((c) => c.stream === stream)
@@ -171,7 +180,6 @@ export function describeSandboxManagerConformance(harness: SandboxManagerHarness
         expect(chunks.length).toBeGreaterThan(0);
         expect(joined("stdout").trim()).toBe("one");
         expect(joined("stderr").trim()).toBe("two");
-        expect(chunks[0]?.stream).toBe("stdout");
       });
     });
 
@@ -203,6 +211,28 @@ export function describeSandboxManagerConformance(harness: SandboxManagerHarness
         expect(url.hostname).toContain("5173");
       });
     });
+
+    it("times out rather than hanging when nothing serves the port", async () => {
+      await withSandbox(async ({ manager, sandboxId }) => {
+        const startedAt = Date.now();
+        const result = await manager.waitForPreview(sandboxId, UNSERVED_PORT, {
+          timeoutMs: 3_000,
+        });
+        const elapsed = Date.now() - startedAt;
+
+        expect(result.ok).toBe(false);
+        if (result.ok) return;
+        expect(result.error.code).toBe("timeout");
+        // The deadline has to be real. A "timeout" that arrives whenever the underlying
+        // request happens to give up is not a budget a caller can plan a turn around.
+        expect(elapsed).toBeLessThan(15_000);
+      });
+    });
+
+    // Deliberately absent: a case asserting the preview *does* become ready. This suite
+    // runs against a bare sandbox with nothing serving, so success is not observable
+    // here. It is covered where a real dev server exists — see the template integration
+    // test — and by the fake's own tests.
 
     it("resumes a sandbox it created", async () => {
       await withSandbox(async ({ manager, sandboxId }) => {
@@ -240,6 +270,9 @@ export function describeSandboxManagerConformance(harness: SandboxManagerHarness
           await manager.listFiles(sandboxId, dir),
           await manager.exec(sandboxId, harness.commands.streamsOutput),
           await manager.getPreviewUrl(sandboxId, 5173),
+          // A short budget: this must fail because the sandbox is gone, not because it
+          // sat and polled a dead address until the deadline.
+          await manager.waitForPreview(sandboxId, 5173, { timeoutMs: 1_000 }),
           await manager.resume(sandboxId),
         ];
 

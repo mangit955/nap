@@ -81,6 +81,13 @@ export type E2BSandboxManagerOptions = {
 /** Where the metadata key lives, so create and resume cannot drift apart. */
 const PROJECT_ID_KEY = "projectId";
 
+/** Generous enough for a cold dependency graph, short enough to fail a turn rather than hang it. */
+const DEFAULT_PREVIEW_TIMEOUT_MS = 30_000;
+/** Gap between readiness probes. */
+const PREVIEW_POLL_MS = 250;
+/** Ceiling on a single probe, so one stalled request cannot consume the whole budget. */
+const PREVIEW_PROBE_TIMEOUT_MS = 5_000;
+
 /**
  * Translates an SDK failure into our error vocabulary.
  *
@@ -243,6 +250,48 @@ export class E2BSandboxManager implements SandboxManager {
       // a browser would resolve it as a relative path.
       Promise.resolve(`https://${handle.getHost(port)}`),
     );
+  }
+
+  async waitForPreview(
+    sandboxId: string,
+    port: number,
+    opts?: { timeoutMs?: number },
+  ): Promise<Result<string, SandboxError>> {
+    const url = await this.getPreviewUrl(sandboxId, port);
+    if (!url.ok) return url;
+
+    const deadline = Date.now() + (opts?.timeoutMs ?? DEFAULT_PREVIEW_TIMEOUT_MS);
+    let lastReason = "no response";
+
+    while (Date.now() < deadline) {
+      try {
+        // Each attempt gets its own deadline so a request that hangs cannot swallow the
+        // whole budget and turn a timeout into an indefinite wait.
+        const response = await fetch(url.value, {
+          method: "GET",
+          redirect: "follow",
+          signal: AbortSignal.timeout(Math.min(PREVIEW_PROBE_TIMEOUT_MS, deadline - Date.now())),
+        });
+        if (response.ok) return { ok: true, value: url.value };
+        lastReason = `HTTP ${response.status}`;
+      } catch (cause) {
+        // A refused connection is the normal state while a server is still booting, so
+        // this is a retry rather than a failure.
+        lastReason = cause instanceof Error ? cause.message : String(cause);
+      }
+
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      await new Promise((resolve) => setTimeout(resolve, Math.min(PREVIEW_POLL_MS, remaining)));
+    }
+
+    return {
+      ok: false,
+      error: {
+        code: "timeout",
+        message: `preview at ${url.value} did not become ready (last: ${lastReason})`,
+      },
+    };
   }
 
   /** Connects, runs `body`, and funnels every failure through one mapping. */
