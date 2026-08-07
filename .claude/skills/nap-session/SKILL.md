@@ -68,29 +68,46 @@ Read the task's entry in `docs/PLAN.md` §4. Every task lists its **tests first*
 
 ## Mode: `finish`
 
-### 1. Both gates must pass
+This is the **Definition of done** gate from `CLAUDE.md`, made executable. **Create a todo per step below and work them in order** — the value is in walking it, not recalling it.
+
+### 1. Gates pass
 
 ```bash
-bun run test && bun run typecheck
+bun run test && bun run typecheck && bun run lint
 ```
 
-Paste the real output. Do not claim a task is done on the strength of having written the code.
+Read the real output. Do not claim a task is done on the strength of having written the code.
 
-### 2. Check the task's own "Done when"
+### 2. Prove anything that guards actually guards
 
-Each `docs/PLAN.md` §4 entry ends with a **Done when** clause, and it is frequently stricter than "tests pass" — e.g. M2-7 requires the event-ordering tests to pass *10 runs in a row*; M1-3 requires a recorded cold-start time. Satisfy the literal criterion.
+If the task produced a check, validator, test, or enforcement rule: **deliberately break what it protects, confirm it catches the breakage, then revert.**
 
-### 3. Record it
+A check that has never been observed failing is not known to work — it may be passing on everything. Examples from this repo: injecting a forbidden dependency into a `package.json` to prove `test/architecture.ts` fires; shortening a `Deps` cell to prove `test/docs.ts` fires.
 
-Mark the row `DONE` in `PROGRESS.md`, with a one-line note on anything surprising — a workaround, a deviation from the plan, a number the plan asked you to record. Future sessions read these notes and nothing else about how the task went.
+### 3. Integration review — the step that gets skipped
 
-### 4. Commit
+Ask all four explicitly:
+
+- **Is the new code inside *every* existing gate?** A new directory is not automatically typechecked or linted. Verify it, don't assume it. *(This is not hypothetical — `test/` shipped outside typecheck for two commits.)*
+- Does it interact with the hooks in `.claude/settings.json`, lefthook, or CI?
+- Does any existing test, script, config, or glob need to learn it exists?
+- Do `CLAUDE.md`, `docs/PLAN.md`, and `PROGRESS.md` still describe reality?
+
+### 4. Satisfy the task's own "Done when"
+
+Each `docs/PLAN.md` §4 entry ends with a **Done when** clause, frequently stricter than "tests pass" — M2-7 wants ordering tests green *10 runs in a row*; M1-3 wants a recorded cold-start time. Meet the literal criterion.
+
+### 5. Record it
+
+Mark the row `DONE` in `PROGRESS.md`, with a one-line note on anything surprising — a workaround, a deviation, a number the plan asked you to record. Future sessions read these notes and nothing else about how the task went.
+
+### 6. Commit, and leave the tree clean
 
 ```bash
 git commit -m "feat(<scope>): <task id> <summary>"
 ```
 
-Tests included in the same commit. Confirm the tree is clean afterwards.
+Tests in the same commit. Confirm `git status` is clean. Push and check CI when convenient — CI is not a blocker for marking `DONE`, but it is where a gap invisible locally would surface.
 
 ---
 

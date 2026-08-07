@@ -17,7 +17,7 @@ Keep each fact in exactly one of these. This file must never restate a task spec
 ```bash
 bun run test              # unit suite — fakes only, deterministic, no network
 bun run test:integration  # real E2B + real Anthropic; run at milestone boundaries only
-bun run typecheck         # tsc --noEmit across all workspaces, via turbo
+bun run typecheck         # turbo: tsc --noEmit per workspace, then a root pass for test/ + configs
 bun run lint              # biome check
 bun run format            # biome check --write — Biome owns formatting, don't hand-format
 bun run build             # turbo build
@@ -27,6 +27,27 @@ bun run dev               # turbo dev
 > ⚠️ **Always `bun run test`, never `bun test`.** `test` is a Bun built-in command that shadows the package.json script; bare `bun test` runs Bun's own runner over our Vitest files and reports nonsense.
 
 A lefthook pre-commit hook runs `biome check` + `typecheck` + `vitest --changed`. It will block the commit if any fail — fix the cause, don't bypass it. The same three gates run in CI (`.github/workflows/ci.yml`) on every push to `main` and `feat/**`, so `--no-verify` only defers the failure.
+
+## Definition of done
+
+**No task, step, or feature is complete until all five hold.** This is a gate, not a checklist to skim — work through it before marking anything `DONE`.
+
+**1. Gates pass.** `bun run test`, `bun run typecheck`, `bun run lint`. Read the real output. Never infer success from having written the code.
+
+**2. Anything that guards must be seen to fail.** For a check, validator, test, or enforcement rule: deliberately break the thing it protects and confirm it catches the breakage, then revert. *A check that has never been observed failing is not known to work* — it may be silently passing on everything.
+
+**3. Integration review — the step that gets skipped.** Ask explicitly, every time:
+
+   - **Is the new code inside *every* existing gate?** A new directory is not automatically typechecked or linted. Verify, don't assume.
+   - Does it interact with the hooks in `.claude/settings.json`, lefthook, or CI?
+   - Does any existing test, script, config, or glob need to learn that it exists?
+   - Do `CLAUDE.md`, `docs/PLAN.md`, and `PROGRESS.md` still describe reality after this change?
+
+**4. The task's own "Done when"** from `docs/PLAN.md` §4 is satisfied literally. It is often stricter than "tests pass" — e.g. M2-7 wants ordering tests green *10 runs in a row*; M1-3 wants a recorded cold-start time.
+
+**5. Tree clean and committed.**
+
+> This rule exists because it was earned. `test/` shipped outside typecheck: the suite was green, the new tests passed, and two enforcement modules sat unchecked for two commits. Step 1 passed while step 3 was never asked.
 
 ## Conventions
 
@@ -81,6 +102,7 @@ Learned the hard way; don't rediscover them.
 - **Relative imports need an explicit `.ts` extension** (`allowImportingTsExtensions` is on in `tsconfig.base.json`). Safe because `tsc` never emits — Vite and Bun do the transpiling.
 - **Adding a cross-package dependency requires re-running `bun install`** to create the workspace symlink, or the import resolves at typecheck but fails at runtime.
 - **For any M2 work, read the `claude-api` skill first — don't answer from memory.** M2 hardcodes `claude-opus-5`, `effort: "xhigh"`, `display: "summarized"`, `stop_reason: "refusal"` handling, disabled SDK built-ins and in-process MCP tools. Every one of those is an API detail that changes, and M2 is the milestone where a stale recollection costs the most.
+- **A `PostToolUse` hook reformats each file after you write it.** So an `Edit` whose `old_string` came from text you wrote earlier in the turn can fail to match — Biome may have reflowed it. Re-read the file rather than guessing at the diff.
 - **Bun installs and dispatches; Node executes.** `bun run` honours a binary's shebang, so Vitest and Next.js run under Node. Only `apps/api` and our own entrypoints use the Bun runtime. This is deliberate — see "Bun/Node split" in `docs/PLAN.md`.
 
 ## Session protocol

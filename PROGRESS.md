@@ -28,6 +28,7 @@ here so it isn't mistaken for product work.
 | T-7 | Auto-format on write | DONE | PostToolUse `Write\|Edit` → `biome check --write` on the touched file. Removes the write→lint-fails→format→retry loop. |
 | T-8 | Dirty-tree Stop hook | DONE | Warns (does not block) when the tree is dirty at session end — mechanises §1's "never end a session with uncommitted work". |
 | T-9 | PLAN↔PROGRESS consistency test | DONE | `test/docs.ts`. The Deps column is a hand transcription of PLAN.md §4; this stops the two silently disagreeing. Verified by injecting drift. |
+| T-10 | "Definition of done" gate | DONE | Five-point gate in `CLAUDE.md`, executable form in `nap-session` finish. The retroactive audit that produced it found a real bug: `test/` sat outside typecheck for two commits (T-1, T-9 both shipped unchecked), because package tsconfigs only include `src`. Fixed by a root `tsconfig.json` + `tsc --noEmit` appended to the typecheck script; lefthook and CI inherit it. Audit re-verified T-1…T-9 otherwise sound. |
 
 ## M0 — Scaffold & Contracts
 
