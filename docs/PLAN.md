@@ -17,6 +17,7 @@ Nap is a Lovable-style AI app builder: user describes an app in chat → an agen
 | v1 scope | Thin vertical slice through all planes |
 | Execution plane | E2B managed sandboxes, behind `SandboxManager` |
 | Stack | TypeScript end-to-end (Next.js + Hono) |
+| Package manager / runtime | **Bun** — `bun install`, `bun run`, and Bun as the `apps/api` runtime. Vitest is retained as the test runner; it and Next.js still execute under Node via their shebangs. See "Bun/Node split" below. |
 | Generated app stack | React + Vite + Tailwind, frontend-only |
 | UI panels | Chat + Preview + read-only file tree |
 | Agent autonomy | Autonomous, every tool call streamed |
@@ -37,6 +38,14 @@ Nap is a Lovable-style AI app builder: user describes an app in chat → an agen
 | `MemoryProvider` | `retrieve()` / `write()`. v1 = `NoopMemoryProvider`. | Anything in v1 — but call sites are real |
 | `SandboxManager` | Sandbox lifecycle, filesystem, exec, preview URL. | Knowing what an agent or turn is |
 | `EventStore` / `EventBus` | Durable append, then fanout — in that order. | Business logic |
+
+### Bun/Node split (decided at M0-1)
+
+Bun is the package manager and script runner. Vitest stays the test runner, because `bun test` has no named projects (M0-1 needs two suites), no `--changed` (the pre-commit hook needs it), different `mock.module` hoisting from `vi.mock` (M1-2 and M2-1 need it), and no `*.test-d.ts` typecheck mode (M0-4 needs it).
+
+`bun run <script>` honours a binary's shebang unless `--bun` is passed, so Vitest and Next.js transparently run under **Node** while installs, script dispatch, and our own TS entrypoints run under **Bun**. That keeps the two Node-first dependencies most likely to cost a session — testcontainers (M0-5) and the Claude Agent SDK (M2-7) — on Node, while `apps/api` still gets Bun's native TS execution and `Bun.serve`.
+
+> ⚠️ **Always `bun run test`, never `bun test`.** `test` is a Bun built-in command and shadows the package.json script — bare `bun test` runs Bun's own runner over our Vitest files and reports nonsense.
 
 **Dependency direction (enforced):** `runtime` → {`context`, `agent`, `sandbox`, `db`} → `shared`. `agent` imports the `SandboxManager` *interface*, never the E2B adapter.
 
@@ -64,12 +73,12 @@ API server (Hono + ws)                    ← API Gateway/BFF + Session Service 
 **At the start of every session:**
 1. `cd` to the repo, run `git status` and `git log --oneline -10`.
 2. Read `CLAUDE.md` (conventions) and `PROGRESS.md` (task states).
-3. Run `pnpm test` — confirm green before starting new work. If red, fixing that is the session's first task.
+3. Run `bun run test` — confirm green before starting new work. If red, fixing that is the session's first task.
 4. Pick the next task with status `TODO` whose dependencies are all `DONE`.
 5. Set it to `IN_PROGRESS` in `PROGRESS.md` and commit that single-line change.
 
 **At the end of every session (or when a task completes):**
-1. Run `pnpm test` and `pnpm typecheck` — both must pass.
+1. Run `bun run test` and `bun run typecheck` — both must pass.
 2. Mark the task `DONE` in `PROGRESS.md`, with a one-line note on anything surprising.
 3. Commit: `feat(<scope>): <task id> <summary>` including tests.
 4. If the session is ending mid-task: commit WIP on the milestone branch with `wip(<scope>): <task id> — <what's left>` and leave the task `IN_PROGRESS` with a "next step" note in `PROGRESS.md`.
@@ -111,8 +120,8 @@ Statuses: `TODO` · `IN_PROGRESS` · `DONE` · `BLOCKED` (with reason) · `SKIPP
 
 | Suite | Command | Runs against | When |
 |---|---|---|---|
-| Unit/integration (default) | `pnpm test` | Fakes only — `InMemorySandboxManager`, `ScriptedLLMProvider`, in-memory `EventStore`, Postgres via testcontainer | Every save, every commit, CI |
-| External | `pnpm test:integration` | Real E2B + real Anthropic API | Manually, at each milestone boundary |
+| Unit/integration (default) | `bun run test` | Fakes only — `InMemorySandboxManager`, `ScriptedLLMProvider`, in-memory `EventStore`, Postgres via testcontainer | Every save, every commit, CI |
+| External | `bun run test:integration` | Real E2B + real Anthropic API | Manually, at each milestone boundary |
 
 **Rules that keep TDD honest here:**
 - Unit tests must be deterministic and free. If a test needs a network call, it belongs in `test:integration`.
@@ -136,9 +145,9 @@ Format: **`ID` — Title** · deps · what to build · **Tests (write first)** �
 ### M0 — Scaffold & Contracts  `branch: feat/m0-scaffold`
 
 **M0-1 — Workspace scaffold** · deps: none
-pnpm workspace + Turborepo. Packages: `shared`, `db`, `sandbox`, `agent`, `context`, `runtime`. Apps: `web`, `api`. TypeScript strict, Biome, Vitest with two projects (`unit`, `integration`). Root scripts: `dev`, `build`, `test`, `test:integration`, `typecheck`, `lint`.
+Bun workspaces + Turborepo. Packages: `shared`, `db`, `sandbox`, `agent`, `context`, `runtime`. Apps: `web`, `api`. TypeScript strict, Biome, Vitest with two projects (`unit`, `integration`). Root scripts: `dev`, `build`, `test`, `test:integration`, `typecheck`, `lint`.
 **Tests:** a trivial passing test in each package proving the runner resolves workspace imports (`shared` importable from `runtime`).
-**Done when:** `pnpm test`, `pnpm typecheck`, `pnpm lint` all pass on an empty repo.
+**Done when:** `bun run test`, `bun run typecheck`, `bun run lint` all pass on an empty repo.
 
 **M0-2 — `CLAUDE.md` + `PROGRESS.md`** · deps: M0-1
 Write conventions (§2), session protocol (§1), and the full task table from this plan seeded as `TODO`.
@@ -163,12 +172,12 @@ Drizzle: `users`, `projects`, `sessions`, `events`, `snapshots` (per §5). Uniqu
 **M0-6 — API skeleton + env validation** · deps: M0-1
 Hono server, `/health`, pino logger with `sessionId`/`turnId` in context, Zod-validated env that fails fast at boot listing every missing key.
 **Tests:** `/health` returns 200 with a version field; env parser throws listing all missing vars (not just the first); logger emits JSON with expected fields.
-**Done when:** `pnpm dev` starts the API; a missing env var produces a clear boot failure.
+**Done when:** `bun run dev` starts the API; a missing env var produces a clear boot failure.
 
 **M0-7 — Web skeleton** · deps: M0-1
 Next.js 15 App Router, three-pane layout shell (chat | preview | file tree), Tailwind, placeholder content.
 **Tests:** render test asserting all three panes mount.
-**Done when:** `pnpm dev` serves the shell.
+**Done when:** `bun run dev` serves the shell.
 
 ---
 
@@ -244,9 +253,9 @@ Block `rm -rf /` and similar, package installs outside the project, and network 
 **Done when:** all six green. The "no commit on failure" and "append before publish" tests are the two most valuable in the codebase — do not skip them.
 
 **M2-9 — CLI harness** · deps: M2-8
-A `pnpm harness "<prompt>"` script running a real turn against real E2B + real Claude, printing the event stream.
+A `bun run harness "<prompt>"` script running a real turn against real E2B + real Claude, printing the event stream.
 **Tests:** manual. This is the M2 acceptance gate.
-**Done when:** `pnpm harness "add a dark mode toggle"` changes a real file, prints ordered events, and leaves a git commit.
+**Done when:** `bun run harness "add a dark mode toggle"` changes a real file, prints ordered events, and leaves a git commit.
 
 ---
 
@@ -366,7 +375,7 @@ snapshots    id, project_id, r2_key, git_sha, created_at
 
 ## 6. v1 Acceptance (manual E2E)
 
-1. `pnpm dev`, sign in, create a project — template preview renders within ~10s.
+1. `bun run dev`, sign in, create a project — template preview renders within ~10s.
 2. "Build a todo list with add, complete, and delete" — file changes stream live; preview shows a working todo list.
 3. "Make it dark mode with a purple accent" — incremental edit lands via HMR without a full reload.
 4. Toggle devtools offline, restore — chat reconnects and backfills with no duplicate or missing events.
