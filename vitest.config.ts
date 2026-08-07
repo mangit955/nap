@@ -10,7 +10,9 @@ export default defineConfig({
       {
         test: {
           name: "unit",
-          include: ["{packages,apps}/*/src/**/*.test.ts"],
+          // test/ holds repo-wide tests that belong to no single package —
+          // currently the dependency-direction check in test/architecture.ts.
+          include: ["{packages,apps}/*/src/**/*.test.ts", "test/**/*.test.ts"],
           exclude: ["**/*.integration.test.ts"],
         },
       },

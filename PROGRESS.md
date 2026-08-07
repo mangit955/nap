@@ -12,6 +12,19 @@ Pick the next task whose status is `TODO` **and** whose `Deps` are all `DONE`.
 
 Statuses: `TODO` · `IN_PROGRESS` · `DONE` · `BLOCKED` (with reason) · `SKIPPED` (with reason).
 
+## Tooling & infrastructure
+
+Not `docs/PLAN.md` §4 tasks — repo tooling added alongside the milestones, tracked
+here so it isn't mistaken for product work.
+
+| ID | Task | Status | Notes |
+|----|------|--------|-------|
+| T-1 | Dependency-direction test | DONE | `test/architecture.ts`. PLAN.md §0 called the direction "enforced" but nothing enforced it; now a test does, including "agent must not depend on e2b". Verified by injecting a real violation. |
+| T-2 | Hook blocking bare `bun test` | DONE | `.claude/settings.json` PreToolUse. |
+| T-3 | `nap-session` skill | DONE | `.claude/skills/nap-session/` — automates the §1 protocol. |
+| T-4 | `nap-events` skill | DONE | `.claude/skills/nap-events/` — event test discipline. Written pre-M0-3, so it covers rules not shapes; revisit after M0-3. |
+| T-5 | GitHub Actions CI | DONE | `.github/workflows/ci.yml` — lint/typecheck/test on push to main + `feat/**`, and on PRs. Integration suite deliberately excluded (costs real spend). |
+
 ## M0 — Scaffold & Contracts
 
 | ID | Task | Deps | Status | Notes |

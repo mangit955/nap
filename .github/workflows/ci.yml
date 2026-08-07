@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  # Milestone branches are long-lived (one per milestone, many commits), so run
+  # on every push to them rather than waiting for a PR to open.
+  push:
+    branches: [main, "feat/**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+
+      # Bun installs and dispatches, but Vitest executes under Node via its
+      # shebang — pinning both keeps CI honest to local behaviour.
+      # See "Bun/Node split" in docs/PLAN.md.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - run: bun install --frozen-lockfile
+
+      - run: bun run lint
+
+      - run: bun run typecheck
+
+      - run: bun run test
+
+      # Deliberately NOT run here: `bun run test:integration` hits real E2B and
+      # the real Anthropic API. It costs money and needs secrets, so it stays
+      # manual at milestone boundaries — docs/PLAN.md §3.

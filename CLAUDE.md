@@ -26,7 +26,7 @@ bun run dev               # turbo dev
 
 > ⚠️ **Always `bun run test`, never `bun test`.** `test` is a Bun built-in command that shadows the package.json script; bare `bun test` runs Bun's own runner over our Vitest files and reports nonsense.
 
-A lefthook pre-commit hook runs `biome check` + `typecheck` + `vitest --changed`. It will block the commit if any fail — fix the cause, don't bypass it.
+A lefthook pre-commit hook runs `biome check` + `typecheck` + `vitest --changed`. It will block the commit if any fail — fix the cause, don't bypass it. The same three gates run in CI (`.github/workflows/ci.yml`) on every push to `main` and `feat/**`, so `--no-verify` only defers the failure.
 
 ## Conventions
 
@@ -45,6 +45,10 @@ apps/      web (Next.js)   api (Hono, runs on Bun)
 
 **Dependency direction, enforced:** `runtime` → {`context`, `agent`, `sandbox`, `db`} → `shared`.
 `agent` imports the `SandboxManager` *interface*, never the E2B adapter.
+
+This is enforced by `test/architecture.ts`, not by vigilance — adding a dependency that
+violates it fails `bun run test`. Adding a new workspace package also fails the test until
+you add it to the rule table there.
 
 ## Component ownership
 
