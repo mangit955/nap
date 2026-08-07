@@ -7,7 +7,29 @@ description: Use when writing or testing anything that emits, stores, orders, re
 
 `events` is the most load-bearing table in the system: chat transcript, agent audit log, WebSocket replay source, and v2's memory substrate — all one table (`docs/PLAN.md` §5). Bugs here are silent and corrupt history rather than crashing.
 
-> **Status:** written before M0-3, so it covers *discipline*, not concrete shapes. Once M0-3 lands, add the real event type list and revisit.
+The shapes live in **`packages/shared/src/events.ts`** (M0-3) — one Zod discriminated union on `type`. Import from it; never hand-write an event literal's type alongside it.
+
+## The 11 event types
+
+Every event is `{ type, sessionId, turnId, seq, createdAt, payload }` — the envelope mirrors the `events` row in `docs/PLAN.md` §5 one-to-one, so `EventStore` append/read is a straight mapping. `seq` is assigned by `EventStore.append`, not by the emitter.
+
+| `type` | `payload` | Emitted by |
+|---|---|---|
+| `user.message` | `{ text }` | M3-7 |
+| `agent.thinking` | `{ text }` — summarized thinking | M2-7 |
+| `agent.message` | `{ text }` | M2-7 |
+| `tool.call` | `{ toolCallId, toolName, input }` | M2-5 |
+| `tool.result` | `{ toolCallId, toolName, ok, output }` | M2-5 |
+| `file.changed` | `{ path, changeType, diff }` | M2-5 |
+| `command.output` | `{ toolCallId, stream, chunk }` | M2-5 |
+| `preview.ready` | `{ url, port }` | M1-4 |
+| `turn.started` | `{}` | M2-7 |
+| `turn.completed` | `{ usage: { inputTokens, outputTokens }, durationMs, commitSha }` | M2-8 |
+| `turn.failed` | `{ reason, message }` | M2-6, M2-7, M2-8 |
+
+Closed sets, all exported from the same module: `toolName` is one of the six M2-5 tools (`TOOL_NAMES`); `changeType` is `created \| modified \| deleted`; `stream` is `stdout \| stderr`; `reason` is `refusal \| budget_exceeded \| cancelled \| sandbox_unavailable \| internal` (`TurnFailureReasonSchema`). Adding a value is a deliberate schema change — that is the point.
+
+**Two rules when you extend this, both about surviving Postgres `jsonb`:** no `Date` and no `undefined` (timestamps are ISO-8601 strings, absent values are `null`), and payloads are `strictObject` so an unknown key is rejected rather than silently dropped on the way into the log. Both are proven by the M0-3 tests — see below.
 
 ## The one rule that governs everything here
 
@@ -21,14 +43,12 @@ Model output is not deterministic and not a contract. A test that asserts on wor
 
 ## Schema tests — the four assertions (M0-3)
 
-Every event type gets all four. Eleven types × four = the M0-3 gate.
+Every event type gets all four. Eleven types × four = the M0-3 gate, met in `packages/shared/src/events.test.ts` by a single `CASES` table driving four `describe.each` blocks — add a type to the union and its case is required, so the count stays structural.
 
 1. A valid fixture **parses**.
 2. A malformed fixture **rejects with a useful issue path** — assert the path, not just that it threw. "It failed" doesn't tell a future debugger which field was wrong.
-3. The discriminated union **resolves to the right member** for that `type`.
-4. **Round-trip identity:** `parse(JSON.parse(JSON.stringify(x)))` deep-equals `x`. This is what catches `Date` and `undefined` fields that don't survive the trip to Postgres `jsonb` and back.
-
-Every event carries `sessionId`, `seq`, `turnId`, `createdAt`.
+3. The discriminated union **resolves to the right member** for that `type`, *and* rejects that type paired with a structurally foreign payload. Pick the foreign payload deliberately: `user.message`, `agent.thinking` and `agent.message` all carry `{ text }` and are interchangeable at the payload level by design.
+4. **Round-trip identity:** `parse(JSON.parse(JSON.stringify(x)))` deep-equals `x`. Use `toStrictEqual`, not `toEqual` — `toEqual` treats a dropped `undefined` key as equal to a present one, which is the exact `jsonb` bug this assertion exists to catch. It also catches `Date` fields: swapping `createdAt` to `z.coerce.date()` fails all 11 round-trip assertions, which is how this was verified.
 
 ## The invariants, and who owns them
 
