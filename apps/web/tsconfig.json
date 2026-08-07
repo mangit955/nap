@@ -1,4 +1,18 @@
 {
   "extends": "../../tsconfig.base.json",
-  "include": ["src"]
+  "compilerOptions": {
+    // The one package that genuinely runs in a browser, so it widens both of the
+    // deliberately narrow settings the base config notes it would: DOM globals, and
+    // React's ambient types alongside node's.
+    "lib": ["es2023", "dom", "dom.iterable"],
+    "types": ["node", "react", "react-dom"],
+    "jsx": "preserve",
+    "plugins": [{ "name": "next" }]
+  },
+  // next.config.ts sits at the app root; listing only "src" would leave it outside
+  // typecheck, the same gap that let test/ ship unchecked.
+  //
+  // next-env.d.ts is deliberately absent: it is generated, it is gitignored, and it
+  // references files under .next/ that CI never builds. Typecheck is green without it.
+  "include": ["src", "next.config.ts"]
 }

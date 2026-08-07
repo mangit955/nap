@@ -1,6 +1,7 @@
 # Nap v1 Progress
 
-Current milestone: **M0 — Scaffold & Contracts**   (branch: `feat/m0-scaffold`)
+Current milestone: **M0 — Scaffold & Contracts — COMPLETE.** Next up: **M1 — Execution Plane**
+(branch `feat/m1-execution-plane`; M0 was built on `feat/m0-scaffold`).
 
 ## How to use this file
 
@@ -41,7 +42,7 @@ here so it isn't mistaken for product work.
 | M0-4 | Interface declarations | M0-3 | DONE | 8 ports in `packages/shared/src/ports/` + a shared `Result` for expected failures. Two traps found: `*.test-d.ts` files were not collected at all (a deliberately wrong assertion passed) until a `types` project + `tsconfig.test-d.json` were added; and `Omit<NapEvent,"seq">` silently flattens the union, decorrelating `type` from `payload` — needs a distributive omit. Also set `"types": ["node"]` in `tsconfig.base.json`; @types/node was not being auto-included, so `AbortSignal` did not resolve. |
 | M0-5 | DB schema + migrations | M0-1 | DONE | drizzle-orm 0.45.2 + postgres.js, migrations committed under `packages/db/drizzle/`. **Deviates from §5:** `events` gets a `turn_id` column — §5 sketches the tables, the event union is the contract and carries `turnId`. IDs are `uuid`, so M0-3's `events.ts` tightened to `z.uuid()`. **`created_at` is `timestamptz` but the contract types `createdAt` as an ISO string** — whatever implements `EventStore` must map with `.toISOString()`; there is a test proving that mapping yields a valid `NapEvent`. New `db` vitest project (one container per run, `*.db.test.ts`); `bun run test:fast` is the Docker-free loop. `projects.status` values are provisional — M4-4 owns that vocabulary. |
 | M0-6 | API skeleton + env validation | M0-1 | DONE | Hono 4.13.1 + pino 10.3.1. Required env is only what the API reads today (`DATABASE_URL` + three defaulted keys); later keys sit commented in `.env.example` and become required in the task that reads them. Log context is `AsyncLocalStorage`, so `sessionId`/`turnId` reach code the M0-4 ports give no logger to. **pino is fine under Bun** — plain JSON to a stream, no transports (transports use worker threads; don't add one). **Gotcha found:** turbo's strict env mode meant `DATABASE_URL=… bun run dev` failed until `dev` got a `passThroughEnv`; the normal path is a `.env` file, which Bun auto-loads. Boot failure prints and exits 1 rather than throwing a Zod stack trace. |
-| M0-7 | Web skeleton | M0-1 | IN_PROGRESS | apps/web is a placeholder until this task |
+| M0-7 | Web skeleton | M0-1 | DONE | **Next 16, not 15** — PLAN.md amended; App Router is unchanged, the "15" predated 16. Tailwind v4 (CSS-first, `@theme` in `globals.css`; Biome needs `css.parser.tailwindDirectives`). New `web` vitest project (jsdom + `@vitejs/plugin-react`, which must live in the *root* devDeps since the root config imports it). **Closed two live gaps: `.tsx` matched no vitest glob, and `test/comments.ts` was blind to every `.tsx` file.** `next-env.d.ts` is gitignored — it references `.next/` artifacts CI never builds, and typecheck is green without it. Render tests query by role + accessible name; that caught four `banner` landmarks from `<header>` inside each pane. |
 
 ## M1 — Execution Plane
 

@@ -11,15 +11,19 @@ function readWorkspaceSources(): SourceFile[] {
       .filter((entry) => entry.isDirectory())
       .flatMap((entry) => {
         const srcDir = join(repoRoot, group, entry.name, "src");
-        return readdirSync(srcDir, { recursive: true, withFileTypes: true })
-          .filter((f) => f.isFile() && f.name.endsWith(".ts"))
-          .map((f) => {
-            const absolute = join(f.parentPath, f.name);
-            return {
-              path: `${group}/${entry.name}/src/${absolute.slice(srcDir.length + 1)}`,
-              contents: readFileSync(absolute, "utf8"),
-            };
-          });
+        return (
+          readdirSync(srcDir, { recursive: true, withFileTypes: true })
+            // `.tsx` as well as `.ts`: React components are shipped source too, and the
+            // rule was blind to every one of them until the web app existed to notice.
+            .filter((f) => f.isFile() && (f.name.endsWith(".ts") || f.name.endsWith(".tsx")))
+            .map((f) => {
+              const absolute = join(f.parentPath, f.name);
+              return {
+                path: `${group}/${entry.name}/src/${absolute.slice(srcDir.length + 1)}`,
+                contents: readFileSync(absolute, "utf8"),
+              };
+            })
+        );
       }),
   );
 }

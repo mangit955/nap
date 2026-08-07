@@ -1,9 +1,14 @@
+import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 
-// Two suites, split by filename rather than directory, so a package can hold
-// both kinds side by side — M1-1's SandboxManager conformance suite is run by
-// the fake (unit) and by the E2B adapter (integration) from the same folder.
+// Suites split by filename rather than directory, so a package can hold several
+// kinds side by side — the SandboxManager conformance suite is run by the fake
+// (unit) and by the E2B adapter (integration) from the same folder.
 // See docs/PLAN.md §3.
+//
+// Each project exists because it needs a *different environment*, not for tidiness:
+// node, tsc, jsdom, and a Postgres container respectively. A test placed in the
+// wrong one does not fail — it is silently never collected.
 export default defineConfig({
   test: {
     projects: [
@@ -45,6 +50,17 @@ export default defineConfig({
           globalSetup: ["./packages/db/src/testing/global-setup.ts"],
           // One shared container; parallel files would contend over the same tables.
           fileParallelism: false,
+        },
+      },
+      {
+        // React component tests. `.tsx` is what routes a test here, and it needs both a
+        // JSX transform and a DOM — neither of which the `unit` project has.
+        plugins: [react()],
+        test: {
+          name: "web",
+          include: ["{packages,apps}/*/src/**/*.test.tsx"],
+          environment: "jsdom",
+          setupFiles: ["./apps/web/src/testing/setup.ts"],
         },
       },
       {

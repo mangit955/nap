@@ -10,8 +10,8 @@
   "scripts": {
     "dev": "turbo run dev",
     "build": "turbo run build",
-    "test": "vitest run --project unit --project types --project db",
-    "test:fast": "vitest run --project unit --project types",
+    "test": "vitest run --project unit --project types --project web --project db",
+    "test:fast": "vitest run --project unit --project types --project web",
     "test:integration": "vitest run --project integration --passWithNoTests",
     "typecheck": "turbo run typecheck && tsc --noEmit",
     "lint": "biome check .",
@@ -21,6 +21,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.5.7",
     "@types/node": "26.1.2",
+    "@vitejs/plugin-react": "6.0.5",
     "lefthook": "2.1.10",
     "turbo": "2.10.8",
     "typescript": "7.0.2",
