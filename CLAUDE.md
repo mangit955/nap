@@ -56,6 +56,7 @@ A lefthook pre-commit hook runs `biome check` + `typecheck` + `vitest --changed`
 - **Errors:** typed result objects for *expected* failures (sandbox unavailable, budget exceeded); thrown exceptions only for programmer error.
 - **No barrel files** re-exporting across packages. Import the specific module.
 - **Every exported function gets a test before it gets an implementation.** Write the test, watch it fail for the right reason, then implement.
+- **Comments explain why, and address a reader who has never seen the plan.** No task IDs (`M2-5`) in any package's or app's `src` — they are bookkeeping, they say *when* code was written rather than *why* it is the way it is, and they point at a tracker the reader cannot open. Cite a section instead (`docs/PLAN.md §5`), or just say the reason. Enforced by `test/comments.ts`; `test/` and `docs/` are exempt.
 
 ## Layout
 

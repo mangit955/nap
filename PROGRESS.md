@@ -29,6 +29,7 @@ here so it isn't mistaken for product work.
 | T-8 | Dirty-tree Stop hook | DONE | Warns (does not block) when the tree is dirty at session end — mechanises §1's "never end a session with uncommitted work". |
 | T-9 | PLAN↔PROGRESS consistency test | DONE | `test/docs.ts`. The Deps column is a hand transcription of PLAN.md §4; this stops the two silently disagreeing. Verified by injecting drift. |
 | T-10 | "Definition of done" gate | DONE | Five-point gate in `CLAUDE.md`, executable form in `nap-session` finish. The retroactive audit that produced it found a real bug: `test/` sat outside typecheck for two commits (T-1, T-9 both shipped unchecked), because package tsconfigs only include `src`. Fixed by a root `tsconfig.json` + `tsc --noEmit` appended to the typecheck script; lefthook and CI inherit it. Audit re-verified T-1…T-9 otherwise sound. |
+| T-11 | No-task-IDs-in-source test | DONE | `test/comments.ts`. Task IDs in comments read as tracker residue to anyone outside the project — they date the code instead of explaining it. Found 3 pre-existing cases from M0-1 plus 4 of my own in M0-3, so it was already a habit. Plan *section* refs (`docs/PLAN.md §5`) stay legal. Verified by injecting a real violation. |
 
 ## M0 — Scaffold & Contracts
 

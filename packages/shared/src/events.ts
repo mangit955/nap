@@ -1,9 +1,10 @@
 /**
- * The event contract (docs/PLAN.md §4 M0-3).
+ * The event contract.
  *
  * `events` is the most load-bearing table in Nap — chat transcript, agent audit log,
- * WebSocket replay source, and v2's memory substrate, all one table (§5). Every producer
- * and consumer validates against this union, so the shape is defined exactly once here.
+ * WebSocket replay source, and v2's memory substrate, all one table (docs/PLAN.md §5).
+ * Every producer and consumer validates against this union, so the shape is defined
+ * exactly once here.
  *
  * Two rules govern the shapes below, both of them about surviving Postgres `jsonb`:
  *
@@ -13,14 +14,14 @@
  *   - **Payloads are strict.** An unknown key is a bug in the producer, not something to
  *     silently drop on the way into the log.
  *
- * `sessionId` and `turnId` are validated as non-empty strings rather than UUIDs: docs/PLAN.md
- * §5 names the `id` columns but does not fix their format, and M0-5 owns that decision. It may
- * tighten this, and should.
+ * `sessionId` and `turnId` are non-empty strings rather than UUIDs on purpose: docs/PLAN.md §5
+ * names the `id` columns but does not fix their format, so the database schema owns that
+ * decision and may tighten this.
  */
 
 import { z } from "zod";
 
-/** The six sandbox-proxy tools of docs/PLAN.md §4 M2-5. Nothing else may appear in the log. */
+/** The six sandbox-proxy tools. Nothing else may appear in the log. */
 export const TOOL_NAMES = [
   "read_file",
   "write_file",
@@ -33,7 +34,7 @@ export const TOOL_NAMES = [
 export const ToolNameSchema = z.enum(TOOL_NAMES);
 export type ToolName = z.infer<typeof ToolNameSchema>;
 
-/** Why a turn ended badly. One entry per failure mode M2-6/M2-7/M2-8 can produce. */
+/** Why a turn ended badly. One entry per failure mode the runtime can produce. */
 export const TurnFailureReasonSchema = z.enum([
   "refusal",
   "budget_exceeded",
@@ -43,7 +44,7 @@ export const TurnFailureReasonSchema = z.enum([
 ]);
 export type TurnFailureReason = z.infer<typeof TurnFailureReasonSchema>;
 
-/** Carried by every event, per docs/PLAN.md §4 M0-3. `seq` is assigned by `EventStore.append`. */
+/** Carried by every event. `seq` is assigned by `EventStore.append`, not by the emitter. */
 const envelope = {
   sessionId: z.string().min(1),
   turnId: z.string().min(1),
@@ -69,7 +70,7 @@ const toolRef = {
 
 export const NapEventSchema = z.discriminatedUnion("type", [
   event("user.message", text),
-  /** Summarized thinking — M2 runs the model with `display: "summarized"`. */
+  /** Summarized reasoning, not raw thinking — the model is run with `display: "summarized"`. */
   event("agent.thinking", text),
   event("agent.message", text),
   event("tool.call", { ...toolRef, input: z.record(z.string(), z.unknown()) }),
@@ -78,7 +79,7 @@ export const NapEventSchema = z.discriminatedUnion("type", [
   event("file.changed", {
     path: z.string().min(1),
     changeType: z.enum(["created", "modified", "deleted"]),
-    /** Unified diff, produced by the write tools in M2-5. */
+    /** Unified diff, produced by the write tools. */
     diff: z.string(),
   }),
   /** One chunk of a `run_command` stream. Ordering is carried by `seq`, not by this event. */
@@ -103,7 +104,7 @@ export const NapEventSchema = z.discriminatedUnion("type", [
 
 export type NapEvent = z.infer<typeof NapEventSchema>;
 
-/** The 11 discriminator values, e.g. for exhaustive rendering in M3-4. */
+/** Every discriminator value — the exhaustiveness source for anything rendering a stream. */
 export type NapEventType = NapEvent["type"];
 
 /** Narrow `NapEvent` to a single member — `NapEventOf<"tool.call">`. */

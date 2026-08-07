@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest";
 import { type NapEvent, NapEventSchema } from "./events.ts";
 
 /**
- * The M0-3 gate: 11 event types × 4 assertions (docs/PLAN.md §4, `nap-events` skill).
+ * Every event type gets four assertions: it parses, it rejects a malformed fixture at a
+ * named path, it discriminates, and it survives a JSON round trip unchanged.
  *
- * One case per event type drives all four blocks, so the count is structural rather
- * than clerical — you cannot add a type without adding its case (see "the case table
- * covers the union" below).
+ * One case per type drives all four blocks, so coverage is structural rather than clerical —
+ * you cannot add a type without adding its case (see "the case table covers the union").
  */
 
 const ENVELOPE = {
@@ -17,11 +17,9 @@ const ENVELOPE = {
 } as const;
 
 type Case = {
-  /** The `type` discriminator this case covers. */
   readonly type: NapEvent["type"];
-  /** A fully valid event. */
   readonly valid: NapEvent;
-  /** The same event with exactly one field broken. */
+  /** `valid` with exactly one field broken — one fixture, one reason to fail. */
   readonly malformed: unknown;
   /** Where `malformed`'s first issue must point. Asserted, not just "it threw". */
   readonly issuePath: readonly (string | number)[];
@@ -57,7 +55,7 @@ const CASES = [
         input: { path: "src/App.tsx", content: "export default () => null;" },
       },
     },
-    // A tool name outside the six M2-5 defines must not reach the event log.
+    // A tool name outside the six proxy tools must not reach the event log.
     malformed: {
       ...ENVELOPE,
       type: "tool.call",
