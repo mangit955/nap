@@ -1,0 +1,12 @@
+pre-commit:
+  parallel: false
+  jobs:
+    - name: biome
+      glob: "*.{ts,tsx,js,jsx,json,jsonc}"
+      run: bunx biome check --no-errors-on-unmatched {staged_files}
+
+    - name: typecheck
+      run: bun run typecheck
+
+    - name: test
+      run: bunx vitest run --project unit --changed
