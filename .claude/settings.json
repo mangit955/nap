@@ -1,5 +1,16 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(bun run test)",
+      "Bash(bun run test *)",
+      "Bash(bun run typecheck)",
+      "Bash(bun run typecheck *)",
+      "Bash(bun run lint)",
+      "Bash(bun run format)",
+      "Bash(bun run build)"
+    ]
+  },
   "hooks": {
     "PreToolUse": [
       {
@@ -9,6 +20,29 @@
             "type": "command",
             "command": "jq -r '.tool_input.command // \"\"' | grep -qE '(^|[;&|]{1,2}[[:space:]]*)bun[[:space:]]+test([[:space:]]|$)' && { echo 'Blocked: bare `bun test` invokes the Bun built-in test runner over our Vitest files and reports nonsense. Use `bun run test`, or `bun run test:integration`. See CLAUDE.md.' >&2; exit 2; } || exit 0",
             "statusMessage": "Checking for bare `bun test`"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // .tool_response.filePath // empty' | { read -r f; [ -n \"$f\" ] && bunx biome check --write --no-errors-on-unmatched \"$f\"; } 2>/dev/null || true",
+            "statusMessage": "Formatting with Biome"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null && d=$(git status --porcelain 2>/dev/null) && [ -n \"$d\" ] && printf '%s' \"{\\\"systemMessage\\\": \\\"Uncommitted changes in the working tree. docs/PLAN.md §1: never end a session with uncommitted work — a future session cannot recover context that exists only in a dirty tree. Commit, or use wip(<scope>): <task id> — <what's left>.\\\"}\" || true",
+            "statusMessage": "Checking for uncommitted work"
           }
         ]
       }

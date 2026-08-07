@@ -80,6 +80,7 @@ Learned the hard way; don't rediscover them.
 - **Packages resolve to TypeScript source**, via `"exports": { "./*": "./src/*.ts" }` in each `package.json`. Import as `@nap/shared/version`, not `@nap/shared`. There is no build step for tests or typecheck, and no root barrel to import from — which is what enforces the no-barrel-files rule.
 - **Relative imports need an explicit `.ts` extension** (`allowImportingTsExtensions` is on in `tsconfig.base.json`). Safe because `tsc` never emits — Vite and Bun do the transpiling.
 - **Adding a cross-package dependency requires re-running `bun install`** to create the workspace symlink, or the import resolves at typecheck but fails at runtime.
+- **For any M2 work, read the `claude-api` skill first — don't answer from memory.** M2 hardcodes `claude-opus-5`, `effort: "xhigh"`, `display: "summarized"`, `stop_reason: "refusal"` handling, disabled SDK built-ins and in-process MCP tools. Every one of those is an API detail that changes, and M2 is the milestone where a stale recollection costs the most.
 - **Bun installs and dispatches; Node executes.** `bun run` honours a binary's shebang, so Vitest and Next.js run under Node. Only `apps/api` and our own entrypoints use the Bun runtime. This is deliberate — see "Bun/Node split" in `docs/PLAN.md`.
 
 ## Session protocol

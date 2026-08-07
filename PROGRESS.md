@@ -24,6 +24,10 @@ here so it isn't mistaken for product work.
 | T-3 | `nap-session` skill | DONE | `.claude/skills/nap-session/` — automates the §1 protocol. |
 | T-4 | `nap-events` skill | DONE | `.claude/skills/nap-events/` — event test discipline. Written pre-M0-3, so it covers rules not shapes; revisit after M0-3. |
 | T-5 | GitHub Actions CI | DONE | `.github/workflows/ci.yml` — lint/typecheck/test on push to main + `feat/**`, and on PRs. Integration suite deliberately excluded (costs real spend). |
+| T-6 | Permission allowlist | DONE | `.claude/settings.json`. Only `bun run <script>` exact forms — everything else we run (git/gh read-only, jq, rg, grep) is already auto-allowed. No `bun run *` wildcard (arbitrary code execution) and no `test:integration` (the prompt is the only checkpoint before real spend). |
+| T-7 | Auto-format on write | DONE | PostToolUse `Write\|Edit` → `biome check --write` on the touched file. Removes the write→lint-fails→format→retry loop. |
+| T-8 | Dirty-tree Stop hook | DONE | Warns (does not block) when the tree is dirty at session end — mechanises §1's "never end a session with uncommitted work". |
+| T-9 | PLAN↔PROGRESS consistency test | DONE | `test/docs.ts`. The Deps column is a hand transcription of PLAN.md §4; this stops the two silently disagreeing. Verified by injecting drift. |
 
 ## M0 — Scaffold & Contracts
 
