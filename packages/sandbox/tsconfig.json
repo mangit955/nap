@@ -1,4 +1,8 @@
 {
   "extends": "../../tsconfig.base.json",
-  "include": ["src"]
+  // `scripts` is included so the template build script is typechecked like everything
+  // else. `template/` is deliberately absent: it is a separate application with its own
+  // React/Vite toolchain and its own tsconfig, and compiling it against ours would check
+  // it with the wrong lib and no JSX.
+  "include": ["src", "scripts"]
 }

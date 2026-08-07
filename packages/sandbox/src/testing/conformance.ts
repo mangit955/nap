@@ -156,12 +156,15 @@ export function describeSandboxManagerConformance(harness: SandboxManagerHarness
         expect(result.value.stderr).toContain("two");
 
         // Streaming is the point: the handler must have seen the output before the
-        // promise resolved, and stdout must have arrived before stderr.
+        // promise resolved.
         //
         // Asserted per stream rather than chunk by chunk, because how a real
-        // implementation splits a stream is its own business — a process writing one
-        // line may deliver it as one callback or several, and pinning the chunk count
-        // would test the transport instead of the contract.
+        // implementation splits and schedules a stream is its own business. A process
+        // writing one line may deliver it as one callback or several, and stdout and
+        // stderr travel independently — so their *relative* arrival order is not
+        // something an implementation can promise, and asserting it produced a test
+        // that failed roughly one run in three against real E2B. Order within a single
+        // stream is guaranteed, and that is what is checked here.
         const joined = (stream: string) =>
           chunks
             .filter((c) => c.stream === stream)
@@ -171,7 +174,6 @@ export function describeSandboxManagerConformance(harness: SandboxManagerHarness
         expect(chunks.length).toBeGreaterThan(0);
         expect(joined("stdout").trim()).toBe("one");
         expect(joined("stderr").trim()).toBe("two");
-        expect(chunks[0]?.stream).toBe("stdout");
       });
     });
 
