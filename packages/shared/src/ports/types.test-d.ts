@@ -5,7 +5,16 @@ import type { AgentService, AgentTurnRequest } from "./agent-service.ts";
 import type { BuiltContext, ContextEngine } from "./context-engine.ts";
 import type { EventBus, Unsubscribe } from "./event-bus.ts";
 import type { EventStore, PendingEvent, StoredEvent } from "./event-store.ts";
-import type { LLMProvider, LLMTurnResult, TokenUsage } from "./llm-provider.ts";
+import type {
+  LLMContentBlock,
+  LLMMessage,
+  LLMProvider,
+  LLMRequest,
+  LLMToolDefinition,
+  LLMTurn,
+  LLMTurnResult,
+  TokenUsage,
+} from "./llm-provider.ts";
 import type { Memory, MemoryProvider } from "./memory-provider.ts";
 import type { Runtime, TurnOutcome } from "./runtime.ts";
 import type {
@@ -133,7 +142,11 @@ expectTypeOf(contextStub).toExtend<ContextEngine>();
 // LLMProvider — model config and policy, deliberately not a cross-vendor swap
 // ---------------------------------------------------------------------------
 
-expectTypeOf<LLMProvider["complete"]>().returns.resolves.toEqualTypeOf<LLMTurnResult>();
+// A turn is a handle, not a mode you switch on and off: usage cannot leak between turns
+// because a fresh handle has nowhere to leak from.
+expectTypeOf<LLMProvider["startTurn"]>().returns.toEqualTypeOf<LLMTurn>();
+expectTypeOf<LLMTurn["complete"]>().returns.resolves.toEqualTypeOf<LLMTurnResult>();
+expectTypeOf<LLMTurn["usage"]>().returns.toEqualTypeOf<TokenUsage>();
 expectTypeOf<TokenUsage>().toEqualTypeOf<{ inputTokens: number; outputTokens: number }>();
 
 // A refusal is an expected outcome with its own branch, not an exception and not
@@ -142,6 +155,20 @@ declare const llmResult: LLMTurnResult;
 if (llmResult.type === "refusal") {
   expectTypeOf(llmResult.usage).toEqualTypeOf<TokenUsage>();
 }
+
+// Message content is either plain prose or a block list. The block list is what carries a
+// tool loop: without it there is no way to send back what a tool returned, and the
+// `toolCalls` on a result would be unanswerable.
+expectTypeOf<LLMMessage["content"]>().toEqualTypeOf<string | LLMContentBlock[]>();
+expectTypeOf<Extract<LLMContentBlock, { type: "tool_result" }>>().toEqualTypeOf<{
+  type: "tool_result";
+  toolCallId: string;
+  content: string;
+  isError: boolean;
+}>();
+
+// Tools have to reach the model for a tool call to ever come back.
+expectTypeOf<LLMRequest["tools"]>().toEqualTypeOf<LLMToolDefinition[]>();
 
 // ---------------------------------------------------------------------------
 // AgentService

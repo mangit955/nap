@@ -42,6 +42,11 @@ const EXCLUSIVE_EXTERNALS: Record<string, { owner: string; reason: string }> = {
     reason:
       "E2B belongs to @nap/sandbox. Depend on the SandboxManager interface from @nap/shared instead — see docs/PLAN.md §0.",
   },
+  "@anthropic-ai/sdk": {
+    owner: "@nap/agent",
+    reason:
+      "The Anthropic SDK belongs to @nap/agent. Depend on the LLMProvider interface from @nap/shared instead — see docs/PLAN.md §0. The interface is not a cross-vendor swap, but model id, effort, retries and refusal handling still belong in one place rather than at every call site.",
+  },
 };
 
 export function checkDependencyDirection(manifests: Manifest[]): Violation[] {
