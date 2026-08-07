@@ -73,6 +73,9 @@
     "packages/sandbox": {
       "name": "@nap/sandbox",
       "version": "0.0.0",
+      "dependencies": {
+        "@nap/shared": "workspace:*",
+      },
     },
     "packages/shared": {
       "name": "@nap/shared",

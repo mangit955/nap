@@ -1,0 +1,244 @@
+/**
+ * A `SandboxManager` that lives entirely in memory.
+ *
+ * Almost every test above the execution plane needs a sandbox but has no interest in
+ * one: an agent-loop test cares that a file was written, not that a container existed.
+ * This stands in for the real thing so those tests stay deterministic, free and fast.
+ * It is held to the same contract as the E2B adapter by the conformance suite next to
+ * this file, which both implementations run.
+ *
+ * The filesystem is a flat `Map` from absolute path to contents; directories are
+ * inferred from the paths, so writing a nested file implicitly creates its parents.
+ *
+ * `exec` cannot be faked the same way — there is no shell here — so responses are
+ * scripted per command. A command nobody scripted *throws*: a test running an
+ * unscripted command is asserting against a response no one defined, and answering it
+ * with a bland success would let that test pass while exercising nothing. Callers who
+ * genuinely do not care pass `defaultExec`.
+ */
+
+import type {
+  ExecOutputHandler,
+  ExecResult,
+  FileNode,
+  Sandbox,
+  SandboxError,
+  SandboxManager,
+} from "@nap/shared/ports/sandbox-manager";
+import type { Result, VoidResult } from "@nap/shared/result";
+
+/** A scripted answer to one command. Every field has a sensible zero value. */
+export type ScriptedExecResponse = {
+  exitCode?: number;
+  stdout?: string;
+  stderr?: string;
+  /**
+   * Explicit streaming, when a test cares about interleaving. Omit it and one chunk
+   * per non-empty stream is derived from `stdout`/`stderr`; supply it and the
+   * aggregate `stdout`/`stderr` are the concatenation of these instead.
+   */
+  chunks?: ExecChunk[];
+};
+
+export type ExecChunk = { stream: "stdout" | "stderr"; data: string };
+
+export type ExecResponder = (
+  command: string,
+) => ScriptedExecResponse | Promise<ScriptedExecResponse>;
+
+export type InMemorySandboxManagerOptions = {
+  /** Answers any command no `script()` call matched, in place of throwing. */
+  defaultExec?: ExecResponder;
+};
+
+type SandboxState = {
+  projectId: string;
+  files: Map<string, string>;
+  commands: string[];
+};
+
+/** Absolute POSIX paths with no trailing slash and no repeated separators. */
+function normalize(path: string): string {
+  const collapsed = path.replace(/\/+/g, "/").replace(/\/$/, "");
+  return collapsed === "" ? "/" : collapsed;
+}
+
+function err(code: SandboxError["code"], message: string): { ok: false; error: SandboxError } {
+  return { ok: false, error: { code, message } };
+}
+
+function toResponder(response: ScriptedExecResponse | ExecResponder): ExecResponder {
+  return typeof response === "function" ? response : () => response;
+}
+
+export class InMemorySandboxManager implements SandboxManager {
+  readonly #sandboxes = new Map<string, SandboxState>();
+  /** Ids this manager destroyed, kept so a use-after-destroy reads differently from a typo. */
+  readonly #destroyed = new Set<string>();
+  readonly #exactScripts = new Map<string, ExecResponder>();
+  readonly #patternScripts: Array<{ pattern: RegExp; responder: ExecResponder }> = [];
+  readonly #defaultExec: ExecResponder | undefined;
+
+  constructor(options: InMemorySandboxManagerOptions = {}) {
+    this.#defaultExec = options.defaultExec;
+  }
+
+  /**
+   * Registers the answer to a command. An exact string beats a regular expression that
+   * also matches, and a later registration replaces an earlier one, so a test can set
+   * up broad defaults once and override a single command per case.
+   */
+  script(matcher: string | RegExp, response: ScriptedExecResponse | ExecResponder): this {
+    if (typeof matcher === "string") {
+      this.#exactScripts.set(matcher, toResponder(response));
+    } else {
+      this.#patternScripts.push({ pattern: matcher, responder: toResponder(response) });
+    }
+    return this;
+  }
+
+  /** Every command `exec` was asked to run on a sandbox, in order. */
+  commands(sandboxId: string): string[] {
+    return [...(this.#sandboxes.get(sandboxId)?.commands ?? [])];
+  }
+
+  async create(projectId: string): Promise<Result<Sandbox, SandboxError>> {
+    const id = crypto.randomUUID();
+    this.#sandboxes.set(id, { projectId, files: new Map(), commands: [] });
+    return { ok: true, value: { id, projectId } };
+  }
+
+  async resume(sandboxId: string): Promise<Result<Sandbox, SandboxError>> {
+    const found = this.#lookup(sandboxId);
+    if (!found.ok) return found;
+    return { ok: true, value: { id: sandboxId, projectId: found.value.projectId } };
+  }
+
+  async destroy(sandboxId: string): Promise<VoidResult<SandboxError>> {
+    const found = this.#lookup(sandboxId);
+    if (!found.ok) return found;
+    this.#sandboxes.delete(sandboxId);
+    this.#destroyed.add(sandboxId);
+    return { ok: true, value: undefined };
+  }
+
+  async writeFile(
+    sandboxId: string,
+    path: string,
+    contents: string,
+  ): Promise<VoidResult<SandboxError>> {
+    const found = this.#lookup(sandboxId);
+    if (!found.ok) return found;
+    found.value.files.set(normalize(path), contents);
+    return { ok: true, value: undefined };
+  }
+
+  async readFile(sandboxId: string, path: string): Promise<Result<string, SandboxError>> {
+    const found = this.#lookup(sandboxId);
+    if (!found.ok) return found;
+
+    const contents = found.value.files.get(normalize(path));
+    if (contents === undefined) return err("file_not_found", `no such file: ${path}`);
+    return { ok: true, value: contents };
+  }
+
+  async listFiles(sandboxId: string, path: string): Promise<Result<FileNode[], SandboxError>> {
+    const found = this.#lookup(sandboxId);
+    if (!found.ok) return found;
+
+    const dir = normalize(path);
+    const prefix = dir === "/" ? "/" : `${dir}/`;
+    // One level only, so a deep tree shows up as the directory that contains it.
+    const children = new Map<string, FileNode["type"]>();
+
+    for (const filePath of found.value.files.keys()) {
+      if (!filePath.startsWith(prefix)) continue;
+      const rest = filePath.slice(prefix.length);
+      const separator = rest.indexOf("/");
+      if (separator === -1) {
+        children.set(`${prefix}${rest}`, "file");
+      } else {
+        children.set(`${prefix}${rest.slice(0, separator)}`, "directory");
+      }
+    }
+
+    return {
+      ok: true,
+      value: [...children].map(([childPath, type]) => ({ path: childPath, type })),
+    };
+  }
+
+  async exec(
+    sandboxId: string,
+    command: string,
+    onOutput?: ExecOutputHandler,
+  ): Promise<Result<ExecResult, SandboxError>> {
+    const found = this.#lookup(sandboxId);
+    if (!found.ok) return found;
+    found.value.commands.push(command);
+
+    const responder = this.#responderFor(command);
+    if (responder === undefined) {
+      // Deliberately thrown rather than returned: this is a mistake in the test, not
+      // an outcome the production caller could handle.
+      throw new Error(
+        `InMemorySandboxManager: no scripted response for command ${JSON.stringify(command)}. ` +
+          "Register one with script(), or pass defaultExec to the constructor.",
+      );
+    }
+
+    const response = await responder(command);
+    const chunks = response.chunks ?? derivedChunks(response);
+
+    let stdout = "";
+    let stderr = "";
+    for (const chunk of chunks) {
+      onOutput?.(chunk);
+      if (chunk.stream === "stdout") stdout += chunk.data;
+      else stderr += chunk.data;
+    }
+
+    return { ok: true, value: { exitCode: response.exitCode ?? 0, stdout, stderr } };
+  }
+
+  async getPreviewUrl(sandboxId: string, port: number): Promise<Result<string, SandboxError>> {
+    const found = this.#lookup(sandboxId);
+    if (!found.ok) return found;
+    // Shaped like E2B's real preview host so callers that parse it work unchanged,
+    // but on a reserved TLD that can never resolve.
+    return { ok: true, value: `https://${port}-${sandboxId}.sandbox.invalid` };
+  }
+
+  #lookup(sandboxId: string): Result<SandboxState, SandboxError> {
+    const state = this.#sandboxes.get(sandboxId);
+    if (state !== undefined) return { ok: true, value: state };
+    if (this.#destroyed.has(sandboxId)) {
+      return err("destroyed", `sandbox ${sandboxId} was destroyed`);
+    }
+    return err("not_found", `no such sandbox: ${sandboxId}`);
+  }
+
+  #responderFor(command: string): ExecResponder | undefined {
+    const exact = this.#exactScripts.get(command);
+    if (exact !== undefined) return exact;
+
+    // Reverse order so the most recently registered pattern wins, matching the
+    // override semantics an exact re-registration already has.
+    for (const entry of [...this.#patternScripts].reverse()) {
+      if (entry.pattern.test(command)) return entry.responder;
+    }
+
+    return this.#defaultExec;
+  }
+}
+
+function derivedChunks(response: ScriptedExecResponse): ExecChunk[] {
+  const chunks: ExecChunk[] = [];
+  if (response.stdout !== undefined && response.stdout !== "") {
+    chunks.push({ stream: "stdout", data: response.stdout });
+  }
+  if (response.stderr !== undefined && response.stderr !== "") {
+    chunks.push({ stream: "stderr", data: response.stderr });
+  }
+  return chunks;
+}

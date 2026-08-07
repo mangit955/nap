@@ -1,7 +1,7 @@
 # Nap v1 Progress
 
-Current milestone: **M0 — Scaffold & Contracts — COMPLETE.** Next up: **M1 — Execution Plane**
-(branch `feat/m1-execution-plane`; M0 was built on `feat/m0-scaffold`).
+Current milestone: **M1 — Execution Plane** (branch `feat/m1-execution-plane`).
+M0 — Scaffold & Contracts is COMPLETE, on `feat/m0-scaffold`.
 
 ## How to use this file
 
@@ -48,7 +48,7 @@ here so it isn't mistaken for product work.
 
 | ID | Task | Deps | Status | Notes |
 |----|------|------|--------|-------|
-| M1-1 | `SandboxManager` interface + `InMemorySandboxManager` | M0-4 | IN_PROGRESS | |
+| M1-1 | `SandboxManager` interface + `InMemorySandboxManager` | M0-4 | DONE | The interface itself already landed in M0-4, so this was the fake + the conformance suite (`packages/sandbox/src/testing/`). **Two contract decisions M1-2 must honour:** post-`destroy` ops return `destroyed`, never `not_found` — the E2B adapter needs to track ids it killed, since E2B alone can't tell the two apart; and `listFiles` returns *direct children only*, with directories synthesized. The suite is parameterised by a harness supplying `root` and two concrete shell commands, because it cannot assume a shell. Unscripted `exec` **throws** rather than returning a bland success — a test running an unscripted command asserts on nothing. Verified by breaking the fake three ways and watching the matching cases fail. |
 | M1-2 | E2B adapter | M1-1 | TODO | |
 | M1-3 | Project template | M1-2 | TODO | record cold-start time here |
 | M1-4 | Dev server boot + preview URL | M1-3 | TODO | |
