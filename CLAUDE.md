@@ -15,7 +15,7 @@ Keep each fact in exactly one of these. This file must never restate a task spec
 ## Commands
 
 ```bash
-bun run test              # unit suite — fakes only, deterministic, no network
+bun run test              # unit + type suites — fakes only, deterministic, no network
 bun run test:integration  # real E2B + real Anthropic; run at milestone boundaries only
 bun run typecheck         # turbo: tsc --noEmit per workspace, then a root pass for test/ + configs
 bun run lint              # biome check
@@ -90,7 +90,8 @@ Drift here is the most expensive kind of mistake. Before adding code to a compon
 
 ## Testing
 
-- **`*.test.ts` → unit suite. `*.integration.test.ts` → integration suite.** Filename decides, not directory, so both can sit side by side in one package.
+- **`*.test.ts` → unit suite. `*.integration.test.ts` → integration suite. `*.test-d.ts` → type suite.** Filename decides, not directory, so all three can sit side by side in one package.
+- **Type tests are compile-time only, so they need their own runner.** `expectTypeOf` has no runtime effect: without the `types` project in `vitest.config.ts`, a `*.test-d.ts` file is never collected and a *wrong* assertion in it passes silently. That project needs `tsconfig.test-d.json` — the root `tsconfig.json` covers only `test/`, and each package's covers only its own `src`, so neither is a program containing every type test. `bun run typecheck` catches these too, via each package's own tsconfig; the two are deliberate belt and braces.
 - Unit tests are deterministic and free. **If a test needs the network, it belongs in `test:integration`.**
 - **Never assert on model prose.** Assert on tool-call sequences, event types and ordering, and filesystem effects.
 - Fakes live in `packages/*/src/testing/` and are exported. They are production-quality code — every downstream package's tests depend on them.

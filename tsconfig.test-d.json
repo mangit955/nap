@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  // Vitest's typecheck runner needs a tsconfig whose `include` covers the type
+  // tests. The root tsconfig.json deliberately covers only test/ and configs, and
+  // each package's covers its own src — neither is a program containing every
+  // *.test-d.ts across the workspace, which is what the `types` project needs.
+  //
+  // Extends the same base as every package tsconfig, so the compiler options the
+  // type tests are checked under cannot drift from the ones the source uses.
+  "extends": "./tsconfig.base.json",
+  "include": ["packages/*/src/**/*.test-d.ts", "apps/*/src/**/*.test-d.ts"]
+}

@@ -17,6 +17,21 @@ export default defineConfig({
         },
       },
       {
+        // Type-level tests. These are compile-time only: `expectTypeOf` has no
+        // runtime effect, so without this project a `*.test-d.ts` file is never
+        // collected and a wrong assertion in it passes silently.
+        test: {
+          name: "types",
+          typecheck: {
+            enabled: true,
+            include: ["{packages,apps}/*/src/**/*.test-d.ts"],
+            tsconfig: "./tsconfig.test-d.json",
+          },
+          // The type tests *are* the suite here; there are no runtime tests to run.
+          include: [],
+        },
+      },
+      {
         test: {
           name: "integration",
           include: ["{packages,apps}/*/src/**/*.integration.test.ts"],

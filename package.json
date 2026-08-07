@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "turbo run dev",
     "build": "turbo run build",
-    "test": "vitest run --project unit",
+    "test": "vitest run --project unit --project types",
     "test:integration": "vitest run --project integration --passWithNoTests",
     "typecheck": "turbo run typecheck && tsc --noEmit",
     "lint": "biome check .",

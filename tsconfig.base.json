@@ -22,6 +22,13 @@
     // transpiling. See docs/PLAN.md M0-1.
     "allowImportingTsExtensions": true,
 
+    // Ambient types are listed explicitly rather than left to whatever @types
+    // packages happen to be installed. Everything here runs on Node or Bun, so
+    // `node` is the baseline — it is what supplies AbortSignal and friends, since
+    // "lib" above deliberately excludes DOM. A package that genuinely needs browser
+    // globals (apps/web) widens both "lib" and "types" in its own tsconfig.
+    "types": ["node"],
+
     "noEmit": true,
     "skipLibCheck": true,
     "esModuleInterop": true,
