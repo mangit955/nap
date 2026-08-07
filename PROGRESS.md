@@ -36,7 +36,7 @@ here so it isn't mistaken for product work.
 |----|------|------|--------|-------|
 | M0-1 | Workspace scaffold | — | DONE | Bun replaces pnpm (see PLAN.md "Bun/Node split"). Vitest kept — run it as `bun run test`, never `bun test`. Packages resolve to `.ts` source via subpath exports, so no build step for test/typecheck; needs `allowImportingTsExtensions`. |
 | M0-2 | `CLAUDE.md` + `PROGRESS.md` | M0-1 | DONE | PROGRESS.md was already seeded during M0-1. Added a `Deps` column so this file alone answers "what's next?", as §1 requires. |
-| M0-3 | Event schemas | M0-1 | TODO | |
+| M0-3 | Event schemas | M0-1 | IN_PROGRESS | |
 | M0-4 | Interface declarations | M0-3 | TODO | |
 | M0-5 | DB schema + migrations | M0-1 | TODO | |
 | M0-6 | API skeleton + env validation | M0-1 | TODO | apps/api is a placeholder until this task |
