@@ -48,7 +48,7 @@ here so it isn't mistaken for product work.
 
 | ID | Task | Deps | Status | Notes |
 |----|------|------|--------|-------|
-| M1-1 | `SandboxManager` interface + `InMemorySandboxManager` | M0-4 | TODO | |
+| M1-1 | `SandboxManager` interface + `InMemorySandboxManager` | M0-4 | IN_PROGRESS | |
 | M1-2 | E2B adapter | M1-1 | TODO | |
 | M1-3 | Project template | M1-2 | TODO | record cold-start time here |
 | M1-4 | Dev server boot + preview URL | M1-3 | TODO | |
