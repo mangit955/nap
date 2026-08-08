@@ -67,7 +67,7 @@ Assert ordering with a **recording spy**, not by inspecting final state — "app
 
 ## Conventions
 
-- Ordering assertions go through **`expectEventSequence([...])`**, the helper shipped alongside `InMemoryEventStore` / `InMemoryEventBus`. Use it rather than hand-rolling index comparisons, so failure messages stay readable.
+- Ordering assertions go through **`expectEventSequence(events, types)`** from `@nap/db/testing/event-assertions`, alongside `InMemoryEventStore`, `InMemoryEventBus` and `InMemorySessionStore` in `packages/db/src/testing/` (added at M2-8). Use it rather than hand-rolling index comparisons, so a failure prints both sequences.
 - Fakes live in `packages/*/src/testing/` and are exported. They are production-quality code — treat a bug in a fake as seriously as one in `src/`.
 - Tool events come in pairs: `tool.call` then `tool.result`. A failure emits a `tool.result` **marked as error** — it does not throw. An unpaired `tool.call` is a legitimate in-progress state the UI must render (M3-4).
 - Writes additionally emit `file.changed` carrying a unified diff (M2-5).

@@ -254,6 +254,8 @@ Block `rm -rf /` and similar, package installs outside the project, and network 
 **Tests (all fakes):** append happens before publish for every event (assert via a recording spy on ordering); `seq` increments monotonically with no gaps; a successful turn produces exactly one git commit; a **failed** turn produces **zero** commits; a sandbox-create failure emits `turn.failed` and never invokes the agent; concurrent turns on the same session are serialized, not interleaved.
 **Done when:** all six green. The "no commit on failure" and "append before publish" tests are the two most valuable in the codebase — do not skip them.
 
+> Amended during M2-8. A turn request carries only a session id, so "resume-or-create" needed a source for the session's project and its current sandbox: `SessionStore` (`packages/shared/src/ports/session-store.ts`), two methods, with the Postgres implementation deferred to M4-4. A sandbox that is recorded but cannot be resumed **fails the turn** rather than creating a fresh one — until M4-2 can restore a snapshot, starting over means silently handing the user an empty template. `user.message` is appended by the runtime, before `turn.started`.
+
 **M2-9 — CLI harness** · deps: M2-8
 A `bun run harness "<prompt>"` script running a real turn against real E2B + real Claude, printing the event stream.
 **Tests:** manual. This is the M2 acceptance gate.

@@ -79,7 +79,13 @@
       "name": "@nap/runtime",
       "version": "0.0.0",
       "dependencies": {
+        "@nap/sandbox": "workspace:*",
         "@nap/shared": "workspace:*",
+      },
+      "devDependencies": {
+        "@nap/agent": "workspace:*",
+        "@nap/context": "workspace:*",
+        "@nap/db": "workspace:*",
       },
     },
     "packages/sandbox": {
