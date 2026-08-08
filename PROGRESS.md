@@ -6,6 +6,13 @@ Current milestone: **M1 — Execution Plane — COMPLETE.** Next up: **M2 — In
 > Before any M2 work, read the `claude-api` skill rather than answering from memory —
 > `CLAUDE.md` explains why that milestone is the one where a stale recollection costs most.
 
+> **Which model to point at.** Iterate on `claude-sonnet-5`; record anything anyone will
+> watch on `claude-opus-5`. Same SDK, same tool-call and streaming shapes, same refusal
+> semantics — the only differences are quality and effort tuning, which is what makes this
+> safe where a second *vendor* would not be. See the model-split gotcha in `CLAUDE.md`.
+> **This is not yet actionable:** `MODEL` in `packages/agent/src/claude-provider.ts` is a
+> hardcoded constant, so the first task that needs Sonnet has to make it overridable first.
+
 ## How to use this file
 
 This file tracks **status only**. What each task actually means is in `docs/PLAN.md` §4,
