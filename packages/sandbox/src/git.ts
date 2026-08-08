@@ -14,6 +14,7 @@
 
 import type { SandboxError, SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { Result } from "@nap/shared/result";
+import { shellQuote } from "@nap/shared/shell";
 import { TEMPLATE_WORKDIR } from "./template.ts";
 
 export type CommitResult = {
@@ -39,22 +40,6 @@ const BUNDLE_B64_PATH = "/tmp/nap-snapshot.bundle.b64";
  * restored or differently built image would fail with git's "please tell me who you are".
  */
 const IDENTITY = "-c user.email=agent@nap.dev -c user.name=Nap";
-
-/**
- * Renders a string as a single literal shell argument.
- *
- * Commit messages are written by a model, so they arrive containing whatever the model
- * felt like emitting — quotes, backticks, `$(…)`, newlines. Interpolated raw into a
- * command line that is about to run inside the user's sandbox, that is command injection,
- * and the attacker is the text the user typed into a chat box.
- *
- * Single quotes suppress every form of shell expansion; the only character that needs
- * handling is a single quote itself, which cannot appear inside them. The POSIX-portable
- * escape is to close the string, emit a backslash-escaped quote, and reopen it.
- */
-export function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`;
-}
 
 /** Runs a command in the project directory, turning a non-zero exit into a typed error. */
 async function git(

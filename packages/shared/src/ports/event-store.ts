@@ -22,7 +22,7 @@ export type StoredEvent = NapEvent;
  * adding `seq` back would no longer produce a `NapEvent`. Distribution needs a naked type
  * parameter, which is the only reason this is a generic helper.
  */
-type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
+export type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
 /** An event on its way in, before the store has assigned its sequence number. */
 export type PendingEvent = DistributiveOmit<NapEvent, "seq">;

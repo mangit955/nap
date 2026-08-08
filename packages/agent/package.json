@@ -11,6 +11,11 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.116.0",
-    "@nap/shared": "workspace:*"
+    "@nap/shared": "workspace:*",
+    "diff": "9.0.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@nap/sandbox": "workspace:*"
   }
 }
