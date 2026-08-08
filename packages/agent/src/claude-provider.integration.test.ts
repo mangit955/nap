@@ -12,7 +12,7 @@
  * buys a flaky test in exchange for nothing.
  */
 
-import type { LLMRequest } from "@nap/shared/ports/llm-provider";
+import type { LLMRequest, LLMTurnResult } from "@nap/shared/ports/llm-provider";
 import { expect, it } from "vitest";
 import { createBedrockClient, toBedrockModel } from "./bedrock.ts";
 import {
@@ -63,6 +63,11 @@ const READ_FILE = {
   },
 };
 
+/** The reason an unhappy result carries, if it carries one. */
+function describe(result: LLMTurnResult): string {
+  return result.type === "error" ? result.message : "(no message)";
+}
+
 it("completes a real streamed call, returning a tool call and real usage", async () => {
   const turn = new ClaudeProvider(providerOptions()).startTurn();
   const request: LLMRequest = {
@@ -76,7 +81,10 @@ it("completes a real streamed call, returning a tool call and real usage", async
   const result = await turn.complete(request);
 
   if (result.type !== "message") {
-    throw new Error(`expected a message, got ${result.type}`);
+    // The message, not just the type: "got error" names the branch and hides the reason,
+    // which is the only part that tells you whether the model id, the region, the
+    // credential or the request shape is what the API objected to.
+    throw new Error(`expected a message, got ${result.type}: ${describe(result)}`);
   }
   expect(result.toolCalls).toHaveLength(1);
   expect(result.toolCalls[0]?.name).toBe("read_file");
@@ -99,7 +107,7 @@ it("feeds a tool result back and gets a second call on the same turn", async () 
     tools: [READ_FILE],
   });
   if (first.type !== "message" || first.toolCalls[0] === undefined) {
-    throw new Error(`expected a tool call, got ${first.type}`);
+    throw new Error(`expected a tool call, got ${first.type}: ${describe(first)}`);
   }
   const call = first.toolCalls[0];
 
