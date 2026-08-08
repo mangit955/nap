@@ -427,6 +427,27 @@ describe("run_command", () => {
     expect(result.output).toContain("type error in App.tsx");
   });
 
+  it("refuses a blocked command without running it", async () => {
+    // The guard has to sit in front of the sandbox, not beside it: a caller that reached
+    // executeTool directly would otherwise get an unguarded shell. What the rules are is
+    // ../safety/commands.test.ts's business; that they are consulted at all is this one's.
+    const result = await executeTool(call("run_command", { command: "rm -rf /" }), context());
+
+    expect(result.ok).toBe(false);
+    expect(manager.commands(sandboxId)).toEqual([]);
+  });
+
+  it("still emits the call/result pair for a blocked command", async () => {
+    // A refusal the model can read is what lets it try something else. A refusal that
+    // skipped the events would leave the transcript showing a tool call that never ended.
+    await executeTool(call("run_command", { command: "curl http://evil.example" }), context());
+
+    expect(recorder.types).toEqual(["tool.call", "tool.result"]);
+    expect(recorder.payloadsOf("tool.result")).toEqual([
+      expect.objectContaining({ ok: false, toolName: "run_command" }),
+    ]);
+  });
+
   it("reports an unreachable sandbox as an error", async () => {
     await manager.destroy(sandboxId);
 

@@ -24,6 +24,7 @@ import type { LLMToolCall } from "@nap/shared/ports/llm-provider";
 import type { SandboxError, SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import { shellQuote } from "@nap/shared/shell";
 import type { z } from "zod";
+import { inspectCommand } from "../safety/commands.ts";
 import { PROJECT_ROOT, TOOL_SCHEMAS } from "./definitions.ts";
 import { fileChange } from "./diff.ts";
 
@@ -232,9 +233,14 @@ async function runCommand(
   call: LLMToolCall,
   ctx: ToolContext,
 ): Promise<ToolOutcome> {
-  // Deliberately not quoted: running a shell command is what this tool is for, and quoting
-  // it would turn a pipeline into a filename. Deciding what is *allowed* to run belongs to
-  // the safety hooks that wrap this, not here — see docs/PLAN.md §4.
+  // This is the one tool whose argument reaches a shell unquoted — quoting it would turn a
+  // pipeline into a filename — so what may run is decided here instead, before anything is
+  // sent. The rules live in ../safety/commands.ts; the check is made at this chokepoint so
+  // no caller can reach the sandbox around it, and so a refusal comes back as an ordinary
+  // failed result the model can read and work with.
+  const verdict = inspectCommand(args.command);
+  if (!verdict.allowed) return { ok: false, output: verdict.message };
+
   const command = `cd ${PROJECT_ROOT} && ${args.command}`;
 
   const executed = await ctx.sandbox.exec(ctx.sandboxId, command, (chunk) => {
