@@ -261,6 +261,8 @@ A `bun run harness "<prompt>"` script running a real turn against real E2B + rea
 **Tests:** manual. This is the M2 acceptance gate.
 **Done when:** `bun run harness "add a dark mode toggle"` changes a real file, prints ordered events, and leaves a git commit.
 
+> Amended during M2-9. The harness runs on a scripted model and an in-memory sandbox **by default** and takes `--real` to use the real ones, because the API budget is near-zero and everything except the request shape can be proven for free. A real run defaults to `claude-sonnet-5` at `medium` effort with a 12-step, 40k-token ceiling — hence `ClaudeProvider` gaining `model`/`effort`/`maxTokens`. The "Done when" above describes the `--real` run specifically, and is deliberately outstanding.
+
 ---
 
 ### M3 — Presentation & Streaming  `branch: feat/m3-presentation`

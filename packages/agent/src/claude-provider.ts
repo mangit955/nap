@@ -62,6 +62,37 @@ export type ClaudeProviderOptions = {
   apiKey?: string;
   /** Injected so the retry tests do not spend their backoff in real time. */
   sleep?: (ms: number) => Promise<void>;
+  /**
+   * A different model, effort or output ceiling than the defaults below.
+   *
+   * The reason this is configurable at all is cost. Most turns during development are spent
+   * debugging the loop — did the tool calls come back well formed, did the events arrive in
+   * order, did the commit land — and that needs a model that answers cheaply, not one that
+   * answers best. Sonnet and Opus are structurally identical here: same SDK, same
+   * `tool_use`/`tool_result` blocks, same streaming, same refusal semantics, so nothing
+   * downstream can tell them apart. Swapping *vendors* to save money is a different and much
+   * worse idea — see the note in `CLAUDE.md`.
+   */
+  model?: Anthropic.Model;
+  effort?: Effort;
+  maxTokens?: number;
+};
+
+/**
+ * How hard the model is asked to think.
+ *
+ * Read off the SDK rather than written out, so a level the API adds or removes cannot be
+ * accepted here and rejected there.
+ */
+export type Effort = NonNullable<
+  NonNullable<Anthropic.MessageStreamParams["output_config"]>["effort"]
+>;
+
+/** Model, effort and output ceiling for one request. */
+export type ModelConfig = {
+  model: Anthropic.Model;
+  effort: Effort;
+  maxTokens: number;
 };
 
 /**
@@ -75,10 +106,12 @@ export type ClaudeProviderOptions = {
  * No `temperature`, `top_p`, `top_k` or `budget_tokens`: this model rejects all four with
  * a 400.
  */
-const MODEL: Anthropic.Model = "claude-opus-5";
-const EFFORT = "xhigh" as const;
-/** Room to think and answer across a long tool loop. */
-const MAX_TOKENS = 64_000;
+export const DEFAULT_MODEL_CONFIG: ModelConfig = {
+  model: "claude-opus-5",
+  effort: "xhigh",
+  /** Room to think and answer across a long tool loop. */
+  maxTokens: 64_000,
+};
 
 /** Total attempts, not retries — three tries, two waits. */
 export const MAX_ATTEMPTS = 3;
@@ -137,11 +170,14 @@ function toApiBlock(block: LLMContentBlock): Anthropic.ContentBlockParam {
 }
 
 /** Builds the request body. Exported because it is cheap to test and easy to get wrong. */
-export function toRequestParams(request: LLMRequest): Anthropic.MessageStreamParams {
+export function toRequestParams(
+  request: LLMRequest,
+  config: ModelConfig = DEFAULT_MODEL_CONFIG,
+): Anthropic.MessageStreamParams {
   return {
-    model: MODEL,
-    max_tokens: MAX_TOKENS,
-    output_config: { effort: EFFORT },
+    model: config.model,
+    max_tokens: config.maxTokens,
+    output_config: { effort: config.effort },
     thinking: { type: "adaptive", display: "summarized" },
     system: request.systemPrompt,
     messages: request.messages.map((message) => ({
@@ -184,8 +220,14 @@ export function toTurnResult(message: AnthropicMessage): LLMTurnResult {
 export class ClaudeProvider implements LLMProvider {
   readonly #client: AnthropicClient;
   readonly #sleep: (ms: number) => Promise<void>;
+  readonly #config: ModelConfig;
 
   constructor(options: ClaudeProviderOptions = {}) {
+    this.#config = {
+      model: options.model ?? DEFAULT_MODEL_CONFIG.model,
+      effort: options.effort ?? DEFAULT_MODEL_CONFIG.effort,
+      maxTokens: options.maxTokens ?? DEFAULT_MODEL_CONFIG.maxTokens,
+    };
     this.#client =
       options.client ??
       // Retries off: the loop in `complete` is the policy, and a second invisible one
@@ -196,22 +238,24 @@ export class ClaudeProvider implements LLMProvider {
   }
 
   startTurn(): LLMTurn {
-    return new ClaudeTurn(this.#client, this.#sleep);
+    return new ClaudeTurn(this.#client, this.#sleep, this.#config);
   }
 }
 
 class ClaudeTurn implements LLMTurn {
   readonly #client: AnthropicClient;
   readonly #sleep: (ms: number) => Promise<void>;
+  readonly #config: ModelConfig;
   #usage: TokenUsage = NO_USAGE;
 
-  constructor(client: AnthropicClient, sleep: (ms: number) => Promise<void>) {
+  constructor(client: AnthropicClient, sleep: (ms: number) => Promise<void>, config: ModelConfig) {
     this.#client = client;
     this.#sleep = sleep;
+    this.#config = config;
   }
 
   async complete(request: LLMRequest): Promise<LLMTurnResult> {
-    const body = toRequestParams(request);
+    const body = toRequestParams(request, this.#config);
     let lastError: unknown;
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {

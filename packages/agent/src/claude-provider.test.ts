@@ -211,6 +211,31 @@ describe("ClaudeProvider", () => {
       expect(body.system).toBe("you build apps");
     });
 
+    it("can be pointed at a cheaper model and a lower effort without changing anything else", async () => {
+      // Development turns are spent debugging the loop rather than judging its answers, and
+      // the two models are structurally identical — same blocks, same streaming, same refusal
+      // semantics. Anything that is not a model or an effort must be unaffected.
+      const client = stubClient([message()]);
+
+      await new ClaudeProvider({ client, model: "claude-sonnet-5", effort: "low" })
+        .startTurn()
+        .complete(request());
+
+      const body = client.calls[0]?.body as Anthropic.MessageStreamParams;
+      expect(body.model).toBe("claude-sonnet-5");
+      expect(body.output_config).toEqual({ effort: "low" });
+      expect(body.thinking).toEqual({ type: "adaptive", display: "summarized" });
+    });
+
+    it("can be given a smaller output ceiling, so a run cannot spend more than intended", async () => {
+      const client = stubClient([message()]);
+
+      await new ClaudeProvider({ client, maxTokens: 4096 }).startTurn().complete(request());
+
+      const body = client.calls[0]?.body as Anthropic.MessageStreamParams;
+      expect(body.max_tokens).toBe(4096);
+    });
+
     it("sends no sampling parameters, which this model rejects outright", async () => {
       const client = stubClient([message()]);
 

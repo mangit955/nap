@@ -14,6 +14,7 @@
     "test:fast": "vitest run --project unit --project types --project web",
     "test:integration": "vitest run --project integration --passWithNoTests",
     "typecheck": "turbo run typecheck && tsc --noEmit",
+    "harness": "bun run packages/runtime/scripts/harness.ts",
     "lint": "biome check .",
     "format": "biome check --write .",
     "prepare": "lefthook install"
