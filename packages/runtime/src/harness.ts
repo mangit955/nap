@@ -19,6 +19,7 @@ import type { Result } from "@nap/shared/result";
  * events. All of it is overridable for the day this is used to record something.
  */
 export const HARNESS_DEFAULTS = {
+  platform: "anthropic",
   model: "claude-sonnet-5",
   effort: "medium",
   maxOutputTokens: 8_192,
@@ -31,6 +32,7 @@ export const HARNESS_USAGE = [
   'Usage: bun run harness [options] "<prompt>"',
   "",
   "  --real                  Use real E2B and the real model. Costs money.",
+  `  --platform=<name>       anthropic | bedrock (default ${HARNESS_DEFAULTS.platform}) — which account pays`,
   `  --model=<id>            Model for a real run (default ${HARNESS_DEFAULTS.model})`,
   `  --effort=<level>        low | medium | high | xhigh | max (default ${HARNESS_DEFAULTS.effort})`,
   `  --max-steps=<n>         Model calls allowed in the turn (default ${HARNESS_DEFAULTS.maxSteps})`,
@@ -43,10 +45,21 @@ export const HARNESS_USAGE = [
 const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
 export type HarnessEffort = (typeof EFFORT_LEVELS)[number];
 
+/**
+ * Where the models are reached from.
+ *
+ * Both serve the same Claude models over the same API; they differ in which account is
+ * billed and how the client authenticates. Not a vendor choice — see the note in
+ * `@nap/agent`'s bedrock module.
+ */
+const PLATFORMS = ["anthropic", "bedrock"] as const;
+export type HarnessPlatform = (typeof PLATFORMS)[number];
+
 export type HarnessOptions = {
   prompt: string;
   /** False means fakes throughout: no network, no spend. */
   real: boolean;
+  platform: HarnessPlatform;
   model: string;
   effort: HarnessEffort;
   maxSteps: number;
@@ -63,7 +76,15 @@ export type HarnessOptions = {
  * `--budget-tokens` be mistyped on a real run and quietly use the default.
  */
 export function parseHarnessArgs(argv: readonly string[]): Result<HarnessOptions, string> {
-  const known = new Set(["real", "model", "effort", "max-steps", "budget-tokens", "keep"]);
+  const known = new Set([
+    "real",
+    "platform",
+    "model",
+    "effort",
+    "max-steps",
+    "budget-tokens",
+    "keep",
+  ]);
   const flags = new Map<string, string>();
   const words: string[] = [];
 
@@ -85,6 +106,11 @@ export function parseHarnessArgs(argv: readonly string[]): Result<HarnessOptions
     return { ok: false, error: `effort must be one of ${EFFORT_LEVELS.join(", ")}` };
   }
 
+  const platform = flags.get("platform") ?? HARNESS_DEFAULTS.platform;
+  if (!isPlatform(platform)) {
+    return { ok: false, error: `platform must be one of ${PLATFORMS.join(", ")}` };
+  }
+
   const maxSteps = positiveInt(flags.get("max-steps"), HARNESS_DEFAULTS.maxSteps, "max-steps");
   if (!maxSteps.ok) return maxSteps;
 
@@ -100,6 +126,7 @@ export function parseHarnessArgs(argv: readonly string[]): Result<HarnessOptions
     value: {
       prompt,
       real: flags.has("real"),
+      platform,
       model: flags.get("model") ?? HARNESS_DEFAULTS.model,
       effort,
       maxSteps: maxSteps.value,
@@ -111,6 +138,10 @@ export function parseHarnessArgs(argv: readonly string[]): Result<HarnessOptions
 
 function isEffort(value: string): value is HarnessEffort {
   return (EFFORT_LEVELS as readonly string[]).includes(value);
+}
+
+function isPlatform(value: string): value is HarnessPlatform {
+  return (PLATFORMS as readonly string[]).includes(value);
 }
 
 function positiveInt(

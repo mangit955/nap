@@ -14,16 +14,39 @@
 
 import type { LLMRequest } from "@nap/shared/ports/llm-provider";
 import { expect, it } from "vitest";
-import { ClaudeProvider } from "./claude-provider.ts";
+import { createBedrockClient, toBedrockModel } from "./bedrock.ts";
+import {
+  ClaudeProvider,
+  type ClaudeProviderOptions,
+  DEFAULT_MODEL_CONFIG,
+} from "./claude-provider.ts";
 
-if (process.env.ANTHROPIC_API_KEY === undefined || process.env.ANTHROPIC_API_KEY === "") {
-  // Thrown, not skipped: a suite that quietly passes with nothing behind it reports the
-  // contract as verified when nothing verified it.
+/**
+ * Whichever account is configured — the request shape is what is under test, not the biller.
+ *
+ * Bedrock wins when both are present, because it is the deliberate opt-in. Neither configured
+ * still throws rather than skipping: a suite that quietly passes with nothing behind it
+ * reports the contract as verified when nothing verified it.
+ */
+function providerOptions(): ClaudeProviderOptions {
+  if (process.env.AWS_BEARER_TOKEN_BEDROCK) {
+    if (!process.env.AWS_REGION) {
+      throw new Error("AWS_BEARER_TOKEN_BEDROCK is set but AWS_REGION is not; Bedrock needs both.");
+    }
+    return { client: createBedrockClient(), model: toBedrockModel(MODEL) };
+  }
+
+  if (process.env.ANTHROPIC_API_KEY) return {};
+
   throw new Error(
-    "ANTHROPIC_API_KEY is not set, so the Claude provider run cannot verify anything. " +
-      "Put it in apps/api/.env or export it, then re-run `bun run test:integration`.",
+    "No model credentials are set, so this run cannot verify anything. Put ANTHROPIC_API_KEY " +
+      "(or AWS_BEARER_TOKEN_BEDROCK + AWS_REGION) in apps/api/.env, then re-run " +
+      "`bun run test:integration`.",
   );
 }
+
+/** The default this project ships. Named here so the Bedrock id is derived from it, not typed twice. */
+const MODEL = DEFAULT_MODEL_CONFIG.model;
 
 /**
  * A tool with one obvious use, so the turn ends in a tool call rather than a paragraph.
@@ -41,7 +64,7 @@ const READ_FILE = {
 };
 
 it("completes a real streamed call, returning a tool call and real usage", async () => {
-  const turn = new ClaudeProvider().startTurn();
+  const turn = new ClaudeProvider(providerOptions()).startTurn();
   const request: LLMRequest = {
     systemPrompt:
       "You are editing a React project. When you need a file's contents, call read_file. " +
@@ -68,7 +91,7 @@ it("completes a real streamed call, returning a tool call and real usage", async
 it("feeds a tool result back and gets a second call on the same turn", async () => {
   // The whole reason the port carries content blocks: proving a tool result is a shape
   // the API accepts is something only a real call can do.
-  const turn = new ClaudeProvider().startTurn();
+  const turn = new ClaudeProvider(providerOptions()).startTurn();
 
   const first = await turn.complete({
     systemPrompt: "You are editing a React project. Call read_file when you need a file.",

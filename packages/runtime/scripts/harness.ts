@@ -19,6 +19,7 @@
 
 import { join } from "node:path";
 import { NapAgentService } from "@nap/agent/agent-service";
+import { createBedrockClient, toBedrockModel } from "@nap/agent/bedrock";
 import { ClaudeProvider } from "@nap/agent/claude-provider";
 import { ScriptedLLMProvider } from "@nap/agent/testing/scripted-llm-provider";
 import { NapContextEngine } from "@nap/context/context-engine";
@@ -94,21 +95,35 @@ let provider: LLMProvider;
 if (options.real) {
   loadEnvFile(ENV_FILE, process.env);
 
-  for (const key of ["E2B_API_KEY", "ANTHROPIC_API_KEY"]) {
+  // Bedrock reaches the same models through an AWS account, so it needs AWS credentials and
+  // a region instead of an Anthropic key. The region is checked here rather than left to the
+  // SDK because its client constructor throws on a missing one, and a stack trace is a worse
+  // answer than a sentence naming the variable.
+  const required =
+    options.platform === "bedrock"
+      ? ["E2B_API_KEY", "AWS_BEARER_TOKEN_BEDROCK", "AWS_REGION"]
+      : ["E2B_API_KEY", "ANTHROPIC_API_KEY"];
+
+  for (const key of required) {
     if (process.env[key]) continue;
     console.error(`${key} is not set. Add it to ${ENV_FILE}, or export it, then retry.`);
     process.exit(1);
   }
 
+  const model = options.platform === "bedrock" ? toBedrockModel(options.model) : options.model;
+
   console.log(
-    `REAL RUN — ${options.model} at ${options.effort} effort, ${options.maxSteps} steps max, ` +
-      `${options.budgetTokens} context tokens, on a real E2B sandbox. This costs money.\n`,
+    `REAL RUN — ${model} via ${options.platform} at ${options.effort} effort, ` +
+      `${options.maxSteps} steps max, ${options.budgetTokens} context tokens, ` +
+      "on a real E2B sandbox. This costs money.\n",
   );
   sandbox = new E2BSandboxManager({ template: NAP_TEMPLATE });
   provider = new ClaudeProvider({
-    model: options.model,
+    model,
     effort: options.effort,
     maxTokens: HARNESS_DEFAULTS.maxOutputTokens,
+    // Same provider, same loop, same events — only the transport underneath differs.
+    ...(options.platform === "bedrock" ? { client: createBedrockClient() } : {}),
   });
 } else {
   console.log("Dry run on a scripted model and an in-memory sandbox. Pass --real to spend.\n");

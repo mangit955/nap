@@ -67,12 +67,25 @@ describe("parseHarnessArgs", () => {
     expect(options).toStrictEqual({
       prompt: "record the demo",
       real: true,
+      platform: "anthropic",
       model: "claude-opus-5",
       effort: "xhigh",
       maxSteps: 3,
       budgetTokens: 20_000,
       keep: true,
     });
+  });
+
+  it("targets Anthropic directly unless told otherwise", () => {
+    expect(parsed("--real", "hi").platform).toBe("anthropic");
+  });
+
+  it("can target Bedrock, which serves the same models through a different account", () => {
+    expect(parsed("--real", "--platform=bedrock", "hi").platform).toBe("bedrock");
+  });
+
+  it("refuses a platform it has no client for", () => {
+    expect(rejected("--platform=azure", "hi")).toMatch(/platform must be one of/);
   });
 
   it("refuses an unknown flag rather than ignoring it", () => {
