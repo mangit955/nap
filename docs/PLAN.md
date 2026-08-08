@@ -43,13 +43,15 @@ Nap is a Lovable-style AI app builder: user describes an app in chat → an agen
 
 Bun is the package manager and script runner. Vitest stays the test runner, because `bun test` has no named projects (M0-1 needs two suites), no `--changed` (the pre-commit hook needs it), different `mock.module` hoisting from `vi.mock` (M1-2 and M2-1 need it), and no `*.test-d.ts` typecheck mode (M0-4 needs it).
 
-`bun run <script>` honours a binary's shebang unless `--bun` is passed, so Vitest and Next.js transparently run under **Node** while installs, script dispatch, and our own TS entrypoints run under **Bun**. That keeps the two Node-first dependencies most likely to cost a session — testcontainers (M0-5) and the Claude Agent SDK (M2-7) — on Node, while `apps/api` still gets Bun's native TS execution and `Bun.serve`.
+`bun run <script>` honours a binary's shebang unless `--bun` is passed, so Vitest and Next.js transparently run under **Node** while installs, script dispatch, and our own TS entrypoints run under **Bun**. That keeps the dependency most likely to cost a session — testcontainers (M0-5) — on Node, while `apps/api` still gets Bun's native TS execution and `Bun.serve`.
 
 > ⚠️ **Always `bun run test`, never `bun test`.** `test` is a Bun built-in command and shadows the package.json script — bare `bun test` runs Bun's own runner over our Vitest files and reports nonsense.
 
 **Dependency direction (enforced):** `runtime` → {`context`, `agent`, `sandbox`, `db`} → `shared`. `agent` imports the `SandboxManager` *interface*, never the E2B adapter.
 
-**Key decision — where tools execute.** The Claude Agent SDK's built-in `Read`/`Write`/`Edit`/`Bash` act on the SDK process's filesystem, which is our API server, not the sandbox. So: **disable the built-ins**, and register custom tools that proxy every operation through `SandboxManager`. Keeps the API key out of user compute, gives one chokepoint for events and diffs, and makes E2B→K8s a one-package change.
+**Key decision — where tools execute.** A batteries-included agent harness (the Claude Agent SDK, and anything like it) ships built-in `Read`/`Write`/`Edit`/`Bash` that act on the harness process's filesystem — which is our API server, not the sandbox. So we do not use one. `AgentService` drives the Messages API through the `LLMProvider` port and owns its own loop, and **the only tools that exist are the six that proxy every operation through `SandboxManager`** — a stronger guarantee than disabling built-ins, because there is no toggle to get wrong. Keeps the API key out of user compute, gives one chokepoint for events and diffs, and makes E2B→K8s a one-package change.
+
+> Amended after M2-1. The original plan put `AgentService` on the Claude Agent SDK with its built-ins disabled. That SDK owns the agent loop, which leaves no seam for `ScriptedLLMProvider` — and M2-7's own tests, plus the §3 testing strategy, are built on that seam. M2-1 resolved it in favour of the port; these paragraphs were reconciled two tasks later.
 
 ### Architecture
 
@@ -243,7 +245,7 @@ Block `rm -rf /` and similar, package installs outside the project, and network 
 **Done when:** both the block list *and* the allow list are green — an over-eager guard is as bad as a missing one.
 
 **M2-7 — `AgentService`** · deps: M2-1, M2-5, M2-6
-`runTurn({ context, sandbox, onEvent })` on the Claude Agent SDK with built-ins disabled and the six proxy tools registered as in-process MCP tools.
+`runTurn({ context, sandbox, onEvent })` driving the model loop through the `LLMProvider` port, with the six proxy tools declared as the request's entire tool set — see §0's "where tools execute". Each round trip: `complete()` → execute every returned tool call → feed **all** the results back in one user message → repeat until the model stops asking for tools.
 **Tests (with `ScriptedLLMProvider` + `InMemorySandboxManager`):** a scripted single-tool turn emits `turn.started` → `tool.call` → `tool.result` → `agent.message` → `turn.completed` in exact order; a multi-tool turn executes tools in order; a tool error is fed back to the model rather than aborting; a refusal produces `turn.failed` with a refusal reason; cancellation mid-turn stops tool execution and emits `turn.failed`.
 **Done when:** the event-ordering tests pass deterministically 10 runs in a row.
 
