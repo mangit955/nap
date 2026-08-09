@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@nap/db": "workspace:*",
+    "@nap/sandbox": "workspace:*",
     "@nap/shared": "workspace:*",
     "hono": "4.13.1",
     "pino": "10.3.1",

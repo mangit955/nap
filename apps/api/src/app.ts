@@ -11,6 +11,7 @@ import type { EventStore } from "@nap/shared/ports/event-store";
 import { VERSION } from "@nap/shared/version";
 import { type Context, Hono } from "hono";
 import type { WSEvents } from "hono/ws";
+import { type FileRouteDeps, registerFileRoutes } from "./files/routes.ts";
 import { getLogger, type Logger, withLogContext } from "./logger.ts";
 import { type HeartbeatOptions, openEventStream } from "./ws/event-stream.ts";
 import { parseStreamQuery } from "./ws/query.ts";
@@ -32,6 +33,13 @@ export type AppDeps = {
     /** Overridden only by the smoke script, which cannot wait 30 seconds for a ping. */
     heartbeat?: HeartbeatOptions;
   };
+  /**
+   * Reading a project's files needs a session's sandbox, which means a `SessionStore` — and
+   * boot has none yet. Optional rather than required, so an app built without one has no file
+   * routes at all: registering them regardless would answer a real request with an internal
+   * error from a missing dependency, which is a worse answer than "no such route".
+   */
+  files?: FileRouteDeps;
 };
 
 export function createApp(deps: AppDeps): Hono {
@@ -106,6 +114,8 @@ export function createApp(deps: AppDeps): Hono {
 
     return await deps.stream.upgradeWebSocket(c, events);
   });
+
+  if (deps.files !== undefined) registerFileRoutes(app, deps.files);
 
   // Hono's default 404 is text/plain; every client of this API speaks JSON, and an HTML or
   // bare-text body on the error path turns a typo'd URL into an unreadable parse failure.

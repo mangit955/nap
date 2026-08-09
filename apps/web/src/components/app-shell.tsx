@@ -1,6 +1,6 @@
 import { LiveChatPane } from "./chat-pane.tsx";
 import { LiveConnectionStatus } from "./connection-status.tsx";
-import { FileTreePane } from "./file-tree-pane.tsx";
+import { LiveFileTreePane } from "./file-tree-pane.tsx";
 import { LivePreviewPane } from "./preview-pane.tsx";
 
 /**
@@ -28,7 +28,7 @@ export function AppShell() {
       <main className="grid min-h-0 flex-1 grid-cols-[360px_1fr_260px] gap-px bg-edge">
         <LiveChatPane />
         <LivePreviewPane />
-        <FileTreePane />
+        <LiveFileTreePane />
       </main>
     </div>
   );
