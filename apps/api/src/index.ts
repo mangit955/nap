@@ -22,6 +22,7 @@ import { createDatabase } from "@nap/db/client";
 import { InProcessEventBus } from "@nap/db/in-process-event-bus";
 import { PostgresEventStore } from "@nap/db/postgres-event-store";
 import { PostgresProjectSandboxStore } from "@nap/db/postgres-project-sandbox-store";
+import { PostgresProjectStore } from "@nap/db/postgres-project-store";
 import { PostgresSessionStore } from "@nap/db/postgres-session-store";
 import { PostgresSnapshotStore } from "@nap/db/postgres-snapshot-store";
 import { createProjectSession } from "@nap/db/session-bootstrap";
@@ -80,6 +81,7 @@ const objects = new R2ObjectStore(
 );
 const snapshots = new PostgresSnapshotStore(db);
 const projectSandboxes = new PostgresProjectSandboxStore(db);
+const projects = new PostgresProjectStore(db);
 
 /**
  * The same models either way — only the client and the shape of the model id differ, and
@@ -129,7 +131,18 @@ const app = createApp({
   stream: { store, bus, upgradeWebSocket },
   files: { sessions, sandbox },
   turns: { runtime, registry, sessions },
-  sessions: { createSession: (options) => createProjectSession(db, options) },
+  projects: {
+    projects,
+    projectSandboxes,
+    snapshots,
+    objects,
+    sandbox,
+    createProject: (options) => createProjectSession(db, options),
+    // The same registry the turn routes write to and the reaper reads, so "busy" means one
+    // thing everywhere: closing or deleting a project mid-turn is refused for the same reason
+    // the reaper skips it.
+    isBusy: (sessionIds) => sessionIds.some((id) => registry.isRunning(id)),
+  },
 });
 
 /**

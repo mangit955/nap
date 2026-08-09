@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { eq } from "drizzle-orm";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
@@ -113,5 +114,19 @@ describe("setSandboxId", () => {
     // looked the session up, so it is a bug in the caller rather than an outcome to return —
     // the in-memory fake makes the same promise.
     await expect(store.setSandboxId(randomUUID(), "sbx_x")).rejects.toThrow();
+  });
+});
+
+describe("the status a project is in", () => {
+  it("moves a project to ready when a sandbox starts serving it", async () => {
+    // Nothing else ever moved a project off `creating`, so every project in a real database
+    // claimed to be mid-creation forever — including ones that had been running for hours.
+    const projectId = await seedProject();
+    const sessionId = await seedSession(projectId);
+
+    await store.setSandboxId(sessionId, "sbx_live");
+
+    const [row] = await db.select().from(projects).where(eq(projects.id, projectId));
+    expect(row?.status).toBe("ready");
   });
 });

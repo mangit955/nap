@@ -342,6 +342,8 @@ Create/open/close/delete. Delete removes snapshots from R2.
 **Tests:** create seeds a project + first session; delete cascades to sessions, events, and R2 objects; open of an archived project triggers restore; listing is ordered by `updated_at`.
 **Done when:** the cascade test proves no orphaned R2 objects.
 
+> Amended during M4-4. **The front door moved**: `/` is the project list and the workspace is `/p/[projectId]`, which retires `POST /sessions` and the `localStorage` session id together — a project is now a URL rather than whatever this browser opened last. Which session a project opens in is the server's answer (its newest), so a link cannot go stale as the project grows conversations. **Delete's order is the reverse of teardown's**: sandbox, then objects, then rows, because the snapshot rows are the only record of which objects exist and deleting them first strands every bundle. A failed object delete stops before the database is touched, and the whole operation is safe to repeat. **Close and delete refuse while a turn is running** (409, from the same `TurnRegistry` the reaper consults). "Open of an archived project triggers restore" needed no new code: M4-2 restores whenever `sandbox_id` is null. `projects.status` is settled here as M0-5 asked — `creating`, `ready`, `idle` are used and mean something exact; `archived` and `error` stay in the enum unused.
+
 **M4-5 — Full-cycle integration test** · deps: M4-2, M4-3
 One `test:integration` covering create → turn → teardown → restore → second turn.
 **Done when:** green end to end.

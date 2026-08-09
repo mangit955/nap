@@ -6,10 +6,9 @@
  * snapshot it, destroy the sandbox, and record that the project no longer has one — after
  * which the next turn restores it, which is why any of this is safe.
  *
- * **It adds no ordering rules of its own.** `tearDownProject` already guarantees the one that
- * matters — bytes, then row, then destroy — so a snapshot that fails leaves the sandbox alive
- * by construction rather than because of a branch here. What this file owns is *which*
- * projects, and what to do when one of them fails.
+ * **It adds no rules of its own about how a project is put away.** That whole operation —
+ * snapshot, destroy, record — is `putProjectAway`, which the close endpoint calls too, so the
+ * two cannot drift. What this file owns is *which* projects and *when*.
  *
  * **The busy check is a filter, not a lock.** A turn that starts in the moment between the
  * check and the destroy still finds its sandbox gone. That is acceptable and the alternative
@@ -26,11 +25,11 @@ import type { ObjectStore } from "@nap/shared/ports/object-store";
 import type { IdleProject, ProjectSandboxStore } from "@nap/shared/ports/project-sandbox-store";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
-import { tearDownProject } from "./teardown.ts";
+import { putProjectAway } from "./close-project.ts";
 
 export type SweepFailure = {
   projectId: string;
-  /** `tearDownProject`'s own reasons, plus the one this file can add. */
+  /** Whatever `putProjectAway` reported — a teardown reason, or a failed row update. */
   reason: string;
   message: string;
 };
@@ -78,7 +77,8 @@ export async function sweepIdleProjects(options: SweepOptions): Promise<SweepRes
       continue;
     }
 
-    const torn = await tearDownProject({
+    const closed = await putProjectAway({
+      projects: options.projects,
       sandbox: options.sandbox,
       objects: options.objects,
       snapshots: options.snapshots,
@@ -86,47 +86,13 @@ export async function sweepIdleProjects(options: SweepOptions): Promise<SweepRes
       sandboxId: project.sandboxId,
     });
 
-    if (!torn.ok && torn.error.reason === "sandbox_gone") {
-      // Nothing to snapshot and nothing left to bill for. Retrying would fail identically
-      // every tick from now on, so the reference is dropped — with a null key, because no
-      // new snapshot was taken and the one already recorded may be all that is left of the
-      // project. The next turn restores from it.
-      try {
-        await options.projects.releaseSandbox(project.projectId, null);
-        result.abandoned.push(project.projectId);
-      } catch (error) {
-        result.failed.push({
-          projectId: project.projectId,
-          reason: "release_failed",
-          message: String(error),
-        });
-      }
-      continue;
-    }
-
-    if (!torn.ok) {
-      // The sandbox is untouched and the project still points at it, so the next sweep tries
-      // again. Losing track of it would mean a sandbox nobody can find and nobody stops paying
-      // for.
+    if (closed.outcome === "put_away") result.reaped.push(project.projectId);
+    else if (closed.outcome === "abandoned") result.abandoned.push(project.projectId);
+    else {
       result.failed.push({
         projectId: project.projectId,
-        reason: torn.error.reason,
-        message: torn.error.message,
-      });
-      continue;
-    }
-
-    try {
-      await options.projects.releaseSandbox(project.projectId, torn.value.key);
-      result.reaped.push(project.projectId);
-    } catch (error) {
-      // The snapshot is safe and the sandbox is gone; only the bookkeeping is behind. The next
-      // turn will fail to resume and restore from that snapshot, which is the same outcome by
-      // a slower road.
-      result.failed.push({
-        projectId: project.projectId,
-        reason: "release_failed",
-        message: String(error),
+        reason: closed.reason,
+        message: closed.message,
       });
     }
   }

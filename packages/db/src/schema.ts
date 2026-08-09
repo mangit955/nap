@@ -34,8 +34,13 @@ import {
 } from "drizzle-orm/pg-core";
 
 /**
- * Provisional. The plan never fixes this vocabulary — these are what the lifecycle tasks
- * imply (template scaffold, restore-on-open, idle reaper). Project CRUD owns settling it.
+ * What state a project is in, from the point of view of somebody looking at their list.
+ *
+ * Three of these are used and mean something exact: `creating` is a row that has never had a
+ * sandbox, `ready` is one with a sandbox serving it now, and `idle` is one that has been put
+ * away and will be restored from its snapshot on the next message. `archived` and `error` are
+ * kept because removing a value from a Postgres enum costs a migration and neither is in the
+ * way; nothing sets them, and anything that starts to should say what it means here first.
  */
 export const projectStatus = pgEnum("project_status", [
   "creating",

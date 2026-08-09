@@ -13,7 +13,7 @@ import { type Context, Hono } from "hono";
 import type { WSEvents } from "hono/ws";
 import { type FileRouteDeps, registerFileRoutes } from "./files/routes.ts";
 import { getLogger, type Logger, withLogContext } from "./logger.ts";
-import { registerSessionRoutes, type SessionRouteDeps } from "./sessions/routes.ts";
+import { type ProjectRouteDeps, registerProjectRoutes } from "./projects/routes.ts";
 import { registerTurnRoutes, type TurnRouteDeps } from "./turns/routes.ts";
 import { type HeartbeatOptions, openEventStream } from "./ws/event-stream.ts";
 import { parseStreamQuery } from "./ws/query.ts";
@@ -48,8 +48,12 @@ export type AppDeps = {
    * rather than a route that fails once it is called.
    */
   turns?: TurnRouteDeps;
-  /** Creating a project and a session to talk in. Optional for the same reason as above. */
-  sessions?: SessionRouteDeps;
+  /**
+   * Listing, creating, closing and deleting projects — the front door. Optional for the same
+   * reason as above: most route tests have no database behind them, and an app built without
+   * one should have no project routes rather than routes that fail once they are called.
+   */
+  projects?: ProjectRouteDeps;
 };
 
 export function createApp(deps: AppDeps): Hono {
@@ -127,7 +131,7 @@ export function createApp(deps: AppDeps): Hono {
 
   if (deps.files !== undefined) registerFileRoutes(app, deps.files);
   if (deps.turns !== undefined) registerTurnRoutes(app, deps.turns);
-  if (deps.sessions !== undefined) registerSessionRoutes(app, deps.sessions);
+  if (deps.projects !== undefined) registerProjectRoutes(app, deps.projects);
 
   // Hono's default 404 is text/plain; every client of this API speaks JSON, and an HTML or
   // bare-text body on the error path turns a typo'd URL into an unreadable parse failure.
