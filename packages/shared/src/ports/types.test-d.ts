@@ -78,6 +78,7 @@ const sandboxStub: SandboxManager = {
   create: async () => ({ ok: true, value: { id: "sandbox_1", projectId: "project_1" } }),
   resume: async () => ({ ok: true, value: { id: "sandbox_1", projectId: "project_1" } }),
   destroy: async () => ({ ok: true, value: undefined }),
+  extendTimeout: async () => ({ ok: true, value: undefined }),
   writeFile: async () => ({ ok: true, value: undefined }),
   readFile: async () => ({ ok: true, value: "contents" }),
   listFiles: async () => ({ ok: true, value: [] }),

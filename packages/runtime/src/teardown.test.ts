@@ -1,6 +1,7 @@
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
 import { TEMPLATE_WORKDIR } from "@nap/sandbox/template";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
+import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import { beforeEach, describe, expect, it } from "vitest";
 import { snapshotKey, tearDownProject } from "./teardown.ts";
@@ -33,6 +34,22 @@ beforeEach(async () => {
   sandboxId = created.value.id;
   await sandbox.writeFile(sandboxId, `${TEMPLATE_WORKDIR}/src/App.tsx`, "export default null;");
 });
+
+/** Every method, bound to the instance, so a spread cannot lose the private state behind it. */
+function boundSandbox(manager: SandboxManager): SandboxManager {
+  return {
+    create: (projectId) => manager.create(projectId),
+    resume: (id) => manager.resume(id),
+    destroy: (id) => manager.destroy(id),
+    extendTimeout: (id, ms) => manager.extendTimeout(id, ms),
+    writeFile: (id, path, contents) => manager.writeFile(id, path, contents),
+    readFile: (id, path) => manager.readFile(id, path),
+    listFiles: (id, path) => manager.listFiles(id, path),
+    exec: (id, command, onOutput) => manager.exec(id, command, onOutput),
+    getPreviewUrl: (id, port) => manager.getPreviewUrl(id, port),
+    waitForPreview: (id, port, opts) => manager.waitForPreview(id, port, opts),
+  };
+}
 
 function tearDown() {
   return tearDownProject({ sandbox, objects, snapshots, projectId: PROJECT, sandboxId });
@@ -148,13 +165,25 @@ describe("the data-loss guard", () => {
 describe("when the sandbox will not go away", () => {
   it("still reports success, because the project is already safe", async () => {
     // The snapshot is written and the row is recorded; a sandbox that refuses to die is a
-    // billing problem for whatever runs next, not a failed teardown.
-    await sandbox.destroy(sandboxId);
+    // billing problem for whatever runs next, not a failed teardown. `destroyed: false` is
+    // how the caller finds out, which is the only reason that field exists.
+    // Delegation rather than a Proxy or Object.create: the fake keeps its state in `#private`
+    // fields, and those throw through either because the receiver is no longer the instance.
+    const undestroyable: SandboxManager = {
+      ...boundSandbox(sandbox),
+      destroy: async () => ({ ok: false, error: { code: "unavailable", message: "busy" } }),
+    };
 
-    const result = await tearDown();
+    const result = await tearDownProject({
+      sandbox: undestroyable,
+      objects,
+      snapshots,
+      projectId: PROJECT,
+      sandboxId,
+    });
 
-    expect(result.ok).toBe(false);
-    expect(result.ok === false && result.error.reason).toBe("bundle_failed");
+    expect(result).toMatchObject({ ok: true, value: { destroyed: false } });
+    expect(snapshots.all()).toHaveLength(1);
   });
 });
 
@@ -176,5 +205,27 @@ describe("snapshotKey", () => {
 
   it("contains nothing that needs escaping in a URL", () => {
     expect(snapshotKey(PROJECT, SHA, 1)).toMatch(/^[a-zA-Z0-9/._-]+$/);
+  });
+});
+
+describe("a sandbox that is already gone", () => {
+  it("is reported as such rather than as a failed bundle", async () => {
+    // E2B kills sandboxes on its own timer, so a row can outlive the thing it names. The
+    // caller has to be able to tell "I could not snapshot this" from "there is nothing left
+    // to snapshot" — one is worth retrying every minute and the other never is.
+    await sandbox.destroy(sandboxId);
+
+    const result = await tearDown();
+
+    expect(result).toMatchObject({ ok: false, error: { reason: "sandbox_gone" } });
+  });
+
+  it("still reports a genuine git failure as a failed bundle", async () => {
+    // The distinction is the sandbox being unreachable, not any failure while reading it.
+    sandbox.script(/git rev-parse HEAD/, { exitCode: 128, stderr: "fatal: not a git repository" });
+
+    const result = await tearDown();
+
+    expect(result).toMatchObject({ ok: false, error: { reason: "bundle_failed" } });
   });
 });

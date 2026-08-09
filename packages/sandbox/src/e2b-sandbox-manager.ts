@@ -58,6 +58,8 @@ export type E2BSandboxHandle = {
   getHost(port: number): string;
   /** Reads back what `create` stored, which is how a resume recovers the project id. */
   getMetadata(): Promise<Record<string, string>>;
+  /** Resets the sandbox's lifetime to `ms` from now. */
+  setTimeout(ms: number): Promise<void>;
   kill(): Promise<boolean>;
 };
 
@@ -67,7 +69,7 @@ export type E2BEntry = { name: string; path: string; type?: FileType };
 export type E2BCommandResult = { exitCode: number; stdout: string; stderr: string };
 
 export type E2BClient = {
-  create(opts: { metadata: Record<string, string> }): Promise<E2BSandboxHandle>;
+  create(opts: { metadata: Record<string, string>; timeoutMs?: number }): Promise<E2BSandboxHandle>;
   connect(sandboxId: string): Promise<E2BSandboxHandle>;
 };
 
@@ -76,6 +78,14 @@ export type E2BSandboxManagerOptions = {
   client?: E2BClient;
   /** Template to create sandboxes from; the project template arrives in a later task. */
   template?: string;
+  /**
+   * How long a new sandbox lives before E2B kills it, in milliseconds.
+   *
+   * Left unset, the SDK's own default applies — five minutes, measured from creation and
+   * unaffected by anything happening inside. Whoever knows a project is in use is expected
+   * to push the deadline back with `extendTimeout`; this is only the starting budget.
+   */
+  timeoutMs?: number;
 };
 
 /** Where the metadata key lives, so create and resume cannot drift apart. */
@@ -128,6 +138,7 @@ function realClient(template: string | undefined): E2BClient {
     },
     getHost: (port) => sandbox.getHost(port),
     getMetadata: async () => (await sandbox.getInfo()).metadata,
+    setTimeout: (ms) => sandbox.setTimeout(ms),
     kill: () => sandbox.kill(),
   });
 
@@ -142,6 +153,7 @@ function realClient(template: string | undefined): E2BClient {
 
 export class E2BSandboxManager implements SandboxManager {
   readonly #client: E2BClient;
+  readonly #timeoutMs: number | undefined;
   /** Ids this manager killed, so a use-after-destroy is distinguishable from a bad id. */
   readonly #destroyed = new Set<string>();
   /**
@@ -153,13 +165,17 @@ export class E2BSandboxManager implements SandboxManager {
 
   constructor(options: E2BSandboxManagerOptions = {}) {
     this.#client = options.client ?? realClient(options.template);
+    this.#timeoutMs = options.timeoutMs;
   }
 
   async create(projectId: string): Promise<Result<NapSandbox, SandboxError>> {
     try {
       // Stored on the sandbox rather than only in this process, so a resume in a later
       // process can still say which project the sandbox belongs to.
-      const handle = await this.#client.create({ metadata: { [PROJECT_ID_KEY]: projectId } });
+      const handle = await this.#client.create({
+        metadata: { [PROJECT_ID_KEY]: projectId },
+        ...(this.#timeoutMs === undefined ? {} : { timeoutMs: this.#timeoutMs }),
+      });
       this.#handles.set(handle.sandboxId, handle);
       return { ok: true, value: { id: handle.sandboxId, projectId } };
     } catch (cause) {
@@ -178,6 +194,21 @@ export class E2BSandboxManager implements SandboxManager {
         ok: true,
         value: { id: handle.sandboxId, projectId: metadata[PROJECT_ID_KEY] ?? "" },
       };
+    } catch (cause) {
+      return { ok: false, error: toSandboxError(cause) };
+    }
+  }
+
+  async extendTimeout(sandboxId: string, ms: number): Promise<VoidResult<SandboxError>> {
+    const tombstone = this.#tombstone(sandboxId);
+    if (tombstone !== undefined) return tombstone;
+
+    try {
+      const handle = await this.#handle(sandboxId);
+      // Resets to `ms` from now rather than adding to what is left, which is what makes this
+      // a keepalive: every turn puts the whole budget back.
+      await handle.setTimeout(ms);
+      return { ok: true, value: undefined };
     } catch (cause) {
       return { ok: false, error: toSandboxError(cause) };
     }

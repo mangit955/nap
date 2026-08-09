@@ -27,6 +27,7 @@ function stubHandle(overrides: Partial<E2BSandboxHandle> = {}): E2BSandboxHandle
     commands: { run: () => Promise.reject(new Error("commands.run not stubbed")) },
     getHost: (port) => `${port}-sbx_stub.e2b.app`,
     getMetadata: () => Promise.resolve({ projectId: "project" }),
+    setTimeout: () => Promise.resolve(),
     kill: () => Promise.resolve(true),
     ...overrides,
   };
@@ -472,5 +473,55 @@ describe("E2BSandboxManager lifecycle", () => {
     const url = await manager.getPreviewUrl(sandboxId, 5173);
 
     expect(url).toEqual({ ok: true, value: "https://5173-sbx_stub.e2b.app" });
+  });
+});
+
+describe("keeping a sandbox alive", () => {
+  it("creates sandboxes with the lifetime it was configured with", async () => {
+    // E2B's own default is five minutes from *creation*, active or not. Left alone, a
+    // conversation that pauses for a coffee comes back to a workspace that no longer exists.
+    const asked: { timeoutMs?: number }[] = [];
+    const handle = stubHandle();
+    const manager = new E2BSandboxManager({
+      timeoutMs: 30 * 60 * 1000,
+      client: {
+        create: (opts) => {
+          asked.push(opts);
+          return Promise.resolve(handle);
+        },
+        connect: () => Promise.resolve(handle),
+      },
+    });
+
+    await manager.create("project");
+
+    expect(asked).toEqual([{ metadata: { projectId: "project" }, timeoutMs: 30 * 60 * 1000 }]);
+  });
+
+  it("pushes the deadline back on an existing sandbox", async () => {
+    const extended: number[] = [];
+    const { manager, sandboxId } = await managerWith(
+      stubHandle({
+        setTimeout: (ms) => {
+          extended.push(ms);
+          return Promise.resolve();
+        },
+      }),
+    );
+
+    const result = await manager.extendTimeout(sandboxId, 15 * 60 * 1000);
+
+    expect(result).toEqual({ ok: true, value: undefined });
+    expect(extended).toEqual([15 * 60 * 1000]);
+  });
+
+  it("reports a sandbox that is already gone rather than throwing", async () => {
+    const { manager, sandboxId } = await managerWith(
+      stubHandle({ setTimeout: () => Promise.reject(new SandboxNotFoundError("gone")) }),
+    );
+
+    const result = await manager.extendTimeout(sandboxId, 60_000);
+
+    expect(result).toMatchObject({ ok: false, error: { code: "not_found" } });
   });
 });

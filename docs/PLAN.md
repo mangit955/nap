@@ -335,6 +335,8 @@ Background job: sandboxes idle > N minutes are snapshotted and destroyed.
 **Tests (fake clock):** an idle sandbox is reaped after N; activity resets the timer; a sandbox with a turn in flight is never reaped; a snapshot failure defers destruction.
 **Done when:** the never-reap-during-turn test is green.
 
+> Amended during M4-3. Two things the task could not be built without. **The R2 adapter landed here** (`packages/storage/src/r2-object-store.ts`), because a reaper wired to nothing snapshots nothing — R2 is S3-compatible, so it is the AWS S3 client behind a narrow three-method seam. And **E2B kills every sandbox five minutes after creation by default, active or not**, which made the reaper a race it always lost: sandboxes are now created with an explicit TTL and every turn pushes it back through a new `SandboxManager.extendTimeout`. The idle threshold must stay below that TTL — whichever expires first decides whether an idle project is *put away* or simply lost — and boot refuses to start otherwise. Idleness itself is read from the event log rather than a `last_active_at` column: writing events is what a turn is, so it cannot drift.
+
 **M4-4 — Project CRUD + list page** · deps: M0-5, M4-2
 Create/open/close/delete. Delete removes snapshots from R2.
 **Tests:** create seeds a project + first session; delete cascades to sessions, events, and R2 objects; open of an archived project triggers restore; listing is ordered by `updated_at`.

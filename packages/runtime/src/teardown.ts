@@ -20,12 +20,20 @@
 
 import { bundle, currentSha } from "@nap/sandbox/git";
 import type { ObjectStore } from "@nap/shared/ports/object-store";
-import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
+import type { SandboxError, SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
 import type { Result } from "@nap/shared/result";
 
 export type TeardownFailureReason =
-  /** The repository could not be read or bundled; the sandbox may be unreachable. */
+  /**
+   * The sandbox no longer exists, so there is nothing left to snapshot.
+   *
+   * Distinct from every other failure because it is the one that will never succeed on a
+   * retry. A caller sweeping projects has to stop trying and write the sandbox off, or it
+   * spends every tick from now on tearing down something that is already gone.
+   */
+  | "sandbox_gone"
+  /** The repository could not be read or bundled; the sandbox itself is reachable. */
   | "bundle_failed"
   /** Object storage refused the bytes. */
   | "upload_failed"
@@ -77,12 +85,12 @@ export async function tearDownProject(
 
   const sha = await currentSha(sandbox, sandboxId);
   if (!sha.ok) {
-    return fail("bundle_failed", `could not read HEAD: ${sha.error.message}`);
+    return fail(reasonFor(sha.error), `could not read HEAD: ${sha.error.message}`);
   }
 
   const bytes = await bundle(sandbox, sandboxId);
   if (!bytes.ok) {
-    return fail("bundle_failed", `could not bundle the repository: ${bytes.error.message}`);
+    return fail(reasonFor(bytes.error), `could not bundle the repository: ${bytes.error.message}`);
   }
 
   const key = snapshotKey(projectId, sha.value, now());
@@ -105,6 +113,18 @@ export async function tearDownProject(
   const destroyed = await sandbox.destroy(sandboxId);
 
   return { ok: true, value: { key, gitSha: sha.value, destroyed: destroyed.ok } };
+}
+
+/**
+ * Whether the sandbox answered at all.
+ *
+ * A command that ran and failed is a project problem worth retrying; a sandbox that is not
+ * there is a fact that will not change.
+ */
+function reasonFor(error: SandboxError): TeardownFailureReason {
+  return error.code === "not_found" || error.code === "destroyed"
+    ? "sandbox_gone"
+    : "bundle_failed";
 }
 
 function fail(reason: TeardownFailureReason, message: string): Result<never, TeardownError> {

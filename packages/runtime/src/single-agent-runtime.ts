@@ -50,6 +50,15 @@ const COMMIT_SUBJECT_LIMIT = 72;
  */
 const PREVIEW_TIMEOUT_MS = 20_000;
 
+/**
+ * How long a sandbox is kept alive after a turn touches it.
+ *
+ * Longer than the reaper's idle threshold on purpose: the reaper takes a snapshot before it
+ * destroys anything, and the provider's own timer does not. Whichever fires first decides
+ * whether an idle project is put away or simply lost, so this side has to be the slower one.
+ */
+const DEFAULT_SANDBOX_TTL_MS = 30 * 60 * 1000;
+
 /** A sandbox to work in, whether this turn created it, and anything the user should be told. */
 type AcquiredSandbox = {
   id: string;
@@ -89,6 +98,13 @@ export type SingleAgentRuntimeOptions = {
   /** The port the project's dev server listens on. Defaults to the template's. */
   previewPort?: number;
   previewTimeoutMs?: number;
+  /**
+   * How long a resumed sandbox is kept alive for, in milliseconds.
+   *
+   * Must stay comfortably longer than whatever idle threshold the reaper uses, or the
+   * provider's own timer wins the race and the project is destroyed without a snapshot.
+   */
+  sandboxTtlMs?: number;
 };
 
 export class SingleAgentRuntime implements Runtime {
@@ -97,6 +113,7 @@ export class SingleAgentRuntime implements Runtime {
   readonly #newTurnId: () => string;
   readonly #previewPort: number;
   readonly #previewTimeoutMs: number;
+  readonly #sandboxTtlMs: number;
   readonly #restore: RestoreDeps | null;
   /** The tail of each session's queue. Absent means nothing is running for that session. */
   readonly #queues = new Map<string, Promise<unknown>>();
@@ -108,6 +125,7 @@ export class SingleAgentRuntime implements Runtime {
     this.#newTurnId = options.newTurnId ?? (() => crypto.randomUUID());
     this.#previewPort = options.previewPort ?? TEMPLATE_DEV_PORT;
     this.#previewTimeoutMs = options.previewTimeoutMs ?? PREVIEW_TIMEOUT_MS;
+    this.#sandboxTtlMs = options.sandboxTtlMs ?? DEFAULT_SANDBOX_TTL_MS;
   }
 
   runTurn(request: TurnRequest): Promise<TurnOutcome> {
@@ -266,6 +284,12 @@ export class SingleAgentRuntime implements Runtime {
     if (session.sandboxId !== null) {
       const resumed = await this.#options.sandbox.resume(session.sandboxId);
       if (resumed.ok) {
+        // Every provider kills a sandbox on a timer that starts when it was created, not when
+        // it was last used, so a conversation that goes on longer than the budget would lose
+        // its workspace mid-sentence. A turn is exactly the signal that someone is still here.
+        // The result is deliberately not checked: the sandbox has just answered a resume, and
+        // failing a turn over a keepalive would trade a small risk for a certain outage.
+        await this.#options.sandbox.extendTimeout(resumed.value.id, this.#sandboxTtlMs);
         return { ok: true, value: { id: resumed.value.id, created: false, notices: [] } };
       }
       if (this.#restore === null) return resumed;

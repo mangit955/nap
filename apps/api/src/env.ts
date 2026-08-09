@@ -55,6 +55,29 @@ const BaseSchema = z.object({
   /** Model calls in one turn, and the ceiling on the context assembled for each of them. */
   NAP_MAX_STEPS: z.coerce.number().int().positive().default(24),
   NAP_CONTEXT_BUDGET_TOKENS: z.coerce.number().int().positive().default(80_000),
+
+  /**
+   * Where a project's bytes live while no sandbox is holding them.
+   *
+   * Required from the moment the server can put a project away and take it out again: a
+   * process without a bucket destroys sandboxes it cannot snapshot, which is the one failure
+   * mode this whole area exists to prevent.
+   */
+  R2_ACCOUNT_ID: z.string().min(1),
+  R2_BUCKET: z.string().min(1),
+  R2_ACCESS_KEY_ID: z.string().min(1),
+  R2_SECRET_ACCESS_KEY: z.string().min(1),
+
+  /**
+   * When an unused project is put away, and how long its sandbox lives in the meantime.
+   *
+   * **The idle threshold must stay well below the sandbox lifetime.** Whichever expires first
+   * decides what happens to an idle project: the reaper snapshots it before destroying it, and
+   * the provider's own timer simply deletes it. There is a boot check below for that.
+   */
+  NAP_REAP_IDLE_MINUTES: z.coerce.number().int().positive().default(10),
+  NAP_REAP_INTERVAL_SECONDS: z.coerce.number().int().positive().default(60),
+  NAP_SANDBOX_TTL_MINUTES: z.coerce.number().int().positive().default(30),
 });
 
 /**
@@ -75,6 +98,17 @@ export const EnvSchema = BaseSchema.superRefine((env, ctx) => {
       code: "custom",
       path: [key],
       message: `is required when NAP_PLATFORM is ${env.NAP_PLATFORM}`,
+    });
+  }
+
+  // A configuration that reaps later than the provider kills is worse than no reaper at all:
+  // every idle project would be deleted without a snapshot, silently, and the logs would show
+  // a reaper finding nothing to do.
+  if (env.NAP_REAP_IDLE_MINUTES >= env.NAP_SANDBOX_TTL_MINUTES) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["NAP_REAP_IDLE_MINUTES"],
+      message: `must be less than NAP_SANDBOX_TTL_MINUTES (${env.NAP_SANDBOX_TTL_MINUTES}), or sandboxes expire before they are snapshotted`,
     });
   }
 });

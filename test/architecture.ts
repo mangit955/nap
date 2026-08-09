@@ -57,6 +57,11 @@ const EXCLUSIVE_EXTERNALS: Record<string, { owner: string; reason: string }> = {
     reason:
       "The Anthropic SDK belongs to @nap/agent. Depend on the LLMProvider interface from @nap/shared instead — see docs/PLAN.md §0. The interface is not a cross-vendor swap, but model id, effort, retries and refusal handling still belong in one place rather than at every call site.",
   },
+  "@aws-sdk/client-s3": {
+    owner: "@nap/storage",
+    reason:
+      "The S3 client belongs to @nap/storage, which is the only place that knows a project's bytes live in R2. Depend on the ObjectStore interface from @nap/shared instead — everything above it is written against three methods and must keep working when the bucket is a map in a test.",
+  },
   "@anthropic-ai/bedrock-sdk": {
     owner: "@nap/agent",
     reason:

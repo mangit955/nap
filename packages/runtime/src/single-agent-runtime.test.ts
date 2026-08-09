@@ -780,3 +780,40 @@ describe("opening a project that has been put away", () => {
     ).toThrow(/both/i);
   });
 });
+
+describe("keeping a resumed sandbox alive", () => {
+  it("pushes the sandbox's deadline back when a turn resumes it", async () => {
+    // Providers kill a sandbox on a timer that starts at creation, not at the last thing
+    // anyone did. Without this, a long conversation loses its workspace mid-sentence.
+    const created = await sandbox.create(PROJECT_ID);
+    if (!created.ok) throw new Error("could not seed a sandbox");
+
+    await runtime(new ScriptedAgent(HAPPY_SCRIPT, true), {
+      sessions: new InMemorySessionStore([
+        { sessionId: SESSION_ID, projectId: PROJECT_ID, sandboxId: created.value.id },
+      ]),
+    }).runTurn({ sessionId: SESSION_ID, message: "carry on" });
+
+    expect(sandbox.timeoutOf(created.value.id)).toBe(30 * 60 * 1000);
+  });
+
+  it("uses the lifetime it was configured with", async () => {
+    const created = await sandbox.create(PROJECT_ID);
+    if (!created.ok) throw new Error("could not seed a sandbox");
+
+    await new SingleAgentRuntime({
+      sessions: new InMemorySessionStore([
+        { sessionId: SESSION_ID, projectId: PROJECT_ID, sandboxId: created.value.id },
+      ]),
+      sandbox,
+      context,
+      agent: new ScriptedAgent(HAPPY_SCRIPT, true),
+      events,
+      bus,
+      memory: new NoopMemoryProvider(),
+      sandboxTtlMs: 90_000,
+    }).runTurn({ sessionId: SESSION_ID, message: "carry on" });
+
+    expect(sandbox.timeoutOf(created.value.id)).toBe(90_000);
+  });
+});

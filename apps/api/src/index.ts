@@ -21,11 +21,15 @@ import { NoopMemoryProvider } from "@nap/context/noop-memory-provider";
 import { createDatabase } from "@nap/db/client";
 import { InProcessEventBus } from "@nap/db/in-process-event-bus";
 import { PostgresEventStore } from "@nap/db/postgres-event-store";
+import { PostgresProjectSandboxStore } from "@nap/db/postgres-project-sandbox-store";
 import { PostgresSessionStore } from "@nap/db/postgres-session-store";
+import { PostgresSnapshotStore } from "@nap/db/postgres-snapshot-store";
 import { createProjectSession } from "@nap/db/session-bootstrap";
+import { startReaper, sweepIdleProjects } from "@nap/runtime/reaper";
 import { SingleAgentRuntime } from "@nap/runtime/single-agent-runtime";
 import { E2BSandboxManager } from "@nap/sandbox/e2b-sandbox-manager";
 import { NAP_TEMPLATE } from "@nap/sandbox/template";
+import { createR2Client, R2ObjectStore } from "@nap/storage/r2-object-store";
 import { upgradeWebSocket, websocket } from "hono/bun";
 import { createApp } from "./app.ts";
 import { EnvValidationError, parseEnv } from "./env.ts";
@@ -57,7 +61,25 @@ setRootLogger(logger);
 const { db } = createDatabase(env.DATABASE_URL);
 
 const sessions = new PostgresSessionStore(db);
-const sandbox = new E2BSandboxManager({ template: NAP_TEMPLATE });
+const sandbox = new E2BSandboxManager({
+  template: NAP_TEMPLATE,
+  // E2B's own default is five minutes from creation, whatever is happening inside. Every
+  // turn pushes this back; the reaper below is what ends a sandbox nobody is using, and it
+  // takes a snapshot first.
+  timeoutMs: env.NAP_SANDBOX_TTL_MINUTES * 60 * 1000,
+});
+
+// A project's bytes while nothing is running, and the rows that say where they are.
+const objects = new R2ObjectStore(
+  createR2Client({
+    accountId: env.R2_ACCOUNT_ID,
+    bucket: env.R2_BUCKET,
+    accessKeyId: env.R2_ACCESS_KEY_ID,
+    secretAccessKey: env.R2_SECRET_ACCESS_KEY,
+  }),
+);
+const snapshots = new PostgresSnapshotStore(db);
+const projectSandboxes = new PostgresProjectSandboxStore(db);
 
 /**
  * The same models either way — only the client and the shape of the model id differ, and
@@ -82,9 +104,16 @@ function buildProvider(): ClaudeProvider {
 const store = new PostgresEventStore(db);
 const bus = new InProcessEventBus();
 
+const registry = new TurnRegistry();
+
 const runtime = new SingleAgentRuntime({
   sessions,
   sandbox,
+  // With these, a project outlives its sandbox: a session whose sandbox is gone is restored
+  // from its last snapshot rather than starting again from an empty template.
+  objects,
+  snapshots,
+  sandboxTtlMs: env.NAP_SANDBOX_TTL_MINUTES * 60 * 1000,
   context: new NapContextEngine({ budgetTokens: env.NAP_CONTEXT_BUDGET_TOKENS }),
   agent: new NapAgentService({
     provider: buildProvider(),
@@ -99,9 +128,48 @@ const app = createApp({
   logger,
   stream: { store, bus, upgradeWebSocket },
   files: { sessions, sandbox },
-  turns: { runtime, registry: new TurnRegistry(), sessions },
+  turns: { runtime, registry, sessions },
   sessions: { createSession: (options) => createProjectSession(db, options) },
 });
+
+/**
+ * Sweeps up sandboxes nobody is using, snapshotting each one before destroying it.
+ *
+ * The busy check reuses the registry the turn routes already write to, which is the only
+ * thing in this process that knows a turn is running. It reads across a project's sessions
+ * because a sandbox belongs to the project they share.
+ */
+const reaper = startReaper({
+  intervalMs: env.NAP_REAP_INTERVAL_SECONDS * 1000,
+  sweep: () =>
+    sweepIdleProjects({
+      projects: projectSandboxes,
+      sandbox,
+      objects,
+      snapshots,
+      idleMs: env.NAP_REAP_IDLE_MINUTES * 60 * 1000,
+      isBusy: (project) => project.sessionIds.some((id) => registry.isRunning(id)),
+    }).then((result) => {
+      if (result.reaped.length > 0) logger.info({ reaped: result.reaped }, "projects put away");
+      // Their sandboxes were reclaimed by something else before we could snapshot them. Worth
+      // a line each: a steady stream of these means the lifetimes above are wrong.
+      for (const projectId of result.abandoned) {
+        logger.warn({ projectId }, "sandbox was already gone; released without a snapshot");
+      }
+      for (const failure of result.failed)
+        logger.error({ failure }, "could not put a project away");
+    }),
+  onError: (error) => logger.error({ err: error }, "reaper sweep threw"),
+});
+
+// A signal means the platform is taking the process away; stopping the timer means an
+// in-flight sweep is not joined by another one on the way out.
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.on(signal, () => {
+    reaper.stop();
+    process.exit(0);
+  });
+}
 
 // Said out loud at startup, because every message a user sends spends money on whatever is
 // named here — that is not something anyone should first learn from an invoice.
@@ -112,6 +180,8 @@ logger.info(
     platform: env.NAP_PLATFORM,
     model: env.NAP_MODEL,
     effort: env.NAP_EFFORT,
+    reapIdleMinutes: env.NAP_REAP_IDLE_MINUTES,
+    sandboxTtlMinutes: env.NAP_SANDBOX_TTL_MINUTES,
   },
   "api listening",
 );

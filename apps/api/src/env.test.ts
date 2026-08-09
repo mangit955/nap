@@ -6,10 +6,19 @@ import { parseEnv } from "./env.ts";
  * mutate global state and never depend on what happens to be exported in the shell.
  */
 
+/** The bucket a project's bytes live in while nothing is running. */
+const R2 = {
+  R2_ACCOUNT_ID: "0123456789abcdef",
+  R2_BUCKET: "nap-snapshots",
+  R2_ACCESS_KEY_ID: "r2-key",
+  R2_SECRET_ACCESS_KEY: "r2-secret",
+} as const;
+
 const VALID = {
   DATABASE_URL: "postgres://nap:nap@localhost:5432/nap",
   E2B_API_KEY: "e2b_test",
   ANTHROPIC_API_KEY: "sk-ant-test",
+  ...R2,
   PORT: "3001",
   LOG_LEVEL: "info",
   NODE_ENV: "development",
@@ -20,6 +29,7 @@ const REQUIRED = {
   DATABASE_URL: VALID.DATABASE_URL,
   E2B_API_KEY: VALID.E2B_API_KEY,
   ANTHROPIC_API_KEY: VALID.ANTHROPIC_API_KEY,
+  ...R2,
 } as const;
 
 describe("parseEnv", () => {
@@ -48,6 +58,7 @@ describe("parseEnv", () => {
       NAP_PLATFORM: "bedrock",
       AWS_BEARER_TOKEN_BEDROCK: "ABSK-test",
       AWS_REGION: "us-east-1",
+      ...R2,
     };
 
     expect(parseEnv(bedrock).NAP_PLATFORM).toBe("bedrock");
@@ -62,6 +73,7 @@ describe("parseEnv", () => {
       NAP_PLATFORM: "bedrock",
       AWS_BEARER_TOKEN_BEDROCK: "ABSK-test",
       AWS_REGION: "us-east-1",
+      ...R2,
     };
     delete bedrock[key];
 
@@ -76,6 +88,7 @@ describe("parseEnv", () => {
         NAP_PLATFORM: "bedrock",
         AWS_BEARER_TOKEN_BEDROCK: "ABSK-test",
         AWS_REGION: "us-east-1",
+        ...R2,
       }),
     ).not.toThrow();
   });
@@ -157,5 +170,38 @@ describe("parseEnv failure", () => {
 
   it("throws rather than returning a result, because a bad env is not a recoverable state", () => {
     expect(() => parseEnv({})).toThrow();
+  });
+});
+
+describe("putting projects away", () => {
+  it("defaults to reaping well before a sandbox expires on its own", () => {
+    const env = parseEnv(REQUIRED);
+
+    expect(env.NAP_REAP_IDLE_MINUTES).toBe(10);
+    expect(env.NAP_SANDBOX_TTL_MINUTES).toBe(30);
+    expect(env.NAP_REAP_INTERVAL_SECONDS).toBe(60);
+  });
+
+  it("refuses to boot when a sandbox would expire before it is reaped", () => {
+    // The whole point of the reaper is that a project is snapshotted before it is destroyed.
+    // Configured this way, the provider's timer wins every race and idle projects are simply
+    // deleted — with a reaper in the logs cheerfully finding nothing to do.
+    expect(() =>
+      parseEnv({ ...REQUIRED, NAP_REAP_IDLE_MINUTES: "45", NAP_SANDBOX_TTL_MINUTES: "30" }),
+    ).toThrow(/NAP_REAP_IDLE_MINUTES/);
+  });
+
+  it("refuses the equal case too, which has the same race", () => {
+    expect(() =>
+      parseEnv({ ...REQUIRED, NAP_REAP_IDLE_MINUTES: "30", NAP_SANDBOX_TTL_MINUTES: "30" }),
+    ).toThrow(/NAP_REAP_IDLE_MINUTES/);
+  });
+
+  it("requires somewhere to put the bytes", () => {
+    // A server that can destroy sandboxes but not snapshot them is worse than one that does
+    // neither, so these become required in the task that first reads them.
+    const { R2_BUCKET: _omitted, ...rest } = REQUIRED;
+
+    expect(() => parseEnv(rest)).toThrow(/R2_BUCKET/);
   });
 });
