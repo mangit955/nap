@@ -82,6 +82,8 @@ function fakeSandbox(): InMemorySandboxManager {
       // Anything unscripted gets a plausible success: this sandbox is a stand-in, not the
       // subject of the run.
       defaultExec: () => ({ exitCode: 0, stdout: "" }),
+      // Serving from the start, so the dry run shows the `preview.ready` a real one emits.
+      serves: [TEMPLATE_DEV_PORT],
     })
       // Non-zero means the index differs from HEAD, which is what makes a commit happen.
       .script(/git diff --cached --quiet/, { exitCode: 1 })

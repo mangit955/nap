@@ -298,6 +298,8 @@ Sandboxed iframe, reload control, loading and error states.
 **Tests:** renders the URL when ready; shows loading before `preview.ready`; shows an actionable error on boot failure; `preview.ready` triggers a hard reload.
 **Done when:** all four states have tests.
 
+> Amended during M3-5. **The producer of `preview.ready` landed in this task, not in M2-8**: nothing had ever emitted it, so the pane would have shown "starting" forever. `SingleAgentRuntime` now awaits `waitForPreview` after acquiring a sandbox and emits — but only for a sandbox it *created*, since a resumed one is already serving and its announcement is in the log for the client to replay; re-announcing would reload the user's app underneath them every turn. A preview timeout does not fail the turn. The reload control works by remounting the frame, because a cross-origin iframe cannot be told to reload from this side, and the frame's `key` carries the announcing event's `seq` so a restarted dev server reloads while an ordinary event does not.
+
 **M3-6 — File tree** · deps: M1-1
 Read-only tree from `listFiles`, syntax-highlighted viewer from `readFile`, highlighting files touched this turn.
 **Tests:** tree renders nested structure; selecting a file loads content; `file.changed` marks the node; a large file is truncated with a notice.

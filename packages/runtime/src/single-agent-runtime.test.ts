@@ -542,3 +542,91 @@ describe("commitMessage", () => {
     expect(commitMessage("   \n  ")).not.toBe("");
   });
 });
+
+describe("telling the client where the preview is", () => {
+  const PORT = 5173;
+
+  it("reports the preview once the new sandbox is serving", async () => {
+    // Nothing else in the system emits this, and without it the preview pane has no address
+    // to point an iframe at — the user watches files change and never sees the app.
+    const serving = scriptGit(new InMemorySandboxManager({ serves: [PORT] }));
+    const agent = new ScriptedAgent(HAPPY_SCRIPT);
+
+    await runtime(agent, { sandbox: serving }).runTurn({
+      sessionId: SESSION_ID,
+      message: "build a todo list",
+    });
+
+    const stored = await events.readFrom(SESSION_ID, 0);
+    expectEventSequence(stored, [
+      "user.message",
+      "preview.ready",
+      "turn.started",
+      "agent.message",
+      "turn.completed",
+    ]);
+
+    const ready = stored.find((event) => event.type === "preview.ready");
+    if (ready === undefined) throw new Error("no preview.ready was logged");
+    expect(ready.payload).toMatchObject({ port: PORT });
+    expect((ready.payload as { url: string }).url).toMatch(/^https:\/\//);
+  });
+
+  it("says nothing about the preview when the sandbox was resumed", async () => {
+    // A resumed sandbox is already serving, and its `preview.ready` is in the log from the
+    // turn that created it — the client replays it. Re-announcing would hard-reload the app
+    // the user is in the middle of using, every single turn.
+    const serving = scriptGit(new InMemorySandboxManager({ serves: [PORT] }));
+    const created = await serving.create(PROJECT_ID);
+    if (!created.ok) throw new Error("could not seed a sandbox");
+
+    const agent = new ScriptedAgent(HAPPY_SCRIPT);
+    await runtime(agent, {
+      sandbox: serving,
+      sessions: new InMemorySessionStore([
+        { sessionId: SESSION_ID, projectId: PROJECT_ID, sandboxId: created.value.id },
+      ]),
+    }).runTurn({ sessionId: SESSION_ID, message: "add a delete button" });
+
+    expect(await loggedTypes()).not.toContain("preview.ready");
+  });
+
+  it("still runs the turn when the dev server never comes up", async () => {
+    // A slow or broken dev server is not a reason to refuse to edit the project. The pane
+    // shows that it is still starting; the agent gets on with the work.
+    const agent = new ScriptedAgent(HAPPY_SCRIPT);
+
+    const outcome = await runtime(agent).runTurn({
+      sessionId: SESSION_ID,
+      message: "build a todo list",
+    });
+
+    expect(outcome.ok).toBe(true);
+    expect(await loggedTypes()).toEqual([
+      "user.message",
+      "turn.started",
+      "agent.message",
+      "turn.completed",
+    ]);
+  });
+
+  it("uses the port it was configured with", async () => {
+    const port = 4321;
+    const serving = scriptGit(new InMemorySandboxManager({ serves: [port] }));
+    const agent = new ScriptedAgent(HAPPY_SCRIPT);
+
+    await new SingleAgentRuntime({
+      sessions,
+      sandbox: serving,
+      context,
+      agent,
+      events,
+      bus,
+      memory: new NoopMemoryProvider(),
+      previewPort: port,
+    }).runTurn({ sessionId: SESSION_ID, message: "build a todo list" });
+
+    const stored = await events.readFrom(SESSION_ID, 0);
+    expect(stored.find((event) => event.type === "preview.ready")?.payload).toMatchObject({ port });
+  });
+});

@@ -23,6 +23,7 @@
  */
 
 import { commitAll } from "@nap/sandbox/git";
+import { TEMPLATE_DEV_PORT } from "@nap/sandbox/template";
 import type { NapEvent, NapEventOf } from "@nap/shared/events";
 import type { AgentService } from "@nap/shared/ports/agent-service";
 import type { ContextEngine } from "@nap/shared/ports/context-engine";
@@ -39,6 +40,16 @@ type Payload<T extends NapEvent["type"]> = NapEventOf<T>["payload"];
 /** Git's own convention for a subject line, and what every log viewer is laid out for. */
 const COMMIT_SUBJECT_LIMIT = 72;
 
+/**
+ * How long to wait for a newly created sandbox's dev server before getting on with the turn.
+ * The project template serves in about two seconds from cold, so this leaves room for a slow
+ * one without holding a turn hostage to it.
+ */
+const PREVIEW_TIMEOUT_MS = 20_000;
+
+/** A sandbox to work in, and whether this turn is the one that brought it into existence. */
+type AcquiredSandbox = { id: string; created: boolean };
+
 export type SingleAgentRuntimeOptions = {
   sessions: SessionStore;
   sandbox: SandboxManager;
@@ -51,12 +62,17 @@ export type SingleAgentRuntimeOptions = {
   now?: () => string;
   /** Injected for the same reason: a turn id a test can predict. */
   newTurnId?: () => string;
+  /** The port the project's dev server listens on. Defaults to the template's. */
+  previewPort?: number;
+  previewTimeoutMs?: number;
 };
 
 export class SingleAgentRuntime implements Runtime {
   readonly #options: SingleAgentRuntimeOptions;
   readonly #now: () => string;
   readonly #newTurnId: () => string;
+  readonly #previewPort: number;
+  readonly #previewTimeoutMs: number;
   /** The tail of each session's queue. Absent means nothing is running for that session. */
   readonly #queues = new Map<string, Promise<unknown>>();
 
@@ -64,6 +80,8 @@ export class SingleAgentRuntime implements Runtime {
     this.#options = options;
     this.#now = options.now ?? (() => new Date().toISOString());
     this.#newTurnId = options.newTurnId ?? (() => crypto.randomUUID());
+    this.#previewPort = options.previewPort ?? TEMPLATE_DEV_PORT;
+    this.#previewTimeoutMs = options.previewTimeoutMs ?? PREVIEW_TIMEOUT_MS;
   }
 
   runTurn(request: TurnRequest): Promise<TurnOutcome> {
@@ -129,9 +147,14 @@ export class SingleAgentRuntime implements Runtime {
       const history = await this.#options.events.readFrom(request.sessionId, 0);
       emit("user.message", { text: request.message });
 
+      // Only for a sandbox this turn created. A resumed one is already serving and announced
+      // itself on the turn that made it — the client replays that. Re-announcing would reload
+      // the app underneath someone in the middle of using it, on every turn.
+      if (sandboxId.value.created) await this.#announcePreview(sandboxId.value.id, emit);
+
       const context = await this.#options.context.build({
         sessionId: request.sessionId,
-        sandboxId: sandboxId.value,
+        sandboxId: sandboxId.value.id,
         userMessage: request.message,
         history,
         sandbox: this.#options.sandbox,
@@ -141,11 +164,11 @@ export class SingleAgentRuntime implements Runtime {
       await this.#options.agent.runTurn({
         sessionId: request.sessionId,
         turnId,
-        sandboxId: sandboxId.value,
+        sandboxId: sandboxId.value.id,
         context,
         sandbox: this.#options.sandbox,
         onEvent: sink.emit,
-        finalize: () => this.#commit(sandboxId.value, request.message),
+        finalize: () => this.#commit(sandboxId.value.id, request.message),
         ...(request.signal === undefined ? {} : { signal: request.signal }),
       });
 
@@ -181,23 +204,43 @@ export class SingleAgentRuntime implements Runtime {
   }
 
   /**
+   * Tells the client where the project is served, once something actually answers there.
+   *
+   * `waitForPreview` rather than `getPreviewUrl`: the second only composes an address, and a
+   * preview shown before the dev server and its public proxy are both up is an error page.
+   *
+   * A timeout is not a turn failure. A slow dev server is no reason to refuse to edit the
+   * project — the pane keeps showing that it is starting, and the agent gets on with the work.
+   */
+  async #announcePreview(
+    sandboxId: string,
+    emit: (type: "preview.ready", payload: Payload<"preview.ready">) => void,
+  ): Promise<void> {
+    const port = this.#previewPort;
+    const ready = await this.#options.sandbox.waitForPreview(sandboxId, port, {
+      timeoutMs: this.#previewTimeoutMs,
+    });
+    if (ready.ok) emit("preview.ready", { url: ready.value, port });
+  }
+
+  /**
    * The sandbox this session's project is served from, resumed if there is one already.
    *
    * A recorded sandbox that cannot be resumed fails the turn rather than quietly starting a
    * new one. Until snapshots can be restored, a fresh sandbox is an empty template — the
    * user would be told their turn succeeded and shown a project with their work gone.
    */
-  async #acquire(session: SessionRecord): Promise<Result<string, SandboxError>> {
+  async #acquire(session: SessionRecord): Promise<Result<AcquiredSandbox, SandboxError>> {
     if (session.sandboxId !== null) {
       const resumed = await this.#options.sandbox.resume(session.sandboxId);
-      return resumed.ok ? { ok: true, value: resumed.value.id } : resumed;
+      return resumed.ok ? { ok: true, value: { id: resumed.value.id, created: false } } : resumed;
     }
 
     const created = await this.#options.sandbox.create(session.projectId);
     if (!created.ok) return created;
 
     await this.#options.sessions.setSandboxId(session.sessionId, created.value.id);
-    return { ok: true, value: created.value.id };
+    return { ok: true, value: { id: created.value.id, created: true } };
   }
 
   /**
