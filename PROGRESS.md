@@ -1,8 +1,14 @@
 # Nap v1 Progress
 
-Current milestone: **M3 — Presentation & Streaming — COMPLETE** (branch `feat/m3-presentation`).
-Next up: **M4 — Persistence**. M0 and M1 are merged to `main`; M2 and M3 are on their branches,
-with M2-1 and M2-9 still `IN_PROGRESS` pending one real run each.
+Current milestone: **M4 — Persistence** (branch `feat/m4-persistence`). M0 through M3 are all
+merged to `main` (M2 and M3 together, in PR #4), with M2-1 and M2-9 still `IN_PROGRESS`
+pending one real run each.
+
+> **Three paid runs are outstanding and should be batched into one session** once the
+> Anthropic API has credit: M2-1's `claude-provider.integration.test.ts`, M2-9's
+> `harness --real`, and M4-5's full cycle. Nothing else in M4 needs a model — M4-1 through
+> M4-4 run on a fake object store, a fake clock and real Postgres. Bedrock remains blocked on
+> AWS model access (see T-12), so the Anthropic path is the one to fund.
 
 > **The app works end to end as of M3-7.** `bun run dev` with a Postgres running serves a page
 > that creates its own session, sends a message, streams the turn, shows the preview and lists
@@ -102,7 +108,7 @@ here so it isn't mistaken for product work.
 
 | ID | Task | Deps | Status | Notes |
 |----|------|------|--------|-------|
-| M4-1 | Snapshot on teardown | M1-5, M0-5 | TODO | |
+| M4-1 | Snapshot on teardown | M1-5, M0-5 | IN_PROGRESS | |
 | M4-2 | Restore on open | M4-1, M1-3 | TODO | |
 | M4-3 | Idle reaper | M4-1 | TODO | |
 | M4-4 | Project CRUD + list page | M0-5, M4-2 | TODO | |
