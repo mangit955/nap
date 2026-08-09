@@ -284,6 +284,8 @@ A `bun run harness "<prompt>"` script running a real turn against real E2B + rea
 **Tests:** with a mock socket — reconnect resumes from the correct `seq`; backoff increases then caps; events dedupe by `(sessionId, seq)`; unmount closes cleanly.
 **Done when:** reconnect tests green.
 
+> Amended during M3-3. Backoff is deterministic — 500ms doubling to a 10s cap, reset on `open` — with no jitter: jitter exists to stop a crowd retrying in lockstep, and a session here is one browser tab. The hook takes a socket factory so the curve is assertable in milliseconds; nothing in the `web` vitest project can open a real socket anyway, since Node's `WebSocket` and jsdom's `EventTarget` are incompatible. The header's connection indicator was wired in this task rather than left to M3-4, so that `next build` actually reaches the hook and proves the `transpilePackages` wiring `@nap/shared` needs; it reads a temporary `NEXT_PUBLIC_DEV_SESSION_ID` that M3-7 removes.
+
 **M3-4 — Chat pane** · deps: M3-3, M0-3
 Renders the event stream: user/agent messages, collapsible tool calls, streamed command output, file-change chips, thinking indicator.
 **Tests:** render tests per event type; a `tool.call` without its `tool.result` renders as in-progress; streamed text appends rather than replaces; long output is virtualized/truncated with expand.

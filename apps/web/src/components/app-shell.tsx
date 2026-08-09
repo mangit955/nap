@@ -1,4 +1,5 @@
 import { ChatPane } from "./chat-pane.tsx";
+import { LiveConnectionStatus } from "./connection-status.tsx";
 import { FileTreePane } from "./file-tree-pane.tsx";
 import { PreviewPane } from "./preview-pane.tsx";
 
@@ -21,10 +22,7 @@ export function AppShell() {
           <span className="font-semibold text-ink text-sm tracking-tight">nap</span>
           <span className="text-muted text-xs">untitled project</span>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="size-1.5 rounded-full bg-accent" aria-hidden="true" />
-          <span className="text-muted text-xs">ready</span>
-        </div>
+        <LiveConnectionStatus />
       </header>
 
       <main className="grid min-h-0 flex-1 grid-cols-[360px_1fr_260px] gap-px bg-edge">
