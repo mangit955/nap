@@ -186,6 +186,8 @@ function detail(event: NapEvent): string {
     }
     case "turn.failed":
       return `${event.payload.reason}: ${oneLine(event.payload.message)}`;
+    case "system.notice":
+      return `${event.payload.level}: ${oneLine(event.payload.text)}`;
     case "turn.started":
       return "";
   }

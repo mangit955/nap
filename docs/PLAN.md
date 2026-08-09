@@ -159,7 +159,7 @@ Write conventions (§2), session protocol (§1), and the full task table from th
 **Done when:** both files committed; a cold read of them explains how to resume.
 
 **M0-3 — Event schemas** · deps: M0-1
-`packages/shared/src/events.ts`: Zod discriminated union on `type` for all 11 event types — `user.message`, `agent.thinking`, `agent.message`, `tool.call`, `tool.result`, `file.changed`, `command.output`, `preview.ready`, `turn.started`, `turn.completed`, `turn.failed`. Each carries `sessionId`, `seq`, `turnId`, `createdAt`.
+`packages/shared/src/events.ts`: Zod discriminated union on `type` for all 11 event types (M4-2 adds a twelfth, `system.notice`) — `user.message`, `agent.thinking`, `agent.message`, `tool.call`, `tool.result`, `file.changed`, `command.output`, `preview.ready`, `turn.started`, `turn.completed`, `turn.failed`. Each carries `sessionId`, `seq`, `turnId`, `createdAt`.
 **Tests:** for every event type — a valid fixture parses; a malformed fixture rejects with a useful issue path; the union discriminates to the right member; round-trip `parse(JSON.parse(JSON.stringify(x)))` is identity.
 **Done when:** 11 event types × 4 assertions green.
 
@@ -258,6 +258,8 @@ Block `rm -rf /` and similar, package installs outside the project, and network 
 
 > Amended during M2-8. A turn request carries only a session id, so "resume-or-create" needed a source for the session's project and its current sandbox: `SessionStore` (`packages/shared/src/ports/session-store.ts`), two methods, with the Postgres implementation deferred to M4-4. A sandbox that is recorded but cannot be resumed **fails the turn** rather than creating a fresh one — until M4-2 can restore a snapshot, starting over means silently handing the user an empty template. `user.message` is appended by the runtime, before `turn.started`.
 
+> Amended again during M4-2. There is now somewhere to restore *from*, so a failed resume falls back to a new sandbox filled from the project's last snapshot, and the user is told: the snapshot is from the last time the project was put away, and anything after it is gone. The runtime takes `objects` and `snapshots` **optionally** — with neither, a failed resume still fails the turn, which is the only honest answer when nothing can be restored.
+
 **M2-9 — CLI harness** · deps: M2-8
 A `bun run harness "<prompt>"` script running a real turn against real E2B + real Claude, printing the event stream.
 **Tests:** manual. This is the M2 acceptance gate.
@@ -325,6 +327,8 @@ Optimistic user message → POST → `Runtime.runTurn` → stream. Disable input
 Create from template → restore bundle → `npm install` if lockfile changed → boot Vite.
 **Tests:** restore reproduces the exact file set and git history (integration); a missing/corrupt bundle falls back to a fresh template with a warning event rather than an error page; install is skipped when the lockfile is unchanged.
 **Done when:** integration round-trip (build → teardown → restore) is byte-identical on tracked files.
+
+> Amended during M4-2. The order is the reverse of teardown's: the snapshot row and the bundle bytes are fetched **before** a sandbox is created, so a storage failure costs nothing and leaves nothing running to be billed for. Nothing boots Vite — the template's start command already did, as part of creation. The warning is a twelfth event type, `system.notice` (`{ level, text }`), rather than an `agent.message`: every one of those is something the model actually said. And "missing or corrupt" is narrower than "anything went wrong" — an object store that cannot be *reached* fails the open instead of falling back, because handing back an empty template would let the next teardown overwrite a good snapshot with nothing.
 
 **M4-3 — Idle reaper** · deps: M4-1
 Background job: sandboxes idle > N minutes are snapshotted and destroyed.

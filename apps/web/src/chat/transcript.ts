@@ -1,7 +1,7 @@
 /**
  * Turning an event log into the things a reader sees.
  *
- * The log is a flat, ordered stream of eleven event types; a transcript is a much shorter list
+ * The log is a flat, ordered stream of typed events; a transcript is a much shorter list
  * of blocks, because a tool call, everything it printed, the files it touched and how it ended
  * are one thing on screen and four kinds of event in the log. This fold is where that
  * difference lives, and keeping it a pure function is what lets the interesting cases —
@@ -54,6 +54,7 @@ export type TranscriptItem =
     }
   | { kind: "files"; key: number; files: FileChange[] }
   | { kind: "preview"; key: number; url: string; port: number }
+  | { kind: "notice"; key: number; level: "info" | "warning"; text: string }
   | { kind: "turn-start"; key: number }
   | ({ kind: "turn-end"; key: number } & TurnOutcome);
 
@@ -145,6 +146,12 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
 
       case "preview.ready":
         items.push({ kind: "preview", key, url: event.payload.url, port: event.payload.port });
+        break;
+
+      // Its own item rather than a message: the platform speaking is not the agent speaking,
+      // and the two are rendered differently for exactly that reason.
+      case "system.notice":
+        items.push({ kind: "notice", key, level: event.payload.level, text: event.payload.text });
         break;
 
       case "turn.started":

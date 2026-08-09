@@ -30,10 +30,13 @@ import type { ContextEngine } from "@nap/shared/ports/context-engine";
 import type { EventBus } from "@nap/shared/ports/event-bus";
 import type { EventStore, PendingEvent, StoredEvent } from "@nap/shared/ports/event-store";
 import type { MemoryProvider } from "@nap/shared/ports/memory-provider";
+import type { ObjectStore } from "@nap/shared/ports/object-store";
 import type { Runtime, TurnOutcome, TurnRequest } from "@nap/shared/ports/runtime";
 import type { SandboxError, SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SessionRecord, SessionStore } from "@nap/shared/ports/session-store";
+import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
 import type { Result } from "@nap/shared/result";
+import { openProject } from "./restore.ts";
 
 type Payload<T extends NapEvent["type"]> = NapEventOf<T>["payload"];
 
@@ -47,8 +50,22 @@ const COMMIT_SUBJECT_LIMIT = 72;
  */
 const PREVIEW_TIMEOUT_MS = 20_000;
 
-/** A sandbox to work in, and whether this turn is the one that brought it into existence. */
-type AcquiredSandbox = { id: string; created: boolean };
+/** A sandbox to work in, whether this turn created it, and anything the user should be told. */
+type AcquiredSandbox = {
+  id: string;
+  created: boolean;
+  notices: { level: "info" | "warning"; text: string }[];
+};
+
+/**
+ * What a project is restored from. Both halves or neither: the bytes live in one and the
+ * record of which bytes in the other, and one without the other cannot open anything.
+ */
+type RestoreDeps = { objects: ObjectStore; snapshots: SnapshotStore };
+
+const LOST_SANDBOX_WARNING =
+  "This project's sandbox was no longer available, so it was restored from its last " +
+  "snapshot. Anything changed since then is not in it.";
 
 export type SingleAgentRuntimeOptions = {
   sessions: SessionStore;
@@ -58,6 +75,13 @@ export type SingleAgentRuntimeOptions = {
   events: EventStore;
   bus: EventBus;
   memory: MemoryProvider;
+  /**
+   * Where a project's bytes and its snapshot rows live. Supply both to make a project
+   * survive its sandbox; supply neither and a session without a live sandbox starts from
+   * the bare template, which is all this could do before snapshots existed.
+   */
+  objects?: ObjectStore;
+  snapshots?: SnapshotStore;
   /** Injected so a test can assert on whole events rather than on everything but the clock. */
   now?: () => string;
   /** Injected for the same reason: a turn id a test can predict. */
@@ -73,11 +97,13 @@ export class SingleAgentRuntime implements Runtime {
   readonly #newTurnId: () => string;
   readonly #previewPort: number;
   readonly #previewTimeoutMs: number;
+  readonly #restore: RestoreDeps | null;
   /** The tail of each session's queue. Absent means nothing is running for that session. */
   readonly #queues = new Map<string, Promise<unknown>>();
 
   constructor(options: SingleAgentRuntimeOptions) {
     this.#options = options;
+    this.#restore = restoreDepsOf(options);
     this.#now = options.now ?? (() => new Date().toISOString());
     this.#newTurnId = options.newTurnId ?? (() => crypto.randomUUID());
     this.#previewPort = options.previewPort ?? TEMPLATE_DEV_PORT;
@@ -146,6 +172,9 @@ export class SingleAgentRuntime implements Runtime {
       // itself, so finding it in the history too would send it to the model twice.
       const history = await this.#options.events.readFrom(request.sessionId, 0);
       emit("user.message", { text: request.message });
+
+      // Before the preview, which is about to show whatever state the notice is explaining.
+      for (const notice of sandboxId.value.notices) emit("system.notice", notice);
 
       // Only for a sandbox this turn created. A resumed one is already serving and announced
       // itself on the turn that made it — the client replays that. Re-announcing would reload
@@ -226,21 +255,62 @@ export class SingleAgentRuntime implements Runtime {
   /**
    * The sandbox this session's project is served from, resumed if there is one already.
    *
-   * A recorded sandbox that cannot be resumed fails the turn rather than quietly starting a
-   * new one. Until snapshots can be restored, a fresh sandbox is an empty template — the
-   * user would be told their turn succeeded and shown a project with their work gone.
+   * A recorded sandbox that cannot be resumed is only survivable because a snapshot can be
+   * restored into a new one — and the user is told, because the snapshot is from the last
+   * time the project was put away and anything after that is genuinely gone. Without
+   * somewhere to restore *from*, this still fails the turn: a fresh sandbox would be an empty
+   * template, and the user would be told their turn succeeded and shown a project with their
+   * work missing.
    */
   async #acquire(session: SessionRecord): Promise<Result<AcquiredSandbox, SandboxError>> {
     if (session.sandboxId !== null) {
       const resumed = await this.#options.sandbox.resume(session.sandboxId);
-      return resumed.ok ? { ok: true, value: { id: resumed.value.id, created: false } } : resumed;
+      if (resumed.ok) {
+        return { ok: true, value: { id: resumed.value.id, created: false, notices: [] } };
+      }
+      if (this.#restore === null) return resumed;
+
+      const reopened = await this.#open(session);
+      if (!reopened.ok) return reopened;
+      reopened.value.notices.unshift({ level: "warning", text: LOST_SANDBOX_WARNING });
+      return reopened;
     }
 
-    const created = await this.#options.sandbox.create(session.projectId);
-    if (!created.ok) return created;
+    return this.#open(session);
+  }
 
-    await this.#options.sessions.setSandboxId(session.sessionId, created.value.id);
-    return { ok: true, value: { id: created.value.id, created: true } };
+  /** A new sandbox for this session's project, holding whatever could be restored into it. */
+  async #open(session: SessionRecord): Promise<Result<AcquiredSandbox, SandboxError>> {
+    if (this.#restore === null) {
+      const created = await this.#options.sandbox.create(session.projectId);
+      if (!created.ok) return created;
+
+      await this.#options.sessions.setSandboxId(session.sessionId, created.value.id);
+      return { ok: true, value: { id: created.value.id, created: true, notices: [] } };
+    }
+
+    const opened = await openProject({
+      sandbox: this.#options.sandbox,
+      objects: this.#restore.objects,
+      snapshots: this.#restore.snapshots,
+      projectId: session.projectId,
+    });
+    if (!opened.ok) {
+      // Flattened to the one code a turn can report. The distinction between "no sandbox" and
+      // "no snapshot" matters to whoever reads the message, not to the failure itself.
+      return { ok: false, error: { code: "unavailable", message: opened.error.message } };
+    }
+
+    await this.#options.sessions.setSandboxId(session.sessionId, opened.value.sandboxId);
+    return {
+      ok: true,
+      value: {
+        id: opened.value.sandboxId,
+        created: true,
+        notices:
+          opened.value.warning === null ? [] : [{ level: "warning", text: opened.value.warning }],
+      },
+    };
   }
 
   /**
@@ -257,6 +327,22 @@ export class SingleAgentRuntime implements Runtime {
     }
     return { commitSha: committed.value.sha };
   }
+}
+
+/**
+ * Half a restore is not a smaller restore, it is a bug — a store of bytes nothing can name,
+ * or names with nothing behind them. Thrown rather than returned: this is a wiring mistake at
+ * construction, not something a turn could recover from.
+ */
+function restoreDepsOf(options: SingleAgentRuntimeOptions): RestoreDeps | null {
+  const { objects, snapshots } = options;
+  if (objects === undefined && snapshots === undefined) return null;
+  if (objects === undefined || snapshots === undefined) {
+    throw new Error(
+      "SingleAgentRuntime needs both `objects` and `snapshots` to restore a project, or neither.",
+    );
+  }
+  return { objects, snapshots };
 }
 
 /**

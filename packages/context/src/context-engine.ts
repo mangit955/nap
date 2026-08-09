@@ -71,9 +71,9 @@ function textBlock(text: string): LLMContentBlock {
 /**
  * Maps the event log onto a conversation.
  *
- * Only four of the eleven event types are things somebody said. The rest — summarized
- * reasoning, file diffs, command output, preview URLs, turn lifecycle — exist so the client
- * can render progress. Replaying `agent.thinking` as an assistant message would be the
+ * Only four event types are things somebody said. The rest — summarized reasoning, file
+ * diffs, command output, preview URLs, notices, turn lifecycle — exist so the client can
+ * render progress. Replaying `agent.thinking` as an assistant message would be the
  * damaging one: it is a summary produced *about* the model's reasoning, and feeding it back
  * as the model's own words invents a turn that never happened.
  */

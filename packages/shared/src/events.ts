@@ -52,7 +52,7 @@ const envelope = {
   createdAt: z.iso.datetime(),
 };
 
-/** Builds one union member, so the envelope is written once rather than eleven times. */
+/** Builds one union member, so the envelope is written once rather than once per type. */
 function event<const T extends string, S extends z.core.$ZodLooseShape>(type: T, payload: S) {
   return z.strictObject({
     ...envelope,
@@ -100,6 +100,15 @@ export const NapEventSchema = z.discriminatedUnion("type", [
     commitSha: z.string().min(1).nullable(),
   }),
   event("turn.failed", { reason: TurnFailureReasonSchema, message: z.string() }),
+  /**
+   * Something the system did that the user should know about, said in its own voice.
+   *
+   * Deliberately not an `agent.message`: every one of those is something the model actually
+   * said, and a client renders it as such. The cases this exists for — a snapshot that could
+   * not be restored, so the project came up empty — are the platform explaining itself, and
+   * attributing them to the model would be a lie about who is talking.
+   */
+  event("system.notice", { level: z.enum(["info", "warning"]), text: z.string().min(1) }),
 ]);
 
 export type NapEvent = z.infer<typeof NapEventSchema>;

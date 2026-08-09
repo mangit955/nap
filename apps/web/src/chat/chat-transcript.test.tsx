@@ -26,7 +26,7 @@ function show(...events: StoredEvent[]) {
 }
 
 /**
- * `docs/PLAN.md` §4 wants a defined visual treatment *and a test* for all eleven event types.
+ * `docs/PLAN.md` §4 wants a defined visual treatment *and a test* for every event type.
  * The table is the test: each row names something the reader must be able to find, so a type
  * that renders as nothing fails here, and a twelfth type fails to compile until it has a row.
  */
@@ -90,15 +90,20 @@ const TREATMENTS = [
     payload: { reason: "budget_exceeded", message: "step budget of 40 exceeded" },
     shows: /step budget of 40 exceeded/,
   },
+  {
+    type: "system.notice",
+    payload: { level: "warning", text: "Could not restore your last snapshot." },
+    shows: /Could not restore your last snapshot\./,
+  },
 ] as const satisfies readonly { type: NapEventType; payload: NapEvent["payload"]; shows: RegExp }[];
 
 describe("every event type has a visual treatment", () => {
   it("covers the whole union", () => {
     const covered = TREATMENTS.map((t) => t.type);
     expect(new Set(covered).size).toBe(covered.length);
-    expect(TREATMENTS).toHaveLength(11);
+    expect(TREATMENTS).toHaveLength(12);
 
-    // Fails to compile if a 12th member is added to the union without a treatment.
+    // Fails to compile if a 13th member is added to the union without a treatment.
     const _exhaustive: (typeof TREATMENTS)[number]["type"] = null as unknown as NapEventType;
     void _exhaustive;
   });
@@ -185,6 +190,16 @@ describe("a turn in progress", () => {
     expect(link).toHaveAttribute("href", "https://5173-abc.e2b.dev");
     // The preview is the user's app on someone else's origin; it opens in its own tab.
     expect(link).toHaveAttribute("rel", expect.stringContaining("noreferrer"));
+  });
+
+  it("attributes a notice to the system rather than to the agent", () => {
+    // The table row above only proves the text appears, which an agent-message treatment
+    // would satisfy too. What matters is that nobody reads it as something the model said.
+    show(ev("system.notice", { level: "warning", text: "Could not restore your last snapshot." }));
+
+    const log = screen.getByRole("log");
+    expect(log).toHaveTextContent(/warning/i);
+    expect(log).not.toHaveTextContent(/agent:/i);
   });
 
   it("says a turn changed nothing rather than showing an empty commit", () => {

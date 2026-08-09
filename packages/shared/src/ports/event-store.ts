@@ -17,7 +17,7 @@ export type StoredEvent = NapEvent;
  * `Omit` applied to each member of a union rather than to the union as a whole.
  *
  * This is load-bearing rather than pedantic. A bare `Omit<NapEvent, "seq">` collapses the
- * eleven members into one object whose `type` and `payload` are independent unions, so
+ * every member into one object whose `type` and `payload` are independent unions, so
  * the two stop being correlated: `tool.call` would accept a `turn.failed` payload, and
  * adding `seq` back would no longer produce a `NapEvent`. Distribution needs a naked type
  * parameter, which is the only reason this is a generic helper.

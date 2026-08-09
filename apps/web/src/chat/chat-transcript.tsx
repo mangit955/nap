@@ -121,6 +121,23 @@ function Item({ item }: { item: TranscriptItem }) {
         </p>
       );
 
+    case "notice":
+      // Mono and labelled, like every other machine-authored line. The label is drawn rather
+      // than implied by colour, so it survives being read aloud and being read by someone who
+      // cannot tell the two colours apart.
+      return (
+        <p
+          className={`font-mono text-xs leading-relaxed ${
+            item.level === "warning" ? "text-danger" : "text-muted"
+          }`}
+        >
+          <span className="uppercase tracking-wide">
+            {item.level === "warning" ? "Warning" : "Note"}
+          </span>{" "}
+          · {item.text}
+        </p>
+      );
+
     case "turn-start":
       return <p className="font-mono text-[11px] text-muted uppercase tracking-wide">Started</p>;
 
