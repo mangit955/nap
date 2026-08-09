@@ -15,6 +15,12 @@
   --color-ink: #e8e8ee;
   --color-muted: #8b8b99;
   --color-accent: #7c5cff;
+  /*
+   * The only state the frame is allowed to shout about. A failed command or a failed turn has
+   * to be findable in a wall of grey machine output without reading it; success stays unmarked,
+   * because marking both is how a palette stops meaning anything.
+   */
+  --color-danger: #e05561;
 
   --font-sans:
     ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;

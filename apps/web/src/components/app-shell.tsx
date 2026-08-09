@@ -1,4 +1,4 @@
-import { ChatPane } from "./chat-pane.tsx";
+import { LiveChatPane } from "./chat-pane.tsx";
 import { LiveConnectionStatus } from "./connection-status.tsx";
 import { FileTreePane } from "./file-tree-pane.tsx";
 import { PreviewPane } from "./preview-pane.tsx";
@@ -26,7 +26,7 @@ export function AppShell() {
       </header>
 
       <main className="grid min-h-0 flex-1 grid-cols-[360px_1fr_260px] gap-px bg-edge">
-        <ChatPane />
+        <LiveChatPane />
         <PreviewPane />
         <FileTreePane />
       </main>

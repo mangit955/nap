@@ -291,6 +291,8 @@ Renders the event stream: user/agent messages, collapsible tool calls, streamed 
 **Tests:** render tests per event type; a `tool.call` without its `tool.result` renders as in-progress; streamed text appends rather than replaces; long output is virtualized/truncated with expand.
 **Done when:** every one of the 11 event types has a defined visual treatment and a test.
 
+> Amended during M3-4. The transcript is an activity rail rather than chat bubbles: one hairline that opens at `turn.started` and closes at `turn.completed`/`turn.failed`, with prose in sans and everything machine-authored in mono. Long output is truncated with expand rather than virtualized — a clamped block is bounded, and v1 shows one session. Folding events into items is a pure function (`apps/web/src/chat/transcript.ts`) so the interesting cases — interleaved tool calls, a stream still arriving, a result whose call this client never received — are tested without rendering. `agent.thinking` has a treatment and a test even though nothing emits it yet; that is the M2-7 gap, and this is where it stops being invisible.
+
 **M3-5 — Preview pane** · deps: M1-4
 Sandboxed iframe, reload control, loading and error states.
 **Tests:** renders the URL when ready; shows loading before `preview.ready`; shows an actionable error on boot failure; `preview.ready` triggers a hard reload.
