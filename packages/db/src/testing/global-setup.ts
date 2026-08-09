@@ -8,14 +8,14 @@
  * The connection string reaches the tests through Vitest's `provide`/`inject` rather than an
  * environment variable, so a test that forgets to set it up fails to compile rather than
  * silently talking to a developer's local database.
+ *
+ * Starting the container is `startMigratedPostgres`'s job rather than this file's: a suite in
+ * another Vitest project needs the same database and has no way to reach a `globalSetup` bound
+ * to this one.
  */
 
-import { join } from "node:path";
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
-import { drizzle } from "drizzle-orm/postgres-js";
-import { migrate } from "drizzle-orm/postgres-js/migrator";
-import postgres from "postgres";
 import type { TestProject } from "vitest/node";
+import { type MigratedPostgres, startMigratedPostgres } from "./postgres-container.ts";
 
 declare module "vitest" {
   interface ProvidedContext {
@@ -23,31 +23,14 @@ declare module "vitest" {
   }
 }
 
-/** Pinned rather than `latest`: `gen_random_uuid()` and the SQL the migrations emit are version-sensitive. */
-const POSTGRES_IMAGE = "postgres:17-alpine";
-
-/** `packages/db/drizzle`, resolved from this file rather than from the process cwd. */
-export const MIGRATIONS_FOLDER = join(import.meta.dirname, "..", "..", "drizzle");
-
-let container: StartedPostgreSqlContainer | undefined;
+let database: MigratedPostgres | undefined;
 
 export async function setup(project: TestProject): Promise<void> {
-  container = await new PostgreSqlContainer(POSTGRES_IMAGE).start();
-  const url = container.getConnectionUri();
+  database = await startMigratedPostgres();
 
-  // Migrations run once, here, so every test file sees an already-migrated database.
-  // This is also the task's first assertion: if the migrations do not apply to a clean
-  // database, the suite cannot start at all.
-  const client = postgres(url, { max: 1 });
-  try {
-    await migrate(drizzle(client), { migrationsFolder: MIGRATIONS_FOLDER });
-  } finally {
-    await client.end();
-  }
-
-  project.provide("postgresUrl", url);
+  project.provide("postgresUrl", database.url);
 }
 
 export async function teardown(): Promise<void> {
-  await container?.stop();
+  await database?.stop();
 }
