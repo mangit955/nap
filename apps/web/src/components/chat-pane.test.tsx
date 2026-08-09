@@ -39,4 +39,35 @@ describe("ChatPane", () => {
     rerender(<ChatPane events={[message]} />);
     expect(screen.getByRole("region", { name: "Chat" })).toBeInTheDocument();
   });
+
+  it("always offers somewhere to type", () => {
+    render(<ChatPane events={[]} />);
+
+    expect(screen.getByRole("textbox", { name: /message/i })).toBeInTheDocument();
+  });
+
+  it("shows the message the user just sent, before the log has it", () => {
+    render(<ChatPane events={[]} pending="build me a todo list" />);
+
+    expect(screen.getByText("build me a todo list")).toBeVisible();
+    // Not the invitation: something *has* happened, it is simply not written down yet.
+    expect(screen.queryByText(/describe the app you want/i)).not.toBeInTheDocument();
+  });
+
+  it("shows it once, not twice, while the transcript catches up", () => {
+    // The pane renders both halves, so this is the last place the duplicate could appear even
+    // with the hook reconciling correctly.
+    const userMessage: StoredEvent = {
+      type: "user.message",
+      sessionId: message.sessionId,
+      turnId: message.turnId,
+      seq: 2,
+      createdAt: message.createdAt,
+      payload: { text: "build me a todo list" },
+    } satisfies NapEvent;
+
+    render(<ChatPane events={[userMessage]} pending={undefined} />);
+
+    expect(screen.getAllByText("build me a todo list")).toHaveLength(1);
+  });
 });

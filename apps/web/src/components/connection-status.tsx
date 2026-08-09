@@ -38,14 +38,8 @@ export function ConnectionStatus({ status }: { status: StreamStatus }) {
   );
 }
 
-/**
- * Until sessions are real, the id comes from the environment — set it to a row in `sessions`
- * and the header follows a live turn. The task that creates sessions in the UI removes this.
- */
-const DEV_SESSION_ID = process.env.NEXT_PUBLIC_DEV_SESSION_ID;
-
-export function LiveConnectionStatus() {
-  const { status } = useEventStream({ sessionId: DEV_SESSION_ID });
+export function LiveConnectionStatus({ sessionId }: { sessionId: string | undefined }) {
+  const { status } = useEventStream({ sessionId });
 
   return <ConnectionStatus status={status} />;
 }

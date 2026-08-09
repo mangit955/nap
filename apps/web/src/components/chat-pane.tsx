@@ -1,22 +1,77 @@
 "use client";
 
 import type { StoredEvent } from "@nap/shared/ports/event-store";
+import { ChatInput } from "../chat/chat-input.tsx";
 import { ChatTranscript } from "../chat/chat-transcript.tsx";
+import { useTurnSubmission } from "../chat/use-turn-submission.ts";
 import { useEventStream } from "../hooks/use-event-stream.ts";
 import { Pane } from "./pane.tsx";
 
 /**
- * The transcript pane: what the agent is doing, as it does it.
+ * The transcript pane: what the agent is doing, as it does it — and where you say what to do.
  *
  * Split the way the connection indicator is — the half that renders takes events as a prop and
  * is what every test mounts, and the half that subscribes owns the socket. That is what keeps
  * two dozen render tests free of the network.
+ *
+ * The optimistic message is rendered *after* the transcript rather than inside it: the
+ * transcript is folded from stored events, and this one has not been stored yet. See
+ * `use-turn-submission.ts` for why that boundary is worth keeping.
  */
-export function ChatPane({ events }: { events: readonly StoredEvent[] }) {
+export function ChatPane({
+  events,
+  pending,
+  running = false,
+  error,
+  onSubmit = () => {},
+  onCancel = () => {},
+}: {
+  events: readonly StoredEvent[];
+  pending?: string | undefined;
+  running?: boolean;
+  error?: string | undefined;
+  onSubmit?: (message: string) => void;
+  onCancel?: () => void;
+}) {
+  const empty = events.length === 0 && pending === undefined;
+
   return (
     <Pane id="chat" title="Chat">
-      {events.length === 0 ? <EmptyState /> : <ChatTranscript events={events} />}
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="min-h-0 flex-1 overflow-auto">
+          {empty ? (
+            <EmptyState />
+          ) : (
+            <>
+              {events.length > 0 && <ChatTranscript events={events} />}
+              {pending !== undefined && <PendingMessage text={pending} />}
+            </>
+          )}
+        </div>
+
+        <ChatInput running={running} error={error} onSubmit={onSubmit} onCancel={onCancel} />
+      </div>
     </Pane>
+  );
+}
+
+/**
+ * The message the user just sent, before the log has caught up with it.
+ *
+ * Drawn exactly like a stored user message — same rail, same face — because it *is* the same
+ * message. A differently-styled placeholder that swaps for the real thing a moment later is a
+ * flicker with no meaning behind it.
+ */
+function PendingMessage({ text }: { text: string }) {
+  return (
+    <div className="px-4 pb-3">
+      <div className="border-edge border-l pl-4">
+        <p className="whitespace-pre-wrap text-ink text-sm leading-relaxed">
+          <span className="sr-only">You: </span>
+          {text}
+        </p>
+      </div>
+    </div>
   );
 }
 
@@ -32,11 +87,18 @@ function EmptyState() {
   );
 }
 
-/** Until sessions exist in the UI, the id comes from the environment — see the hook. */
-const DEV_SESSION_ID = process.env.NEXT_PUBLIC_DEV_SESSION_ID;
+export function LiveChatPane({ sessionId }: { sessionId: string | undefined }) {
+  const { events } = useEventStream({ sessionId });
+  const { submit, cancel, pending, running, error } = useTurnSubmission({ sessionId, events });
 
-export function LiveChatPane() {
-  const { events } = useEventStream({ sessionId: DEV_SESSION_ID });
-
-  return <ChatPane events={events} />;
+  return (
+    <ChatPane
+      events={events}
+      pending={pending}
+      running={running}
+      error={error}
+      onSubmit={(message) => void submit(message)}
+      onCancel={() => void cancel()}
+    />
+  );
 }

@@ -27,7 +27,12 @@ import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { useEffect, useState } from "react";
 import { changeCount } from "./changed-paths.ts";
 
-export type FetchJson = (url: string) => Promise<Response>;
+/**
+ * The seam every request in the app goes through. Shaped like `fetch` rather than narrower,
+ * because the write side needs a method and a body — and a second seam for those would mean
+ * a test could stub one and miss the other.
+ */
+export type FetchJson = (url: string, init?: RequestInit) => Promise<Response>;
 
 export type LoadStatus = "idle" | "loading" | "ready" | "error";
 

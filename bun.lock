@@ -22,7 +22,10 @@
       "name": "@nap/api",
       "version": "0.0.0",
       "dependencies": {
+        "@nap/agent": "workspace:*",
+        "@nap/context": "workspace:*",
         "@nap/db": "workspace:*",
+        "@nap/runtime": "workspace:*",
         "@nap/sandbox": "workspace:*",
         "@nap/shared": "workspace:*",
         "hono": "4.13.1",
@@ -44,6 +47,7 @@
         "react": "19.2.8",
         "react-dom": "19.2.8",
         "tailwindcss": "4.3.3",
+        "zod": "4.4.3",
       },
       "devDependencies": {
         "@testing-library/jest-dom": "7.0.0",

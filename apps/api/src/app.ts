@@ -13,6 +13,8 @@ import { type Context, Hono } from "hono";
 import type { WSEvents } from "hono/ws";
 import { type FileRouteDeps, registerFileRoutes } from "./files/routes.ts";
 import { getLogger, type Logger, withLogContext } from "./logger.ts";
+import { registerSessionRoutes, type SessionRouteDeps } from "./sessions/routes.ts";
+import { registerTurnRoutes, type TurnRouteDeps } from "./turns/routes.ts";
 import { type HeartbeatOptions, openEventStream } from "./ws/event-stream.ts";
 import { parseStreamQuery } from "./ws/query.ts";
 
@@ -40,6 +42,14 @@ export type AppDeps = {
    * error from a missing dependency, which is a worse answer than "no such route".
    */
   files?: FileRouteDeps;
+  /**
+   * Everything needed to run a turn. Optional for the same reason `files` is — most of the
+   * route tests have no runtime, and an app without one should have no way to start a turn
+   * rather than a route that fails once it is called.
+   */
+  turns?: TurnRouteDeps;
+  /** Creating a project and a session to talk in. Optional for the same reason as above. */
+  sessions?: SessionRouteDeps;
 };
 
 export function createApp(deps: AppDeps): Hono {
@@ -116,6 +126,8 @@ export function createApp(deps: AppDeps): Hono {
   });
 
   if (deps.files !== undefined) registerFileRoutes(app, deps.files);
+  if (deps.turns !== undefined) registerTurnRoutes(app, deps.turns);
+  if (deps.sessions !== undefined) registerSessionRoutes(app, deps.sessions);
 
   // Hono's default 404 is text/plain; every client of this API speaks JSON, and an HTML or
   // bare-text body on the error path turns a typo'd URL into an unreadable parse failure.

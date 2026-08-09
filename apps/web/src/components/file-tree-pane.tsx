@@ -189,17 +189,11 @@ function Empty({ listing, status }: { listing: FileListing | undefined; status: 
   return <p className="p-4 text-muted text-sm leading-relaxed">{message}</p>;
 }
 
-/** Until sessions exist in the UI, the id comes from the environment — see the hook. */
-const DEV_SESSION_ID = process.env.NEXT_PUBLIC_DEV_SESSION_ID;
-
-export function LiveFileTreePane() {
-  const { events } = useEventStream({ sessionId: DEV_SESSION_ID });
-  const { listing, status } = useProjectFiles({ sessionId: DEV_SESSION_ID, events });
+export function LiveFileTreePane({ sessionId }: { sessionId: string | undefined }) {
+  const { events } = useEventStream({ sessionId });
+  const { listing, status } = useProjectFiles({ sessionId, events });
   const [selected, setSelected] = useState<string | undefined>(undefined);
-  const { file, status: fileStatus } = useFileContent({
-    sessionId: DEV_SESSION_ID,
-    path: selected,
-  });
+  const { file, status: fileStatus } = useFileContent({ sessionId, path: selected });
 
   return (
     // A grid rather than a flex column: one child, stretched to fill, which is what lets the

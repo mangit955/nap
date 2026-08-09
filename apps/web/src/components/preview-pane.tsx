@@ -113,11 +113,8 @@ function host(url: string): string {
   }
 }
 
-/** Until sessions exist in the UI, the id comes from the environment — see the hook. */
-const DEV_SESSION_ID = process.env.NEXT_PUBLIC_DEV_SESSION_ID;
-
-export function LivePreviewPane() {
-  const { events } = useEventStream({ sessionId: DEV_SESSION_ID });
+export function LivePreviewPane({ sessionId }: { sessionId: string | undefined }) {
+  const { events } = useEventStream({ sessionId });
 
   return <PreviewPane events={events} />;
 }

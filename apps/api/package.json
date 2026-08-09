@@ -9,7 +9,10 @@
     "ws:smoke": "bun run scripts/ws-smoke.ts"
   },
   "dependencies": {
+    "@nap/agent": "workspace:*",
+    "@nap/context": "workspace:*",
     "@nap/db": "workspace:*",
+    "@nap/runtime": "workspace:*",
     "@nap/sandbox": "workspace:*",
     "@nap/shared": "workspace:*",
     "hono": "4.13.1",
