@@ -84,7 +84,7 @@ here so it isn't mistaken for product work.
 
 | ID | Task | Deps | Status | Notes |
 |----|------|------|--------|-------|
-| M3-1 | `EventStore` (Postgres) + `EventBus` | M0-5 | TODO | |
+| M3-1 | `EventStore` (Postgres) + `EventBus` | M0-5 | IN_PROGRESS | |
 | M3-2 | WebSocket endpoint | M3-1 | TODO | |
 | M3-3 | Client WS hook + reconnect | M3-2 | TODO | |
 | M3-4 | Chat pane | M3-3, M0-3 | TODO | |
