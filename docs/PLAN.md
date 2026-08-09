@@ -277,6 +277,8 @@ A `bun run harness "<prompt>"` script running a real turn against real E2B + rea
 **Tests:** write 10 events, connect with `seq=5`, assert exactly 5 replayed then live tail with no duplicates and no gap; a client connecting during an active turn receives the in-flight remainder; heartbeat timeout closes a dead connection; malformed frames are rejected without killing the socket.
 **Done when:** the replay-then-tail test is green — this is the correctness heart of the streaming layer.
 
+> Amended during M3-2. The heartbeat is an application-level `ping`/`pong` frame rather than a WebSocket control frame, because browser JavaScript can neither send a control-frame pong nor observe a ping — a control-frame heartbeat would be invisible to the only client this has. Frames in both directions are a Zod union in `packages/shared/src/ws-protocol.ts`, since M3-3 parses the same shapes. The route handler cannot run under Vitest (`upgradeWebSocket` requires a live `Bun.serve`), so `createApp` takes the adapter as a dependency, the connection logic sits behind a two-method socket type, and the Bun path has its own free gate: `bun run ws:smoke`. Boot was wired to Postgres in this task rather than deferred — `/ws` against an in-memory store would forget a transcript on every restart.
+
 **M3-3 — Client WS hook + reconnect** · deps: M3-2
 `useEventStream(sessionId)` with backoff reconnect, tracking last `seq`.
 **Tests:** with a mock socket — reconnect resumes from the correct `seq`; backoff increases then caps; events dedupe by `(sessionId, seq)`; unmount closes cleanly.

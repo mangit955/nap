@@ -5,12 +5,17 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "dev": "bun --watch src/index.ts"
+    "dev": "bun --watch src/index.ts",
+    "ws:smoke": "bun run scripts/ws-smoke.ts"
   },
   "dependencies": {
+    "@nap/db": "workspace:*",
     "@nap/shared": "workspace:*",
     "hono": "4.13.1",
     "pino": "10.3.1",
     "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/bun": "1.3.14"
   }
 }
