@@ -39,6 +39,7 @@ describe("dependency direction", () => {
       "@nap/runtime",
       "@nap/sandbox",
       "@nap/shared",
+      "@nap/storage",
       "@nap/web",
     ]);
   });

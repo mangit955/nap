@@ -97,6 +97,7 @@
       "dependencies": {
         "@nap/sandbox": "workspace:*",
         "@nap/shared": "workspace:*",
+        "@nap/storage": "workspace:*",
       },
       "devDependencies": {
         "@nap/agent": "workspace:*",
@@ -117,6 +118,13 @@
       "version": "0.0.0",
       "dependencies": {
         "zod": "4.4.3",
+      },
+    },
+    "packages/storage": {
+      "name": "@nap/storage",
+      "version": "0.0.0",
+      "dependencies": {
+        "@nap/shared": "workspace:*",
       },
     },
   },
@@ -380,6 +388,8 @@
     "@nap/sandbox": ["@nap/sandbox@workspace:packages/sandbox"],
 
     "@nap/shared": ["@nap/shared@workspace:packages/shared"],
+
+    "@nap/storage": ["@nap/storage@workspace:packages/storage"],
 
     "@nap/web": ["@nap/web@workspace:apps/web"],
 

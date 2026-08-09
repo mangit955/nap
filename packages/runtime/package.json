@@ -11,7 +11,8 @@
   },
   "dependencies": {
     "@nap/sandbox": "workspace:*",
-    "@nap/shared": "workspace:*"
+    "@nap/shared": "workspace:*",
+    "@nap/storage": "workspace:*"
   },
   "devDependencies": {
     "@nap/agent": "workspace:*",

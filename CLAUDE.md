@@ -68,11 +68,11 @@ A lefthook pre-commit hook runs `biome check` + `typecheck` + `vitest --changed`
 ## Layout
 
 ```
-packages/  shared  db  sandbox  agent  context  runtime
+packages/  shared  db  sandbox  storage  agent  context  runtime
 apps/      web (Next.js)   api (Hono, runs on Bun)
 ```
 
-**Dependency direction, enforced:** `runtime` → {`context`, `agent`, `sandbox`, `db`} → `shared`.
+**Dependency direction, enforced:** `runtime` → {`context`, `agent`, `sandbox`, `storage`, `db`} → `shared`.
 `agent` imports the `SandboxManager` *interface*, never the E2B adapter.
 
 This is enforced by `test/architecture.ts`, not by vigilance — adding a dependency that

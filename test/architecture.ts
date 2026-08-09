@@ -26,7 +26,17 @@ const ALLOWED: Record<string, readonly string[]> = {
   "@nap/sandbox": ["@nap/shared"],
   "@nap/agent": ["@nap/shared"],
   "@nap/context": ["@nap/shared"],
-  "@nap/runtime": ["@nap/context", "@nap/agent", "@nap/sandbox", "@nap/db", "@nap/shared"],
+  // Object storage sits beside the sandbox and the database as infrastructure: it holds a
+  // project's bytes while nothing is running, and knows nothing about turns or projects.
+  "@nap/storage": ["@nap/shared"],
+  "@nap/runtime": [
+    "@nap/context",
+    "@nap/agent",
+    "@nap/sandbox",
+    "@nap/db",
+    "@nap/storage",
+    "@nap/shared",
+  ],
   // Apps compose everything; they are the top of the graph.
   "@nap/web": ["*"],
   "@nap/api": ["*"],

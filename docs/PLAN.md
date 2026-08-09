@@ -47,7 +47,9 @@ Bun is the package manager and script runner. Vitest stays the test runner, beca
 
 > ⚠️ **Always `bun run test`, never `bun test`.** `test` is a Bun built-in command and shadows the package.json script — bare `bun test` runs Bun's own runner over our Vitest files and reports nonsense.
 
-**Dependency direction (enforced):** `runtime` → {`context`, `agent`, `sandbox`, `db`} → `shared`. `agent` imports the `SandboxManager` *interface*, never the E2B adapter.
+**Dependency direction (enforced):** `runtime` → {`context`, `agent`, `sandbox`, `storage`, `db`} → `shared`. `agent` imports the `SandboxManager` *interface*, never the E2B adapter.
+
+> Amended during M4-1. `storage` is a package the original list did not have: snapshots need an object store, and it is infrastructure of the same kind as the sandbox and the database — it holds a project's bytes while nothing is running and knows nothing about turns or projects. `ObjectStore` and `SnapshotStore` are deliberately separate ports, because the bytes and the bookkeeping fail independently and the ordering rule teardown depends on is only expressible if they do.
 
 **Key decision — where tools execute.** A batteries-included agent harness (the Claude Agent SDK, and anything like it) ships built-in `Read`/`Write`/`Edit`/`Bash` that act on the harness process's filesystem — which is our API server, not the sandbox. So we do not use one. `AgentService` drives the Messages API through the `LLMProvider` port and owns its own loop, and **the only tools that exist are the six that proxy every operation through `SandboxManager`** — a stronger guarantee than disabling built-ins, because there is no toggle to get wrong. Keeps the API key out of user compute, gives one chokepoint for events and diffs, and makes E2B→K8s a one-package change.
 
