@@ -49,6 +49,15 @@ export type ExecResponder = (
 export type InMemorySandboxManagerOptions = {
   /** Answers any command no `script()` call matched, in place of throwing. */
   defaultExec?: ExecResponder;
+  /**
+   * Ports every sandbox this manager creates is serving from the moment it exists.
+   *
+   * `listen()` cannot express that: a caller whose whole job is to create the sandbox has
+   * nothing to call it on until after the fact, and by then whatever waited on the preview
+   * has already given up. Left empty, nothing serves — which is how the "dev server never
+   * came up" path is driven.
+   */
+  serves?: readonly number[];
 };
 
 type SandboxState = {
@@ -80,9 +89,11 @@ export class InMemorySandboxManager implements SandboxManager {
   readonly #exactScripts = new Map<string, ExecResponder>();
   readonly #patternScripts: Array<{ pattern: RegExp; responder: ExecResponder }> = [];
   readonly #defaultExec: ExecResponder | undefined;
+  readonly #serves: readonly number[];
 
   constructor(options: InMemorySandboxManagerOptions = {}) {
     this.#defaultExec = options.defaultExec;
+    this.#serves = options.serves ?? [];
   }
 
   /**
@@ -121,7 +132,7 @@ export class InMemorySandboxManager implements SandboxManager {
       projectId,
       files: new Map(),
       commands: [],
-      listening: new Set(),
+      listening: new Set(this.#serves),
     });
     return { ok: true, value: { id, projectId } };
   }

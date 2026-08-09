@@ -1,6 +1,10 @@
-import { ChatPane } from "./chat-pane.tsx";
-import { FileTreePane } from "./file-tree-pane.tsx";
-import { PreviewPane } from "./preview-pane.tsx";
+"use client";
+
+import { useSession } from "../session/use-session.ts";
+import { LiveChatPane } from "./chat-pane.tsx";
+import { LiveConnectionStatus } from "./connection-status.tsx";
+import { LiveFileTreePane } from "./file-tree-pane.tsx";
+import { LivePreviewPane } from "./preview-pane.tsx";
 
 /**
  * The three-pane frame: chat | preview | file tree.
@@ -12,25 +16,30 @@ import { PreviewPane } from "./preview-pane.tsx";
  *
  * `h-dvh` with `min-h-0` on the panes is what keeps each pane scrolling independently
  * instead of the whole page growing.
+ *
+ * **The session is resolved once, here, and passed down.** Each pane subscribes to the same
+ * session independently — four panes calling `useSession` would be four calls to create one,
+ * and four projects nobody asked for.
  */
 export function AppShell() {
+  const { sessionId, status } = useSession();
+
   return (
     <div className="flex h-dvh flex-col bg-surface">
       <header className="flex h-12 shrink-0 items-center justify-between border-edge border-b px-4">
         <div className="flex items-baseline gap-2">
           <span className="font-semibold text-ink text-sm tracking-tight">nap</span>
-          <span className="text-muted text-xs">untitled project</span>
+          <span className="text-muted text-xs">
+            {status === "error" ? "could not reach the server" : "untitled project"}
+          </span>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="size-1.5 rounded-full bg-accent" aria-hidden="true" />
-          <span className="text-muted text-xs">ready</span>
-        </div>
+        <LiveConnectionStatus sessionId={sessionId} />
       </header>
 
       <main className="grid min-h-0 flex-1 grid-cols-[360px_1fr_260px] gap-px bg-edge">
-        <ChatPane />
-        <PreviewPane />
-        <FileTreePane />
+        <LiveChatPane sessionId={sessionId} />
+        <LivePreviewPane sessionId={sessionId} />
+        <LiveFileTreePane sessionId={sessionId} />
       </main>
     </div>
   );

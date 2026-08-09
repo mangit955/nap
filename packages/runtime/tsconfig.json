@@ -1,4 +1,6 @@
 {
   "extends": "../../tsconfig.base.json",
-  "include": ["src"]
+  // `scripts` is included so the CLI harness is typechecked like everything else — a
+  // script outside the gates is exactly how test/ once shipped unchecked.
+  "include": ["src", "scripts"]
 }

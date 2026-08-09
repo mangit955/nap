@@ -10,11 +10,14 @@
     "start": "next start --port 3000"
   },
   "dependencies": {
+    "@nap/shared": "workspace:*",
     "@tailwindcss/postcss": "4.3.3",
     "next": "16.3.0",
+    "prism-react-renderer": "^2.4.1",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "tailwindcss": "4.3.3"
+    "tailwindcss": "4.3.3",
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "7.0.0",

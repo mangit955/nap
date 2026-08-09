@@ -6,12 +6,50 @@
  * and so boot wiring stays confined to `index.ts`.
  */
 
+import type { EventBus } from "@nap/shared/ports/event-bus";
+import type { EventStore } from "@nap/shared/ports/event-store";
 import { VERSION } from "@nap/shared/version";
-import { Hono } from "hono";
-import { type Logger, withLogContext } from "./logger.ts";
+import { type Context, Hono } from "hono";
+import type { WSEvents } from "hono/ws";
+import { type FileRouteDeps, registerFileRoutes } from "./files/routes.ts";
+import { getLogger, type Logger, withLogContext } from "./logger.ts";
+import { registerSessionRoutes, type SessionRouteDeps } from "./sessions/routes.ts";
+import { registerTurnRoutes, type TurnRouteDeps } from "./turns/routes.ts";
+import { type HeartbeatOptions, openEventStream } from "./ws/event-stream.ts";
+import { parseStreamQuery } from "./ws/query.ts";
+
+/**
+ * Turning a request into a WebSocket is the one thing that cannot happen here: it needs a
+ * running `Bun.serve`, and the test suite runs under Node. Injecting it keeps this module
+ * importable and its routing testable, and confines the runtime-specific half to boot.
+ */
+export type UpgradeWebSocket = (c: Context, events: WSEvents) => Promise<Response>;
 
 export type AppDeps = {
   logger: Logger;
+  /** Everything `/ws` needs. The store supplies the replay, the bus the live tail. */
+  stream: {
+    store: EventStore;
+    bus: EventBus;
+    upgradeWebSocket: UpgradeWebSocket;
+    /** Overridden only by the smoke script, which cannot wait 30 seconds for a ping. */
+    heartbeat?: HeartbeatOptions;
+  };
+  /**
+   * Reading a project's files needs a session's sandbox, which means a `SessionStore` — and
+   * boot has none yet. Optional rather than required, so an app built without one has no file
+   * routes at all: registering them regardless would answer a real request with an internal
+   * error from a missing dependency, which is a worse answer than "no such route".
+   */
+  files?: FileRouteDeps;
+  /**
+   * Everything needed to run a turn. Optional for the same reason `files` is — most of the
+   * route tests have no runtime, and an app without one should have no way to start a turn
+   * rather than a route that fails once it is called.
+   */
+  turns?: TurnRouteDeps;
+  /** Creating a project and a session to talk in. Optional for the same reason as above. */
+  sessions?: SessionRouteDeps;
 };
 
 export function createApp(deps: AppDeps): Hono {
@@ -30,8 +68,10 @@ export function createApp(deps: AppDeps): Hono {
       async () => {
         const startedAt = performance.now();
         await next();
-        // Logged after the handler so the line carries the outcome, not just the intent.
-        deps.logger.info(
+        // Logged after the handler so the line carries the outcome, not just the intent, and
+        // through the context logger so the line itself carries the ids everything below it
+        // is reporting under — otherwise the request is the one line you cannot grep for.
+        getLogger().info(
           {
             method: c.req.method,
             path: url.pathname,
@@ -50,6 +90,44 @@ export function createApp(deps: AppDeps): Hono {
    * which it can do without changing the two keys already here.
    */
   app.get("/health", (c) => c.json({ status: "ok", version: VERSION }));
+
+  /**
+   * The session's event stream: everything after `seq`, then the live tail.
+   *
+   * A bad query is refused *before* the upgrade, while an ordinary HTTP response can still
+   * carry the reason — a socket that opens and immediately closes tells a client nothing.
+   */
+  app.get("/ws", async (c) => {
+    const query = parseStreamQuery(new URL(c.req.url));
+    if (!query.ok) return c.json({ error: query.error.message }, 400);
+
+    const { sessionId, afterSeq } = query.value;
+    let stream: ReturnType<typeof openEventStream> | undefined;
+
+    const events: WSEvents = {
+      onOpen: (_event, ws) => {
+        stream = openEventStream({
+          store: deps.stream.store,
+          bus: deps.stream.bus,
+          sessionId,
+          afterSeq,
+          socket: ws,
+          ...(deps.stream.heartbeat === undefined ? {} : { heartbeat: deps.stream.heartbeat }),
+        });
+      },
+      onMessage: (event) => stream?.onMessage(event.data),
+      onClose: () => stream?.onClose(),
+      // A socket error is a closed socket as far as this end is concerned; without this the
+      // subscription and the heartbeat would outlive the connection.
+      onError: () => stream?.onClose(),
+    };
+
+    return await deps.stream.upgradeWebSocket(c, events);
+  });
+
+  if (deps.files !== undefined) registerFileRoutes(app, deps.files);
+  if (deps.turns !== undefined) registerTurnRoutes(app, deps.turns);
+  if (deps.sessions !== undefined) registerSessionRoutes(app, deps.sessions);
 
   // Hono's default 404 is text/plain; every client of this API speaks JSON, and an HTML or
   // bare-text body on the error path turns a typo'd URL into an unreadable parse failure.

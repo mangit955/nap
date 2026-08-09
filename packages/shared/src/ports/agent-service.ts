@@ -23,6 +23,19 @@ export type AgentTurnRequest = {
   onEvent: (event: PendingEvent) => void;
   /** Cancellation mid-turn must stop tool execution, not just ignore the result. */
   signal?: AbortSignal;
+  /**
+   * Run after the model stops, before the turn is reported complete.
+   *
+   * `turn.completed` carries the commit its changes landed in, but committing is the
+   * caller's job — so the caller supplies a closure and this component awaits it. That is
+   * what lets the event hold a real sha without git appearing anywhere in the agent: the
+   * only alternative was to always report `null`, which the event contract reads as "the
+   * turn changed no files".
+   *
+   * Absent, the turn completes with no commit, which is what a caller that does not
+   * version the workspace means.
+   */
+  finalize?: () => Promise<{ commitSha: string | null }>;
 };
 
 export interface AgentService {

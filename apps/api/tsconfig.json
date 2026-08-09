@@ -1,4 +1,11 @@
 {
   "extends": "../../tsconfig.base.json",
-  "include": ["src"]
+  "compilerOptions": {
+    // This is the one workspace whose own code runs on the Bun runtime — `Bun.serve` in the
+    // smoke script, and the socket handler shape it exports. Everything else runs on Node.
+    "types": ["node", "bun"]
+  },
+  // `scripts` is included so the WebSocket smoke script is typechecked like everything else
+  // — a script outside the gates is exactly how test/ once shipped unchecked.
+  "include": ["src", "scripts"]
 }

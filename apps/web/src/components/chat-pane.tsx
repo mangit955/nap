@@ -1,25 +1,104 @@
+"use client";
+
+import type { StoredEvent } from "@nap/shared/ports/event-store";
+import { ChatInput } from "../chat/chat-input.tsx";
+import { ChatTranscript } from "../chat/chat-transcript.tsx";
+import { useTurnSubmission } from "../chat/use-turn-submission.ts";
+import { useEventStream } from "../hooks/use-event-stream.ts";
 import { Pane } from "./pane.tsx";
 
 /**
- * Placeholder. The real transcript — user and agent messages, collapsible tool calls,
- * streamed command output, file-change chips — replaces the body of this file wholesale
- * once the event stream exists.
+ * The transcript pane: what the agent is doing, as it does it — and where you say what to do.
+ *
+ * Split the way the connection indicator is — the half that renders takes events as a prop and
+ * is what every test mounts, and the half that subscribes owns the socket. That is what keeps
+ * two dozen render tests free of the network.
+ *
+ * The optimistic message is rendered *after* the transcript rather than inside it: the
+ * transcript is folded from stored events, and this one has not been stored yet. See
+ * `use-turn-submission.ts` for why that boundary is worth keeping.
  */
-export function ChatPane() {
+export function ChatPane({
+  events,
+  pending,
+  running = false,
+  error,
+  onSubmit = () => {},
+  onCancel = () => {},
+}: {
+  events: readonly StoredEvent[];
+  pending?: string | undefined;
+  running?: boolean;
+  error?: string | undefined;
+  onSubmit?: (message: string) => void;
+  onCancel?: () => void;
+}) {
+  const empty = events.length === 0 && pending === undefined;
+
   return (
     <Pane id="chat" title="Chat">
-      <div className="flex h-full flex-col justify-between p-4">
-        <p className="text-muted text-sm leading-relaxed">
-          Describe the app you want. Every file the agent writes and every command it runs will
-          stream here as it happens.
-        </p>
-        <div
-          aria-hidden="true"
-          className="mt-4 rounded-lg border border-edge bg-surface px-3 py-2.5 text-muted text-sm"
-        >
-          Build a todo list with add, complete and delete…
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="min-h-0 flex-1 overflow-auto">
+          {empty ? (
+            <EmptyState />
+          ) : (
+            <>
+              {events.length > 0 && <ChatTranscript events={events} />}
+              {pending !== undefined && <PendingMessage text={pending} />}
+            </>
+          )}
         </div>
+
+        <ChatInput running={running} error={error} onSubmit={onSubmit} onCancel={onCancel} />
       </div>
     </Pane>
+  );
+}
+
+/**
+ * The message the user just sent, before the log has caught up with it.
+ *
+ * Drawn exactly like a stored user message — same rail, same face — because it *is* the same
+ * message. A differently-styled placeholder that swaps for the real thing a moment later is a
+ * flicker with no meaning behind it.
+ */
+function PendingMessage({ text }: { text: string }) {
+  return (
+    <div className="px-4 pb-3">
+      <div className="border-edge border-l pl-4">
+        <p className="whitespace-pre-wrap text-ink text-sm leading-relaxed">
+          <span className="sr-only">You: </span>
+          {text}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/** An empty screen is an invitation, so it says what to do rather than what this is. */
+function EmptyState() {
+  return (
+    <div className="p-4">
+      <p className="text-muted text-sm leading-relaxed">
+        Describe the app you want. Every file the agent writes and every command it runs shows up
+        here as it happens.
+      </p>
+    </div>
+  );
+}
+
+export function LiveChatPane({ sessionId }: { sessionId: string | undefined }) {
+  const { events } = useEventStream({ sessionId });
+  const { submit, cancel, pending, running, error } = useTurnSubmission({ sessionId, events });
+
+  return (
+    <ChatPane
+      events={events}
+      pending={pending}
+      running={running}
+      error={error}
+      onSubmit={(message) => void submit(message)}
+      onCancel={() => void cancel()}
+    />
   );
 }

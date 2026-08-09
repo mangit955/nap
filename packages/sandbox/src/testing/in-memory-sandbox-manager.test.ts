@@ -161,6 +161,28 @@ describe("InMemorySandboxManager preview readiness", () => {
     expect(ready.error.code).toBe("timeout");
   });
 
+  it("can be serving from the moment a sandbox exists", async () => {
+    // For the caller that creates the sandbox itself: by the time it could call `listen`,
+    // whatever was waiting on the preview has already given up.
+    const manager = new InMemorySandboxManager({ serves: [5173] });
+    const created = await manager.create("project");
+    if (!created.ok) throw new Error(created.error.message);
+
+    const ready = await manager.waitForPreview(created.value.id, 5173, { timeoutMs: 20 });
+
+    expect(ready.ok).toBe(true);
+  });
+
+  it("serves nothing unless asked to, so the failure path stays the default", async () => {
+    const manager = new InMemorySandboxManager();
+    const created = await manager.create("project");
+    if (!created.ok) throw new Error(created.error.message);
+
+    expect((await manager.waitForPreview(created.value.id, 5173, { timeoutMs: 20 })).ok).toBe(
+      false,
+    );
+  });
+
   it("distinguishes ports, so one served port does not imply another", async () => {
     const manager = new InMemorySandboxManager();
     const created = await manager.create("project");

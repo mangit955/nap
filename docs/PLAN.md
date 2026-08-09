@@ -43,13 +43,15 @@ Nap is a Lovable-style AI app builder: user describes an app in chat → an agen
 
 Bun is the package manager and script runner. Vitest stays the test runner, because `bun test` has no named projects (M0-1 needs two suites), no `--changed` (the pre-commit hook needs it), different `mock.module` hoisting from `vi.mock` (M1-2 and M2-1 need it), and no `*.test-d.ts` typecheck mode (M0-4 needs it).
 
-`bun run <script>` honours a binary's shebang unless `--bun` is passed, so Vitest and Next.js transparently run under **Node** while installs, script dispatch, and our own TS entrypoints run under **Bun**. That keeps the two Node-first dependencies most likely to cost a session — testcontainers (M0-5) and the Claude Agent SDK (M2-7) — on Node, while `apps/api` still gets Bun's native TS execution and `Bun.serve`.
+`bun run <script>` honours a binary's shebang unless `--bun` is passed, so Vitest and Next.js transparently run under **Node** while installs, script dispatch, and our own TS entrypoints run under **Bun**. That keeps the dependency most likely to cost a session — testcontainers (M0-5) — on Node, while `apps/api` still gets Bun's native TS execution and `Bun.serve`.
 
 > ⚠️ **Always `bun run test`, never `bun test`.** `test` is a Bun built-in command and shadows the package.json script — bare `bun test` runs Bun's own runner over our Vitest files and reports nonsense.
 
 **Dependency direction (enforced):** `runtime` → {`context`, `agent`, `sandbox`, `db`} → `shared`. `agent` imports the `SandboxManager` *interface*, never the E2B adapter.
 
-**Key decision — where tools execute.** The Claude Agent SDK's built-in `Read`/`Write`/`Edit`/`Bash` act on the SDK process's filesystem, which is our API server, not the sandbox. So: **disable the built-ins**, and register custom tools that proxy every operation through `SandboxManager`. Keeps the API key out of user compute, gives one chokepoint for events and diffs, and makes E2B→K8s a one-package change.
+**Key decision — where tools execute.** A batteries-included agent harness (the Claude Agent SDK, and anything like it) ships built-in `Read`/`Write`/`Edit`/`Bash` that act on the harness process's filesystem — which is our API server, not the sandbox. So we do not use one. `AgentService` drives the Messages API through the `LLMProvider` port and owns its own loop, and **the only tools that exist are the six that proxy every operation through `SandboxManager`** — a stronger guarantee than disabling built-ins, because there is no toggle to get wrong. Keeps the API key out of user compute, gives one chokepoint for events and diffs, and makes E2B→K8s a one-package change.
+
+> Amended after M2-1. The original plan put `AgentService` on the Claude Agent SDK with its built-ins disabled. That SDK owns the agent loop, which leaves no seam for `ScriptedLLMProvider` — and M2-7's own tests, plus the §3 testing strategy, are built on that seam. M2-1 resolved it in favour of the port; these paragraphs were reconciled two tasks later.
 
 ### Architecture
 
@@ -243,7 +245,7 @@ Block `rm -rf /` and similar, package installs outside the project, and network 
 **Done when:** both the block list *and* the allow list are green — an over-eager guard is as bad as a missing one.
 
 **M2-7 — `AgentService`** · deps: M2-1, M2-5, M2-6
-`runTurn({ context, sandbox, onEvent })` on the Claude Agent SDK with built-ins disabled and the six proxy tools registered as in-process MCP tools.
+`runTurn({ context, sandbox, onEvent })` driving the model loop through the `LLMProvider` port, with the six proxy tools declared as the request's entire tool set — see §0's "where tools execute". Each round trip: `complete()` → execute every returned tool call → feed **all** the results back in one user message → repeat until the model stops asking for tools.
 **Tests (with `ScriptedLLMProvider` + `InMemorySandboxManager`):** a scripted single-tool turn emits `turn.started` → `tool.call` → `tool.result` → `agent.message` → `turn.completed` in exact order; a multi-tool turn executes tools in order; a tool error is fed back to the model rather than aborting; a refusal produces `turn.failed` with a refusal reason; cancellation mid-turn stops tool execution and emits `turn.failed`.
 **Done when:** the event-ordering tests pass deterministically 10 runs in a row.
 
@@ -252,10 +254,14 @@ Block `rm -rf /` and similar, package installs outside the project, and network 
 **Tests (all fakes):** append happens before publish for every event (assert via a recording spy on ordering); `seq` increments monotonically with no gaps; a successful turn produces exactly one git commit; a **failed** turn produces **zero** commits; a sandbox-create failure emits `turn.failed` and never invokes the agent; concurrent turns on the same session are serialized, not interleaved.
 **Done when:** all six green. The "no commit on failure" and "append before publish" tests are the two most valuable in the codebase — do not skip them.
 
+> Amended during M2-8. A turn request carries only a session id, so "resume-or-create" needed a source for the session's project and its current sandbox: `SessionStore` (`packages/shared/src/ports/session-store.ts`), two methods, with the Postgres implementation deferred to M4-4. A sandbox that is recorded but cannot be resumed **fails the turn** rather than creating a fresh one — until M4-2 can restore a snapshot, starting over means silently handing the user an empty template. `user.message` is appended by the runtime, before `turn.started`.
+
 **M2-9 — CLI harness** · deps: M2-8
 A `bun run harness "<prompt>"` script running a real turn against real E2B + real Claude, printing the event stream.
 **Tests:** manual. This is the M2 acceptance gate.
 **Done when:** `bun run harness "add a dark mode toggle"` changes a real file, prints ordered events, and leaves a git commit.
+
+> Amended during M2-9. The harness runs on a scripted model and an in-memory sandbox **by default** and takes `--real` to use the real ones, because the API budget is near-zero and everything except the request shape can be proven for free. A real run defaults to `claude-sonnet-5` at `medium` effort with a 12-step, 40k-token ceiling — hence `ClaudeProvider` gaining `model`/`effort`/`maxTokens`. The "Done when" above describes the `--real` run specifically, and is deliberately outstanding.
 
 ---
 
@@ -271,20 +277,28 @@ A `bun run harness "<prompt>"` script running a real turn against real E2B + rea
 **Tests:** write 10 events, connect with `seq=5`, assert exactly 5 replayed then live tail with no duplicates and no gap; a client connecting during an active turn receives the in-flight remainder; heartbeat timeout closes a dead connection; malformed frames are rejected without killing the socket.
 **Done when:** the replay-then-tail test is green — this is the correctness heart of the streaming layer.
 
+> Amended during M3-2. The heartbeat is an application-level `ping`/`pong` frame rather than a WebSocket control frame, because browser JavaScript can neither send a control-frame pong nor observe a ping — a control-frame heartbeat would be invisible to the only client this has. Frames in both directions are a Zod union in `packages/shared/src/ws-protocol.ts`, since M3-3 parses the same shapes. The route handler cannot run under Vitest (`upgradeWebSocket` requires a live `Bun.serve`), so `createApp` takes the adapter as a dependency, the connection logic sits behind a two-method socket type, and the Bun path has its own free gate: `bun run ws:smoke`. Boot was wired to Postgres in this task rather than deferred — `/ws` against an in-memory store would forget a transcript on every restart.
+
 **M3-3 — Client WS hook + reconnect** · deps: M3-2
 `useEventStream(sessionId)` with backoff reconnect, tracking last `seq`.
 **Tests:** with a mock socket — reconnect resumes from the correct `seq`; backoff increases then caps; events dedupe by `(sessionId, seq)`; unmount closes cleanly.
 **Done when:** reconnect tests green.
+
+> Amended during M3-3. Backoff is deterministic — 500ms doubling to a 10s cap, reset on `open` — with no jitter: jitter exists to stop a crowd retrying in lockstep, and a session here is one browser tab. The hook takes a socket factory so the curve is assertable in milliseconds; nothing in the `web` vitest project can open a real socket anyway, since Node's `WebSocket` and jsdom's `EventTarget` are incompatible. The header's connection indicator was wired in this task rather than left to M3-4, so that `next build` actually reaches the hook and proves the `transpilePackages` wiring `@nap/shared` needs; it reads a temporary `NEXT_PUBLIC_DEV_SESSION_ID` that M3-7 removes.
 
 **M3-4 — Chat pane** · deps: M3-3, M0-3
 Renders the event stream: user/agent messages, collapsible tool calls, streamed command output, file-change chips, thinking indicator.
 **Tests:** render tests per event type; a `tool.call` without its `tool.result` renders as in-progress; streamed text appends rather than replaces; long output is virtualized/truncated with expand.
 **Done when:** every one of the 11 event types has a defined visual treatment and a test.
 
+> Amended during M3-4. The transcript is an activity rail rather than chat bubbles: one hairline that opens at `turn.started` and closes at `turn.completed`/`turn.failed`, with prose in sans and everything machine-authored in mono. Long output is truncated with expand rather than virtualized — a clamped block is bounded, and v1 shows one session. Folding events into items is a pure function (`apps/web/src/chat/transcript.ts`) so the interesting cases — interleaved tool calls, a stream still arriving, a result whose call this client never received — are tested without rendering. `agent.thinking` has a treatment and a test even though nothing emits it yet; that is the M2-7 gap, and this is where it stops being invisible.
+
 **M3-5 — Preview pane** · deps: M1-4
 Sandboxed iframe, reload control, loading and error states.
 **Tests:** renders the URL when ready; shows loading before `preview.ready`; shows an actionable error on boot failure; `preview.ready` triggers a hard reload.
 **Done when:** all four states have tests.
+
+> Amended during M3-5. **The producer of `preview.ready` landed in this task, not in M2-8**: nothing had ever emitted it, so the pane would have shown "starting" forever. `SingleAgentRuntime` now awaits `waitForPreview` after acquiring a sandbox and emits — but only for a sandbox it *created*, since a resumed one is already serving and its announcement is in the log for the client to replay; re-announcing would reload the user's app underneath them every turn. A preview timeout does not fail the turn. The reload control works by remounting the frame, because a cross-origin iframe cannot be told to reload from this side, and the frame's `key` carries the announcing event's `seq` so a restarted dev server reloads while an ordinary event does not.
 
 **M3-6 — File tree** · deps: M1-1
 Read-only tree from `listFiles`, syntax-highlighted viewer from `readFile`, highlighting files touched this turn.

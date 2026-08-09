@@ -42,6 +42,16 @@ const EXCLUSIVE_EXTERNALS: Record<string, { owner: string; reason: string }> = {
     reason:
       "E2B belongs to @nap/sandbox. Depend on the SandboxManager interface from @nap/shared instead — see docs/PLAN.md §0.",
   },
+  "@anthropic-ai/sdk": {
+    owner: "@nap/agent",
+    reason:
+      "The Anthropic SDK belongs to @nap/agent. Depend on the LLMProvider interface from @nap/shared instead — see docs/PLAN.md §0. The interface is not a cross-vendor swap, but model id, effort, retries and refusal handling still belong in one place rather than at every call site.",
+  },
+  "@anthropic-ai/bedrock-sdk": {
+    owner: "@nap/agent",
+    reason:
+      "Reaching the models through Bedrock rather than Anthropic directly is a transport detail, and it belongs to @nap/agent for the same reason the direct SDK does. Which platform serves a request must not be visible above the LLMProvider interface — the whole point is that the agent loop and the event contract cannot tell the difference.",
+  },
 };
 
 export function checkDependencyDirection(manifests: Manifest[]): Violation[] {
