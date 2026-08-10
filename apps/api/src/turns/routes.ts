@@ -17,20 +17,36 @@
  * to — and a client waiting on a socket would simply never hear anything.
  */
 
+import type { ProjectStore } from "@nap/shared/ports/project-store";
 import type { Runtime } from "@nap/shared/ports/runtime";
-import type { SessionStore } from "@nap/shared/ports/session-store";
-import type { Hono } from "hono";
+import type { SessionRecord, SessionStore } from "@nap/shared/ports/session-store";
+import type { Context, Hono } from "hono";
 import { z } from "zod";
 import { findOwnedSession } from "../auth/owned-session.ts";
 import type { AuthVariables } from "../auth/require-user.ts";
 import { getLogger } from "../logger.ts";
+import type { TurnRateLimiter } from "./rate-limiter.ts";
 import type { TurnRegistry } from "./registry.ts";
+import { checkSandboxQuota, type SandboxLimits } from "./sandbox-quota.ts";
 
 export type TurnRouteDeps = {
   runtime: Runtime;
   registry: TurnRegistry;
   /** Only to reject an unknown session before starting anything. */
   sessions: SessionStore;
+  /**
+   * What one person may spend. Optional so the many route tests that are about status codes do
+   * not each have to configure a limiter — but when it is absent nothing is limited, so boot
+   * always passes one. That asymmetry is deliberate and the opposite of `authenticate`'s:
+   * refusing every turn because a limiter was not wired up would be a worse default than
+   * running unlimited in a test.
+   */
+  limits?: {
+    rate: TurnRateLimiter;
+    /** Counting live sandboxes; the same store the project routes use. */
+    projects: ProjectStore;
+    sandboxes: SandboxLimits;
+  };
 };
 
 const TurnBodySchema = z.object({
@@ -53,6 +69,11 @@ export function registerTurnRoutes(
     if (!body.success) {
       return c.json({ error: body.error.issues.map((issue) => issue.message).join("; ") }, 400);
     }
+
+    // Both ceilings are checked after the body, so a malformed request never costs somebody a
+    // slot, and before the registry, so a refused turn leaves no trace of having been started.
+    const refusal = await refuse(deps, found.value, c.get("userId"));
+    if (refusal !== undefined) return refusal(c);
 
     const { sessionId } = found.value;
     const signal = deps.registry.start(sessionId);
@@ -94,6 +115,59 @@ export function registerTurnRoutes(
 
     return c.json({ cancelled: true }, 202);
   });
+}
+
+/**
+ * Whether this turn is refused, and how to say so.
+ *
+ * Returns a function rather than a response so the two statuses stay next to their reasons.
+ * They are different on purpose: **429 for the rate limit**, which is a speed problem and comes
+ * with a `Retry-After` a client can obey, and **409 for the quota**, which is a conflict with
+ * the current state and is fixed by closing a project rather than by waiting. Both carry a
+ * `code`, so the browser can tell them apart without reading the prose.
+ */
+async function refuse(
+  deps: TurnRouteDeps,
+  session: SessionRecord,
+  userId: string,
+): Promise<((c: Context) => Response) | undefined> {
+  const { limits } = deps;
+  if (limits === undefined) return undefined;
+
+  const rate = limits.rate.check(userId, Date.now());
+  if (!rate.allowed) {
+    const seconds = rate.retryAfterSeconds;
+    return (c) =>
+      c.json(
+        {
+          error: `Too many turns. Try again in ${describeWait(seconds)}.`,
+          code: "rate_limited",
+        },
+        429,
+        // The header, not just the body: this is the one a client library or a proxy honours
+        // on its own, and a 429 without it invites an immediate retry.
+        { "retry-after": String(seconds) },
+      );
+  }
+
+  const quota = await checkSandboxQuota({
+    projects: limits.projects,
+    userId,
+    sessionSandboxId: session.sandboxId,
+    limits: limits.sandboxes,
+  });
+  if (!quota.allowed) {
+    return (c) => c.json({ error: quota.message, code: "sandbox_quota_exceeded" }, 409);
+  }
+
+  return undefined;
+}
+
+/** Seconds are what the header carries; a person reads minutes. */
+function describeWait(seconds: number): string {
+  if (seconds < 60) return `${seconds} seconds`;
+  const minutes = Math.ceil(seconds / 60);
+  return `${minutes} minute${minutes === 1 ? "" : "s"}`;
 }
 
 /** An unparseable body is a 400 like any other bad input, not a 500. */

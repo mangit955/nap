@@ -272,3 +272,46 @@ describe("without a session", () => {
     expect(result.current.pending).toBeUndefined();
   });
 });
+
+describe("when the server refuses", () => {
+  /** Answers one refusal with a body, the way the rate limit and the quota do. */
+  function refusing(status: number, body: unknown) {
+    return async (): Promise<Response> => new Response(JSON.stringify(body), { status });
+  }
+
+  it("shows the reason the server gave rather than a generic apology", async () => {
+    // A rate limit and a sandbox quota are both actionable — wait, or close a project — and the
+    // server writes that sentence. Replacing it with "something went wrong" throws away the
+    // only part the reader can do anything with.
+    const message = "Too many turns. Try again in 4 minutes.";
+    const { result } = submission(refusing(429, { error: message, code: "rate_limited" }));
+
+    await act(async () => {
+      await result.current.submit("hello");
+    });
+
+    expect(result.current.error).toBe(message);
+  });
+
+  it("falls back to a generic line when the body carries nothing usable", async () => {
+    // A proxy's HTML error page, or an empty 502. A raw status code is not an instruction.
+    const { result } = submission(refusing(502, {}));
+
+    await act(async () => {
+      await result.current.submit("hello");
+    });
+
+    expect(result.current.error).toBe("That message didn't send. Try again.");
+  });
+
+  it("still takes the message back off the screen", async () => {
+    // Whatever the reason, a pending message left in the transcript claims the agent has it.
+    const { result } = submission(refusing(409, { error: "You already have 2 running." }));
+
+    await act(async () => {
+      await result.current.submit("hello");
+    });
+
+    expect(result.current.pending).toBeUndefined();
+  });
+});

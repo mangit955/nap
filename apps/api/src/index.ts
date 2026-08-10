@@ -37,6 +37,7 @@ import { createApp } from "./app.ts";
 import { createAuth } from "./auth/auth.ts";
 import { EnvValidationError, parseEnv } from "./env.ts";
 import { createLogger, setRootLogger } from "./logger.ts";
+import { TurnRateLimiter } from "./turns/rate-limiter.ts";
 import { TurnRegistry } from "./turns/registry.ts";
 
 // Before anything else: an unusable environment should kill the process here, with a
@@ -162,7 +163,21 @@ const app = createApp({
   authenticate: auth.getUser,
   stream: { store, bus, sessions, upgradeWebSocket },
   files: { sessions, sandbox },
-  turns: { runtime, registry, sessions },
+  turns: {
+    runtime,
+    registry,
+    sessions,
+    // What one person, and this whole process, may have running at once. This endpoint is the
+    // only way to start a turn, so it is the only place either ceiling has to be applied.
+    limits: {
+      rate: new TurnRateLimiter({ limit: env.NAP_TURNS_PER_HOUR, windowMs: 60 * 60 * 1000 }),
+      projects,
+      sandboxes: {
+        perUser: env.NAP_MAX_SANDBOXES_PER_USER,
+        total: env.NAP_MAX_SANDBOXES_TOTAL,
+      },
+    },
+  },
   projects: {
     projects,
     projectSandboxes,
@@ -227,6 +242,9 @@ logger.info(
     effort: env.NAP_EFFORT,
     reapIdleMinutes: env.NAP_REAP_IDLE_MINUTES,
     sandboxTtlMinutes: env.NAP_SANDBOX_TTL_MINUTES,
+    turnsPerHour: env.NAP_TURNS_PER_HOUR,
+    maxSandboxesPerUser: env.NAP_MAX_SANDBOXES_PER_USER,
+    maxSandboxesTotal: env.NAP_MAX_SANDBOXES_TOTAL,
   },
   "api listening",
 );

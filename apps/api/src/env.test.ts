@@ -266,3 +266,38 @@ describe("putting projects away", () => {
     expect(() => parseEnv(rest)).toThrow(/R2_BUCKET/);
   });
 });
+
+describe("what one person may spend", () => {
+  it("defaults to limits tight enough to bound a runaway", () => {
+    // These are the numbers that decide what a stranger can spend on your behalf, so they are
+    // asserted rather than left to whatever the schema happens to say.
+    const env = parseEnv(REQUIRED);
+
+    expect(env.NAP_TURNS_PER_HOUR).toBe(15);
+    expect(env.NAP_MAX_SANDBOXES_PER_USER).toBe(2);
+    expect(env.NAP_MAX_SANDBOXES_TOTAL).toBe(10);
+  });
+
+  it("refuses a per-user cap above the machine-wide one", () => {
+    // Configured that way the per-user limit can never be reached: the global check refuses
+    // first, and tells the asker the server is busy when the projects filling it are their own.
+    expect(() =>
+      parseEnv({ ...REQUIRED, NAP_MAX_SANDBOXES_PER_USER: "5", NAP_MAX_SANDBOXES_TOTAL: "3" }),
+    ).toThrow(/NAP_MAX_SANDBOXES_PER_USER/);
+  });
+
+  it("accepts the two being equal, which is a single-user deployment", () => {
+    expect(() =>
+      parseEnv({ ...REQUIRED, NAP_MAX_SANDBOXES_PER_USER: "3", NAP_MAX_SANDBOXES_TOTAL: "3" }),
+    ).not.toThrow();
+  });
+
+  it("rejects a zero or negative limit rather than silently blocking every turn", () => {
+    // `0` reads like "no limit" and means the opposite: every turn refused, with a message
+    // about rate limiting that nobody could act on.
+    expect(() => parseEnv({ ...REQUIRED, NAP_TURNS_PER_HOUR: "0" })).toThrow(/NAP_TURNS_PER_HOUR/);
+    expect(() => parseEnv({ ...REQUIRED, NAP_MAX_SANDBOXES_PER_USER: "-1" })).toThrow(
+      /NAP_MAX_SANDBOXES_PER_USER/,
+    );
+  });
+});

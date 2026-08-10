@@ -42,6 +42,30 @@ export type TurnSubmission = {
 
 const DEFAULT_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
 
+const GENERIC_FAILURE = "That message didn't send. Try again.";
+
+/**
+ * What to show when the server refuses.
+ *
+ * A rate limit and a sandbox quota are both things the person can act on — wait a few minutes,
+ * or close a project — and the server already says which in a sentence written for a reader. So
+ * the message is used rather than replaced by "something went wrong", which is the bare state
+ * this app is supposed to be free of. Anything without a usable body falls back to the generic
+ * line: a raw status code is not an instruction.
+ */
+async function refusalMessage(response: Response): Promise<string> {
+  try {
+    const body: unknown = await response.json();
+    if (typeof body === "object" && body !== null && "error" in body) {
+      const { error } = body as { error: unknown };
+      if (typeof error === "string" && error.trim() !== "") return error;
+    }
+  } catch {
+    // Not JSON — a proxy's HTML error page, or nothing at all.
+  }
+  return GENERIC_FAILURE;
+}
+
 export function useTurnSubmission(options: {
   sessionId: string | undefined;
   events: readonly StoredEvent[];
@@ -86,12 +110,12 @@ export function useTurnSubmission(options: {
         },
       );
 
-      if (!response.ok) throw new Error(`the server answered ${response.status}`);
-    } catch {
+      if (!response.ok) throw new Error(await refusalMessage(response));
+    } catch (failure) {
       // Rolled back rather than left on screen: a message that stays after the request failed
       // claims the agent has it. The caller puts the text back in the box.
       setPending(undefined);
-      setError("That message didn't send. Try again.");
+      setError(failure instanceof Error ? failure.message : GENERIC_FAILURE);
     } finally {
       setPosting(false);
     }

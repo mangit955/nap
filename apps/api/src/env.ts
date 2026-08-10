@@ -86,6 +86,23 @@ const BaseSchema = z.object({
   NAP_CONTEXT_BUDGET_TOKENS: z.coerce.number().int().positive().default(80_000),
 
   /**
+   * What one person may spend.
+   *
+   * Every turn is a real model call and a real sandbox billed by the second, so an endpoint with
+   * no ceiling is a bill with no ceiling — reachable by a loop in a browser tab as easily as by
+   * anyone malicious. The defaults are deliberately tight: a working session is usually five to
+   * ten messages, so fifteen an hour is room to work rather than a wall, and two running
+   * projects is more than anybody uses at once.
+   *
+   * `NAP_MAX_SANDBOXES_TOTAL` is the process-wide ceiling and is the only one of the three that
+   * bounds what *everybody together* can spend. Per-user limits alone multiply by the number of
+   * users, which is the arithmetic that matters the first time this is shown to strangers.
+   */
+  NAP_TURNS_PER_HOUR: z.coerce.number().int().positive().default(15),
+  NAP_MAX_SANDBOXES_PER_USER: z.coerce.number().int().positive().default(2),
+  NAP_MAX_SANDBOXES_TOTAL: z.coerce.number().int().positive().default(10),
+
+  /**
    * Where a project's bytes live while no sandbox is holding them.
    *
    * Required from the moment the server can put a project away and take it out again: a
@@ -151,6 +168,17 @@ export const EnvSchema = BaseSchema.superRefine((env, ctx) => {
         message: "is required when the other GITHUB_CLIENT_* variable is set",
       });
     }
+  }
+
+  // A per-user cap above the machine-wide one is unreachable: the global check would refuse
+  // first, and the message would talk about the server being busy when the projects filling it
+  // are the asker's own. Loud here rather than confusing at request time.
+  if (env.NAP_MAX_SANDBOXES_PER_USER > env.NAP_MAX_SANDBOXES_TOTAL) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["NAP_MAX_SANDBOXES_PER_USER"],
+      message: `must not exceed NAP_MAX_SANDBOXES_TOTAL (${env.NAP_MAX_SANDBOXES_TOTAL}), or the per-user limit can never be reached`,
+    });
   }
 
   // A configuration that reaps later than the provider kills is worse than no reaper at all:

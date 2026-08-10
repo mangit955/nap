@@ -15,7 +15,7 @@
  */
 
 import type { ProjectStatus, ProjectStore, ProjectSummary } from "@nap/shared/ports/project-store";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { projects, sessions } from "./schema.ts";
 
@@ -62,6 +62,22 @@ export class PostgresProjectStore implements ProjectStore {
       .returning({ id: projects.id });
 
     return deleted.length > 0;
+  }
+
+  async countRunningSandboxes(userId?: string): Promise<number> {
+    // Its own query rather than `list().length`: the listing left-joins sessions and aggregates
+    // them per project, which is a lot of work to throw away, and it would also be wrong for the
+    // global count — there is no `list()` that crosses users, deliberately.
+    const [row] = await this.#db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(projects)
+      .where(
+        userId === undefined
+          ? isNotNull(projects.sandboxId)
+          : and(isNotNull(projects.sandboxId), eq(projects.userId, userId)),
+      );
+
+    return row?.count ?? 0;
   }
 
   /**

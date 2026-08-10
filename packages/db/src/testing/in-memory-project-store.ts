@@ -84,6 +84,19 @@ export class InMemoryProjectStore implements ProjectStore {
     return this.#projects.delete(projectId);
   }
 
+  /**
+   * Counted from the seeded projects rather than returned as a constant, for the same reason the
+   * ownership filter above is real: a fake that answered `0` would make every quota test pass
+   * against a check that never refuses anybody.
+   */
+  async countRunningSandboxes(userId?: string): Promise<number> {
+    this.#throwIfFailing();
+    return [...this.#projects.values()].filter(
+      (project) =>
+        project.sandboxId !== null && (userId === undefined || project.userId === userId),
+    ).length;
+  }
+
   #throwIfFailing(): void {
     // Thrown rather than returned, like the other stores here: a database that cannot be
     // reached is not an outcome these interfaces model.
