@@ -22,7 +22,9 @@ import type { SandboxError, SandboxManager } from "@nap/shared/ports/sandbox-man
 import type { SessionStore } from "@nap/shared/ports/session-store";
 import type { Hono } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import { parseProjectPath, parseSessionId } from "./params.ts";
+import { findOwnedSession } from "../auth/owned-session.ts";
+import type { AuthVariables } from "../auth/require-user.ts";
+import { parseProjectPath } from "./params.ts";
 
 /**
  * How much of a file is worth sending. Generated projects hold the occasional huge file —
@@ -54,13 +56,14 @@ function statusFor(error: SandboxError): ContentfulStatusCode {
   }
 }
 
-export function registerFileRoutes(app: Hono, deps: FileRouteDeps): void {
+export function registerFileRoutes(
+  app: Hono<{ Variables: AuthVariables }>,
+  deps: FileRouteDeps,
+): void {
   app.get("/sessions/:sessionId/files", async (c) => {
-    const sessionId = parseSessionId(c.req.param("sessionId"));
-    if (!sessionId.ok) return c.json({ error: sessionId.error.message }, 400);
-
-    const session = await deps.sessions.get(sessionId.value);
-    if (session === null) return c.json({ error: "no such session" }, 404);
+    const found = await findOwnedSession(deps.sessions, c.req.param("sessionId"), c.get("userId"));
+    if (!found.ok) return c.json({ error: found.error.message }, found.error.status);
+    const session = found.value;
 
     // No sandbox is the state every project starts in, and it is not a failure: the first
     // turn creates one. Saying so explicitly lets the pane invite rather than apologize.
@@ -79,14 +82,13 @@ export function registerFileRoutes(app: Hono, deps: FileRouteDeps): void {
   });
 
   app.get("/sessions/:sessionId/file", async (c) => {
-    const sessionId = parseSessionId(c.req.param("sessionId"));
-    if (!sessionId.ok) return c.json({ error: sessionId.error.message }, 400);
+    const found = await findOwnedSession(deps.sessions, c.req.param("sessionId"), c.get("userId"));
+    if (!found.ok) return c.json({ error: found.error.message }, found.error.status);
 
     const path = parseProjectPath(new URL(c.req.url).searchParams.get("path"));
     if (!path.ok) return c.json({ error: path.error.message }, 400);
 
-    const session = await deps.sessions.get(sessionId.value);
-    if (session === null) return c.json({ error: "no such session" }, 404);
+    const session = found.value;
     if (session.sandboxId === null) return c.json({ error: "this session has no sandbox" }, 404);
 
     const read = await deps.sandbox.readFile(session.sandboxId, path.value.absolute);

@@ -8,17 +8,31 @@
  * Ordering is applied on the way out rather than assumed from insertion order, because "most
  * recently active first" is a promise the port makes and a fake that happened to satisfy it by
  * accident would let a real store break it unnoticed.
+ *
+ * **It enforces ownership rather than accepting the user id and ignoring it.** That is the whole
+ * value of it here: a fake that took the parameter and filtered on nothing would make every
+ * authorization test in the suite pass against a store that hands a stranger somebody else's
+ * project, which is precisely the bug those tests exist to catch.
  */
 
 import type { ProjectStore, ProjectSummary } from "@nap/shared/ports/project-store";
 
+/**
+ * The owner a seeded project gets when a test does not care who it belongs to — which is most
+ * of them, since they are about status codes. Tests that *are* about ownership name two users.
+ */
+export const FAKE_OWNER = "00000000-0000-4000-8000-000000000001";
+
+/** A project plus who it belongs to; the owner is not part of the summary the API returns. */
+export type OwnedProject = ProjectSummary & { userId?: string };
+
 export class InMemoryProjectStore implements ProjectStore {
-  readonly #projects = new Map<string, ProjectSummary>();
+  readonly #projects = new Map<string, ProjectSummary & { userId: string }>();
   #failure: Error | undefined;
   #deleteFailure: Error | undefined;
 
-  constructor(seed: ProjectSummary[] = []) {
-    for (const project of seed) this.#projects.set(project.projectId, { ...project });
+  constructor(seed: OwnedProject[] = []) {
+    for (const project of seed) this.put(project);
   }
 
   /** Makes every method fail until called again with `undefined`. */
@@ -38,27 +52,35 @@ export class InMemoryProjectStore implements ProjectStore {
   }
 
   /** Adds or replaces a project, so a test can set one up after construction. */
-  put(project: ProjectSummary): this {
-    this.#projects.set(project.projectId, { ...project });
+  put(project: OwnedProject): this {
+    const { userId = FAKE_OWNER, ...summary } = project;
+    this.#projects.set(project.projectId, { ...summary, userId });
     return this;
   }
 
-  async list(): Promise<ProjectSummary[]> {
+  async list(userId: string): Promise<ProjectSummary[]> {
     this.#throwIfFailing();
     return [...this.#projects.values()]
-      .map((project) => ({ ...project }))
+      .filter((project) => project.userId === userId)
+      .map(withoutOwner)
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
-  async get(projectId: string): Promise<ProjectSummary | null> {
+  async get(projectId: string, userId: string): Promise<ProjectSummary | null> {
     this.#throwIfFailing();
     const found = this.#projects.get(projectId);
-    return found === undefined ? null : { ...found };
+    // Somebody else's project is indistinguishable from one that is not here, exactly as the
+    // real store's `where` clause makes it.
+    if (found === undefined || found.userId !== userId) return null;
+    return withoutOwner(found);
   }
 
-  async delete(projectId: string): Promise<boolean> {
+  async delete(projectId: string, userId: string): Promise<boolean> {
     this.#throwIfFailing();
     if (this.#deleteFailure !== undefined) throw this.#deleteFailure;
+
+    const found = this.#projects.get(projectId);
+    if (found === undefined || found.userId !== userId) return false;
     return this.#projects.delete(projectId);
   }
 
@@ -67,4 +89,9 @@ export class InMemoryProjectStore implements ProjectStore {
     // reached is not an outcome these interfaces model.
     if (this.#failure !== undefined) throw this.#failure;
   }
+}
+
+function withoutOwner(project: ProjectSummary & { userId: string }): ProjectSummary {
+  const { userId: _owner, ...summary } = project;
+  return { ...summary };
 }

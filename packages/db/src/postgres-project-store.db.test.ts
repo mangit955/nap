@@ -19,11 +19,18 @@ import { events, projects, sessions, snapshots, users } from "./schema.ts";
 let sql: postgres.Sql;
 let db: PostgresJsDatabase;
 let store: PostgresProjectStore;
+/**
+ * One owner for the whole file, so `list` sees everything seeded here and the ordering tests
+ * still mean what they meant before projects had owners. The ownership tests at the bottom
+ * make their own second user.
+ */
+let owner: string;
 
-beforeAll(() => {
+beforeAll(async () => {
   sql = postgres(inject("postgresUrl"), { max: 4 });
   db = drizzle(sql);
   store = new PostgresProjectStore(db);
+  owner = await seedUser();
 });
 
 afterAll(async () => {
@@ -35,17 +42,23 @@ type SeedOptions = {
   updatedAt?: Date;
   sandboxId?: string | null;
   status?: "creating" | "ready" | "idle";
+  /** Defaults to the file's shared owner; the ownership tests pass a second user. */
+  userId?: string;
 };
 
-async function seedProject(options: SeedOptions = {}): Promise<string> {
+async function seedUser(): Promise<string> {
   const [user] = await db
     .insert(users)
     .values({ email: `${randomUUID()}@example.com`, name: "Ada" })
     .returning();
+  return user?.id ?? "";
+}
+
+async function seedProject(options: SeedOptions = {}): Promise<string> {
   const [project] = await db
     .insert(projects)
     .values({
-      userId: user?.id ?? "",
+      userId: options.userId ?? owner,
       name: options.name ?? "Todo app",
       slug: `todo-${randomUUID()}`,
       sandboxId: options.sandboxId ?? null,
@@ -77,7 +90,7 @@ describe("list", () => {
     const fresh = await seedProject({ updatedAt: new Date("2026-08-09T00:00:00.000Z") });
     const stale = await seedProject({ updatedAt: new Date("2026-01-01T00:00:00.000Z") });
 
-    const listed = (await store.list()).map((project) => project.projectId);
+    const listed = (await store.list(owner)).map((project) => project.projectId);
 
     expect(listed.indexOf(fresh)).toBeLessThan(listed.indexOf(stale));
   });
@@ -87,7 +100,7 @@ describe("list", () => {
     const older = await seedSession(projectId, new Date("2026-01-01T00:00:00.000Z"));
     const newest = await seedSession(projectId, new Date("2026-08-09T00:00:00.000Z"));
 
-    const found = (await store.list()).find((project) => project.projectId === projectId);
+    const found = (await store.list(owner)).find((project) => project.projectId === projectId);
 
     expect(found?.sessionIds).toEqual([newest, older]);
   });
@@ -97,7 +110,7 @@ describe("list", () => {
     // it from the listing would leave something that exists and cannot be reached.
     const projectId = await seedProject();
 
-    const found = (await store.list()).find((project) => project.projectId === projectId);
+    const found = (await store.list(owner)).find((project) => project.projectId === projectId);
 
     expect(found).toMatchObject({ sessionIds: [] });
   });
@@ -105,7 +118,7 @@ describe("list", () => {
   it("reports the sandbox and status a project is in", async () => {
     const projectId = await seedProject({ sandboxId: "sbx_live", status: "ready" });
 
-    const found = (await store.list()).find((project) => project.projectId === projectId);
+    const found = (await store.list(owner)).find((project) => project.projectId === projectId);
 
     expect(found).toMatchObject({ sandboxId: "sbx_live", status: "ready", name: "Todo app" });
   });
@@ -116,7 +129,7 @@ describe("get", () => {
     const projectId = await seedProject({ name: "Notes" });
     const sessionId = await seedSession(projectId);
 
-    await expect(store.get(projectId)).resolves.toMatchObject({
+    await expect(store.get(projectId, owner)).resolves.toMatchObject({
       projectId,
       name: "Notes",
       sessionIds: [sessionId],
@@ -124,7 +137,7 @@ describe("get", () => {
   });
 
   it("is null for a project that does not exist", async () => {
-    await expect(store.get(randomUUID())).resolves.toBeNull();
+    await expect(store.get(randomUUID(), owner)).resolves.toBeNull();
   });
 });
 
@@ -145,7 +158,7 @@ describe("delete", () => {
       .insert(snapshots)
       .values({ projectId, r2Key: `projects/${projectId}/1-abc.bundle`, gitSha: "abc" });
 
-    await expect(store.delete(projectId)).resolves.toBe(true);
+    await expect(store.delete(projectId, owner)).resolves.toBe(true);
 
     expect(await db.select().from(projects).where(eq(projects.id, projectId))).toEqual([]);
     expect(await db.select().from(sessions).where(eq(sessions.projectId, projectId))).toEqual([]);
@@ -154,6 +167,35 @@ describe("delete", () => {
   });
 
   it("reports false for a project that was already gone", async () => {
-    await expect(store.delete(randomUUID())).resolves.toBe(false);
+    await expect(store.delete(randomUUID(), owner)).resolves.toBe(false);
+  });
+});
+
+describe("ownership", () => {
+  it("does not list another user's projects", async () => {
+    // The whole point of the scoping. Without the `where` on `user_id`, every project in the
+    // database appears on everybody's list page.
+    const stranger = await seedUser();
+    const theirs = await seedProject({ userId: stranger, name: "Not yours" });
+
+    expect((await store.list(owner)).map((p) => p.projectId)).not.toContain(theirs);
+    expect((await store.list(stranger)).map((p) => p.projectId)).toContain(theirs);
+  });
+
+  it("reports another user's project as absent rather than forbidden", async () => {
+    // Not a 403's worth of information: confirming the row exists is a fact about somebody
+    // else's data, and `null` is what the route turns into a 404.
+    const stranger = await seedUser();
+    const theirs = await seedProject({ userId: stranger });
+
+    await expect(store.get(theirs, owner)).resolves.toBeNull();
+  });
+
+  it("refuses to delete another user's project, and leaves the row where it was", async () => {
+    const stranger = await seedUser();
+    const theirs = await seedProject({ userId: stranger });
+
+    await expect(store.delete(theirs, owner)).resolves.toBe(false);
+    expect(await db.select().from(projects).where(eq(projects.id, theirs))).toHaveLength(1);
   });
 });

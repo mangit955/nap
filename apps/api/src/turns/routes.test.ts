@@ -1,5 +1,6 @@
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
+import { FAKE_OWNER } from "@nap/db/testing/in-memory-project-store";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import type { Runtime, TurnOutcome, TurnRequest } from "@nap/shared/ports/runtime";
 import type { Hono } from "hono";
@@ -47,13 +48,12 @@ class ThrowingRuntime implements Runtime {
   }
 }
 
-function app(
-  runtime: Runtime,
-  registry = new TurnRegistry(),
-): { app: Hono; registry: TurnRegistry } {
+function app(runtime: Runtime, registry = new TurnRegistry()) {
   return {
     app: createApp({
       logger: silent(),
+      // Every guarded route needs a caller; this stands in for a signed-in session cookie.
+      authenticate: async () => ({ userId: FAKE_OWNER }),
       stream: {
         store: new InMemoryEventStore(),
         bus: new InMemoryEventBus(),
@@ -69,7 +69,7 @@ function app(
   };
 }
 
-const post = (hono: Hono, path: string, body?: unknown) =>
+const post = (hono: { request: Hono["request"] }, path: string, body?: unknown) =>
   hono.request(path, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -194,6 +194,9 @@ describe("when the app is built without a runtime", () => {
   it("has no turn routes at all", async () => {
     const unwired = createApp({
       logger: silent(),
+      // Signed in, so a 404 here is about the route not existing rather than about who is
+      // asking — which is what this test is for.
+      authenticate: async () => ({ userId: FAKE_OWNER }),
       stream: {
         store: new InMemoryEventStore(),
         bus: new InMemoryEventBus(),

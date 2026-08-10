@@ -21,7 +21,8 @@ import type { Runtime } from "@nap/shared/ports/runtime";
 import type { SessionStore } from "@nap/shared/ports/session-store";
 import type { Hono } from "hono";
 import { z } from "zod";
-import { parseSessionId } from "../files/params.ts";
+import { findOwnedSession } from "../auth/owned-session.ts";
+import type { AuthVariables } from "../auth/require-user.ts";
 import { getLogger } from "../logger.ts";
 import type { TurnRegistry } from "./registry.ts";
 
@@ -40,27 +41,28 @@ const TurnBodySchema = z.object({
     .refine((text) => text.length > 0, { message: "message must not be empty" }),
 });
 
-export function registerTurnRoutes(app: Hono, deps: TurnRouteDeps): void {
+export function registerTurnRoutes(
+  app: Hono<{ Variables: AuthVariables }>,
+  deps: TurnRouteDeps,
+): void {
   app.post("/sessions/:sessionId/turns", async (c) => {
-    const sessionId = parseSessionId(c.req.param("sessionId"));
-    if (!sessionId.ok) return c.json({ error: sessionId.error.message }, 400);
+    const found = await findOwnedSession(deps.sessions, c.req.param("sessionId"), c.get("userId"));
+    if (!found.ok) return c.json({ error: found.error.message }, found.error.status);
 
     const body = TurnBodySchema.safeParse(await readJson(c.req.raw));
     if (!body.success) {
       return c.json({ error: body.error.issues.map((issue) => issue.message).join("; ") }, 400);
     }
 
-    const session = await deps.sessions.get(sessionId.value);
-    if (session === null) return c.json({ error: "no such session" }, 404);
-
-    const signal = deps.registry.start(sessionId.value);
+    const { sessionId } = found.value;
+    const signal = deps.registry.start(sessionId);
     const logger = getLogger();
 
     // Deliberately not awaited — see the note above. Both settlement paths are handled, and
     // the entry is cleared either way, or a cancel arriving later would abort a turn that
     // has already ended and the next turn would inherit an aborted signal.
     void deps.runtime
-      .runTurn({ sessionId: sessionId.value, message: body.data.message, signal })
+      .runTurn({ sessionId, message: body.data.message, signal })
       .then((outcome) => {
         logger.info({ outcome }, "turn settled");
       })
@@ -70,19 +72,23 @@ export function registerTurnRoutes(app: Hono, deps: TurnRouteDeps): void {
         logger.error({ err: error }, "turn threw");
       })
       .finally(() => {
-        deps.registry.finish(sessionId.value, signal);
+        deps.registry.finish(sessionId, signal);
       });
 
     return c.json({ accepted: true }, 202);
   });
 
   app.post("/sessions/:sessionId/turns/cancel", async (c) => {
-    const sessionId = parseSessionId(c.req.param("sessionId"));
-    if (!sessionId.ok) return c.json({ error: sessionId.error.message }, 400);
+    // Authorized before the registry is touched: cancelling somebody else's turn is exactly
+    // as damaging as starting one, and a 409 for "nothing is running" would otherwise tell a
+    // stranger whether a session they cannot see is busy.
+    const found = await findOwnedSession(deps.sessions, c.req.param("sessionId"), c.get("userId"));
+    if (!found.ok) return c.json({ error: found.error.message }, found.error.status);
+    const { sessionId } = found.value;
 
     // Nothing running is a race, not a failure: the user clicked as the turn was ending. The
     // status says so rather than reporting a server error for something nobody did wrong.
-    if (!deps.registry.cancel(sessionId.value)) {
+    if (!deps.registry.cancel(sessionId)) {
       return c.json({ error: "no turn is running for this session" }, 409);
     }
 

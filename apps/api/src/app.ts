@@ -8,11 +8,14 @@
 
 import type { EventBus } from "@nap/shared/ports/event-bus";
 import type { EventStore } from "@nap/shared/ports/event-store";
+import type { SessionStore } from "@nap/shared/ports/session-store";
 import { VERSION } from "@nap/shared/version";
 import { type Context, Hono } from "hono";
 import { cors } from "hono/cors";
 import type { WSEvents } from "hono/ws";
-import type { AuthInstance } from "./auth/auth.ts";
+import type { Authenticate, AuthInstance } from "./auth/auth.ts";
+import { findOwnedSession } from "./auth/owned-session.ts";
+import { type AuthVariables, requireUser } from "./auth/require-user.ts";
 import { type FileRouteDeps, registerFileRoutes } from "./files/routes.ts";
 import { getLogger, type Logger, withLogContext } from "./logger.ts";
 import { type ProjectRouteDeps, registerProjectRoutes } from "./projects/routes.ts";
@@ -44,10 +47,24 @@ export type AppDeps = {
    * fail on the first request for want of a database.
    */
   auth?: AuthInstance;
+  /**
+   * How a request is turned into a caller. Boot passes `auth.getUser`; tests pass a stub, which
+   * is what keeps every route test free of a database and a real cookie.
+   *
+   * **Absent means refuse, not allow.** See `requireUser` — an app assembled without a way to
+   * identify anyone should reach nobody's data.
+   */
+  authenticate?: Authenticate;
   /** Everything `/ws` needs. The store supplies the replay, the bus the live tail. */
   stream: {
     store: EventStore;
     bus: EventBus;
+    /**
+     * Looking up the session behind `?sessionId=` so the socket can be refused before it is
+     * upgraded. Optional only because most stream tests have no store of sessions; without it
+     * `/ws` refuses every connection, for the same reason `authenticate` does.
+     */
+    sessions?: SessionStore;
     upgradeWebSocket: UpgradeWebSocket;
     /** Overridden only by the smoke script, which cannot wait 30 seconds for a ping. */
     heartbeat?: HeartbeatOptions;
@@ -73,8 +90,8 @@ export type AppDeps = {
   projects?: ProjectRouteDeps;
 };
 
-export function createApp(deps: AppDeps): Hono {
-  const app = new Hono();
+export function createApp(deps: AppDeps): Hono<{ Variables: AuthVariables }> {
+  const app = new Hono<{ Variables: AuthVariables }>();
 
   // First, and before the logger: a preflight is answered by this middleware without ever
   // reaching a handler, and a rejected one must still carry the headers that say why.
@@ -116,6 +133,15 @@ export function createApp(deps: AppDeps): Hono {
   });
 
   /**
+   * Nobody reaches a route without being somebody.
+   *
+   * Registered here — after CORS and the logger, before every route — so a route added below is
+   * guarded by existing. Making one public is an edit to the allow-list inside `requireUser`,
+   * which is a decision someone has to write down rather than one they can forget to make.
+   */
+  app.use("*", requireUser(deps.authenticate));
+
+  /**
    * Liveness. Deliberately does no dependency checks yet — the observability task adds
    * database and sandbox reachability behind a `checks` field and a `degraded` status,
    * which it can do without changing the two keys already here.
@@ -126,11 +152,23 @@ export function createApp(deps: AppDeps): Hono {
    * The session's event stream: everything after `seq`, then the live tail.
    *
    * A bad query is refused *before* the upgrade, while an ordinary HTTP response can still
-   * carry the reason — a socket that opens and immediately closes tells a client nothing.
+   * carry the reason — a socket that opens and immediately closes tells a client nothing. The
+   * same goes for a session that is not the caller's: this is a stream of everything that
+   * happens in somebody's project, so it is authorized like any other route reading one, and
+   * refused here rather than by a socket that opens and then goes quiet.
    */
   app.get("/ws", async (c) => {
     const query = parseStreamQuery(new URL(c.req.url));
     if (!query.ok) return c.json({ error: query.error.message }, 400);
+
+    const owned = await findOwnedSession(
+      // No session store means nothing can establish whose session this is, and a stream that
+      // cannot be authorized is not one to open.
+      deps.stream.sessions ?? { get: async () => null, setSandboxId: async () => undefined },
+      query.value.sessionId,
+      c.get("userId"),
+    );
+    if (!owned.ok) return c.json({ error: owned.error.message }, owned.error.status);
 
     const { sessionId, afterSeq } = query.value;
     let stream: ReturnType<typeof openEventStream> | undefined;

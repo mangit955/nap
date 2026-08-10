@@ -15,7 +15,7 @@
  */
 
 import type { ProjectStatus, ProjectStore, ProjectSummary } from "@nap/shared/ports/project-store";
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { projects, sessions } from "./schema.ts";
 
@@ -36,20 +36,29 @@ export class PostgresProjectStore implements ProjectStore {
     this.#db = db;
   }
 
-  async list(): Promise<ProjectSummary[]> {
-    const rows = await this.#select().orderBy(desc(projects.updatedAt), desc(projects.id));
+  async list(userId: string): Promise<ProjectSummary[]> {
+    const rows = await this.#select()
+      .where(eq(projects.userId, userId))
+      .orderBy(desc(projects.updatedAt), desc(projects.id));
+
     return rows.map(toSummary);
   }
 
-  async get(projectId: string): Promise<ProjectSummary | null> {
-    const [row] = await this.#select().where(eq(projects.id, projectId)).limit(1);
+  async get(projectId: string, userId: string): Promise<ProjectSummary | null> {
+    // The owner is part of the lookup rather than checked afterwards, so somebody else's project
+    // is indistinguishable here from one that was never there. A caller cannot accidentally read
+    // the row first and forget to compare.
+    const [row] = await this.#select()
+      .where(and(eq(projects.id, projectId), eq(projects.userId, userId)))
+      .limit(1);
+
     return row === undefined ? null : toSummary(row);
   }
 
-  async delete(projectId: string): Promise<boolean> {
+  async delete(projectId: string, userId: string): Promise<boolean> {
     const deleted = await this.#db
       .delete(projects)
-      .where(eq(projects.id, projectId))
+      .where(and(eq(projects.id, projectId), eq(projects.userId, userId)))
       .returning({ id: projects.id });
 
     return deleted.length > 0;

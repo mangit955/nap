@@ -22,7 +22,6 @@ import type {} from "@nap/db/testing/global-setup";
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { and, eq } from "drizzle-orm";
-import type { Hono } from "hono";
 import { afterAll, afterEach, beforeAll, describe, expect, inject, it } from "vitest";
 import { createApp } from "../app.ts";
 import { createLogger } from "../logger.ts";
@@ -36,7 +35,7 @@ const GITHUB_ACCOUNT_ID = "4815162342";
 const GITHUB_EMAIL = "octocat@example.com";
 
 let db: ReturnType<typeof createDatabase>;
-let app: Hono;
+let app: ReturnType<typeof createApp>;
 
 const realFetch = globalThis.fetch;
 

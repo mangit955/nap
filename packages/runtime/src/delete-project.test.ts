@@ -1,4 +1,4 @@
-import { InMemoryProjectStore } from "@nap/db/testing/in-memory-project-store";
+import { FAKE_OWNER, InMemoryProjectStore } from "@nap/db/testing/in-memory-project-store";
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
@@ -41,7 +41,14 @@ beforeEach(async () => {
 });
 
 function remove() {
-  return deleteProject({ projects, snapshots, objects, sandbox, projectId: PROJECT });
+  return deleteProject({
+    projects,
+    snapshots,
+    objects,
+    sandbox,
+    projectId: PROJECT,
+    userId: FAKE_OWNER,
+  });
 }
 
 describe("deleting a project", () => {
@@ -57,7 +64,7 @@ describe("deleting a project", () => {
   it("removes the row, and with it everything the database hangs off it", async () => {
     await remove();
 
-    await expect(projects.get(PROJECT)).resolves.toBeNull();
+    await expect(projects.get(PROJECT, FAKE_OWNER)).resolves.toBeNull();
   });
 
   it("destroys the sandbox rather than leaving it running", async () => {
@@ -79,6 +86,7 @@ describe("deleting a project", () => {
       objects,
       sandbox,
       projectId: PROJECT,
+      userId: FAKE_OWNER,
     });
 
     expect(result).toMatchObject({ ok: true, value: { deleted: true, objectsDeleted: 0 } });
@@ -95,6 +103,7 @@ describe("a project that is not there", () => {
       objects,
       sandbox,
       projectId: "6b7c8d9e-0f1a-4b2c-8d3e-4f5a6b7c8d9e",
+      userId: FAKE_OWNER,
     });
 
     expect(result).toMatchObject({ ok: true, value: { deleted: false } });
@@ -107,10 +116,11 @@ describe("a project that is not there", () => {
       objects,
       sandbox,
       projectId: "6b7c8d9e-0f1a-4b2c-8d3e-4f5a6b7c8d9e",
+      userId: FAKE_OWNER,
     });
 
     expect(objects.keys()).toHaveLength(2);
-    await expect(projects.get(PROJECT)).resolves.not.toBeNull();
+    await expect(projects.get(PROJECT, FAKE_OWNER)).resolves.not.toBeNull();
   });
 });
 
@@ -123,7 +133,7 @@ describe("when object storage fails", () => {
     const result = await remove();
 
     expect(result).toMatchObject({ ok: false, error: { reason: "objects_failed" } });
-    await expect(projects.get(PROJECT)).resolves.not.toBeNull();
+    await expect(projects.get(PROJECT, FAKE_OWNER)).resolves.not.toBeNull();
     expect(snapshots.all()).toHaveLength(2);
   });
 

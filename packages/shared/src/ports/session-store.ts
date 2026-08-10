@@ -14,6 +14,15 @@
 export type SessionRecord = {
   sessionId: string;
   projectId: string;
+  /**
+   * Whose project this session belongs to.
+   *
+   * Sessions have no owner of their own — they hang off a project, and the project has the
+   * `user_id`. It is carried here because every route addressed by a session id has to answer
+   * "may this caller touch it?", and the alternative is a second query per request to walk the
+   * same join this record already came from.
+   */
+  userId: string;
   /** Null until a sandbox has been created for this project. */
   sandboxId: string | null;
 };

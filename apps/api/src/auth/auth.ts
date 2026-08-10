@@ -34,9 +34,23 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
  */
 type Db = Database["db"];
 
+/** Who is asking, as everything downstream needs them: an id, or nobody. */
+export type Caller = { userId: string };
+
+/**
+ * Resolves the caller from a request's headers, or `null` when there is no valid session.
+ *
+ * A function rather than the auth instance itself, because it is the only thing authorization
+ * needs and a stub of it is two lines — which is what lets every route test run without a
+ * database or a real cookie.
+ */
+export type Authenticate = (headers: Headers) => Promise<Caller | null>;
+
 /** Just enough of the instance for the app to mount it, so callers do not depend on the rest. */
 export type AuthInstance = {
   handler: (request: Request) => Promise<Response>;
+  /** The session behind a request's cookies, narrowed to the id everything else authorizes on. */
+  getUser: Authenticate;
   /**
    * Which social providers this process actually has credentials for.
    *
@@ -100,6 +114,14 @@ export function createAuth(db: Db, config: AuthConfig): AuthInstance {
 
   return {
     handler: auth.handler,
+
+    // The library answers with the session *and* the user; only the id leaves this file, so
+    // nothing downstream can start depending on a shape better-auth is free to change.
+    getUser: async (headers) => {
+      const session = await auth.api.getSession({ headers });
+      return session === null ? null : { userId: session.user.id };
+    },
+
     socialProviders: config.github === undefined ? [] : ["github"],
   };
 }

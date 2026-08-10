@@ -46,20 +46,32 @@ export type ProjectSummary = {
   sessionIds: string[];
 };
 
+/**
+ * Every method takes the user whose projects these are, and none of them is optional.
+ *
+ * The scoping lives in the query rather than in the handler above it, which is the whole point:
+ * a filter a caller has to remember to apply is a filter that will eventually not be applied,
+ * and the failure is silent — a listing that quietly includes somebody else's work. Passing the
+ * id in means the type system asks the question at every call site.
+ *
+ * A project belonging to someone else is reported the same way as one that does not exist:
+ * `null`, or `false`. Distinguishing them would confirm the row is there, which is a fact about
+ * another person's data that nobody outside it should be able to establish.
+ */
 export interface ProjectStore {
-  /** Every project, most recently active first. */
-  list(): Promise<ProjectSummary[]>;
+  /** This user's projects, most recently active first. */
+  list(userId: string): Promise<ProjectSummary[]>;
 
-  get(projectId: string): Promise<ProjectSummary | null>;
+  get(projectId: string, userId: string): Promise<ProjectSummary | null>;
 
   /**
    * Removes the project and everything the database hangs off it — sessions, events, snapshot
    * rows. **Not the objects those rows point at**, which live somewhere else entirely and have
    * to be deleted first, or nothing is left that knows their keys.
    *
-   * False means there was no such project. Not an error: two clicks on the same button, or two
-   * tabs, and the second is a caller finding out the row is already gone — which is what it
-   * wanted.
+   * False means there was no such project *for this user*. Not an error: two clicks on the same
+   * button, or two tabs, and the second is a caller finding out the row is already gone — which
+   * is what it wanted.
    */
-  delete(projectId: string): Promise<boolean>;
+  delete(projectId: string, userId: string): Promise<boolean>;
 }

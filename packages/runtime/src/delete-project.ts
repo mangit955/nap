@@ -53,14 +53,20 @@ export type DeleteProjectOptions = {
   objects: ObjectStore;
   sandbox: SandboxManager;
   projectId: string;
+  /**
+   * Whose project it is. Both the lookup and the row delete are scoped to it, so this cannot
+   * destroy somebody else's work even if a caller above hands over a projectId it should not
+   * have — the ownership check is in the query rather than in a guard clause somewhere.
+   */
+  userId: string;
 };
 
 export async function deleteProject(
   options: DeleteProjectOptions,
 ): Promise<Result<DeleteResult, DeleteError>> {
-  const { projects, snapshots, objects, sandbox, projectId } = options;
+  const { projects, snapshots, objects, sandbox, projectId, userId } = options;
 
-  const project = await projects.get(projectId);
+  const project = await projects.get(projectId, userId);
   if (project === null) {
     return { ok: true, value: { deleted: false, objectsDeleted: 0, sandboxDestroyed: false } };
   }
@@ -93,7 +99,7 @@ export async function deleteProject(
   }
 
   try {
-    const deleted = await projects.delete(projectId);
+    const deleted = await projects.delete(projectId, userId);
     return { ok: true, value: { deleted, objectsDeleted, sandboxDestroyed } };
   } catch (error) {
     // The objects are gone and the rows are not, which is the recoverable half of the two:

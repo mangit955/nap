@@ -4,7 +4,7 @@ import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
 import { PostgresSessionStore } from "./postgres-session-store.ts";
 import { projects, users } from "./schema.ts";
-import { createProjectSession, DEV_USER_EMAIL } from "./session-bootstrap.ts";
+import { createProjectSession } from "./session-bootstrap.ts";
 
 /**
  * Against a real Postgres, because everything worth checking here is a constraint the
@@ -14,10 +14,17 @@ import { createProjectSession, DEV_USER_EMAIL } from "./session-bootstrap.ts";
 
 let sql: postgres.Sql;
 let db: PostgresJsDatabase;
+/** A real signed-in user stands in for the caller; this function no longer invents one. */
+let owner: string;
 
-beforeAll(() => {
+beforeAll(async () => {
   sql = postgres(inject("postgresUrl"), { max: 4 });
   db = drizzle(sql);
+  const [user] = await db
+    .insert(users)
+    .values({ email: `${crypto.randomUUID()}@example.com`, name: "Ada" })
+    .returning();
+  owner = user?.id ?? "";
 });
 
 afterAll(async () => {
@@ -27,39 +34,41 @@ afterAll(async () => {
 describe("createProjectSession", () => {
   it("produces a session the session store can resolve", async () => {
     // The point of the whole endpoint: something the rest of the app can immediately use.
-    const created = await createProjectSession(db, { name: "Todo app" });
+    const created = await createProjectSession(db, { userId: owner, name: "Todo app" });
 
     await expect(new PostgresSessionStore(db).get(created.sessionId)).resolves.toEqual({
       sessionId: created.sessionId,
       projectId: created.projectId,
+      // Carried down from the project, which is what every session-addressed route authorizes on.
+      userId: owner,
       sandboxId: null,
     });
   });
 
-  it("reuses the one dev user rather than making another", async () => {
-    // The unique index on email would reject a second insert outright, so this is not a
-    // preference — it is the difference between the endpoint working twice and working once.
-    const first = await createProjectSession(db, { name: "First" });
-    const second = await createProjectSession(db, { name: "Second" });
+  it("gives every project to the caller, and creates no users of its own", async () => {
+    // It used to find-or-create a fixed `dev@nap.local`. Nothing here makes a user any more:
+    // a project's owner is whoever asked for it, and inventing identities as a side effect of
+    // creating a project is how you end up with two identity tables.
+    const before = await db.select().from(users);
 
-    const owners = await db
-      .select({ userId: projects.userId })
-      .from(projects)
-      .where(eq(projects.id, first.projectId));
-    const others = await db
-      .select({ userId: projects.userId })
-      .from(projects)
-      .where(eq(projects.id, second.projectId));
+    const first = await createProjectSession(db, { userId: owner, name: "First" });
+    const second = await createProjectSession(db, { userId: owner, name: "Second" });
 
-    expect(owners[0]?.userId).toBe(others[0]?.userId);
-    expect(await db.select().from(users).where(eq(users.email, DEV_USER_EMAIL))).toHaveLength(1);
+    for (const created of [first, second]) {
+      const [project] = await db
+        .select({ userId: projects.userId })
+        .from(projects)
+        .where(eq(projects.id, created.projectId));
+      expect(project?.userId).toBe(owner);
+    }
+    expect(await db.select().from(users)).toHaveLength(before.length);
   });
 
   it("gives every project its own slug", async () => {
-    // `(user_id, slug)` is unique, and every project here belongs to the same user — so a
-    // slug derived from the name alone fails on the second project called "Todo app".
-    const first = await createProjectSession(db, { name: "Todo app" });
-    const second = await createProjectSession(db, { name: "Todo app" });
+    // `(user_id, slug)` is unique and both of these belong to the same user, so a slug
+    // derived from the name alone fails on the second project called "Todo app".
+    const first = await createProjectSession(db, { userId: owner, name: "Todo app" });
+    const second = await createProjectSession(db, { userId: owner, name: "Todo app" });
 
     expect(first.projectId).not.toBe(second.projectId);
   });
@@ -67,7 +76,7 @@ describe("createProjectSession", () => {
   it("starts a project with no sandbox", async () => {
     // The first turn creates one. A project that claimed a sandbox before it had one would
     // make the runtime try to resume something that never existed.
-    const created = await createProjectSession(db, { name: "Fresh" });
+    const created = await createProjectSession(db, { userId: owner, name: "Fresh" });
 
     const [project] = await db.select().from(projects).where(eq(projects.id, created.projectId));
 

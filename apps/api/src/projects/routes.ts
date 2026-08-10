@@ -27,6 +27,7 @@ import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
 import type { Hono } from "hono";
 import { z } from "zod";
+import type { AuthVariables } from "../auth/require-user.ts";
 import { parseProjectId } from "../files/params.ts";
 import { getLogger } from "../logger.ts";
 
@@ -39,7 +40,7 @@ export type ProjectRouteDeps = {
   snapshots: SnapshotStore;
   objects: ObjectStore;
   sandbox: SandboxManager;
-  createProject: (options: { name?: string }) => Promise<CreatedProject>;
+  createProject: (options: { userId: string; name?: string }) => Promise<CreatedProject>;
   /**
    * True while a turn is running for any of these sessions. Injected because turns are tracked
    * by whatever is serving requests, and a route module has no business knowing how.
@@ -49,9 +50,12 @@ export type ProjectRouteDeps = {
 
 const CreateProjectSchema = z.object({ name: z.string().optional() });
 
-export function registerProjectRoutes(app: Hono, deps: ProjectRouteDeps): void {
+export function registerProjectRoutes(
+  app: Hono<{ Variables: AuthVariables }>,
+  deps: ProjectRouteDeps,
+): void {
   app.get("/projects", async (c) => {
-    return c.json({ projects: await deps.projects.list() });
+    return c.json({ projects: await deps.projects.list(c.get("userId")) });
   });
 
   app.post("/projects", async (c) => {
@@ -61,9 +65,10 @@ export function registerProjectRoutes(app: Hono, deps: ProjectRouteDeps): void {
     }
 
     try {
-      const created = await deps.createProject(
-        body.data.name === undefined ? {} : { name: body.data.name },
-      );
+      const created = await deps.createProject({
+        userId: c.get("userId"),
+        ...(body.data.name === undefined ? {} : { name: body.data.name }),
+      });
       return c.json(created, 201);
     } catch (error) {
       // Caught rather than left to the error handler so the log names what failed: the client
@@ -74,14 +79,14 @@ export function registerProjectRoutes(app: Hono, deps: ProjectRouteDeps): void {
   });
 
   app.get("/projects/:projectId", async (c) => {
-    const project = await found(c.req.param("projectId"), deps);
+    const project = await found(c.req.param("projectId"), c.get("userId"), deps);
     if (!project.ok) return c.json({ error: project.error.message }, project.error.status);
 
     return c.json(project.value);
   });
 
   app.post("/projects/:projectId/close", async (c) => {
-    const project = await found(c.req.param("projectId"), deps);
+    const project = await found(c.req.param("projectId"), c.get("userId"), deps);
     if (!project.ok) return c.json({ error: project.error.message }, project.error.status);
 
     if (deps.isBusy(project.value.sessionIds)) {
@@ -112,7 +117,7 @@ export function registerProjectRoutes(app: Hono, deps: ProjectRouteDeps): void {
     const projectId = parseProjectId(c.req.param("projectId"));
     if (!projectId.ok) return c.json({ error: projectId.error.message }, 400);
 
-    const project = await deps.projects.get(projectId.value);
+    const project = await deps.projects.get(projectId.value, c.get("userId"));
     if (project === null) return c.json({ error: "no such project" }, 404);
 
     if (deps.isBusy(project.sessionIds)) {
@@ -125,6 +130,7 @@ export function registerProjectRoutes(app: Hono, deps: ProjectRouteDeps): void {
       objects: deps.objects,
       sandbox: deps.sandbox,
       projectId: projectId.value,
+      userId: c.get("userId"),
     });
 
     if (!removed.ok) {
@@ -143,12 +149,15 @@ type RouteError = { status: 400 | 404; message: string };
 /** The project named by the path, or which kind of "no" to answer with. */
 async function found(
   raw: string | undefined,
+  userId: string,
   deps: ProjectRouteDeps,
 ): Promise<{ ok: true; value: ProjectSummary } | { ok: false; error: RouteError }> {
   const projectId = parseProjectId(raw);
   if (!projectId.ok) return { ok: false, error: { status: 400, message: projectId.error.message } };
 
-  const project = await deps.projects.get(projectId.value);
+  // Scoped to the caller, so somebody else's project is a 404 here rather than a 403. The two
+  // answers differ in what they tell a stranger: a 403 confirms the project exists.
+  const project = await deps.projects.get(projectId.value, userId);
   if (project === null) return { ok: false, error: { status: 404, message: "no such project" } };
 
   return { ok: true, value: project };

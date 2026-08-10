@@ -16,6 +16,7 @@
 
 import { InProcessEventBus } from "@nap/db/in-process-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
+import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import type { PendingEvent, StoredEvent } from "@nap/shared/ports/event-store";
 import { type ServerFrame, ServerFrameSchema, WS_CLOSE } from "@nap/shared/ws-protocol";
 import { upgradeWebSocket, websocket } from "hono/bun";
@@ -23,6 +24,8 @@ import { createApp } from "../src/app.ts";
 import { createLogger } from "../src/logger.ts";
 
 const SESSION = "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f";
+const PROJECT = "1f2e3d4c-5b6a-4798-8765-43210fedcba9";
+const OWNER = "00000000-0000-4000-8000-000000000001";
 const TURN = "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f";
 
 /** Short enough to watch a connection die, long enough not to race the handshake. */
@@ -86,9 +89,21 @@ async function main(): Promise<void> {
 
   const app = createApp({
     logger: createLogger({ level: "silent" }, { write: () => {} }),
+    // `/ws` is a guarded route: it streams everything that happens in somebody's project, so
+    // it needs a caller and a way to check the session belongs to them. Standing both in here
+    // keeps this script about the socket rather than about sign-in.
+    authenticate: async () => ({ userId: OWNER }),
     // A heartbeat measured in milliseconds rather than the half-minute a real deployment
     // uses, so a silent connection can be watched dying inside one run.
-    stream: { store, bus, upgradeWebSocket, heartbeat: HEARTBEAT },
+    stream: {
+      store,
+      bus,
+      sessions: new InMemorySessionStore([
+        { sessionId: SESSION, projectId: PROJECT, userId: OWNER },
+      ]),
+      upgradeWebSocket,
+      heartbeat: HEARTBEAT,
+    },
   });
 
   const server = Bun.serve({ port: 0, fetch: app.fetch, websocket });

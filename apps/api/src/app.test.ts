@@ -1,5 +1,7 @@
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
+import { FAKE_OWNER } from "@nap/db/testing/in-memory-project-store";
+import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { VERSION } from "@nap/shared/version";
 import type { WSEvents } from "hono/ws";
 import { describe, expect, it } from "vitest";
@@ -32,9 +34,13 @@ class FakeUpgrader {
 function app(overrides: Partial<AppDeps> = {}) {
   return createApp({
     logger: silent(),
+    // Signed in by default. The tests that care about *not* being signed in override this,
+    // so every other assertion here is about routing rather than about the gate in front of it.
+    authenticate: async () => ({ userId: FAKE_OWNER }),
     stream: {
       store: new InMemoryEventStore(),
       bus: new InMemoryEventBus(),
+      sessions: new InMemorySessionStore([{ sessionId: SESSION, projectId: "project-1" }]),
       upgradeWebSocket: new FakeUpgrader().upgrade,
     },
     ...overrides,
@@ -70,6 +76,7 @@ describe("GET /ws", () => {
       stream: {
         store: new InMemoryEventStore(),
         bus: new InMemoryEventBus(),
+        sessions: new InMemorySessionStore([{ sessionId: SESSION, projectId: "project-1" }]),
         upgradeWebSocket: upgrader.upgrade,
       },
     }).request(`/ws?sessionId=${SESSION}&seq=3`);

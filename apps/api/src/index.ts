@@ -136,26 +136,31 @@ const runtime = new SingleAgentRuntime({
   memory: new NoopMemoryProvider(),
 });
 
+const auth = createAuth(db, {
+  secret: env.BETTER_AUTH_SECRET,
+  baseUrl: env.NAP_API_URL,
+  webOrigin: env.NAP_WEB_ORIGIN,
+  // Both or neither — the env check has already refused to boot on one of the two.
+  ...(env.GITHUB_CLIENT_ID === undefined || env.GITHUB_CLIENT_SECRET === undefined
+    ? {}
+    : {
+        github: {
+          clientId: env.GITHUB_CLIENT_ID,
+          clientSecret: env.GITHUB_CLIENT_SECRET,
+        },
+      }),
+});
+
 const app = createApp({
   logger,
   // The browser app is on another port, so every request it makes is cross-origin and every
   // session cookie depends on this being right.
   webOrigin: env.NAP_WEB_ORIGIN,
-  auth: createAuth(db, {
-    secret: env.BETTER_AUTH_SECRET,
-    baseUrl: env.NAP_API_URL,
-    webOrigin: env.NAP_WEB_ORIGIN,
-    // Both or neither — the env check has already refused to boot on one of the two.
-    ...(env.GITHUB_CLIENT_ID === undefined || env.GITHUB_CLIENT_SECRET === undefined
-      ? {}
-      : {
-          github: {
-            clientId: env.GITHUB_CLIENT_ID,
-            clientSecret: env.GITHUB_CLIENT_SECRET,
-          },
-        }),
-  }),
-  stream: { store, bus, upgradeWebSocket },
+  auth,
+  // The same instance answers "who is this?" for every guarded route. Passing it here rather
+  // than letting `createApp` reach into `auth` keeps the app's dependency a plain function.
+  authenticate: auth.getUser,
+  stream: { store, bus, sessions, upgradeWebSocket },
   files: { sessions, sandbox },
   turns: { runtime, registry, sessions },
   projects: {

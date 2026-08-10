@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { FAKE_OWNER } from "./in-memory-project-store.ts";
 import { InMemorySessionStore } from "./in-memory-session-store.ts";
 
 const SESSION = "2a3f8a24-6c1b-4e0e-9b6f-3a5c0a1d9e77";
@@ -16,6 +17,9 @@ describe("InMemorySessionStore", () => {
     expect(await store.get(SESSION)).toStrictEqual({
       sessionId: SESSION,
       projectId: PROJECT,
+      // Defaulted to the shared fake owner, so the record is complete without every turn test
+      // having to name a user it does not care about.
+      userId: FAKE_OWNER,
       sandboxId: null,
     });
   });

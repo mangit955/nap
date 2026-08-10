@@ -29,6 +29,9 @@ export class PostgresSessionStore implements SessionStore {
       .select({
         sessionId: sessions.id,
         projectId: projects.id,
+        // Free: the join onto `projects` is already here for the sandbox id, and this is the
+        // column every route addressed by a session id has to authorize against.
+        userId: projects.userId,
         sandboxId: projects.sandboxId,
       })
       .from(sessions)

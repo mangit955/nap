@@ -31,6 +31,7 @@ import { PostgresEventStore } from "@nap/db/postgres-event-store";
 import { PostgresProjectSandboxStore } from "@nap/db/postgres-project-sandbox-store";
 import { PostgresSessionStore } from "@nap/db/postgres-session-store";
 import { PostgresSnapshotStore } from "@nap/db/postgres-snapshot-store";
+import { users } from "@nap/db/schema";
 import { createProjectSession } from "@nap/db/session-bootstrap";
 import { expectEventSequence } from "@nap/db/testing/event-assertions";
 import { type MigratedPostgres, startMigratedPostgres } from "@nap/db/testing/postgres-container";
@@ -127,12 +128,22 @@ beforeAll(async () => {
   const db = connection.db;
   closeDatabase = connection.close;
 
+  // A real owner row, since a project's `user_id` is a foreign key and nothing invents one.
+  const [user] = await db
+    .insert(users)
+    .values({ email: `${crypto.randomUUID()}@example.com`, name: "Full cycle" })
+    .returning();
+  const owner = user?.id ?? "";
+
   const sessions = new PostgresSessionStore(db);
   const projects = new PostgresProjectSandboxStore(db);
   const snapshots = new PostgresSnapshotStore(db);
   const events = new PostgresEventStore(db);
 
-  ({ projectId, sessionId } = await createProjectSession(db, { name: "Full cycle" }));
+  ({ projectId, sessionId } = await createProjectSession(db, {
+    userId: owner,
+    name: "Full cycle",
+  }));
 
   const runtime = new SingleAgentRuntime({
     sessions,

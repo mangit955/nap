@@ -29,16 +29,18 @@ afterAll(async () => {
   await sql.end();
 });
 
-async function seedProject(): Promise<string> {
+/** The owner comes back too: `get` carries it down, so the test has to know who it should be. */
+async function seedProject(): Promise<{ projectId: string; userId: string }> {
   const [user] = await db
     .insert(users)
     .values({ email: `${randomUUID()}@example.com`, name: "Ada" })
     .returning();
+  const userId = user?.id ?? "";
   const [project] = await db
     .insert(projects)
-    .values({ userId: user?.id ?? "", name: "Todo app", slug: `todo-${randomUUID()}` })
+    .values({ userId, name: "Todo app", slug: `todo-${randomUUID()}` })
     .returning();
-  return project?.id ?? "";
+  return { projectId: project?.id ?? "", userId };
 }
 
 async function seedSession(projectId: string): Promise<string> {
@@ -51,10 +53,17 @@ async function seedSession(projectId: string): Promise<string> {
 
 describe("get", () => {
   it("returns the session's project and no sandbox before one exists", async () => {
-    const projectId = await seedProject();
+    const { projectId, userId } = await seedProject();
     const sessionId = await seedSession(projectId);
 
-    await expect(store.get(sessionId)).resolves.toEqual({ sessionId, projectId, sandboxId: null });
+    // `userId` comes down from the project the session hangs off, which is what every route
+    // addressed by a session id authorizes against.
+    await expect(store.get(sessionId)).resolves.toEqual({
+      sessionId,
+      projectId,
+      userId,
+      sandboxId: null,
+    });
   });
 
   it("is null for a session that does not exist", async () => {
@@ -66,7 +75,7 @@ describe("get", () => {
 
 describe("setSandboxId", () => {
   it("records the sandbox so the next turn resumes it", async () => {
-    const projectId = await seedProject();
+    const { projectId } = await seedProject();
     const sessionId = await seedSession(projectId);
 
     await store.setSandboxId(sessionId, "sbx_abc");
@@ -77,7 +86,7 @@ describe("setSandboxId", () => {
   it("replaces a sandbox that was recorded earlier", async () => {
     // A project whose sandbox was reaped gets a new one, and the old id must not survive to
     // be resumed — resuming a destroyed sandbox fails the turn.
-    const projectId = await seedProject();
+    const { projectId } = await seedProject();
     const sessionId = await seedSession(projectId);
 
     await store.setSandboxId(sessionId, "sbx_old");
@@ -89,7 +98,7 @@ describe("setSandboxId", () => {
   it("shares the sandbox with every session in the same project", async () => {
     // The column lives on `projects`. A second conversation about the same project must land
     // in the workspace the first one built, not in a fresh template.
-    const projectId = await seedProject();
+    const { projectId } = await seedProject();
     const first = await seedSession(projectId);
     const second = await seedSession(projectId);
 
@@ -101,8 +110,8 @@ describe("setSandboxId", () => {
   it("leaves other projects alone", async () => {
     const mine = await seedProject();
     const theirs = await seedProject();
-    const mySession = await seedSession(mine);
-    const theirSession = await seedSession(theirs);
+    const mySession = await seedSession(mine.projectId);
+    const theirSession = await seedSession(theirs.projectId);
 
     await store.setSandboxId(mySession, "sbx_mine");
 
@@ -121,7 +130,7 @@ describe("the status a project is in", () => {
   it("moves a project to ready when a sandbox starts serving it", async () => {
     // Nothing else ever moved a project off `creating`, so every project in a real database
     // claimed to be mid-creation forever — including ones that had been running for hours.
-    const projectId = await seedProject();
+    const { projectId } = await seedProject();
     const sessionId = await seedSession(projectId);
 
     await store.setSandboxId(sessionId, "sbx_live");

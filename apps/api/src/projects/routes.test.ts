@@ -1,12 +1,11 @@
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { InMemoryProjectSandboxStore } from "@nap/db/testing/in-memory-project-sandbox-store";
-import { InMemoryProjectStore } from "@nap/db/testing/in-memory-project-store";
+import { FAKE_OWNER, InMemoryProjectStore } from "@nap/db/testing/in-memory-project-store";
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import type { ProjectSummary } from "@nap/shared/ports/project-store";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
-import type { Hono } from "hono";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "../app.ts";
 import { createLogger } from "../logger.ts";
@@ -61,9 +60,11 @@ beforeEach(async () => {
   created = { projectId: UNKNOWN, sessionId: SESSION };
 });
 
-function app(): Hono {
+function app() {
   return createApp({
     logger: silent(),
+    // Every guarded route needs a caller; this stands in for a signed-in session cookie.
+    authenticate: async () => ({ userId: FAKE_OWNER }),
     stream: {
       store: new InMemoryEventStore(),
       bus: new InMemoryEventBus(),
@@ -208,7 +209,7 @@ describe("DELETE /projects/:projectId", () => {
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toMatchObject({ deleted: true, objectsDeleted: 1 });
     expect(objects.keys()).toEqual([]);
-    await expect(projects.get(PROJECT)).resolves.toBeNull();
+    await expect(projects.get(PROJECT, FAKE_OWNER)).resolves.toBeNull();
   });
 
   it("refuses while a turn is running", async () => {
@@ -217,7 +218,7 @@ describe("DELETE /projects/:projectId", () => {
     const res = await app().request(`/projects/${PROJECT}`, { method: "DELETE" });
 
     expect(res.status).toBe(409);
-    await expect(projects.get(PROJECT)).resolves.not.toBeNull();
+    await expect(projects.get(PROJECT, FAKE_OWNER)).resolves.not.toBeNull();
     expect(objects.keys()).toHaveLength(1);
   });
 
@@ -233,7 +234,7 @@ describe("DELETE /projects/:projectId", () => {
     const res = await app().request(`/projects/${PROJECT}`, { method: "DELETE" });
 
     expect(res.status).toBe(503);
-    await expect(projects.get(PROJECT)).resolves.not.toBeNull();
+    await expect(projects.get(PROJECT, FAKE_OWNER)).resolves.not.toBeNull();
   });
 });
 
@@ -241,6 +242,9 @@ describe("an app built without project routes", () => {
   it("has none, rather than routes that fail when called", async () => {
     const bare = createApp({
       logger: silent(),
+      // Signed in, so a 404 here is about the route not existing rather than about who is
+      // asking — which is what this test is for.
+      authenticate: async () => ({ userId: FAKE_OWNER }),
       stream: {
         store: new InMemoryEventStore(),
         bus: new InMemoryEventBus(),
