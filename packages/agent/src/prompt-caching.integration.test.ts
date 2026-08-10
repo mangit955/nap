@@ -66,11 +66,19 @@ const REQUEST_MODEL = toOpenRouterModel(MODEL);
  * pinning it to a prompt another task is free to edit would make it fail for unrelated reasons.
  * What the real prompt measures is the second test.
  */
-const SYSTEM = Array.from(
-  { length: 120 },
-  (_, i) =>
-    `Rule ${i + 1}: keep the change small, explain the reason, and never invent a file path.`,
-).join("\n");
+const SYSTEM = [
+  // Unique per run, and load-bearing. A cache entry survives ~5 minutes, so re-running this
+  // file inside the TTL finds the prefix already warm: nothing is *written*, and the assertion
+  // that a write happened fails against code that is working perfectly. Salting the prefix
+  // makes every run start cold, which is the only state in which "wrote, then read" is a
+  // statement about the code rather than about how recently someone last ran it.
+  `Session ${crypto.randomUUID()}.`,
+  ...Array.from(
+    { length: 120 },
+    (_, i) =>
+      `Rule ${i + 1}: keep the change small, explain the reason, and never invent a file path.`,
+  ),
+].join("\n");
 
 function request(userText: string): LLMRequest {
   return { systemPrompt: SYSTEM, messages: [{ role: "user", content: userText }], tools: [] };
@@ -130,27 +138,45 @@ it("writes the prefix on the first call and reads it back on the second", async 
   expect(second.usage.input_tokens).toBeLessThan(second.usage.cache_read_input_tokens ?? 0);
 });
 
-it("measures the real prompt's margin over the minimum", async () => {
-  // The number that decides whether any of this works in production. Measured rather than
-  // estimated: our local ~4-chars-per-token rule put this at ~1188, uncomfortably close to
-  // 1024, and Sonnet 5's tokenizer is not the one that rule was calibrated against.
+it("caches the real prompt, not just a synthetic one long enough to qualify", async () => {
+  // The test above proves the mechanism with a prefix built to clear the minimum comfortably.
+  // This one asks the question that actually decides whether any of it pays off in production:
+  // does *our* prompt — the real contract plus the real tool schemas — clear it?
+  //
+  // Asked empirically rather than by counting. The obvious version calls `messages.countTokens`
+  // and compares against the documented minimum, and it is worse in two ways: OpenRouter does
+  // not implement that endpoint (it 404s), and a token count only supports an inference about
+  // caching. A non-zero cache counter *is* the thing being claimed. Our local 4-chars-per-token
+  // rule estimated this prefix at ~1188 against a 1024 minimum, which is far too thin a margin
+  // to trust to an estimate.
   const { SYSTEM_PROMPT } = await import("@nap/context/system-prompt");
   const { TOOL_DEFINITIONS } = await import("./tools/definitions.ts");
 
-  const counted = await sdk().messages.countTokens({
+  const client = recordingClient();
+  const provider = new ClaudeProvider({
+    client,
     model: REQUEST_MODEL,
-    system: SYSTEM_PROMPT,
-    tools: TOOL_DEFINITIONS.map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-      input_schema: tool.inputSchema as Anthropic.Tool.InputSchema,
-    })),
-    messages: [{ role: "user", content: "hi" }],
+    effort: "low",
+    maxTokens: 64,
   });
 
-  console.log(
-    `real tools+system prefix: ${counted.input_tokens} tokens, ` +
-      `${counted.input_tokens - MINIMUM_CACHEABLE_TOKENS} over the ${MODEL} minimum`,
-  );
-  expect(counted.input_tokens).toBeGreaterThan(MINIMUM_CACHEABLE_TOKENS);
+  const result = await provider.startTurn().complete({
+    systemPrompt: SYSTEM_PROMPT,
+    messages: [{ role: "user", content: "Reply with the single word ok." }],
+    tools: TOOL_DEFINITIONS,
+  });
+  expect(result.type).toBe("message");
+
+  const [response] = client.responses;
+  if (response === undefined) throw new Error("expected a response");
+
+  const written = response.usage.cache_creation_input_tokens ?? 0;
+  const read = response.usage.cache_read_input_tokens ?? 0;
+  console.log(`real prefix: ${JSON.stringify(response.usage)}`);
+
+  // Either counter proves the prefix qualified. Which one it is depends on whether an earlier
+  // run left the entry warm, and asserting on a specific one would make this fail on a rerun
+  // within the TTL — a green-then-red test that tracks the clock rather than the code.
+  expect(written + read).toBeGreaterThan(0);
+  expect(written + read).toBeGreaterThanOrEqual(MINIMUM_CACHEABLE_TOKENS);
 });
