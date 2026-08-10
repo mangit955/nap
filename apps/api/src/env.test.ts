@@ -98,6 +98,28 @@ describe("parseEnv", () => {
     ).not.toThrow();
   });
 
+  it("wants an OpenRouter key instead when the models are reached that way", () => {
+    // The same models over the same Messages API, billed to an OpenRouter account rather than
+    // an Anthropic one — a transport, like Bedrock. Demanding an Anthropic key here would be
+    // the same mistake as demanding one from someone paying through AWS.
+    const openrouter = {
+      DATABASE_URL: VALID.DATABASE_URL,
+      E2B_API_KEY: VALID.E2B_API_KEY,
+      NAP_PLATFORM: "openrouter",
+      OPENROUTER_API_KEY: "sk-or-test",
+      BETTER_AUTH_SECRET: VALID.BETTER_AUTH_SECRET,
+      ...R2,
+    };
+
+    expect(parseEnv(openrouter).NAP_PLATFORM).toBe("openrouter");
+  });
+
+  it("refuses to boot on the OpenRouter path with no OpenRouter key", () => {
+    expect(() =>
+      parseEnv({ ...REQUIRED, NAP_PLATFORM: "openrouter", ANTHROPIC_API_KEY: undefined }),
+    ).toThrow(/OPENROUTER_API_KEY/);
+  });
+
   it("boots with no GitHub app at all, leaving email sign-in as the only way in", () => {
     // The rule this repo states outright: a boot check that demands credentials for something
     // nobody has configured is how people learn to paste dummy values.

@@ -20,6 +20,7 @@ import {
   type ClaudeProviderOptions,
   DEFAULT_MODEL_CONFIG,
 } from "./claude-provider.ts";
+import { createOpenRouterClient, toOpenRouterModel } from "./openrouter.ts";
 
 /**
  * Whichever account is configured — the request shape is what is under test, not the biller.
@@ -38,10 +39,16 @@ function providerOptions(): ClaudeProviderOptions {
 
   if (process.env.ANTHROPIC_API_KEY) return {};
 
+  // Last, because it is the indirect route: OpenRouter serves the same models over the same
+  // Anthropic Messages API, so a direct key is preferred when both are present.
+  if (process.env.OPENROUTER_API_KEY) {
+    return { client: createOpenRouterClient(), model: toOpenRouterModel(MODEL) };
+  }
+
   throw new Error(
     "No model credentials are set, so this run cannot verify anything. Put ANTHROPIC_API_KEY " +
-      "(or AWS_BEARER_TOKEN_BEDROCK + AWS_REGION) in apps/api/.env, then re-run " +
-      "`bun run test:integration`.",
+      "(or OPENROUTER_API_KEY, or AWS_BEARER_TOKEN_BEDROCK + AWS_REGION) in apps/api/.env, " +
+      "then re-run `bun run test:integration`.",
   );
 }
 

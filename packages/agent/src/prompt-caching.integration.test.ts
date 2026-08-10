@@ -24,11 +24,14 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { LLMRequest } from "@nap/shared/ports/llm-provider";
 import { expect, it } from "vitest";
 import { type AnthropicClient, type AnthropicMessage, ClaudeProvider } from "./claude-provider.ts";
+import { createOpenRouterClient, toOpenRouterModel } from "./openrouter.ts";
 
-if (!process.env.ANTHROPIC_API_KEY) {
+const VIA_OPENROUTER = !process.env.ANTHROPIC_API_KEY && Boolean(process.env.OPENROUTER_API_KEY);
+
+if (!process.env.ANTHROPIC_API_KEY && !VIA_OPENROUTER) {
   throw new Error(
-    "ANTHROPIC_API_KEY is not set, so nothing here can observe a cache hit. " +
-      "Put it in apps/api/.env, then re-run. This file costs a fraction of a cent.",
+    "Neither ANTHROPIC_API_KEY nor OPENROUTER_API_KEY is set, so nothing here can observe a " +
+      "cache hit. Put one in apps/api/.env, then re-run. This file costs a fraction of a cent.",
   );
 }
 
@@ -38,6 +41,21 @@ if (!process.env.ANTHROPIC_API_KEY) {
  */
 const MODEL = "claude-sonnet-5";
 const MINIMUM_CACHEABLE_TOKENS = 1024;
+
+/**
+ * The same models either way; only the biller and the id format differ.
+ *
+ * OpenRouter is worth running this against in its own right: it serves Claude over a native
+ * Anthropic Messages endpoint, but its own caching documentation describes usage in OpenAI's
+ * shape (`prompt_tokens_details.cached_tokens`). If that shape reaches us here, `toTokenUsage`
+ * reads zero for every cached token and `TurnBudget` silently under-counts — so the two
+ * assertions below are the check for that, not just for the breakpoints.
+ */
+function sdk(): Anthropic {
+  return VIA_OPENROUTER ? createOpenRouterClient() : new Anthropic();
+}
+
+const REQUEST_MODEL = VIA_OPENROUTER ? toOpenRouterModel(MODEL) : MODEL;
 
 /**
  * Long enough to clear the minimum on its own, and fixed so both calls share it byte for byte.
@@ -58,14 +76,14 @@ function request(userText: string): LLMRequest {
 
 /** The real SDK, with every assembled response kept so the cache counters stay readable. */
 function recordingClient(): AnthropicClient & { responses: AnthropicMessage[] } {
-  const sdk = new Anthropic();
+  const client = sdk();
   const responses: AnthropicMessage[] = [];
 
   return {
     responses,
     messages: {
       stream(body, options) {
-        const stream = sdk.messages.stream(body, options);
+        const stream = client.messages.stream(body, options);
         return {
           finalMessage: async () => {
             const message = await stream.finalMessage();
@@ -82,7 +100,7 @@ it("writes the prefix on the first call and reads it back on the second", async 
   const client = recordingClient();
   const provider = new ClaudeProvider({
     client,
-    model: MODEL,
+    model: REQUEST_MODEL,
     effort: "low",
     // Short answers: the prefix is what this test is paying for, not the completion.
     maxTokens: 64,
@@ -117,8 +135,8 @@ it("measures the real prompt's margin over the minimum", async () => {
   const { SYSTEM_PROMPT } = await import("@nap/context/system-prompt");
   const { TOOL_DEFINITIONS } = await import("./tools/definitions.ts");
 
-  const counted = await new Anthropic().messages.countTokens({
-    model: MODEL,
+  const counted = await sdk().messages.countTokens({
+    model: REQUEST_MODEL,
     system: SYSTEM_PROMPT,
     tools: TOOL_DEFINITIONS.map((tool) => ({
       name: tool.name,
@@ -130,7 +148,8 @@ it("measures the real prompt's margin over the minimum", async () => {
 
   console.log(
     `real tools+system prefix: ${counted.input_tokens} tokens, ` +
-      `${counted.input_tokens - MINIMUM_CACHEABLE_TOKENS} over the ${MODEL} minimum`,
+      `${counted.input_tokens - MINIMUM_CACHEABLE_TOKENS} over the ${MODEL} minimum ` +
+      `(via ${VIA_OPENROUTER ? "OpenRouter" : "Anthropic"})`,
   );
   expect(counted.input_tokens).toBeGreaterThan(MINIMUM_CACHEABLE_TOKENS);
 });

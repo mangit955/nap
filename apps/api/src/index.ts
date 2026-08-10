@@ -16,6 +16,7 @@
 import { NapAgentService } from "@nap/agent/agent-service";
 import { createBedrockClient, toBedrockModel } from "@nap/agent/bedrock";
 import { ClaudeProvider } from "@nap/agent/claude-provider";
+import { createOpenRouterClient, toOpenRouterModel } from "@nap/agent/openrouter";
 import { NapContextEngine } from "@nap/context/context-engine";
 import { NoopMemoryProvider } from "@nap/context/noop-memory-provider";
 import { createDatabase } from "@nap/db/client";
@@ -95,6 +96,14 @@ function buildProvider(): ClaudeProvider {
       model: toBedrockModel(env.NAP_MODEL),
       effort: env.NAP_EFFORT,
       client: createBedrockClient(),
+    });
+  }
+
+  if (env.NAP_PLATFORM === "openrouter") {
+    return new ClaudeProvider({
+      model: toOpenRouterModel(env.NAP_MODEL),
+      effort: env.NAP_EFFORT,
+      client: createOpenRouterClient(),
     });
   }
 

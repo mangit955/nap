@@ -32,8 +32,10 @@ const BaseSchema = z.object({
    * rather than a flat list: demanding an Anthropic key from someone billing through AWS is
    * how a boot check teaches people to paste dummy values.
    */
-  NAP_PLATFORM: z.enum(["anthropic", "bedrock"]).default("anthropic"),
+  NAP_PLATFORM: z.enum(["anthropic", "bedrock", "openrouter"]).default("anthropic"),
   ANTHROPIC_API_KEY: z.string().min(1).optional(),
+  /** The same Claude models, billed to an OpenRouter account. Keys look like `sk-or-…`. */
+  OPENROUTER_API_KEY: z.string().min(1).optional(),
   /** Bedrock takes an API key as a bearer token, and throws at construction with no region. */
   AWS_BEARER_TOKEN_BEDROCK: z.string().min(1).optional(),
   AWS_REGION: z.string().min(1).optional(),
@@ -109,7 +111,9 @@ export const EnvSchema = BaseSchema.superRefine((env, ctx) => {
   const required =
     env.NAP_PLATFORM === "bedrock"
       ? (["AWS_BEARER_TOKEN_BEDROCK", "AWS_REGION"] as const)
-      : (["ANTHROPIC_API_KEY"] as const);
+      : env.NAP_PLATFORM === "openrouter"
+        ? (["OPENROUTER_API_KEY"] as const)
+        : (["ANTHROPIC_API_KEY"] as const);
 
   for (const key of required) {
     if (env[key] !== undefined) continue;
