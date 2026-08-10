@@ -1,8 +1,13 @@
 # Nap v1 Progress
 
-Current milestone: **M4 — Persistence** (branch `feat/m4-persistence`). M0 through M3 are all
-merged to `main` (M2 and M3 together, in PR #4), with M2-1 and M2-9 still `IN_PROGRESS`
-pending one real run each.
+Current milestone: **M5 — Auth & Hardening** (branch `feat/m5-hardening`). M0 through M3 are
+merged to `main` (M2 and M3 together, in PR #4); **M4 is complete** on `feat/m4-persistence`.
+M2-1 and M2-9 are still `IN_PROGRESS` pending one real run each.
+
+> **`apps/api/.env` needs a new line before it will boot**, as of M5-1:
+> `BETTER_AUTH_SECRET=` — generate one with `openssl rand -base64 32`. `GITHUB_CLIENT_ID` and
+> `GITHUB_CLIENT_SECRET` are optional but must be set together; without them the GitHub button
+> is simply not offered and email sign-in works.
 
 > **Two paid runs are outstanding and should be batched into one session** once the
 > Anthropic API has credit: M2-1's `claude-provider.integration.test.ts` and M2-9's
@@ -124,7 +129,7 @@ here so it isn't mistaken for product work.
 
 | ID | Task | Deps | Status | Notes |
 |----|------|------|--------|-------|
-| M5-1 | Auth | M0-5 | IN_PROGRESS | |
+| M5-1 | Auth | M0-5 | IN_PROGRESS | better-auth 1.6.26, **mapped onto our tables rather than allowed to generate its own** — `projects.user_id` is a uuid FK the whole persistence milestone rests on, and `sessions` already means a conversation, so the auth one is `auth_sessions` and the mapping is explicit; see the gotcha in `CLAUDE.md`. Three spec'd tests plus a wrong-password one, in the `db` suite against real Postgres; the GitHub half drives the real callback twice with github.com stubbed by hostname. **Found on the way: `apps/api` had no CORS middleware at all**, so the browser could not reach the API from `:3000` — that predates this task and is fixed here because a cookie cannot cross origins without it. **Six mutations verified, and two of them corrected me.** `unique(provider_id, account_id)` turned out to be a *backstop, not the mechanism*: dropping it left every sign-in test green, because the library looks the row up before inserting — so `packages/db/src/accounts.db.test.ts` now asserts it directly on SQLSTATE `23505`, and the schema comment claiming otherwise is fixed. And removing the `session` model mapping fails *loudly* rather than quietly writing logins into the chat table, but only because the adapter is handed an explicit four-key schema — the two settings are a pair. **next step: hand verification.** `BETTER_AUTH_SECRET` is newly required, so `apps/api/.env` needs a line before `bun run dev` will boot. |
 | M5-2 | Authorization on every route | M5-1, M4-4 | TODO | |
 | M5-3 | Rate limits & quotas | M5-1 | TODO | |
 | M5-4 | Error surfaces | M3-4, M3-5 | TODO | |

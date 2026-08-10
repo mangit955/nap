@@ -104,9 +104,12 @@ export const authSessions = pgTable("auth_sessions", {
  * An email/password signup stores its hash here in `password`; a GitHub sign-in stores the
  * provider's own user id in `account_id` and no password at all.
  *
- * **`unique(provider_id, account_id)` is what makes a repeat login the same person.** Signing
- * in with the same GitHub account twice has to find this row rather than make a second one,
- * and that is a claim worth having the database enforce rather than the application remember.
+ * **`unique(provider_id, account_id)` is a backstop, not the mechanism.** A repeat login finds
+ * the same person because the auth library looks this row up before it inserts — deleting the
+ * constraint changes nothing about an ordinary second sign-in, which is worth knowing before
+ * anybody assumes the index is load-bearing. What it catches is the race the lookup cannot:
+ * two callbacks for the same account arriving together, both finding nothing, both inserting.
+ * `accounts.db.test.ts` is what proves it is really there, since no ordinary path reaches it.
  */
 export const accounts = pgTable(
   "accounts",

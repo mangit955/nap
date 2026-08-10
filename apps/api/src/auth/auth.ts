@@ -12,8 +12,10 @@
  *     milestone rests on it. The default schema would have made a second, differently-keyed
  *     identity table beside it.
  *   - **`sessions` already means a conversation here.** The adapter resolves a model by
- *     looking its name up as a key in the schema object, so without the explicit `modelName`
- *     below, sign-ins would be written into the chat table. Nothing would fail loudly.
+ *     looking its name up as a key in the schema object, so the `modelName` below is what
+ *     keeps sign-ins out of the chat table. It pairs with passing an explicit four-key schema
+ *     rather than the whole one: together they turn a wrong mapping into a loud "model not
+ *     found" instead of a quiet write into `sessions`. Removing either alone is the bad case.
  *   - Ids are generated as real uuids (`generateId: "uuid"`), not the library's default random
  *     strings, which a uuid column would reject on the first insert.
  *
