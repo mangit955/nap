@@ -208,7 +208,9 @@ describe("ClaudeProvider", () => {
       expect(body.model).toBe("claude-opus-5");
       expect(body.output_config).toEqual({ effort: "xhigh" });
       expect(body.thinking).toEqual({ type: "adaptive", display: "summarized" });
-      expect(body.system).toBe("you build apps");
+      // A block array rather than a string, because the prompt carries a cache breakpoint —
+      // the text itself is asserted under "prompt caching" below.
+      expect(body.system).toMatchObject([{ type: "text", text: "you build apps" }]);
     });
 
     it("can be pointed at a cheaper model and a lower effort without changing anything else", async () => {
@@ -302,8 +304,11 @@ describe("ClaudeProvider", () => {
         );
 
       const body = client.calls[0]?.body as Anthropic.MessageStreamParams;
-      expect(body.messages).toEqual([
-        { role: "user", content: "add a button" },
+      // `toMatchObject`, because the final block also carries a cache breakpoint — that is
+      // asserted under "prompt caching" below rather than repeated here.
+      expect(body.messages).toMatchObject([
+        // String content is widened to a block so a breakpoint has somewhere to live.
+        { role: "user", content: [{ type: "text", text: "add a button" }] },
         {
           role: "assistant",
           content: [
@@ -371,6 +376,114 @@ describe("ClaudeProvider", () => {
       const result = await provider(client).startTurn().complete(request());
 
       expect(result).toMatchObject({ type: "message", text: "the answer" });
+    });
+  });
+
+  describe("prompt caching", () => {
+    /**
+     * These assert the *shape* of the request, which is all a test without a network can
+     * honestly claim. Whether the cache actually hits is `usage.cache_read_input_tokens` on a
+     * real call — see `prompt-caching.integration.test.ts`.
+     */
+
+    /** Every `cache_control` in a body, wherever it sits. The API allows at most four. */
+    function breakpoints(body: Anthropic.MessageStreamParams): unknown[] {
+      const found: unknown[] = [];
+      const walk = (node: unknown): void => {
+        if (Array.isArray(node)) return void node.forEach(walk);
+        if (node === null || typeof node !== "object") return;
+        for (const [key, value] of Object.entries(node)) {
+          if (key === "cache_control" && value !== null && value !== undefined) found.push(value);
+          else walk(value);
+        }
+      };
+      walk(body.system);
+      walk(body.messages);
+      walk(body.tools);
+      return found;
+    }
+
+    async function bodyOf(overrides: Partial<LLMRequest> = {}) {
+      const client = stubClient([message()]);
+      await provider(client).startTurn().complete(request(overrides));
+      return client.calls[0]?.body as Anthropic.MessageStreamParams;
+    }
+
+    it("marks the system prompt, which caches the tools rendered before it too", async () => {
+      const body = await bodyOf();
+
+      // A block array rather than a bare string: a string has nowhere to hang the marker.
+      expect(body.system).toEqual([
+        { type: "text", text: "you build apps", cache_control: { type: "ephemeral" } },
+      ]);
+    });
+
+    it("marks the last block of the last message, so the next step reads this one", async () => {
+      const body = await bodyOf({
+        messages: [
+          { role: "user", content: "add a button" },
+          {
+            role: "assistant",
+            content: [{ type: "tool_use", id: "t1", name: "write_file", input: {} }],
+          },
+          {
+            role: "user",
+            content: [
+              { type: "tool_result", toolCallId: "t1", content: "wrote it", isError: false },
+            ],
+          },
+        ],
+      });
+
+      const [first, , last] = body.messages;
+      expect(last?.content).toMatchObject([
+        { type: "tool_result", cache_control: { type: "ephemeral" } },
+      ]);
+      // Only the last one. A marker left on an earlier turn would pin the cache to a prefix
+      // that stops growing, and every later step would re-read the same stale point.
+      expect(JSON.stringify(first)).not.toContain("cache_control");
+    });
+
+    it("converts string content to a block so the marker has somewhere to live", async () => {
+      const body = await bodyOf({ messages: [{ role: "user", content: "add a button" }] });
+
+      expect(body.messages[0]?.content).toEqual([
+        { type: "text", text: "add a button", cache_control: { type: "ephemeral" } },
+      ]);
+    });
+
+    it("moves the marker along as the conversation grows", async () => {
+      const short = await bodyOf({ messages: [{ role: "user", content: "one" }] });
+      const long = await bodyOf({
+        messages: [
+          { role: "user", content: "one" },
+          { role: "assistant", content: "two" },
+        ],
+      });
+
+      expect(JSON.stringify(short.messages[0])).toContain("cache_control");
+      // The same first message is now unmarked — the breakpoint followed the conversation.
+      expect(JSON.stringify(long.messages[0])).not.toContain("cache_control");
+      expect(JSON.stringify(long.messages[1])).toContain("cache_control");
+    });
+
+    it("stays within the four breakpoints the API allows", async () => {
+      const body = await bodyOf({
+        messages: Array.from({ length: 12 }, (_, i) => ({
+          role: i % 2 === 0 ? ("user" as const) : ("assistant" as const),
+          content: `message ${i}`,
+        })),
+      });
+
+      expect(breakpoints(body)).toHaveLength(2);
+    });
+
+    it("asks for no cache when there is no conversation to cache", async () => {
+      // Not a real call shape, but it must not throw reaching for a block that isn't there.
+      const body = await bodyOf({ messages: [] });
+
+      expect(body.messages).toEqual([]);
+      expect(breakpoints(body)).toHaveLength(1);
     });
   });
 });
