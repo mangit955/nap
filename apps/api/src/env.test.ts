@@ -17,7 +17,8 @@ const R2 = {
 const VALID = {
   DATABASE_URL: "postgres://nap:nap@localhost:5432/nap",
   E2B_API_KEY: "e2b_test",
-  ANTHROPIC_API_KEY: "sk-ant-test",
+  // The default platform, so this is the key a default configuration needs.
+  OPENROUTER_API_KEY: "sk-or-test",
   BETTER_AUTH_SECRET: "a-secret-long-enough-to-sign-a-cookie-with",
   ...R2,
   PORT: "3001",
@@ -29,7 +30,7 @@ const VALID = {
 const REQUIRED = {
   DATABASE_URL: VALID.DATABASE_URL,
   E2B_API_KEY: VALID.E2B_API_KEY,
-  ANTHROPIC_API_KEY: VALID.ANTHROPIC_API_KEY,
+  OPENROUTER_API_KEY: VALID.OPENROUTER_API_KEY,
   BETTER_AUTH_SECRET: VALID.BETTER_AUTH_SECRET,
   ...R2,
 } as const;
@@ -41,7 +42,7 @@ describe("parseEnv", () => {
     expect(env.NODE_ENV).toBe("development");
   });
 
-  it.each(["E2B_API_KEY", "ANTHROPIC_API_KEY", "BETTER_AUTH_SECRET"])("requires %s", (key) => {
+  it.each(["E2B_API_KEY", "OPENROUTER_API_KEY", "BETTER_AUTH_SECRET"])("requires %s", (key) => {
     // The server now creates sandboxes and calls the model itself. Both keys become required
     // in the task that first reads them, which is this one — a process that boots without
     // them only fails on the first message someone sends.
@@ -98,26 +99,32 @@ describe("parseEnv", () => {
     ).not.toThrow();
   });
 
-  it("wants an OpenRouter key instead when the models are reached that way", () => {
-    // The same models over the same Messages API, billed to an OpenRouter account rather than
-    // an Anthropic one — a transport, like Bedrock. Demanding an Anthropic key here would be
-    // the same mistake as demanding one from someone paying through AWS.
-    const openrouter = {
+  it("bills OpenRouter unless told otherwise", () => {
+    // The route this project uses. Asserted directly rather than left implied by the fixtures,
+    // because it decides which credentials boot demands and which account pays for every turn.
+    expect(parseEnv(REQUIRED).NAP_PLATFORM).toBe("openrouter");
+  });
+
+  it("wants an Anthropic key instead when Anthropic is billed directly", () => {
+    // Still a supported route, and the check stays conditional for the same reason it always
+    // did: demanding an OpenRouter key from someone paying Anthropic directly is exactly the
+    // kind of boot check that teaches people to paste dummy values.
+    const anthropic = {
       DATABASE_URL: VALID.DATABASE_URL,
       E2B_API_KEY: VALID.E2B_API_KEY,
-      NAP_PLATFORM: "openrouter",
-      OPENROUTER_API_KEY: "sk-or-test",
+      NAP_PLATFORM: "anthropic",
+      ANTHROPIC_API_KEY: "sk-ant-test",
       BETTER_AUTH_SECRET: VALID.BETTER_AUTH_SECRET,
       ...R2,
     };
 
-    expect(parseEnv(openrouter).NAP_PLATFORM).toBe("openrouter");
+    expect(parseEnv(anthropic).NAP_PLATFORM).toBe("anthropic");
   });
 
-  it("refuses to boot on the OpenRouter path with no OpenRouter key", () => {
+  it("refuses to boot on the Anthropic path with no Anthropic key", () => {
     expect(() =>
-      parseEnv({ ...REQUIRED, NAP_PLATFORM: "openrouter", ANTHROPIC_API_KEY: undefined }),
-    ).toThrow(/OPENROUTER_API_KEY/);
+      parseEnv({ ...REQUIRED, NAP_PLATFORM: "anthropic", OPENROUTER_API_KEY: undefined }),
+    ).toThrow(/ANTHROPIC_API_KEY/);
   });
 
   it("boots with no GitHub app at all, leaving email sign-in as the only way in", () => {
@@ -148,14 +155,18 @@ describe("parseEnv", () => {
     // and the default is the same model `harness --real` uses.
     const env = parseEnv(REQUIRED);
 
-    expect(env.NAP_MODEL).toBe("claude-sonnet-5");
+    expect(env.NAP_MODEL).toBe("openai/gpt-5.6-luna");
     expect(env.NAP_EFFORT).toBe("medium");
   });
 
   it("takes a different model when one is asked for", () => {
-    const env = parseEnv({ ...REQUIRED, NAP_MODEL: "claude-opus-5", NAP_EFFORT: "xhigh" });
+    const env = parseEnv({
+      ...REQUIRED,
+      NAP_MODEL: "anthropic/claude-opus-5",
+      NAP_EFFORT: "xhigh",
+    });
 
-    expect(env.NAP_MODEL).toBe("claude-opus-5");
+    expect(env.NAP_MODEL).toBe("anthropic/claude-opus-5");
     expect(env.NAP_EFFORT).toBe("xhigh");
   });
 

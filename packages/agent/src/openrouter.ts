@@ -1,24 +1,28 @@
 /**
- * Reaching the same Claude models through OpenRouter instead of Anthropic directly.
+ * Reaching models through OpenRouter. This is the only route this project uses.
  *
- * Like the Bedrock module beside it, this is a *transport*, not a second vendor — and for the
- * same reason it is cheap. OpenRouter publishes a native Anthropic Messages endpoint, so the
- * same SDK speaks the same protocol to it: the same `tool_use`/`tool_result` blocks, the same
- * streaming events, the same refusal semantics, the same `cache_control` breakpoints. Only two
- * things change, the base URL and a namespaced model id, and both are confined to this file.
- * `ClaudeProvider`, the agent loop and the event contract above it cannot tell the difference.
+ * OpenRouter publishes a *native Anthropic Messages endpoint*, so the Anthropic SDK speaks its
+ * own protocol to it: the same `tool_use`/`tool_result` blocks, the same streaming events, the
+ * same refusal semantics, the same `cache_control` breakpoints. Only two things change — the
+ * base URL and a namespaced model id — and both are confined to this file. `ClaudeProvider`,
+ * the agent loop and the event contract above it cannot tell the difference.
  *
- * Why it exists: it bills an OpenRouter account rather than an Anthropic one, which makes it a
- * route to the same models when direct billing is unavailable. **It is not cheaper.** OpenRouter
- * charges Anthropic's own rates for these models and takes a fee on credit top-ups, so this buys
- * access, not savings — worth being clear about, because the reverse is easy to assume.
+ * **The endpoint translates for non-Anthropic models too, and that is measured rather than
+ * assumed.** OpenRouter's documentation hedges that the Anthropic endpoint is designed for
+ * Anthropic's own models, which reads like a restriction and is not one: a request to
+ * `openai/gpt-5.6-luna` comes back as a well-formed `tool_use` block with `stop_reason:
+ * "tool_use"`, and — the part that matters — its `usage` is in *Anthropic's* shape, with
+ * `cache_read_input_tokens` rather than OpenAI's `prompt_tokens_details.cached_tokens`. That
+ * distinction is what keeps `toTokenUsage` honest; the OpenAI-shaped `/chat/completions`
+ * endpoint would silently break it, which is the reason nothing here goes near that endpoint.
  *
- * Two OpenRouter specifics worth knowing:
+ * What it costs depends on the model, not on the route. OpenRouter charges each vendor's own
+ * rates plus a fee on credit top-ups, so Claude through here is Anthropic's price and buys
+ * access rather than savings; the cheap models are cheap because they are cheap models.
  *
- *  - The native Anthropic endpoint is guaranteed only for Anthropic's own models. Pointing it at
- *    another vendor's model is not a supported path, and nothing here should learn how.
- *  - OpenRouter routes repeat requests back to the same upstream provider to keep prompt caches
- *    warm, which is a small bonus for the breakpoints `claude-provider.ts` sets.
+ * One OpenRouter specific worth knowing: it routes repeat requests back to the same upstream
+ * provider to keep prompt caches warm, which is a small bonus for the breakpoints
+ * `claude-provider.ts` sets.
  */
 
 import Anthropic from "@anthropic-ai/sdk";
@@ -34,6 +38,7 @@ export const OPENROUTER_BASE_URL = "https://openrouter.ai/api";
 
 /** OpenRouter namespaces every model by its vendor, with a slash. */
 const MODEL_PREFIX = "anthropic/";
+const NAMESPACE_SEPARATOR = "/";
 
 export type OpenRouterClientOptions = {
   /** Falls back to `OPENROUTER_API_KEY`. Keys look like `sk-or-…`. */
@@ -43,13 +48,17 @@ export type OpenRouterClientOptions = {
 /**
  * The OpenRouter model id for a model named the way the rest of the codebase names it.
  *
- * Idempotent, because the id can arrive from a command line where someone has already typed the
- * prefix. Note the separator: OpenRouter uses `anthropic/` where Bedrock uses `anthropic.`, so
- * an id already carrying Bedrock's prefix is *not* treated as namespaced — it belongs to the
- * other transport and passing it here is a mistake worth surfacing as a 404 rather than hiding.
+ * A bare name like `claude-sonnet-5` is Anthropic's, because that is how this codebase has
+ * always spelled a model. Anything *already* carrying a vendor namespace is passed through
+ * untouched — `openai/gpt-5.6-luna` must not become `anthropic/openai/gpt-5.6-luna`, which is
+ * a 404 several steps away from the configuration that caused it.
+ *
+ * Note the separator: OpenRouter namespaces with a slash where Bedrock uses a dot, so an id
+ * carrying Bedrock's `anthropic.` prefix is *not* namespaced as far as this is concerned. It
+ * belongs to the other transport, and surfacing that as a 404 beats hiding it.
  */
 export function toOpenRouterModel(model: string): string {
-  return model.startsWith(MODEL_PREFIX) ? model : `${MODEL_PREFIX}${model}`;
+  return model.includes(NAMESPACE_SEPARATOR) ? model : `${MODEL_PREFIX}${model}`;
 }
 
 /**

@@ -26,16 +26,18 @@ const BaseSchema = z.object({
    */
   E2B_API_KEY: z.string().min(1),
   /**
-   * Which account pays for the model. Not a vendor choice — both routes serve the same Claude
-   * models over the same API, and nothing above `LLMProvider` can tell them apart. Which
-   * credentials are required depends on this, which is why the check below is conditional
-   * rather than a flat list: demanding an Anthropic key from someone billing through AWS is
-   * how a boot check teaches people to paste dummy values.
+   * Which account pays for the model, and therefore which credentials are required — hence the
+   * conditional check below rather than a flat list. Demanding an Anthropic key from someone
+   * billing through OpenRouter is how a boot check teaches people to paste dummy values.
+   *
+   * **OpenRouter is the default and the route this project actually uses.** The other two are
+   * kept because they are the same Messages API underneath and cost nothing to keep working,
+   * but nothing here is configured for them.
    */
-  NAP_PLATFORM: z.enum(["anthropic", "bedrock", "openrouter"]).default("anthropic"),
-  ANTHROPIC_API_KEY: z.string().min(1).optional(),
-  /** The same Claude models, billed to an OpenRouter account. Keys look like `sk-or-…`. */
+  NAP_PLATFORM: z.enum(["openrouter", "anthropic", "bedrock"]).default("openrouter"),
+  /** Billed to an OpenRouter account, whatever the model. Keys look like `sk-or-…`. */
   OPENROUTER_API_KEY: z.string().min(1).optional(),
+  ANTHROPIC_API_KEY: z.string().min(1).optional(),
   /** Bedrock takes an API key as a bearer token, and throws at construction with no region. */
   AWS_BEARER_TOKEN_BEDROCK: z.string().min(1).optional(),
   AWS_REGION: z.string().min(1).optional(),
@@ -68,10 +70,16 @@ const BaseSchema = z.object({
    *
    * Every message typed into the chat box is a real model call and a real sandbox, so the
    * default is the cheap one — the same model `bun run harness --real` defaults to. Recording
-   * a demo means setting `NAP_MODEL=claude-opus-5` and `NAP_EFFORT=xhigh` for that run, which
-   * is one line rather than a code change.
+   * a demo means setting `NAP_MODEL=anthropic/claude-opus-5` and `NAP_EFFORT=xhigh` for that
+   * run, which is one line rather than a code change.
+   *
+   * The default is priced at roughly a twentieth of Claude Sonnet 5 per token, which is what
+   * makes it the one to debug the agent loop against: most turns during development are spent
+   * proving event ordering and tool sequencing, and that does not need a good model, only one
+   * that returns well-formed tool calls. It is a *fully namespaced* OpenRouter id — a bare
+   * name is assumed to be Anthropic's, which is how this codebase has always spelled a model.
    */
-  NAP_MODEL: z.string().min(1).default("claude-sonnet-5"),
+  NAP_MODEL: z.string().min(1).default("openai/gpt-5.6-luna"),
   NAP_EFFORT: z.enum(["low", "medium", "high", "xhigh", "max"]).default("medium"),
   /** Model calls in one turn, and the ceiling on the context assembled for each of them. */
   NAP_MAX_STEPS: z.coerce.number().int().positive().default(24),
@@ -109,10 +117,10 @@ const BaseSchema = z.object({
  */
 export const EnvSchema = BaseSchema.superRefine((env, ctx) => {
   const required =
-    env.NAP_PLATFORM === "bedrock"
-      ? (["AWS_BEARER_TOKEN_BEDROCK", "AWS_REGION"] as const)
-      : env.NAP_PLATFORM === "openrouter"
-        ? (["OPENROUTER_API_KEY"] as const)
+    env.NAP_PLATFORM === "openrouter"
+      ? (["OPENROUTER_API_KEY"] as const)
+      : env.NAP_PLATFORM === "bedrock"
+        ? (["AWS_BEARER_TOKEN_BEDROCK", "AWS_REGION"] as const)
         : (["ANTHROPIC_API_KEY"] as const);
 
   for (const key of required) {

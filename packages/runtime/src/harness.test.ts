@@ -67,7 +67,7 @@ describe("parseHarnessArgs", () => {
     expect(options).toStrictEqual({
       prompt: "record the demo",
       real: true,
-      platform: "anthropic",
+      platform: "openrouter",
       model: "claude-opus-5",
       effort: "xhigh",
       maxSteps: 3,
@@ -76,11 +76,16 @@ describe("parseHarnessArgs", () => {
     });
   });
 
-  it("targets Anthropic directly unless told otherwise", () => {
-    expect(parsed("--real", "hi").platform).toBe("anthropic");
+  it("bills OpenRouter unless told otherwise, on the cheap model", () => {
+    // Both halves of the same decision: this is the route the project uses, and the default
+    // model is the one that makes running the loop repeatedly affordable. A default of Sonnet
+    // here is a twentyfold difference in what an afternoon of debugging costs.
+    expect(parsed("--real", "hi").platform).toBe("openrouter");
+    expect(parsed("--real", "hi").model).toBe("openai/gpt-5.6-luna");
   });
 
-  it("can target Bedrock, which serves the same models through a different account", () => {
+  it("can still target Anthropic or Bedrock directly", () => {
+    expect(parsed("--real", "--platform=anthropic", "hi").platform).toBe("anthropic");
     expect(parsed("--real", "--platform=bedrock", "hi").platform).toBe("bedrock");
   });
 

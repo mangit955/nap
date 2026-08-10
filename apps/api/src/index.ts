@@ -86,24 +86,24 @@ const projectSandboxes = new PostgresProjectSandboxStore(db);
 const projects = new PostgresProjectStore(db);
 
 /**
- * The same models either way — only the client and the shape of the model id differ, and
+ * The same Messages API either way — only the client and the shape of the model id differ, and
  * nothing above `LLMProvider` can tell which one answered. The env check has already refused
  * to boot without whichever credentials the chosen route needs.
  */
 function buildProvider(): ClaudeProvider {
-  if (env.NAP_PLATFORM === "bedrock") {
-    return new ClaudeProvider({
-      model: toBedrockModel(env.NAP_MODEL),
-      effort: env.NAP_EFFORT,
-      client: createBedrockClient(),
-    });
-  }
-
   if (env.NAP_PLATFORM === "openrouter") {
     return new ClaudeProvider({
       model: toOpenRouterModel(env.NAP_MODEL),
       effort: env.NAP_EFFORT,
       client: createOpenRouterClient(),
+    });
+  }
+
+  if (env.NAP_PLATFORM === "bedrock") {
+    return new ClaudeProvider({
+      model: toBedrockModel(env.NAP_MODEL),
+      effort: env.NAP_EFFORT,
+      client: createBedrockClient(),
     });
   }
 

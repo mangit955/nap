@@ -13,6 +13,13 @@ describe("toOpenRouterModel", () => {
     expect(toOpenRouterModel("anthropic/claude-sonnet-5")).toBe("anthropic/claude-sonnet-5");
   });
 
+  it("leaves another vendor's namespace alone rather than claiming it for Anthropic", () => {
+    // The default model is one of these. Prefixing it would ask OpenRouter for
+    // `anthropic/openai/gpt-5.6-luna` — a 404 that reads like the model was withdrawn.
+    expect(toOpenRouterModel("openai/gpt-5.6-luna")).toBe("openai/gpt-5.6-luna");
+    expect(toOpenRouterModel("openai/gpt-5.6-terra")).toBe("openai/gpt-5.6-terra");
+  });
+
   it("does not mistake Bedrock's prefix for its own", () => {
     // Bedrock namespaces with a dot, OpenRouter with a slash. Treating one as the other would
     // send `anthropic/anthropic.claude-opus-5`, which is a 404 nobody would read correctly.
