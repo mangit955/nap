@@ -124,7 +124,7 @@ here so it isn't mistaken for product work.
 
 | ID | Task | Deps | Status | Notes |
 |----|------|------|--------|-------|
-| M5-1 | Auth | M0-5 | TODO | |
+| M5-1 | Auth | M0-5 | IN_PROGRESS | |
 | M5-2 | Authorization on every route | M5-1, M4-4 | TODO | |
 | M5-3 | Rate limits & quotas | M5-1 | TODO | |
 | M5-4 | Error surfaces | M3-4, M3-5 | TODO | |
