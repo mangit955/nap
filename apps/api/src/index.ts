@@ -33,6 +33,7 @@ import { NAP_TEMPLATE } from "@nap/sandbox/template";
 import { createR2Client, R2ObjectStore } from "@nap/storage/r2-object-store";
 import { upgradeWebSocket, websocket } from "hono/bun";
 import { createApp } from "./app.ts";
+import { createAuth } from "./auth/auth.ts";
 import { EnvValidationError, parseEnv } from "./env.ts";
 import { createLogger, setRootLogger } from "./logger.ts";
 import { TurnRegistry } from "./turns/registry.ts";
@@ -128,6 +129,23 @@ const runtime = new SingleAgentRuntime({
 
 const app = createApp({
   logger,
+  // The browser app is on another port, so every request it makes is cross-origin and every
+  // session cookie depends on this being right.
+  webOrigin: env.NAP_WEB_ORIGIN,
+  auth: createAuth(db, {
+    secret: env.BETTER_AUTH_SECRET,
+    baseUrl: env.NAP_API_URL,
+    webOrigin: env.NAP_WEB_ORIGIN,
+    // Both or neither — the env check has already refused to boot on one of the two.
+    ...(env.GITHUB_CLIENT_ID === undefined || env.GITHUB_CLIENT_SECRET === undefined
+      ? {}
+      : {
+          github: {
+            clientId: env.GITHUB_CLIENT_ID,
+            clientSecret: env.GITHUB_CLIENT_SECRET,
+          },
+        }),
+  }),
   stream: { store, bus, upgradeWebSocket },
   files: { sessions, sandbox },
   turns: { runtime, registry, sessions },

@@ -119,6 +119,47 @@ describe("unknown routes", () => {
   });
 });
 
+describe("CORS", () => {
+  const WEB = "http://localhost:3000";
+
+  it("lets the configured origin through with credentials", async () => {
+    // Both headers or neither is useful: a browser will not attach a session cookie to a
+    // cross-origin request unless the response names the origin *and* allows credentials,
+    // and it refuses the combination of credentials with a `*` origin outright.
+    const res = await app({ webOrigin: WEB }).request("/health", {
+      headers: { origin: WEB },
+    });
+
+    expect(res.headers.get("access-control-allow-origin")).toBe(WEB);
+    expect(res.headers.get("access-control-allow-credentials")).toBe("true");
+  });
+
+  it("answers a preflight before the request reaches a route", async () => {
+    // The browser sends this on its own for anything with a JSON body, and it is sent to the
+    // real path — so a preflight that fell through to the router would 404 and the actual
+    // request would never be made.
+    const res = await app({ webOrigin: WEB }).request("/projects", {
+      method: "OPTIONS",
+      headers: {
+        origin: WEB,
+        "access-control-request-method": "POST",
+        "access-control-request-headers": "content-type",
+      },
+    });
+
+    expect(res.status).toBeLessThan(300);
+    expect(res.headers.get("access-control-allow-origin")).toBe(WEB);
+  });
+
+  it("sends no CORS headers at all when no origin is configured", async () => {
+    // Same-origin deployments need none of this, and a header saying "anyone" would be worse
+    // than the header being absent.
+    const res = await app().request("/health", { headers: { origin: WEB } });
+
+    expect(res.headers.get("access-control-allow-origin")).toBeNull();
+  });
+});
+
 describe("request logging", () => {
   it("logs each request with a request id available to downstream code", async () => {
     const lines: string[] = [];

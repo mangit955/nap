@@ -18,6 +18,7 @@ const VALID = {
   DATABASE_URL: "postgres://nap:nap@localhost:5432/nap",
   E2B_API_KEY: "e2b_test",
   ANTHROPIC_API_KEY: "sk-ant-test",
+  BETTER_AUTH_SECRET: "a-secret-long-enough-to-sign-a-cookie-with",
   ...R2,
   PORT: "3001",
   LOG_LEVEL: "info",
@@ -29,6 +30,7 @@ const REQUIRED = {
   DATABASE_URL: VALID.DATABASE_URL,
   E2B_API_KEY: VALID.E2B_API_KEY,
   ANTHROPIC_API_KEY: VALID.ANTHROPIC_API_KEY,
+  BETTER_AUTH_SECRET: VALID.BETTER_AUTH_SECRET,
   ...R2,
 } as const;
 
@@ -39,7 +41,7 @@ describe("parseEnv", () => {
     expect(env.NODE_ENV).toBe("development");
   });
 
-  it.each(["E2B_API_KEY", "ANTHROPIC_API_KEY"])("requires %s", (key) => {
+  it.each(["E2B_API_KEY", "ANTHROPIC_API_KEY", "BETTER_AUTH_SECRET"])("requires %s", (key) => {
     // The server now creates sandboxes and calls the model itself. Both keys become required
     // in the task that first reads them, which is this one — a process that boots without
     // them only fails on the first message someone sends.
@@ -58,6 +60,7 @@ describe("parseEnv", () => {
       NAP_PLATFORM: "bedrock",
       AWS_BEARER_TOKEN_BEDROCK: "ABSK-test",
       AWS_REGION: "us-east-1",
+      BETTER_AUTH_SECRET: VALID.BETTER_AUTH_SECRET,
       ...R2,
     };
 
@@ -73,6 +76,7 @@ describe("parseEnv", () => {
       NAP_PLATFORM: "bedrock",
       AWS_BEARER_TOKEN_BEDROCK: "ABSK-test",
       AWS_REGION: "us-east-1",
+      BETTER_AUTH_SECRET: VALID.BETTER_AUTH_SECRET,
       ...R2,
     };
     delete bedrock[key];
@@ -88,8 +92,32 @@ describe("parseEnv", () => {
         NAP_PLATFORM: "bedrock",
         AWS_BEARER_TOKEN_BEDROCK: "ABSK-test",
         AWS_REGION: "us-east-1",
+        BETTER_AUTH_SECRET: VALID.BETTER_AUTH_SECRET,
         ...R2,
       }),
+    ).not.toThrow();
+  });
+
+  it("boots with no GitHub app at all, leaving email sign-in as the only way in", () => {
+    // The rule this repo states outright: a boot check that demands credentials for something
+    // nobody has configured is how people learn to paste dummy values.
+    expect(() => parseEnv(REQUIRED)).not.toThrow();
+  });
+
+  it.each(["GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET"])(
+    "refuses %s on its own, since half a GitHub app is not a smaller one",
+    (key) => {
+      // The alternative failure is a redirect back from GitHub that dies on a blank secret —
+      // several steps away from the thing that is actually wrong.
+      const other = key === "GITHUB_CLIENT_ID" ? "GITHUB_CLIENT_SECRET" : "GITHUB_CLIENT_ID";
+
+      expect(() => parseEnv({ ...REQUIRED, [key]: "set" })).toThrow(new RegExp(other));
+    },
+  );
+
+  it("accepts both halves of a GitHub app together", () => {
+    expect(() =>
+      parseEnv({ ...REQUIRED, GITHUB_CLIENT_ID: "Iv1.test", GITHUB_CLIENT_SECRET: "ghs_test" }),
     ).not.toThrow();
   });
 

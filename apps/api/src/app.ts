@@ -10,7 +10,9 @@ import type { EventBus } from "@nap/shared/ports/event-bus";
 import type { EventStore } from "@nap/shared/ports/event-store";
 import { VERSION } from "@nap/shared/version";
 import { type Context, Hono } from "hono";
+import { cors } from "hono/cors";
 import type { WSEvents } from "hono/ws";
+import type { AuthInstance } from "./auth/auth.ts";
 import { type FileRouteDeps, registerFileRoutes } from "./files/routes.ts";
 import { getLogger, type Logger, withLogContext } from "./logger.ts";
 import { type ProjectRouteDeps, registerProjectRoutes } from "./projects/routes.ts";
@@ -27,6 +29,21 @@ export type UpgradeWebSocket = (c: Context, events: WSEvents) => Promise<Respons
 
 export type AppDeps = {
   logger: Logger;
+  /**
+   * The origin the browser app is served from, allowed through CORS with credentials.
+   *
+   * A concrete origin rather than `*`, and not because it is tidier: a browser refuses to
+   * send cookies to a wildcard origin, so the two settings are a package. Omitting this
+   * leaves CORS off entirely, which is right for a same-origin deployment and for the tests
+   * that dispatch straight into the router.
+   */
+  webOrigin?: string;
+  /**
+   * Sign-in, sign-out and the OAuth callback, mounted under `/api/auth`. Optional like the
+   * three below: an app built without it has no auth routes at all, rather than routes that
+   * fail on the first request for want of a database.
+   */
+  auth?: AuthInstance;
   /** Everything `/ws` needs. The store supplies the replay, the bus the live tail. */
   stream: {
     store: EventStore;
@@ -58,6 +75,16 @@ export type AppDeps = {
 
 export function createApp(deps: AppDeps): Hono {
   const app = new Hono();
+
+  // First, and before the logger: a preflight is answered by this middleware without ever
+  // reaching a handler, and a rejected one must still carry the headers that say why.
+  //
+  // `credentials` is the whole point. The web app is on another origin in development, the
+  // session lives in a cookie, and a browser sends that cookie cross-origin only when the
+  // response both names the origin exactly and allows credentials.
+  if (deps.webOrigin !== undefined) {
+    app.use("*", cors({ origin: deps.webOrigin, credentials: true }));
+  }
 
   // Opens a log context for the request so anything downstream — including code that never
   // receives a logger — reports under the same ids. `sessionId` is picked up from the path
@@ -128,6 +155,19 @@ export function createApp(deps: AppDeps): Hono {
 
     return await deps.stream.upgradeWebSocket(c, events);
   });
+
+  // Every method, because the library owns this whole prefix: sign-in posts, the OAuth
+  // callback arrives as a GET redirect from GitHub, and which paths exist under it is its
+  // business rather than this file's.
+  if (deps.auth !== undefined) {
+    const { auth } = deps;
+    app.all("/api/auth/*", (c) => auth.handler(c.req.raw));
+
+    // What the sign-in page needs before anybody has signed in, so it offers a GitHub button
+    // only when there is a GitHub app behind it. Necessarily unauthenticated, and says
+    // nothing a stranger could not learn by pressing the button.
+    app.get("/auth/providers", (c) => c.json({ socialProviders: auth.socialProviders }));
+  }
 
   if (deps.files !== undefined) registerFileRoutes(app, deps.files);
   if (deps.turns !== undefined) registerTurnRoutes(app, deps.turns);

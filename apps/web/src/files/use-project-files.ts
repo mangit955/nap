@@ -25,6 +25,7 @@ import {
 } from "@nap/shared/files-protocol";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { useEffect, useState } from "react";
+import { credentialedFetch } from "../api/credentialed-fetch.ts";
 import { changeCount } from "./changed-paths.ts";
 
 /**
@@ -172,4 +173,4 @@ async function load<T>(
   }
 }
 
-const defaultFetch: FetchJson = (url) => fetch(url);
+const defaultFetch: FetchJson = credentialedFetch;

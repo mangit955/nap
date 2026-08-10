@@ -37,6 +37,25 @@ const BaseSchema = z.object({
   /** Bedrock takes an API key as a bearer token, and throws at construction with no region. */
   AWS_BEARER_TOKEN_BEDROCK: z.string().min(1).optional(),
   AWS_REGION: z.string().min(1).optional(),
+  /**
+   * Signs session cookies. Required from the moment there is sign-in to sign: a process that
+   * cannot verify its own cookies has no way to tell who is asking.
+   */
+  BETTER_AUTH_SECRET: z.string().min(1),
+  /**
+   * Where the browser app is served from, and the one origin allowed through CORS with
+   * credentials. It is a different port from this API in development, so it has to be named —
+   * and it cannot be `*`, because a browser will not send a cookie to a wildcard origin.
+   */
+  NAP_WEB_ORIGIN: z.url().default("http://localhost:3000"),
+  /** Where this API is reached. OAuth redirect URIs are built from it, so it must be right. */
+  NAP_API_URL: z.url().default("http://localhost:3001"),
+  /**
+   * A GitHub OAuth app, if there is one. Optional but paired — see the check below. Without
+   * them the GitHub button simply is not offered and email sign-in works as usual.
+   */
+  GITHUB_CLIENT_ID: z.string().min(1).optional(),
+  GITHUB_CLIENT_SECRET: z.string().min(1).optional(),
   /** Environments are all strings; the rest of the app should not have to remember that. */
   PORT: z.coerce.number().int().positive().default(3001),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
@@ -99,6 +118,27 @@ export const EnvSchema = BaseSchema.superRefine((env, ctx) => {
       path: [key],
       message: `is required when NAP_PLATFORM is ${env.NAP_PLATFORM}`,
     });
+  }
+
+  // Half a GitHub app is not a smaller GitHub app. Configured with only one of the two, the
+  // provider would either be silently skipped — a button that vanished for no stated reason —
+  // or registered with a blank secret, which fails at the redirect back from GitHub, several
+  // steps away from the thing that is actually wrong.
+  const github = [
+    ["GITHUB_CLIENT_ID", env.GITHUB_CLIENT_ID],
+    ["GITHUB_CLIENT_SECRET", env.GITHUB_CLIENT_SECRET],
+  ] as const;
+  const supplied = github.filter(([, value]) => value !== undefined);
+
+  if (supplied.length === 1) {
+    for (const [key, value] of github) {
+      if (value !== undefined) continue;
+      ctx.addIssue({
+        code: "custom",
+        path: [key],
+        message: "is required when the other GITHUB_CLIENT_* variable is set",
+      });
+    }
   }
 
   // A configuration that reaps later than the provider kills is worse than no reaper at all:

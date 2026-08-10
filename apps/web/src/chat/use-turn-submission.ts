@@ -27,6 +27,7 @@
 
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { useEffect, useRef, useState } from "react";
+import { credentialedFetch } from "../api/credentialed-fetch.ts";
 import type { FetchJson } from "../files/use-project-files.ts";
 
 export type TurnSubmission = {
@@ -48,7 +49,7 @@ export function useTurnSubmission(options: {
   fetchJson?: FetchJson;
 }): TurnSubmission {
   const { sessionId, events, baseUrl = DEFAULT_BASE_URL } = options;
-  const fetchJson = options.fetchJson ?? ((url, init) => fetch(url, init));
+  const fetchJson = options.fetchJson ?? credentialedFetch;
 
   const [pending, setPending] = useState<string | undefined>(undefined);
   const [posting, setPosting] = useState(false);

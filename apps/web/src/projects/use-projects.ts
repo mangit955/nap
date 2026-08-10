@@ -24,6 +24,7 @@ import {
   ProjectSummarySchema,
 } from "@nap/shared/projects-protocol";
 import { useCallback, useEffect, useState } from "react";
+import { credentialedFetch } from "../api/credentialed-fetch.ts";
 import type { FetchJson } from "../files/use-project-files.ts";
 
 export type ProjectsStatus = "loading" | "ready" | "error";
@@ -42,7 +43,7 @@ const DEFAULT_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:30
 
 export function useProjects(options: { baseUrl?: string; fetchJson?: FetchJson } = {}): Projects {
   const { baseUrl = DEFAULT_BASE_URL } = options;
-  const fetchJson = options.fetchJson ?? ((url, init) => fetch(url, init));
+  const fetchJson = options.fetchJson ?? credentialedFetch;
 
   const [projects, setProjects] = useState<ProjectSummaryPayload[]>([]);
   const [status, setStatus] = useState<ProjectsStatus>("loading");
@@ -169,7 +170,7 @@ export function useProject(
   options: { baseUrl?: string; fetchJson?: FetchJson } = {},
 ): OpenProject {
   const { baseUrl = DEFAULT_BASE_URL } = options;
-  const fetchJson = options.fetchJson ?? ((url, init) => fetch(url, init));
+  const fetchJson = options.fetchJson ?? credentialedFetch;
 
   const [project, setProject] = useState<ProjectSummaryPayload | undefined>(undefined);
   const [status, setStatus] = useState<OpenProject["status"]>("loading");
