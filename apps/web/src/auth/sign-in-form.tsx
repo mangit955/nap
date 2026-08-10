@@ -28,6 +28,12 @@ export type SignInFormProps = {
   githubEnabled: boolean;
   /** In words, for the person who just tried. Undefined when nothing has gone wrong. */
   error?: string | undefined;
+  /**
+   * Why they are here, when they did not choose to be — an expired session, arriving from a
+   * redirect. Distinct from `error`: nothing they did was wrong, and drawing it in the same red
+   * as a bad password would say otherwise.
+   */
+  notice?: string | undefined;
   submitting?: boolean;
 };
 
@@ -42,6 +48,7 @@ export function SignInForm({
   onGithub,
   githubEnabled,
   error,
+  notice,
   submitting = false,
 }: SignInFormProps) {
   const [email, setEmail] = useState("");
@@ -104,6 +111,17 @@ export function SignInForm({
             className={FIELD}
           />
         </label>
+
+        {/*
+          A `status`, not an `alert`: nothing is wrong with what the reader just did, and the
+          two roles are announced with different urgency. Above the fields, because it explains
+          why the form is on screen at all.
+        */}
+        {notice !== undefined && (
+          <p role="status" className="rounded border border-edge px-3 py-2 text-muted text-xs">
+            {notice}
+          </p>
+        )}
 
         {error !== undefined && (
           <p role="alert" className="font-mono text-danger text-xs">

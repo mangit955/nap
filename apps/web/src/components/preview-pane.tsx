@@ -2,6 +2,7 @@
 
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { useState } from "react";
+import { turnFailureCopy } from "../errors/failure-copy.ts";
 import { useEventStream } from "../hooks/use-event-stream.ts";
 import { type PreviewState, previewState } from "../preview/preview-state.ts";
 import { Pane } from "./pane.tsx";
@@ -92,16 +93,30 @@ function Waiting({ state }: { state: Exclude<PreviewState, { status: "ready" }> 
           </>
         )}
 
-        {state.status === "error" && (
-          <>
-            <p className="text-ink text-sm">The sandbox didn't start.</p>
-            <p className="font-mono text-danger text-xs">{state.message}</p>
-            {/* An error names the way out, or the only thing left to try is reloading the page. */}
-            <p className="text-muted text-xs">Send another message to try again.</p>
-          </>
-        )}
+        {state.status === "error" && <PreviewFailure message={state.message} />}
       </div>
     </div>
+  );
+}
+
+/**
+ * The pane's failure state, in the same words the transcript uses for the same event.
+ *
+ * Both are downstream of one `turn.failed{sandbox_unavailable}`, and this pane used to have its
+ * own wording for it — so a single failure read as two different problems depending on which
+ * half of the screen you looked at. The copy comes from one place now; no retry button here,
+ * because the transcript already offers one and two controls for one action is a question about
+ * which of them is the real one.
+ */
+function PreviewFailure({ message }: { message: string }) {
+  const copy = turnFailureCopy("sandbox_unavailable", message);
+
+  return (
+    <>
+      <p className="text-ink text-sm">{copy.title}</p>
+      <p className="font-mono text-danger text-xs">{copy.detail}</p>
+      <p className="text-muted text-xs">{copy.action}</p>
+    </>
   );
 }
 

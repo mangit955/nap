@@ -214,12 +214,18 @@ describe("a turn in progress", () => {
     expect(screen.getByRole("log")).toHaveTextContent(/no file changes/i);
   });
 
-  it("names why a turn failed", () => {
+  it("names why a turn failed, in the user's vocabulary rather than the system's", () => {
     show(ev("turn.failed", { reason: "sandbox_unavailable", message: "could not resume" }));
 
     const log = screen.getByRole("log");
+    // The server's own sentence survives — it is the part that distinguishes this failure from
+    // the next one.
     expect(log).toHaveTextContent(/could not resume/);
-    // The reason is a closed vocabulary the user should see in words, not a code.
-    expect(log).toHaveTextContent(/sandbox/i);
+    // "workspace", not "sandbox": this used to render the reason code's own wording, which
+    // names the failure in the vocabulary of the thing that broke rather than of the person
+    // reading it.
+    expect(log).toHaveTextContent(/workspace/i);
+    // And it says what to do, which is the whole point of the state existing.
+    expect(log).toHaveTextContent(/send the message again/i);
   });
 });

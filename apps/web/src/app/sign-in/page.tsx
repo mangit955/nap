@@ -1,12 +1,24 @@
 import { LiveSignIn } from "../../auth/live-sign-in.tsx";
+import { EXPIRED_PARAM, expiredNotice } from "../../errors/expired-session.ts";
 
 /**
- * The way in.
+ * The way in — and the place a session that has expired lands, since every route needs one.
  *
- * Nothing redirects here yet: signing in works and creates a real session, but no route
- * refuses a request without one. Authorization lands across every route at once rather than
- * a little at a time, so that the test proving it can be a table with no gaps in it.
+ * Those two arrivals are different. One person came here to sign in; the other was working, and
+ * the page went out from under them. The second is owed a sentence saying why, which is what the
+ * `expired` parameter carries.
+ *
+ * **`searchParams` is a Promise in this version of Next** — verified in
+ * `node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/page.md`, not
+ * recalled; older versions hand back a plain object and awaiting one is the difference between
+ * this working and rendering nothing.
  */
-export default function Page() {
-  return <LiveSignIn />;
+export default async function Page({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
+  const params = await searchParams;
+
+  return <LiveSignIn notice={expiredNotice(params[EXPIRED_PARAM])} />;
 }

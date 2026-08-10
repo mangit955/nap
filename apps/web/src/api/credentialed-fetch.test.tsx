@@ -2,13 +2,19 @@
  * `.tsx` with no JSX in it, deliberately: filename decides the vitest project, and a `.test.ts`
  * here would be collected by `unit` and run in Node with no `location` to assert about.
  *
- * Only the decision is tested, not the navigation. Assigning to `location` in jsdom is a real
- * navigation attempt, and the pure predicate is where the rule that could be wrong actually
- * lives — "redirect on 401, except on the sign-in page itself".
+ * The pure predicate carries the rule — "redirect on 401, except on the sign-in page itself" —
+ * and the second half covers where it actually sends you, with `location` stubbed wholesale
+ * because jsdom refuses a real navigation. That second half exists because deleting the query
+ * parameter from the redirect left every other test here green.
  */
 
-import { describe, expect, it } from "vitest";
-import { SIGN_IN_PATH, shouldRedirectToSignIn } from "./credentialed-fetch.ts";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  credentialedFetch,
+  EXPIRED_SIGN_IN_PATH,
+  SIGN_IN_PATH,
+  shouldRedirectToSignIn,
+} from "./credentialed-fetch.ts";
 
 describe("shouldRedirectToSignIn", () => {
   it("redirects when the API says the caller is not signed in", () => {
@@ -28,5 +34,48 @@ describe("shouldRedirectToSignIn", () => {
     for (const status of [200, 201, 403, 404, 409, 500, 503]) {
       expect(shouldRedirectToSignIn(status, "/")).toBe(false);
     }
+  });
+});
+
+describe("where a 401 actually sends the browser", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** Replaces `location` wholesale: jsdom refuses a real navigation, and this is what the code reads. */
+  function stubLocation(pathname: string) {
+    const assign = vi.fn();
+    vi.stubGlobal("location", { pathname, assign });
+    return assign;
+  }
+
+  it("carries the reason, so the sign-in page can explain itself", async () => {
+    // The mutation this exists for: sending them to a bare `/sign-in` passes every other test
+    // here and leaves the user staring at a login form with no idea why their work vanished.
+    const assign = stubLocation("/p/abc");
+    vi.stubGlobal("fetch", async () => new Response("{}", { status: 401 }));
+
+    await credentialedFetch("http://api.test/projects");
+
+    expect(assign).toHaveBeenCalledWith(EXPIRED_SIGN_IN_PATH);
+    expect(EXPIRED_SIGN_IN_PATH).toContain("expired");
+  });
+
+  it("does not navigate on a successful response", async () => {
+    const assign = stubLocation("/p/abc");
+    vi.stubGlobal("fetch", async () => new Response("{}", { status: 200 }));
+
+    await credentialedFetch("http://api.test/projects");
+
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it("stays put when the 401 came from the sign-in form itself", async () => {
+    const assign = stubLocation(SIGN_IN_PATH);
+    vi.stubGlobal("fetch", async () => new Response("{}", { status: 401 }));
+
+    await credentialedFetch("http://api.test/api/auth/sign-in/email");
+
+    expect(assign).not.toHaveBeenCalled();
   });
 });

@@ -279,10 +279,9 @@ describe("when the server refuses", () => {
     return async (): Promise<Response> => new Response(JSON.stringify(body), { status });
   }
 
-  it("shows the reason the server gave rather than a generic apology", async () => {
-    // A rate limit and a sandbox quota are both actionable — wait, or close a project — and the
-    // server writes that sentence. Replacing it with "something went wrong" throws away the
-    // only part the reader can do anything with.
+  it("keeps the server's sentence and adds what to do about it", async () => {
+    // The server computed the wait from a sliding window, so that half cannot be reconstructed
+    // here — and on its own it still does not say what to do, which is what the copy adds.
     const message = "Too many turns. Try again in 4 minutes.";
     const { result } = submission(refusing(429, { error: message, code: "rate_limited" }));
 
@@ -290,18 +289,46 @@ describe("when the server refuses", () => {
       await result.current.submit("hello");
     });
 
-    expect(result.current.error).toBe(message);
+    expect(result.current.error).toContain("4 minutes");
+    expect(result.current.error).toMatch(/send it again/i);
   });
 
-  it("falls back to a generic line when the body carries nothing usable", async () => {
-    // A proxy's HTML error page, or an empty 502. A raw status code is not an instruction.
+  it("tells a quota refusal apart from a rate limit, on the same status family", async () => {
+    // The two need different things from the reader — wait, versus close a project — and only
+    // the `code` separates them.
+    const { result } = submission(
+      refusing(409, { error: "You already have 2 running.", code: "sandbox_quota_exceeded" }),
+    );
+
+    await act(async () => {
+      await result.current.submit("hello");
+    });
+
+    expect(result.current.error).toMatch(/close one/i);
+  });
+
+  it("names an expired session as such rather than as a failed send", async () => {
+    const { result } = submission(refusing(401, {}));
+
+    await act(async () => {
+      await result.current.submit("hello");
+    });
+
+    expect(result.current.error).toMatch(/session expired/i);
+    expect(result.current.error).toMatch(/sign in/i);
+  });
+
+  it("says something specific even when the body carries nothing usable", async () => {
+    // A proxy's HTML error page, or an empty 502. A raw status code is not an instruction, but
+    // "something went wrong" is not either — this still names the status and the way out.
     const { result } = submission(refusing(502, {}));
 
     await act(async () => {
       await result.current.submit("hello");
     });
 
-    expect(result.current.error).toBe("That message didn't send. Try again.");
+    expect(result.current.error).toMatch(/502/);
+    expect(result.current.error).toMatch(/send it again/i);
   });
 
   it("still takes the message back off the screen", async () => {

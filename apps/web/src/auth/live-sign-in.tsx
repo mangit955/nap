@@ -24,7 +24,7 @@ const DEFAULT_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:30
 /** What to say when the server gave us nothing to say. */
 const UNKNOWN = "That did not work. Try again in a moment.";
 
-export function LiveSignIn() {
+export function LiveSignIn({ notice }: { notice?: string | undefined } = {}) {
   const router = useRouter();
   const [mode, setMode] = useState<SignInMode>("sign-in");
   const [error, setError] = useState<string | undefined>(undefined);
@@ -77,6 +77,7 @@ export function LiveSignIn() {
 
   return (
     <SignInForm
+      notice={notice}
       mode={mode}
       onModeChange={(next) => {
         setMode(next);

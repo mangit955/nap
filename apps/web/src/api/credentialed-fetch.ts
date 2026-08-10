@@ -23,6 +23,16 @@ import type { FetchJson } from "../files/use-project-files.ts";
 export const SIGN_IN_PATH = "/sign-in";
 
 /**
+ * Where a 401 sends the browser.
+ *
+ * The parameter is the whole difference between a redirect and an explanation. Without it the
+ * page simply vanishes mid-session and reappears as a sign-in form, which is indistinguishable
+ * from having clicked "sign out" by accident — and is worse than the bare spinner this is all
+ * meant to remove, because at least a spinner does not pretend nothing happened.
+ */
+export const EXPIRED_SIGN_IN_PATH = `${SIGN_IN_PATH}?expired=1`;
+
+/**
  * Whether a 401 should move the browser.
  *
  * Not while already on the sign-in page: the sign-in request itself 401s on a wrong password,
@@ -37,7 +47,7 @@ export const credentialedFetch: FetchJson = async (url, init) => {
   const response = await fetch(url, { ...init, credentials: "include" });
 
   if (shouldRedirectToSignIn(response.status, globalThis.location?.pathname ?? SIGN_IN_PATH)) {
-    globalThis.location.assign(SIGN_IN_PATH);
+    globalThis.location.assign(EXPIRED_SIGN_IN_PATH);
   }
 
   return response;

@@ -66,7 +66,20 @@ type TurnOutcome =
       outputTokens: number;
       commitSha: string | null;
     }
-  | { outcome: "failed"; reason: NapEventOf<"turn.failed">["payload"]["reason"]; message: string };
+  | {
+      outcome: "failed";
+      reason: NapEventOf<"turn.failed">["payload"]["reason"];
+      message: string;
+      /**
+       * The message that started *this* turn, so a retry re-sends the right one.
+       *
+       * Carried here rather than looked up by the component: by the time a second turn has
+       * failed, "the last user message in the log" is a different message from the one that
+       * began the turn being retried. Undefined only for a log that begins mid-turn, which is
+       * what a client joining late with `afterSeq` sees.
+       */
+      retryMessage: string | undefined;
+    };
 
 type Step = Extract<TranscriptItem, { kind: "step" }>;
 
@@ -75,6 +88,8 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
   const stepsById = new Map<string, Step>();
   // The step a `file.changed` belongs to: the last one opened that has not been answered yet.
   let openStep: Step | undefined;
+  /** What the user last said, which is what a failed turn would offer to send again. */
+  let lastUserMessage: string | undefined;
 
   for (const event of events) {
     // `seq` is unique per session and never reused, so it is a stable React key for free —
@@ -84,6 +99,9 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
     switch (event.type) {
       case "user.message":
         items.push({ kind: "message", key, from: "user", text: event.payload.text });
+        // Remembered for the turn this opens, so a failure downstream knows what to offer to
+        // send again.
+        lastUserMessage = event.payload.text;
         break;
 
       case "agent.message":
@@ -177,6 +195,7 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
           outcome: "failed",
           reason: event.payload.reason,
           message: event.payload.message,
+          retryMessage: lastUserMessage,
         });
         break;
     }

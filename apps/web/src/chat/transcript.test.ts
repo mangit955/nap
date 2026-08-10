@@ -362,3 +362,42 @@ describe("stability", () => {
     expect(buildTranscript([])).toEqual([]);
   });
 });
+
+describe("what a failed turn would send again", () => {
+  it("carries the message that started that turn", () => {
+    const items = buildTranscript([
+      ev("user.message", { text: "build a todo list" }),
+      ev("turn.started", {}),
+      ev("turn.failed", { reason: "sandbox_unavailable", message: "no sandbox" }),
+    ]);
+
+    expect(items.at(-1)).toMatchObject({ outcome: "failed", retryMessage: "build a todo list" });
+  });
+
+  it("carries each turn's own message, not the latest in the log", () => {
+    // The case that makes this worth folding rather than looking up in the component: with two
+    // failed turns on screen, "the last user message" is the same string for both, and one of
+    // the two retry buttons would silently re-send the wrong request.
+    const items = buildTranscript([
+      ev("user.message", { text: "first ask" }),
+      ev("turn.started", {}),
+      ev("turn.failed", { reason: "internal", message: "boom" }),
+      ev("user.message", { text: "second ask" }),
+      ev("turn.started", {}),
+      ev("turn.failed", { reason: "internal", message: "boom again" }),
+    ]);
+
+    const failures = items.filter((item) => item.kind === "turn-end");
+    expect(
+      failures.map((item) => ("retryMessage" in item ? item.retryMessage : undefined)),
+    ).toEqual(["first ask", "second ask"]);
+  });
+
+  it("is undefined for a log that begins mid-turn", () => {
+    // What a client joining with `afterSeq` sees. Offering a retry with nothing to send would
+    // be a button that quietly does nothing.
+    const items = buildTranscript([ev("turn.failed", { reason: "internal", message: "boom" })]);
+
+    expect(items.at(-1)).toMatchObject({ retryMessage: undefined });
+  });
+});

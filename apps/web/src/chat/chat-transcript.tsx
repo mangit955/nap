@@ -16,19 +16,19 @@
  */
 
 import type { StoredEvent } from "@nap/shared/ports/event-store";
+import { turnFailureCopy } from "../errors/failure-copy.ts";
 import { OutputBlock } from "./output-block.tsx";
 import { ToolStep } from "./tool-step.tsx";
 import { buildTranscript, type TranscriptItem } from "./transcript.ts";
 
-const FAILURE_WORDS = {
-  refusal: "the model declined",
-  budget_exceeded: "budget exceeded",
-  cancelled: "cancelled",
-  sandbox_unavailable: "sandbox unavailable",
-  internal: "internal error",
-} as const;
-
-export function ChatTranscript({ events }: { events: readonly StoredEvent[] }) {
+export function ChatTranscript({
+  events,
+  onRetry,
+}: {
+  events: readonly StoredEvent[];
+  /** Re-sends a failed turn's message. Absent means no retry is offered, not a broken button. */
+  onRetry?: ((message: string) => void) | undefined;
+}) {
   const items = buildTranscript(events);
 
   return (
@@ -42,22 +42,34 @@ export function ChatTranscript({ events }: { events: readonly StoredEvent[] }) {
       className="flex flex-col px-4 py-3"
     >
       {items.map((item) => (
-        <Row key={item.key} item={item} />
+        <Row key={item.key} item={item} onRetry={onRetry} />
       ))}
     </div>
   );
 }
 
 /** Every item hangs off the rail, so the rail is drawn once, here. */
-function Row({ item }: { item: TranscriptItem }) {
+function Row({
+  item,
+  onRetry,
+}: {
+  item: TranscriptItem;
+  onRetry?: ((message: string) => void) | undefined;
+}) {
   return (
     <div className="relative border-edge border-l pb-2 pl-4 last:pb-0">
-      <Item item={item} />
+      <Item item={item} onRetry={onRetry} />
     </div>
   );
 }
 
-function Item({ item }: { item: TranscriptItem }) {
+function Item({
+  item,
+  onRetry,
+}: {
+  item: TranscriptItem;
+  onRetry?: ((message: string) => void) | undefined;
+}) {
   switch (item.kind) {
     case "message":
       return (
@@ -149,9 +161,51 @@ function Item({ item }: { item: TranscriptItem }) {
           {item.commitSha === null ? "no file changes" : <span>{item.commitSha}</span>}
         </p>
       ) : (
-        <p className="font-mono text-[11px] text-danger">
-          Failed · {FAILURE_WORDS[item.reason]} · {item.message}
-        </p>
+        <TurnFailure item={item} onRetry={onRetry} />
       );
   }
+}
+
+/**
+ * A failed turn, said in a way somebody can act on.
+ *
+ * Three parts, and each earns its place: what failed, the specific reason the server gave, and
+ * what to do about it. The old version of this was one mono line reading `Failed · sandbox
+ * unavailable · <message>`, which names the failure in the system's vocabulary and stops there.
+ *
+ * The button appears only when retrying is the right advice *and* there is something to send.
+ * A turn that ran out of budget would fail identically on a retry, and a log joined mid-turn has
+ * no message to resend — in both cases the action is prose, because a control that cannot help
+ * is worse than none.
+ */
+function TurnFailure({
+  item,
+  onRetry,
+}: {
+  item: Extract<TranscriptItem, { kind: "turn-end" }> & { outcome: "failed" };
+  onRetry?: ((message: string) => void) | undefined;
+}) {
+  const copy = turnFailureCopy(item.reason, item.message);
+  const message = item.retryMessage;
+  const canRetry =
+    copy.recovery === "retry" && onRetry !== undefined && message !== undefined && message !== "";
+
+  return (
+    <div className="flex flex-col gap-1">
+      <p className="text-danger text-sm">{copy.title}</p>
+      {/* Mono, because this half is the machine talking — the same split the rest of the rail uses. */}
+      <p className="font-mono text-[11px] text-muted">{copy.detail}</p>
+      <p className="text-muted text-xs">{copy.action}</p>
+
+      {canRetry && (
+        <button
+          type="button"
+          onClick={() => onRetry(message)}
+          className="mt-1 self-start rounded border border-edge px-2 py-0.5 text-[11px] text-muted hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
+        >
+          Try again
+        </button>
+      )}
+    </div>
+  );
 }
