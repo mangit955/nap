@@ -59,9 +59,13 @@ describe("the four states", () => {
 
     // The reason in the interface's own words, the detail underneath, and an action — a bare
     // "something went wrong" leaves the user with nothing to do but reload the page.
-    expect(screen.getByText(/didn't start/i)).toBeVisible();
+    //
+    // The exact wording now comes from `failure-copy.ts`, which the transcript reads too: this
+    // pane used to phrase the same `turn.failed` differently, so one failure looked like two
+    // problems depending on which half of the screen you were looking at.
+    expect(screen.getByText(/couldn't start/i)).toBeVisible();
     expect(screen.getByText(/no capacity/)).toBeVisible();
-    expect(screen.getByText(/send another message/i)).toBeVisible();
+    expect(screen.getByText(/send the message again/i)).toBeVisible();
   });
 });
 

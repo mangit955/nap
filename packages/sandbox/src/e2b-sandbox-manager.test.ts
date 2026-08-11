@@ -27,6 +27,7 @@ function stubHandle(overrides: Partial<E2BSandboxHandle> = {}): E2BSandboxHandle
     commands: { run: () => Promise.reject(new Error("commands.run not stubbed")) },
     getHost: (port) => `${port}-sbx_stub.e2b.app`,
     getMetadata: () => Promise.resolve({ projectId: "project" }),
+    setTimeout: () => Promise.resolve(),
     kill: () => Promise.resolve(true),
     ...overrides,
   };
@@ -36,6 +37,7 @@ function stubClient(handle: E2BSandboxHandle = stubHandle()): E2BClient {
   return {
     create: () => Promise.resolve(handle),
     connect: () => Promise.resolve(handle),
+    ping: () => Promise.resolve([]),
   };
 }
 
@@ -371,6 +373,7 @@ describe("E2BSandboxManager lifecycle", () => {
       client: {
         create: () => Promise.reject(new Error("unused")),
         connect: () => Promise.reject(new SandboxNotFoundError("no such sandbox")),
+        ping: () => Promise.reject(new Error("unused")),
       },
     });
 
@@ -424,6 +427,7 @@ describe("E2BSandboxManager lifecycle", () => {
           connects += 1;
           return Promise.resolve(handle);
         },
+        ping: () => Promise.reject(new Error("unused")),
       },
     });
 
@@ -449,6 +453,7 @@ describe("E2BSandboxManager lifecycle", () => {
     const manager = new E2BSandboxManager({
       client: {
         create: () => Promise.reject(new Error("unused")),
+        ping: () => Promise.reject(new Error("unused")),
         connect: () => {
           connects += 1;
           return Promise.resolve(handle);
@@ -472,5 +477,92 @@ describe("E2BSandboxManager lifecycle", () => {
     const url = await manager.getPreviewUrl(sandboxId, 5173);
 
     expect(url).toEqual({ ok: true, value: "https://5173-sbx_stub.e2b.app" });
+  });
+});
+
+describe("keeping a sandbox alive", () => {
+  it("creates sandboxes with the lifetime it was configured with", async () => {
+    // E2B's own default is five minutes from *creation*, active or not. Left alone, a
+    // conversation that pauses for a coffee comes back to a workspace that no longer exists.
+    const asked: { timeoutMs?: number }[] = [];
+    const handle = stubHandle();
+    const manager = new E2BSandboxManager({
+      timeoutMs: 30 * 60 * 1000,
+      client: {
+        create: (opts) => {
+          asked.push(opts);
+          return Promise.resolve(handle);
+        },
+        connect: () => Promise.resolve(handle),
+        ping: () => Promise.reject(new Error("unused")),
+      },
+    });
+
+    await manager.create("project");
+
+    expect(asked).toEqual([{ metadata: { projectId: "project" }, timeoutMs: 30 * 60 * 1000 }]);
+  });
+
+  it("pushes the deadline back on an existing sandbox", async () => {
+    const extended: number[] = [];
+    const { manager, sandboxId } = await managerWith(
+      stubHandle({
+        setTimeout: (ms) => {
+          extended.push(ms);
+          return Promise.resolve();
+        },
+      }),
+    );
+
+    const result = await manager.extendTimeout(sandboxId, 15 * 60 * 1000);
+
+    expect(result).toEqual({ ok: true, value: undefined });
+    expect(extended).toEqual([15 * 60 * 1000]);
+  });
+
+  it("reports a sandbox that is already gone rather than throwing", async () => {
+    const { manager, sandboxId } = await managerWith(
+      stubHandle({ setTimeout: () => Promise.reject(new SandboxNotFoundError("gone")) }),
+    );
+
+    const result = await manager.extendTimeout(sandboxId, 60_000);
+
+    expect(result).toMatchObject({ ok: false, error: { code: "not_found" } });
+  });
+});
+
+describe("ping", () => {
+  it("resolves when the provider answers", async () => {
+    const manager = new E2BSandboxManager({ client: stubClient() });
+    await expect(manager.ping()).resolves.toBeUndefined();
+  });
+
+  it("rejects when the provider does not, so a health check can report it down", async () => {
+    // Rejecting rather than swallowing is the whole contract: a probe that resolved on failure
+    // would report every outage as healthy, which is worse than having no check at all.
+    const manager = new E2BSandboxManager({
+      client: { ...stubClient(), ping: () => Promise.reject(new Error("getaddrinfo ENOTFOUND")) },
+    });
+
+    await expect(manager.ping()).rejects.toThrow("ENOTFOUND");
+  });
+
+  it("does not create a sandbox to find out", async () => {
+    // Polled every few seconds forever. Creating one would bill for each poll and take seconds
+    // to answer, at which point the check is the outage.
+    let created = 0;
+    const manager = new E2BSandboxManager({
+      client: {
+        ...stubClient(),
+        create: () => {
+          created += 1;
+          return Promise.resolve(stubHandle());
+        },
+      },
+    });
+
+    await manager.ping();
+
+    expect(created).toBe(0);
   });
 });

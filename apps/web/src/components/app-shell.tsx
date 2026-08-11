@@ -1,6 +1,6 @@
 "use client";
 
-import { useSession } from "../session/use-session.ts";
+import { type OpenProject, useProject } from "../projects/use-projects.ts";
 import { LiveChatPane } from "./chat-pane.tsx";
 import { LiveConnectionStatus } from "./connection-status.tsx";
 import { LiveFileTreePane } from "./file-tree-pane.tsx";
@@ -17,21 +17,32 @@ import { LivePreviewPane } from "./preview-pane.tsx";
  * `h-dvh` with `min-h-0` on the panes is what keeps each pane scrolling independently
  * instead of the whole page growing.
  *
- * **The session is resolved once, here, and passed down.** Each pane subscribes to the same
- * session independently — four panes calling `useSession` would be four calls to create one,
- * and four projects nobody asked for.
+ * **The project is resolved once, here, and its session passed down.** Each pane subscribes to
+ * that session independently, and four panes resolving it themselves would be four requests
+ * for one answer. The session comes from the server rather than from the URL: which
+ * conversation you land in is the project's newest one, and a link that named a session would
+ * go stale as soon as the project grew another.
  */
-export function AppShell() {
-  const { sessionId, status } = useSession();
+export function AppShell({ projectId }: { projectId: string }) {
+  const { project, status } = useProject(projectId);
+  const sessionId = project?.sessionIds[0];
 
   return (
     <div className="flex h-dvh flex-col bg-surface">
       <header className="flex h-12 shrink-0 items-center justify-between border-edge border-b px-4">
         <div className="flex items-baseline gap-2">
-          <span className="font-semibold text-ink text-sm tracking-tight">nap</span>
-          <span className="text-muted text-xs">
-            {status === "error" ? "could not reach the server" : "untitled project"}
-          </span>
+          {/*
+            A plain anchor rather than a router link: leaving the workspace should drop the
+            socket and every pending request, and a full navigation is the simplest thing that
+            actually does that.
+          */}
+          <a
+            href="/"
+            className="font-semibold text-ink text-sm tracking-tight hover:text-accent focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
+          >
+            nap
+          </a>
+          <span className="text-muted text-xs">{headerNote(status, project?.name)}</span>
         </div>
         <LiveConnectionStatus sessionId={sessionId} />
       </header>
@@ -43,4 +54,24 @@ export function AppShell() {
       </main>
     </div>
   );
+}
+
+/**
+ * What to say beside the product name.
+ *
+ * A project deleted in another tab gets a sentence rather than a blank space: the panes below
+ * sit empty either way, and "this project no longer exists" is the only version of that a
+ * person can act on.
+ */
+function headerNote(status: OpenProject["status"], name: string | undefined): string {
+  switch (status) {
+    case "loading":
+      return "opening…";
+    case "missing":
+      return "this project no longer exists";
+    case "error":
+      return "could not reach the server";
+    default:
+      return name ?? "untitled project";
+  }
 }

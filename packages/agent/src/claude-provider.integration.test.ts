@@ -20,15 +20,31 @@ import {
   type ClaudeProviderOptions,
   DEFAULT_MODEL_CONFIG,
 } from "./claude-provider.ts";
+import { createOpenRouterClient, toOpenRouterModel } from "./openrouter.ts";
 
 /**
  * Whichever account is configured — the request shape is what is under test, not the biller.
  *
- * Bedrock wins when both are present, because it is the deliberate opt-in. Neither configured
- * still throws rather than skipping: a suite that quietly passes with nothing behind it
- * reports the contract as verified when nothing verified it.
+ * OpenRouter first, because it is the route this project uses; the other two are kept working
+ * rather than kept current. Order matters more than it looks: Bedrock used to win, and AWS
+ * credentials linger in `.env` from an experiment that is still blocked on model access, so
+ * checking it first sent this test down a route that 403s for reasons having nothing to do
+ * with the request shape.
+ *
+ * Nothing configured throws rather than skipping: a suite that quietly passes with nothing
+ * behind it reports the contract as verified when nothing verified it.
+ *
+ * One limit worth naming — OpenRouter is a *translating* proxy, so a pass here proves that
+ * OpenRouter accepted the request, not that Anthropic would. It could drop an unknown
+ * parameter instead of rejecting it. Only a direct key closes that gap.
  */
 function providerOptions(): ClaudeProviderOptions {
+  if (process.env.OPENROUTER_API_KEY) {
+    return { client: createOpenRouterClient(), model: toOpenRouterModel(MODEL) };
+  }
+
+  if (process.env.ANTHROPIC_API_KEY) return {};
+
   if (process.env.AWS_BEARER_TOKEN_BEDROCK) {
     if (!process.env.AWS_REGION) {
       throw new Error("AWS_BEARER_TOKEN_BEDROCK is set but AWS_REGION is not; Bedrock needs both.");
@@ -36,12 +52,10 @@ function providerOptions(): ClaudeProviderOptions {
     return { client: createBedrockClient(), model: toBedrockModel(MODEL) };
   }
 
-  if (process.env.ANTHROPIC_API_KEY) return {};
-
   throw new Error(
-    "No model credentials are set, so this run cannot verify anything. Put ANTHROPIC_API_KEY " +
-      "(or AWS_BEARER_TOKEN_BEDROCK + AWS_REGION) in apps/api/.env, then re-run " +
-      "`bun run test:integration`.",
+    "No model credentials are set, so this run cannot verify anything. Put OPENROUTER_API_KEY " +
+      "(or ANTHROPIC_API_KEY, or AWS_BEARER_TOKEN_BEDROCK + AWS_REGION) in apps/api/.env, " +
+      "then re-run `bun run test:integration`.",
   );
 }
 

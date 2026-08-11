@@ -1,6 +1,7 @@
 {
   "extends": "../../tsconfig.base.json",
-  // drizzle.config.ts sits at the package root by convention, which would leave it outside
-  // typecheck if this listed only "src" — the same gap that let test/ ship unchecked.
-  "include": ["src", "drizzle.config.ts"]
+  // drizzle.config.ts sits at the package root by convention, and scripts/ holds the migration
+  // runner — both would be outside typecheck if this listed only "src", which is the same gap
+  // that let test/ ship unchecked.
+  "include": ["src", "scripts", "drizzle.config.ts"]
 }

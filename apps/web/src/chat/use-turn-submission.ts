@@ -27,6 +27,16 @@
 
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { useEffect, useRef, useState } from "react";
+import { credentialedFetch } from "../api/credentialed-fetch.ts";
+import { requestFailureCopy } from "../errors/failure-copy.ts";
+
+/**
+ * The request never reached the server — no status, no body, so nothing above can say why.
+ * Named rather than inlined so it is obvious this is the *only* copy in this file.
+ */
+const UNREACHABLE =
+  "That message didn't reach the server. Check your connection, then send it again.";
+
 import type { FetchJson } from "../files/use-project-files.ts";
 
 export type TurnSubmission = {
@@ -41,6 +51,40 @@ export type TurnSubmission = {
 
 const DEFAULT_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
 
+/**
+ * What to show when the server refuses.
+ *
+ * The `code` the API attaches is what makes these distinct states rather than one red line: a rate
+ * limit, a sandbox quota and an expired session need three different things from the reader, and
+ * the status alone does not separate them — 409 already means more than one thing in this API.
+ *
+ * The wording lives in `failure-copy.ts` with every other failure, so the input does not grow a
+ * private vocabulary for events the transcript also describes.
+ */
+async function refusalMessage(response: Response): Promise<string> {
+  const body = await readJson(response);
+  const code = typeof body?.code === "string" ? body.code : undefined;
+  const message = typeof body?.error === "string" ? body.error : "";
+
+  const copy = requestFailureCopy(response.status, code, message);
+  // Title, detail and action on one line: this surfaces next to the input as a single string,
+  // and the action is the half the reader can act on — dropping it would leave the sentence
+  // that says a limit was hit and nothing about what to do.
+  return `${copy.title} ${copy.detail} ${copy.action}`;
+}
+
+/** A body that is not JSON is a proxy's error page, or nothing at all. */
+async function readJson(response: Response): Promise<Record<string, unknown> | undefined> {
+  try {
+    const body: unknown = await response.json();
+    return typeof body === "object" && body !== null
+      ? (body as Record<string, unknown>)
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function useTurnSubmission(options: {
   sessionId: string | undefined;
   events: readonly StoredEvent[];
@@ -48,7 +92,7 @@ export function useTurnSubmission(options: {
   fetchJson?: FetchJson;
 }): TurnSubmission {
   const { sessionId, events, baseUrl = DEFAULT_BASE_URL } = options;
-  const fetchJson = options.fetchJson ?? ((url, init) => fetch(url, init));
+  const fetchJson = options.fetchJson ?? credentialedFetch;
 
   const [pending, setPending] = useState<string | undefined>(undefined);
   const [posting, setPosting] = useState(false);
@@ -85,12 +129,12 @@ export function useTurnSubmission(options: {
         },
       );
 
-      if (!response.ok) throw new Error(`the server answered ${response.status}`);
-    } catch {
+      if (!response.ok) throw new Error(await refusalMessage(response));
+    } catch (failure) {
       // Rolled back rather than left on screen: a message that stays after the request failed
       // claims the agent has it. The caller puts the text back in the box.
       setPending(undefined);
-      setError("That message didn't send. Try again.");
+      setError(failure instanceof Error ? failure.message : UNREACHABLE);
     } finally {
       setPosting(false);
     }

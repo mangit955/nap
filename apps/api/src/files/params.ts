@@ -35,6 +35,11 @@ export function parseSessionId(raw: string | undefined): Result<string, ParamErr
   return parsed.success ? { ok: true, value: parsed.data } : fail(parsed.error);
 }
 
+export function parseProjectId(raw: string | undefined): Result<string, ParamError> {
+  const parsed = z.uuid("projectId must be a uuid").safeParse(raw);
+  return parsed.success ? { ok: true, value: parsed.data } : fail(parsed.error);
+}
+
 export function parseProjectPath(raw: string | null): Result<ResolvedPath, ParamError> {
   const parsed = ProjectPathSchema.safeParse(raw ?? undefined);
   if (!parsed.success) return fail(parsed.error);

@@ -274,6 +274,7 @@ export function describeSandboxManagerConformance(harness: SandboxManagerHarness
           // sat and polled a dead address until the deadline.
           await manager.waitForPreview(sandboxId, 5173, { timeoutMs: 1_000 }),
           await manager.resume(sandboxId),
+          await manager.extendTimeout(sandboxId, 60_000),
         ];
 
         for (const result of results) {
@@ -281,6 +282,27 @@ export function describeSandboxManagerConformance(harness: SandboxManagerHarness
           if (result.ok) continue;
           expect(result.error.code).toBe("destroyed");
         }
+      });
+    });
+
+    it("extends the lifetime of a live sandbox", async () => {
+      await withSandbox(async ({ manager, sandboxId }) => {
+        // There is nothing observable to assert beyond the answer — a provider does not
+        // report its own deadline back — so what this pins is that the call reaches the
+        // sandbox at all, which is exactly what the two failure cases below rely on.
+        const extended = await manager.extendTimeout(sandboxId, 5 * 60 * 1000);
+
+        expect(extended.ok).toBe(true);
+      });
+    });
+
+    it("reports extending an unknown sandbox as not_found", async () => {
+      await withSandbox(async ({ manager }) => {
+        const extended = await manager.extendTimeout(harness.unknownSandboxId(), 60_000);
+
+        expect(extended.ok).toBe(false);
+        if (extended.ok) return;
+        expect(extended.error.code).toBe("not_found");
       });
     });
 

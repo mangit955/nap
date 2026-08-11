@@ -1,11 +1,12 @@
+import { getLogger, withLogContext } from "@nap/shared/logging";
 import { describe, expect, it } from "vitest";
-import { createLogger, getLogger, withLogContext } from "./logger.ts";
+import { createLogger } from "./logger.ts";
 
 /**
- * The bar these tests hold the logger to is the observability goal: grep one `turnId` and
- * reconstruct a whole turn. That only works if context reaches code that was never handed a
- * logger, which is why `withLogContext` exists and why these assertions go through
- * `getLogger()` rather than through a logger passed in as an argument.
+ * The context semantics are `@nap/shared/logging`'s and are tested there. What is left for
+ * here is the half this module owns: that a real pino logger writes what we expect, and that
+ * it works as the `Logger` the whole repo is written against — which a recorder in the base
+ * package's tests cannot prove.
  */
 
 /** Collects written lines so assertions run on real output rather than on mock calls. */
@@ -55,62 +56,23 @@ describe("createLogger", () => {
 
     expect(sink.records().map((r) => r.msg)).toEqual(["kept"]);
   });
-});
 
-describe("withLogContext", () => {
-  it("puts sessionId on lines emitted by code that never received a logger", () => {
+  it("carries ambient context onto real output", () => {
     const sink = capture();
     const root = createLogger({ level: "info" }, sink.stream);
 
-    // Stands in for anything deep in a call stack — a port implementation, say — that has
-    // no logger parameter and cannot be given one without changing its interface.
-    const deeplyNested = () => getLogger().info("did a thing");
-
-    withLogContext(root, { sessionId: "s1" }, () => {
-      deeplyNested();
+    // The end-to-end claim: pino's `child` is what `withLogContext` calls, so the ids reach a
+    // line written by code holding no logger at all. Both halves are tested apart; this is
+    // the one assertion that they fit together.
+    withLogContext(root, { turnId: "t1", userId: "u1" }, () => {
+      getLogger().info({ step: 2 }, "deep in the stack");
     });
 
-    expect(sink.records()[0]).toMatchObject({ sessionId: "s1", msg: "did a thing" });
-  });
-
-  it("merges nested context rather than replacing it", () => {
-    const sink = capture();
-    const root = createLogger({ level: "info" }, sink.stream);
-
-    withLogContext(root, { sessionId: "s1" }, () => {
-      withLogContext(getLogger(), { turnId: "t1" }, () => {
-        getLogger().info("inner");
-      });
-      getLogger().info("outer again");
+    expect(sink.records()[0]).toMatchObject({
+      turnId: "t1",
+      userId: "u1",
+      step: 2,
+      msg: "deep in the stack",
     });
-
-    const [inner, outer] = sink.records();
-    expect(inner).toMatchObject({ sessionId: "s1", turnId: "t1" });
-    // Leaving the inner context must not leak turnId into later lines.
-    expect(outer).toMatchObject({ sessionId: "s1" });
-    expect(outer).not.toHaveProperty("turnId");
-  });
-
-  it("keeps context across an await, which is the case that actually matters", () => {
-    const sink = capture();
-    const root = createLogger({ level: "info" }, sink.stream);
-
-    return withLogContext(root, { turnId: "t1" }, async () => {
-      await Promise.resolve();
-      getLogger().info("after await");
-      expect(sink.records()[0]).toMatchObject({ turnId: "t1" });
-    });
-  });
-
-  it("returns the callback's value", () => {
-    const root = createLogger({ level: "silent" }, capture().stream);
-    expect(withLogContext(root, { sessionId: "s1" }, () => 42)).toBe(42);
-  });
-});
-
-describe("getLogger outside any context", () => {
-  it("does not throw, so library code never fails for want of a request", () => {
-    expect(() => getLogger()).not.toThrow();
-    expect(() => getLogger().info("no context here")).not.toThrow();
   });
 });

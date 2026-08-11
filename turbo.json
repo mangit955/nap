@@ -16,7 +16,15 @@
     "dev": {
       "cache": false,
       "persistent": true,
-      "passThroughEnv": ["DATABASE_URL", "PORT", "LOG_LEVEL", "NODE_ENV"]
+      "passThroughEnv": [
+        "DATABASE_URL",
+        "PORT",
+        "LOG_LEVEL",
+        "NODE_ENV",
+        "NAP_PLATFORM",
+        "NAP_MODEL",
+        "NAP_EFFORT"
+      ]
     }
   }
 }

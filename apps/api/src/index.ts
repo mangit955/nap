@@ -16,20 +16,30 @@
 import { NapAgentService } from "@nap/agent/agent-service";
 import { createBedrockClient, toBedrockModel } from "@nap/agent/bedrock";
 import { ClaudeProvider } from "@nap/agent/claude-provider";
+import { createOpenRouterClient, toOpenRouterModel } from "@nap/agent/openrouter";
 import { NapContextEngine } from "@nap/context/context-engine";
 import { NoopMemoryProvider } from "@nap/context/noop-memory-provider";
-import { createDatabase } from "@nap/db/client";
+import { createDatabase, pingDatabase } from "@nap/db/client";
 import { InProcessEventBus } from "@nap/db/in-process-event-bus";
 import { PostgresEventStore } from "@nap/db/postgres-event-store";
+import { PostgresProjectSandboxStore } from "@nap/db/postgres-project-sandbox-store";
+import { PostgresProjectStore } from "@nap/db/postgres-project-store";
 import { PostgresSessionStore } from "@nap/db/postgres-session-store";
+import { PostgresSnapshotStore } from "@nap/db/postgres-snapshot-store";
 import { createProjectSession } from "@nap/db/session-bootstrap";
+import { startReaper, sweepIdleProjects } from "@nap/runtime/reaper";
 import { SingleAgentRuntime } from "@nap/runtime/single-agent-runtime";
 import { E2BSandboxManager } from "@nap/sandbox/e2b-sandbox-manager";
 import { NAP_TEMPLATE } from "@nap/sandbox/template";
+import { setRootLogger } from "@nap/shared/logging";
+import { createR2Client, R2ObjectStore } from "@nap/storage/r2-object-store";
 import { upgradeWebSocket, websocket } from "hono/bun";
 import { createApp } from "./app.ts";
+import { createAuth } from "./auth/auth.ts";
 import { EnvValidationError, parseEnv } from "./env.ts";
-import { createLogger, setRootLogger } from "./logger.ts";
+import { createHealthProbe } from "./health.ts";
+import { createLogger } from "./logger.ts";
+import { TurnRateLimiter } from "./turns/rate-limiter.ts";
 import { TurnRegistry } from "./turns/registry.ts";
 
 // Before anything else: an unusable environment should kill the process here, with a
@@ -51,20 +61,49 @@ function loadEnv() {
 const env = loadEnv();
 
 const logger = createLogger({ level: env.LOG_LEVEL });
+// So that anything logging outside a request — the reaper's sweep, a component reporting from
+// deep in a turn — reaches this stream rather than the discarding default.
 setRootLogger(logger);
 
 // One pool for the process; the stores are handed a database rather than opening their own.
 const { db } = createDatabase(env.DATABASE_URL);
 
 const sessions = new PostgresSessionStore(db);
-const sandbox = new E2BSandboxManager({ template: NAP_TEMPLATE });
+const sandbox = new E2BSandboxManager({
+  template: NAP_TEMPLATE,
+  // E2B's own default is five minutes from creation, whatever is happening inside. Every
+  // turn pushes this back; the reaper below is what ends a sandbox nobody is using, and it
+  // takes a snapshot first.
+  timeoutMs: env.NAP_SANDBOX_TTL_MINUTES * 60 * 1000,
+});
+
+// A project's bytes while nothing is running, and the rows that say where they are.
+const objects = new R2ObjectStore(
+  createR2Client({
+    accountId: env.R2_ACCOUNT_ID,
+    bucket: env.R2_BUCKET,
+    accessKeyId: env.R2_ACCESS_KEY_ID,
+    secretAccessKey: env.R2_SECRET_ACCESS_KEY,
+  }),
+);
+const snapshots = new PostgresSnapshotStore(db);
+const projectSandboxes = new PostgresProjectSandboxStore(db);
+const projects = new PostgresProjectStore(db);
 
 /**
- * The same models either way — only the client and the shape of the model id differ, and
+ * The same Messages API either way — only the client and the shape of the model id differ, and
  * nothing above `LLMProvider` can tell which one answered. The env check has already refused
  * to boot without whichever credentials the chosen route needs.
  */
 function buildProvider(): ClaudeProvider {
+  if (env.NAP_PLATFORM === "openrouter") {
+    return new ClaudeProvider({
+      model: toOpenRouterModel(env.NAP_MODEL),
+      effort: env.NAP_EFFORT,
+      client: createOpenRouterClient(),
+    });
+  }
+
   if (env.NAP_PLATFORM === "bedrock") {
     return new ClaudeProvider({
       model: toBedrockModel(env.NAP_MODEL),
@@ -82,9 +121,16 @@ function buildProvider(): ClaudeProvider {
 const store = new PostgresEventStore(db);
 const bus = new InProcessEventBus();
 
+const registry = new TurnRegistry();
+
 const runtime = new SingleAgentRuntime({
   sessions,
   sandbox,
+  // With these, a project outlives its sandbox: a session whose sandbox is gone is restored
+  // from its last snapshot rather than starting again from an empty template.
+  objects,
+  snapshots,
+  sandboxTtlMs: env.NAP_SANDBOX_TTL_MINUTES * 60 * 1000,
   context: new NapContextEngine({ budgetTokens: env.NAP_CONTEXT_BUDGET_TOKENS }),
   agent: new NapAgentService({
     provider: buildProvider(),
@@ -95,13 +141,109 @@ const runtime = new SingleAgentRuntime({
   memory: new NoopMemoryProvider(),
 });
 
+const auth = createAuth(db, {
+  secret: env.BETTER_AUTH_SECRET,
+  baseUrl: env.NAP_API_URL,
+  webOrigin: env.NAP_WEB_ORIGIN,
+  // Both or neither — the env check has already refused to boot on one of the two.
+  ...(env.GITHUB_CLIENT_ID === undefined || env.GITHUB_CLIENT_SECRET === undefined
+    ? {}
+    : {
+        github: {
+          clientId: env.GITHUB_CLIENT_ID,
+          clientSecret: env.GITHUB_CLIENT_SECRET,
+        },
+      }),
+});
+
 const app = createApp({
   logger,
-  stream: { store, bus, upgradeWebSocket },
+  // The two things a turn cannot happen without: the database holds every project and every
+  // event, and the sandbox is where the user's app actually runs. An API that answers while
+  // either is unreachable will accept a message and then fail the turn, which is exactly the
+  // state worth being able to see from outside.
+  health: createHealthProbe({
+    checks: [
+      { name: "database", probe: () => pingDatabase(db) },
+      { name: "sandbox", probe: () => sandbox.ping() },
+    ],
+  }),
+  // The browser app is on another port, so every request it makes is cross-origin and every
+  // session cookie depends on this being right.
+  webOrigin: env.NAP_WEB_ORIGIN,
+  auth,
+  // The same instance answers "who is this?" for every guarded route. Passing it here rather
+  // than letting `createApp` reach into `auth` keeps the app's dependency a plain function.
+  authenticate: auth.getUser,
+  stream: { store, bus, sessions, upgradeWebSocket },
   files: { sessions, sandbox },
-  turns: { runtime, registry: new TurnRegistry(), sessions },
-  sessions: { createSession: (options) => createProjectSession(db, options) },
+  turns: {
+    runtime,
+    registry,
+    sessions,
+    // What one person, and this whole process, may have running at once. This endpoint is the
+    // only way to start a turn, so it is the only place either ceiling has to be applied.
+    limits: {
+      rate: new TurnRateLimiter({ limit: env.NAP_TURNS_PER_HOUR, windowMs: 60 * 60 * 1000 }),
+      projects,
+      sandboxes: {
+        perUser: env.NAP_MAX_SANDBOXES_PER_USER,
+        total: env.NAP_MAX_SANDBOXES_TOTAL,
+      },
+    },
+  },
+  projects: {
+    projects,
+    projectSandboxes,
+    snapshots,
+    objects,
+    sandbox,
+    createProject: (options) => createProjectSession(db, options),
+    // The same registry the turn routes write to and the reaper reads, so "busy" means one
+    // thing everywhere: closing or deleting a project mid-turn is refused for the same reason
+    // the reaper skips it.
+    isBusy: (sessionIds) => sessionIds.some((id) => registry.isRunning(id)),
+  },
 });
+
+/**
+ * Sweeps up sandboxes nobody is using, snapshotting each one before destroying it.
+ *
+ * The busy check reuses the registry the turn routes already write to, which is the only
+ * thing in this process that knows a turn is running. It reads across a project's sessions
+ * because a sandbox belongs to the project they share.
+ */
+const reaper = startReaper({
+  intervalMs: env.NAP_REAP_INTERVAL_SECONDS * 1000,
+  sweep: () =>
+    sweepIdleProjects({
+      projects: projectSandboxes,
+      sandbox,
+      objects,
+      snapshots,
+      idleMs: env.NAP_REAP_IDLE_MINUTES * 60 * 1000,
+      isBusy: (project) => project.sessionIds.some((id) => registry.isRunning(id)),
+    }).then((result) => {
+      if (result.reaped.length > 0) logger.info({ reaped: result.reaped }, "projects put away");
+      // Their sandboxes were reclaimed by something else before we could snapshot them. Worth
+      // a line each: a steady stream of these means the lifetimes above are wrong.
+      for (const projectId of result.abandoned) {
+        logger.warn({ projectId }, "sandbox was already gone; released without a snapshot");
+      }
+      for (const failure of result.failed)
+        logger.error({ failure }, "could not put a project away");
+    }),
+  onError: (error) => logger.error({ err: error }, "reaper sweep threw"),
+});
+
+// A signal means the platform is taking the process away; stopping the timer means an
+// in-flight sweep is not joined by another one on the way out.
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.on(signal, () => {
+    reaper.stop();
+    process.exit(0);
+  });
+}
 
 // Said out loud at startup, because every message a user sends spends money on whatever is
 // named here — that is not something anyone should first learn from an invoice.
@@ -112,6 +254,11 @@ logger.info(
     platform: env.NAP_PLATFORM,
     model: env.NAP_MODEL,
     effort: env.NAP_EFFORT,
+    reapIdleMinutes: env.NAP_REAP_IDLE_MINUTES,
+    sandboxTtlMinutes: env.NAP_SANDBOX_TTL_MINUTES,
+    turnsPerHour: env.NAP_TURNS_PER_HOUR,
+    maxSandboxesPerUser: env.NAP_MAX_SANDBOXES_PER_USER,
+    maxSandboxesTotal: env.NAP_MAX_SANDBOXES_TOTAL,
   },
   "api listening",
 );

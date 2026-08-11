@@ -66,6 +66,8 @@ type SandboxState = {
   commands: string[];
   /** Ports a test has declared to be serving; see `listen`. */
   listening: Set<number>;
+  /** The lifetime last requested, recorded rather than enforced — nothing expires here. */
+  timeoutMs: number | undefined;
 };
 
 /** Absolute POSIX paths with no trailing slash and no repeated separators. */
@@ -133,6 +135,7 @@ export class InMemorySandboxManager implements SandboxManager {
       files: new Map(),
       commands: [],
       listening: new Set(this.#serves),
+      timeoutMs: undefined,
     });
     return { ok: true, value: { id, projectId } };
   }
@@ -148,6 +151,21 @@ export class InMemorySandboxManager implements SandboxManager {
     if (!found.ok) return found;
     this.#sandboxes.delete(sandboxId);
     this.#destroyed.add(sandboxId);
+    return { ok: true, value: undefined };
+  }
+
+  /** The lifetime each sandbox was last given, so a caller's keepalive can be asserted on. */
+  timeoutOf(sandboxId: string): number | undefined {
+    return this.#sandboxes.get(sandboxId)?.timeoutMs;
+  }
+
+  async extendTimeout(sandboxId: string, ms: number): Promise<VoidResult<SandboxError>> {
+    const found = this.#lookup(sandboxId);
+    if (!found.ok) return found;
+
+    // Nothing here expires, so the value is recorded rather than acted on. That is the whole
+    // observable effect the real one has too — a provider does not report its deadline back.
+    found.value.timeoutMs = ms;
     return { ok: true, value: undefined };
   }
 

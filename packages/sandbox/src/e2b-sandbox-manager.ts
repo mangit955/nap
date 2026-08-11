@@ -58,6 +58,8 @@ export type E2BSandboxHandle = {
   getHost(port: number): string;
   /** Reads back what `create` stored, which is how a resume recovers the project id. */
   getMetadata(): Promise<Record<string, string>>;
+  /** Resets the sandbox's lifetime to `ms` from now. */
+  setTimeout(ms: number): Promise<void>;
   kill(): Promise<boolean>;
 };
 
@@ -67,8 +69,17 @@ export type E2BEntry = { name: string; path: string; type?: FileType };
 export type E2BCommandResult = { exitCode: number; stdout: string; stderr: string };
 
 export type E2BClient = {
-  create(opts: { metadata: Record<string, string> }): Promise<E2BSandboxHandle>;
+  create(opts: { metadata: Record<string, string>; timeoutMs?: number }): Promise<E2BSandboxHandle>;
   connect(sandboxId: string): Promise<E2BSandboxHandle>;
+  /**
+   * The cheapest authenticated round trip the API offers, for a reachability check.
+   *
+   * Listing rather than creating: a health check that created a sandbox would bill for every
+   * poll and take seconds to answer. Listing still proves the whole path — network, endpoint
+   * and credentials — which is what "reachable" has to mean if the answer is to be worth
+   * anything.
+   */
+  ping(): Promise<unknown>;
 };
 
 export type E2BSandboxManagerOptions = {
@@ -76,6 +87,14 @@ export type E2BSandboxManagerOptions = {
   client?: E2BClient;
   /** Template to create sandboxes from; the project template arrives in a later task. */
   template?: string;
+  /**
+   * How long a new sandbox lives before E2B kills it, in milliseconds.
+   *
+   * Left unset, the SDK's own default applies — five minutes, measured from creation and
+   * unaffected by anything happening inside. Whoever knows a project is in use is expected
+   * to push the deadline back with `extendTimeout`; this is only the starting budget.
+   */
+  timeoutMs?: number;
 };
 
 /** Where the metadata key lives, so create and resume cannot drift apart. */
@@ -128,6 +147,7 @@ function realClient(template: string | undefined): E2BClient {
     },
     getHost: (port) => sandbox.getHost(port),
     getMetadata: async () => (await sandbox.getInfo()).metadata,
+    setTimeout: (ms) => sandbox.setTimeout(ms),
     kill: () => sandbox.kill(),
   });
 
@@ -137,11 +157,16 @@ function realClient(template: string | undefined): E2BClient {
         template === undefined ? await Sandbox.create(opts) : await Sandbox.create(template, opts),
       ),
     connect: async (sandboxId) => adapt(await Sandbox.connect(sandboxId)),
+    // One page of one item. `list` returns a paginator that has made no request yet, so the
+    // round trip only happens on `nextItems` — a probe that stopped at `Sandbox.list()` would
+    // pass while the API was unreachable.
+    ping: () => Sandbox.list({ limit: 1 }).nextItems(),
   };
 }
 
 export class E2BSandboxManager implements SandboxManager {
   readonly #client: E2BClient;
+  readonly #timeoutMs: number | undefined;
   /** Ids this manager killed, so a use-after-destroy is distinguishable from a bad id. */
   readonly #destroyed = new Set<string>();
   /**
@@ -153,13 +178,17 @@ export class E2BSandboxManager implements SandboxManager {
 
   constructor(options: E2BSandboxManagerOptions = {}) {
     this.#client = options.client ?? realClient(options.template);
+    this.#timeoutMs = options.timeoutMs;
   }
 
   async create(projectId: string): Promise<Result<NapSandbox, SandboxError>> {
     try {
       // Stored on the sandbox rather than only in this process, so a resume in a later
       // process can still say which project the sandbox belongs to.
-      const handle = await this.#client.create({ metadata: { [PROJECT_ID_KEY]: projectId } });
+      const handle = await this.#client.create({
+        metadata: { [PROJECT_ID_KEY]: projectId },
+        ...(this.#timeoutMs === undefined ? {} : { timeoutMs: this.#timeoutMs }),
+      });
       this.#handles.set(handle.sandboxId, handle);
       return { ok: true, value: { id: handle.sandboxId, projectId } };
     } catch (cause) {
@@ -178,6 +207,38 @@ export class E2BSandboxManager implements SandboxManager {
         ok: true,
         value: { id: handle.sandboxId, projectId: metadata[PROJECT_ID_KEY] ?? "" },
       };
+    } catch (cause) {
+      return { ok: false, error: toSandboxError(cause) };
+    }
+  }
+
+  /**
+   * Whether the provider is reachable at all, for a health check to report.
+   *
+   * Deliberately **not** on the `SandboxManager` interface. That port is about one project's
+   * workspace — create it, write to it, run things in it — and every method takes a sandbox
+   * id. "Is the provider up?" is a question about the deployment rather than about anybody's
+   * project, and putting it on the port would oblige every implementation, including the
+   * in-memory fake, to answer something meaningless. Boot holds the concrete class, which is
+   * the only place that needs to ask.
+   *
+   * Rejects rather than returning a `Result`, because that is what a `HealthCheck` consumes
+   * and there is nothing here a caller could branch on: the answer is yes or it is no.
+   */
+  async ping(): Promise<void> {
+    await this.#client.ping();
+  }
+
+  async extendTimeout(sandboxId: string, ms: number): Promise<VoidResult<SandboxError>> {
+    const tombstone = this.#tombstone(sandboxId);
+    if (tombstone !== undefined) return tombstone;
+
+    try {
+      const handle = await this.#handle(sandboxId);
+      // Resets to `ms` from now rather than adding to what is left, which is what makes this
+      // a keepalive: every turn puts the whole budget back.
+      await handle.setTimeout(ms);
+      return { ok: true, value: undefined };
     } catch (cause) {
       return { ok: false, error: toSandboxError(cause) };
     }

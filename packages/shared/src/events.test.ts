@@ -166,6 +166,20 @@ const CASES = [
     },
     issuePath: ["payload", "reason"],
   },
+  {
+    type: "system.notice",
+    valid: {
+      ...ENVELOPE,
+      type: "system.notice",
+      payload: { level: "warning", text: "Could not restore the last snapshot." },
+    },
+    malformed: {
+      ...ENVELOPE,
+      type: "system.notice",
+      payload: { level: "shout", text: "something happened" },
+    },
+    issuePath: ["payload", "level"],
+  },
 ] as const satisfies readonly Case[];
 
 function byType(type: NapEvent["type"]): Case {
@@ -178,9 +192,9 @@ describe("the case table covers the union", () => {
   it("has one case per event type, with no duplicates and none missing", () => {
     const covered = CASES.map((c) => c.type);
     expect(new Set(covered).size).toBe(covered.length);
-    expect(CASES).toHaveLength(11);
+    expect(CASES).toHaveLength(12);
 
-    // Fails to compile if a 12th member is added to the union without a case here.
+    // Fails to compile if a 13th member is added to the union without a case here.
     const _exhaustive: (typeof CASES)[number]["type"] = null as unknown as NapEvent["type"];
     void _exhaustive;
   });

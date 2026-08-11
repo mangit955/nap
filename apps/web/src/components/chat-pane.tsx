@@ -25,6 +25,7 @@ export function ChatPane({
   error,
   onSubmit = () => {},
   onCancel = () => {},
+  onRetry,
 }: {
   events: readonly StoredEvent[];
   pending?: string | undefined;
@@ -32,6 +33,8 @@ export function ChatPane({
   error?: string | undefined;
   onSubmit?: (message: string) => void;
   onCancel?: () => void;
+  /** Re-sends a failed turn's message. Optional so the many render tests need not supply one. */
+  onRetry?: ((message: string) => void) | undefined;
 }) {
   const empty = events.length === 0 && pending === undefined;
 
@@ -43,7 +46,7 @@ export function ChatPane({
             <EmptyState />
           ) : (
             <>
-              {events.length > 0 && <ChatTranscript events={events} />}
+              {events.length > 0 && <ChatTranscript events={events} onRetry={onRetry} />}
               {pending !== undefined && <PendingMessage text={pending} />}
             </>
           )}
@@ -99,6 +102,9 @@ export function LiveChatPane({ sessionId }: { sessionId: string | undefined }) {
       error={error}
       onSubmit={(message) => void submit(message)}
       onCancel={() => void cancel()}
+      // The same submission path as the input: a retry is an ordinary turn, and routing it
+      // anywhere else would give it different rate-limit and optimistic-message behaviour.
+      onRetry={(message) => void submit(message)}
     />
   );
 }

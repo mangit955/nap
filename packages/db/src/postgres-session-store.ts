@@ -29,6 +29,9 @@ export class PostgresSessionStore implements SessionStore {
       .select({
         sessionId: sessions.id,
         projectId: projects.id,
+        // Free: the join onto `projects` is already here for the sandbox id, and this is the
+        // column every route addressed by a session id has to authorize against.
+        userId: projects.userId,
         sandboxId: projects.sandboxId,
       })
       .from(sessions)
@@ -45,7 +48,10 @@ export class PostgresSessionStore implements SessionStore {
     // where the session was found and the update then hit nothing.
     const updated = await this.#db
       .update(projects)
-      .set({ sandboxId, updatedAt: new Date() })
+      // `ready` alongside the id, because a project with a sandbox serving it is what that
+      // word means. Without this nothing ever moved a project off `creating`, and every row in
+      // a running database claimed to be mid-creation forever.
+      .set({ sandboxId, status: "ready", updatedAt: new Date() })
       .where(
         eq(
           projects.id,

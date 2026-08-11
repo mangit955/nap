@@ -50,6 +50,16 @@ export interface SandboxManager {
   resume(sandboxId: string): Promise<Result<Sandbox, SandboxError>>;
   destroy(sandboxId: string): Promise<VoidResult<SandboxError>>;
 
+  /**
+   * Keeps the sandbox alive for `ms` from now, replacing whatever deadline it had.
+   *
+   * Sandboxes are billed by the second, so every provider kills them on a timer — and the
+   * timer starts at creation, not at the last thing anyone did. Without something to push it
+   * back, a workspace disappears out from under a conversation that is still going on. The
+   * caller that knows a project is being used is the one that must say so.
+   */
+  extendTimeout(sandboxId: string, ms: number): Promise<VoidResult<SandboxError>>;
+
   writeFile(sandboxId: string, path: string, contents: string): Promise<VoidResult<SandboxError>>;
   readFile(sandboxId: string, path: string): Promise<Result<string, SandboxError>>;
   listFiles(sandboxId: string, path: string): Promise<Result<FileNode[], SandboxError>>;

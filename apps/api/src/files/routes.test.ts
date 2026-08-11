@@ -1,10 +1,10 @@
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
+import { FAKE_OWNER } from "@nap/db/testing/in-memory-project-store";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { TEMPLATE_WORKDIR } from "@nap/sandbox/template";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { FileContentSchema, FileListingSchema } from "@nap/shared/files-protocol";
-import type { Hono } from "hono";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "../app.ts";
 import { createLogger } from "../logger.ts";
@@ -33,9 +33,11 @@ async function seedProject(files: Record<string, string>): Promise<string> {
   return created.value.id;
 }
 
-function app(): Hono {
+function app() {
   return createApp({
     logger: silent(),
+    // Every guarded route needs a caller; this stands in for a signed-in session cookie.
+    authenticate: async () => ({ userId: FAKE_OWNER }),
     stream: {
       store: new InMemoryEventStore(),
       bus: new InMemoryEventBus(),
@@ -182,6 +184,9 @@ describe("when the app is built without file dependencies", () => {
     // would answer a real request with a 500 from a missing dependency.
     const unwired = createApp({
       logger: silent(),
+      // Signed in, so a 404 here is about the route not existing rather than about who is
+      // asking — which is what this test is for.
+      authenticate: async () => ({ userId: FAKE_OWNER }),
       stream: {
         store: new InMemoryEventStore(),
         bus: new InMemoryEventBus(),

@@ -13,14 +13,15 @@ import type { Result } from "@nap/shared/result";
 /**
  * What a real run costs, capped up front.
  *
- * The cheaper model and the low ceilings are deliberate. A harness run proves the loop works
- * end to end, and a working loop is not more convincing for having been expensive; the model
- * choice changes nothing structural, since both speak the same blocks and the same streaming
- * events. All of it is overridable for the day this is used to record something.
+ * The cheap model and the low ceilings are deliberate. A harness run proves the loop works end
+ * to end, and a working loop is not more convincing for having been expensive; the model choice
+ * changes nothing structural, since every model reached this way speaks the same blocks and the
+ * same streaming events. All of it is overridable for the day this is used to record something —
+ * `--model=anthropic/claude-opus-5` is the whole difference.
  */
 export const HARNESS_DEFAULTS = {
-  platform: "anthropic",
-  model: "claude-sonnet-5",
+  platform: "openrouter",
+  model: "openai/gpt-5.6-luna",
   effort: "medium",
   maxOutputTokens: 8_192,
   /** Model calls in one turn. A wiring check needing more than this has already failed. */
@@ -32,7 +33,7 @@ export const HARNESS_USAGE = [
   'Usage: bun run harness [options] "<prompt>"',
   "",
   "  --real                  Use real E2B and the real model. Costs money.",
-  `  --platform=<name>       anthropic | bedrock (default ${HARNESS_DEFAULTS.platform}) — which account pays`,
+  `  --platform=<name>       openrouter | anthropic | bedrock (default ${HARNESS_DEFAULTS.platform}) — which account pays`,
   `  --model=<id>            Model for a real run (default ${HARNESS_DEFAULTS.model})`,
   `  --effort=<level>        low | medium | high | xhigh | max (default ${HARNESS_DEFAULTS.effort})`,
   `  --max-steps=<n>         Model calls allowed in the turn (default ${HARNESS_DEFAULTS.maxSteps})`,
@@ -48,11 +49,11 @@ export type HarnessEffort = (typeof EFFORT_LEVELS)[number];
 /**
  * Where the models are reached from.
  *
- * Both serve the same Claude models over the same API; they differ in which account is
- * billed and how the client authenticates. Not a vendor choice — see the note in
- * `@nap/agent`'s bedrock module.
+ * All three speak the same Messages API and differ only in which account is billed and how the
+ * client authenticates — see the notes in `@nap/agent`'s bedrock and openrouter modules.
+ * OpenRouter is first because it is the one this project uses.
  */
-const PLATFORMS = ["anthropic", "bedrock"] as const;
+const PLATFORMS = ["openrouter", "anthropic", "bedrock"] as const;
 export type HarnessPlatform = (typeof PLATFORMS)[number];
 
 export type HarnessOptions = {
@@ -186,6 +187,8 @@ function detail(event: NapEvent): string {
     }
     case "turn.failed":
       return `${event.payload.reason}: ${oneLine(event.payload.message)}`;
+    case "system.notice":
+      return `${event.payload.level}: ${oneLine(event.payload.text)}`;
     case "turn.started":
       return "";
   }

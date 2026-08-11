@@ -7,6 +7,7 @@
  * `close` exists so a script can exit instead of hanging on an idle connection.
  */
 
+import { sql } from "drizzle-orm";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 
@@ -21,6 +22,21 @@ export type CreateDatabaseOptions = {
 };
 
 export function createDatabase(url: string, options: CreateDatabaseOptions = {}): Database {
-  const sql = postgres(url, { max: options.max ?? 10 });
-  return { db: drizzle(sql), close: () => sql.end() };
+  const connection = postgres(url, { max: options.max ?? 10 });
+  return { db: drizzle(connection), close: () => connection.end() };
+}
+
+/**
+ * A round trip to the database, for a health check to wait on.
+ *
+ * `select 1` rather than a query against a real table: this asks whether the database is
+ * reachable and answering, which is the thing a health check can act on. A query that also
+ * depended on a particular table would report a migration problem as an outage, and those
+ * two need different people.
+ *
+ * Rejects when the database does not answer. Whoever calls it decides what that means — see
+ * `HealthCheck` in the API, which treats resolving as reachable and anything else as down.
+ */
+export async function pingDatabase(db: PostgresJsDatabase): Promise<void> {
+  await db.execute(sql`select 1`);
 }

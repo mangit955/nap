@@ -19,12 +19,16 @@ import { expectEventSequence } from "@nap/db/testing/event-assertions";
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
+import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { NapEventSchema, type NapEventType } from "@nap/shared/events";
 import type { AgentService, AgentTurnRequest } from "@nap/shared/ports/agent-service";
 import type { ContextEngine, ContextRequest } from "@nap/shared/ports/context-engine";
 import type { EventStore, PendingEvent, StoredEvent } from "@nap/shared/ports/event-store";
+import type { ObjectStore } from "@nap/shared/ports/object-store";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
+import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
+import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import { beforeEach, describe, expect, it } from "vitest";
 import { commitMessage, SingleAgentRuntime } from "./single-agent-runtime.ts";
 
@@ -115,7 +119,17 @@ class UncreatableSandboxManager extends InMemorySandboxManager {
 const HAPPY_SCRIPT = () => [
   { type: "turn.started" as const, payload: {} },
   { type: "agent.message" as const, payload: { text: "done" } },
-  { type: "turn.completed" as const, payload: {} },
+  // A real payload rather than `{}`. The emit site casts to `PendingEvent`, which laundered an
+  // invalid event past the type system, and nothing read these fields until a turn's cost
+  // started being logged — at which point every test on this script failed at once.
+  {
+    type: "turn.completed" as const,
+    payload: {
+      usage: { inputTokens: 1, outputTokens: 2 },
+      durationMs: 5,
+      commitSha: null,
+    },
+  },
 ];
 
 class StubContextEngine implements ContextEngine {
@@ -171,6 +185,8 @@ function runtime(
     events: EventStore;
     sandbox: SandboxManager;
     sessions: InMemorySessionStore;
+    objects: ObjectStore;
+    snapshots: SnapshotStore;
   }> = {},
 ): SingleAgentRuntime {
   return new SingleAgentRuntime({
@@ -181,6 +197,8 @@ function runtime(
     events: overrides.events ?? events,
     bus,
     memory: new NoopMemoryProvider(),
+    ...(overrides.objects === undefined ? {} : { objects: overrides.objects }),
+    ...(overrides.snapshots === undefined ? {} : { snapshots: overrides.snapshots }),
   });
 }
 
@@ -319,9 +337,10 @@ describe("SingleAgentRuntime", () => {
     expect(outcome).toMatchObject({ ok: false, reason: "sandbox_unavailable" });
   });
 
-  it("fails the turn when a recorded sandbox can no longer be resumed", async () => {
-    // Deliberately not a fresh sandbox: without snapshot restore, starting over would
-    // silently hand the user an empty template in place of their project.
+  it("fails the turn when a recorded sandbox can no longer be resumed and nothing can be restored", async () => {
+    // No object store and no snapshot store, so there is nothing to restore *from*: starting
+    // over would silently hand the user an empty template in place of their project. The
+    // configured case is covered below, where a fresh sandbox is filled from a snapshot.
     sessions = new InMemorySessionStore([
       { sessionId: SESSION_ID, projectId: PROJECT_ID, sandboxId: "gone" },
     ]);
@@ -628,5 +647,183 @@ describe("telling the client where the preview is", () => {
 
     const stored = await events.readFrom(SESSION_ID, 0);
     expect(stored.find((event) => event.type === "preview.ready")?.payload).toMatchObject({ port });
+  });
+});
+
+describe("opening a project that has been put away", () => {
+  const SNAPSHOT_KEY = `projects/${PROJECT_ID}/1735689600000-${COMMIT_SHA}.bundle`;
+  const PORT = 5173;
+
+  let objects: InMemoryObjectStore;
+  let snapshots: InMemorySnapshotStore;
+
+  /** Everything a restore runs, answered the way a real project would answer it. */
+  function scriptRestore(manager: InMemorySandboxManager): InMemorySandboxManager {
+    return manager
+      .script(/base64 -d/, { exitCode: 0 })
+      .script(/git fetch/, { exitCode: 0 })
+      .script(/git reset --hard/, { exitCode: 0 })
+      .script(/git clean/, { exitCode: 0 })
+      .script(/bun install/, { exitCode: 0 });
+  }
+
+  beforeEach(async () => {
+    sandbox = scriptRestore(scriptGit(new InMemorySandboxManager({ serves: [PORT] })));
+    objects = new InMemoryObjectStore();
+    snapshots = new InMemorySnapshotStore();
+
+    await objects.put(SNAPSHOT_KEY, new TextEncoder().encode("PACK-bundle-bytes"));
+    await snapshots.record({ projectId: PROJECT_ID, key: SNAPSHOT_KEY, gitSha: COMMIT_SHA });
+  });
+
+  function restoringRuntime(
+    agent: AgentService,
+    overrides: Partial<{ sessions: InMemorySessionStore }> = {},
+  ): SingleAgentRuntime {
+    return runtime(agent, {
+      objects,
+      snapshots,
+      ...(overrides.sessions === undefined ? {} : { sessions: overrides.sessions }),
+    });
+  }
+
+  it("restores the snapshot into the sandbox it creates", async () => {
+    const agent = new ScriptedAgent(HAPPY_SCRIPT, true);
+
+    const outcome = await restoringRuntime(agent).runTurn({
+      sessionId: SESSION_ID,
+      message: "carry on where we left off",
+    });
+
+    expect(outcome.ok).toBe(true);
+    const sandboxId = await onlySandboxId();
+    expect(sandbox.commands(sandboxId).join("\n")).toMatch(/git fetch/);
+  });
+
+  it("says nothing when the restore went cleanly", async () => {
+    // A notice on every open is a notice nobody reads. This one is reserved for the cases
+    // where the project is not what the user left behind.
+    await restoringRuntime(new ScriptedAgent(HAPPY_SCRIPT, true)).runTurn({
+      sessionId: SESSION_ID,
+      message: "carry on",
+    });
+
+    expect(await loggedTypes()).not.toContain("system.notice");
+  });
+
+  it("carries on with a fresh template, and says so, when the snapshot is unusable", async () => {
+    sandbox.script(/git fetch/, { exitCode: 128, stderr: "fatal: not a valid object name" });
+    const agent = new ScriptedAgent(HAPPY_SCRIPT, true);
+
+    const outcome = await restoringRuntime(agent).runTurn({
+      sessionId: SESSION_ID,
+      message: "carry on",
+    });
+
+    // The turn runs: an unusable snapshot is a project the user has lost, not a reason to
+    // refuse them the project they still have. The notice comes before the preview, because
+    // it explains the empty app the preview is about to show.
+    expect(outcome.ok).toBe(true);
+    expectEventSequence(await events.readFrom(SESSION_ID, 0), [
+      "user.message",
+      "system.notice",
+      "preview.ready",
+      "turn.started",
+      "agent.message",
+      "turn.completed",
+    ]);
+  });
+
+  it("restores into a new sandbox when the recorded one is gone", async () => {
+    // The payoff for the whole task: before snapshots, this failed the turn, because the
+    // only alternative was handing back an empty template and calling it success.
+    const withDeadSandbox = new InMemorySessionStore([
+      { sessionId: SESSION_ID, projectId: PROJECT_ID, sandboxId: "gone" },
+    ]);
+    const agent = new ScriptedAgent(HAPPY_SCRIPT, true);
+
+    const outcome = await restoringRuntime(agent, { sessions: withDeadSandbox }).runTurn({
+      sessionId: SESSION_ID,
+      message: "carry on",
+    });
+
+    expect(outcome.ok).toBe(true);
+    expect(agent.calls).toBe(1);
+    const record = await withDeadSandbox.get(SESSION_ID);
+    expect(record?.sandboxId).not.toBe("gone");
+  });
+
+  it("warns that a lost sandbox has cost the user everything since the last snapshot", async () => {
+    // The snapshot is from the last time the project was put away, so anything after it is
+    // genuinely gone. Restoring silently would look like the project had rolled itself back.
+    const withDeadSandbox = new InMemorySessionStore([
+      { sessionId: SESSION_ID, projectId: PROJECT_ID, sandboxId: "gone" },
+    ]);
+
+    await restoringRuntime(new ScriptedAgent(HAPPY_SCRIPT, true), {
+      sessions: withDeadSandbox,
+    }).runTurn({ sessionId: SESSION_ID, message: "carry on" });
+
+    const stored = await events.readFrom(SESSION_ID, 0);
+    const notice = stored.find((event) => event.type === "system.notice");
+    expect(notice?.payload).toMatchObject({
+      level: "warning",
+      text: expect.stringMatching(/snapshot/i),
+    });
+  });
+
+  it("refuses to be constructed with only half of what a restore needs", () => {
+    // A store of bytes nothing can name, or names with nothing behind them. Neither opens
+    // a project, and both type-check.
+    expect(
+      () =>
+        new SingleAgentRuntime({
+          sessions,
+          sandbox,
+          context,
+          agent: new ScriptedAgent(),
+          events,
+          bus,
+          memory: new NoopMemoryProvider(),
+          objects,
+        }),
+    ).toThrow(/both/i);
+  });
+});
+
+describe("keeping a resumed sandbox alive", () => {
+  it("pushes the sandbox's deadline back when a turn resumes it", async () => {
+    // Providers kill a sandbox on a timer that starts at creation, not at the last thing
+    // anyone did. Without this, a long conversation loses its workspace mid-sentence.
+    const created = await sandbox.create(PROJECT_ID);
+    if (!created.ok) throw new Error("could not seed a sandbox");
+
+    await runtime(new ScriptedAgent(HAPPY_SCRIPT, true), {
+      sessions: new InMemorySessionStore([
+        { sessionId: SESSION_ID, projectId: PROJECT_ID, sandboxId: created.value.id },
+      ]),
+    }).runTurn({ sessionId: SESSION_ID, message: "carry on" });
+
+    expect(sandbox.timeoutOf(created.value.id)).toBe(30 * 60 * 1000);
+  });
+
+  it("uses the lifetime it was configured with", async () => {
+    const created = await sandbox.create(PROJECT_ID);
+    if (!created.ok) throw new Error("could not seed a sandbox");
+
+    await new SingleAgentRuntime({
+      sessions: new InMemorySessionStore([
+        { sessionId: SESSION_ID, projectId: PROJECT_ID, sandboxId: created.value.id },
+      ]),
+      sandbox,
+      context,
+      agent: new ScriptedAgent(HAPPY_SCRIPT, true),
+      events,
+      bus,
+      memory: new NoopMemoryProvider(),
+      sandboxTtlMs: 90_000,
+    }).runTurn({ sessionId: SESSION_ID, message: "carry on" });
+
+    expect(sandbox.timeoutOf(created.value.id)).toBe(90_000);
   });
 });

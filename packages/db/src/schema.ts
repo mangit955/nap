@@ -23,6 +23,7 @@
 
 import type { NapEvent, NapEventType } from "@nap/shared/events";
 import {
+  boolean,
   integer,
   jsonb,
   pgEnum,
@@ -34,8 +35,13 @@ import {
 } from "drizzle-orm/pg-core";
 
 /**
- * Provisional. The plan never fixes this vocabulary — these are what the lifecycle tasks
- * imply (template scaffold, restore-on-open, idle reaper). Project CRUD owns settling it.
+ * What state a project is in, from the point of view of somebody looking at their list.
+ *
+ * Three of these are used and mean something exact: `creating` is a row that has never had a
+ * sandbox, `ready` is one with a sandbox serving it now, and `idle` is one that has been put
+ * away and will be restored from its snapshot on the next message. `archived` and `error` are
+ * kept because removing a value from a Postgres enum costs a migration and neither is in the
+ * way; nothing sets them, and anything that starts to should say what it means here first.
  */
 export const projectStatus = pgEnum("project_status", [
   "creating",
@@ -47,11 +53,101 @@ export const projectStatus = pgEnum("project_status", [
 
 const createdAt = timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
 
+/**
+ * A person. Also the identity table the auth library reads and writes.
+ *
+ * The three columns below `name` exist for that library rather than for anything this
+ * codebase asks of a user, which is why they are grouped and annotated: it maps its `user`
+ * model onto this table instead of generating one of its own, so that `projects.user_id`
+ * keeps pointing at the same uuid it always has.
+ *
+ * Every one of them has a default, so a row inserted by code that predates sign-in — the
+ * placeholder in `session-bootstrap.ts` — is still valid.
+ */
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
   email: text("email").notNull().unique(),
   name: text("name").notNull(),
+  emailVerified: boolean("email_verified").notNull().default(false),
+  /** An avatar URL, when an OAuth provider supplies one. */
+  image: text("image"),
   createdAt,
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Sign-in sessions — **not** the `sessions` table below, which is a conversation.
+ *
+ * The two words collide and only one of them can have the short name. `sessions` meant a chat
+ * before authentication existed and is referenced by `events` and by every route in the app,
+ * so the newcomer is the one that gets qualified. The auth library is told this name
+ * explicitly; left to its own devices it would look for `sessions` and quietly start writing
+ * login rows into the conversation table.
+ */
+export const authSessions = pgTable("auth_sessions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  /** The value in the cookie. Unique because it is what a request is looked up by. */
+  token: text("token").notNull().unique(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  createdAt,
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * How a person proves who they are: one row per credential, so a user can have several.
+ *
+ * An email/password signup stores its hash here in `password`; a GitHub sign-in stores the
+ * provider's own user id in `account_id` and no password at all.
+ *
+ * **`unique(provider_id, account_id)` is a backstop, not the mechanism.** A repeat login finds
+ * the same person because the auth library looks this row up before it inserts — deleting the
+ * constraint changes nothing about an ordinary second sign-in, which is worth knowing before
+ * anybody assumes the index is load-bearing. What it catches is the race the lookup cannot:
+ * two callbacks for the same account arriving together, both finding nothing, both inserting.
+ * `accounts.db.test.ts` is what proves it is really there, since no ordinary path reaches it.
+ */
+export const accounts = pgTable(
+  "accounts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** The provider's identifier for this person — a GitHub user id, or the email for credentials. */
+    accountId: text("account_id").notNull(),
+    /** `github`, or `credential` for email and password. */
+    providerId: text("provider_id").notNull(),
+    accessToken: text("access_token"),
+    refreshToken: text("refresh_token"),
+    idToken: text("id_token"),
+    accessTokenExpiresAt: timestamp("access_token_expires_at", { withTimezone: true }),
+    refreshTokenExpiresAt: timestamp("refresh_token_expires_at", { withTimezone: true }),
+    scope: text("scope"),
+    /** The password hash, for credential accounts. Never a plaintext password. */
+    password: text("password"),
+    createdAt,
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [unique("accounts_provider_id_account_id_unique").on(t.providerId, t.accountId)],
+);
+
+/**
+ * Short-lived values the auth library needs to survive a redirect — chiefly the OAuth `state`
+ * it hands to GitHub and checks on the way back. Rows here are expected to expire and be
+ * cleaned up; nothing else in the app reads them.
+ */
+export const verifications = pgTable("verifications", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  identifier: text("identifier").notNull(),
+  value: text("value").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt,
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const projects = pgTable(

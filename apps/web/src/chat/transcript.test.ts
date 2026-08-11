@@ -46,7 +46,7 @@ function stepsOf(items: TranscriptItem[]) {
 }
 
 /**
- * One case per event type. `docs/PLAN.md` §4 asks for a defined treatment for all eleven, so
+ * One case per event type. `docs/PLAN.md` §4 asks for a defined treatment for every one, so
  * the coverage is structural: a twelfth member of the union fails to compile here until it
  * has a case, rather than quietly rendering as nothing.
  */
@@ -81,15 +81,19 @@ const CASES = [
     },
   },
   { type: "turn.failed", payload: { reason: "refusal", message: "declined" } },
+  {
+    type: "system.notice",
+    payload: { level: "warning", text: "Could not restore your last snapshot." },
+  },
 ] as const satisfies readonly { type: NapEventType; payload: NapEvent["payload"] }[];
 
 describe("the treatment table covers the union", () => {
   it("has one case per event type", () => {
     const covered = CASES.map((c) => c.type);
     expect(new Set(covered).size).toBe(covered.length);
-    expect(CASES).toHaveLength(11);
+    expect(CASES).toHaveLength(12);
 
-    // Fails to compile if a 12th member is added to the union without a case here.
+    // Fails to compile if a 13th member is added to the union without a case here.
     const _exhaustive: (typeof CASES)[number]["type"] = null as unknown as NapEventType;
     void _exhaustive;
   });
@@ -283,6 +287,21 @@ describe("the rest of the turn", () => {
     expect(items[0]).toMatchObject({ kind: "preview", url: "https://5173-abc.e2b.dev" });
   });
 
+  it("keeps a system notice out of the agent's voice", () => {
+    // The platform explaining itself must not read as something the model said, or the
+    // transcript credits the agent with a sentence it never produced.
+    const items = fold(
+      ev("system.notice", { level: "warning", text: "Could not restore your last snapshot." }),
+    );
+
+    expect(items[0]).toEqual({
+      kind: "notice",
+      key: 1,
+      level: "warning",
+      text: "Could not restore your last snapshot.",
+    });
+  });
+
   it("opens and closes the turn", () => {
     const items = fold(
       ev("turn.started", {}),
@@ -341,5 +360,44 @@ describe("stability", () => {
 
   it("is empty for no events", () => {
     expect(buildTranscript([])).toEqual([]);
+  });
+});
+
+describe("what a failed turn would send again", () => {
+  it("carries the message that started that turn", () => {
+    const items = buildTranscript([
+      ev("user.message", { text: "build a todo list" }),
+      ev("turn.started", {}),
+      ev("turn.failed", { reason: "sandbox_unavailable", message: "no sandbox" }),
+    ]);
+
+    expect(items.at(-1)).toMatchObject({ outcome: "failed", retryMessage: "build a todo list" });
+  });
+
+  it("carries each turn's own message, not the latest in the log", () => {
+    // The case that makes this worth folding rather than looking up in the component: with two
+    // failed turns on screen, "the last user message" is the same string for both, and one of
+    // the two retry buttons would silently re-send the wrong request.
+    const items = buildTranscript([
+      ev("user.message", { text: "first ask" }),
+      ev("turn.started", {}),
+      ev("turn.failed", { reason: "internal", message: "boom" }),
+      ev("user.message", { text: "second ask" }),
+      ev("turn.started", {}),
+      ev("turn.failed", { reason: "internal", message: "boom again" }),
+    ]);
+
+    const failures = items.filter((item) => item.kind === "turn-end");
+    expect(
+      failures.map((item) => ("retryMessage" in item ? item.retryMessage : undefined)),
+    ).toEqual(["first ask", "second ask"]);
+  });
+
+  it("is undefined for a log that begins mid-turn", () => {
+    // What a client joining with `afterSeq` sees. Offering a retry with nothing to send would
+    // be a button that quietly does nothing.
+    const items = buildTranscript([ev("turn.failed", { reason: "internal", message: "boom" })]);
+
+    expect(items.at(-1)).toMatchObject({ retryMessage: undefined });
   });
 });

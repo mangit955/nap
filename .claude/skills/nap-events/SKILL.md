@@ -9,7 +9,7 @@ description: Use when writing or testing anything that emits, stores, orders, re
 
 The shapes live in **`packages/shared/src/events.ts`** (M0-3) — one Zod discriminated union on `type`. Import from it; never hand-write an event literal's type alongside it.
 
-## The 11 event types
+## The 12 event types
 
 Every event is `{ type, sessionId, turnId, seq, createdAt, payload }` — the envelope mirrors the `events` row in `docs/PLAN.md` §5 one-to-one, so `EventStore` append/read is a straight mapping. `seq` is assigned by `EventStore.append`, not by the emitter.
 
@@ -26,8 +26,9 @@ Every event is `{ type, sessionId, turnId, seq, createdAt, payload }` — the en
 | `turn.started` | `{}` | M2-7 |
 | `turn.completed` | `{ usage: { inputTokens, outputTokens }, durationMs, commitSha }` | M2-8 |
 | `turn.failed` | `{ reason, message }` | M2-6, M2-7, M2-8 |
+| `system.notice` | `{ level, text }` — the platform in its own voice, never the model's | M4-2 |
 
-Closed sets, all exported from the same module: `toolName` is one of the six M2-5 tools (`TOOL_NAMES`); `changeType` is `created \| modified \| deleted`; `stream` is `stdout \| stderr`; `reason` is `refusal \| budget_exceeded \| cancelled \| sandbox_unavailable \| internal` (`TurnFailureReasonSchema`). Adding a value is a deliberate schema change — that is the point.
+Closed sets, all exported from the same module: `toolName` is one of the six M2-5 tools (`TOOL_NAMES`); `changeType` is `created \| modified \| deleted`; `stream` is `stdout \| stderr`; `level` is `info \| warning`; `reason` is `refusal \| budget_exceeded \| cancelled \| sandbox_unavailable \| internal` (`TurnFailureReasonSchema`). Adding a value is a deliberate schema change — that is the point.
 
 **Two rules when you extend this, both about surviving Postgres `jsonb`:** no `Date` and no `undefined` (timestamps are ISO-8601 strings, absent values are `null`), and payloads are `strictObject` so an unknown key is rejected rather than silently dropped on the way into the log. Both are proven by the M0-3 tests — see below.
 

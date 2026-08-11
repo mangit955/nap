@@ -12,6 +12,7 @@
   "dependencies": {
     "@nap/shared": "workspace:*",
     "@tailwindcss/postcss": "4.3.3",
+    "better-auth": "1.6.26",
     "next": "16.3.0",
     "prism-react-renderer": "^2.4.1",
     "react": "19.2.8",

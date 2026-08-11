@@ -1,26 +1,20 @@
 /**
  * Getting a project and a session to exist, so there is something to have a conversation in.
  *
- * **This is a placeholder for project CRUD**, and a deliberately small one. Turn submission
- * needs a session id, a session needs a project, and a project needs a user — three rows that
- * nothing in the app can currently create. Rather than blocking the whole presentation
- * milestone on the persistence one, this makes the three rows and nothing else: no listing,
- * no renaming, no deleting, no ownership.
+ * Turn submission needs a session id, a session needs a project, and a project needs an owner.
+ * This makes those two rows for a caller who is already known to be signed in — the owner is
+ * passed in, and is not this function's business to establish.
  *
- * The user is a single fixed row because there is no authentication yet. When there is, the
- * caller passes a real user id, this function loses its find-or-create half, and the endpoint
- * above it becomes an ordinary "create project" scoped to whoever is signed in.
+ * It used to invent a fixed `dev@nap.local` user, because there was no sign-in and something had
+ * to fill `projects.user_id`. That is gone: a project's owner is now whoever asked for it, and
+ * nothing in this codebase creates a user as a side effect of creating something else.
  *
- * The slug carries a random suffix because `(user_id, slug)` is unique and every project here
- * belongs to the same user — a slug derived from the name alone works exactly once.
+ * The slug carries a random suffix because `(user_id, slug)` is unique, so two projects named
+ * the same thing by the same person would otherwise collide on the second one.
  */
 
-import { eq } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { projects, sessions, users } from "./schema.ts";
-
-/** The stand-in owner, until sign-in exists. */
-export const DEV_USER_EMAIL = "dev@nap.local";
+import { projects, sessions } from "./schema.ts";
 
 export type CreatedSession = {
   sessionId: string;
@@ -28,6 +22,8 @@ export type CreatedSession = {
 };
 
 export type CreateProjectSessionOptions = {
+  /** Who the project belongs to. Required: a project with no owner is unreachable by anyone. */
+  userId: string;
   name?: string;
   title?: string;
 };
@@ -36,17 +32,15 @@ const DEFAULT_PROJECT_NAME = "Untitled project";
 
 export async function createProjectSession(
   db: PostgresJsDatabase,
-  options: CreateProjectSessionOptions = {},
+  options: CreateProjectSessionOptions,
 ): Promise<CreatedSession> {
   const name = options.name?.trim() === "" ? undefined : options.name?.trim();
   const projectName = name ?? DEFAULT_PROJECT_NAME;
 
   return db.transaction(async (tx) => {
-    const userId = await findOrCreateDevUser(tx);
-
     const [project] = await tx
       .insert(projects)
-      .values({ userId, name: projectName, slug: slugify(projectName) })
+      .values({ userId: options.userId, name: projectName, slug: slugify(projectName) })
       .returning({ id: projects.id });
     if (project === undefined) throw new Error("insert into projects returned no row");
 
@@ -58,30 +52,6 @@ export async function createProjectSession(
 
     return { sessionId: session.id, projectId: project.id };
   });
-}
-
-/**
- * `on conflict do nothing` then read, rather than reading first: two requests arriving
- * together would both find no user and both insert, and the second would fail on the unique
- * index. Letting the database settle it means the loser simply reads the winner's row.
- */
-async function findOrCreateDevUser(db: PostgresJsDatabase): Promise<string> {
-  const [inserted] = await db
-    .insert(users)
-    .values({ email: DEV_USER_EMAIL, name: "Nap dev" })
-    .onConflictDoNothing({ target: users.email })
-    .returning({ id: users.id });
-
-  if (inserted !== undefined) return inserted.id;
-
-  const [existing] = await db
-    .select({ id: users.id })
-    .from(users)
-    .where(eq(users.email, DEV_USER_EMAIL))
-    .limit(1);
-  if (existing === undefined) throw new Error("dev user neither inserted nor found");
-
-  return existing.id;
 }
 
 function slugify(name: string): string {

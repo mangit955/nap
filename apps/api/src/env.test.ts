@@ -6,10 +6,21 @@ import { parseEnv } from "./env.ts";
  * mutate global state and never depend on what happens to be exported in the shell.
  */
 
+/** The bucket a project's bytes live in while nothing is running. */
+const R2 = {
+  R2_ACCOUNT_ID: "0123456789abcdef",
+  R2_BUCKET: "nap-snapshots",
+  R2_ACCESS_KEY_ID: "r2-key",
+  R2_SECRET_ACCESS_KEY: "r2-secret",
+} as const;
+
 const VALID = {
   DATABASE_URL: "postgres://nap:nap@localhost:5432/nap",
   E2B_API_KEY: "e2b_test",
-  ANTHROPIC_API_KEY: "sk-ant-test",
+  // The default platform, so this is the key a default configuration needs.
+  OPENROUTER_API_KEY: "sk-or-test",
+  BETTER_AUTH_SECRET: "a-secret-long-enough-to-sign-a-cookie-with",
+  ...R2,
   PORT: "3001",
   LOG_LEVEL: "info",
   NODE_ENV: "development",
@@ -19,7 +30,9 @@ const VALID = {
 const REQUIRED = {
   DATABASE_URL: VALID.DATABASE_URL,
   E2B_API_KEY: VALID.E2B_API_KEY,
-  ANTHROPIC_API_KEY: VALID.ANTHROPIC_API_KEY,
+  OPENROUTER_API_KEY: VALID.OPENROUTER_API_KEY,
+  BETTER_AUTH_SECRET: VALID.BETTER_AUTH_SECRET,
+  ...R2,
 } as const;
 
 describe("parseEnv", () => {
@@ -29,7 +42,7 @@ describe("parseEnv", () => {
     expect(env.NODE_ENV).toBe("development");
   });
 
-  it.each(["E2B_API_KEY", "ANTHROPIC_API_KEY"])("requires %s", (key) => {
+  it.each(["E2B_API_KEY", "OPENROUTER_API_KEY", "BETTER_AUTH_SECRET"])("requires %s", (key) => {
     // The server now creates sandboxes and calls the model itself. Both keys become required
     // in the task that first reads them, which is this one — a process that boots without
     // them only fails on the first message someone sends.
@@ -48,6 +61,8 @@ describe("parseEnv", () => {
       NAP_PLATFORM: "bedrock",
       AWS_BEARER_TOKEN_BEDROCK: "ABSK-test",
       AWS_REGION: "us-east-1",
+      BETTER_AUTH_SECRET: VALID.BETTER_AUTH_SECRET,
+      ...R2,
     };
 
     expect(parseEnv(bedrock).NAP_PLATFORM).toBe("bedrock");
@@ -62,6 +77,8 @@ describe("parseEnv", () => {
       NAP_PLATFORM: "bedrock",
       AWS_BEARER_TOKEN_BEDROCK: "ABSK-test",
       AWS_REGION: "us-east-1",
+      BETTER_AUTH_SECRET: VALID.BETTER_AUTH_SECRET,
+      ...R2,
     };
     delete bedrock[key];
 
@@ -76,7 +93,60 @@ describe("parseEnv", () => {
         NAP_PLATFORM: "bedrock",
         AWS_BEARER_TOKEN_BEDROCK: "ABSK-test",
         AWS_REGION: "us-east-1",
+        BETTER_AUTH_SECRET: VALID.BETTER_AUTH_SECRET,
+        ...R2,
       }),
+    ).not.toThrow();
+  });
+
+  it("bills OpenRouter unless told otherwise", () => {
+    // The route this project uses. Asserted directly rather than left implied by the fixtures,
+    // because it decides which credentials boot demands and which account pays for every turn.
+    expect(parseEnv(REQUIRED).NAP_PLATFORM).toBe("openrouter");
+  });
+
+  it("wants an Anthropic key instead when Anthropic is billed directly", () => {
+    // Still a supported route, and the check stays conditional for the same reason it always
+    // did: demanding an OpenRouter key from someone paying Anthropic directly is exactly the
+    // kind of boot check that teaches people to paste dummy values.
+    const anthropic = {
+      DATABASE_URL: VALID.DATABASE_URL,
+      E2B_API_KEY: VALID.E2B_API_KEY,
+      NAP_PLATFORM: "anthropic",
+      ANTHROPIC_API_KEY: "sk-ant-test",
+      BETTER_AUTH_SECRET: VALID.BETTER_AUTH_SECRET,
+      ...R2,
+    };
+
+    expect(parseEnv(anthropic).NAP_PLATFORM).toBe("anthropic");
+  });
+
+  it("refuses to boot on the Anthropic path with no Anthropic key", () => {
+    expect(() =>
+      parseEnv({ ...REQUIRED, NAP_PLATFORM: "anthropic", OPENROUTER_API_KEY: undefined }),
+    ).toThrow(/ANTHROPIC_API_KEY/);
+  });
+
+  it("boots with no GitHub app at all, leaving email sign-in as the only way in", () => {
+    // The rule this repo states outright: a boot check that demands credentials for something
+    // nobody has configured is how people learn to paste dummy values.
+    expect(() => parseEnv(REQUIRED)).not.toThrow();
+  });
+
+  it.each(["GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET"])(
+    "refuses %s on its own, since half a GitHub app is not a smaller one",
+    (key) => {
+      // The alternative failure is a redirect back from GitHub that dies on a blank secret —
+      // several steps away from the thing that is actually wrong.
+      const other = key === "GITHUB_CLIENT_ID" ? "GITHUB_CLIENT_SECRET" : "GITHUB_CLIENT_ID";
+
+      expect(() => parseEnv({ ...REQUIRED, [key]: "set" })).toThrow(new RegExp(other));
+    },
+  );
+
+  it("accepts both halves of a GitHub app together", () => {
+    expect(() =>
+      parseEnv({ ...REQUIRED, GITHUB_CLIENT_ID: "Iv1.test", GITHUB_CLIENT_SECRET: "ghs_test" }),
     ).not.toThrow();
   });
 
@@ -85,14 +155,18 @@ describe("parseEnv", () => {
     // and the default is the same model `harness --real` uses.
     const env = parseEnv(REQUIRED);
 
-    expect(env.NAP_MODEL).toBe("claude-sonnet-5");
+    expect(env.NAP_MODEL).toBe("openai/gpt-5.6-luna");
     expect(env.NAP_EFFORT).toBe("medium");
   });
 
   it("takes a different model when one is asked for", () => {
-    const env = parseEnv({ ...REQUIRED, NAP_MODEL: "claude-opus-5", NAP_EFFORT: "xhigh" });
+    const env = parseEnv({
+      ...REQUIRED,
+      NAP_MODEL: "anthropic/claude-opus-5",
+      NAP_EFFORT: "xhigh",
+    });
 
-    expect(env.NAP_MODEL).toBe("claude-opus-5");
+    expect(env.NAP_MODEL).toBe("anthropic/claude-opus-5");
     expect(env.NAP_EFFORT).toBe("xhigh");
   });
 
@@ -157,5 +231,73 @@ describe("parseEnv failure", () => {
 
   it("throws rather than returning a result, because a bad env is not a recoverable state", () => {
     expect(() => parseEnv({})).toThrow();
+  });
+});
+
+describe("putting projects away", () => {
+  it("defaults to reaping well before a sandbox expires on its own", () => {
+    const env = parseEnv(REQUIRED);
+
+    expect(env.NAP_REAP_IDLE_MINUTES).toBe(10);
+    expect(env.NAP_SANDBOX_TTL_MINUTES).toBe(30);
+    expect(env.NAP_REAP_INTERVAL_SECONDS).toBe(60);
+  });
+
+  it("refuses to boot when a sandbox would expire before it is reaped", () => {
+    // The whole point of the reaper is that a project is snapshotted before it is destroyed.
+    // Configured this way, the provider's timer wins every race and idle projects are simply
+    // deleted — with a reaper in the logs cheerfully finding nothing to do.
+    expect(() =>
+      parseEnv({ ...REQUIRED, NAP_REAP_IDLE_MINUTES: "45", NAP_SANDBOX_TTL_MINUTES: "30" }),
+    ).toThrow(/NAP_REAP_IDLE_MINUTES/);
+  });
+
+  it("refuses the equal case too, which has the same race", () => {
+    expect(() =>
+      parseEnv({ ...REQUIRED, NAP_REAP_IDLE_MINUTES: "30", NAP_SANDBOX_TTL_MINUTES: "30" }),
+    ).toThrow(/NAP_REAP_IDLE_MINUTES/);
+  });
+
+  it("requires somewhere to put the bytes", () => {
+    // A server that can destroy sandboxes but not snapshot them is worse than one that does
+    // neither, so these become required in the task that first reads them.
+    const { R2_BUCKET: _omitted, ...rest } = REQUIRED;
+
+    expect(() => parseEnv(rest)).toThrow(/R2_BUCKET/);
+  });
+});
+
+describe("what one person may spend", () => {
+  it("defaults to limits tight enough to bound a runaway", () => {
+    // These are the numbers that decide what a stranger can spend on your behalf, so they are
+    // asserted rather than left to whatever the schema happens to say.
+    const env = parseEnv(REQUIRED);
+
+    expect(env.NAP_TURNS_PER_HOUR).toBe(15);
+    expect(env.NAP_MAX_SANDBOXES_PER_USER).toBe(2);
+    expect(env.NAP_MAX_SANDBOXES_TOTAL).toBe(10);
+  });
+
+  it("refuses a per-user cap above the machine-wide one", () => {
+    // Configured that way the per-user limit can never be reached: the global check refuses
+    // first, and tells the asker the server is busy when the projects filling it are their own.
+    expect(() =>
+      parseEnv({ ...REQUIRED, NAP_MAX_SANDBOXES_PER_USER: "5", NAP_MAX_SANDBOXES_TOTAL: "3" }),
+    ).toThrow(/NAP_MAX_SANDBOXES_PER_USER/);
+  });
+
+  it("accepts the two being equal, which is a single-user deployment", () => {
+    expect(() =>
+      parseEnv({ ...REQUIRED, NAP_MAX_SANDBOXES_PER_USER: "3", NAP_MAX_SANDBOXES_TOTAL: "3" }),
+    ).not.toThrow();
+  });
+
+  it("rejects a zero or negative limit rather than silently blocking every turn", () => {
+    // `0` reads like "no limit" and means the opposite: every turn refused, with a message
+    // about rate limiting that nobody could act on.
+    expect(() => parseEnv({ ...REQUIRED, NAP_TURNS_PER_HOUR: "0" })).toThrow(/NAP_TURNS_PER_HOUR/);
+    expect(() => parseEnv({ ...REQUIRED, NAP_MAX_SANDBOXES_PER_USER: "-1" })).toThrow(
+      /NAP_MAX_SANDBOXES_PER_USER/,
+    );
   });
 });

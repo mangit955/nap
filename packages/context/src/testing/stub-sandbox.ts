@@ -57,6 +57,9 @@ export function stubSandbox(tree: FileTree, opts: StubSandboxOptions = {}): Sand
     async destroy(): Promise<VoidResult<SandboxError>> {
       return unreachable("destroy");
     },
+    async extendTimeout(): Promise<VoidResult<SandboxError>> {
+      return unreachable("extendTimeout");
+    },
     async writeFile(): Promise<VoidResult<SandboxError>> {
       return unreachable("writeFile");
     },

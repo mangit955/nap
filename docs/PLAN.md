@@ -47,7 +47,9 @@ Bun is the package manager and script runner. Vitest stays the test runner, beca
 
 > ⚠️ **Always `bun run test`, never `bun test`.** `test` is a Bun built-in command and shadows the package.json script — bare `bun test` runs Bun's own runner over our Vitest files and reports nonsense.
 
-**Dependency direction (enforced):** `runtime` → {`context`, `agent`, `sandbox`, `db`} → `shared`. `agent` imports the `SandboxManager` *interface*, never the E2B adapter.
+**Dependency direction (enforced):** `runtime` → {`context`, `agent`, `sandbox`, `storage`, `db`} → `shared`. `agent` imports the `SandboxManager` *interface*, never the E2B adapter.
+
+> Amended during M4-1. `storage` is a package the original list did not have: snapshots need an object store, and it is infrastructure of the same kind as the sandbox and the database — it holds a project's bytes while nothing is running and knows nothing about turns or projects. `ObjectStore` and `SnapshotStore` are deliberately separate ports, because the bytes and the bookkeeping fail independently and the ordering rule teardown depends on is only expressible if they do.
 
 **Key decision — where tools execute.** A batteries-included agent harness (the Claude Agent SDK, and anything like it) ships built-in `Read`/`Write`/`Edit`/`Bash` that act on the harness process's filesystem — which is our API server, not the sandbox. So we do not use one. `AgentService` drives the Messages API through the `LLMProvider` port and owns its own loop, and **the only tools that exist are the six that proxy every operation through `SandboxManager`** — a stronger guarantee than disabling built-ins, because there is no toggle to get wrong. Keeps the API key out of user compute, gives one chokepoint for events and diffs, and makes E2B→K8s a one-package change.
 
@@ -157,7 +159,7 @@ Write conventions (§2), session protocol (§1), and the full task table from th
 **Done when:** both files committed; a cold read of them explains how to resume.
 
 **M0-3 — Event schemas** · deps: M0-1
-`packages/shared/src/events.ts`: Zod discriminated union on `type` for all 11 event types — `user.message`, `agent.thinking`, `agent.message`, `tool.call`, `tool.result`, `file.changed`, `command.output`, `preview.ready`, `turn.started`, `turn.completed`, `turn.failed`. Each carries `sessionId`, `seq`, `turnId`, `createdAt`.
+`packages/shared/src/events.ts`: Zod discriminated union on `type` for all 11 event types (M4-2 adds a twelfth, `system.notice`) — `user.message`, `agent.thinking`, `agent.message`, `tool.call`, `tool.result`, `file.changed`, `command.output`, `preview.ready`, `turn.started`, `turn.completed`, `turn.failed`. Each carries `sessionId`, `seq`, `turnId`, `createdAt`.
 **Tests:** for every event type — a valid fixture parses; a malformed fixture rejects with a useful issue path; the union discriminates to the right member; round-trip `parse(JSON.parse(JSON.stringify(x)))` is identity.
 **Done when:** 11 event types × 4 assertions green.
 
@@ -256,12 +258,14 @@ Block `rm -rf /` and similar, package installs outside the project, and network 
 
 > Amended during M2-8. A turn request carries only a session id, so "resume-or-create" needed a source for the session's project and its current sandbox: `SessionStore` (`packages/shared/src/ports/session-store.ts`), two methods, with the Postgres implementation deferred to M4-4. A sandbox that is recorded but cannot be resumed **fails the turn** rather than creating a fresh one — until M4-2 can restore a snapshot, starting over means silently handing the user an empty template. `user.message` is appended by the runtime, before `turn.started`.
 
+> Amended again during M4-2. There is now somewhere to restore *from*, so a failed resume falls back to a new sandbox filled from the project's last snapshot, and the user is told: the snapshot is from the last time the project was put away, and anything after it is gone. The runtime takes `objects` and `snapshots` **optionally** — with neither, a failed resume still fails the turn, which is the only honest answer when nothing can be restored.
+
 **M2-9 — CLI harness** · deps: M2-8
 A `bun run harness "<prompt>"` script running a real turn against real E2B + real Claude, printing the event stream.
 **Tests:** manual. This is the M2 acceptance gate.
 **Done when:** `bun run harness "add a dark mode toggle"` changes a real file, prints ordered events, and leaves a git commit.
 
-> Amended during M2-9. The harness runs on a scripted model and an in-memory sandbox **by default** and takes `--real` to use the real ones, because the API budget is near-zero and everything except the request shape can be proven for free. A real run defaults to `claude-sonnet-5` at `medium` effort with a 12-step, 40k-token ceiling — hence `ClaudeProvider` gaining `model`/`effort`/`maxTokens`. The "Done when" above describes the `--real` run specifically, and is deliberately outstanding.
+> Amended during M2-9. The harness runs on a scripted model and an in-memory sandbox **by default** and takes `--real` to use the real ones, because the API budget is near-zero and everything except the request shape can be proven for free. A real run defaults to `openai/gpt-5.6-luna` through OpenRouter at `medium` effort with a 12-step, 40k-token ceiling — hence `ClaudeProvider` gaining `model`/`effort`/`maxTokens`. The "Done when" above describes the `--real` run specifically; it was satisfied on 2026-08-10 (commit `6c9e050` in a real sandbox).
 
 ---
 
@@ -324,15 +328,21 @@ Create from template → restore bundle → `npm install` if lockfile changed �
 **Tests:** restore reproduces the exact file set and git history (integration); a missing/corrupt bundle falls back to a fresh template with a warning event rather than an error page; install is skipped when the lockfile is unchanged.
 **Done when:** integration round-trip (build → teardown → restore) is byte-identical on tracked files.
 
+> Amended during M4-2. The order is the reverse of teardown's: the snapshot row and the bundle bytes are fetched **before** a sandbox is created, so a storage failure costs nothing and leaves nothing running to be billed for. Nothing boots Vite — the template's start command already did, as part of creation. The warning is a twelfth event type, `system.notice` (`{ level, text }`), rather than an `agent.message`: every one of those is something the model actually said. And "missing or corrupt" is narrower than "anything went wrong" — an object store that cannot be *reached* fails the open instead of falling back, because handing back an empty template would let the next teardown overwrite a good snapshot with nothing.
+
 **M4-3 — Idle reaper** · deps: M4-1
 Background job: sandboxes idle > N minutes are snapshotted and destroyed.
 **Tests (fake clock):** an idle sandbox is reaped after N; activity resets the timer; a sandbox with a turn in flight is never reaped; a snapshot failure defers destruction.
 **Done when:** the never-reap-during-turn test is green.
 
+> Amended during M4-3. Two things the task could not be built without. **The R2 adapter landed here** (`packages/storage/src/r2-object-store.ts`), because a reaper wired to nothing snapshots nothing — R2 is S3-compatible, so it is the AWS S3 client behind a narrow three-method seam. And **E2B kills every sandbox five minutes after creation by default, active or not**, which made the reaper a race it always lost: sandboxes are now created with an explicit TTL and every turn pushes it back through a new `SandboxManager.extendTimeout`. The idle threshold must stay below that TTL — whichever expires first decides whether an idle project is *put away* or simply lost — and boot refuses to start otherwise. Idleness itself is read from the event log rather than a `last_active_at` column: writing events is what a turn is, so it cannot drift.
+
 **M4-4 — Project CRUD + list page** · deps: M0-5, M4-2
 Create/open/close/delete. Delete removes snapshots from R2.
 **Tests:** create seeds a project + first session; delete cascades to sessions, events, and R2 objects; open of an archived project triggers restore; listing is ordered by `updated_at`.
 **Done when:** the cascade test proves no orphaned R2 objects.
+
+> Amended during M4-4. **The front door moved**: `/` is the project list and the workspace is `/p/[projectId]`, which retires `POST /sessions` and the `localStorage` session id together — a project is now a URL rather than whatever this browser opened last. Which session a project opens in is the server's answer (its newest), so a link cannot go stale as the project grows conversations. **Delete's order is the reverse of teardown's**: sandbox, then objects, then rows, because the snapshot rows are the only record of which objects exist and deleting them first strands every bundle. A failed object delete stops before the database is touched, and the whole operation is safe to repeat. **Close and delete refuse while a turn is running** (409, from the same `TurnRegistry` the reaper consults). "Open of an archived project triggers restore" needed no new code: M4-2 restores whenever `sandbox_id` is null. `projects.status` is settled here as M0-5 asked — `creating`, `ready`, `idle` are used and mean something exact; `archived` and `error` stay in the enum unused.
 
 **M4-5 — Full-cycle integration test** · deps: M4-2, M4-3
 One `test:integration` covering create → turn → teardown → restore → second turn.
@@ -394,7 +404,11 @@ snapshots    id, project_id, r2_key, git_sha, created_at
 3. "Make it dark mode with a purple accent" — incremental edit lands via HMR without a full reload.
 4. Toggle devtools offline, restore — chat reconnects and backfills with no duplicate or missing events.
 5. Close the tab, wait past the idle reaper, reopen — project restores with all files and git history intact.
-6. Sign in as a second account — the first account's project is not listed and its API routes 403.
+6. Sign in as a second account — the first account's project is not listed and its API routes **404**.
+
+> **Amended at M5-2:** this step originally said 403. Answering 403 confirms the row exists, which
+> is itself a fact about someone else's data, so another user's resource is indistinguishable from
+> one that was never there. The check is stricter than the original, not looser.
 
 **Before declaring v1 done:** sweep `effort` (`medium`/`high`/`xhigh`) over a fixed set of five prompts, record token spend and wall-clock per turn, and lock the default.
 

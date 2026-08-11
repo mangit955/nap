@@ -21,6 +21,7 @@ import { join } from "node:path";
 import { NapAgentService } from "@nap/agent/agent-service";
 import { createBedrockClient, toBedrockModel } from "@nap/agent/bedrock";
 import { ClaudeProvider } from "@nap/agent/claude-provider";
+import { createOpenRouterClient, toOpenRouterModel } from "@nap/agent/openrouter";
 import { ScriptedLLMProvider } from "@nap/agent/testing/scripted-llm-provider";
 import { NapContextEngine } from "@nap/context/context-engine";
 import { NoopMemoryProvider } from "@nap/context/noop-memory-provider";
@@ -97,14 +98,15 @@ let provider: LLMProvider;
 if (options.real) {
   loadEnvFile(ENV_FILE, process.env);
 
-  // Bedrock reaches the same models through an AWS account, so it needs AWS credentials and
-  // a region instead of an Anthropic key. The region is checked here rather than left to the
-  // SDK because its client constructor throws on a missing one, and a stack trace is a worse
-  // answer than a sentence naming the variable.
+  // Each route authenticates differently, so each needs its own keys. Bedrock's region is
+  // checked here rather than left to the SDK because its client constructor throws on a
+  // missing one, and a stack trace is a worse answer than a sentence naming the variable.
   const required =
-    options.platform === "bedrock"
-      ? ["E2B_API_KEY", "AWS_BEARER_TOKEN_BEDROCK", "AWS_REGION"]
-      : ["E2B_API_KEY", "ANTHROPIC_API_KEY"];
+    options.platform === "openrouter"
+      ? ["E2B_API_KEY", "OPENROUTER_API_KEY"]
+      : options.platform === "bedrock"
+        ? ["E2B_API_KEY", "AWS_BEARER_TOKEN_BEDROCK", "AWS_REGION"]
+        : ["E2B_API_KEY", "ANTHROPIC_API_KEY"];
 
   for (const key of required) {
     if (process.env[key]) continue;
@@ -112,7 +114,12 @@ if (options.real) {
     process.exit(1);
   }
 
-  const model = options.platform === "bedrock" ? toBedrockModel(options.model) : options.model;
+  const model =
+    options.platform === "openrouter"
+      ? toOpenRouterModel(options.model)
+      : options.platform === "bedrock"
+        ? toBedrockModel(options.model)
+        : options.model;
 
   console.log(
     `REAL RUN — ${model} via ${options.platform} at ${options.effort} effort, ` +
@@ -126,6 +133,7 @@ if (options.real) {
     maxTokens: HARNESS_DEFAULTS.maxOutputTokens,
     // Same provider, same loop, same events — only the transport underneath differs.
     ...(options.platform === "bedrock" ? { client: createBedrockClient() } : {}),
+    ...(options.platform === "openrouter" ? { client: createOpenRouterClient() } : {}),
   });
 } else {
   console.log("Dry run on a scripted model and an in-memory sandbox. Pass --real to spend.\n");

@@ -6,7 +6,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "dev": "bun --watch src/index.ts",
-    "ws:smoke": "bun run scripts/ws-smoke.ts"
+    "ws:smoke": "bun run scripts/ws-smoke.ts",
+    "acceptance": "bun run scripts/acceptance.ts"
   },
   "dependencies": {
     "@nap/agent": "workspace:*",
@@ -15,11 +16,14 @@
     "@nap/runtime": "workspace:*",
     "@nap/sandbox": "workspace:*",
     "@nap/shared": "workspace:*",
+    "@nap/storage": "workspace:*",
+    "better-auth": "1.6.26",
     "hono": "4.13.1",
     "pino": "10.3.1",
     "zod": "4.4.3"
   },
   "devDependencies": {
-    "@types/bun": "1.3.14"
+    "@types/bun": "1.3.14",
+    "drizzle-orm": "0.45.2"
   }
 }

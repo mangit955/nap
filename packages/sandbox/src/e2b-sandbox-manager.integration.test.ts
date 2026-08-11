@@ -61,6 +61,7 @@ describeSandboxManagerConformance({
         },
         resume: (id) => manager.resume(id),
         destroy: (id) => manager.destroy(id),
+        extendTimeout: (id, ms) => manager.extendTimeout(id, ms),
         writeFile: (id, path, contents) => manager.writeFile(id, path, contents),
         readFile: (id, path) => manager.readFile(id, path),
         listFiles: (id, path) => manager.listFiles(id, path),

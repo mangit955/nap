@@ -11,11 +11,19 @@
  */
 
 import type { SessionRecord, SessionStore } from "@nap/shared/ports/session-store";
+import { FAKE_OWNER } from "./in-memory-project-store.ts";
 
-/** A session to start with. `sandboxId` defaults to none. */
+/** A session to start with. `sandboxId` defaults to none, `userId` to the shared fake owner. */
 export type SeedSession = {
   sessionId: string;
   projectId: string;
+  /**
+   * Whose project this session belongs to. Defaulted, because most tests here are about turn
+   * acquisition rather than about who is asking — but a real value, and the same one the
+   * project fake defaults to, so a test that *is* about ownership can name a second user and
+   * get a genuine mismatch rather than two undefineds comparing equal.
+   */
+  userId?: string;
   sandboxId?: string | null;
 };
 
@@ -27,6 +35,7 @@ export class InMemorySessionStore implements SessionStore {
       this.#sessions.set(session.sessionId, {
         sessionId: session.sessionId,
         projectId: session.projectId,
+        userId: session.userId ?? FAKE_OWNER,
         sandboxId: session.sandboxId ?? null,
       });
     }

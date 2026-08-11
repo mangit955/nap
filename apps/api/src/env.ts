@@ -26,17 +26,40 @@ const BaseSchema = z.object({
    */
   E2B_API_KEY: z.string().min(1),
   /**
-   * Which account pays for the model. Not a vendor choice — both routes serve the same Claude
-   * models over the same API, and nothing above `LLMProvider` can tell them apart. Which
-   * credentials are required depends on this, which is why the check below is conditional
-   * rather than a flat list: demanding an Anthropic key from someone billing through AWS is
-   * how a boot check teaches people to paste dummy values.
+   * Which account pays for the model, and therefore which credentials are required — hence the
+   * conditional check below rather than a flat list. Demanding an Anthropic key from someone
+   * billing through OpenRouter is how a boot check teaches people to paste dummy values.
+   *
+   * **OpenRouter is the default and the route this project actually uses.** The other two are
+   * kept because they are the same Messages API underneath and cost nothing to keep working,
+   * but nothing here is configured for them.
    */
-  NAP_PLATFORM: z.enum(["anthropic", "bedrock"]).default("anthropic"),
+  NAP_PLATFORM: z.enum(["openrouter", "anthropic", "bedrock"]).default("openrouter"),
+  /** Billed to an OpenRouter account, whatever the model. Keys look like `sk-or-…`. */
+  OPENROUTER_API_KEY: z.string().min(1).optional(),
   ANTHROPIC_API_KEY: z.string().min(1).optional(),
   /** Bedrock takes an API key as a bearer token, and throws at construction with no region. */
   AWS_BEARER_TOKEN_BEDROCK: z.string().min(1).optional(),
   AWS_REGION: z.string().min(1).optional(),
+  /**
+   * Signs session cookies. Required from the moment there is sign-in to sign: a process that
+   * cannot verify its own cookies has no way to tell who is asking.
+   */
+  BETTER_AUTH_SECRET: z.string().min(1),
+  /**
+   * Where the browser app is served from, and the one origin allowed through CORS with
+   * credentials. It is a different port from this API in development, so it has to be named —
+   * and it cannot be `*`, because a browser will not send a cookie to a wildcard origin.
+   */
+  NAP_WEB_ORIGIN: z.url().default("http://localhost:3000"),
+  /** Where this API is reached. OAuth redirect URIs are built from it, so it must be right. */
+  NAP_API_URL: z.url().default("http://localhost:3001"),
+  /**
+   * A GitHub OAuth app, if there is one. Optional but paired — see the check below. Without
+   * them the GitHub button simply is not offered and email sign-in works as usual.
+   */
+  GITHUB_CLIENT_ID: z.string().min(1).optional(),
+  GITHUB_CLIENT_SECRET: z.string().min(1).optional(),
   /** Environments are all strings; the rest of the app should not have to remember that. */
   PORT: z.coerce.number().int().positive().default(3001),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
@@ -47,14 +70,60 @@ const BaseSchema = z.object({
    *
    * Every message typed into the chat box is a real model call and a real sandbox, so the
    * default is the cheap one — the same model `bun run harness --real` defaults to. Recording
-   * a demo means setting `NAP_MODEL=claude-opus-5` and `NAP_EFFORT=xhigh` for that run, which
-   * is one line rather than a code change.
+   * a demo means setting `NAP_MODEL=anthropic/claude-opus-5` and `NAP_EFFORT=xhigh` for that
+   * run, which is one line rather than a code change.
+   *
+   * The default is priced at roughly a twentieth of Claude Sonnet 5 per token, which is what
+   * makes it the one to debug the agent loop against: most turns during development are spent
+   * proving event ordering and tool sequencing, and that does not need a good model, only one
+   * that returns well-formed tool calls. It is a *fully namespaced* OpenRouter id — a bare
+   * name is assumed to be Anthropic's, which is how this codebase has always spelled a model.
    */
-  NAP_MODEL: z.string().min(1).default("claude-sonnet-5"),
+  NAP_MODEL: z.string().min(1).default("openai/gpt-5.6-luna"),
   NAP_EFFORT: z.enum(["low", "medium", "high", "xhigh", "max"]).default("medium"),
   /** Model calls in one turn, and the ceiling on the context assembled for each of them. */
   NAP_MAX_STEPS: z.coerce.number().int().positive().default(24),
   NAP_CONTEXT_BUDGET_TOKENS: z.coerce.number().int().positive().default(80_000),
+
+  /**
+   * What one person may spend.
+   *
+   * Every turn is a real model call and a real sandbox billed by the second, so an endpoint with
+   * no ceiling is a bill with no ceiling — reachable by a loop in a browser tab as easily as by
+   * anyone malicious. The defaults are deliberately tight: a working session is usually five to
+   * ten messages, so fifteen an hour is room to work rather than a wall, and two running
+   * projects is more than anybody uses at once.
+   *
+   * `NAP_MAX_SANDBOXES_TOTAL` is the process-wide ceiling and is the only one of the three that
+   * bounds what *everybody together* can spend. Per-user limits alone multiply by the number of
+   * users, which is the arithmetic that matters the first time this is shown to strangers.
+   */
+  NAP_TURNS_PER_HOUR: z.coerce.number().int().positive().default(15),
+  NAP_MAX_SANDBOXES_PER_USER: z.coerce.number().int().positive().default(2),
+  NAP_MAX_SANDBOXES_TOTAL: z.coerce.number().int().positive().default(10),
+
+  /**
+   * Where a project's bytes live while no sandbox is holding them.
+   *
+   * Required from the moment the server can put a project away and take it out again: a
+   * process without a bucket destroys sandboxes it cannot snapshot, which is the one failure
+   * mode this whole area exists to prevent.
+   */
+  R2_ACCOUNT_ID: z.string().min(1),
+  R2_BUCKET: z.string().min(1),
+  R2_ACCESS_KEY_ID: z.string().min(1),
+  R2_SECRET_ACCESS_KEY: z.string().min(1),
+
+  /**
+   * When an unused project is put away, and how long its sandbox lives in the meantime.
+   *
+   * **The idle threshold must stay well below the sandbox lifetime.** Whichever expires first
+   * decides what happens to an idle project: the reaper snapshots it before destroying it, and
+   * the provider's own timer simply deletes it. There is a boot check below for that.
+   */
+  NAP_REAP_IDLE_MINUTES: z.coerce.number().int().positive().default(10),
+  NAP_REAP_INTERVAL_SECONDS: z.coerce.number().int().positive().default(60),
+  NAP_SANDBOX_TTL_MINUTES: z.coerce.number().int().positive().default(30),
 });
 
 /**
@@ -65,9 +134,11 @@ const BaseSchema = z.object({
  */
 export const EnvSchema = BaseSchema.superRefine((env, ctx) => {
   const required =
-    env.NAP_PLATFORM === "bedrock"
-      ? (["AWS_BEARER_TOKEN_BEDROCK", "AWS_REGION"] as const)
-      : (["ANTHROPIC_API_KEY"] as const);
+    env.NAP_PLATFORM === "openrouter"
+      ? (["OPENROUTER_API_KEY"] as const)
+      : env.NAP_PLATFORM === "bedrock"
+        ? (["AWS_BEARER_TOKEN_BEDROCK", "AWS_REGION"] as const)
+        : (["ANTHROPIC_API_KEY"] as const);
 
   for (const key of required) {
     if (env[key] !== undefined) continue;
@@ -75,6 +146,49 @@ export const EnvSchema = BaseSchema.superRefine((env, ctx) => {
       code: "custom",
       path: [key],
       message: `is required when NAP_PLATFORM is ${env.NAP_PLATFORM}`,
+    });
+  }
+
+  // Half a GitHub app is not a smaller GitHub app. Configured with only one of the two, the
+  // provider would either be silently skipped — a button that vanished for no stated reason —
+  // or registered with a blank secret, which fails at the redirect back from GitHub, several
+  // steps away from the thing that is actually wrong.
+  const github = [
+    ["GITHUB_CLIENT_ID", env.GITHUB_CLIENT_ID],
+    ["GITHUB_CLIENT_SECRET", env.GITHUB_CLIENT_SECRET],
+  ] as const;
+  const supplied = github.filter(([, value]) => value !== undefined);
+
+  if (supplied.length === 1) {
+    for (const [key, value] of github) {
+      if (value !== undefined) continue;
+      ctx.addIssue({
+        code: "custom",
+        path: [key],
+        message: "is required when the other GITHUB_CLIENT_* variable is set",
+      });
+    }
+  }
+
+  // A per-user cap above the machine-wide one is unreachable: the global check would refuse
+  // first, and the message would talk about the server being busy when the projects filling it
+  // are the asker's own. Loud here rather than confusing at request time.
+  if (env.NAP_MAX_SANDBOXES_PER_USER > env.NAP_MAX_SANDBOXES_TOTAL) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["NAP_MAX_SANDBOXES_PER_USER"],
+      message: `must not exceed NAP_MAX_SANDBOXES_TOTAL (${env.NAP_MAX_SANDBOXES_TOTAL}), or the per-user limit can never be reached`,
+    });
+  }
+
+  // A configuration that reaps later than the provider kills is worse than no reaper at all:
+  // every idle project would be deleted without a snapshot, silently, and the logs would show
+  // a reaper finding nothing to do.
+  if (env.NAP_REAP_IDLE_MINUTES >= env.NAP_SANDBOX_TTL_MINUTES) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["NAP_REAP_IDLE_MINUTES"],
+      message: `must be less than NAP_SANDBOX_TTL_MINUTES (${env.NAP_SANDBOX_TTL_MINUTES}), or sandboxes expire before they are snapshotted`,
     });
   }
 });
