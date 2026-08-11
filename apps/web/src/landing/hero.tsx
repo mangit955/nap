@@ -218,7 +218,7 @@ function WayIn() {
   return (
     <div className="mt-10 flex items-center gap-3">
       <a
-        href="/sign-in?mode=sign-up"
+        href="/sign-up"
         className="rounded-full bg-[var(--s-text-primary)] px-5 py-2.5 font-medium text-[var(--s-text-inverse)] text-sm transition-opacity hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--s-text-primary)] focus-visible:outline-offset-2"
       >
         Sign up

@@ -24,10 +24,7 @@ describe("signed out", () => {
     // One button asks the person who already has an account to guess it means them too.
     show({ signedIn: false });
 
-    expect(screen.getByRole("link", { name: "Sign up" })).toHaveAttribute(
-      "href",
-      "/sign-in?mode=sign-up",
-    );
+    expect(screen.getByRole("link", { name: "Sign up" })).toHaveAttribute("href", "/sign-up");
     expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/sign-in");
   });
 

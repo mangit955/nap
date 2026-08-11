@@ -29,6 +29,36 @@ function click(name: string) {
   fireEvent.click(screen.getByRole("button", { name }));
 }
 
+describe("what the page says it is", () => {
+  it("names the half you are on, in each mode", () => {
+    // The two arrivals are different people — one has an account and one does not — and a form
+    // that says the same thing to both is one they have to read the button to understand.
+    const { unmount } = render(
+      <SignInForm
+        mode="sign-in"
+        onModeChange={vi.fn()}
+        onSubmit={vi.fn()}
+        onGithub={vi.fn()}
+        githubEnabled={false}
+      />,
+    );
+    expect(screen.getByRole("heading", { level: 1, name: "Welcome back." })).toBeInTheDocument();
+    expect(screen.getByText("Your apps are where you left them.")).toBeInTheDocument();
+    unmount();
+
+    setup({ mode: "sign-up" });
+    expect(screen.getByRole("heading", { level: 1, name: "Start a nap." })).toBeInTheDocument();
+  });
+
+  it("offers a way back out", () => {
+    // An auth page reached by accident is a dead end without one, and the wordmark is the thing
+    // people already expect to be a link home.
+    setup();
+
+    expect(screen.getByRole("link", { name: /^nap/ })).toHaveAttribute("href", "/");
+  });
+});
+
 describe("signing in", () => {
   it("hands over what was typed", () => {
     const props = setup();
