@@ -54,6 +54,24 @@ export type TeardownResult = {
    * outlived it — which is a billing problem for whoever runs next, not a failed teardown.
    */
   destroyed: boolean;
+  /**
+   * Whether this teardown wrote a new snapshot, or reused one that already held this commit.
+   *
+   * False is now the ordinary case rather than an oddity: a turn snapshots its own work, so by
+   * the time the reaper arrives the project is usually still sitting on that commit. The field
+   * exists so a caller can say which happened without diffing the key it got back.
+   */
+  captured: boolean;
+};
+
+/** What `captureSnapshot` needs — a teardown minus the part that destroys anything. */
+export type CaptureOptions = {
+  sandbox: SandboxManager;
+  objects: ObjectStore;
+  snapshots: SnapshotStore;
+  projectId: string;
+  sandboxId: string;
+  now?: () => number;
 };
 
 export type TearDownOptions = {
@@ -77,10 +95,22 @@ export function snapshotKey(projectId: string, gitSha: string, at: number): stri
   return `projects/${projectId}/${at}-${gitSha}.bundle`;
 }
 
-export async function tearDownProject(
-  options: TearDownOptions,
-): Promise<Result<TeardownResult, TeardownError>> {
-  const { sandbox, objects, snapshots, projectId, sandboxId } = options;
+/**
+ * Everything a teardown does except destroy the sandbox: bundle the repository, upload it,
+ * write the row.
+ *
+ * Split out because the same three steps are what a *turn* needs at the point it commits. Until
+ * that existed, a project's work reached storage only when someone closed it or the reaper swept
+ * it — so a process that died with a live sandbox left the provider's own timer to delete the
+ * only copy. Snapshotting while the sandbox keeps running is the whole difference.
+ *
+ * The ordering rule at the top of this file is this function's, not `tearDownProject`'s. What
+ * that one adds is the irreversible step, which is why it comes last and why it comes after.
+ */
+export async function captureSnapshot(
+  options: CaptureOptions,
+): Promise<Result<{ key: string; gitSha: string }, TeardownError>> {
+  const { sandbox, sandboxId } = options;
   const now = options.now ?? Date.now;
 
   const sha = await currentSha(sandbox, sandboxId);
@@ -88,12 +118,71 @@ export async function tearDownProject(
     return fail(reasonFor(sha.error), `could not read HEAD: ${sha.error.message}`);
   }
 
+  const captured = await captureAt(options, sha.value, now);
+  if (!captured.ok) return captured;
+
+  return { ok: true, value: { key: captured.value.key, gitSha: sha.value } };
+}
+
+export async function tearDownProject(
+  options: TearDownOptions,
+): Promise<Result<TeardownResult, TeardownError>> {
+  const { sandbox, snapshots, projectId, sandboxId } = options;
+  const now = options.now ?? Date.now;
+
+  const sha = await currentSha(sandbox, sandboxId);
+  if (!sha.ok) {
+    return fail(reasonFor(sha.error), `could not read HEAD: ${sha.error.message}`);
+  }
+
+  // Now that a turn snapshots its own work, arriving here at a commit that is already stored is
+  // the normal case rather than the exception — and re-bundling it would write a second object
+  // holding byte-identical content, which costs money and gives a project two rows where one
+  // would do. A lookup that *fails* is not allowed to stop the teardown: knowing whether it
+  // changed is an optimisation, and the snapshot is not.
+  const existing = await latestOrNull(snapshots, projectId);
+
+  if (existing !== null && existing.gitSha === sha.value) {
+    const destroyed = await sandbox.destroy(sandboxId);
+    // The existing key, so the caller writes the project back onto the snapshot that really
+    // holds it. A fresh key here would point at an object nothing ever uploaded.
+    return {
+      ok: true,
+      value: { key: existing.key, gitSha: sha.value, destroyed: destroyed.ok, captured: false },
+    };
+  }
+
+  const captured = await captureAt(options, sha.value, now);
+  if (!captured.ok) return captured;
+
+  // Only now is the sandbox expendable.
+  const destroyed = await sandbox.destroy(sandboxId);
+
+  return {
+    ok: true,
+    value: { key: captured.value.key, gitSha: sha.value, destroyed: destroyed.ok, captured: true },
+  };
+}
+
+/**
+ * Bundle, upload, record — the part where the project's bytes actually become durable.
+ *
+ * Takes the sha rather than reading it, because both callers have already had to read it and a
+ * second read could legitimately return something different.
+ */
+async function captureAt(
+  options: CaptureOptions,
+  gitSha: string,
+  now: () => number,
+): Promise<Result<{ key: string }, TeardownError>> {
+  const { sandbox, objects, snapshots, projectId, sandboxId } = options;
+
   const bytes = await bundle(sandbox, sandboxId);
   if (!bytes.ok) {
     return fail(reasonFor(bytes.error), `could not bundle the repository: ${bytes.error.message}`);
   }
 
-  const key = snapshotKey(projectId, sha.value, now());
+  const key = snapshotKey(projectId, gitSha, now());
 
   const uploaded = await objects.put(key, bytes.value);
   if (!uploaded.ok) {
@@ -103,16 +192,22 @@ export async function tearDownProject(
   }
 
   try {
-    await snapshots.record({ projectId, key, gitSha: sha.value });
+    await snapshots.record({ projectId, key, gitSha });
   } catch (error) {
     // The object stays. See the note at the top: an orphan is recoverable, a deletion is not.
     return fail("record_failed", `could not record the snapshot: ${String(error)}`);
   }
 
-  // Only now is the sandbox expendable.
-  const destroyed = await sandbox.destroy(sandboxId);
+  return { ok: true, value: { key } };
+}
 
-  return { ok: true, value: { key, gitSha: sha.value, destroyed: destroyed.ok } };
+/** The newest snapshot, or null — including when the store cannot say. */
+async function latestOrNull(snapshots: SnapshotStore, projectId: string) {
+  try {
+    return await snapshots.latestFor(projectId);
+  } catch {
+    return null;
+  }
 }
 
 /**
