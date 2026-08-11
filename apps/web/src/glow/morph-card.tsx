@@ -60,6 +60,7 @@ const GAP_MS = HANDOVER_AT - PULSE_MS + FADE_OUT_MS + MORPH_MS + 80 + SETTLED_MS
 export function MorphCard({
   paletteRef,
   faceClassName = "",
+  onPulse,
 }: {
   /**
    * The element the palette is written to — the stage, not the card. Custom properties inherit,
@@ -68,6 +69,13 @@ export function MorphCard({
    */
   paletteRef: React.RefObject<HTMLElement | null>;
   faceClassName?: string;
+  /**
+   * Called on the beat that lights the rim, so something outside the card can be lit by the
+   * same light rather than by a clock of its own. A second clock is the failure this exists to
+   * prevent: the pulse stops while the tab is hidden and any independent loop would come back
+   * out of phase, which reads as two unrelated effects.
+   */
+  onPulse?: () => void;
 }) {
   const bodyRef = useRef<HTMLDivElement>(null);
   const { sizes, probe } = useVariantSizes();
@@ -104,6 +112,7 @@ export function MorphCard({
     pulseMs: PULSE_MS,
     gapMs: GAP_MS,
     onPulse: () => {
+      onPulse?.();
       clearTimers();
       after(HANDOVER_AT, () => {
         setShowing(false);
