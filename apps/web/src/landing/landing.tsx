@@ -63,14 +63,14 @@ export function Landing({
         )}
       </header>
 
+      {/*
+        No footer here. The hero fills the viewport, so anything after it would be a band of the
+        dark page under a full screen of light; the line that lived here is inside the stage.
+      */}
       <main className="flex flex-1 flex-col">
         {hero}
         {auth === "signed-in" && projects}
       </main>
-
-      <footer className="shrink-0 px-6 py-6 text-center text-muted/70 text-xs">
-        Every app is built in its own sandbox, and only you can open it.
-      </footer>
     </div>
   );
 }

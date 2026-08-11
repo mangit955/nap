@@ -101,7 +101,7 @@ export function Hero({
   return (
     <section
       ref={stage}
-      className="ai-stage relative flex flex-col items-center overflow-hidden px-6 pt-24 pb-28 sm:pt-32"
+      className="ai-stage relative flex min-h-dvh flex-col items-center justify-center overflow-hidden px-6 py-24"
     >
       <div className="relative z-10 flex w-full max-w-2xl flex-col items-center">
         <h1 className="text-balance text-center font-semibold text-4xl text-[var(--s-text-primary)] leading-[1.05] tracking-[-0.03em] sm:text-6xl">
@@ -200,6 +200,15 @@ export function Hero({
           ))}
         </ul>
       </div>
+
+      {/*
+        Inside the stage rather than under it. The hero fills the viewport, so anything placed
+        after it would be a strip of the dark page at the foot of the first screen — which is
+        the one thing this section is not supposed to have.
+      */}
+      <p className="absolute inset-x-0 bottom-6 text-center text-[var(--s-text-subtle)] text-xs">
+        Every app is built in its own sandbox, and only you can open it.
+      </p>
     </section>
   );
 }
