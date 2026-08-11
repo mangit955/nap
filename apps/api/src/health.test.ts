@@ -62,6 +62,27 @@ describe("createHealthProbe", () => {
     await expect(probe()).resolves.toEqual({ status: "degraded", checks: { database: "down" } });
   });
 
+  it("tolerates a slow first connection by default, rather than crying outage", async () => {
+    vi.useFakeTimers();
+    // Measured, not guessed: a Neon instance that has scaled to zero answers its first query in
+    // ~1.8s, and with the original 2s deadline the first poll after a cold boot reported
+    // `degraded` on a healthy system. A false outage is the reading that teaches people to
+    // ignore the endpoint, so the default has to clear a real cold start with margin.
+    const probe = createHealthProbe({
+      checks: [
+        {
+          name: "database",
+          probe: () => new Promise((resolve) => setTimeout(resolve, 3000)),
+        },
+      ],
+    });
+
+    const report = probe();
+    await vi.advanceTimersByTimeAsync(3000);
+
+    await expect(report).resolves.toEqual({ status: "ok", checks: { database: "ok" } });
+  });
+
   it("gives up on a probe that hangs rather than hanging with it", async () => {
     vi.useFakeTimers();
     // The failure this is for: a database that accepts the connection and never answers. With

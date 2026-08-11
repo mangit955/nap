@@ -22,6 +22,16 @@
  * each turn cost and how long it took.
  */
 
+/**
+ * `--keep` leaves the project and its sandbox running at the end.
+ *
+ * The two steps a machine cannot settle need a live preview to look at, and the cleanup that
+ * makes a repeatable run possible is exactly what takes it away. So the default tidies up —
+ * a sandbox nobody destroys is billed until the reaper reaches it — and a run whose purpose is
+ * to be looked at asks to keep it.
+ */
+const KEEP = process.argv.includes("--keep");
+
 const API = process.env.NAP_API_URL ?? "http://localhost:3001";
 const WS = API.replace(/^http/, "ws");
 
@@ -151,13 +161,21 @@ class Stream {
     return this.events.map((e) => Number(e.seq));
   }
 
-  /** Resolves on the terminal event for a turn, or rejects if the turn never ends. */
-  async waitForTurnEnd(): Promise<Json> {
+  /**
+   * Resolves on the terminal event of the turn that began at `fromIndex`.
+   *
+   * The index matters more than it looks. A stream opened at seq 0 replays the whole session,
+   * so a search over *every* event it holds finds the previous turn's `turn.completed`
+   * immediately and reports the new turn finished before it has started — which then attributes
+   * the old turn's events to the new one and leaves a turn genuinely in flight while the script
+   * moves on to close the project.
+   */
+  async waitForTurnEnd(fromIndex: number): Promise<Json> {
     const deadline = Date.now() + TURN_TIMEOUT_MS;
     while (Date.now() < deadline) {
-      const terminal = this.events.find(
-        (e) => e.type === "turn.completed" || e.type === "turn.failed",
-      );
+      const terminal = this.events
+        .slice(fromIndex)
+        .find((e) => e.type === "turn.completed" || e.type === "turn.failed");
       if (terminal !== undefined) return terminal;
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
@@ -180,10 +198,21 @@ async function previewServes(url: string, timeoutMs: number): Promise<number | n
   return null;
 }
 
-async function runTurn(client: Client, sessionId: string, message: string, label: string) {
-  const stream = new Stream(sessionId, client.cookie);
-  await stream.open();
-
+/**
+ * Runs one turn on an already-open stream.
+ *
+ * The stream is passed in rather than created here so a session has exactly one, for the whole
+ * run — which is both what a browser does and what keeps each turn's events distinguishable
+ * from the replay of the turns before it.
+ */
+async function runTurn(
+  client: Client,
+  stream: Stream,
+  sessionId: string,
+  message: string,
+  label: string,
+) {
+  const from = stream.events.length;
   const startedAt = Date.now();
   const res = await client.request(`/sessions/${sessionId}/turns`, {
     method: "POST",
@@ -191,12 +220,11 @@ async function runTurn(client: Client, sessionId: string, message: string, label
   });
   if (res.status !== 202) throw new Error(`turn refused: ${res.status} ${await res.text()}`);
 
-  const terminal = await stream.waitForTurnEnd();
+  const terminal = await stream.waitForTurnEnd(from);
   const wallClockMs = Date.now() - startedAt;
 
   if (terminal.type === "turn.failed") {
     fail(label, `turn failed: ${JSON.stringify(terminal.payload)}`);
-    stream.close();
     return { stream, terminal, ok: false as const };
   }
 
@@ -205,7 +233,11 @@ async function runTurn(client: Client, sessionId: string, message: string, label
     durationMs: number;
     commitSha: string | null;
   };
-  const filesChanged = stream.events
+  // Scoped by `turnId`, not by "everything on the socket". Each turn opens its own stream at
+  // seq 0 and therefore replays the whole session, so an unscoped filter attributes the first
+  // turn's files — and its `preview.ready` — to the second one.
+  const turnEvents = stream.events.slice(from).filter((e) => e.turnId === terminal.turnId);
+  const filesChanged = turnEvents
     .filter((e) => e.type === "file.changed")
     .map((e) => String((e.payload as { path: string }).path));
 
@@ -219,7 +251,18 @@ async function runTurn(client: Client, sessionId: string, message: string, label
     filesChanged,
   });
 
-  return { stream, terminal, ok: true as const, filesChanged, payload };
+  return { stream, terminal, ok: true as const, filesChanged, payload, turnEvents };
+}
+
+/** Closes a project, tolerating the brief window where the registry still calls it busy. */
+async function closeWithRetry(client: Client, projectId: string, attempts = 20): Promise<Json> {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const res = await client.request(`/projects/${projectId}/close`, { method: "POST" });
+    if (res.ok) return (await res.json()) as Json;
+    if (res.status !== 409) throw new Error(`close failed: ${res.status} ${await res.text()}`);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error("the project never stopped reporting a turn in flight");
 }
 
 async function main(): Promise<void> {
@@ -244,16 +287,22 @@ async function main(): Promise<void> {
   const sessionId = String(project.sessionId);
   pass("project created", `${projectId.slice(0, 8)}… session ${sessionId.slice(0, 8)}…`);
 
+  // Opened once, before any turn, and held for the rest of the run — a browser keeps one socket
+  // per session and every turn's events arrive on it.
+  const stream = new Stream(sessionId, alice.cookie);
+  await stream.open();
+
   // ── Step 2 ────────────────────────────────────────────────────────────────
   heading("step 2 — build a todo list");
   const first = await runTurn(
     alice,
+    stream,
     sessionId,
     "Build a todo list with add, complete, and delete",
     "todo list",
   );
 
-  const previewEvent = first.stream.events.find((e) => e.type === "preview.ready");
+  const previewEvent = (first.ok ? first.turnEvents : []).find((e) => e.type === "preview.ready");
   const previewUrl =
     previewEvent === undefined ? null : String((previewEvent.payload as { url: string }).url);
 
@@ -277,6 +326,7 @@ async function main(): Promise<void> {
   heading("step 3 — incremental edit lands via HMR");
   const second = await runTurn(
     alice,
+    stream,
     sessionId,
     "Make it dark mode with a purple accent",
     "dark mode",
@@ -284,7 +334,9 @@ async function main(): Promise<void> {
 
   // A second `preview.ready` would remount the frame — a full reload, which is what this step
   // says must not happen. Its absence is the machine-checkable half of "via HMR".
-  const announcedAgain = second.stream.events.some((e) => e.type === "preview.ready");
+  const announcedAgain = (second.ok ? second.turnEvents : []).some(
+    (e) => e.type === "preview.ready",
+  );
   if (announcedAgain) fail("no remount", "a second preview.ready would hard-reload the app");
   else pass("no remount", "no second preview.ready, so the frame is not re-keyed");
   if (second.ok && second.filesChanged.length > 0) {
@@ -297,10 +349,9 @@ async function main(): Promise<void> {
 
   // ── Step 4 ────────────────────────────────────────────────────────────────
   heading("step 4 — reconnect backfills with no gap and no duplicate");
-  const live = second.stream;
-  const seenSeqs = live.seqs;
+  const seenSeqs = stream.seqs;
   const highest = Math.max(...seenSeqs);
-  live.close();
+  stream.close();
 
   const rejoined = new Stream(sessionId, alice.cookie);
   await rejoined.open(Math.floor(highest / 2));
@@ -315,17 +366,29 @@ async function main(): Promise<void> {
   else fail("no duplicates", `repeated seq ${duplicates.join(", ")}`);
   if (missing.length === 0) pass("no gaps", `seq ${replayed[0]}…${replayed.at(-1)}`);
   else fail("no gaps", `missing seq ${missing.join(", ")}`);
-  rejoined.close();
 
   // ── Step 5 ────────────────────────────────────────────────────────────────
   heading("step 5 — close and reopen, files and history intact");
   const before = (await alice.json(`/sessions/${sessionId}/files`)) as { files?: unknown[] };
-  const closed = await alice.json(`/projects/${projectId}/close`, { method: "POST" });
+  // Retried, because the client learns a turn is over before the server does: `turn.completed`
+  // is published from the runtime, while the route clears its `TurnRegistry` entry in a
+  // `.finally` that runs after `runTurn` resolves. A close issued the instant the turn visibly
+  // ends can land in that window and is answered 409. Worth knowing about rather than
+  // designing around — the fix belongs in the UI, which should not offer close mid-turn anyway.
+  const closed = await closeWithRetry(alice, projectId);
   if (closed.closed === true) pass("closed", `snapshot ${String(closed.key ?? "").slice(-12)}`);
   else fail("closed", JSON.stringify(closed));
 
-  const reopened = await runTurn(alice, sessionId, "Add a footer that says Nap", "reopen");
-  const notices = reopened.stream.events.filter((e) => e.type === "system.notice");
+  const reopened = await runTurn(
+    alice,
+    rejoined,
+    sessionId,
+    "Add a footer that says Nap",
+    "reopen",
+  );
+  const notices = (reopened.ok ? reopened.turnEvents : []).filter(
+    (e) => e.type === "system.notice",
+  );
   if (notices.length === 0) pass("restored silently", "no system.notice, so nothing was lost");
   else fail("restored silently", JSON.stringify(notices.map((n) => n.payload)));
 
@@ -358,8 +421,15 @@ async function main(): Promise<void> {
 
   // ── Cleanup ───────────────────────────────────────────────────────────────
   heading("cleanup");
-  const removed = await alice.json(`/projects/${projectId}`, { method: "DELETE" });
-  pass("project deleted", JSON.stringify(removed));
+  rejoined.close();
+  if (KEEP) {
+    console.log(`  \x1b[33mkept\x1b[0m  ${previewUrl ?? "(no preview)"}`);
+    console.log(`        sign in as ${alice.email} / correct-horse-battery`);
+    console.log(`        the reaper puts it away after 10 idle minutes; delete it sooner from /`);
+  } else {
+    const removed = await alice.json(`/projects/${projectId}`, { method: "DELETE" });
+    pass("project deleted", JSON.stringify(removed));
+  }
 
   // ── The numbers the "Done when" asks for ──────────────────────────────────
   heading("cost and latency per turn");

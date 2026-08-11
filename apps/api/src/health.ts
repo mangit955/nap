@@ -50,7 +50,17 @@ export type HealthProbeOptions = {
   now?: () => number;
 };
 
-const DEFAULT_TIMEOUT_MS = 2000;
+/**
+ * Long enough for a serverless database's first connection, which is the case that matters.
+ *
+ * This was 2000ms and it was wrong, found by booting against a real Neon instance: one that has
+ * scaled to zero takes **~1.8s** to answer its first query, so the first poll after a cold start
+ * raced it and reported `degraded` on a perfectly healthy system. A false outage is worse than a
+ * missed one — it is the reading that teaches people to stop trusting the endpoint, and anything
+ * automated watching it would act on a lie. 5s leaves real margin over the measurement while
+ * staying well inside any sensible poll interval.
+ */
+const DEFAULT_TIMEOUT_MS = 5000;
 
 /**
  * Long enough that polling costs nothing, short enough that a recovery is visible quickly.
