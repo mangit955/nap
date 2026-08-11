@@ -404,7 +404,11 @@ snapshots    id, project_id, r2_key, git_sha, created_at
 3. "Make it dark mode with a purple accent" — incremental edit lands via HMR without a full reload.
 4. Toggle devtools offline, restore — chat reconnects and backfills with no duplicate or missing events.
 5. Close the tab, wait past the idle reaper, reopen — project restores with all files and git history intact.
-6. Sign in as a second account — the first account's project is not listed and its API routes 403.
+6. Sign in as a second account — the first account's project is not listed and its API routes **404**.
+
+> **Amended at M5-2:** this step originally said 403. Answering 403 confirms the row exists, which
+> is itself a fact about someone else's data, so another user's resource is indistinguishable from
+> one that was never there. The check is stricter than the original, not looser.
 
 **Before declaring v1 done:** sweep `effort` (`medium`/`high`/`xhigh`) over a fixed set of five prompts, record token spend and wall-clock per turn, and lock the default.
 

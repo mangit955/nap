@@ -2,7 +2,7 @@
 
 Current milestone: **M5 — Auth & Hardening** (branch `feat/m5-hardening`). M0 through M3 are
 merged to `main` (M2 and M3 together, in PR #4); **M4 is complete** on `feat/m4-persistence`.
-M2-1 and M2-9 are still `IN_PROGRESS` pending one real run each.
+**M5-6 is the only task left.**
 
 > **Two things to do to a working checkout**, as of M5-1. Add `BETTER_AUTH_SECRET=` to
 > `apps/api/.env` (`openssl rand -base64 32`) — the API will not boot without it.
