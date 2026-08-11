@@ -88,16 +88,17 @@ describe("rollPalette", () => {
     expect(roll(0.1)).not.toBe(roll(0.9));
   });
 
-  it("keeps the stage barely tinted", () => {
-    // The rim is light and can be as saturated as it likes. The stage is the *room* — it is on
-    // screen continuously, and at anything below the top of the lightness range it stops being
-    // a surface the box is lighting and becomes a coloured page.
+  it("leaves the stage alone", () => {
+    // The stage is the *room*, and it is on screen continuously. It used to drift through the
+    // same arc as the rim; what that reads as is the page tinting itself every few seconds, and
+    // it drags every neutral on the page along with it. Asserted rather than merely deleted,
+    // because a roll that writes a property no stylesheet reads is invisible until someone
+    // notices the page changing colour again.
     const target = recorder();
     rollPalette(target, () => 0.5);
 
     for (const property of ["--ai-bg1", "--ai-bg2", "--ai-bg3"]) {
-      const lightness = Number(/ ([\d.]+)%\)$/.exec(target.written.get(property) ?? "")?.[1]);
-      expect(lightness, property).toBeGreaterThanOrEqual(90);
+      expect(target.written.has(property), property).toBe(false);
     }
   });
 

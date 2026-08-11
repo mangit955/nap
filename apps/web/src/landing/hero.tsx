@@ -5,9 +5,10 @@
  * it is.
  *
  * The stage is light and the rest of the page is near-black, which is not a decoration — it is
- * the reason the rim light is worth building. A pale surface drifting through the same colour
- * arc that lights the card's edge reads as one thing illuminating another; the same effect on a
- * dark page reads as a glow with nowhere to land.
+ * what gives the rim light somewhere to land. On a dark page a coloured glow is just a glow; on
+ * a pale one it reads as light falling on a surface. The surface itself is a fixed neutral and
+ * deliberately so: it used to drift through the same arc as the rim, which read as the page
+ * tinting itself rather than as anything being lit.
  *
  * **The card is a picture, not a control.** It cycles through four surfaces from the sort of
  * interface that sits around a model while it works, and nothing about it responds to a cursor.

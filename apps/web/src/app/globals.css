@@ -257,33 +257,14 @@ body {
 }
 
 /*
- * The stage's colour, registered — and registered as colours, for one reason: an unregistered
- * custom property cannot be transitioned, so a new palette would swap in on a single frame.
- * These are the only palette values that need it. The rim's own colours change while the light
- * is out and are never seen mid-change.
+ * The stage: a light surface the box stands on, and a *fixed* one.
  *
- * `inherits: true` because the roll is written on the stage and read by the gradient on it.
- */
-@property --ai-bg1 {
-  syntax: "<color>";
-  inherits: true;
-  initial-value: #f7f9fc;
-}
-@property --ai-bg2 {
-  syntax: "<color>";
-  inherits: true;
-  initial-value: #eef4fb;
-}
-@property --ai-bg3 {
-  syntax: "<color>";
-  inherits: true;
-  initial-value: #e6f0fa;
-}
-
-/*
- * The stage: a light surface the box stands on, drifting through the same arc that lights its
- * rim. It is the only part of the effect on screen continuously, which is why it moves an
- * order of magnitude slower than the pulse does.
+ * It used to drift through the same arc that lit the rim, on the theory that a surface changing
+ * colour with the light reads as being lit by it. It does not. It reads as the page tinting
+ * itself every few seconds for no reason a reader can see, and it takes every neutral on the
+ * page with it — the doodles, the borders, the card's own face. The light is the event; the
+ * room it happens in should hold still. The three registered `--ai-bg*` properties that made
+ * the drift interpolate went with it.
  *
  * **Its design tokens are scoped here rather than to `:root`.** The rest of this app is a dark
  * frame around somebody's project; a light ramp declared globally would restyle all of it by
@@ -335,12 +316,14 @@ body {
  * which is drawn *over* the stage and therefore needs its light-theme ink, but must not paint a
  * second gradient behind itself. One declaration block for both, so the two can never drift.
  */
+/*
+ * Three stops of one neutral rather than a flat fill: a large pale area with no gradation at all
+ * reads as unpainted, and the barely-there fall from top to bottom is what makes it read as a
+ * surface. Neutral means *neutral* — these are greys with no hue in them, because anything
+ * tinted here would be a second colour on a page whose one colour is the rim.
+ */
 .ai-stage {
-  background: linear-gradient(180deg, var(--ai-bg1) 0%, var(--ai-bg2) 55%, var(--ai-bg3) 100%);
-  transition:
-    --ai-bg1 1200ms cubic-bezier(0.22, 1, 0.36, 1),
-    --ai-bg2 1200ms cubic-bezier(0.22, 1, 0.36, 1),
-    --ai-bg3 1200ms cubic-bezier(0.22, 1, 0.36, 1);
+  background: linear-gradient(180deg, #fcfcfd 0%, #f7f7f9 55%, #f2f2f5 100%);
 }
 
 /*
