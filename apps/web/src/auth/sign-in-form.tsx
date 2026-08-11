@@ -16,6 +16,7 @@
  */
 
 import { useState } from "react";
+import { NapMark } from "../brand/nap-mark.tsx";
 
 export type SignInMode = "sign-in" | "sign-up";
 
@@ -61,7 +62,10 @@ export function SignInForm({
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-sm flex-col justify-center gap-6 px-6 py-12">
       <header className="flex flex-col gap-1">
-        <h1 className="font-semibold text-ink text-lg tracking-tight">nap</h1>
+        <h1 className="flex items-center gap-2 font-semibold text-ink text-lg tracking-tight">
+          <NapMark className="size-6" />
+          nap
+        </h1>
         <p className="text-muted text-xs">describe an app, watch it get built</p>
       </header>
 
