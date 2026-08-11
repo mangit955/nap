@@ -113,3 +113,27 @@ describe("when the bookkeeping fails", () => {
     expect(objects.keys()).toHaveLength(1);
   });
 });
+
+describe("closing a project that a turn has already snapshotted", () => {
+  it("points the project at the existing snapshot instead of writing a second one", async () => {
+    // The ordinary case now: a turn snapshots its own work, and minutes later the reaper — or
+    // the user — closes the project at the same commit. Capturing again would upload a
+    // byte-identical bundle and leave the project with two rows describing one tree.
+    await snapshots.record({
+      projectId: PROJECT,
+      key: "projects/p/from-the-turn.bundle",
+      gitSha: SHA,
+    });
+
+    const result = await close();
+
+    expect(result).toMatchObject({ outcome: "put_away", key: "projects/p/from-the-turn.bundle" });
+    expect(objects.puts).toBe(0);
+    expect(snapshots.all()).toHaveLength(1);
+    // The row still has to name a snapshot that exists, or the next open restores from nothing.
+    expect(projects.get(PROJECT)).toMatchObject({
+      sandboxId: null,
+      snapshotKey: "projects/p/from-the-turn.bundle",
+    });
+  });
+});

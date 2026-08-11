@@ -104,6 +104,15 @@ let firstOutcome: TurnOutcome;
 let secondOutcome: TurnOutcome;
 let sweep: SweepResult;
 let snapshotKey: string;
+/**
+ * Every key this run wrote, collected while the rows still exist.
+ *
+ * The database is a throwaway container and takes its rows with it, so the bucket is the only
+ * thing here that outlives the process — and the rows are the only record of which objects
+ * belong to this run. Since a turn now snapshots itself, there are several rather than one, and
+ * deleting only the newest would leave the rest orphaned in a real bucket on every run.
+ */
+let writtenKeys: string[] = [];
 let log: StoredEvent[];
 let restoredGitLog: string;
 
@@ -219,13 +228,14 @@ beforeAll(async () => {
   restoredGitLog = history.value.stdout;
 
   log = await events.readFrom(sessionId, 0);
+
+  // Read here, not in `afterAll` — by then the container is on its way out.
+  writtenKeys = (await snapshots.listFor(projectId)).map((row) => row.key);
 }, 300_000);
 
 afterAll(async () => {
   for (const sandboxId of created) await sandbox.destroy(sandboxId);
-  // The bucket is the only thing here that outlives the process — the container takes the rows
-  // with it when it stops.
-  if (snapshotKey !== "") await objects.delete(snapshotKey);
+  for (const key of writtenKeys) await objects.delete(key);
   await closeDatabase?.();
   await database?.stop();
 }, 120_000);

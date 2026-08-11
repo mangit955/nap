@@ -38,6 +38,7 @@ import type { SessionRecord, SessionStore } from "@nap/shared/ports/session-stor
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
 import type { Result } from "@nap/shared/result";
 import { openProject } from "./restore.ts";
+import { captureSnapshot } from "./teardown.ts";
 import { eventLogLine } from "./turn-log.ts";
 
 type Payload<T extends NapEvent["type"]> = NapEventOf<T>["payload"];
@@ -246,6 +247,7 @@ export class SingleAgentRuntime implements Runtime {
 
       const terminal = sink.terminal;
       if (terminal?.type === "turn.completed") {
+        await this.#preserve(session.projectId, sandboxId.value.id, terminal.payload.commitSha);
         return { ok: true, turnId, commitSha: terminal.payload.commitSha };
       }
       if (terminal?.type === "turn.failed") {
@@ -271,6 +273,51 @@ export class SingleAgentRuntime implements Runtime {
 
       return { ok: false, turnId, reason: "internal", message };
     }
+  }
+
+  /**
+   * Puts the turn's work somewhere that outlives the sandbox.
+   *
+   * **A sandbox is the only copy of a project until this runs.** It used to run only when
+   * someone closed the project or the reaper swept it — and the reaper lives in this process,
+   * so anything that stopped the process left the provider's own timer to delete the work.
+   * That is the window every deploy sits in. Snapshotting here closes it: the cost is one
+   * bundle and one upload per turn, against losing everything since the last time a project
+   * happened to go idle.
+   *
+   * Deliberately after the turn's terminal event is persisted and published, so nothing the
+   * user is waiting on is held up by it — the caller answers the request long before this and
+   * runs the turn detached.
+   *
+   * **Only for a turn that committed.** `null` means the turn changed no files, and a git
+   * bundle holds commits rather than a working tree, so there would be nothing new in it.
+   *
+   * **A failure here never fails the turn.** The turn happened, and its work is still in the
+   * live sandbox with the reaper as a backstop; discarding a completed turn to report a backup
+   * problem would be the worse trade. It is not told to the user either — there is no action
+   * for them to take, and a warning nobody can act on is what teaches people to ignore the
+   * warnings that matter.
+   */
+  async #preserve(projectId: string, sandboxId: string, commitSha: string | null): Promise<void> {
+    if (this.#restore === null || commitSha === null) return;
+
+    const captured = await captureSnapshot({
+      sandbox: this.#options.sandbox,
+      objects: this.#restore.objects,
+      snapshots: this.#restore.snapshots,
+      projectId,
+      sandboxId,
+    }).catch((error: unknown) => ({ ok: false as const, error: { message: String(error) } }));
+
+    if (captured.ok) {
+      getLogger().info({ key: captured.value.key, commitSha }, "turn snapshotted");
+      return;
+    }
+
+    getLogger().warn(
+      { commitSha, reason: captured.error.message },
+      "could not snapshot the turn; the work is still only in the sandbox",
+    );
   }
 
   /**

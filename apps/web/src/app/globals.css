@@ -26,6 +26,12 @@
     ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
   --font-mono:
     ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  /*
+   * Loaded by `next/font` in the root layout, which is what defines `--font-bricolage`. The
+   * fallback is not decoration: `display: swap` means the first paint of the landing page is
+   * set in it, and a stack ending at `sans-serif` would hand that paint to Times.
+   */
+  --font-display: var(--font-bricolage), ui-sans-serif, system-ui, sans-serif;
 }
 
 html,
@@ -38,4 +44,433 @@ body {
   color: var(--color-ink);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+}
+
+/*
+ * The mark waking up.
+ *
+ * Asleep is the resting state and costs nothing: no animation is running, and the lids are
+ * simply the shapes cut out of the body. Hovering fades the lids out, fades the eyes in, and
+ * starts a slow glance — right, left, back to centre — with a bob barely half a pixel high,
+ * because something awake is never completely still.
+ *
+ * The timings are deliberately unhurried. At 24px a quick movement reads as a flicker, which
+ * looks like a rendering fault rather than a character; the glance holds at each end long
+ * enough to be read as *looking* rather than as sliding.
+ *
+ * `transform-box: fill-box` is load-bearing: without it an SVG transform is measured against
+ * the whole viewport rather than the element, and the bob throws the ghost off the canvas.
+ */
+.nap-mark-shut,
+.nap-mark-open {
+  transition: opacity 260ms ease;
+}
+
+.nap-mark-open {
+  opacity: 0;
+}
+
+.nap-mark:hover .nap-mark-shut {
+  opacity: 0;
+}
+
+.nap-mark:hover .nap-mark-open {
+  opacity: 1;
+}
+
+.nap-mark-eyes,
+.nap-mark-body,
+.nap-mark-z {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/*
+ * Asleep is a state, not a pause. Left perfectly still the mark reads as an icon that happens
+ * to have a face; a slow breath and a z leaving every so often is what makes it read as
+ * something *doing* the sleeping.
+ *
+ * The breath is deliberately smaller than it wants to be — three and a half per cent over three
+ * and a half seconds. Anything faster is panting, and anything larger draws the eye away from
+ * the page it is sitting on.
+ */
+.nap-mark-body {
+  animation: nap-breathe 3600ms ease-in-out infinite;
+}
+
+/*
+ * The z's are staggered by an inline delay per element rather than by a shared animation, so
+ * they leave one at a time. `both` holds the first frame during that delay — without it every z
+ * is visible at full opacity until its turn comes round, which reads as three of them stuck to
+ * the corner.
+ */
+.nap-mark-z {
+  opacity: 0;
+  animation: nap-z 4200ms ease-out infinite both;
+}
+
+/* Waking cancels both. Nothing yawns while it is looking at you. */
+.nap-mark:hover .nap-mark-z {
+  animation: none;
+  opacity: 0;
+}
+
+/* The glance starts after the eyes have finished opening, so it never happens behind a lid. */
+.nap-mark:hover .nap-mark-eyes {
+  animation: nap-glance 3s ease-in-out 240ms infinite;
+}
+
+.nap-mark:hover .nap-mark-body {
+  animation: nap-bob 3s ease-in-out 240ms infinite;
+}
+
+@keyframes nap-glance {
+  0%,
+  14% {
+    transform: translateX(0);
+  }
+  28%,
+  40% {
+    transform: translateX(2.2px);
+  }
+  56%,
+  68% {
+    transform: translateX(-2.2px);
+  }
+  84%,
+  100% {
+    transform: translateX(0);
+  }
+}
+
+@keyframes nap-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-0.4px);
+  }
+}
+
+@keyframes nap-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.035);
+  }
+}
+
+/*
+ * One z: it rises into its station, holds, and fades leaving it.
+ *
+ * The drift is short on purpose. Each z owns a position and the *stagger* is what makes them
+ * read as rising — a z that travels the whole height instead runs out of headroom and is
+ * clipped flat against the top of the box, which is how the first version of this looked.
+ */
+@keyframes nap-z {
+  0% {
+    opacity: 0;
+    transform: translate(0, 1.2px) scale(0.7);
+  }
+  22% {
+    opacity: 0.85;
+  }
+  60% {
+    opacity: 0.55;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(1.2px, -2.4px) scale(1.12);
+  }
+}
+
+/*
+ * Under reduced motion it still wakes — the eyes are a state, not a movement, and a mark that
+ * refused to respond at all would read as broken rather than as considerate. What goes is
+ * everything that travels: no glancing, no bob, no breath, and z's that sit still instead of
+ * rising. A static `zzz` still says asleep, which is the whole job; it simply stops saying it
+ * over and over.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .nap-mark .nap-mark-eyes,
+  .nap-mark .nap-mark-body,
+  .nap-mark:hover .nap-mark-eyes,
+  .nap-mark:hover .nap-mark-body {
+    animation: none;
+  }
+
+  .nap-mark-z {
+    animation: none;
+    opacity: 0.75;
+  }
+}
+
+/*
+ * The rim light.
+ *
+ * Every angle below is a *registered* custom property, and that registration is not optional:
+ * an unregistered custom property has no type, so the browser cannot interpolate it and the
+ * gradient jumps between keyframes instead of sweeping. The colours are ordinary custom
+ * properties — they are set from script per pulse and never animated.
+ *
+ * The initial angles are the wedge at rest: a bright arc across the first eighty degrees and
+ * nothing for the rest of the circle. The pulse pushes each of them outward as it dies, so the
+ * head tightens while the tail blooms.
+ */
+@property --ai-start {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 180deg;
+}
+@property --ai-a2 {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 16deg;
+}
+@property --ai-a3 {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 30deg;
+}
+@property --ai-a4 {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 43deg;
+}
+@property --ai-a5 {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 59deg;
+}
+@property --ai-a6 {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 72deg;
+}
+@property --ai-a7 {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 84deg;
+}
+
+/*
+ * The stage: a light surface the box stands on, and a *fixed* one.
+ *
+ * It used to drift through the same arc that lit the rim, on the theory that a surface changing
+ * colour with the light reads as being lit by it. It does not. It reads as the page tinting
+ * itself every few seconds for no reason a reader can see, and it takes every neutral on the
+ * page with it — the doodles, the borders, the card's own face. The light is the event; the
+ * room it happens in should hold still. The three registered `--ai-bg*` properties that made
+ * the drift interpolate went with it.
+ *
+ * **Its design tokens are scoped here rather than to `:root`.** The rest of this app is a dark
+ * frame around somebody's project; a light ramp declared globally would restyle all of it by
+ * accident. Everything inside the stage reads these, and nothing outside it can.
+ *
+ * The ramp is deliberately deeper than a flat light theme needs — several greys each with a
+ * job, and a border heavier than the usual hairline. That is what makes a flat surface read as
+ * layered without adding a single shadow. No accent colour: a saturated hue fights a rainbow
+ * rim, and the rim is the point.
+ */
+.ai-stage,
+.ai-stage-ink {
+  --s-surface-1: #ffffff;
+  --s-surface-2: #fbfbfc;
+  --s-surface-3: #f1f2f4;
+  --s-border-1: #dedede;
+  --s-text-primary: #16171a;
+  --s-text-body: #3c3f45;
+  --s-text-muted: #6a6e76;
+  --s-text-subtle: #9aa0a8;
+  --s-text-inverse: #ffffff;
+  /*
+   * The line art in the margins. Darker than the border rather than lighter: a first attempt at
+   * a whisper came out invisible, and art nobody can see is not restraint, it is a rendering
+   * bug. It is still well short of the text ramp, so it reads as something drawn in the margin
+   * rather than as content.
+   */
+  --s-doodle: #c3c8d0;
+
+  /*
+   * The colours the rim is painted in, before any pulse has rolled a palette. They live on the
+   * stage rather than on the box because the roll is written here — a copy on the box would be
+   * an own declaration, which beats an inherited one, and the rim would never change colour at
+   * all. That failure is silent and looks like the palette code not running.
+   */
+  --ai-c1: #005bf6;
+  --ai-c2: #b0c6e9;
+  --ai-c3: #feca00;
+  --ai-c4: #ff1c11;
+  --ai-c5: #ff00ea;
+  --ai-c6: #ffa2fbcc;
+  --ai-tail: #95c1ffa1;
+
+  color: var(--s-text-body);
+}
+
+/*
+ * `.ai-stage-ink` above is the same ramp with no surface of its own — for the page header,
+ * which is drawn *over* the stage and therefore needs its light-theme ink, but must not paint a
+ * second gradient behind itself. One declaration block for both, so the two can never drift.
+ */
+/*
+ * Three stops of one neutral rather than a flat fill: a large pale area with no gradation at all
+ * reads as unpainted, and the barely-there fall from top to bottom is what makes it read as a
+ * surface. Neutral means *neutral* — these are greys with no hue in them, because anything
+ * tinted here would be a second colour on a page whose one colour is the rim.
+ */
+.ai-stage {
+  background: linear-gradient(180deg, #fcfcfd 0%, #f7f7f9 55%, #f2f2f5 100%);
+}
+
+/*
+ * One layer of the falloff. The mask — a blurred, stroked, partially transparent ring drawn on
+ * a canvas — is what turns this flat gradient into a band of light hugging the shape.
+ *
+ * `mask-size: 100% 100%` so a mask drawn for a slightly stale box is stretched rather than
+ * tiled while a resize settles.
+ */
+.ai-lights-layer {
+  position: absolute;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0;
+  mask-size: 100% 100%;
+  mask-repeat: no-repeat;
+  mask-position: center;
+  -webkit-mask-size: 100% 100%;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  background: conic-gradient(
+    from var(--ai-start),
+    var(--ai-c1) 0deg,
+    var(--ai-c2) var(--ai-a2),
+    var(--ai-c3) var(--ai-a3),
+    var(--ai-c4) var(--ai-a4),
+    var(--ai-c5) var(--ai-a5),
+    var(--ai-c6) var(--ai-a6),
+    transparent var(--ai-a7),
+    transparent 324deg,
+    var(--ai-tail) 349deg,
+    var(--ai-c1) 360deg
+  );
+}
+
+/*
+ * The pulse runs because this attribute arrives, which is also how it is retriggered — the
+ * attribute is removed and re-added across two frames, and the rule reapplying restarts the
+ * animation. `both` holds the final frame, which is opacity 0: the light goes out and stays
+ * out until the next pulse.
+ */
+.ai-lights[data-playing="true"] .ai-lights-layer {
+  animation: ai-pulse 1600ms cubic-bezier(0.26, 0.94, 0.6, 1) both;
+}
+
+/*
+ * One shot, not a loop. It reaches full brightness in a tenth of its life, holds for a fifth,
+ * and spends the remaining seventy per cent dying — while the start angle swings *backwards*
+ * and every stop pushes outward. Rotating the wedge instead would read as a spinning wheel.
+ */
+@keyframes ai-pulse {
+  0% {
+    opacity: 0;
+    --ai-start: 180deg;
+    --ai-a2: 16deg;
+    --ai-a3: 30deg;
+    --ai-a4: 43deg;
+    --ai-a5: 59deg;
+    --ai-a6: 72deg;
+    --ai-a7: 84deg;
+  }
+  10% {
+    opacity: 1;
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    --ai-start: 30deg;
+    --ai-a2: 6deg;
+    --ai-a3: 11deg;
+    --ai-a4: 17deg;
+    --ai-a5: 40deg;
+    --ai-a6: 90deg;
+    --ai-a7: 120deg;
+  }
+}
+
+/*
+ * Reduced motion is handled in script — the attribute that starts the animation is never
+ * written — so there is deliberately no `prefers-reduced-motion` block here. A second place to
+ * turn the light off would eventually disagree with the first.
+ */
+
+/*
+ * **The glow is removed from the layout while the body changes shape**, not merely hidden.
+ * Ten layers each stretching a raster to a box that changes every frame is ten image rescales
+ * per frame, on top of the layout that animating width and height already forces — and the
+ * morph happens in the dark, so none of it would ever be seen. `opacity: 0` would not do: a
+ * transparent element is still laid out and still rescales its mask.
+ */
+.ai-lights[data-morphing="true"] .ai-lights-layer {
+  display: none;
+}
+
+/*
+ * Contents leave the same way, for the same reason — `content-visibility` skips their layout
+ * and their paint entirely while they are faded out.
+ */
+.ai-contents[data-morphing="true"] {
+  content-visibility: hidden;
+}
+
+/*
+ * Contents arrive a character at a time: up from below, out of a blur, on a stagger. The
+ * stagger is what makes text read as *arriving* rather than as appearing — and the blur is
+ * what stops the travel looking like a slide.
+ */
+@keyframes ai-char {
+  from {
+    opacity: 0;
+    filter: blur(2px);
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0);
+  }
+}
+
+/* The same arrival with the motion taken out: everything else about the beat is unchanged. */
+@keyframes ai-char-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* The live step on the workflow track: a ring leaving the node it belongs to. */
+@keyframes ai-ring {
+  0% {
+    opacity: 0.7;
+    transform: scale(1);
+  }
+  70%,
+  100% {
+    opacity: 0;
+    transform: scale(1.7);
+  }
+}
+
+@keyframes ai-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }

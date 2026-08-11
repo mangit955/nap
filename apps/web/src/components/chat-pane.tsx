@@ -3,6 +3,7 @@
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { ChatInput } from "../chat/chat-input.tsx";
 import { ChatTranscript } from "../chat/chat-transcript.tsx";
+import { useFirstPrompt } from "../chat/use-first-prompt.ts";
 import { useTurnSubmission } from "../chat/use-turn-submission.ts";
 import { useEventStream } from "../hooks/use-event-stream.ts";
 import { Pane } from "./pane.tsx";
@@ -90,9 +91,20 @@ function EmptyState() {
   );
 }
 
-export function LiveChatPane({ sessionId }: { sessionId: string | undefined }) {
+export function LiveChatPane({
+  sessionId,
+  projectId,
+}: {
+  sessionId: string | undefined;
+  /** Only so a prompt typed on the front page can be claimed by the project it was meant for. */
+  projectId?: string | undefined;
+}) {
   const { events } = useEventStream({ sessionId });
   const { submit, cancel, pending, running, error } = useTurnSubmission({ sessionId, events });
+
+  // Through the same submission path as the input, so the front page's first message is an
+  // ordinary turn — same optimistic message, same rate limit, same refusal wording.
+  useFirstPrompt({ projectId, sessionId, submit: (message) => void submit(message) });
 
   return (
     <ChatPane

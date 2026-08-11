@@ -1,5 +1,6 @@
 "use client";
 
+import { NapMark } from "../brand/nap-mark.tsx";
 import { type OpenProject, useProject } from "../projects/use-projects.ts";
 import { LiveChatPane } from "./chat-pane.tsx";
 import { LiveConnectionStatus } from "./connection-status.tsx";
@@ -38,8 +39,9 @@ export function AppShell({ projectId }: { projectId: string }) {
           */}
           <a
             href="/"
-            className="font-semibold text-ink text-sm tracking-tight hover:text-accent focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
+            className="flex items-center gap-1.5 font-semibold text-ink text-sm tracking-tight hover:text-accent focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
           >
+            <NapMark className="size-6" />
             nap
           </a>
           <span className="text-muted text-xs">{headerNote(status, project?.name)}</span>
@@ -48,7 +50,7 @@ export function AppShell({ projectId }: { projectId: string }) {
       </header>
 
       <main className="grid min-h-0 flex-1 grid-cols-[360px_1fr_260px] gap-px bg-edge">
-        <LiveChatPane sessionId={sessionId} />
+        <LiveChatPane sessionId={sessionId} projectId={projectId} />
         <LivePreviewPane sessionId={sessionId} />
         <LiveFileTreePane sessionId={sessionId} />
       </main>
