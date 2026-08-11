@@ -1,6 +1,12 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { NAP_BODY, NAP_EYE_SHUT_LEFT, NAP_EYE_SHUT_RIGHT } from "./nap-mark-paths.ts";
+import {
+  NAP_BODY,
+  NAP_EYE_OPEN_RX,
+  NAP_EYE_SHUT_LEFT,
+  NAP_EYE_SHUT_RIGHT,
+  NAP_MOUTH,
+} from "./nap-mark-paths.ts";
 
 /**
  * The mark is drawn twice — once as a component and once as the file the browser uses for a tab
@@ -19,12 +25,16 @@ describe("the favicon", () => {
     expect(icon).toContain(NAP_BODY);
     expect(icon).toContain(NAP_EYE_SHUT_LEFT);
     expect(icon).toContain(NAP_EYE_SHUT_RIGHT);
+    expect(icon).toContain(`cx="${NAP_MOUTH.cx}"`);
   });
 
   it("is asleep", () => {
     // The awake face belongs to a hover, and nothing hovers a tab icon. A favicon drawn with
     // its eyes open would also be the one place the mark contradicts the product's name.
-    expect(icon).not.toContain("<ellipse");
+    //
+    // Checked by the open eyes' own radius rather than by the absence of any ellipse: the mouth
+    // is an ellipse too, and the first version of this test broke the moment the face got one.
+    expect(icon).not.toContain(`rx="${NAP_EYE_OPEN_RX}"`);
   });
 
   it("names itself, being a document of its own", () => {

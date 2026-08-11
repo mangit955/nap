@@ -94,11 +94,11 @@ body {
   }
   28%,
   40% {
-    transform: translateX(1.9px);
+    transform: translateX(2.2px);
   }
   56%,
   68% {
-    transform: translateX(-1.9px);
+    transform: translateX(-2.2px);
   }
   84%,
   100% {
