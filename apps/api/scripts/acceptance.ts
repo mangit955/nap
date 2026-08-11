@@ -379,6 +379,10 @@ async function main(): Promise<void> {
   if (closed.closed === true) pass("closed", `snapshot ${String(closed.key ?? "").slice(-12)}`);
   else fail("closed", JSON.stringify(closed));
 
+  // The close above destroyed the sandbox step 2 was served from, so the reopen turn restores
+  // into a *new* one with a different host. Anything printed from here on has to use that
+  // turn's `preview.ready`, not the one captured at the top — the original URL is dead, and
+  // handing it to someone shows them E2B's "Sandbox Not Found" page instead of their app.
   const reopened = await runTurn(
     alice,
     rejoined,
@@ -391,6 +395,17 @@ async function main(): Promise<void> {
   );
   if (notices.length === 0) pass("restored silently", "no system.notice, so nothing was lost");
   else fail("restored silently", JSON.stringify(notices.map((n) => n.payload)));
+
+  const restoredPreview = (reopened.ok ? reopened.turnEvents : []).find(
+    (e) => e.type === "preview.ready",
+  );
+  const livePreviewUrl =
+    restoredPreview === undefined
+      ? previewUrl
+      : String((restoredPreview.payload as { url: string }).url);
+  if (restoredPreview !== undefined) {
+    pass("re-announced", "a restored project is served from a new sandbox, so the client is told");
+  }
 
   const after = (await alice.json(`/sessions/${sessionId}/files`)) as { files?: unknown[] };
   const beforeCount = before.files?.length ?? 0;
@@ -423,7 +438,13 @@ async function main(): Promise<void> {
   heading("cleanup");
   rejoined.close();
   if (KEEP) {
-    console.log(`  \x1b[33mkept\x1b[0m  ${previewUrl ?? "(no preview)"}`);
+    const serving = await previewServes(livePreviewUrl ?? "", 30_000);
+    console.log(`  \x1b[33mkept\x1b[0m  ${livePreviewUrl ?? "(no preview)"}`);
+    console.log(
+      serving === null
+        ? "        \x1b[31mnot answering\x1b[0m — the sandbox may already have been reaped"
+        : `        answering 200 in ${serving}ms, verified just now`,
+    );
     console.log(`        sign in as ${alice.email} / correct-horse-battery`);
     console.log(`        the reaper puts it away after 10 idle minutes; delete it sooner from /`);
   } else {
