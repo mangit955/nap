@@ -29,9 +29,15 @@ export function FileTreePane({
   changed,
   selected,
   onSelect,
+  putAway,
 }: {
   listing: FileListing | undefined;
   status: LoadStatus;
+  /**
+   * Whether the project has been put away, as opposed to never having had a sandbox. The
+   * server cannot tell these apart — both are "no sandbox" — and they are opposite sentences.
+   */
+  putAway?: boolean | undefined;
   /** Project-relative paths this session has written. */
   changed: ReadonlySet<string>;
   selected: string | undefined;
@@ -68,7 +74,7 @@ export function FileTreePane({
   return (
     <Pane id="files" title="Files">
       {listing === undefined || listing.files.length === 0 ? (
-        <Empty listing={listing} status={status} />
+        <Empty listing={listing} status={status} putAway={putAway} />
       ) : (
         <>
           <ul className="py-2">
@@ -175,8 +181,16 @@ function Node({
   );
 }
 
-/** Nothing to show, for one of three quite different reasons. */
-function Empty({ listing, status }: { listing: FileListing | undefined; status: LoadStatus }) {
+/** Nothing to show, for one of four quite different reasons. */
+function Empty({
+  listing,
+  status,
+  putAway,
+}: {
+  listing: FileListing | undefined;
+  status: LoadStatus;
+  putAway?: boolean | undefined;
+}) {
   const message =
     listing === undefined
       ? status === "loading" || status === "idle"
@@ -184,12 +198,22 @@ function Empty({ listing, status }: { listing: FileListing | undefined; status: 
         : "Couldn't read this project's files."
       : listing.ready
         ? "No files yet."
-        : "The files the agent writes appear here.";
+        : putAway === true
+          ? // Its files exist; there is just nothing running to read them from. Inviting a
+            // first prompt here would tell somebody with a finished app that it was empty.
+            "This project is put away. Resume it to browse its files."
+          : "The files the agent writes appear here.";
 
   return <p className="p-4 text-muted text-sm leading-relaxed">{message}</p>;
 }
 
-export function LiveFileTreePane({ sessionId }: { sessionId: string | undefined }) {
+export function LiveFileTreePane({
+  sessionId,
+  putAway,
+}: {
+  sessionId: string | undefined;
+  putAway?: boolean | undefined;
+}) {
   const { events } = useEventStream({ sessionId });
   const { listing, status } = useProjectFiles({ sessionId, events });
   const [selected, setSelected] = useState<string | undefined>(undefined);
@@ -202,6 +226,7 @@ export function LiveFileTreePane({ sessionId }: { sessionId: string | undefined 
       <FileTreePane
         listing={listing}
         status={status}
+        putAway={putAway}
         changed={changedPaths(events)}
         selected={selected}
         onSelect={setSelected}

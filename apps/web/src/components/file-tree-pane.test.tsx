@@ -114,6 +114,16 @@ describe("everything that is not a tree", () => {
     expect(tree().getByText(/appear here/i)).toBeInTheDocument();
   });
 
+  it("says a put-away project is put away, not new", () => {
+    // The same "no sandbox" answer from the server means two opposite things: a project
+    // nobody has typed into yet, and one with a year of work in a snapshot. Telling somebody
+    // their files "appear here" when they already exist reads as having lost them.
+    show({ listing: { ready: false, files: [], truncated: false }, putAway: true });
+
+    expect(tree().getByText(/put away/i)).toBeInTheDocument();
+    expect(tree().queryByText(/appear here/i)).not.toBeInTheDocument();
+  });
+
   it("says an empty project is empty rather than broken", () => {
     show({ listing: { ready: true, files: [], truncated: false } });
 

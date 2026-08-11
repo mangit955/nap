@@ -236,3 +236,98 @@ describe("opening one project", () => {
     await waitFor(() => expect(result.current.status).toBe("error"));
   });
 });
+
+describe("starting a put-away project back up", () => {
+  const putAway = () => summary({ sandboxId: null, status: "idle" });
+
+  function openable(open: () => Response) {
+    return server({
+      [`GET /projects/${PROJECT}`]: () => json(putAway()),
+      [`POST /projects/${PROJECT}/open`]: open,
+    });
+  }
+
+  it("asks the server to open it, and says so while it is coming up", async () => {
+    const { calls, fetchJson } = openable(() => json({ opened: true }, 202));
+    const { result } = renderHook(() => useProject(PROJECT, { baseUrl: BASE, fetchJson }));
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    await act(async () => {
+      await result.current.resume();
+    });
+
+    expect(calls).toContain(`POST /projects/${PROJECT}/open`);
+    // Still "resuming" after the request settles: the server answered 202 and the restore is
+    // running. What ends this is `preview.ready` arriving on the socket, not the response.
+    expect(result.current.resuming).toBe(true);
+    expect(result.current.resumeError).toBeUndefined();
+  });
+
+  it("stops trusting a record that says the project is put away", async () => {
+    // The record was read before the resume; the sandbox it says is missing is being made
+    // right now. Left trusted, the pane would keep offering a button for something done.
+    const { fetchJson } = openable(() => json({ opened: true }, 202));
+    const { result } = renderHook(() => useProject(PROJECT, { baseUrl: BASE, fetchJson }));
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+    expect(result.current.putAway).toBe(true);
+
+    await act(async () => {
+      await result.current.resume();
+    });
+
+    expect(result.current.putAway).toBe(false);
+  });
+
+  it("treats a project that was already running as a project that is running", async () => {
+    // Somebody resumed it in another tab. The answer is not an error and not a reason to keep
+    // showing a button — the app is up, and this pane's record is simply out of date.
+    const { fetchJson } = openable(() => json({ opened: false, reason: "already_running" }));
+    const { result } = renderHook(() => useProject(PROJECT, { baseUrl: BASE, fetchJson }));
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    await act(async () => {
+      await result.current.resume();
+    });
+
+    expect(result.current.putAway).toBe(false);
+    expect(result.current.resuming).toBe(false);
+    expect(result.current.resumeError).toBeUndefined();
+  });
+
+  it("carries the server's own explanation of a refusal, and stops waiting", async () => {
+    const { fetchJson } = openable(() =>
+      json({ error: "You already have 2 projects running, which is the limit.", code: "x" }, 409),
+    );
+    const { result } = renderHook(() => useProject(PROJECT, { baseUrl: BASE, fetchJson }));
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    await act(async () => {
+      await result.current.resume();
+    });
+
+    expect(result.current.resumeError).toMatch(/2 projects running/);
+    expect(result.current.resuming).toBe(false);
+    // Nothing came back up, so the button has to still be there.
+    expect(result.current.putAway).toBe(true);
+  });
+
+  it("says so when the server cannot be reached at all", async () => {
+    const { result } = renderHook(() =>
+      useProject(PROJECT, {
+        baseUrl: BASE,
+        fetchJson: async (url) => {
+          if (url.endsWith("/open")) throw new Error("offline");
+          return json(putAway());
+        },
+      }),
+    );
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    await act(async () => {
+      await result.current.resume();
+    });
+
+    expect(result.current.resumeError).toMatch(/could not reach the server/i);
+    expect(result.current.resuming).toBe(false);
+  });
+});

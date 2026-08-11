@@ -9,7 +9,7 @@ description: Use when writing or testing anything that emits, stores, orders, re
 
 The shapes live in **`packages/shared/src/events.ts`** (M0-3) — one Zod discriminated union on `type`. Import from it; never hand-write an event literal's type alongside it.
 
-## The 12 event types
+## The 13 event types
 
 Every event is `{ type, sessionId, turnId, seq, createdAt, payload }` — the envelope mirrors the `events` row in `docs/PLAN.md` §5 one-to-one, so `EventStore` append/read is a straight mapping. `seq` is assigned by `EventStore.append`, not by the emitter.
 
@@ -23,6 +23,7 @@ Every event is `{ type, sessionId, turnId, seq, createdAt, payload }` — the en
 | `file.changed` | `{ path, changeType, diff }` | M2-5 |
 | `command.output` | `{ toolCallId, stream, chunk }` | M2-5 |
 | `preview.ready` | `{ url, port }` | M1-4 |
+| `preview.stopped` | `{}` — the sandbox serving it was destroyed | close, reaper |
 | `turn.started` | `{}` | M2-7 |
 | `turn.completed` | `{ usage: { inputTokens, outputTokens }, durationMs, commitSha }` | M2-8 |
 | `turn.failed` | `{ reason, message }` | M2-6, M2-7, M2-8 |

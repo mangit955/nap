@@ -152,6 +152,20 @@ async function reasonFrom(response: Response, whatFailed: string): Promise<strin
 export type OpenProject = {
   project: ProjectSummaryPayload | undefined;
   status: "loading" | "ready" | "missing" | "error";
+  /**
+   * Whether this project has no sandbox serving it, so far as anyone here knows.
+   *
+   * Starts from the record and is then owned by `resume`, because the record is a snapshot of
+   * one moment: the whole point of resuming is that it stops being true, and the row saying so
+   * is written during the restore rather than before the request that started it comes back.
+   */
+  putAway: boolean;
+  /** Asks the server to start it back up. What the user then sees arrives as events. */
+  resume: () => Promise<void>;
+  /** True from the request until the restore announces itself on the session's stream. */
+  resuming: boolean;
+  /** Set when the last resume was refused, in the server's own words. */
+  resumeError: string | undefined;
 };
 
 /**
@@ -174,6 +188,10 @@ export function useProject(
 
   const [project, setProject] = useState<ProjectSummaryPayload | undefined>(undefined);
   const [status, setStatus] = useState<OpenProject["status"]>("loading");
+  const [resuming, setResuming] = useState(false);
+  const [resumeError, setResumeError] = useState<string | undefined>(undefined);
+  /** Set once this pane has asked for the project, after which the record is out of date. */
+  const [started, setStarted] = useState(false);
 
   // `fetchJson` is deliberately not a dependency; see the note in `useProjectFiles`.
   // biome-ignore lint/correctness/useExhaustiveDependencies: see above
@@ -203,5 +221,39 @@ export function useProject(
     };
   }, [projectId, baseUrl]);
 
-  return { project, status };
+  // biome-ignore lint/correctness/useExhaustiveDependencies: see the note in useProjectFiles
+  const resume = useCallback(async (): Promise<void> => {
+    setResumeError(undefined);
+    setResuming(true);
+
+    try {
+      const response = await fetchJson(`${baseUrl}/projects/${projectId}/open`, { method: "POST" });
+
+      if (!response.ok) {
+        setResumeError(await reasonFrom(response, "Could not open the project"));
+        setResuming(false);
+        return;
+      }
+
+      // The record this pane holds was read before any of this and no longer describes the
+      // project — whether the restore is under way or somebody else finished one already.
+      setStarted(true);
+
+      // 202 means a restore is running and `preview.ready` is what ends the wait. Anything
+      // else means it was already up, so there is nothing to wait for.
+      if (response.status !== 202) setResuming(false);
+    } catch {
+      setResumeError("Could not open the project — could not reach the server.");
+      setResuming(false);
+    }
+  }, [baseUrl, projectId]);
+
+  return {
+    project,
+    status,
+    putAway: !started && project?.sandboxId === null,
+    resume,
+    resuming,
+    resumeError,
+  };
 }

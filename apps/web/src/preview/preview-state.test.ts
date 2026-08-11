@@ -96,6 +96,30 @@ describe("once the sandbox is serving", () => {
   });
 });
 
+describe("once the project has been put away", () => {
+  it("stops showing an app that is no longer being served", () => {
+    // The address in the last `preview.ready` belongs to a sandbox that has been destroyed.
+    // Left ready, the frame renders the provider's "not found" page as if it were the app.
+    const result = state(ready(), completed(), ev("preview.stopped", {}));
+
+    expect(result).toMatchObject({ status: "stopped" });
+  });
+
+  it("comes back when the project is started up again", () => {
+    const result = state(ready("https://old.e2b.dev"), ev("preview.stopped", {}), ready());
+
+    expect(result).toMatchObject({ status: "ready", url: "https://5173-abc.e2b.dev" });
+  });
+
+  it("says it is starting when a message is sent instead of pressing resume", () => {
+    // Sending a message restores the project too. The pane should say so rather than keep
+    // offering a button for something already under way.
+    const result = state(ready(), ev("preview.stopped", {}), ev("user.message", { text: "go" }));
+
+    expect(result).toMatchObject({ status: "starting" });
+  });
+});
+
 describe("when the sandbox never came up", () => {
   it("reports the failure with what went wrong", () => {
     const result = state(

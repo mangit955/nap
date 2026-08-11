@@ -28,8 +28,31 @@ export const PREVIEW_TITLE = "App preview";
 
 const SANDBOX = "allow-scripts allow-same-origin allow-forms allow-popups allow-modals";
 
-export function PreviewPane({ events }: { events: readonly StoredEvent[] }) {
-  const state = previewState(events);
+export type PreviewPaneProps = {
+  events: readonly StoredEvent[];
+  /**
+   * That the project has no sandbox, according to the record the page was opened with.
+   *
+   * The log is the better source and usually says so itself — every close and every sweep
+   * appends `preview.stopped`. This is for the gap in that: a sandbox the provider reclaimed
+   * on its own timer is announced by nobody until something notices, so the newest event can
+   * still be a `preview.ready` for a host that stopped answering an hour ago.
+   */
+  putAway?: boolean | undefined;
+  onResume?: (() => void) | undefined;
+  /** From the request until the restore announces itself, which can be tens of seconds. */
+  resuming?: boolean | undefined;
+  resumeError?: string | undefined;
+};
+
+export function PreviewPane({
+  events,
+  putAway,
+  onResume,
+  resuming,
+  resumeError,
+}: PreviewPaneProps) {
+  const state = displayState(previewState(events), { putAway, resuming });
   const [reloads, setReloads] = useState(0);
 
   const ready = state.status === "ready" ? state : undefined;
@@ -63,7 +86,11 @@ export function PreviewPane({ events }: { events: readonly StoredEvent[] }) {
     >
       {/* Narrowed on `state` itself rather than on `ready`, so the waiting half is typed. */}
       {state.status !== "ready" ? (
-        <Waiting state={state} />
+        <Waiting
+          state={state}
+          {...(onResume === undefined ? {} : { onResume })}
+          {...(resumeError === undefined ? {} : { resumeError })}
+        />
       ) : (
         <iframe
           key={`${state.seq}:${reloads}`}
@@ -77,8 +104,34 @@ export function PreviewPane({ events }: { events: readonly StoredEvent[] }) {
   );
 }
 
-/** Everything that is not the app: nothing asked for yet, still coming up, or broken. */
-function Waiting({ state }: { state: Exclude<PreviewState, { status: "ready" }> }) {
+/**
+ * What the pane shows, which is not always what the log last said.
+ *
+ * Two overrides, both about the log being behind rather than wrong. A project the record says
+ * has no sandbox has none, whatever address the newest `preview.ready` carries — nothing
+ * announces a sandbox the provider reclaimed on its own timer. And a restore that has been
+ * asked for is under way from the moment it is asked for, which is minutes before the event
+ * saying so arrives.
+ */
+function displayState(
+  state: PreviewState,
+  overrides: { putAway?: boolean | undefined; resuming?: boolean | undefined },
+): PreviewState {
+  if (overrides.resuming === true) return { status: "starting" };
+  if (overrides.putAway === true && state.status === "ready") return { status: "stopped" };
+  return state;
+}
+
+/** Everything that is not the app: nothing asked for yet, coming up, put away, or broken. */
+function Waiting({
+  state,
+  onResume,
+  resumeError,
+}: {
+  state: Exclude<PreviewState, { status: "ready" }>;
+  onResume?: (() => void) | undefined;
+  resumeError?: string | undefined;
+}) {
   return (
     <div className="flex h-full items-center justify-center p-6">
       <div className="flex w-full max-w-md flex-col items-center gap-2 rounded-xl border border-edge border-dashed p-10 text-center">
@@ -93,9 +146,55 @@ function Waiting({ state }: { state: Exclude<PreviewState, { status: "ready" }> 
           </>
         )}
 
+        {state.status === "stopped" && <PutAway onResume={onResume} error={resumeError} />}
+
         {state.status === "error" && <PreviewFailure message={state.message} />}
       </div>
     </div>
+  );
+}
+
+/**
+ * The pane for a project nobody is paying for right now.
+ *
+ * **It says the files are safe before it says anything else**, because that is the question
+ * somebody has on finding their app gone. It is also true: the work is in a snapshot, and the
+ * only thing that was destroyed is the machine that was serving it.
+ *
+ * Sending a message also brings a project back, so this is a shortcut rather than the only way
+ * through — which is why the button is offered rather than demanded, and why a refusal leaves
+ * it on screen instead of replacing it.
+ */
+function PutAway({
+  onResume,
+  error,
+}: {
+  onResume?: (() => void) | undefined;
+  error?: string | undefined;
+}) {
+  return (
+    <>
+      <p className="text-ink text-sm">This project is put away.</p>
+      <p className="text-muted text-xs">
+        Its files are still saved. Starting it back up takes a few seconds.
+      </p>
+
+      <button
+        type="button"
+        onClick={() => onResume?.()}
+        className="mt-2 rounded border border-accent px-3 py-1.5 font-medium text-accent text-xs hover:bg-accent/10 focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
+      >
+        Resume
+      </button>
+
+      {error !== undefined && (
+        // A live region: it appears in response to a press, and a message that only changes
+        // visually is one a screen reader never mentions.
+        <p role="alert" className="mt-2 font-mono text-danger text-xs">
+          {error}
+        </p>
+      )}
+    </>
   );
 }
 
@@ -128,8 +227,29 @@ function host(url: string): string {
   }
 }
 
-export function LivePreviewPane({ sessionId }: { sessionId: string | undefined }) {
+/**
+ * `resume` and the two flags beside it come from the shell rather than from a hook of this
+ * pane's own: the file tree needs the same answer, and two hooks asking the same question would
+ * be two requests and two chances to disagree about whether the project is running.
+ */
+export function LivePreviewPane({
+  sessionId,
+  putAway,
+  onResume,
+  resuming,
+  resumeError,
+}: {
+  sessionId: string | undefined;
+} & Omit<PreviewPaneProps, "events">) {
   const { events } = useEventStream({ sessionId });
 
-  return <PreviewPane events={events} />;
+  return (
+    <PreviewPane
+      events={events}
+      {...(putAway === undefined ? {} : { putAway })}
+      {...(onResume === undefined ? {} : { onResume })}
+      {...(resuming === undefined ? {} : { resuming })}
+      {...(resumeError === undefined ? {} : { resumeError })}
+    />
+  );
 }

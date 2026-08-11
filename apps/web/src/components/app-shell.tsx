@@ -25,7 +25,7 @@ import { LivePreviewPane } from "./preview-pane.tsx";
  * go stale as soon as the project grew another.
  */
 export function AppShell({ projectId }: { projectId: string }) {
-  const { project, status } = useProject(projectId);
+  const { project, status, putAway, resume, resuming, resumeError } = useProject(projectId);
   const sessionId = project?.sessionIds[0];
 
   return (
@@ -51,8 +51,14 @@ export function AppShell({ projectId }: { projectId: string }) {
 
       <main className="grid min-h-0 flex-1 grid-cols-[360px_1fr_260px] gap-px bg-edge">
         <LiveChatPane sessionId={sessionId} projectId={projectId} />
-        <LivePreviewPane sessionId={sessionId} />
-        <LiveFileTreePane sessionId={sessionId} />
+        <LivePreviewPane
+          sessionId={sessionId}
+          putAway={putAway}
+          onResume={() => void resume()}
+          resuming={resuming}
+          {...(resumeError === undefined ? {} : { resumeError })}
+        />
+        <LiveFileTreePane sessionId={sessionId} putAway={putAway && !resuming} />
       </main>
     </div>
   );

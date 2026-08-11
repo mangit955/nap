@@ -27,6 +27,8 @@ export type PreviewState =
   | { status: "starting" }
   /** `seq` identifies *which* announcement this is, which is what a reload keys on. */
   | { status: "ready"; url: string; port: number; seq: number }
+  /** The sandbox has been destroyed. The work is safe; there is just nothing serving it. */
+  | { status: "stopped" }
   | { status: "error"; message: string };
 
 export function previewState(events: readonly StoredEvent[]): PreviewState {
@@ -41,6 +43,14 @@ export function previewState(events: readonly StoredEvent[]): PreviewState {
           port: event.payload.port,
           seq: event.seq,
         };
+        break;
+
+      // Unconditional, unlike every other transition here: a ready preview is exactly what
+      // this event invalidates. The address above it belongs to a sandbox that is gone, and
+      // an iframe left pointing at it renders the provider's "not found" page as if it were
+      // the user's app.
+      case "preview.stopped":
+        state = { status: "stopped" };
         break;
 
       case "user.message":

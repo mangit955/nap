@@ -69,6 +69,77 @@ describe("the four states", () => {
   });
 });
 
+describe("a project that has been put away", () => {
+  const stopped = () => ev("preview.stopped", {});
+
+  it("takes the dead app off the screen and offers the way back", () => {
+    // The address in the log belongs to a sandbox that no longer exists. Left in the frame it
+    // renders the provider's "not found" page, which reads as the product being broken.
+    show(asked(), ready(), stopped());
+
+    expect(frame()).toBeNull();
+    expect(screen.getByText(/put away/i)).toBeVisible();
+    expect(screen.getByRole("button", { name: /resume/i })).toBeEnabled();
+  });
+
+  it("says the files are safe, because that is the question being asked", () => {
+    show(asked(), ready(), stopped());
+
+    expect(screen.getByText(/still (saved|there)/i)).toBeVisible();
+  });
+
+  it("offers no reload or open control, since there is nothing behind them", () => {
+    show(asked(), ready(), stopped());
+
+    expect(screen.queryByRole("button", { name: /reload/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /open/i })).not.toBeInTheDocument();
+  });
+
+  it("asks to be resumed exactly once per press", () => {
+    const presses: number[] = [];
+    render(<PreviewPane events={[asked(), ready(), stopped()]} onResume={() => presses.push(1)} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /resume/i }));
+
+    expect(presses).toHaveLength(1);
+  });
+
+  it("says it is starting, and cannot be pressed again, while it comes back up", () => {
+    render(<PreviewPane events={[asked(), ready(), stopped()]} resuming />);
+
+    expect(screen.getByText(/starting/i)).toBeVisible();
+    expect(screen.queryByRole("button", { name: /resume/i })).not.toBeInTheDocument();
+  });
+
+  it("shows a refusal next to the button that caused it", () => {
+    render(
+      <PreviewPane
+        events={[asked(), ready(), stopped()]}
+        resumeError="Could not open the project — you already have 2 running."
+      />,
+    );
+
+    expect(screen.getByRole("alert")).toHaveTextContent(/2 running/);
+    // Still offered: the fix is closing another project, and then this is what they press.
+    expect(screen.getByRole("button", { name: /resume/i })).toBeInTheDocument();
+  });
+
+  it("trusts the record when the log has not caught up", () => {
+    // Nothing announces a sandbox the provider reclaimed on its own timer, so a project can be
+    // put away while the newest event in the log still says a preview is ready.
+    render(<PreviewPane events={[asked(), ready()]} putAway />);
+
+    expect(frame()).toBeNull();
+    expect(screen.getByRole("button", { name: /resume/i })).toBeInTheDocument();
+  });
+
+  it("shows the app again once it is serving", () => {
+    show(asked(), ready(), stopped(), ready("https://5173-new.e2b.dev"));
+
+    expect(frame()).toHaveAttribute("src", "https://5173-new.e2b.dev");
+  });
+});
+
 describe("the frame itself", () => {
   it("is sandboxed, and keeps its own origin rather than this page's", () => {
     // The previewed app is written by a model from whatever the user typed. It runs on its
