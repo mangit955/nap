@@ -18,10 +18,14 @@
  *     nobody can find and nobody stops paying for.
  */
 
+import { getLogger } from "@nap/shared/logging";
+import type { EventBus } from "@nap/shared/ports/event-bus";
+import type { EventStore, PendingEvent } from "@nap/shared/ports/event-store";
 import type { ObjectStore } from "@nap/shared/ports/object-store";
 import type { ProjectSandboxStore } from "@nap/shared/ports/project-sandbox-store";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
+import { EventSink } from "./event-sink.ts";
 import { tearDownProject } from "./teardown.ts";
 
 export type CloseOutcome =
@@ -32,6 +36,22 @@ export type CloseOutcome =
   /** Nothing changed. Worth trying again later. */
   | { outcome: "failed"; reason: string; message: string };
 
+/**
+ * Where to say that the preview has gone, and to whom.
+ *
+ * Optional so that a caller with no event log — the tests of the sequence itself — still gets
+ * the sequence. Every session in the project, because the sandbox belonged to the project they
+ * share: a tab open on one conversation is showing the same address as a tab open on another,
+ * and it has just stopped answering for both.
+ */
+export type CloseAnnouncement = {
+  events: EventStore;
+  bus: EventBus;
+  sessionIds: string[];
+  /** Injected so a test can assert on whole events rather than on everything but the clock. */
+  now?: () => string;
+};
+
 export type CloseProjectOptions = {
   projects: ProjectSandboxStore;
   sandbox: SandboxManager;
@@ -39,6 +59,7 @@ export type CloseProjectOptions = {
   snapshots: SnapshotStore;
   projectId: string;
   sandboxId: string;
+  announce?: CloseAnnouncement;
 };
 
 export async function putProjectAway(options: CloseProjectOptions): Promise<CloseOutcome> {
@@ -53,17 +74,66 @@ export async function putProjectAway(options: CloseProjectOptions): Promise<Clos
   });
 
   if (!torn.ok && torn.error.reason === "sandbox_gone") {
-    return release(projects, projectId, null, () => ({ outcome: "abandoned" }));
+    const outcome = await release(projects, projectId, null, () => ({ outcome: "abandoned" }));
+    await announceStopped(options);
+    return outcome;
   }
 
+  // The one path that leaves the sandbox serving. Announcing here would empty every open
+  // preview pane over a snapshot upload the user never asked about, and the app is still up.
   if (!torn.ok) {
     return { outcome: "failed", reason: torn.error.reason, message: torn.error.message };
   }
 
-  return release(projects, projectId, torn.value.key, () => ({
+  const outcome = await release(projects, projectId, torn.value.key, () => ({
     outcome: "put_away",
     key: torn.value.key,
   }));
+  await announceStopped(options);
+  return outcome;
+}
+
+/**
+ * Tells every session in the project that its preview has stopped answering.
+ *
+ * Keyed to the destroy rather than to the bookkeeping: by the time this is called the sandbox
+ * is gone, whether or not the row managed to say so. A pane left pointing at it renders the
+ * provider's own "not found" page inside a frame that otherwise looks like a working app,
+ * which is a worse lie than a row that is briefly out of date.
+ *
+ * **A failure here never fails the close.** The sandbox is destroyed and the snapshot is safe;
+ * reporting a `failed` outcome would invite a caller to run the whole sequence again against a
+ * sandbox that no longer exists. The clients that missed the event find out when they
+ * reconnect, since the append is the same log they replay from.
+ */
+async function announceStopped(options: CloseProjectOptions): Promise<void> {
+  const { announce } = options;
+  if (announce === undefined) return;
+
+  const sink = new EventSink(announce.events, announce.bus);
+  const createdAt = (announce.now ?? (() => new Date().toISOString()))();
+  // Every lifecycle event needs a turn id it cannot have — no turn ran. Nothing joins on the
+  // column, and one id per close keeps the events of a single close identifiable together.
+  const turnId = crypto.randomUUID();
+
+  for (const sessionId of announce.sessionIds) {
+    sink.emit({
+      type: "preview.stopped",
+      payload: {},
+      sessionId,
+      turnId,
+      createdAt,
+    } as PendingEvent);
+  }
+
+  try {
+    await sink.drain();
+  } catch (error) {
+    getLogger().warn(
+      { projectId: options.projectId, err: error },
+      "could not announce that the preview stopped; open tabs will find out when they reconnect",
+    );
+  }
 }
 
 /**

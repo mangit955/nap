@@ -115,6 +115,16 @@ class UncreatableSandboxManager extends InMemorySandboxManager {
   }
 }
 
+/** Counts sandboxes rather than inspecting them, for the "two callers, one sandbox" case. */
+class CountingSandboxManager extends InMemorySandboxManager {
+  creates = 0;
+
+  override async create(projectId: string) {
+    this.creates += 1;
+    return await super.create(projectId);
+  }
+}
+
 /** A well-behaved turn: opens, says something, completes with whatever `finalize` returned. */
 const HAPPY_SCRIPT = () => [
   { type: "turn.started" as const, payload: {} },
@@ -769,6 +779,81 @@ describe("opening a project that has been put away", () => {
     expect(notice?.payload).toMatchObject({
       level: "warning",
       text: expect.stringMatching(/snapshot/i),
+    });
+  });
+
+  describe("resuming it without running a turn", () => {
+    it("restores the snapshot and announces the preview, with no turn in the log", async () => {
+      // The whole point: looking at what you built must not cost a model call. Nothing that
+      // belongs to a turn may appear, or the transcript grows a conversation nobody had.
+      const agent = new ScriptedAgent(HAPPY_SCRIPT, true);
+
+      const outcome = await restoringRuntime(agent).resumeSession(SESSION_ID);
+
+      expect(outcome).toMatchObject({ ok: true, created: true });
+      expect(agent.calls).toBe(0);
+      expectEventSequence(await events.readFrom(SESSION_ID, 0), ["preview.ready"]);
+      expect(sandbox.commands(await onlySandboxId()).join("\n")).toMatch(/git fetch/);
+    });
+
+    it("says what went wrong as a notice rather than as a failed turn", async () => {
+      // No turn ran, so `turn.failed` would put a retry button under a turn that never
+      // started — and the preview pane treats a sandbox failure as a state a retry clears.
+      const outcome = await runtime(new ScriptedAgent(), {
+        sandbox: new UncreatableSandboxManager(),
+      }).resumeSession(SESSION_ID);
+
+      expect(outcome).toMatchObject({ ok: false, reason: "sandbox_unavailable" });
+      const stored = await events.readFrom(SESSION_ID, 0);
+      expect(stored.map((event) => event.type)).toEqual(["system.notice"]);
+      expect(stored[0]?.payload).toMatchObject({ level: "warning" });
+    });
+
+    it("leaves a project that is already running alone", async () => {
+      // Re-announcing would remount the iframe underneath somebody who is using the app.
+      const created = await sandbox.create(PROJECT_ID);
+      if (!created.ok) throw new Error("could not seed a sandbox");
+      const running = new InMemorySessionStore([
+        { sessionId: SESSION_ID, projectId: PROJECT_ID, sandboxId: created.value.id },
+      ]);
+
+      const outcome = await restoringRuntime(new ScriptedAgent(), {
+        sessions: running,
+      }).resumeSession(SESSION_ID);
+
+      expect(outcome).toMatchObject({ ok: true, created: false, sandboxId: created.value.id });
+      expect(await loggedTypes()).toEqual([]);
+      // Still worth doing: someone came back to it, so its deadline moves.
+      expect(sandbox.timeoutOf(created.value.id)).toBe(30 * 60 * 1000);
+    });
+
+    it("cannot race a turn into a second sandbox for one project", async () => {
+      // Both paths create a sandbox when the project has none, and they are asked for at the
+      // same moment by a page that resumes and a user who types. The queue is what makes the
+      // second one find the first one's sandbox instead of starting its own.
+      const counting = scriptRestore(
+        scriptGit(new CountingSandboxManager({ serves: [PORT] })),
+      ) as CountingSandboxManager;
+      const subject = runtime(new ScriptedAgent(HAPPY_SCRIPT, true), {
+        objects,
+        snapshots,
+        sandbox: counting,
+      });
+
+      await Promise.all([
+        subject.resumeSession(SESSION_ID),
+        subject.runTurn({ sessionId: SESSION_ID, message: "carry on" }),
+      ]);
+
+      expect(counting.creates).toBe(1);
+    });
+
+    it("refuses a session that does not exist", async () => {
+      const outcome = await restoringRuntime(new ScriptedAgent()).resumeSession(
+        "00000000-0000-4000-8000-000000000000",
+      );
+
+      expect(outcome).toMatchObject({ ok: false, reason: "internal" });
     });
   });
 

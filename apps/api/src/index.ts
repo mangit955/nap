@@ -199,6 +199,20 @@ const app = createApp({
     objects,
     sandbox,
     createProject: (options) => createProjectSession(db, options),
+    // The same runtime the turn routes drive: resuming a project and running a turn in it are
+    // serialized per session there, which is what stops the two starting two sandboxes.
+    runtime,
+    // The same store and bus the socket subscribes to, or a close would append `preview.stopped`
+    // to a log nobody is listening on.
+    events: { events: store, bus },
+    // Resuming makes a sandbox, so it answers to the same ceiling a turn does.
+    limits: {
+      projects,
+      sandboxes: {
+        perUser: env.NAP_MAX_SANDBOXES_PER_USER,
+        total: env.NAP_MAX_SANDBOXES_TOTAL,
+      },
+    },
     // The same registry the turn routes write to and the reaper reads, so "busy" means one
     // thing everywhere: closing or deleting a project mid-turn is refused for the same reason
     // the reaper skips it.
@@ -223,6 +237,9 @@ const reaper = startReaper({
       snapshots,
       idleMs: env.NAP_REAP_IDLE_MINUTES * 60 * 1000,
       isBusy: (project) => project.sessionIds.some((id) => registry.isRunning(id)),
+      // A swept project's tabs are still open on it, showing an address that is about to stop
+      // answering. Same store and bus as everything else, for the same reason.
+      announce: { events: store, bus },
     }).then((result) => {
       if (result.reaped.length > 0) logger.info({ reaped: result.reaped }, "projects put away");
       // Their sandboxes were reclaimed by something else before we could snapshot them. Worth

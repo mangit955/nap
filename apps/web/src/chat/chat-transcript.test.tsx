@@ -75,6 +75,7 @@ const TREATMENTS = [
     payload: { url: "https://5173-abc.e2b.dev", port: 5173 },
     shows: /preview/i,
   },
+  { type: "preview.stopped", payload: {}, shows: /put away/i },
   { type: "turn.started", payload: {}, shows: /started/i },
   {
     type: "turn.completed",
@@ -101,9 +102,9 @@ describe("every event type has a visual treatment", () => {
   it("covers the whole union", () => {
     const covered = TREATMENTS.map((t) => t.type);
     expect(new Set(covered).size).toBe(covered.length);
-    expect(TREATMENTS).toHaveLength(12);
+    expect(TREATMENTS).toHaveLength(13);
 
-    // Fails to compile if a 13th member is added to the union without a treatment.
+    // Fails to compile if a 14th member is added to the union without a treatment.
     const _exhaustive: (typeof TREATMENTS)[number]["type"] = null as unknown as NapEventType;
     void _exhaustive;
   });

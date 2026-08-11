@@ -2,7 +2,7 @@ import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { FAKE_OWNER, InMemoryProjectStore } from "@nap/db/testing/in-memory-project-store";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
-import type { Runtime, TurnOutcome, TurnRequest } from "@nap/shared/ports/runtime";
+import type { ResumeOutcome, Runtime, TurnOutcome, TurnRequest } from "@nap/shared/ports/runtime";
 import type { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import { createApp } from "../app.ts";
@@ -32,6 +32,11 @@ class SlowRuntime implements Runtime {
     });
   }
 
+  /** Never reached: these tests are about turns, and a resume takes a different route. */
+  async resumeSession(): Promise<ResumeOutcome> {
+    throw new Error("not part of this test");
+  }
+
   /** Ends the turn the way a completed one ends. */
   complete(): void {
     this.#finish?.({ ok: true, turnId: "t1", commitSha: null });
@@ -46,6 +51,10 @@ class SlowRuntime implements Runtime {
 class ThrowingRuntime implements Runtime {
   async runTurn(): Promise<TurnOutcome> {
     throw new Error("the runtime fell over");
+  }
+
+  async resumeSession(): Promise<ResumeOutcome> {
+    throw new Error("not part of this test");
   }
 }
 

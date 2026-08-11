@@ -21,15 +21,19 @@
 import { putProjectAway } from "@nap/runtime/close-project";
 import { deleteProject } from "@nap/runtime/delete-project";
 import { getLogger } from "@nap/shared/logging";
+import type { EventBus } from "@nap/shared/ports/event-bus";
+import type { EventStore } from "@nap/shared/ports/event-store";
 import type { ObjectStore } from "@nap/shared/ports/object-store";
 import type { ProjectSandboxStore } from "@nap/shared/ports/project-sandbox-store";
 import type { ProjectStore, ProjectSummary } from "@nap/shared/ports/project-store";
+import type { Runtime } from "@nap/shared/ports/runtime";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
 import type { Hono } from "hono";
 import { z } from "zod";
 import type { AuthVariables } from "../auth/require-user.ts";
 import { parseProjectId } from "../files/params.ts";
+import { checkSandboxQuota, type SandboxLimits } from "../turns/sandbox-quota.ts";
 
 export type CreatedProject = { projectId: string; sessionId: string };
 
@@ -41,6 +45,23 @@ export type ProjectRouteDeps = {
   objects: ObjectStore;
   sandbox: SandboxManager;
   createProject: (options: { userId: string; name?: string }) => Promise<CreatedProject>;
+  /** Only `resumeSession`: nothing here starts a turn, and a wider type would let it. */
+  runtime: Pick<Runtime, "resumeSession">;
+  /**
+   * The log a close writes `preview.stopped` to. The same store and bus everything else uses —
+   * a second pair would append to a log nobody is reading from.
+   */
+  events: { events: EventStore; bus: EventBus };
+  /**
+   * The sandbox ceiling, applied to opening a project exactly as it is to starting a turn.
+   * Optional for the same reason it is on the turn routes: absent means unlimited, which is a
+   * better default in a test than refusing everything, and boot always passes one.
+   */
+  limits?: {
+    /** Counting live sandboxes; the same store this module lists from. */
+    projects: ProjectStore;
+    sandboxes: SandboxLimits;
+  };
   /**
    * True while a turn is running for any of these sessions. Injected because turns are tracked
    * by whatever is serving requests, and a route module has no business knowing how.
@@ -85,6 +106,64 @@ export function registerProjectRoutes(
     return c.json(project.value);
   });
 
+  /**
+   * Starting a project back up, so its preview and its files are there to look at.
+   *
+   * **202, and the restore runs detached** — the same shape as starting a turn, and for the
+   * same reason: unbundling a project and installing its dependencies is tens of seconds, and
+   * everything the user needs to see arrives on the session's event stream anyway. The
+   * background promise must be handled, or one bad restore ends the process.
+   *
+   * The quota is checked here as well as on a turn, because this is the second way to make a
+   * sandbox and a ceiling with two doors is not a ceiling.
+   */
+  app.post("/projects/:projectId/open", async (c) => {
+    const project = await found(c.req.param("projectId"), c.get("userId"), deps);
+    if (!project.ok) return c.json({ error: project.error.message }, project.error.status);
+
+    // Already up. Saying so is not an error, the same way closing a closed project is not —
+    // and starting a second sandbox for a project that has one is how a preview URL that
+    // somebody is looking at stops being the one the project is served from.
+    if (project.value.sandboxId !== null) {
+      return c.json({ opened: false, reason: "already_running" });
+    }
+
+    const sessionId = project.value.sessionIds[0];
+    if (sessionId === undefined) {
+      return c.json({ error: "this project has no conversation to open", code: "no_session" }, 409);
+    }
+
+    if (deps.limits !== undefined) {
+      const quota = await checkSandboxQuota({
+        projects: deps.limits.projects,
+        userId: c.get("userId"),
+        // Null by definition here — the branch above returned for anything else — and passing
+        // it explicitly is what makes the check actually count rather than wave this through.
+        sessionSandboxId: null,
+        limits: deps.limits.sandboxes,
+      });
+      if (!quota.allowed) {
+        // The same status and the same `code` a refused turn carries, so the browser has one
+        // branch for "you have too many projects running" rather than one per route.
+        return c.json({ error: quota.message, code: "sandbox_quota_exceeded" }, 409);
+      }
+    }
+
+    const logger = getLogger();
+
+    void deps.runtime
+      .resumeSession(sessionId)
+      .then((outcome) => {
+        logger.info({ outcome }, "project open settled");
+      })
+      .catch((error: unknown) => {
+        // A thrown error is a bug in the runtime rather than a failed resume, which is a value.
+        logger.error({ err: error }, "opening a project threw");
+      });
+
+    return c.json({ opened: true }, 202);
+  });
+
   app.post("/projects/:projectId/close", async (c) => {
     const project = await found(c.req.param("projectId"), c.get("userId"), deps);
     if (!project.ok) return c.json({ error: project.error.message }, project.error.status);
@@ -103,6 +182,9 @@ export function registerProjectRoutes(
       snapshots: deps.snapshots,
       projectId: project.value.projectId,
       sandboxId: project.value.sandboxId,
+      // So every tab open on this project learns its preview has stopped, rather than keeping
+      // an iframe pointed at a sandbox that no longer exists.
+      announce: { ...deps.events, sessionIds: project.value.sessionIds },
     });
 
     if (closed.outcome === "failed") {

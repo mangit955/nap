@@ -85,6 +85,9 @@ function detail(event: NapEvent): Record<string, unknown> {
       // The URL is a public address for the user's running app, so only the port is logged.
       return { port: event.payload.port };
 
+    case "preview.stopped":
+      return {};
+
     case "turn.started":
       return {};
 

@@ -89,6 +89,18 @@ export const NapEventSchema = z.discriminatedUnion("type", [
     chunk: z.string(),
   }),
   event("preview.ready", { url: z.url(), port: z.int().positive() }),
+  /**
+   * The sandbox serving this project has been destroyed, so the address the last
+   * `preview.ready` announced no longer answers.
+   *
+   * It exists because a client cannot work this out for itself. A preview is put away by a
+   * sweep on a timer or by someone in another tab, and without a record of it in the log the
+   * pane keeps an iframe pointed at a host that has stopped existing — which renders as the
+   * provider's own "not found" page inside a frame that otherwise looks like a working app.
+   * Nothing in the payload: which sandbox went away is not something a viewer can act on, and
+   * the address it replaces is already in the log above this.
+   */
+  event("preview.stopped", {}),
   event("turn.started", {}),
   event("turn.completed", {
     usage: z.strictObject({

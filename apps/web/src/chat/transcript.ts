@@ -54,6 +54,8 @@ export type TranscriptItem =
     }
   | { kind: "files"; key: number; files: FileChange[] }
   | { kind: "preview"; key: number; url: string; port: number }
+  /** Carries nothing: it is the fact that the app stopped being served, and when. */
+  | { kind: "preview-stopped"; key: number }
   | { kind: "notice"; key: number; level: "info" | "warning"; text: string }
   | { kind: "turn-start"; key: number }
   | ({ kind: "turn-end"; key: number } & TurnOutcome);
@@ -164,6 +166,13 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
 
       case "preview.ready":
         items.push({ kind: "preview", key, url: event.payload.url, port: event.payload.port });
+        break;
+
+      // The preview pane says what to do about it; this is the chronology. An app that
+      // disappeared because a sweep put the project away, or because somebody closed it in
+      // another tab, is otherwise an app that vanished for no stated reason.
+      case "preview.stopped":
+        items.push({ kind: "preview-stopped", key });
         break;
 
       // Its own item rather than a message: the platform speaking is not the agent speaking,

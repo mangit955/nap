@@ -21,6 +21,8 @@
  * fail again next time.
  */
 
+import type { EventBus } from "@nap/shared/ports/event-bus";
+import type { EventStore } from "@nap/shared/ports/event-store";
 import type { ObjectStore } from "@nap/shared/ports/object-store";
 import type { IdleProject, ProjectSandboxStore } from "@nap/shared/ports/project-sandbox-store";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
@@ -62,6 +64,13 @@ export type SweepOptions = {
   isBusy: (project: IdleProject) => boolean;
   /** Injected so a test can place "an hour ago" exactly rather than waiting for one. */
   now?: () => number;
+  /**
+   * Where to announce that a swept project's preview has stopped.
+   *
+   * The sessions to tell come from each candidate, so this is only the log to write to.
+   * Optional, like `putProjectAway`'s own: a sweep with nowhere to announce still sweeps.
+   */
+  announce?: { events: EventStore; bus: EventBus };
 };
 
 export async function sweepIdleProjects(options: SweepOptions): Promise<SweepResult> {
@@ -84,6 +93,9 @@ export async function sweepIdleProjects(options: SweepOptions): Promise<SweepRes
       snapshots: options.snapshots,
       projectId: project.projectId,
       sandboxId: project.sandboxId,
+      ...(options.announce === undefined
+        ? {}
+        : { announce: { ...options.announce, sessionIds: project.sessionIds } }),
     });
 
     if (closed.outcome === "put_away") result.reaped.push(project.projectId);

@@ -19,7 +19,7 @@ import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
 import { TEMPLATE_WORKDIR } from "@nap/sandbox/template";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
-import type { TurnOutcome } from "@nap/shared/ports/runtime";
+import type { ResumeOutcome, TurnOutcome } from "@nap/shared/ports/runtime";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import type { AppDeps } from "../app.ts";
 import { TurnRegistry } from "../turns/registry.ts";
@@ -61,6 +61,11 @@ export const GUARDED_ROUTES: GuardedRoute[] = [
   { method: "GET", path: "/projects", examplePath: "/projects" },
   { method: "POST", path: "/projects", examplePath: "/projects", body: { name: "New" } },
   { method: "GET", path: "/projects/:projectId", examplePath: `/projects/${PROJECT}` },
+  {
+    method: "POST",
+    path: "/projects/:projectId/open",
+    examplePath: `/projects/${PROJECT}/open`,
+  },
   {
     method: "POST",
     path: "/projects/:projectId/close",
@@ -142,6 +147,11 @@ export function fullyWiredDeps(seeded?: SeededSandbox): Omit<AppDeps, "logger"> 
       // would mean the route let somebody through, which is the thing being tested.
       runtime: {
         runTurn: async (): Promise<TurnOutcome> => ({ ok: true, turnId: "t", commitSha: null }),
+        resumeSession: async (): Promise<ResumeOutcome> => ({
+          ok: false,
+          reason: "internal",
+          message: "unreachable",
+        }),
       },
       registry: new TurnRegistry(),
       sessions,
@@ -156,6 +166,15 @@ export function fullyWiredDeps(seeded?: SeededSandbox): Omit<AppDeps, "logger"> 
         void options;
         return { projectId: PROJECT, sessionId: SESSION };
       },
+      // Never actually reached, for the same reason the runtime above is not.
+      runtime: {
+        resumeSession: async (): Promise<ResumeOutcome> => ({
+          ok: false,
+          reason: "internal",
+          message: "unreachable",
+        }),
+      },
+      events: { events: new InMemoryEventStore(), bus: new InMemoryEventBus() },
       isBusy: () => false,
     },
     auth: {

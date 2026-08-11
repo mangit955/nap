@@ -181,6 +181,8 @@ function detail(event: NapEvent): string {
       return `${event.payload.stream} ${oneLine(event.payload.chunk)}`;
     case "preview.ready":
       return event.payload.url;
+    case "preview.stopped":
+      return "";
     case "turn.completed": {
       const { usage, durationMs, commitSha } = event.payload;
       return `${usage.inputTokens} in / ${usage.outputTokens} out, ${durationMs}ms, commit ${commitSha ?? "none"}`;

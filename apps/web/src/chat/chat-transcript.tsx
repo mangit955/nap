@@ -133,6 +133,11 @@ function Item({
         </p>
       );
 
+    case "preview-stopped":
+      return (
+        <p className="font-mono text-muted text-xs">Preview stopped · the project was put away</p>
+      );
+
     case "notice":
       // Mono and labelled, like every other machine-authored line. The label is drawn rather
       // than implied by colour, so it survives being read aloud and being read by someone who

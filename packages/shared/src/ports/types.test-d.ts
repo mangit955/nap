@@ -214,6 +214,9 @@ if (!outcome.ok) {
 
 const runtimeStub: Runtime = {
   runTurn: async () => ({ ok: true, turnId: "turn_1", commitSha: null }),
+  // Bringing a put-away project back up is the runtime's job too: it owns sandbox lifecycle,
+  // and doing it anywhere else would let a resume and a turn each start their own sandbox.
+  resumeSession: async () => ({ ok: true, sandboxId: "sb_1", created: true }),
 };
 expectTypeOf(runtimeStub).toExtend<Runtime>();
 

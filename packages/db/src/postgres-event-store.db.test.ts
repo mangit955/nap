@@ -277,15 +277,16 @@ const PAYLOADS = [
   },
   { type: "turn.failed", payload: { reason: "refusal", message: "declined" } },
   { type: "system.notice", payload: { level: "warning", text: "restored from a snapshot" } },
+  { type: "preview.stopped", payload: {} },
 ] as const satisfies readonly { type: NapEvent["type"]; payload: NapEvent["payload"] }[];
 
 describe("every event type survives the round trip", () => {
   it("covers the whole union", () => {
     const covered = PAYLOADS.map((p) => p.type);
     expect(new Set(covered).size).toBe(covered.length);
-    expect(PAYLOADS).toHaveLength(12);
+    expect(PAYLOADS).toHaveLength(13);
 
-    // Fails to compile if a 13th member is added to the union without a fixture here.
+    // Fails to compile if a 14th member is added to the union without a fixture here.
     const _exhaustive: (typeof PAYLOADS)[number]["type"] = null as unknown as NapEvent["type"];
     void _exhaustive;
   });

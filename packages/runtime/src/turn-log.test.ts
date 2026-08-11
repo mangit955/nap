@@ -52,9 +52,10 @@ const ONE_OF_EACH: Record<NapEventType, StoredEvent> = {
     type: "preview.ready",
     payload: { url: "https://5173-abc.e2b.app", port: 5173 },
   }),
-  "turn.started": stored({ ...base(9), type: "turn.started", payload: {} }),
+  "preview.stopped": stored({ ...base(9), type: "preview.stopped", payload: {} }),
+  "turn.started": stored({ ...base(10), type: "turn.started", payload: {} }),
   "turn.completed": stored({
-    ...base(10),
+    ...base(11),
     type: "turn.completed",
     payload: {
       usage: { inputTokens: 12480, outputTokens: 1340 },
@@ -63,12 +64,12 @@ const ONE_OF_EACH: Record<NapEventType, StoredEvent> = {
     },
   }),
   "turn.failed": stored({
-    ...base(11),
+    ...base(12),
     type: "turn.failed",
     payload: { reason: "budget_exceeded", message: "ran out of steps" },
   }),
   "system.notice": stored({
-    ...base(12),
+    ...base(13),
     type: "system.notice",
     payload: { level: "warning", text: "restored from a snapshot" },
   }),

@@ -124,6 +124,14 @@ const CASES = [
     issuePath: ["payload", "url"],
   },
   {
+    type: "preview.stopped",
+    valid: { ...ENVELOPE, type: "preview.stopped", payload: {} },
+    // Nothing in the payload to break, so the envelope stands in — the same fixture
+    // `turn.started` uses, and for the same reason.
+    malformed: { ...ENVELOPE, sessionId: "not-a-uuid", type: "preview.stopped", payload: {} },
+    issuePath: ["sessionId"],
+  },
+  {
     type: "turn.started",
     valid: { ...ENVELOPE, type: "turn.started", payload: {} },
     // The envelope is part of every member's contract, so break it here.
@@ -192,9 +200,9 @@ describe("the case table covers the union", () => {
   it("has one case per event type, with no duplicates and none missing", () => {
     const covered = CASES.map((c) => c.type);
     expect(new Set(covered).size).toBe(covered.length);
-    expect(CASES).toHaveLength(12);
+    expect(CASES).toHaveLength(13);
 
-    // Fails to compile if a 13th member is added to the union without a case here.
+    // Fails to compile if a 14th member is added to the union without a case here.
     const _exhaustive: (typeof CASES)[number]["type"] = null as unknown as NapEvent["type"];
     void _exhaustive;
   });

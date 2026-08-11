@@ -29,17 +29,17 @@ import { addLogContext, getLogger, withLogContext } from "@nap/shared/logging";
 import type { AgentService } from "@nap/shared/ports/agent-service";
 import type { ContextEngine } from "@nap/shared/ports/context-engine";
 import type { EventBus } from "@nap/shared/ports/event-bus";
-import type { EventStore, PendingEvent, StoredEvent } from "@nap/shared/ports/event-store";
+import type { EventStore, PendingEvent } from "@nap/shared/ports/event-store";
 import type { MemoryProvider } from "@nap/shared/ports/memory-provider";
 import type { ObjectStore } from "@nap/shared/ports/object-store";
-import type { Runtime, TurnOutcome, TurnRequest } from "@nap/shared/ports/runtime";
+import type { ResumeOutcome, Runtime, TurnOutcome, TurnRequest } from "@nap/shared/ports/runtime";
 import type { SandboxError, SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SessionRecord, SessionStore } from "@nap/shared/ports/session-store";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
 import type { Result } from "@nap/shared/result";
+import { EventSink } from "./event-sink.ts";
 import { openProject } from "./restore.ts";
 import { captureSnapshot } from "./teardown.ts";
-import { eventLogLine } from "./turn-log.ts";
 
 type Payload<T extends NapEvent["type"]> = NapEventOf<T>["payload"];
 
@@ -74,6 +74,20 @@ type AcquiredSandbox = {
  * record of which bytes in the other, and one without the other cannot open anything.
  */
 type RestoreDeps = { objects: ObjectStore; snapshots: SnapshotStore };
+
+/**
+ * What to say when a project could not be started back up.
+ *
+ * Names the thing that failed and says the work is still there, because the fear a person has
+ * on seeing this is that their project is gone — and it is not: the snapshot is untouched by a
+ * sandbox that would not start.
+ */
+function resumeFailureNotice(error: SandboxError): string {
+  return (
+    `Couldn't start this project back up: ${error.message}. ` +
+    "Nothing has been lost — its files are still saved. Try again in a moment."
+  );
+}
 
 const LOST_SANDBOX_WARNING =
   "This project's sandbox was no longer available, so it was restored from its last " +
@@ -132,8 +146,30 @@ export class SingleAgentRuntime implements Runtime {
   }
 
   runTurn(request: TurnRequest): Promise<TurnOutcome> {
-    const previous = this.#queues.get(request.sessionId) ?? Promise.resolve();
-    const outcome = previous.then(() => this.#runTurn(request));
+    return this.#queued(request.sessionId, () => this.#runTurn(request));
+  }
+
+  /**
+   * Starting a project back up, without a turn and without a model.
+   *
+   * On the same queue as a turn, which is what makes it safe to offer at all: both paths
+   * create a sandbox when the project has none, and a page that resumes on arrival while its
+   * user types a message asks for both at once. Serialized, the second one finds the first
+   * one's sandbox; run in parallel, they would each start one and the project would end up
+   * with two, one of which nobody can find and nobody stops paying for.
+   */
+  resumeSession(sessionId: string): Promise<ResumeOutcome> {
+    return this.#queued(sessionId, () => this.#resume(sessionId));
+  }
+
+  /**
+   * One thing at a time per session — a turn, or bringing the project back up.
+   *
+   * Different sessions are unaffected: the lock is per session, not per process.
+   */
+  #queued<T>(sessionId: string, work: () => Promise<T>): Promise<T> {
+    const previous = this.#queues.get(sessionId) ?? Promise.resolve();
+    const outcome = previous.then(work);
 
     // The queue tail swallows failures: one turn that rejected must not reject the turn
     // queued behind it, which is a different session's worth of surprise.
@@ -141,10 +177,10 @@ export class SingleAgentRuntime implements Runtime {
       () => {},
       () => {},
     );
-    this.#queues.set(request.sessionId, tail);
+    this.#queues.set(sessionId, tail);
     void tail.then(() => {
       // Only if nothing else has queued behind us; otherwise this is now someone else's tail.
-      if (this.#queues.get(request.sessionId) === tail) this.#queues.delete(request.sessionId);
+      if (this.#queues.get(sessionId) === tail) this.#queues.delete(sessionId);
     });
 
     return outcome;
@@ -164,6 +200,60 @@ export class SingleAgentRuntime implements Runtime {
     return await withLogContext(getLogger(), { sessionId: request.sessionId, turnId }, () =>
       this.#runTurnLogged(request, turnId),
     );
+  }
+
+  /** The same log context a turn gets, around a lifecycle operation that has no turn id. */
+  async #resume(sessionId: string): Promise<ResumeOutcome> {
+    const turnId = this.#newTurnId();
+    return await withLogContext(getLogger(), { sessionId, turnId }, () =>
+      this.#resumeLogged(sessionId, turnId),
+    );
+  }
+
+  async #resumeLogged(sessionId: string, turnId: string): Promise<ResumeOutcome> {
+    const session = await this.#options.sessions.get(sessionId);
+
+    if (session === null) {
+      getLogger().warn("resume refused: no such session");
+      return { ok: false, reason: "internal", message: `unknown session ${sessionId}` };
+    }
+
+    addLogContext({ projectId: session.projectId });
+
+    const sink = new EventSink(this.#options.events, this.#options.bus);
+    const emit = <T extends NapEvent["type"]>(type: T, payload: Payload<T>): void => {
+      sink.emit({ type, payload, sessionId, turnId, createdAt: this.#now() } as PendingEvent);
+    };
+
+    try {
+      const acquired = await this.#acquire(session);
+
+      if (!acquired.ok) {
+        // A notice, not a `turn.failed`. No turn ran, so a failed one would put a retry button
+        // under a conversation that never happened — and the preview pane reads a sandbox
+        // failure as the state of the *last turn*, which nothing here is.
+        emit("system.notice", { level: "warning", text: resumeFailureNotice(acquired.error) });
+        await sink.drain();
+        getLogger().warn({ reason: acquired.error.code }, "could not resume the project");
+        return { ok: false, reason: "sandbox_unavailable", message: acquired.error.message };
+      }
+
+      for (const notice of acquired.value.notices) emit("system.notice", notice);
+
+      // Only for a sandbox this just created. One that was already serving has its
+      // `preview.ready` in the log already, and re-announcing remounts the frame underneath
+      // whoever is using the app.
+      if (acquired.value.created) await this.#announcePreview(acquired.value.id, emit);
+
+      await sink.drain();
+      getLogger().info({ created: acquired.value.created }, "project resumed");
+
+      return { ok: true, sandboxId: acquired.value.id, created: acquired.value.created };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      getLogger().error({ err: error }, "could not resume the project");
+      return { ok: false, reason: "internal", message };
+    }
   }
 
   async #runTurnLogged(request: TurnRequest, turnId: string): Promise<TurnOutcome> {
@@ -454,59 +544,4 @@ export function commitMessage(message: string): string {
   if (subject.length <= COMMIT_SUBJECT_LIMIT) return subject;
 
   return `${subject.slice(0, COMMIT_SUBJECT_LIMIT - 1)}…`;
-}
-
-/**
- * Turns a stream of synchronous emissions into an ordered append-then-publish pipeline.
- *
- * `onEvent` cannot be awaited — the agent calls it mid-loop and carries on — but appending is
- * a database write. Queuing each event onto a promise chain gives three things at once:
- * appends happen in emission order, an event is published only after its own append has
- * returned, and `drain()` gives the turn a point at which everything it emitted is durable.
- *
- * The first failure stops the pipeline. Continuing would publish events whose predecessors
- * were never written, which is the exact hole this ordering exists to close.
- */
-class EventSink {
-  #chain: Promise<void> = Promise.resolve();
-  #failure: unknown = null;
-  #terminal: NapEventOf<"turn.completed"> | NapEventOf<"turn.failed"> | null = null;
-
-  constructor(
-    private readonly store: EventStore,
-    private readonly bus: EventBus,
-  ) {}
-
-  /** How the turn ended, as recorded — null until it has. */
-  get terminal(): NapEventOf<"turn.completed"> | NapEventOf<"turn.failed"> | null {
-    return this.#terminal;
-  }
-
-  readonly emit = (event: PendingEvent): void => {
-    this.#chain = this.#chain.then(async () => {
-      if (this.#failure !== null) return;
-      try {
-        const stored = await this.store.append(event);
-        this.bus.publish(stored);
-        this.#record(stored);
-        // After the append, so a logged event is one that really exists in the log. Reading
-        // the context at this point rather than capturing a logger up front is what keeps the
-        // line under the turn that emitted it.
-        const line = eventLogLine(stored);
-        getLogger()[line.level](line.fields, "event");
-      } catch (error) {
-        this.#failure = error;
-      }
-    });
-  };
-
-  /** Resolves once every event emitted so far is persisted and published. */
-  async drain(): Promise<void> {
-    await this.#chain;
-    if (this.#failure !== null) throw this.#failure;
-  }
-
-  #record(event: StoredEvent): void {
-    if (event.type === "turn.completed" || event.type === "turn.failed") this.#terminal = event;
-  }
 }

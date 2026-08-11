@@ -5,10 +5,12 @@ import { FAKE_OWNER, InMemoryProjectStore } from "@nap/db/testing/in-memory-proj
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import type { ProjectSummary } from "@nap/shared/ports/project-store";
+import type { ResumeOutcome } from "@nap/shared/ports/runtime";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "../app.ts";
 import { createLogger } from "../logger.ts";
+import type { SandboxLimits } from "../turns/sandbox-quota.ts";
 
 const PROJECT = "3e0fbc41-6f5d-4a8e-ab9c-4d5e6f708192";
 const SESSION = "2a3f8a24-6c1b-4e0e-9b6f-3a5c0a1d9e77";
@@ -26,6 +28,12 @@ let sandboxId: string;
 /** Sessions the test declares to have a turn running. */
 let running: Set<string>;
 let created: { projectId: string; sessionId: string };
+/** Sessions the route asked the runtime to bring back up, in order. */
+let resumed: string[];
+let resume: () => Promise<ResumeOutcome>;
+let limits: SandboxLimits | undefined;
+/** The log the app writes to, so a close's announcement can be read back. */
+let events: InMemoryEventStore;
 
 function summary(overrides: Partial<ProjectSummary> = {}): ProjectSummary {
   return {
@@ -58,6 +66,10 @@ beforeEach(async () => {
   objects = new InMemoryObjectStore();
   running = new Set();
   created = { projectId: UNKNOWN, sessionId: SESSION };
+  resumed = [];
+  resume = async () => ({ ok: true, sandboxId: "resumed-sandbox", created: true });
+  limits = undefined;
+  events = new InMemoryEventStore();
 });
 
 function app() {
@@ -66,7 +78,7 @@ function app() {
     // Every guarded route needs a caller; this stands in for a signed-in session cookie.
     authenticate: async () => ({ userId: FAKE_OWNER }),
     stream: {
-      store: new InMemoryEventStore(),
+      store: events,
       bus: new InMemoryEventBus(),
       upgradeWebSocket: async () => new Response(null),
     },
@@ -78,6 +90,14 @@ function app() {
       sandbox,
       createProject: async () => created,
       isBusy: (sessionIds) => sessionIds.some((id) => running.has(id)),
+      events: { events, bus: new InMemoryEventBus() },
+      runtime: {
+        resumeSession: async (sessionId) => {
+          resumed.push(sessionId);
+          return await resume();
+        },
+      },
+      ...(limits === undefined ? {} : { limits: { projects, sandboxes: limits } }),
     },
   });
 }
@@ -165,6 +185,14 @@ describe("POST /projects/:projectId/close", () => {
     expect(projectSandboxes.get(PROJECT)?.sandboxId).toBeNull();
   });
 
+  it("tells the project's sessions that the preview has stopped", async () => {
+    // A close in one tab has to reach the others: they are showing an address that stops
+    // answering the moment this returns.
+    await app().request(`/projects/${PROJECT}/close`, { method: "POST" });
+
+    expect(await events.readFrom(SESSION, 0)).toMatchObject([{ type: "preview.stopped" }]);
+  });
+
   it("refuses while a turn is running", async () => {
     // The agent is mid-write and its events are still being appended. Taking the sandbox away
     // leaves a half-finished project and a transcript that stops mid-sentence.
@@ -193,6 +221,80 @@ describe("POST /projects/:projectId/close", () => {
 
     expect(res.status).toBe(503);
     await expect(sandbox.resume(sandboxId)).resolves.toMatchObject({ ok: true });
+  });
+});
+
+describe("POST /projects/:projectId/open", () => {
+  beforeEach(() => {
+    projects = new InMemoryProjectStore([summary({ sandboxId: null, status: "idle" })]);
+  });
+
+  it("accepts, and asks the runtime for the project's newest session", async () => {
+    const res = await app().request(`/projects/${PROJECT}/open`, { method: "POST" });
+
+    expect(res.status).toBe(202);
+    await expect(res.json()).resolves.toMatchObject({ opened: true });
+    expect(resumed).toEqual([SESSION]);
+  });
+
+  it("answers before the restore has finished", async () => {
+    // Unbundling a project and installing its dependencies is tens of seconds. Everything the
+    // user needs to see arrives on the socket, so holding the request open buys nothing and
+    // loses to the first proxy with an idle timeout.
+    let finish = (): void => {};
+    resume = () =>
+      new Promise((resolve) => {
+        finish = () => resolve({ ok: true, sandboxId: "sb", created: true });
+      });
+
+    const res = await app().request(`/projects/${PROJECT}/open`, { method: "POST" });
+
+    expect(res.status).toBe(202);
+    finish();
+  });
+
+  it("says so, rather than starting a second sandbox, when it is already running", async () => {
+    projects = new InMemoryProjectStore([summary()]);
+
+    const res = await app().request(`/projects/${PROJECT}/open`, { method: "POST" });
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({ opened: false, reason: "already_running" });
+    expect(resumed).toEqual([]);
+  });
+
+  it("refuses at the sandbox quota, in the same shape a turn is refused in", async () => {
+    // Resuming creates a sandbox, so skipping the check here would be a hole straight through
+    // the only ceiling on the bill — and the browser reads one `code` for both routes.
+    limits = { perUser: 1, total: 10 };
+    projects = new InMemoryProjectStore([
+      summary({ sandboxId: null, status: "idle" }),
+      summary({ projectId: UNKNOWN, sandboxId: "another", status: "ready" }),
+    ]);
+
+    const res = await app().request(`/projects/${PROJECT}/open`, { method: "POST" });
+
+    expect(res.status).toBe(409);
+    await expect(res.json()).resolves.toMatchObject({ code: "sandbox_quota_exceeded" });
+    expect(resumed).toEqual([]);
+  });
+
+  it("is 404 for a project that is not yours", async () => {
+    const res = await app().request(`/projects/${UNKNOWN}/open`, { method: "POST" });
+
+    expect(res.status).toBe(404);
+    expect(resumed).toEqual([]);
+  });
+
+  it("survives a runtime that throws", async () => {
+    // The resume runs detached, so an unhandled rejection here would end the Bun process and
+    // disconnect every open session.
+    resume = () => Promise.reject(new Error("the database went away"));
+
+    const res = await app().request(`/projects/${PROJECT}/open`, { method: "POST" });
+
+    expect(res.status).toBe(202);
+    await new Promise((resolve) => setTimeout(resolve, 0));
   });
 });
 

@@ -1,3 +1,5 @@
+import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
+import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { InMemoryProjectSandboxStore } from "@nap/db/testing/in-memory-project-sandbox-store";
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
@@ -20,6 +22,7 @@ let sandbox: InMemorySandboxManager;
 let objects: InMemoryObjectStore;
 let snapshots: InMemorySnapshotStore;
 let projects: InMemoryProjectSandboxStore;
+let events: InMemoryEventStore;
 let sandboxId: string;
 
 /** Every command a teardown runs, answered the way a real project would answer it. */
@@ -36,6 +39,7 @@ beforeEach(async () => {
   sandbox = scriptGit(new InMemorySandboxManager());
   objects = new InMemoryObjectStore();
   snapshots = new InMemorySnapshotStore();
+  events = new InMemoryEventStore();
 
   const created = await sandbox.create(PROJECT);
   if (!created.ok) throw new Error("could not create a sandbox");
@@ -55,6 +59,7 @@ function sweep(overrides: { isBusy?: (project: IdleProject) => boolean } = {}) {
     idleMs: IDLE_MS,
     isBusy: overrides.isBusy ?? (() => false),
     now: () => NOW,
+    announce: { events, bus: new InMemoryEventBus() },
   });
 }
 
@@ -79,6 +84,14 @@ describe("reaping an idle project", () => {
     const project = projects.get(PROJECT);
     expect(project?.sandboxId).toBeNull();
     expect(project?.snapshotKey).toBe(snapshots.all()[0]?.key);
+  });
+
+  it("tells the project's sessions their preview has stopped", async () => {
+    // The sweep is the case this exists for: nobody pressed anything, so a tab left open is
+    // showing a live-looking app at an address that has just stopped answering.
+    await sweep();
+
+    expect(await events.readFrom(SESSION, 0)).toMatchObject([{ type: "preview.stopped" }]);
   });
 
   it("leaves a project that was active inside the window alone", async () => {

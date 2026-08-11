@@ -1,3 +1,5 @@
+import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
+import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { InMemoryProjectSandboxStore } from "@nap/db/testing/in-memory-project-sandbox-store";
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
@@ -8,11 +10,15 @@ import { putProjectAway } from "./close-project.ts";
 const PROJECT = "3e0fbc41-6f5d-4a8e-ab9c-4d5e6f708192";
 const SHA = "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f80912";
 const ACTIVE = "2026-08-09T11:00:00.000Z";
+/** Two, because a sandbox belongs to the project every one of its sessions shares. */
+const SESSIONS = ["0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f", "1c8f9f2e-4d3b-4e6c-af7a-2b3c4d5e6f70"];
 
 let sandbox: InMemorySandboxManager;
 let objects: InMemoryObjectStore;
 let snapshots: InMemorySnapshotStore;
 let projects: InMemoryProjectSandboxStore;
+let events: InMemoryEventStore;
+let bus: InMemoryEventBus;
 let sandboxId: string;
 
 beforeEach(async () => {
@@ -24,6 +30,8 @@ beforeEach(async () => {
     });
   objects = new InMemoryObjectStore();
   snapshots = new InMemorySnapshotStore();
+  events = new InMemoryEventStore();
+  bus = new InMemoryEventBus();
 
   const created = await sandbox.create(PROJECT);
   if (!created.ok) throw new Error("could not create a sandbox");
@@ -42,7 +50,13 @@ function close(id = sandboxId) {
     snapshots,
     projectId: PROJECT,
     sandboxId: id,
+    announce: { events, bus, sessionIds: SESSIONS },
   });
+}
+
+/** Every event this close appended, per session. */
+async function appended(sessionId: string) {
+  return await events.readFrom(sessionId, 0);
 }
 
 describe("closing a project", () => {
@@ -59,6 +73,46 @@ describe("closing a project", () => {
       ok: false,
       error: { code: "destroyed" },
     });
+  });
+});
+
+describe("telling everyone watching that the preview has gone", () => {
+  it("appends `preview.stopped` to every session in the project", async () => {
+    // Every one of them, because the sandbox belonged to the project they share: a tab open
+    // on the second conversation is showing the same dead address as a tab on the first.
+    await close();
+
+    for (const sessionId of SESSIONS) {
+      expect(await appended(sessionId)).toMatchObject([{ type: "preview.stopped", payload: {} }]);
+    }
+  });
+
+  it("publishes it, so an open tab does not have to reconnect to find out", async () => {
+    const seen: string[] = [];
+    for (const sessionId of SESSIONS) bus.subscribe(sessionId, (e) => seen.push(e.type));
+
+    await close();
+
+    expect(seen).toEqual(["preview.stopped", "preview.stopped"]);
+  });
+
+  it("says nothing when the close failed and the sandbox is still serving", async () => {
+    // The preview is alive. Announcing that it stopped would send every open tab to an empty
+    // pane over a snapshot upload the user never asked about.
+    objects.failWith({ code: "unavailable", message: "R2 is not answering" });
+
+    await close();
+
+    for (const sessionId of SESSIONS) expect(await appended(sessionId)).toEqual([]);
+  });
+
+  it("announces an abandoned sandbox too", async () => {
+    // The provider reclaimed it: nothing was snapshotted, but the preview is just as gone.
+    await sandbox.destroy(sandboxId);
+
+    await close();
+
+    expect(await appended(SESSIONS[0] ?? "")).toMatchObject([{ type: "preview.stopped" }]);
   });
 });
 

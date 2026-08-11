@@ -71,6 +71,7 @@ const CASES = [
     payload: { toolCallId: "c1", stream: "stdout", chunk: "building…\n" },
   },
   { type: "preview.ready", payload: { url: "https://5173-abc.e2b.dev", port: 5173 } },
+  { type: "preview.stopped", payload: {} },
   { type: "turn.started", payload: {} },
   {
     type: "turn.completed",
@@ -91,9 +92,9 @@ describe("the treatment table covers the union", () => {
   it("has one case per event type", () => {
     const covered = CASES.map((c) => c.type);
     expect(new Set(covered).size).toBe(covered.length);
-    expect(CASES).toHaveLength(12);
+    expect(CASES).toHaveLength(13);
 
-    // Fails to compile if a 13th member is added to the union without a case here.
+    // Fails to compile if a 14th member is added to the union without a case here.
     const _exhaustive: (typeof CASES)[number]["type"] = null as unknown as NapEventType;
     void _exhaustive;
   });
@@ -285,6 +286,15 @@ describe("the rest of the turn", () => {
     const items = fold(ev("preview.ready", { url: "https://5173-abc.e2b.dev", port: 5173 }));
 
     expect(items[0]).toMatchObject({ kind: "preview", url: "https://5173-abc.e2b.dev" });
+  });
+
+  it("records the preview stopping, so the log explains why it went away", () => {
+    // The pane's own empty state says what to do about it; the transcript's job is the
+    // chronology — somebody closing the project in another tab, or the idle sweep, is
+    // otherwise an app that vanished for no stated reason.
+    const items = fold(ev("preview.stopped", {}));
+
+    expect(items[0]).toEqual({ kind: "preview-stopped", key: 1 });
   });
 
   it("keeps a system notice out of the agent's voice", () => {
