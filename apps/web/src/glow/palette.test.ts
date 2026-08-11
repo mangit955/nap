@@ -88,6 +88,19 @@ describe("rollPalette", () => {
     expect(roll(0.1)).not.toBe(roll(0.9));
   });
 
+  it("keeps the stage barely tinted", () => {
+    // The rim is light and can be as saturated as it likes. The stage is the *room* — it is on
+    // screen continuously, and at anything below the top of the lightness range it stops being
+    // a surface the box is lighting and becomes a coloured page.
+    const target = recorder();
+    rollPalette(target, () => 0.5);
+
+    for (const property of ["--ai-bg1", "--ai-bg2", "--ai-bg3"]) {
+      const lightness = Number(/ ([\d.]+)%\)$/.exec(target.written.get(property) ?? "")?.[1]);
+      expect(lightness, property).toBeGreaterThanOrEqual(90);
+    }
+  });
+
   it("spans at least the minimum arc, so a roll is never one flat colour", () => {
     const target = recorder();
     rollPalette(target, () => 0);

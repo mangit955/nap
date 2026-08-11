@@ -31,14 +31,22 @@ export function Landing({
   onSignOut: () => void;
 }) {
   return (
-    <div className="flex min-h-dvh flex-col">
-      <header className="flex h-14 shrink-0 items-center justify-between px-6">
-        <span className="font-semibold text-ink text-sm tracking-tight">nap</span>
+    <div className="relative flex min-h-dvh flex-col">
+      {/*
+        Drawn over the hero rather than above it. The hero is a light stage and the rest of the
+        page is near-black, so a header in the normal flow would put a dark strip on top of a
+        light band on top of a dark page — three horizontal slabs, which is exactly the reading
+        the fade at the stage's foot exists to avoid. It takes the stage's ink, not its surface.
+      */}
+      <header className="ai-stage-ink absolute inset-x-0 top-0 z-30 flex h-14 items-center justify-between px-6">
+        <span className="font-semibold text-[var(--s-text-primary)] text-sm tracking-tight">
+          nap
+        </span>
 
         {auth === "signed-out" && (
           <a
             href="/sign-in"
-            className="text-muted text-xs transition-colors hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
+            className="text-[var(--s-text-muted)] text-xs transition-colors hover:text-[var(--s-text-primary)] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--s-text-primary)]"
           >
             Sign in
           </a>
@@ -48,7 +56,7 @@ export function Landing({
           <button
             type="button"
             onClick={onSignOut}
-            className="text-muted text-xs transition-colors hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
+            className="text-[var(--s-text-muted)] text-xs transition-colors hover:text-[var(--s-text-primary)] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--s-text-primary)]"
           >
             Sign out
           </button>

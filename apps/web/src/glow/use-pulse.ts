@@ -45,13 +45,33 @@ export function useReducedMotion(): { reduced: boolean; reducedRef: RefObject<bo
 
 export type PulseOptions = {
   ref: RefObject<HTMLElement | null>;
+  /**
+   * Where the colours are written. Custom properties inherit, so a roll onto an ancestor
+   * reaches the rim layers *and* whatever else that ancestor contains — which is how the wash
+   * behind the box is lit by the same arc rather than by a second palette that would drift out
+   * of step with it. Defaults to the box itself.
+   */
+  paletteRef?: RefObject<HTMLElement | null>;
   /** How long one pulse takes. Must match the keyframes in `globals.css`. */
   pulseMs?: number;
-  /** Dark time between pulses. */
+  /**
+   * Dark time between pulses. **Derive it from the beats that have to fit inside it** rather
+   * than picking a number: if the handover has not finished when the next pulse starts, the
+   * light runs a rim that is still moving and whose mask is still stale, which is the exact
+   * thing the ordering exists to prevent.
+   */
   gapMs?: number;
+  /** Called on every beat, so a caller can hang its own timeline off the light. */
+  onPulse?: () => void;
 };
 
-export function useAiPulse({ ref, pulseMs = 1600, gapMs = 2600 }: PulseOptions): {
+export function useAiPulse({
+  ref,
+  paletteRef,
+  pulseMs = 1600,
+  gapMs = 2600,
+  onPulse,
+}: PulseOptions): {
   /** Fires a pulse now — what the send button calls, so pressing it is answered by light. */
   pulse: () => void;
 } {
@@ -59,18 +79,32 @@ export function useAiPulse({ ref, pulseMs = 1600, gapMs = 2600 }: PulseOptions):
   const timer = useRef<number | null>(null);
   const aliveRef = useRef(false);
 
+  // In a ref so a caller can pass an inline closure without restarting the loop on every
+  // render — which would reset the interval and, at worst, never let a beat complete.
+  const onPulseRef = useRef(onPulse);
+  onPulseRef.current = onPulse;
+
   const play = useCallback(() => {
     const element = ref.current;
-    if (element === null || reducedRef.current) return;
+    if (element === null) return;
 
-    rollPalette(element);
+    // The colours are rolled *before* the animation restarts, so the pulse that lights the rim
+    // and the wash that follows it are the same arc rather than one lagging a beat behind.
+    //
+    // This happens under reduced motion too, and deliberately: the wash crossfading over a
+    // second and a quarter is a colour change, not travel, and freezing it instead would leave
+    // that reader looking at a permanently grey page. What reduced motion withholds is the
+    // light *running the rim*, which is the part that moves.
+    rollPalette(paletteRef?.current ?? element);
+    if (reducedRef.current) return;
+
     element.dataset.playing = "false";
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         if (aliveRef.current) element.dataset.playing = "true";
       });
     });
-  }, [ref, reducedRef]);
+  }, [ref, paletteRef, reducedRef]);
 
   useEffect(() => {
     const element = ref.current;
@@ -88,6 +122,7 @@ export function useAiPulse({ ref, pulseMs = 1600, gapMs = 2600 }: PulseOptions):
     const beat = () => {
       if (!aliveRef.current) return;
       play();
+      onPulseRef.current?.();
       timer.current = window.setTimeout(beat, pulseMs + gapMs);
     };
 

@@ -28,7 +28,11 @@ export type StyleTarget = {
   style: { setProperty: (name: string, value: string) => void };
 };
 
-/** The properties a roll writes, in the order the gradient reads them. */
+/**
+ * The properties a roll writes: six stops and a tail for the rim, then three for the wash the
+ * box throws onto the section behind it. The wash is drawn from the same arc as the rim, which
+ * is the whole point — the section is lit *by* the box rather than decorated to match it.
+ */
 export const PALETTE_PROPERTIES = [
   "--ai-c1",
   "--ai-c2",
@@ -37,6 +41,9 @@ export const PALETTE_PROPERTIES = [
   "--ai-c5",
   "--ai-c6",
   "--ai-tail",
+  "--ai-bg1",
+  "--ai-bg2",
+  "--ai-bg3",
 ] as const;
 
 export function hsl(hue: number, saturation: number, lightness: number, alpha = 1): string {
@@ -66,4 +73,14 @@ export function rollPalette(target: StyleTarget, random: () => number = Math.ran
   style.setProperty("--ai-c6", hsl(at(1), 90, 72, 0.8));
   // Behind the anchor rather than ahead of it: the tail is what the light has already passed.
   style.setProperty("--ai-tail", hsl(at(-0.12), 70, 76, 0.63));
+
+  /*
+   * The stage the box stands on: the same arc again, but barely tinted — a few points of
+   * saturation at the very top of the lightness range. It is the only part of the effect that
+   * is on screen continuously, so it has to be a colour you notice having changed rather than
+   * one you notice. Anything stronger stops being light in a room and becomes a coloured page.
+   */
+  style.setProperty("--ai-bg1", hsl(at(0), 62, 97));
+  style.setProperty("--ai-bg2", hsl(at(0.5), 54, 95));
+  style.setProperty("--ai-bg3", hsl(at(1), 58, 93));
 }

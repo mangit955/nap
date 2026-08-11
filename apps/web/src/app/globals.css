@@ -89,10 +89,61 @@ body {
 }
 
 /*
- * A first paint before any pulse has rolled a palette would otherwise be colourless. These are
- * only ever seen for a frame, but a frame of grey where the light should be reads as a bug.
+ * The stage's colour, registered — and registered as colours, for one reason: an unregistered
+ * custom property cannot be transitioned, so a new palette would swap in on a single frame.
+ * These are the only palette values that need it. The rim's own colours change while the light
+ * is out and are never seen mid-change.
+ *
+ * `inherits: true` because the roll is written on the stage and read by the gradient on it.
  */
-.ai-lights {
+@property --ai-bg1 {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #f7f9fc;
+}
+@property --ai-bg2 {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #eef4fb;
+}
+@property --ai-bg3 {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #e6f0fa;
+}
+
+/*
+ * The stage: a light surface the box stands on, drifting through the same arc that lights its
+ * rim. It is the only part of the effect on screen continuously, which is why it moves an
+ * order of magnitude slower than the pulse does.
+ *
+ * **Its design tokens are scoped here rather than to `:root`.** The rest of this app is a dark
+ * frame around somebody's project; a light ramp declared globally would restyle all of it by
+ * accident. Everything inside the stage reads these, and nothing outside it can.
+ *
+ * The ramp is deliberately deeper than a flat light theme needs — several greys each with a
+ * job, and a border heavier than the usual hairline. That is what makes a flat surface read as
+ * layered without adding a single shadow. No accent colour: a saturated hue fights a rainbow
+ * rim, and the rim is the point.
+ */
+.ai-stage,
+.ai-stage-ink {
+  --s-surface-1: #ffffff;
+  --s-surface-2: #fbfbfc;
+  --s-surface-3: #f1f2f4;
+  --s-border-1: #dedede;
+  --s-text-primary: #16171a;
+  --s-text-body: #3c3f45;
+  --s-text-muted: #6a6e76;
+  --s-text-subtle: #9aa0a8;
+  --s-text-inverse: #ffffff;
+
+  /*
+   * The colours the rim is painted in, before any pulse has rolled a palette. They live on the
+   * stage rather than on the box because the roll is written here — a copy on the box would be
+   * an own declaration, which beats an inherited one, and the rim would never change colour at
+   * all. That failure is silent and looks like the palette code not running.
+   */
   --ai-c1: #005bf6;
   --ai-c2: #b0c6e9;
   --ai-c3: #feca00;
@@ -100,6 +151,21 @@ body {
   --ai-c5: #ff00ea;
   --ai-c6: #ffa2fbcc;
   --ai-tail: #95c1ffa1;
+
+  color: var(--s-text-body);
+}
+
+/*
+ * `.ai-stage-ink` above is the same ramp with no surface of its own — for the page header,
+ * which is drawn *over* the stage and therefore needs its light-theme ink, but must not paint a
+ * second gradient behind itself. One declaration block for both, so the two can never drift.
+ */
+.ai-stage {
+  background: linear-gradient(180deg, var(--ai-bg1) 0%, var(--ai-bg2) 55%, var(--ai-bg3) 100%);
+  transition:
+    --ai-bg1 1200ms cubic-bezier(0.22, 1, 0.36, 1),
+    --ai-bg2 1200ms cubic-bezier(0.22, 1, 0.36, 1),
+    --ai-bg3 1200ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 /*
@@ -184,3 +250,69 @@ body {
  * written — so there is deliberately no `prefers-reduced-motion` block here. A second place to
  * turn the light off would eventually disagree with the first.
  */
+
+/*
+ * **The glow is removed from the layout while the body changes shape**, not merely hidden.
+ * Ten layers each stretching a raster to a box that changes every frame is ten image rescales
+ * per frame, on top of the layout that animating width and height already forces — and the
+ * morph happens in the dark, so none of it would ever be seen. `opacity: 0` would not do: a
+ * transparent element is still laid out and still rescales its mask.
+ */
+.ai-lights[data-morphing="true"] .ai-lights-layer {
+  display: none;
+}
+
+/*
+ * Contents leave the same way, for the same reason — `content-visibility` skips their layout
+ * and their paint entirely while they are faded out.
+ */
+.ai-contents[data-morphing="true"] {
+  content-visibility: hidden;
+}
+
+/*
+ * Contents arrive a character at a time: up from below, out of a blur, on a stagger. The
+ * stagger is what makes text read as *arriving* rather than as appearing — and the blur is
+ * what stops the travel looking like a slide.
+ */
+@keyframes ai-char {
+  from {
+    opacity: 0;
+    filter: blur(2px);
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0);
+  }
+}
+
+/* The same arrival with the motion taken out: everything else about the beat is unchanged. */
+@keyframes ai-char-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* The live step on the workflow track: a ring leaving the node it belongs to. */
+@keyframes ai-ring {
+  0% {
+    opacity: 0.7;
+    transform: scale(1);
+  }
+  70%,
+  100% {
+    opacity: 0;
+    transform: scale(1.7);
+  }
+}
+
+@keyframes ai-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
