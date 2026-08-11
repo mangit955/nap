@@ -79,7 +79,12 @@ export function Hero({
       <Doodles />
       <BadgeTrail />
 
-      <div className="relative z-10 flex w-full max-w-2xl flex-col items-center">
+      {/*
+        `data-no-trail`: the badge trail drops nothing that would land on this column. It is one
+        attribute on the whole column rather than one per element, because the gaps between a
+        headline, a card and a button are not places a badge should sit either.
+      */}
+      <div data-no-trail className="relative z-10 flex w-full max-w-2xl flex-col items-center">
         <Headline lines={LINES} sub={SUB} emphasis={EMPHASIS} />
 
         {/*
@@ -134,7 +139,9 @@ export function Hero({
         the one thing this section is not supposed to have.
       */}
       <p className="absolute inset-x-0 bottom-6 text-center text-[var(--s-text-subtle)] text-xs">
-        Every app is built in its own sandbox, and only you can open it.
+        {/* The span, not the paragraph: the paragraph is the full width of the stage and would
+            cost the trail the whole bottom band to protect one sentence. */}
+        <span data-no-trail>Every app is built in its own sandbox, and only you can open it.</span>
       </p>
     </section>
   );

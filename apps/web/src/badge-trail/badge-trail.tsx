@@ -20,6 +20,12 @@
  * nudging matters: a nudged badge lands somewhere the cursor never went, and the trail stops
  * being a record of the path.
  *
+ * **It gets out of the way of the words.** Anything on the page carrying `data-no-trail` is a
+ * box the trail will not drop into, and the phantom below is deflected around it. A background
+ * that runs under a headline is not texture, it is interference — and the drop is *skipped*
+ * rather than moved, so the trail stays a record of where the cursor went: it thins out across
+ * the text and picks up again past it.
+ *
  * **It keeps moving when nobody does.** After the cursor leaves, a slow phantom point drifts the
  * trail around the stage, so the hero is alive on arrival rather than waiting to be discovered.
  * That is only affordable because the loop stops dead when the section scrolls out of view or the
@@ -32,7 +38,28 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { COLORS, makeHueWalker, shuffle, WORDS } from "./badges.ts";
-import { BADGE_H, badgeW, FONT_PX, overlaps, PAD_X, PAD_Y, RADIUS } from "./geometry.ts";
+import {
+  BADGE_H,
+  badgeW,
+  blocked,
+  FONT_PX,
+  overlaps,
+  PAD_X,
+  PAD_Y,
+  RADIUS,
+  type Rect,
+  slideOut,
+} from "./geometry.ts";
+
+/**
+ * What anything on the page marks itself with to be left alone. An attribute rather than a prop,
+ * because the things to avoid are not all the trail's siblings — the page header is drawn over
+ * this stage from a component two levels up, and threading a ref down through it would make
+ * every future overlay somebody else's problem to remember.
+ */
+const NO_TRAIL = "[data-no-trail]";
+/** How often those boxes are re-measured. A layout read, so not every frame. */
+const ZONES_MS = 250;
 
 const DROP_MS = 45;
 const MIN_TRAVEL = 14;
@@ -207,6 +234,26 @@ export function BadgeTrail() {
       rawY = y;
     };
 
+    /**
+     * The boxes of everything on the page that has asked not to be crossed, in this layer's
+     * coordinates.
+     *
+     * Re-measured a few times a second rather than once: the page reflows on a resize, on the
+     * display font arriving and on signing in, and a stale box is a badge printed across a
+     * sentence. Not every frame either — this is a layout read, and the answer cannot change
+     * between two frames by enough to matter.
+     */
+    let zones: Rect[] = [];
+    let zonesAt = 0;
+    const measureZones = (box: DOMRect, now: number) => {
+      if (now - zonesAt < ZONES_MS) return;
+      zonesAt = now;
+      zones = [...layer.ownerDocument.querySelectorAll(NO_TRAIL)].map((element) => {
+        const zone = element.getBoundingClientRect();
+        return { x: zone.left - box.left, y: zone.top - box.top, w: zone.width, h: zone.height };
+      });
+    };
+
     const ghostPoint = (t: number, w: number, h: number): [number, number] => [
       w * 0.5 + (Math.sin(t * GHOST_FX) * GHOST_AX + Math.sin(t * GHOST_FX2 + 2.3) * GHOST_AX2) * w,
       h * 0.5 +
@@ -226,11 +273,14 @@ export function BadgeTrail() {
       lastNow = now;
 
       const box = layer.getBoundingClientRect();
+      measureZones(box, now);
+
       if (rawX >= 0) {
         px = rawX;
         py = rawY;
       } else if (now - leftAt >= GHOST_IDLE_MS) {
-        const [gx, gy] = ghostPoint(now, box.width, box.height);
+        // The phantom is deflected around the text; a real cursor never is. See `slideOut`.
+        const [gx, gy] = slideOut(...ghostPoint(now, box.width, box.height), zones, box.width);
         const k = Math.min(1, (now - leftAt - GHOST_IDLE_MS) / GHOST_BLEND_MS);
         // Blend out of wherever the cursor was last seen, so the trail does not teleport across
         // the stage the moment the phantom takes over.
@@ -262,7 +312,8 @@ export function BadgeTrail() {
           const x = Math.max(0, Math.min(box.width - w, px - w / 2));
           const y = Math.max(0, Math.min(box.height - h, py - h / 2));
 
-          if (!alive.some((b) => overlaps({ x, y, w, h }, b))) {
+          const candidate = { x, y, w, h };
+          if (!alive.some((b) => overlaps(candidate, b)) && !blocked(candidate, zones)) {
             let dx = prevX >= 0 ? px - prevX : 0;
             let dy = prevY >= 0 ? py - prevY : -1;
             const speed = Math.hypot(prevX >= 0 ? px - prevX : 0, prevY >= 0 ? py - prevY : 0);
@@ -422,6 +473,10 @@ export function BadgeTrail() {
         : STATIC.map((b) => (
             <span
               key={b.text}
+              // Below `md` the content column is the whole width, so there is no margin left to
+              // stand in — and a badge is decoration, which is the first thing a small screen
+              // should lose.
+              className="hidden md:inline"
               style={{
                 ...FACE,
                 left: `${b.left}%`,

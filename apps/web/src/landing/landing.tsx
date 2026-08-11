@@ -40,13 +40,19 @@ export function Landing({
         the fade at the stage's foot exists to avoid. It takes the stage's ink, not its surface.
       */}
       <header className="ai-stage-ink absolute inset-x-0 top-0 z-30 flex h-14 items-center justify-between px-6">
-        <span className="flex items-center gap-0.5 font-semibold text-[var(--s-text-primary)] text-sm tracking-tight">
+        {/* `data-no-trail` on each end rather than the bar: the bar is the width of the page,
+            and the hero's badge trail is welcome to the empty middle of it. */}
+        <span
+          data-no-trail
+          className="flex items-center gap-0.5 font-semibold text-[var(--s-text-primary)] text-sm tracking-tight"
+        >
           <NapMark className="size-10" />
           nap
         </span>
 
         {auth === "signed-out" && (
           <a
+            data-no-trail
             href="/sign-in"
             className="text-[var(--s-text-muted)] text-xs transition-colors hover:text-[var(--s-text-primary)] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--s-text-primary)]"
           >
@@ -56,6 +62,7 @@ export function Landing({
 
         {auth === "signed-in" && (
           <button
+            data-no-trail
             type="button"
             onClick={onSignOut}
             className="text-[var(--s-text-muted)] text-xs transition-colors hover:text-[var(--s-text-primary)] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--s-text-primary)]"
