@@ -276,6 +276,46 @@ describe("request logging", () => {
     expect(records[0]?.requestId).toEqual(expect.any(String));
   });
 
+  it("logs an unhandled error under the ids of the request that caused it", async () => {
+    // The body of a 500 deliberately says nothing, so the ids on this line are the only thing
+    // connecting the stack trace to a request, a user and a session. Logging it through the
+    // app's own logger rather than the ambient one drops all of them — which is what it did.
+    const lines: string[] = [];
+    const logger = createLogger({ level: "info" }, { write: (m) => lines.push(m) });
+
+    const res = await app({
+      logger,
+      health: async () => {
+        throw new Error("the database exploded");
+      },
+    }).request(`/health?sessionId=${SESSION}`);
+
+    expect(res.status).toBe(500);
+    const records = lines.map((l) => JSON.parse(l) as Record<string, unknown>);
+    const failure = records.find((r) => r.msg === "unhandled error");
+    expect(failure).toMatchObject({ sessionId: SESSION, requestId: expect.any(String) });
+  });
+
+  it("ties the 500 to the request line by a shared request id", async () => {
+    // Two lines, one incident. Without the same requestId on both there is no way to tell
+    // which request the stack trace belongs to on a busy server.
+    const lines: string[] = [];
+    const logger = createLogger({ level: "info" }, { write: (m) => lines.push(m) });
+
+    await app({
+      logger,
+      health: async () => {
+        throw new Error("the database exploded");
+      },
+    }).request("/health");
+
+    const records = lines.map((l) => JSON.parse(l) as Record<string, unknown>);
+    const failure = records.find((r) => r.msg === "unhandled error");
+    const request = records.find((r) => r.msg === "request");
+    expect(failure?.requestId).toBe(request?.requestId);
+    expect(failure?.requestId).toEqual(expect.any(String));
+  });
+
   it("never writes an id it does not have", async () => {
     // `sessionId: undefined` in a JSON line is noise that a grep for a real id still matches
     // on the key, and it makes "is this line about a session?" unanswerable.

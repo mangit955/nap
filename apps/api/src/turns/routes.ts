@@ -85,7 +85,11 @@ export function registerTurnRoutes(
     void deps.runtime
       .runTurn({ sessionId, message: body.data.message, signal })
       .then((outcome) => {
-        logger.info({ outcome }, "turn settled");
+        // `turnId` hoisted out of the outcome rather than left nested inside it: this line is
+        // written by the request, which never learns the id the runtime generated, so without
+        // it the one line saying how the turn ended is not reachable by the key everything
+        // else about that turn is grouped under.
+        logger.info({ turnId: outcome.turnId, outcome }, "turn settled");
       })
       .catch((error: unknown) => {
         // A thrown error is a bug in the runtime rather than a failed turn, which is a value.

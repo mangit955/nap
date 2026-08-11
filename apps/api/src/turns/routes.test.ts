@@ -49,10 +49,10 @@ class ThrowingRuntime implements Runtime {
   }
 }
 
-function app(runtime: Runtime, registry = new TurnRegistry()) {
+function app(runtime: Runtime, registry = new TurnRegistry(), logger = silent()) {
   return {
     app: createApp({
-      logger: silent(),
+      logger,
       // Every guarded route needs a caller; this stands in for a signed-in session cookie.
       authenticate: async () => ({ userId: FAKE_OWNER }),
       stream: {
@@ -343,5 +343,45 @@ describe("limits", () => {
 
     expect(refused.status).toBe(409);
     expect(runtime.requests).toEqual([]);
+  });
+});
+
+describe("what a detached turn leaves in the log", () => {
+  /** Captures real output, since the assertion is about which fields a line actually carries. */
+  function capturing() {
+    const lines: string[] = [];
+    return {
+      logger: createLogger({ level: "info" }, { write: (m: string) => lines.push(m) }),
+      records: () => lines.map((l) => JSON.parse(l) as Record<string, unknown>),
+    };
+  }
+
+  it("records how the turn ended under a greppable turn id", async () => {
+    // The route answers 202 and never learns the id the runtime generated, so this line — the
+    // only one saying how the turn ended from the request's side — has to lift it out of the
+    // outcome. Left nested, the turn's own key does not reach it.
+    const sink = capturing();
+    const runtime = new SlowRuntime();
+    const { app: hono } = app(runtime, new TurnRegistry(), sink.logger);
+
+    await post(hono, `/sessions/${SESSION}/turns`, { message: "add a button" });
+    runtime.complete();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const settled = sink.records().find((r) => r.msg === "turn settled");
+    expect(settled).toMatchObject({ turnId: "t1", sessionId: SESSION });
+  });
+
+  it("records a turn that threw, under the session it belonged to", async () => {
+    // A throwing runtime is a bug rather than a failed turn, and it produces no event at all —
+    // so this line is the only trace. Losing the session id would make it unattributable.
+    const sink = capturing();
+    const { app: hono } = app(new ThrowingRuntime(), new TurnRegistry(), sink.logger);
+
+    await post(hono, `/sessions/${SESSION}/turns`, { message: "add a button" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const threw = sink.records().find((r) => r.msg === "turn threw");
+    expect(threw).toMatchObject({ sessionId: SESSION });
   });
 });

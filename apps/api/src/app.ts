@@ -240,7 +240,11 @@ export function createApp(deps: AppDeps): Hono<{ Variables: AuthVariables }> {
   );
 
   app.onError((error, c) => {
-    deps.logger.error({ err: error }, "unhandled error");
+    // Through the ambient logger, not `deps.logger`. A 500 is the line most worth grepping and
+    // the one with least to go on — the body deliberately says nothing, so the ids are all a
+    // reader gets to connect it to the request that caused it. `onError` runs inside the
+    // middleware that opened the context, so they are still there to be picked up.
+    getLogger().error({ err: error }, "unhandled error");
     return c.json({ error: "Internal Server Error" }, 500);
   });
 
