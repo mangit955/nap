@@ -41,7 +41,7 @@ export function Landing({
       */}
       <header className="ai-stage-ink absolute inset-x-0 top-0 z-30 flex h-14 items-center justify-between px-6">
         <span className="flex items-center gap-1.5 font-semibold text-[var(--s-text-primary)] text-sm tracking-tight">
-          <NapMark className="size-[18px]" />
+          <NapMark className="size-6" />
           nap
         </span>
 
