@@ -137,6 +137,11 @@ body {
   --s-text-muted: #6a6e76;
   --s-text-subtle: #9aa0a8;
   --s-text-inverse: #ffffff;
+  /*
+   * The line art in the margins. Lighter than the border, because a mark at border weight stops
+   * being texture and becomes a diagram somebody is expected to read.
+   */
+  --s-doodle: #e4e5e8;
 
   /*
    * The colours the rim is painted in, before any pulse has rolled a palette. They live on the

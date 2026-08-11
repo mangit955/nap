@@ -23,6 +23,7 @@
 
 import { useRef } from "react";
 import { MorphCard } from "../glow/morph-card.tsx";
+import { Doodles } from "./doodles.tsx";
 import { EXAMPLE_PROMPTS } from "./example-prompts.ts";
 
 export function Hero({
@@ -59,6 +60,8 @@ export function Hero({
       ref={stage}
       className="ai-stage relative flex min-h-dvh flex-col items-center justify-center overflow-hidden px-6 py-24"
     >
+      <Doodles />
+
       <div className="relative z-10 flex w-full max-w-2xl flex-col items-center">
         <h1 className="text-balance text-center font-semibold text-4xl text-[var(--s-text-primary)] leading-[1.05] tracking-[-0.03em] sm:text-6xl">
           Describe an app.
