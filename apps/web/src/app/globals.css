@@ -41,6 +41,94 @@ body {
 }
 
 /*
+ * The mark waking up.
+ *
+ * Asleep is the resting state and costs nothing: no animation is running, and the lids are
+ * simply the shapes cut out of the body. Hovering fades the lids out, fades the eyes in, and
+ * starts a slow glance — right, left, back to centre — with a bob barely half a pixel high,
+ * because something awake is never completely still.
+ *
+ * The timings are deliberately unhurried. At 24px a quick movement reads as a flicker, which
+ * looks like a rendering fault rather than a character; the glance holds at each end long
+ * enough to be read as *looking* rather than as sliding.
+ *
+ * `transform-box: fill-box` is load-bearing: without it an SVG transform is measured against
+ * the whole viewport rather than the element, and the bob throws the ghost off the canvas.
+ */
+.nap-mark-shut,
+.nap-mark-open {
+  transition: opacity 260ms ease;
+}
+
+.nap-mark-open {
+  opacity: 0;
+}
+
+.nap-mark:hover .nap-mark-shut {
+  opacity: 0;
+}
+
+.nap-mark:hover .nap-mark-open {
+  opacity: 1;
+}
+
+.nap-mark-eyes,
+.nap-mark-body {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* The glance starts after the eyes have finished opening, so it never happens behind a lid. */
+.nap-mark:hover .nap-mark-eyes {
+  animation: nap-glance 3s ease-in-out 240ms infinite;
+}
+
+.nap-mark:hover .nap-mark-body {
+  animation: nap-bob 3s ease-in-out 240ms infinite;
+}
+
+@keyframes nap-glance {
+  0%,
+  14% {
+    transform: translateX(0);
+  }
+  28%,
+  40% {
+    transform: translateX(1.9px);
+  }
+  56%,
+  68% {
+    transform: translateX(-1.9px);
+  }
+  84%,
+  100% {
+    transform: translateX(0);
+  }
+}
+
+@keyframes nap-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-0.4px);
+  }
+}
+
+/*
+ * Under reduced motion it still wakes — the eyes are a state, not a movement, and a mark that
+ * refused to respond at all would read as broken rather than as considerate. What goes is the
+ * travel: no glancing, no bob.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .nap-mark:hover .nap-mark-eyes,
+  .nap-mark:hover .nap-mark-body {
+    animation: none;
+  }
+}
+
+/*
  * The rim light.
  *
  * Every angle below is a *registered* custom property, and that registration is not optional:

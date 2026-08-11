@@ -1,35 +1,82 @@
+"use client";
+
 /**
- * The mark: a ghost, asleep.
+ * The mark: a ghost, asleep — until you look at it.
  *
  * A solid silhouette rather than an outline, because the mark has to survive at 16px in a
- * browser tab — a monoline drawing at that size turns into four grey pixels, while a filled
+ * browser tab: a monoline drawing at that size turns into four grey pixels, while a filled
  * shape keeps its silhouette all the way down. Everything that identifies it is therefore in
- * the *outline* of the body: the dome, the straight shoulders, the three-bump hem.
+ * the *outline* of the body — the dome, the straight shoulders, the three-bump hem.
  *
- * **The eyes are knocked out of the fill, not drawn on top of it.** One path with
- * `fill-rule="evenodd"` means there is exactly one colour in the mark and it is whatever the
- * surrounding text is — so it works on the light stage, in the dark workspace header, and as a
- * one-colour favicon, with nothing to keep in step. Drawing the eyes in the background colour
- * would have been easier and would break the moment the surface behind it changed.
+ * **The eyes are cut out of the body with a mask, not painted over it.** That keeps the whole
+ * mark one colour, taken from the text beside it, so the same file works on the light stage, in
+ * the dark workspace header and as a one-colour icon. Painting the eyes in the background
+ * colour would look identical here and break the moment the surface behind it changed.
  *
- * Asleep is carried by two closed crescents curving *downward*. It is the whole idea of the
- * product in the one feature a face has room for at this size, and it is why the eyes are
- * crescents rather than dots: dots read as awake, and an awake ghost is just a ghost.
+ * The mask is also what makes it animatable. Cutting the eyes out of a *single* path with
+ * `evenodd` — which is how this started — welds them to the body, so opening them would mean
+ * swapping the entire drawing. As mask contents they are ordinary elements that can fade and
+ * move while the body holds still.
  *
- * It takes no props beyond the usual svg ones and sets no size of its own — the caller sizes it,
- * so it can be a 16px tab icon and a 96px sign-in mark from the same file.
+ * **On hover it wakes.** The lids fade out, the eyes fade in, and it glances right, then left,
+ * then back — with a bob a fraction of a pixel high, because a thing that is awake is never
+ * completely still. Everything is on a delay from the same beat so the wake reads as one
+ * gesture rather than three. It is deliberately slow: a fast blink at this size reads as a
+ * flicker, which looks like a rendering fault rather than a character.
+ *
+ * `aria-hidden`, because the wordmark beside it already says nap and a second copy would be
+ * announced twice. It takes no props beyond the usual svg ones and sets no size of its own — the
+ * caller sizes it, so one file is a 16px tab icon and a 24px header mark.
  */
 
 import type { SVGProps } from "react";
+import { useId } from "react";
+import {
+  NAP_BODY,
+  NAP_EYE_OPEN,
+  NAP_EYE_OPEN_RX,
+  NAP_EYE_OPEN_RY,
+  NAP_EYE_SHUT_LEFT,
+  NAP_EYE_SHUT_RIGHT,
+} from "./nap-mark-paths.ts";
 
-export function NapMark(props: SVGProps<SVGSVGElement>) {
+export function NapMark({ className = "", ...props }: SVGProps<SVGSVGElement>) {
+  // A document-unique id per instance: two marks on one page sharing a mask id would have the
+  // second one silently using the first one's cut-outs. Stripped of punctuation because React's
+  // ids contain colons, which are legal in an id and a nuisance everywhere else.
+  const maskId = `nap-mark-${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
+
   return (
-    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" {...props}>
-      <path
-        fillRule="evenodd"
-        clipRule="evenodd"
-        d="M2.8 11.4a9.2 9.2 0 0 1 18.4 0v7.4c0 1.5-1.7 2.3-2.9 1.4l-1.5-1.2c-.6-.5-1.5-.4-2.1.1l-1.1 1c-.6.6-1.6.6-2.2 0l-1.1-1c-.6-.5-1.5-.6-2.1-.1l-1.5 1.2c-1.2.9-2.9.1-2.9-1.4Zm4.9-.5c.35 1.35.95 2.15 1.7 2.15s1.35-.8 1.7-2.15c.11-.42-.53-.6-.66-.19-.26.94-.62 1.44-1.04 1.44s-.78-.5-1.04-1.44c-.13-.41-.77-.23-.66.19Zm5.2 0c.35 1.35.95 2.15 1.7 2.15s1.35-.8 1.7-2.15c.11-.42-.53-.6-.66-.19-.26.94-.62 1.44-1.04 1.44s-.78-.5-1.04-1.44c-.13-.41-.77-.23-.66.19Z"
-      />
+    <svg
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+      className={`nap-mark ${className}`}
+      {...props}
+    >
+      <mask id={maskId}>
+        {/* White keeps, black cuts. The body is the white; the eyes are the black. */}
+        <rect width="24" height="24" fill="#fff" />
+        <g className="nap-mark-eyes" fill="#000">
+          <g className="nap-mark-shut">
+            <path d={NAP_EYE_SHUT_LEFT} />
+            <path d={NAP_EYE_SHUT_RIGHT} />
+          </g>
+          <g className="nap-mark-open">
+            {NAP_EYE_OPEN.map((eye) => (
+              <ellipse
+                key={eye.cx}
+                cx={eye.cx}
+                cy={eye.cy}
+                rx={NAP_EYE_OPEN_RX}
+                ry={NAP_EYE_OPEN_RY}
+              />
+            ))}
+          </g>
+        </g>
+      </mask>
+
+      <path className="nap-mark-body" d={NAP_BODY} mask={`url(#${maskId})`} />
     </svg>
   );
 }
