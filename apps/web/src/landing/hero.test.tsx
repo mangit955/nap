@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { EXAMPLE_PROMPTS } from "./example-prompts.ts";
 import { Hero } from "./hero.tsx";
@@ -11,10 +11,10 @@ import { Hero } from "./hero.tsx";
 function show(props: Partial<Parameters<typeof Hero>[0]> = {}) {
   const onSubmit = vi.fn();
   const onChange = vi.fn();
-  render(
+  const view = render(
     <Hero signedIn value="" onChange={onChange} onSubmit={onSubmit} {...props} />, //
   );
-  return { onSubmit, onChange };
+  return { onSubmit, onChange, container: view.container };
 }
 
 const BOX = { name: "Describe the app you want" };
@@ -44,7 +44,40 @@ describe("signed out", () => {
   });
 });
 
-describe("the card", () => {
+describe("what is lit", () => {
+  it("puts the light on the box you type into, once there is an account", () => {
+    // The request the whole split answers: signed in, the lit object *is* the control. The class
+    // name is the deliberate exception the rest of the glow already takes — this is colour, and
+    // colour has no accessible surface to query.
+    const { container } = show({ signedIn: true });
+
+    const lit = container.querySelector(".ai-lights");
+    expect(lit).not.toBeNull();
+    expect(lit?.contains(screen.getByRole("textbox", BOX))).toBe(true);
+  });
+
+  it("shows no picture of software working to somebody who has their own", () => {
+    // The card's four faces are a stand-in for having nothing of your own to look at. The step
+    // labels are content, not markup, so this fails if the card comes back rather than if its
+    // styling changes.
+    show({ signedIn: true });
+
+    expect(screen.queryByText("Fetch")).toBeNull();
+    expect(screen.queryByText("Parse")).toBeNull();
+  });
+
+  it("lights exactly one thing, in either state", () => {
+    // Two would be two arcs beating out of step in one room, which is what the shared palette
+    // roll exists to prevent.
+    const { container: out } = show({ signedIn: false });
+    expect(out.querySelectorAll(".ai-lights")).toHaveLength(1);
+
+    cleanup();
+
+    const { container: inside } = show({ signedIn: true });
+    expect(inside.querySelectorAll(".ai-lights")).toHaveLength(1);
+  });
+
   it("is a picture, not a control", () => {
     // It changes what it is every few seconds. A label never re-announces, so any name it
     // carried would be wrong seconds after being read.

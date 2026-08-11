@@ -10,13 +10,16 @@
  * deliberately so: it used to drift through the same arc as the rim, which read as the page
  * tinting itself rather than as anything being lit.
  *
- * **The card is a picture, not a control.** It cycles through four surfaces from the sort of
- * interface that sits around a model while it works, and nothing about it responds to a cursor.
- * What you can act on sits under it, and differs by who is looking: somebody signed in gets the
- * box that starts a project; somebody who is not gets the way in. There is deliberately no
- * input before sign-in — a prompt typed by a stranger would have to be stored somewhere, carried
- * across an authentication redirect and handed back, and every one of those steps is a place to
- * lose somebody's sentence.
+ * **One lit object, and who is looking decides which.** A visitor gets the card: a picture of
+ * software working, cycling through four surfaces of the sort of interface that sits around a
+ * model, responding to nothing — because there is nothing of theirs to show yet, and the way in
+ * sits under it. Somebody signed in gets the light on the box they type into instead, and no
+ * picture at all: they came here to start something, and a decorative card standing above the
+ * only control on the page is a thing to scroll past.
+ *
+ * There is deliberately no input before sign-in — a prompt typed by a stranger would have to be
+ * stored somewhere, carried across an authentication redirect and handed back, and every one of
+ * those steps is a place to lose somebody's sentence.
  *
  * Split the way every pane in this app is split: this renders what it is given, and `LiveHero`
  * owns the requests and the navigation.
@@ -24,6 +27,7 @@
 
 import { useRef } from "react";
 import { BadgeTrail } from "../badge-trail/badge-trail.tsx";
+import { LitBox } from "../glow/lit-box.tsx";
 import { MorphCard } from "../glow/morph-card.tsx";
 import { Doodles } from "./doodles.tsx";
 import { EXAMPLE_PROMPTS } from "./example-prompts.ts";
@@ -42,6 +46,18 @@ const LINES = ["Describe an app.", "Then go take a nap."] as const;
 const SUB = "It'll be running by the time you're back — written in a live sandbox you can watch.";
 /** The word the sentence turns on, and the only one set heavy. */
 const EMPHASIS = "nap";
+
+/**
+ * What raises the lit object off the stage. Shared so the card and the prompt box sit at the
+ * same height above it — the light is the same light, and two different shadows under it would
+ * say they were lit from different places.
+ *
+ * The card takes only this: its face colour is set from its variant, and it carries no border
+ * because the pixel gap the rim lives in is its edge. The prompt box adds both, because it is a
+ * control and has to look like one when the light is out.
+ */
+const RAISED = "shadow-[0_1px_2px_rgba(12,38,77,0.06),0_10px_30px_-12px_rgba(12,38,77,0.18)]";
+const PROMPT_FACE = `border border-[var(--s-border-1)] bg-[var(--s-surface-1)] ${RAISED}`;
 
 export function Hero({
   signedIn,
@@ -91,19 +107,26 @@ export function Hero({
         {/*
           The halo paints over a hundred pixels outside the body, so this wrapper exists purely
           to keep that clearance — anything that clipped here would cut the soft edge square.
+
+          **Exactly one lit object, and which one depends on who is looking.** A visitor gets the
+          card: a picture of software working, because there is nothing of theirs to show yet.
+          Somebody signed in gets the light on the box they type into, and no picture at all —
+          they came here to start something, and a decorative card above the only control on the
+          page is a thing to scroll past. Two lit objects is not an option either: the pulse is
+          what makes the whole stage look lit, and a second one is a second arc beating out of
+          step with the first.
         */}
         <div className="mt-14 flex w-full justify-center px-1">
-          <MorphCard
-            paletteRef={stage}
-            faceClassName="shadow-[0_1px_2px_rgba(12,38,77,0.06),0_10px_30px_-12px_rgba(12,38,77,0.18)]"
-          />
+          {signedIn ? (
+            <LitBox paletteRef={stage} radius={20} faceClassName={PROMPT_FACE}>
+              <PromptBox box={box} value={value} busy={busy} onChange={onChange} onSend={send} />
+            </LitBox>
+          ) : (
+            <MorphCard paletteRef={stage} faceClassName={RAISED} />
+          )}
         </div>
 
-        {signedIn ? (
-          <PromptBox box={box} value={value} busy={busy} onChange={onChange} onSend={send} />
-        ) : (
-          <WayIn />
-        )}
+        {!signedIn && <WayIn />}
 
         {error !== undefined && (
           // `alert` because the message the user just sent has gone nowhere and nothing else on
@@ -148,7 +171,13 @@ export function Hero({
   );
 }
 
-/** What a signed-in visitor gets: the box the whole product starts from. */
+/**
+ * What a signed-in visitor gets: the box the whole product starts from.
+ *
+ * It draws no surface of its own — `LitBox` owns the border, the fill and the corner, because
+ * the corner has to agree with the rim light's mask to a pixel. A second radius declared here
+ * would be a second source of truth for a shape a raster is cut to.
+ */
 function PromptBox({
   box,
   value,
@@ -163,7 +192,7 @@ function PromptBox({
   onSend: () => void;
 }) {
   return (
-    <div className="mt-10 w-full rounded-[20px] border border-[var(--s-border-1)] bg-[var(--s-surface-1)] shadow-[0_1px_2px_rgba(12,38,77,0.05)]">
+    <div className="w-full">
       <textarea
         ref={box}
         aria-label="Describe the app you want"
