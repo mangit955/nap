@@ -503,13 +503,25 @@ body {
  * Only `background-position` animates, which is a paint on a layer that already exists. The
  * alternative — animating a registered percentage and recomputing the gradient — repaints the
  * text every frame for the same picture.
+ *
+ * **The clip is on the word, not on the heading, and that is not a preference.** An element
+ * running an animation of opacity, transform or filter is composited into a layer of its own,
+ * and a composited descendant is not part of an ancestor's text clip — so a heading clipped to
+ * text whose words are animating has nothing to clip to, paints no background, and renders its
+ * transparent ink as *nothing at all*. It fails silently and completely: no error, no warning,
+ * an empty headline. Hence two nested spans, one animation each — the outer arrives, the inner
+ * is lit.
+ *
+ * **The gradient is attached to the viewport** so that separate word boxes share one band of
+ * light rather than each staging its own. Positioned against each word instead, every word
+ * lights at the same instant, which is a flash rather than a sweep.
  */
 .nap-headline {
   color: var(--s-text-primary);
 }
 
 @supports (background-clip: text) or (-webkit-background-clip: text) {
-  .nap-headline {
+  .nap-ink {
     background-image:
       linear-gradient(
         100deg,
@@ -518,33 +530,38 @@ body {
         transparent 56%
       ),
       linear-gradient(var(--s-text-primary), var(--s-text-primary));
+    background-attachment: fixed, fixed;
     background-repeat: no-repeat;
     background-size:
       220% 100%,
       100% 100%;
-    /* Parked off the left edge, so nothing is lit until a beat says so. */
+    /* Parked off the edge, so nothing is lit until a beat says so. */
     background-position:
-      -110% 0,
+      110% 0,
       0 0;
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
   }
 
-  .nap-headline[data-sweeping="true"] {
+  .nap-headline[data-sweeping="true"] .nap-ink {
     animation: nap-sweep 1100ms cubic-bezier(0.4, 0, 0.3, 1) both;
   }
 }
 
+/*
+ * A percentage position against a background wider than its area moves the image the *other*
+ * way, so this runs from positive to negative to sweep left to right.
+ */
 @keyframes nap-sweep {
   from {
     background-position:
-      -110% 0,
+      110% 0,
       0 0;
   }
   to {
     background-position:
-      110% 0,
+      -110% 0,
       0 0;
   }
 }
@@ -585,7 +602,7 @@ body {
     animation-name: nap-word-fade;
   }
 
-  .nap-headline[data-sweeping="true"] {
+  .nap-headline[data-sweeping="true"] .nap-ink {
     animation: none;
   }
 }
@@ -605,7 +622,7 @@ body {
  * painted in, leaving an invisible headline. Give the glyphs back their own colour.
  */
 @media (forced-colors: active) {
-  .nap-headline {
+  .nap-ink {
     background-image: none;
     color: CanvasText;
     -webkit-text-fill-color: CanvasText;

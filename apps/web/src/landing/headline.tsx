@@ -73,8 +73,15 @@ export function Headline({
                 // accessible name computation trims each element's own text and the heading is
                 // announced as one run-on word — identical on screen, unreadable aloud.
                 <Fragment key={`${word}-${delay}`}>
+                  {/*
+                    Two spans, one animation each, and they cannot be merged. The outer one
+                    arrives; the inner one carries the light. An element running an animation is
+                    composited into its own layer and drops out of any ancestor's text clip, so a
+                    single span doing both paints no ink at all — a headline that is simply not
+                    there, with nothing anywhere to say why.
+                  */}
                   <span className="nap-word" style={{ animationDelay: `${delay}ms` }}>
-                    {word}
+                    <span className="nap-ink">{word}</span>
                   </span>{" "}
                 </Fragment>
               ))}

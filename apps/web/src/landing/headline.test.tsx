@@ -32,13 +32,32 @@ describe("Headline", () => {
   it("staggers the words rather than starting them together", () => {
     render(<Headline lines={LINES} sub={SUB} />);
 
-    const delays = [...screen.getByRole("heading", { level: 1 }).querySelectorAll("span span")].map(
+    const delays = [...screen.getByRole("heading", { level: 1 }).querySelectorAll(".nap-word")].map(
       (word) => (word as HTMLElement).style.animationDelay,
     );
 
     expect(delays.length).toBe(8);
     expect(delays[0]).toBe("0ms");
     expect(new Set(delays).size).toBe(delays.length);
+  });
+
+  it("puts the light on a span inside the one that moves, never on the same one", () => {
+    // The deliberate exception to the no-class-names rule, for the same reason the syntax
+    // highlighting has one: this is colour, and colour has no accessible surface to assert on.
+    //
+    // It is worth an assertion anyway because collapsing these two spans into one is the
+    // obvious tidy-up and it deletes the headline. An element running an animation is
+    // composited into its own layer and stops contributing to any ancestor's text clip, so a
+    // span that both moves and is clipped paints nothing at all — no error, no warning, an
+    // empty page where the sentence was.
+    render(<Headline lines={LINES} sub={SUB} />);
+    const words = [...screen.getByRole("heading", { level: 1 }).querySelectorAll(".nap-word")];
+
+    for (const word of words) {
+      expect(word).not.toHaveClass("nap-ink");
+      expect(word.querySelectorAll(".nap-ink")).toHaveLength(1);
+      expect(word.textContent).toBe(word.querySelector(".nap-ink")?.textContent);
+    }
   });
 
   it("hands its element to the caller, and takes it back on unmount", () => {
