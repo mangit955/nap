@@ -20,5 +20,13 @@ export default async function Page({
 }) {
   const params = await searchParams;
 
-  return <LiveSignIn notice={expiredNotice(params[EXPIRED_PARAM])} />;
+  // The front page offers signing up and signing in as separate things, so the page has to open
+  // on the one that was asked for — a Sign up button landing on a sign-in form is a small lie,
+  // and small lies in an auth flow are where people decide a product is careless.
+  return (
+    <LiveSignIn
+      notice={expiredNotice(params[EXPIRED_PARAM])}
+      initialMode={params.mode === "sign-up" ? "sign-up" : "sign-in"}
+    />
+  );
 }

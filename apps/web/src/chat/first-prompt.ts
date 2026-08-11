@@ -1,20 +1,15 @@
 /**
- * The sentence someone typed on the landing page, carried across a navigation.
- *
- * Two hand-offs use this, and they differ in one way that matters. One carries a prompt into a
- * project that has just been created — that one names the project, and the workspace sends it
- * as the first turn. The other carries a prompt across sign-in, before any project exists — it
- * names nothing, and comes back into the box for the user to send themselves. **A prompt is
- * never sent on the strength of a stash alone**: a stale entry, or a tab the browser restored,
- * would otherwise start a sandbox and a model call that nobody asked for right then.
+ * The sentence someone typed on the landing page, carried into the project it created.
  *
  * `sessionStorage` rather than a query parameter: a prompt is a paragraph, it ends up in
  * browser history and server logs as a URL, and it is nobody's business but the person who
- * typed it. Per-tab rather than per-browser for the same reason a second tab should not
+ * typed it. Per-tab rather than per-browser, for the same reason a second tab should not
  * inherit the first one's half-finished thought.
  *
  * The storage is an argument so every branch is testable without a DOM, and every read is a
- * *take* — it removes what it returns, so nothing can be replayed by going back.
+ * *take* — it removes what it returns, so nothing can be replayed by going back. It is also
+ * addressed to one project: a stash written for another is left alone rather than consumed,
+ * because consuming it here would silently lose that project's first turn.
  */
 
 /** The subset of `Storage` this needs; `window.sessionStorage` satisfies it. */
@@ -25,7 +20,6 @@ export type PromptStorage = {
 };
 
 const PROJECT_KEY = "nap.first-prompt";
-const PENDING_KEY = "nap.pending-prompt";
 
 /** The prompt to send as a new project's first turn. */
 export function stashFirstPrompt(
@@ -61,27 +55,6 @@ export function takeFirstPrompt(
 
   storage.removeItem(PROJECT_KEY);
   return stash.text;
-}
-
-/** The prompt someone typed before signing in, kept so the box is not empty when they return. */
-export function stashPendingPrompt(
-  text: string,
-  storage: PromptStorage | undefined = defaultStorage(),
-): void {
-  if (storage === undefined || text.trim() === "") return;
-  storage.setItem(PENDING_KEY, text);
-}
-
-export function takePendingPrompt(
-  storage: PromptStorage | undefined = defaultStorage(),
-): string | undefined {
-  if (storage === undefined) return undefined;
-
-  const text = storage.getItem(PENDING_KEY);
-  if (text === null) return undefined;
-
-  storage.removeItem(PENDING_KEY);
-  return text;
 }
 
 function parse(raw: string): { projectId: string; text: string } | undefined {

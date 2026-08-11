@@ -1,11 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  type PromptStorage,
-  stashFirstPrompt,
-  stashPendingPrompt,
-  takeFirstPrompt,
-  takePendingPrompt,
-} from "./first-prompt.ts";
+import { type PromptStorage, stashFirstPrompt, takeFirstPrompt } from "./first-prompt.ts";
 
 function storage(): PromptStorage & { entries: Map<string, string> } {
   const entries = new Map<string, string>();
@@ -62,25 +56,5 @@ describe("the first turn of a new project", () => {
   it("does nothing at all when there is no storage", () => {
     expect(() => stashFirstPrompt("project-1", "hello", undefined)).not.toThrow();
     expect(takeFirstPrompt("project-1", undefined)).toBeUndefined();
-  });
-});
-
-describe("the prompt someone typed before signing in", () => {
-  it("comes back once, with no project attached", () => {
-    const store = storage();
-    stashPendingPrompt("build me a scraper", store);
-
-    expect(takePendingPrompt(store)).toBe("build me a scraper");
-    expect(takePendingPrompt(store)).toBeUndefined();
-  });
-
-  it("is kept apart from a project's first turn", () => {
-    const store = storage();
-    stashPendingPrompt("before signing in", store);
-    stashFirstPrompt("project-1", "after signing in", store);
-
-    // One key each: sharing one would mean signing in consumed the new project's first turn.
-    expect(takePendingPrompt(store)).toBe("before signing in");
-    expect(takeFirstPrompt("project-1", store)).toBe("after signing in");
   });
 });

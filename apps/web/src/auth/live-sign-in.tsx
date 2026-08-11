@@ -24,9 +24,17 @@ const DEFAULT_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:30
 /** What to say when the server gave us nothing to say. */
 const UNKNOWN = "That did not work. Try again in a moment.";
 
-export function LiveSignIn({ notice }: { notice?: string | undefined } = {}) {
+export function LiveSignIn({
+  notice,
+  initialMode = "sign-in",
+}: {
+  notice?: string | undefined;
+  initialMode?: SignInMode;
+} = {}) {
   const router = useRouter();
-  const [mode, setMode] = useState<SignInMode>("sign-in");
+  // Which half the form opens on, not which half it stays on: the link between the two is still
+  // there, so arriving on the wrong one costs a click rather than a navigation.
+  const [mode, setMode] = useState<SignInMode>(initialMode);
   const [error, setError] = useState<string | undefined>(undefined);
   const [submitting, setSubmitting] = useState(false);
   const [githubEnabled, setGithubEnabled] = useState(false);
