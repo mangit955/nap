@@ -3,9 +3,9 @@
 /**
  * Everything you have made, most recently touched first.
  *
- * The first screen of the app, and the only one that is a list rather than a workspace. It is
- * deliberately plain: a name, when it last moved, what state it is in, and the three things
- * you can do to it. A project is a conversation and a running server, not a document, so the
+ * The lower half of the front page, under the box you start a new one in. It is deliberately
+ * plain: a name, when it last moved, what state it is in, and the three things you can do to
+ * it. A project is a conversation and a running server, not a document, so the
  * row says which of those are true right now rather than showing a thumbnail of something that
  * may not be running.
  *
@@ -47,11 +47,15 @@ export function ProjectList({
   const [confirming, setConfirming] = useState<string | undefined>(undefined);
 
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-3xl flex-col gap-6 px-6 py-12">
+    <section className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-6 pb-24">
       <header className="flex items-baseline justify-between">
         <div className="flex items-baseline gap-2">
-          <h1 className="font-semibold text-ink text-lg tracking-tight">nap</h1>
-          <p className="text-muted text-xs">describe an app, watch it get built</p>
+          {/*
+            A heading below the landing page's own, not a second wordmark: this list is now one
+            section of the front page rather than a screen of its own, and two "nap" headings on
+            one page make the second one look like a mistake.
+          */}
+          <h2 className="font-semibold text-ink text-sm tracking-tight">Your projects</h2>
         </div>
         <button
           type="button"
@@ -150,7 +154,7 @@ export function ProjectList({
           ))}
         </ul>
       )}
-    </main>
+    </section>
   );
 }
 

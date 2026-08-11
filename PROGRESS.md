@@ -21,7 +21,9 @@ merged to `main` (M2 and M3 together, in PR #4); **M4 is complete** on `feat/m4-
 > `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` in `apps/api/.env`. A server that can destroy
 > sandboxes but has nowhere to snapshot them is worse than one that does neither.
 
-> **The app works end to end.** `bun run dev` serves a project list at `/`; opening one goes to
+> **The app works end to end.** `bun run dev` serves a landing page at `/` — a lit prompt box,
+> with your projects listed under it once you are signed in. Typing a prompt there creates a
+> project and sends that prompt as its first turn; opening an existing one goes to
 > `/p/<projectId>`, where a message streams a turn, shows the preview and lists the files.
 > Projects can be created, closed (snapshotted away) and deleted (rows *and* R2 objects) from
 > that list. The API spends money: it creates E2B sandboxes and calls the model through

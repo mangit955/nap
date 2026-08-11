@@ -39,3 +39,148 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
 }
+
+/*
+ * The rim light.
+ *
+ * Every angle below is a *registered* custom property, and that registration is not optional:
+ * an unregistered custom property has no type, so the browser cannot interpolate it and the
+ * gradient jumps between keyframes instead of sweeping. The colours are ordinary custom
+ * properties — they are set from script per pulse and never animated.
+ *
+ * The initial angles are the wedge at rest: a bright arc across the first eighty degrees and
+ * nothing for the rest of the circle. The pulse pushes each of them outward as it dies, so the
+ * head tightens while the tail blooms.
+ */
+@property --ai-start {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 180deg;
+}
+@property --ai-a2 {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 16deg;
+}
+@property --ai-a3 {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 30deg;
+}
+@property --ai-a4 {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 43deg;
+}
+@property --ai-a5 {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 59deg;
+}
+@property --ai-a6 {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 72deg;
+}
+@property --ai-a7 {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 84deg;
+}
+
+/*
+ * A first paint before any pulse has rolled a palette would otherwise be colourless. These are
+ * only ever seen for a frame, but a frame of grey where the light should be reads as a bug.
+ */
+.ai-lights {
+  --ai-c1: #005bf6;
+  --ai-c2: #b0c6e9;
+  --ai-c3: #feca00;
+  --ai-c4: #ff1c11;
+  --ai-c5: #ff00ea;
+  --ai-c6: #ffa2fbcc;
+  --ai-tail: #95c1ffa1;
+}
+
+/*
+ * One layer of the falloff. The mask — a blurred, stroked, partially transparent ring drawn on
+ * a canvas — is what turns this flat gradient into a band of light hugging the shape.
+ *
+ * `mask-size: 100% 100%` so a mask drawn for a slightly stale box is stretched rather than
+ * tiled while a resize settles.
+ */
+.ai-lights-layer {
+  position: absolute;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0;
+  mask-size: 100% 100%;
+  mask-repeat: no-repeat;
+  mask-position: center;
+  -webkit-mask-size: 100% 100%;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  background: conic-gradient(
+    from var(--ai-start),
+    var(--ai-c1) 0deg,
+    var(--ai-c2) var(--ai-a2),
+    var(--ai-c3) var(--ai-a3),
+    var(--ai-c4) var(--ai-a4),
+    var(--ai-c5) var(--ai-a5),
+    var(--ai-c6) var(--ai-a6),
+    transparent var(--ai-a7),
+    transparent 324deg,
+    var(--ai-tail) 349deg,
+    var(--ai-c1) 360deg
+  );
+}
+
+/*
+ * The pulse runs because this attribute arrives, which is also how it is retriggered — the
+ * attribute is removed and re-added across two frames, and the rule reapplying restarts the
+ * animation. `both` holds the final frame, which is opacity 0: the light goes out and stays
+ * out until the next pulse.
+ */
+.ai-lights[data-playing="true"] .ai-lights-layer {
+  animation: ai-pulse 1600ms cubic-bezier(0.26, 0.94, 0.6, 1) both;
+}
+
+/*
+ * One shot, not a loop. It reaches full brightness in a tenth of its life, holds for a fifth,
+ * and spends the remaining seventy per cent dying — while the start angle swings *backwards*
+ * and every stop pushes outward. Rotating the wedge instead would read as a spinning wheel.
+ */
+@keyframes ai-pulse {
+  0% {
+    opacity: 0;
+    --ai-start: 180deg;
+    --ai-a2: 16deg;
+    --ai-a3: 30deg;
+    --ai-a4: 43deg;
+    --ai-a5: 59deg;
+    --ai-a6: 72deg;
+    --ai-a7: 84deg;
+  }
+  10% {
+    opacity: 1;
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    --ai-start: 30deg;
+    --ai-a2: 6deg;
+    --ai-a3: 11deg;
+    --ai-a4: 17deg;
+    --ai-a5: 40deg;
+    --ai-a6: 90deg;
+    --ai-a7: 120deg;
+  }
+}
+
+/*
+ * Reduced motion is handled in script — the attribute that starts the animation is never
+ * written — so there is deliberately no `prefers-reduced-motion` block here. A second place to
+ * turn the light off would eventually disagree with the first.
+ */

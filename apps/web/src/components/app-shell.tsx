@@ -48,7 +48,7 @@ export function AppShell({ projectId }: { projectId: string }) {
       </header>
 
       <main className="grid min-h-0 flex-1 grid-cols-[360px_1fr_260px] gap-px bg-edge">
-        <LiveChatPane sessionId={sessionId} />
+        <LiveChatPane sessionId={sessionId} projectId={projectId} />
         <LivePreviewPane sessionId={sessionId} />
         <LiveFileTreePane sessionId={sessionId} />
       </main>
