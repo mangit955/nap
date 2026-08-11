@@ -7,8 +7,9 @@
  * The stage is light and the rest of the page is near-black, which is not a decoration — it is
  * the reason the rim light is worth building. A pale surface drifting through the same colour
  * arc that lights the card's edge reads as one thing illuminating another; the same effect on a
- * dark page reads as a glow with nowhere to land. The section fades back to the page colour at
- * its foot rather than ending on a line, so nothing about it announces itself as a band.
+ * dark page reads as a glow with nowhere to land. The stage ends where it ends — the edge is
+ * the boundary between the page and the thing being shown on it, and softening it only made it
+ * look like something was trying not to be noticed.
  *
  * The card cycles through four surfaces while nobody is using it. **Engaging with it settles it
  * for good** — click it, tab to it, or simply start typing — and what was a demonstration
@@ -102,15 +103,6 @@ export function Hero({
       ref={stage}
       className="ai-stage relative flex flex-col items-center overflow-hidden px-6 pt-24 pb-28 sm:pt-32"
     >
-      {/*
-        The stage gives way to the page rather than ending: a hard edge under a light band is
-        the one thing that would make it read as a slab dropped onto the design.
-      */}
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-[linear-gradient(to_bottom,transparent,var(--color-surface))]"
-      />
-
       <div className="relative z-10 flex w-full max-w-2xl flex-col items-center">
         <h1 className="text-balance text-center font-semibold text-4xl text-[var(--s-text-primary)] leading-[1.05] tracking-[-0.03em] sm:text-6xl">
           Describe an app.
