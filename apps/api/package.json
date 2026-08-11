@@ -6,7 +6,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "dev": "bun --watch src/index.ts",
-    "ws:smoke": "bun run scripts/ws-smoke.ts"
+    "ws:smoke": "bun run scripts/ws-smoke.ts",
+    "acceptance": "bun run scripts/acceptance.ts"
   },
   "dependencies": {
     "@nap/agent": "workspace:*",
