@@ -70,6 +70,25 @@ describe("the component", () => {
     expect(component).toContain('fill="currentColor"');
   });
 
+  it("draws the z's outside the mask", () => {
+    // Inside it they would be cut *out* of the ghost instead of drawn in the air beside it —
+    // three z-shaped holes in its shoulder, which is a very strange thing to see and exactly
+    // what putting them a few lines higher in the file would produce.
+    const [, afterMask = ""] = component.split("</mask>");
+    expect(afterMask).toContain("nap-mark-zzz");
+    expect(afterMask).toContain("zPath");
+  });
+
+  it("gives the z's room to rise into", () => {
+    // The ghost is drawn on a 24 grid; the viewBox is deliberately larger and shifted up, and
+    // that headroom is the only thing keeping the topmost z from being clipped flat against the
+    // top of the box — which is how the first version of this looked.
+    const viewBox = /viewBox="([^"]+)"/.exec(component)?.[1] ?? "";
+    const [, minY, , height] = viewBox.split(/\s+/).map(Number);
+    expect(minY).toBeLessThan(0);
+    expect(height).toBeGreaterThan(24);
+  });
+
   it("sets no size of its own", () => {
     // It has to be a 16px tab icon and a 24px header mark from one file, so the caller sizes
     // it. A width baked in here would be overridden in three places and forgotten in a fourth.

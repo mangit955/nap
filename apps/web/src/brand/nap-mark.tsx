@@ -38,6 +38,8 @@ import {
   NAP_EYE_OPEN_RY,
   NAP_EYE_SHUT_LEFT,
   NAP_EYE_SHUT_RIGHT,
+  NAP_ZS,
+  zPath,
 } from "./nap-mark-paths.ts";
 
 export function NapMark({ className = "", ...props }: SVGProps<SVGSVGElement>) {
@@ -48,15 +50,23 @@ export function NapMark({ className = "", ...props }: SVGProps<SVGSVGElement>) {
 
   return (
     <svg
-      viewBox="0 0 24 24"
+      // Wider and taller than the 24-grid the ghost is drawn on, and offset so the ghost still
+      // sits at the optical centre: the extra room up and to the right is where the z's rise
+      // into. Growing the viewBox rather than wrapping the svg in a positioned div keeps the
+      // whole mark one element that a caller can size with a single class.
+      viewBox="-1 -6 32 32"
       fill="currentColor"
       aria-hidden="true"
       className={`nap-mark ${className}`}
       {...props}
     >
       <mask id={maskId}>
-        {/* White keeps, black cuts. The body is the white; the eyes are the black. */}
-        <rect width="24" height="24" fill="#fff" />
+        {/*
+          White keeps, black cuts. The body is the white; the eyes are the black. The rect has
+          to cover the whole viewBox — sized to the old 24-grid it would clip the body's own
+          bottom, which is the sort of thing that looks like a broken path rather than a mask.
+        */}
+        <rect x="-1" y="-6" width="32" height="32" fill="#fff" />
         <g className="nap-mark-eyes" fill="#000">
           <g className="nap-mark-shut">
             <path d={NAP_EYE_SHUT_LEFT} />
@@ -77,6 +87,29 @@ export function NapMark({ className = "", ...props }: SVGProps<SVGSVGElement>) {
       </mask>
 
       <path className="nap-mark-body" d={NAP_BODY} mask={`url(#${maskId})`} />
+
+      {/*
+        Each z is its own element so it can carry its own delay: one shared animation would
+        move them in lockstep, which reads as a decoration blinking rather than as a stream of
+        them leaving. They are outside the mask — they belong to the air, not to the ghost.
+      */}
+      <g
+        className="nap-mark-zzz"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        {NAP_ZS.map((z, index) => (
+          <path
+            key={z.x}
+            className="nap-mark-z"
+            d={zPath(z)}
+            strokeWidth={z.weight}
+            style={{ animationDelay: `${index * 1.4}s` }}
+          />
+        ))}
+      </g>
     </svg>
   );
 }

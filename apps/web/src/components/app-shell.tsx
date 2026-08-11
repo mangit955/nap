@@ -41,7 +41,7 @@ export function AppShell({ projectId }: { projectId: string }) {
             href="/"
             className="flex items-center gap-1.5 font-semibold text-ink text-sm tracking-tight hover:text-accent focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
           >
-            <NapMark className="size-[17px]" />
+            <NapMark className="size-6" />
             nap
           </a>
           <span className="text-muted text-xs">{headerNote(status, project?.name)}</span>

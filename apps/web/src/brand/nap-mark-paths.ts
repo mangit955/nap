@@ -47,6 +47,32 @@ export const NAP_EYE_OPEN = [
 export const NAP_EYE_OPEN_RX = 1.35;
 export const NAP_EYE_OPEN_RY = 1.7;
 
+/**
+ * The z's that drift off it while it sleeps, drawn as strokes rather than filled letterforms —
+ * a filled `z` at this size is a blob, while a three-segment zigzag survives being four pixels
+ * tall.
+ *
+ * They live *outside* the ghost, up and to its right, which is why the component's viewBox is
+ * larger than this 24-grid: the room above the shoulder is where they rise into. Sizes grow as
+ * they travel, because the ones further away have been drifting longer.
+ */
+/*
+ * Three fixed stations rather than three z's each travelling the whole way up. The rise comes
+ * from the *sequence* — one fades in at each station in turn — so no single z has to cross the
+ * box. The first attempt did have them travel, and the top one flew straight out through the
+ * viewBox and was clipped into a horizontal bar for the last third of its life.
+ */
+export const NAP_ZS = [
+  { x: 20.2, y: 2.4, size: 2.4, weight: 0.85 },
+  { x: 22.4, y: -0.8, size: 2.9, weight: 0.95 },
+  { x: 24.6, y: -3.6, size: 3.4, weight: 1.05 },
+] as const;
+
+/** One `z`: across, back down the diagonal, across again. */
+export function zPath({ x, y, size }: { x: number; y: number; size: number }): string {
+  return `M${x} ${y}h${size}l${-size} ${size}h${size}`;
+}
+
 /*
  * The face is two eyes and nothing else, and two additions have been tried and removed.
  *

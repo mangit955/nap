@@ -73,9 +73,40 @@ body {
 }
 
 .nap-mark-eyes,
-.nap-mark-body {
+.nap-mark-body,
+.nap-mark-z {
   transform-box: fill-box;
   transform-origin: center;
+}
+
+/*
+ * Asleep is a state, not a pause. Left perfectly still the mark reads as an icon that happens
+ * to have a face; a slow breath and a z leaving every so often is what makes it read as
+ * something *doing* the sleeping.
+ *
+ * The breath is deliberately smaller than it wants to be — three and a half per cent over three
+ * and a half seconds. Anything faster is panting, and anything larger draws the eye away from
+ * the page it is sitting on.
+ */
+.nap-mark-body {
+  animation: nap-breathe 3600ms ease-in-out infinite;
+}
+
+/*
+ * The z's are staggered by an inline delay per element rather than by a shared animation, so
+ * they leave one at a time. `both` holds the first frame during that delay — without it every z
+ * is visible at full opacity until its turn comes round, which reads as three of them stuck to
+ * the corner.
+ */
+.nap-mark-z {
+  opacity: 0;
+  animation: nap-z 4200ms ease-out infinite both;
+}
+
+/* Waking cancels both. Nothing yawns while it is looking at you. */
+.nap-mark:hover .nap-mark-z {
+  animation: none;
+  opacity: 0;
 }
 
 /* The glance starts after the eyes have finished opening, so it never happens behind a lid. */
@@ -116,15 +147,58 @@ body {
   }
 }
 
+@keyframes nap-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.035);
+  }
+}
+
+/*
+ * One z: it rises into its station, holds, and fades leaving it.
+ *
+ * The drift is short on purpose. Each z owns a position and the *stagger* is what makes them
+ * read as rising — a z that travels the whole height instead runs out of headroom and is
+ * clipped flat against the top of the box, which is how the first version of this looked.
+ */
+@keyframes nap-z {
+  0% {
+    opacity: 0;
+    transform: translate(0, 1.2px) scale(0.7);
+  }
+  22% {
+    opacity: 0.85;
+  }
+  60% {
+    opacity: 0.55;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(1.2px, -2.4px) scale(1.12);
+  }
+}
+
 /*
  * Under reduced motion it still wakes — the eyes are a state, not a movement, and a mark that
- * refused to respond at all would read as broken rather than as considerate. What goes is the
- * travel: no glancing, no bob.
+ * refused to respond at all would read as broken rather than as considerate. What goes is
+ * everything that travels: no glancing, no bob, no breath, and z's that sit still instead of
+ * rising. A static `zzz` still says asleep, which is the whole job; it simply stops saying it
+ * over and over.
  */
 @media (prefers-reduced-motion: reduce) {
+  .nap-mark .nap-mark-eyes,
+  .nap-mark .nap-mark-body,
   .nap-mark:hover .nap-mark-eyes,
   .nap-mark:hover .nap-mark-body {
     animation: none;
+  }
+
+  .nap-mark-z {
+    animation: none;
+    opacity: 0.75;
   }
 }
 

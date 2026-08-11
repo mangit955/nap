@@ -40,8 +40,8 @@ export function Landing({
         the fade at the stage's foot exists to avoid. It takes the stage's ink, not its surface.
       */}
       <header className="ai-stage-ink absolute inset-x-0 top-0 z-30 flex h-14 items-center justify-between px-6">
-        <span className="flex items-center gap-1.5 font-semibold text-[var(--s-text-primary)] text-sm tracking-tight">
-          <NapMark className="size-7" />
+        <span className="flex items-center gap-0.5 font-semibold text-[var(--s-text-primary)] text-sm tracking-tight">
+          <NapMark className="size-10" />
           nap
         </span>
 
