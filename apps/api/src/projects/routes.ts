@@ -20,6 +20,7 @@
 
 import { putProjectAway } from "@nap/runtime/close-project";
 import { deleteProject } from "@nap/runtime/delete-project";
+import { getLogger } from "@nap/shared/logging";
 import type { ObjectStore } from "@nap/shared/ports/object-store";
 import type { ProjectSandboxStore } from "@nap/shared/ports/project-sandbox-store";
 import type { ProjectStore, ProjectSummary } from "@nap/shared/ports/project-store";
@@ -29,7 +30,6 @@ import type { Hono } from "hono";
 import { z } from "zod";
 import type { AuthVariables } from "../auth/require-user.ts";
 import { parseProjectId } from "../files/params.ts";
-import { getLogger } from "../logger.ts";
 
 export type CreatedProject = { projectId: string; sessionId: string };
 

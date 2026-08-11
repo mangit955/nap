@@ -17,6 +17,7 @@
  * to — and a client waiting on a socket would simply never hear anything.
  */
 
+import { getLogger } from "@nap/shared/logging";
 import type { ProjectStore } from "@nap/shared/ports/project-store";
 import type { Runtime } from "@nap/shared/ports/runtime";
 import type { SessionRecord, SessionStore } from "@nap/shared/ports/session-store";
@@ -24,7 +25,6 @@ import type { Context, Hono } from "hono";
 import { z } from "zod";
 import { findOwnedSession } from "../auth/owned-session.ts";
 import type { AuthVariables } from "../auth/require-user.ts";
-import { getLogger } from "../logger.ts";
 import type { TurnRateLimiter } from "./rate-limiter.ts";
 import type { TurnRegistry } from "./registry.ts";
 import { checkSandboxQuota, type SandboxLimits } from "./sandbox-quota.ts";

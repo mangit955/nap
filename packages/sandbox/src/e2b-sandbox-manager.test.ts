@@ -37,6 +37,7 @@ function stubClient(handle: E2BSandboxHandle = stubHandle()): E2BClient {
   return {
     create: () => Promise.resolve(handle),
     connect: () => Promise.resolve(handle),
+    ping: () => Promise.resolve([]),
   };
 }
 
@@ -372,6 +373,7 @@ describe("E2BSandboxManager lifecycle", () => {
       client: {
         create: () => Promise.reject(new Error("unused")),
         connect: () => Promise.reject(new SandboxNotFoundError("no such sandbox")),
+        ping: () => Promise.reject(new Error("unused")),
       },
     });
 
@@ -425,6 +427,7 @@ describe("E2BSandboxManager lifecycle", () => {
           connects += 1;
           return Promise.resolve(handle);
         },
+        ping: () => Promise.reject(new Error("unused")),
       },
     });
 
@@ -450,6 +453,7 @@ describe("E2BSandboxManager lifecycle", () => {
     const manager = new E2BSandboxManager({
       client: {
         create: () => Promise.reject(new Error("unused")),
+        ping: () => Promise.reject(new Error("unused")),
         connect: () => {
           connects += 1;
           return Promise.resolve(handle);
@@ -490,6 +494,7 @@ describe("keeping a sandbox alive", () => {
           return Promise.resolve(handle);
         },
         connect: () => Promise.resolve(handle),
+        ping: () => Promise.reject(new Error("unused")),
       },
     });
 
@@ -523,5 +528,41 @@ describe("keeping a sandbox alive", () => {
     const result = await manager.extendTimeout(sandboxId, 60_000);
 
     expect(result).toMatchObject({ ok: false, error: { code: "not_found" } });
+  });
+});
+
+describe("ping", () => {
+  it("resolves when the provider answers", async () => {
+    const manager = new E2BSandboxManager({ client: stubClient() });
+    await expect(manager.ping()).resolves.toBeUndefined();
+  });
+
+  it("rejects when the provider does not, so a health check can report it down", async () => {
+    // Rejecting rather than swallowing is the whole contract: a probe that resolved on failure
+    // would report every outage as healthy, which is worse than having no check at all.
+    const manager = new E2BSandboxManager({
+      client: { ...stubClient(), ping: () => Promise.reject(new Error("getaddrinfo ENOTFOUND")) },
+    });
+
+    await expect(manager.ping()).rejects.toThrow("ENOTFOUND");
+  });
+
+  it("does not create a sandbox to find out", async () => {
+    // Polled every few seconds forever. Creating one would bill for each poll and take seconds
+    // to answer, at which point the check is the outage.
+    let created = 0;
+    const manager = new E2BSandboxManager({
+      client: {
+        ...stubClient(),
+        create: () => {
+          created += 1;
+          return Promise.resolve(stubHandle());
+        },
+      },
+    });
+
+    await manager.ping();
+
+    expect(created).toBe(0);
   });
 });

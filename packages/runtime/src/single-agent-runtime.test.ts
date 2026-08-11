@@ -119,7 +119,17 @@ class UncreatableSandboxManager extends InMemorySandboxManager {
 const HAPPY_SCRIPT = () => [
   { type: "turn.started" as const, payload: {} },
   { type: "agent.message" as const, payload: { text: "done" } },
-  { type: "turn.completed" as const, payload: {} },
+  // A real payload rather than `{}`. The emit site casts to `PendingEvent`, which laundered an
+  // invalid event past the type system, and nothing read these fields until a turn's cost
+  // started being logged — at which point every test on this script failed at once.
+  {
+    type: "turn.completed" as const,
+    payload: {
+      usage: { inputTokens: 1, outputTokens: 2 },
+      durationMs: 5,
+      commitSha: null,
+    },
+  },
 ];
 
 class StubContextEngine implements ContextEngine {

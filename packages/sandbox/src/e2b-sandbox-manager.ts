@@ -71,6 +71,15 @@ export type E2BCommandResult = { exitCode: number; stdout: string; stderr: strin
 export type E2BClient = {
   create(opts: { metadata: Record<string, string>; timeoutMs?: number }): Promise<E2BSandboxHandle>;
   connect(sandboxId: string): Promise<E2BSandboxHandle>;
+  /**
+   * The cheapest authenticated round trip the API offers, for a reachability check.
+   *
+   * Listing rather than creating: a health check that created a sandbox would bill for every
+   * poll and take seconds to answer. Listing still proves the whole path — network, endpoint
+   * and credentials — which is what "reachable" has to mean if the answer is to be worth
+   * anything.
+   */
+  ping(): Promise<unknown>;
 };
 
 export type E2BSandboxManagerOptions = {
@@ -148,6 +157,10 @@ function realClient(template: string | undefined): E2BClient {
         template === undefined ? await Sandbox.create(opts) : await Sandbox.create(template, opts),
       ),
     connect: async (sandboxId) => adapt(await Sandbox.connect(sandboxId)),
+    // One page of one item. `list` returns a paginator that has made no request yet, so the
+    // round trip only happens on `nextItems` — a probe that stopped at `Sandbox.list()` would
+    // pass while the API was unreachable.
+    ping: () => Sandbox.list({ limit: 1 }).nextItems(),
   };
 }
 
@@ -197,6 +210,23 @@ export class E2BSandboxManager implements SandboxManager {
     } catch (cause) {
       return { ok: false, error: toSandboxError(cause) };
     }
+  }
+
+  /**
+   * Whether the provider is reachable at all, for a health check to report.
+   *
+   * Deliberately **not** on the `SandboxManager` interface. That port is about one project's
+   * workspace — create it, write to it, run things in it — and every method takes a sandbox
+   * id. "Is the provider up?" is a question about the deployment rather than about anybody's
+   * project, and putting it on the port would oblige every implementation, including the
+   * in-memory fake, to answer something meaningless. Boot holds the concrete class, which is
+   * the only place that needs to ask.
+   *
+   * Rejects rather than returning a `Result`, because that is what a `HealthCheck` consumes
+   * and there is nothing here a caller could branch on: the answer is yes or it is no.
+   */
+  async ping(): Promise<void> {
+    await this.#client.ping();
   }
 
   async extendTimeout(sandboxId: string, ms: number): Promise<VoidResult<SandboxError>> {

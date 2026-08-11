@@ -6,6 +6,7 @@
  * and so boot wiring stays confined to `index.ts`.
  */
 
+import { getLogger, type Logger, withLogContext } from "@nap/shared/logging";
 import type { EventBus } from "@nap/shared/ports/event-bus";
 import type { EventStore } from "@nap/shared/ports/event-store";
 import type { SessionStore } from "@nap/shared/ports/session-store";
@@ -17,7 +18,8 @@ import type { Authenticate, AuthInstance } from "./auth/auth.ts";
 import { findOwnedSession } from "./auth/owned-session.ts";
 import { type AuthVariables, requireUser } from "./auth/require-user.ts";
 import { type FileRouteDeps, registerFileRoutes } from "./files/routes.ts";
-import { getLogger, type Logger, withLogContext } from "./logger.ts";
+import type { HealthReport } from "./health.ts";
+import { idsFromRequest } from "./log-ids.ts";
 import { type ProjectRouteDeps, registerProjectRoutes } from "./projects/routes.ts";
 import { registerTurnRoutes, type TurnRouteDeps } from "./turns/routes.ts";
 import { type HeartbeatOptions, openEventStream } from "./ws/event-stream.ts";
@@ -55,6 +57,14 @@ export type AppDeps = {
    * identify anyone should reach nobody's data.
    */
   authenticate?: Authenticate;
+  /**
+   * Whether the dependencies a turn needs are reachable, for `/health` to report.
+   *
+   * Optional, and its absence means the endpoint answers liveness only — which is what it did
+   * before any of this existed, and the right answer for an app assembled with no database
+   * and no sandbox provider to ask about.
+   */
+  health?: () => Promise<HealthReport>;
   /** Everything `/ws` needs. The store supplies the replay, the bus the live tail. */
   stream: {
     store: EventStore;
@@ -104,21 +114,25 @@ export function createApp(deps: AppDeps): Hono<{ Variables: AuthVariables }> {
   }
 
   // Opens a log context for the request so anything downstream — including code that never
-  // receives a logger — reports under the same ids. `sessionId` is picked up from the path
-  // or query when present; routes that know more add to the context themselves.
+  // receives a logger — reports under the same ids. `sessionId` and `projectId` are picked up
+  // from the path or query when present; `userId` is added by the authentication middleware
+  // below, and code that learns more (the runtime, once it knows a turn id) adds it there.
+  //
+  // This runs before authentication on purpose: a 401 is exactly the kind of line worth being
+  // able to grep, and it has no user to attribute.
   app.use("*", async (c, next) => {
     const url = new URL(c.req.url);
-    const sessionId = c.req.param("sessionId") ?? url.searchParams.get("sessionId") ?? undefined;
 
     await withLogContext(
       deps.logger,
-      { requestId: crypto.randomUUID(), ...(sessionId === undefined ? {} : { sessionId }) },
+      { requestId: crypto.randomUUID(), ...idsFromRequest(url) },
       async () => {
         const startedAt = performance.now();
         await next();
         // Logged after the handler so the line carries the outcome, not just the intent, and
         // through the context logger so the line itself carries the ids everything below it
         // is reporting under — otherwise the request is the one line you cannot grep for.
+        // That is also why authentication enriches this context rather than nesting inside it.
         getLogger().info(
           {
             method: c.req.method,
@@ -142,11 +156,19 @@ export function createApp(deps: AppDeps): Hono<{ Variables: AuthVariables }> {
   app.use("*", requireUser(deps.authenticate));
 
   /**
-   * Liveness. Deliberately does no dependency checks yet — the observability task adds
-   * database and sandbox reachability behind a `checks` field and a `degraded` status,
-   * which it can do without changing the two keys already here.
+   * Liveness, and readiness when there is anything to be ready for.
+   *
+   * **Always 200, even when degraded.** A non-2xx here is how an orchestrator decides to
+   * restart or de-register the process, and neither helps: the database being unreachable is
+   * not something this process can fix by dying, and taking every instance out of rotation
+   * during a shared-dependency outage turns a partial failure into a total one. The body is
+   * what carries the verdict, and it is machine-readable so an alert can read it.
    */
-  app.get("/health", (c) => c.json({ status: "ok", version: VERSION }));
+  app.get("/health", async (c) => {
+    if (deps.health === undefined) return c.json({ status: "ok", version: VERSION });
+    const report = await deps.health();
+    return c.json({ status: report.status, version: VERSION, checks: report.checks });
+  });
 
   /**
    * The session's event stream: everything after `seq`, then the live tail.

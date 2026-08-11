@@ -67,6 +67,44 @@ describe("GET /health", () => {
     const res = await app().request("/health");
     expect(res.headers.get("content-type")).toContain("application/json");
   });
+
+  it("reports each dependency by name when checks are wired up", async () => {
+    const res = await app({
+      health: async () => ({ status: "ok", checks: { database: "ok", sandbox: "ok" } }),
+    }).request("/health");
+
+    await expect(res.json()).resolves.toEqual({
+      status: "ok",
+      version: VERSION,
+      checks: { database: "ok", sandbox: "ok" },
+    });
+  });
+
+  it("says degraded, and still answers 200, when a dependency is down", async () => {
+    // 200 on purpose: a non-2xx is how an orchestrator decides to restart or de-register the
+    // process, and neither fixes an unreachable database — it just removes the instance that
+    // was still able to tell you about it. The body carries the verdict.
+    const res = await app({
+      health: async () => ({ status: "degraded", checks: { database: "ok", sandbox: "down" } }),
+    }).request("/health");
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      status: "degraded",
+      checks: { sandbox: "down" },
+    });
+  });
+
+  it("stays reachable without being signed in", async () => {
+    // Whatever polls this has no session and never will. If the dependency checks ever moved
+    // it behind the guard, the only thing monitoring would learn is that auth works.
+    const res = await app({
+      authenticate: async () => null,
+      health: async () => ({ status: "ok", checks: { database: "ok" } }),
+    }).request("/health");
+
+    expect(res.status).toBe(200);
+  });
 });
 
 describe("GET /ws", () => {
@@ -189,5 +227,65 @@ describe("request logging", () => {
 
     const records = lines.map((l) => JSON.parse(l) as Record<string, unknown>);
     expect(records[0]).toMatchObject({ path: "/ws", sessionId: SESSION });
+  });
+
+  it("logs a request that names its session in the path, not only in the query", async () => {
+    // Hono resolves no route parameters inside a wildcard middleware, so reading them there
+    // silently yielded nothing — every turn and every cancel was logged without a session id,
+    // which is exactly the id you would be grepping for.
+    const lines: string[] = [];
+    const logger = createLogger({ level: "info" }, { write: (m) => lines.push(m) });
+
+    await app({ logger }).request(`/sessions/${SESSION}/turns`, { method: "POST" });
+
+    const records = lines.map((l) => JSON.parse(l) as Record<string, unknown>);
+    expect(records[0]).toMatchObject({ sessionId: SESSION });
+  });
+
+  it("attributes the request to whoever made it", async () => {
+    // The id is only known once authentication has run, which is *after* the context was
+    // opened and *before* this line is written. Getting it onto the line carrying the status
+    // code is the whole reason the context is enriched in place rather than nested.
+    const lines: string[] = [];
+    const logger = createLogger({ level: "info" }, { write: (m) => lines.push(m) });
+
+    await app({ logger }).request("/projects");
+
+    const records = lines.map((l) => JSON.parse(l) as Record<string, unknown>);
+    expect(records[0]).toMatchObject({ path: "/projects", userId: FAKE_OWNER });
+  });
+
+  it("logs a refused request without a user rather than not at all", async () => {
+    const lines: string[] = [];
+    const logger = createLogger({ level: "info" }, { write: (m) => lines.push(m) });
+
+    await app({ logger, authenticate: async () => null }).request("/projects");
+
+    const records = lines.map((l) => JSON.parse(l) as Record<string, unknown>);
+    expect(records[0]).toMatchObject({ path: "/projects", status: 401 });
+    expect(records[0]).not.toHaveProperty("userId");
+  });
+
+  it("carries a request id every line under it can be grouped by", async () => {
+    const lines: string[] = [];
+    const logger = createLogger({ level: "info" }, { write: (m) => lines.push(m) });
+
+    await app({ logger }).request("/health");
+
+    const records = lines.map((l) => JSON.parse(l) as Record<string, unknown>);
+    expect(records[0]?.requestId).toEqual(expect.any(String));
+  });
+
+  it("never writes an id it does not have", async () => {
+    // `sessionId: undefined` in a JSON line is noise that a grep for a real id still matches
+    // on the key, and it makes "is this line about a session?" unanswerable.
+    const lines: string[] = [];
+    const logger = createLogger({ level: "info" }, { write: (m) => lines.push(m) });
+
+    await app({ logger }).request("/health");
+
+    const [record] = lines.map((l) => JSON.parse(l) as Record<string, unknown>);
+    expect(record).not.toHaveProperty("sessionId");
+    expect(record).not.toHaveProperty("projectId");
   });
 });

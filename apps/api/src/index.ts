@@ -19,7 +19,7 @@ import { ClaudeProvider } from "@nap/agent/claude-provider";
 import { createOpenRouterClient, toOpenRouterModel } from "@nap/agent/openrouter";
 import { NapContextEngine } from "@nap/context/context-engine";
 import { NoopMemoryProvider } from "@nap/context/noop-memory-provider";
-import { createDatabase } from "@nap/db/client";
+import { createDatabase, pingDatabase } from "@nap/db/client";
 import { InProcessEventBus } from "@nap/db/in-process-event-bus";
 import { PostgresEventStore } from "@nap/db/postgres-event-store";
 import { PostgresProjectSandboxStore } from "@nap/db/postgres-project-sandbox-store";
@@ -31,12 +31,14 @@ import { startReaper, sweepIdleProjects } from "@nap/runtime/reaper";
 import { SingleAgentRuntime } from "@nap/runtime/single-agent-runtime";
 import { E2BSandboxManager } from "@nap/sandbox/e2b-sandbox-manager";
 import { NAP_TEMPLATE } from "@nap/sandbox/template";
+import { setRootLogger } from "@nap/shared/logging";
 import { createR2Client, R2ObjectStore } from "@nap/storage/r2-object-store";
 import { upgradeWebSocket, websocket } from "hono/bun";
 import { createApp } from "./app.ts";
 import { createAuth } from "./auth/auth.ts";
 import { EnvValidationError, parseEnv } from "./env.ts";
-import { createLogger, setRootLogger } from "./logger.ts";
+import { createHealthProbe } from "./health.ts";
+import { createLogger } from "./logger.ts";
 import { TurnRateLimiter } from "./turns/rate-limiter.ts";
 import { TurnRegistry } from "./turns/registry.ts";
 
@@ -59,6 +61,8 @@ function loadEnv() {
 const env = loadEnv();
 
 const logger = createLogger({ level: env.LOG_LEVEL });
+// So that anything logging outside a request — the reaper's sweep, a component reporting from
+// deep in a turn — reaches this stream rather than the discarding default.
 setRootLogger(logger);
 
 // One pool for the process; the stores are handed a database rather than opening their own.
@@ -154,6 +158,16 @@ const auth = createAuth(db, {
 
 const app = createApp({
   logger,
+  // The two things a turn cannot happen without: the database holds every project and every
+  // event, and the sandbox is where the user's app actually runs. An API that answers while
+  // either is unreachable will accept a message and then fail the turn, which is exactly the
+  // state worth being able to see from outside.
+  health: createHealthProbe({
+    checks: [
+      { name: "database", probe: () => pingDatabase(db) },
+      { name: "sandbox", probe: () => sandbox.ping() },
+    ],
+  }),
   // The browser app is on another port, so every request it makes is cross-origin and every
   // session cookie depends on this being right.
   webOrigin: env.NAP_WEB_ORIGIN,

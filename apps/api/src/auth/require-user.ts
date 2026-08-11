@@ -20,6 +20,7 @@
  * take a user id so the filter is in the query rather than in a handler that might forget it.
  */
 
+import { addLogContext } from "@nap/shared/logging";
 import type { MiddlewareHandler } from "hono";
 import type { Authenticate } from "./auth.ts";
 
@@ -61,6 +62,11 @@ export function requireUser(authenticate: Authenticate | undefined): MiddlewareH
     }
 
     c.set("userId", caller.userId);
+    // Who is asking is only knowable here, and everything below this point — including the
+    // request's own summary line, which is written after the handler returns — should say so.
+    // Enriching the open context rather than nesting a new one is what makes that summary
+    // carry it too; see `addLogContext`.
+    addLogContext({ userId: caller.userId });
     await next();
   };
 }

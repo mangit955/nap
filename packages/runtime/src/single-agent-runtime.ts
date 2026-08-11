@@ -25,6 +25,7 @@
 import { commitAll } from "@nap/sandbox/git";
 import { TEMPLATE_DEV_PORT } from "@nap/sandbox/template";
 import type { NapEvent, NapEventOf } from "@nap/shared/events";
+import { addLogContext, getLogger, withLogContext } from "@nap/shared/logging";
 import type { AgentService } from "@nap/shared/ports/agent-service";
 import type { ContextEngine } from "@nap/shared/ports/context-engine";
 import type { EventBus } from "@nap/shared/ports/event-bus";
@@ -37,6 +38,7 @@ import type { SessionRecord, SessionStore } from "@nap/shared/ports/session-stor
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
 import type { Result } from "@nap/shared/result";
 import { openProject } from "./restore.ts";
+import { eventLogLine } from "./turn-log.ts";
 
 type Payload<T extends NapEvent["type"]> = NapEventOf<T>["payload"];
 
@@ -147,11 +149,27 @@ export class SingleAgentRuntime implements Runtime {
     return outcome;
   }
 
+  /**
+   * Opens the turn's log context before anything else happens in it.
+   *
+   * Everything below here — the sandbox manager, the context engine, the agent's loop — takes
+   * no logger and cannot be given one without changing its interface, so the ids travel
+   * ambiently instead. The context is opened around the whole turn rather than around each
+   * step, because a turn is one long async chain and `AsyncLocalStorage` follows it across
+   * every `await`, including the ones that outlive the request that started it.
+   */
   async #runTurn(request: TurnRequest): Promise<TurnOutcome> {
     const turnId = this.#newTurnId();
+    return await withLogContext(getLogger(), { sessionId: request.sessionId, turnId }, () =>
+      this.#runTurnLogged(request, turnId),
+    );
+  }
+
+  async #runTurnLogged(request: TurnRequest, turnId: string): Promise<TurnOutcome> {
     const session = await this.#options.sessions.get(request.sessionId);
 
     if (session === null) {
+      getLogger().warn("turn refused: no such session");
       // No event, deliberately. An event needs a session to belong to — the log's rows point
       // at one — and there is nobody subscribed to a session that was never opened.
       return {
@@ -161,6 +179,11 @@ export class SingleAgentRuntime implements Runtime {
         message: `unknown session ${request.sessionId}`,
       };
     }
+
+    // Known only now, and worth having on every line below: a project is what an operator is
+    // asked about, and a session is an implementation detail of one.
+    addLogContext({ projectId: session.projectId });
+    getLogger().info({ chars: request.message.length }, "turn started");
 
     const sink = new EventSink(this.#options.events, this.#options.bus);
     const emit = <T extends NapEvent["type"]>(type: T, payload: Payload<T>): void => {
@@ -419,6 +442,11 @@ class EventSink {
         const stored = await this.store.append(event);
         this.bus.publish(stored);
         this.#record(stored);
+        // After the append, so a logged event is one that really exists in the log. Reading
+        // the context at this point rather than capturing a logger up front is what keeps the
+        // line under the turn that emitted it.
+        const line = eventLogLine(stored);
+        getLogger()[line.level](line.fields, "event");
       } catch (error) {
         this.#failure = error;
       }
