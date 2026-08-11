@@ -138,10 +138,12 @@ body {
   --s-text-subtle: #9aa0a8;
   --s-text-inverse: #ffffff;
   /*
-   * The line art in the margins. Lighter than the border, because a mark at border weight stops
-   * being texture and becomes a diagram somebody is expected to read.
+   * The line art in the margins. Darker than the border rather than lighter: a first attempt at
+   * a whisper came out invisible, and art nobody can see is not restraint, it is a rendering
+   * bug. It is still well short of the text ramp, so it reads as something drawn in the margin
+   * rather than as content.
    */
-  --s-doodle: #e4e5e8;
+  --s-doodle: #c3c8d0;
 
   /*
    * The colours the rim is painted in, before any pulse has rolled a palette. They live on the
