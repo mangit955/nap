@@ -21,12 +21,12 @@
  * owns the requests and the navigation.
  */
 
-import { useCallback, useRef } from "react";
+import { useRef } from "react";
 import { BadgeTrail } from "../badge-trail/badge-trail.tsx";
 import { MorphCard } from "../glow/morph-card.tsx";
 import { Doodles } from "./doodles.tsx";
 import { EXAMPLE_PROMPTS } from "./example-prompts.ts";
-import { Headline, sweep } from "./headline.tsx";
+import { Headline } from "./headline.tsx";
 
 /**
  * The sentence, and where it breaks.
@@ -39,6 +39,8 @@ import { Headline, sweep } from "./headline.tsx";
  */
 const LINES = ["Describe an app.", "Then go take a nap."] as const;
 const SUB = "It'll be running by the time you're back — written in a live sandbox you can watch.";
+/** The word the sentence turns on, and the only one set heavy. */
+const EMPHASIS = "nap";
 
 export function Hero({
   signedIn,
@@ -62,14 +64,6 @@ export function Hero({
   // roll lights the rim *and* the surface it stands on. Two rolls would be two arcs drifting
   // out of step with each other.
   const stage = useRef<HTMLElement>(null);
-  // The headline is lit from the card's beat rather than from a loop of its own, so the light
-  // crossing the type and the light running the rim are one event. Held in a ref and read at
-  // pulse time: rendering on every beat would remount the card mid-morph.
-  const heading = useRef<HTMLHeadingElement | null>(null);
-  const holdHeading = useCallback((element: HTMLHeadingElement | null) => {
-    heading.current = element;
-  }, []);
-  const lightHeading = useCallback(() => sweep(heading.current), []);
 
   const send = () => {
     const message = value.trim();
@@ -86,7 +80,7 @@ export function Hero({
       <BadgeTrail />
 
       <div className="relative z-10 flex w-full max-w-2xl flex-col items-center">
-        <Headline lines={LINES} sub={SUB} onReady={holdHeading} />
+        <Headline lines={LINES} sub={SUB} emphasis={EMPHASIS} />
 
         {/*
           The halo paints over a hundred pixels outside the body, so this wrapper exists purely
@@ -96,7 +90,6 @@ export function Hero({
           <MorphCard
             paletteRef={stage}
             faceClassName="shadow-[0_1px_2px_rgba(12,38,77,0.06),0_10px_30px_-12px_rgba(12,38,77,0.18)]"
-            onPulse={lightHeading}
           />
         </div>
 

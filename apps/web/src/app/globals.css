@@ -26,6 +26,12 @@
     ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
   --font-mono:
     ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  /*
+   * Loaded by `next/font` in the root layout, which is what defines `--font-bricolage`. The
+   * fallback is not decoration: `display: swap` means the first paint of the landing page is
+   * set in it, and a stack ending at `sans-serif` would hand that paint to Times.
+   */
+  --font-display: var(--font-bricolage), ui-sans-serif, system-ui, sans-serif;
 }
 
 html,
@@ -483,148 +489,5 @@ body {
 @keyframes ai-spin {
   to {
     transform: rotate(360deg);
-  }
-}
-
-/*
- * The headline.
- *
- * **Two background layers clipped to the glyphs, not one.** The bottom layer is flat ink and is
- * what the sentence is normally made of; the top layer is a narrow band of the stage's current
- * palette colour that crosses the letters once per pulse and is otherwise entirely transparent.
- * The obvious version of this fills the text with the gradient outright, and that is the look
- * the whole page is already spending on the rim — type permanently made of colour reads as a
- * logo, where light crossing dark ink reads as a surface being lit.
- *
- * The band is mixed *towards* the ink rather than towards white. A pale sweep on a pale stage
- * loses contrast at exactly the moment the eye follows it, so the highlight is a tinted dark
- * rather than a bright one: the letters stay as readable mid-sweep as they are at rest.
- *
- * Only `background-position` animates, which is a paint on a layer that already exists. The
- * alternative — animating a registered percentage and recomputing the gradient — repaints the
- * text every frame for the same picture.
- *
- * **The clip is on the word, not on the heading, and that is not a preference.** An element
- * running an animation of opacity, transform or filter is composited into a layer of its own,
- * and a composited descendant is not part of an ancestor's text clip — so a heading clipped to
- * text whose words are animating has nothing to clip to, paints no background, and renders its
- * transparent ink as *nothing at all*. It fails silently and completely: no error, no warning,
- * an empty headline. Hence two nested spans, one animation each — the outer arrives, the inner
- * is lit.
- *
- * **The gradient is attached to the viewport** so that separate word boxes share one band of
- * light rather than each staging its own. Positioned against each word instead, every word
- * lights at the same instant, which is a flash rather than a sweep.
- */
-.nap-headline {
-  color: var(--s-text-primary);
-}
-
-@supports (background-clip: text) or (-webkit-background-clip: text) {
-  .nap-ink {
-    background-image:
-      linear-gradient(
-        100deg,
-        transparent 44%,
-        color-mix(in oklab, var(--ai-c1) 55%, var(--s-text-primary)) 50%,
-        transparent 56%
-      ),
-      linear-gradient(var(--s-text-primary), var(--s-text-primary));
-    background-attachment: fixed, fixed;
-    background-repeat: no-repeat;
-    background-size:
-      220% 100%,
-      100% 100%;
-    /* Parked off the edge, so nothing is lit until a beat says so. */
-    background-position:
-      110% 0,
-      0 0;
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-  }
-
-  .nap-headline[data-sweeping="true"] .nap-ink {
-    animation: nap-sweep 1100ms cubic-bezier(0.4, 0, 0.3, 1) both;
-  }
-}
-
-/*
- * A percentage position against a background wider than its area moves the image the *other*
- * way, so this runs from positive to negative to sweep left to right.
- */
-@keyframes nap-sweep {
-  from {
-    background-position:
-      110% 0,
-      0 0;
-  }
-  to {
-    background-position:
-      -110% 0,
-      0 0;
-  }
-}
-
-/*
- * A word arriving: up out of a blur, on a stagger written per element. The travel is smaller
- * than the card's, because a word set at this size moving as far as a caption does reads as a
- * page still loading rather than as a sentence being said.
- */
-.nap-word {
-  display: inline-block;
-  animation: nap-word 620ms cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
-@keyframes nap-word {
-  from {
-    opacity: 0;
-    filter: blur(6px);
-    transform: translateY(14px);
-  }
-  to {
-    opacity: 1;
-    filter: blur(0);
-    transform: translateY(0);
-  }
-}
-
-/*
- * Under reduced motion the sentence still arrives — it simply stops moving. The words fade on
- * the same stagger, so the cadence survives, and the sweep never runs at all: it is travel
- * across the type and there is no version of it that stands still and still means anything.
- *
- * Unlike the rim, this is withheld in CSS rather than in script, because nothing here is driven
- * by an attribute that script could decline to write — the arrival runs on mount.
- */
-@media (prefers-reduced-motion: reduce) {
-  .nap-word {
-    animation-name: nap-word-fade;
-  }
-
-  .nap-headline[data-sweeping="true"] .nap-ink {
-    animation: none;
-  }
-}
-
-@keyframes nap-word-fade {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-/*
- * Windows high contrast replaces the palette outright, and clipped background layers are not
- * part of what it replaces — the ink would be swapped for a system colour the text is no longer
- * painted in, leaving an invisible headline. Give the glyphs back their own colour.
- */
-@media (forced-colors: active) {
-  .nap-ink {
-    background-image: none;
-    color: CanvasText;
-    -webkit-text-fill-color: CanvasText;
   }
 }

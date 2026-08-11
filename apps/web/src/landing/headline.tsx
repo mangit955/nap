@@ -1,122 +1,72 @@
-"use client";
-
 /**
- * The page's first sentence, and the only place on it where the light touches type.
+ * The page's first sentence. Plain text, set with intent — nothing here moves.
  *
- * Two things are happening, and they are on different clocks on purpose.
+ * The whole sentence is set in the display face at its **lightest** weight, in the body ink
+ * rather than the darkest one, and a single word is set heavy and near-black. That contrast is
+ * the entire treatment: at this size a light weight reads as composure, and one word carrying
+ * all the weight puts the emphasis exactly where the sentence's meaning is, without a colour, a
+ * rule, a highlight or an animation to help it.
  *
- * **It arrives a word at a time.** Each word comes up out of a blur on a stagger, once, on load.
- * Per *word* rather than per character, unlike the card's contents: a headline set at this size
- * spelled out letter by letter reads as a typewriter gimmick, where a word stagger reads as a
- * sentence being said. The blur is what stops the travel looking like a slide.
+ * Which word is emphasised is the caller's decision, because it is a *copy* decision — it is the
+ * one the sentence turns on, and it moves if the sentence is rewritten.
  *
- * **Then the light catches it.** The ink stays solid near-black — this is not gradient text —
- * and a narrow band of the *stage's current palette colour* crosses the letters once per pulse.
- * The point is that it is the same light: `onSweep` is called from the beat that lights the
- * card's rim, so the type and the card are lit by one source rather than by two effects that
- * happen to be running. Anything else would drift out of step the first time the tab is hidden,
- * because the pulse loop stops while the tab is away and a CSS loop of its own would not.
- *
- * The sweep is a second background layer clipped to the glyphs, over a solid one. Filling the
- * text with the gradient alone is the usual way to do this and is wrong here: the letters would
- * *be* the colour, permanently, which is the look this page already spends on the rim.
+ * The emphasis is a `<span>`, not a `<strong>`: the weight is typographic and means "look here",
+ * where `<strong>` means the word carries more importance when the sentence is *read aloud*. The
+ * two happen to coincide here, and will not the next time somebody changes the copy.
  */
 
-import { Fragment, useEffect, useRef } from "react";
+import { Fragment } from "react";
 
-/** Between one word's arrival and the next. Long enough to read as a cadence, not as a queue. */
-const WORD_STAGGER_MS = 60;
-const WORD_MS = 620;
-/** The subheading follows the last word rather than racing it. */
-const TAIL_MS = 160;
+const NOT_A_WORD = /[^\p{L}\p{N}]/gu;
 
 export function Headline({
   lines,
   sub,
-  onReady,
+  emphasis,
 }: {
   /** One string per visual line. Kept as lines because where a headline breaks is a decision. */
   lines: readonly string[];
   sub: string;
   /**
-   * Handed the heading element once it is mounted, so the caller can drive `sweep` from
-   * whatever clock it wants the light on. Nothing here owns a timer.
+   * The word carrying the weight, matched ignoring punctuation so the copy can say `nap.` and
+   * this can say `nap`. Anything matching nothing simply leaves the line evenly set.
    */
-  onReady?: (heading: HTMLHeadingElement | null) => void;
+  emphasis: string;
 }) {
-  const heading = useRef<HTMLHeadingElement>(null);
-
-  useEffect(() => {
-    onReady?.(heading.current);
-    return () => onReady?.(null);
-  }, [onReady]);
-
-  let index = 0;
-  const words = lines.map((line) =>
-    line.split(" ").map((word) => ({ word, delay: index++ * WORD_STAGGER_MS })),
-  );
-  const settled = index * WORD_STAGGER_MS + WORD_MS;
+  const target = emphasis.toLowerCase().replace(NOT_A_WORD, "");
 
   return (
     <>
-      <h1
-        ref={heading}
-        className="nap-headline text-balance text-center font-semibold text-[2.6rem] leading-[1.02] tracking-[-0.045em] sm:text-[4.25rem]"
-      >
-        {words.map((line, lineIndex) => (
+      <h1 className="text-balance text-center font-display font-extralight text-[2.6rem] text-[var(--s-text-body)] leading-[1.04] tracking-[-0.035em] sm:text-[4.25rem]">
+        {lines.map((line, lineIndex) => (
           // Lines are fixed content in source order and there is nothing else to key them on.
           // biome-ignore lint/suspicious/noArrayIndexKey: see above
           <Fragment key={lineIndex}>
             <span className="block">
-              {line.map(({ word, delay }) => (
-                // The space belongs *between* the spans, not inside them. Written inside, the
-                // accessible name computation trims each element's own text and the heading is
-                // announced as one run-on word — identical on screen, unreadable aloud.
-                <Fragment key={`${word}-${delay}`}>
-                  {/*
-                    Two spans, one animation each, and they cannot be merged. The outer one
-                    arrives; the inner one carries the light. An element running an animation is
-                    composited into its own layer and drops out of any ancestor's text clip, so a
-                    single span doing both paints no ink at all — a headline that is simply not
-                    there, with nothing anywhere to say why.
-                  */}
-                  <span className="nap-word" style={{ animationDelay: `${delay}ms` }}>
-                    <span className="nap-ink">{word}</span>
-                  </span>{" "}
+              {line.split(" ").map((word, wordIndex) => (
+                // Same story: a word's identity in a fixed line is its position.
+                // biome-ignore lint/suspicious/noArrayIndexKey: see above
+                <Fragment key={wordIndex}>
+                  {word.toLowerCase().replace(NOT_A_WORD, "") === target ? (
+                    <span className="font-semibold text-[var(--s-text-primary)]">{word}</span>
+                  ) : (
+                    word
+                  )}{" "}
                 </Fragment>
               ))}
             </span>
             {/*
-            And a space between the lines, for the same reason: the break is a block boundary,
-            which is a line break on screen and nothing at all in the accessible name.
-          */}{" "}
+              A space between the lines as well. The break is a block boundary, which is a line
+              break on screen and nothing at all in the accessible name — without this the
+              heading is announced as "an app.Then go".
+            */}{" "}
           </Fragment>
         ))}
       </h1>
 
-      <p
-        className="nap-word mt-6 max-w-md text-balance text-center text-[var(--s-text-muted)] text-[15px] leading-relaxed sm:text-base"
-        style={{ animationDelay: `${settled + TAIL_MS}ms` }}
-      >
+      <p className="mt-6 max-w-md text-balance text-center text-[var(--s-text-muted)] text-[15px] leading-relaxed sm:text-base">
         {sub}
       </p>
     </>
   );
-}
-
-/**
- * Runs the light across the type once.
- *
- * The attribute goes false and then true across **two** frames, for the same reason the rim does
- * it: written in one frame the browser coalesces them and the animation never restarts, which
- * looks exactly like the sweep being broken rather than like a missed beat.
- */
-export function sweep(heading: HTMLElement | null): void {
-  if (heading === null) return;
-  heading.dataset.sweeping = "false";
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      if (heading.isConnected) heading.dataset.sweeping = "true";
-    });
-  });
 }
