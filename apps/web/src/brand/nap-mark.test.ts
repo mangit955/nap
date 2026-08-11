@@ -5,7 +5,6 @@ import {
   NAP_EYE_OPEN_RX,
   NAP_EYE_SHUT_LEFT,
   NAP_EYE_SHUT_RIGHT,
-  NAP_MOUTH,
 } from "./nap-mark-paths.ts";
 
 /**
@@ -25,16 +24,24 @@ describe("the favicon", () => {
     expect(icon).toContain(NAP_BODY);
     expect(icon).toContain(NAP_EYE_SHUT_LEFT);
     expect(icon).toContain(NAP_EYE_SHUT_RIGHT);
-    expect(icon).toContain(`cx="${NAP_MOUTH.cx}"`);
   });
 
   it("is asleep", () => {
     // The awake face belongs to a hover, and nothing hovers a tab icon. A favicon drawn with
     // its eyes open would also be the one place the mark contradicts the product's name.
     //
-    // Checked by the open eyes' own radius rather than by the absence of any ellipse: the mouth
-    // is an ellipse too, and the first version of this test broke the moment the face got one.
+    // Checked by the open eyes' own radius rather than by the absence of any ellipse, so that
+    // anything else the face ever gains does not fail a test about being asleep.
     expect(icon).not.toContain(`rx="${NAP_EYE_OPEN_RX}"`);
+  });
+
+  it("has nothing on its face but eyes", () => {
+    // Every feature of this mark is a hole in a filled body, so an extra one reads as another
+    // eye. A mouth and cheeks were both tried and removed for exactly that — see the note in
+    // `nap-mark-paths.ts`. Two cut-outs asleep, and no more.
+    const cutouts = icon.match(/<(path|ellipse|circle)\b/g) ?? [];
+    // The body path plus the two closed lids.
+    expect(cutouts).toHaveLength(3);
   });
 
   it("names itself, being a document of its own", () => {

@@ -47,11 +47,15 @@ export const NAP_EYE_OPEN = [
 export const NAP_EYE_OPEN_RX = 1.35;
 export const NAP_EYE_OPEN_RY = 1.7;
 
-/**
- * A mouth, barely there: one small oval under the eyes. It is the cheapest possible charm — at
- * 24px it is two pixels — and it is what stops the face reading as a pair of holes.
+/*
+ * The face is two eyes and nothing else, and two additions have been tried and removed.
  *
- * Cheeks were tried here too and thrown out: knocked out of a filled body they become two more
- * light spots, and at 24px a viewer counts four eyes.
+ * A small mouth under the eyes: on a filled body it is a light spot in the middle of the face,
+ * and at the size this mark is actually used it reads as a nose rather than a mouth.
+ *
+ * Cheeks: the same problem twice over — two more light spots, and at 24px a viewer counts four
+ * eyes.
+ *
+ * The pattern is worth remembering before adding a third. Every feature here is a *hole*, not a
+ * mark, so anything added to the face is read as another eye until proven otherwise.
  */
-export const NAP_MOUTH = { cx: 12, cy: 16.2, rx: 0.62, ry: 0.5 } as const;

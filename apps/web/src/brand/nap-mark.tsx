@@ -38,7 +38,6 @@ import {
   NAP_EYE_OPEN_RY,
   NAP_EYE_SHUT_LEFT,
   NAP_EYE_SHUT_RIGHT,
-  NAP_MOUTH,
 } from "./nap-mark-paths.ts";
 
 export function NapMark({ className = "", ...props }: SVGProps<SVGSVGElement>) {
@@ -75,15 +74,6 @@ export function NapMark({ className = "", ...props }: SVGProps<SVGSVGElement>) {
             ))}
           </g>
         </g>
-
-        {/* Outside the eye group, so it stays put while the eyes glance around it. */}
-        <ellipse
-          cx={NAP_MOUTH.cx}
-          cy={NAP_MOUTH.cy}
-          rx={NAP_MOUTH.rx}
-          ry={NAP_MOUTH.ry}
-          fill="#000"
-        />
       </mask>
 
       <path className="nap-mark-body" d={NAP_BODY} mask={`url(#${maskId})`} />
