@@ -25,8 +25,12 @@ const PREVIEW_FAILURES: readonly FailureReason[] = ["sandbox_unavailable", "inte
 export type PreviewState =
   | { status: "idle" }
   | { status: "starting" }
-  /** `seq` identifies *which* announcement this is, which is what a reload keys on. */
-  | { status: "ready"; url: string; port: number; seq: number }
+  /**
+   * `seq` identifies *which* announcement this is, which is what a reload keys on; `createdAt`
+   * is when the server made it, which is what decides whether the project record read at mount
+   * still has anything to say about it.
+   */
+  | { status: "ready"; url: string; port: number; seq: number; createdAt: string }
   /** The sandbox has been destroyed. The work is safe; there is just nothing serving it. */
   | { status: "stopped" }
   | { status: "error"; message: string };
@@ -42,6 +46,7 @@ export function previewState(events: readonly StoredEvent[]): PreviewState {
           url: event.payload.url,
           port: event.payload.port,
           seq: event.seq,
+          createdAt: event.createdAt,
         };
         break;
 
@@ -71,4 +76,30 @@ export function previewState(events: readonly StoredEvent[]): PreviewState {
   }
 
   return state;
+}
+
+/**
+ * Whether there is nothing serving this project — the log and the record read together.
+ *
+ * Two sources, and each knows something the other cannot. The **log** announces every close and
+ * every sweep, so it is the better source and is usually enough. The **record** covers the one
+ * gap in that: a sandbox the provider reclaims on its own timer is announced by nobody, so the
+ * newest `preview.ready` can be an address that stopped answering an hour ago.
+ *
+ * **The record only outranks announcements older than itself**, which is the part that was
+ * missing. `putAwayAt` is a moment the server had no sandbox; a `preview.ready` stamped after it
+ * describes a sandbox created since, and a page that ignored that told everybody whose first
+ * turn had just started that their project was filed away — while the header said `live` and the
+ * transcript showed the address. Both timestamps are the server's own, so comparing them
+ * involves no browser clock.
+ */
+export function isPutAway(events: readonly StoredEvent[], putAwayAt: string | undefined): boolean {
+  const state = previewState(events);
+
+  // The log said so outright; no record can be more current than an announcement.
+  if (state.status === "stopped") return true;
+  if (putAwayAt === undefined) return false;
+  if (state.status !== "ready") return true;
+
+  return Date.parse(state.createdAt) <= Date.parse(putAwayAt);
 }

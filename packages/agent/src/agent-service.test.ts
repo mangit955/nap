@@ -266,10 +266,24 @@ describe("runTurn — failure branches", () => {
     ]);
   });
 
-  it("fails the turn when the provider gives up", async () => {
+  it("says the model was unavailable when the provider retried and still could not reach it", async () => {
     // Retries are the provider's business and are already spent by the time one of these
-    // arrives, so there is nothing left for the loop to do but stop.
+    // arrives, so there is nothing left for the loop to do but stop. `retryable` is what
+    // distinguishes the two ways that happens: a throttled or overloaded model is not the agent
+    // breaking, and telling the user it stopped partway through sends them looking for a fault
+    // in their own request.
     const { agent } = service([[{ error: { message: "529 overloaded", retryable: true } }]]);
+
+    await agent.runTurn(request());
+
+    expect(recorder.payloadsOf("turn.failed")).toEqual([
+      expect.objectContaining({ reason: "model_unavailable", message: "529 overloaded" }),
+    ]);
+  });
+
+  it("still calls a failure the provider will not retry an internal one", async () => {
+    // A malformed request or a rejected key is this system's problem, not the model being busy.
+    const { agent } = service([[{ error: { message: "bad tools", retryable: false } }]]);
 
     await agent.runTurn(request());
 

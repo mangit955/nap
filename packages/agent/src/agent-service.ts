@@ -141,7 +141,12 @@ class Turn {
       if (result.type === "refusal") {
         return this.#fail("refusal", "The model declined to answer this request.");
       }
-      if (result.type === "error") return this.#fail("internal", result.message);
+      if (result.type === "error") {
+        // `retryable` here means the provider *already* retried and the model was still not
+        // there — a throttle or an overload, which is a different sentence to the user than
+        // something in this system going wrong.
+        return this.#fail(result.retryable ? "model_unavailable" : "internal", result.message);
+      }
 
       this.#budget.recordUsage(result.usage);
       const tokenBudget = this.#budget.check();

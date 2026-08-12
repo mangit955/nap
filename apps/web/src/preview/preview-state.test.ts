@@ -1,20 +1,24 @@
 import type { NapEvent, NapEventType } from "@nap/shared/events";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { describe, expect, it } from "vitest";
-import { previewState } from "./preview-state.ts";
+import { isPutAway, previewState } from "./preview-state.ts";
 
 const SESSION = "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f";
 const TURN = "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f";
 
 let nextSeq = 1;
 
-function ev<T extends NapEventType>(type: T, payload: Extract<NapEvent, { type: T }>["payload"]) {
+function ev<T extends NapEventType>(
+  type: T,
+  payload: Extract<NapEvent, { type: T }>["payload"],
+  createdAt = "2026-08-09T12:00:00.000Z",
+) {
   return {
     type,
     sessionId: SESSION,
     turnId: TURN,
     seq: nextSeq++,
-    createdAt: "2026-08-09T12:00:00.000Z",
+    createdAt,
     payload,
   } as StoredEvent;
 }
@@ -158,5 +162,42 @@ describe("when the sandbox never came up", () => {
     );
 
     expect(result).toMatchObject({ status: "starting" });
+  });
+});
+
+describe("the record against the log", () => {
+  const at = (createdAt: string) =>
+    ev("preview.ready", { url: "https://5173-abc.e2b.dev", port: 5173 }, createdAt);
+
+  const NOON = "2026-08-09T12:00:00.000Z";
+  const EARLIER = "2026-08-09T11:00:00.000Z";
+  const LATER = "2026-08-09T13:00:00.000Z";
+
+  it("keeps trusting the record about an announcement older than it", () => {
+    // The case the override exists for: nothing announces a sandbox the provider reclaimed on
+    // its own timer, so the newest event in the log can be an address that stopped answering an
+    // hour ago.
+    expect(isPutAway([at(EARLIER)], NOON)).toBe(true);
+  });
+
+  it("believes an announcement made after the record was read", () => {
+    // The defect: a project's first turn creates a sandbox seconds after the workspace opened,
+    // and the record read at mount said there was none. It was right then and is wrong now.
+    expect(isPutAway([at(LATER)], NOON)).toBe(false);
+  });
+
+  it("takes the log's word for it when the record has no objection", () => {
+    expect(isPutAway([at(NOON)], undefined)).toBe(false);
+  });
+
+  it("is put away when the log itself says a sandbox went", () => {
+    // A close in another tab announces itself, and the record this page holds still says a
+    // sandbox is running.
+    expect(isPutAway([at(EARLIER), ev("preview.stopped", {})], undefined)).toBe(true);
+  });
+
+  it("is put away when the record says so and nothing has ever been announced", () => {
+    expect(isPutAway([], NOON)).toBe(true);
+    expect(isPutAway([], undefined)).toBe(false);
   });
 });

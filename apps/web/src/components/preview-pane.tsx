@@ -4,7 +4,7 @@ import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { useState } from "react";
 import { turnFailureCopy } from "../errors/failure-copy.ts";
 import { useEventStream } from "../hooks/use-event-stream.ts";
-import { type PreviewState, previewState } from "../preview/preview-state.ts";
+import { isPutAway, type PreviewState, previewState } from "../preview/preview-state.ts";
 import { Pane } from "./pane.tsx";
 
 /**
@@ -31,14 +31,17 @@ const SANDBOX = "allow-scripts allow-same-origin allow-forms allow-popups allow-
 export type PreviewPaneProps = {
   events: readonly StoredEvent[];
   /**
-   * That the project has no sandbox, according to the record the page was opened with.
+   * When the record the page was opened with last said this project had no sandbox.
    *
    * The log is the better source and usually says so itself — every close and every sweep
    * appends `preview.stopped`. This is for the gap in that: a sandbox the provider reclaimed
    * on its own timer is announced by nobody until something notices, so the newest event can
    * still be a `preview.ready` for a host that stopped answering an hour ago.
+   *
+   * A timestamp rather than a flag, because the record is read once and the world moves: see
+   * `isPutAway`.
    */
-  putAway?: boolean | undefined;
+  putAwayAt?: string | undefined;
   onResume?: (() => void) | undefined;
   /** From the request until the restore announces itself, which can be tens of seconds. */
   resuming?: boolean | undefined;
@@ -47,12 +50,12 @@ export type PreviewPaneProps = {
 
 export function PreviewPane({
   events,
-  putAway,
+  putAwayAt,
   onResume,
   resuming,
   resumeError,
 }: PreviewPaneProps) {
-  const state = displayState(previewState(events), { putAway, resuming });
+  const state = displayState(previewState(events), { events, putAwayAt, resuming });
   const [reloads, setReloads] = useState(0);
 
   const ready = state.status === "ready" ? state : undefined;
@@ -107,18 +110,28 @@ export function PreviewPane({
 /**
  * What the pane shows, which is not always what the log last said.
  *
- * Two overrides, both about the log being behind rather than wrong. A project the record says
- * has no sandbox has none, whatever address the newest `preview.ready` carries — nothing
+ * Two overrides, both about the log being behind rather than wrong. A project whose record says
+ * it has no sandbox has none, whatever address an *older* `preview.ready` carries — nothing
  * announces a sandbox the provider reclaimed on its own timer. And a restore that has been
  * asked for is under way from the moment it is asked for, which is minutes before the event
  * saying so arrives.
+ *
+ * **Only a `ready` state is overridden.** A project with no sandbox and nothing asked for yet is
+ * a new project, and inviting a first prompt is the right thing to say to that; offering to
+ * restore it would imply there was something to restore.
  */
 function displayState(
   state: PreviewState,
-  overrides: { putAway?: boolean | undefined; resuming?: boolean | undefined },
+  overrides: {
+    events: readonly StoredEvent[];
+    putAwayAt?: string | undefined;
+    resuming?: boolean | undefined;
+  },
 ): PreviewState {
   if (overrides.resuming === true) return { status: "starting" };
-  if (overrides.putAway === true && state.status === "ready") return { status: "stopped" };
+  if (state.status === "ready" && isPutAway(overrides.events, overrides.putAwayAt)) {
+    return { status: "stopped" };
+  }
   return state;
 }
 
@@ -234,7 +247,7 @@ function host(url: string): string {
  */
 export function LivePreviewPane({
   sessionId,
-  putAway,
+  putAwayAt,
   onResume,
   resuming,
   resumeError,
@@ -246,7 +259,7 @@ export function LivePreviewPane({
   return (
     <PreviewPane
       events={events}
-      {...(putAway === undefined ? {} : { putAway })}
+      {...(putAwayAt === undefined ? {} : { putAwayAt })}
       {...(onResume === undefined ? {} : { onResume })}
       {...(resuming === undefined ? {} : { resuming })}
       {...(resumeError === undefined ? {} : { resumeError })}

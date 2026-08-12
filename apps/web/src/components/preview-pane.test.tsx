@@ -9,13 +9,17 @@ const TURN = "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f";
 
 let nextSeq = 1;
 
-function ev<T extends NapEventType>(type: T, payload: Extract<NapEvent, { type: T }>["payload"]) {
+function ev<T extends NapEventType>(
+  type: T,
+  payload: Extract<NapEvent, { type: T }>["payload"],
+  createdAt = "2026-08-09T12:00:00.000Z",
+) {
   return {
     type,
     sessionId: SESSION,
     turnId: TURN,
     seq: nextSeq++,
-    createdAt: "2026-08-09T12:00:00.000Z",
+    createdAt,
     payload,
   } as StoredEvent;
 }
@@ -124,13 +128,47 @@ describe("a project that has been put away", () => {
     expect(screen.getByRole("button", { name: /resume/i })).toBeInTheDocument();
   });
 
-  it("trusts the record when the log has not caught up", () => {
+  it("trusts the record about an announcement made before it", () => {
     // Nothing announces a sandbox the provider reclaimed on its own timer, so a project can be
     // put away while the newest event in the log still says a preview is ready.
-    render(<PreviewPane events={[asked(), ready()]} putAway />);
+    render(
+      <PreviewPane
+        events={[
+          asked(),
+          ev(
+            "preview.ready",
+            { url: "https://5173-old.e2b.dev", port: 5173 },
+            "2026-08-09T11:00:00.000Z",
+          ),
+        ]}
+        putAwayAt="2026-08-09T12:00:00.000Z"
+      />,
+    );
 
     expect(frame()).toBeNull();
     expect(screen.getByRole("button", { name: /resume/i })).toBeInTheDocument();
+  });
+
+  it("shows a sandbox that came up after the record was read", () => {
+    // The defect this exists for: the workspace reads the project once, on mount, and the first
+    // turn creates a sandbox seconds later. Offering Resume for something already running is the
+    // page telling somebody their app is gone while it is on screen behind the panel.
+    render(
+      <PreviewPane
+        events={[
+          asked(),
+          ev(
+            "preview.ready",
+            { url: "https://5173-new.e2b.dev", port: 5173 },
+            "2026-08-09T13:00:00.000Z",
+          ),
+        ]}
+        putAwayAt="2026-08-09T12:00:00.000Z"
+      />,
+    );
+
+    expect(frame()).toHaveAttribute("src", "https://5173-new.e2b.dev");
+    expect(screen.queryByRole("button", { name: /resume/i })).toBeNull();
   });
 
   it("shows the app again once it is serving", () => {

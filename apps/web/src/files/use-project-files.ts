@@ -60,11 +60,15 @@ export function useProjectFiles(
   const [status, setStatus] = useState<LoadStatus>(sessionId === undefined ? "idle" : "loading");
 
   /**
-   * What makes the listing stale, as one number. A file the agent wrote is the obvious case;
-   * a finished turn is the one that is easy to miss, because a command like `bun add` changes
-   * a project without producing a single `file.changed`.
+   * What makes the listing stale, as one number. A file the agent wrote is the obvious case; a
+   * finished turn is the one that is easy to miss, because a command like `bun add` changes a
+   * project without producing a single `file.changed`. A sandbox coming up is the third: it is
+   * a *new filesystem*, and the moment the endpoint stops answering `ready: false` — without it
+   * the tree sits on that answer until the agent happens to write something.
    */
-  const staleness = changeCount(events) + events.filter((e) => e.type === "turn.completed").length;
+  const staleness =
+    changeCount(events) +
+    events.filter((e) => e.type === "turn.completed" || e.type === "preview.ready").length;
 
   // `fetchJson` is deliberately not a dependency: an inline arrow is a new function on every
   // render, and refetching the whole project each time is not what a caller means by passing

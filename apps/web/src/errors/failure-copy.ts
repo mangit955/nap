@@ -15,7 +15,7 @@
  * distinguishes this failure from the next one, and the rate limiter in particular already writes
  * a better sentence than anything that could be reconstructed here from a status code.
  *
- * Keyed as a `Record` over the reason union, so a sixth failure reason added in `@nap/shared`
+ * Keyed as a `Record` over the reason union, so another failure reason added in `@nap/shared`
  * fails typecheck here rather than rendering an empty box.
  */
 
@@ -44,6 +44,7 @@ export type FailureCopy = {
 /** Shown when the server said nothing useful, so `detail` is never blank. */
 const NO_DETAIL: Record<TurnFailureReason, string> = {
   sandbox_unavailable: "The workspace did not report a reason.",
+  model_unavailable: "The provider didn't say for how long.",
   internal: "The server did not report a reason.",
   refusal: "The model gave no reason.",
   budget_exceeded: "The turn used its whole allowance of steps.",
@@ -55,6 +56,15 @@ const TURN_COPY: Record<TurnFailureReason, Omit<FailureCopy, "detail">> = {
     title: "The workspace couldn't start.",
     recovery: "retry",
     action: "Send the message again — a new workspace is created from your last saved state.",
+  },
+  model_unavailable: {
+    title: "The model is busy right now.",
+    // `retry` rather than `wait`, unlike this API's own rate limiter below. There the message
+    // is still sitting in the composer and the person re-sends it themselves; here it is
+    // already in the transcript, and `retry` is what puts a button under it that sends the
+    // same words again. The waiting is said in the action instead.
+    recovery: "retry",
+    action: "Give it a few seconds, then send the message again.",
   },
   internal: {
     title: "The agent stopped partway through.",

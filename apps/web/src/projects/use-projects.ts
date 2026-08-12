@@ -22,6 +22,7 @@ import {
   ProjectListSchema,
   type ProjectSummaryPayload,
   ProjectSummarySchema,
+  projectState,
 } from "@nap/shared/projects-protocol";
 import { useCallback, useEffect, useState } from "react";
 import { credentialedFetch } from "../api/credentialed-fetch.ts";
@@ -153,13 +154,19 @@ export type OpenProject = {
   project: ProjectSummaryPayload | undefined;
   status: "loading" | "ready" | "missing" | "error";
   /**
-   * Whether this project has no sandbox serving it, so far as anyone here knows.
+   * When the server last confirmed this project had no sandbox serving it — or `undefined` if
+   * it has one, has never had one, or has been resumed from this page since.
    *
-   * Starts from the record and is then owned by `resume`, because the record is a snapshot of
-   * one moment: the whole point of resuming is that it stops being true, and the row saying so
-   * is written during the restore rather than before the request that started it comes back.
+   * **An instant rather than a boolean, and that is the whole point.** The record is read once,
+   * when the workspace opens, and a turn started a second later creates a sandbox that
+   * announces itself on the socket. A boolean cannot say which of the two is newer, so the
+   * panes went on claiming a running project was put away. Both this and an event's `createdAt`
+   * come from the server's clock, so they compare without any browser skew.
+   *
+   * A project that has never had a sandbox is not put away — it was never put anywhere — so it
+   * reports nothing here and the panes invite a first prompt instead of offering to restore.
    */
-  putAway: boolean;
+  putAwayAt: string | undefined;
   /** Asks the server to start it back up. What the user then sees arrives as events. */
   resume: () => Promise<void>;
   /** True from the request until the restore announces itself on the session's stream. */
@@ -251,7 +258,10 @@ export function useProject(
   return {
     project,
     status,
-    putAway: !started && project?.sandboxId === null,
+    putAwayAt:
+      !started && project !== undefined && projectState(project) === "put away"
+        ? project.updatedAt
+        : undefined,
     resume,
     resuming,
     resumeError,

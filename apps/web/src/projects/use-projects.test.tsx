@@ -237,6 +237,36 @@ describe("opening one project", () => {
   });
 });
 
+describe("whether the record says anything is running", () => {
+  it("dates the answer, because the record goes stale the moment a turn starts", async () => {
+    // `putAwayAt` is "the server had no sandbox as of this instant", not a bare boolean: a
+    // sandbox created after this reading is announced on the socket, and a boolean cannot say
+    // which of the two is newer.
+    const fetchJson = server({
+      [`GET /projects/${PROJECT}`]: () =>
+        json(summary({ sandboxId: null, status: "idle", updatedAt: "2026-08-12T10:00:00.000Z" })),
+    }).fetchJson;
+    const { result } = renderHook(() => useProject(PROJECT, { baseUrl: BASE, fetchJson }));
+
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    expect(result.current.putAwayAt).toBe("2026-08-12T10:00:00.000Z");
+  });
+
+  it("says nothing about a project that has never had a sandbox", async () => {
+    // A project made a second ago is not "put away" — it was never put anywhere. Saying so
+    // tells somebody whose first turn is still starting that their app has been filed away.
+    const fetchJson = server({
+      [`GET /projects/${PROJECT}`]: () => json(summary({ sandboxId: null, status: "creating" })),
+    }).fetchJson;
+    const { result } = renderHook(() => useProject(PROJECT, { baseUrl: BASE, fetchJson }));
+
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    expect(result.current.putAwayAt).toBeUndefined();
+  });
+});
+
 describe("starting a put-away project back up", () => {
   const putAway = () => summary({ sandboxId: null, status: "idle" });
 
@@ -269,13 +299,13 @@ describe("starting a put-away project back up", () => {
     const { fetchJson } = openable(() => json({ opened: true }, 202));
     const { result } = renderHook(() => useProject(PROJECT, { baseUrl: BASE, fetchJson }));
     await waitFor(() => expect(result.current.status).toBe("ready"));
-    expect(result.current.putAway).toBe(true);
+    expect(result.current.putAwayAt).toBeDefined();
 
     await act(async () => {
       await result.current.resume();
     });
 
-    expect(result.current.putAway).toBe(false);
+    expect(result.current.putAwayAt).toBeUndefined();
   });
 
   it("treats a project that was already running as a project that is running", async () => {
@@ -289,7 +319,7 @@ describe("starting a put-away project back up", () => {
       await result.current.resume();
     });
 
-    expect(result.current.putAway).toBe(false);
+    expect(result.current.putAwayAt).toBeUndefined();
     expect(result.current.resuming).toBe(false);
     expect(result.current.resumeError).toBeUndefined();
   });
@@ -308,7 +338,7 @@ describe("starting a put-away project back up", () => {
     expect(result.current.resumeError).toMatch(/2 projects running/);
     expect(result.current.resuming).toBe(false);
     // Nothing came back up, so the button has to still be there.
-    expect(result.current.putAway).toBe(true);
+    expect(result.current.putAwayAt).toBeDefined();
   });
 
   it("says so when the server cannot be reached at all", async () => {

@@ -126,6 +126,24 @@ describe("useProjectFiles", () => {
     await waitFor(() => expect(calls).toHaveLength(2));
   });
 
+  it("asks again once a sandbox is serving the project", async () => {
+    // A new sandbox is a new filesystem, and the moment the listing first becomes possible at
+    // all: before it the endpoint answers `ready: false`. Without this the tree sat on that
+    // answer until the agent happened to write a file, so a project that had just come up read
+    // as one with nothing in it.
+    const { fetchJson, calls } = fetcher({ [`/sessions/${SESSION}/files`]: LISTING });
+
+    const { rerender } = renderHook(
+      (events: StoredEvent[]) => useProjectFiles({ sessionId: SESSION, events, fetchJson }),
+      { initialProps: [] as StoredEvent[] },
+    );
+
+    await waitFor(() => expect(calls).toHaveLength(1));
+    rerender([ev("preview.ready", { url: "https://5173-abc.e2b.dev", port: 5173 })]);
+
+    await waitFor(() => expect(calls).toHaveLength(2));
+  });
+
   it("reports a failure instead of an empty project", async () => {
     // An empty list and a broken request look identical in a tree; only one of them means
     // "the agent has not written anything yet".

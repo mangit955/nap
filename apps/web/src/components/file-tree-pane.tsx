@@ -21,6 +21,7 @@ import { FileViewer } from "../files/file-viewer.tsx";
 import { ancestorsOf, buildTree, type TreeNode } from "../files/tree.ts";
 import { type LoadStatus, useFileContent, useProjectFiles } from "../files/use-project-files.ts";
 import { useEventStream } from "../hooks/use-event-stream.ts";
+import { isPutAway } from "../preview/preview-state.ts";
 import { Pane } from "./pane.tsx";
 
 export function FileTreePane({
@@ -209,12 +210,19 @@ function Empty({
 
 export function LiveFileTreePane({
   sessionId,
-  putAway,
+  putAwayAt,
+  resuming,
 }: {
   sessionId: string | undefined;
-  putAway?: boolean | undefined;
+  /** When the record last said no sandbox was serving this project; see `isPutAway`. */
+  putAwayAt?: string | undefined;
+  resuming?: boolean | undefined;
 }) {
   const { events } = useEventStream({ sessionId });
+  // The same question the preview pane asks, answered by the same function rather than by a
+  // second rule here — two panes disagreeing about whether a project is running is precisely
+  // the confusion this pane's copy is trying to resolve.
+  const putAway = isPutAway(events, putAwayAt) && resuming !== true;
   const { listing, status } = useProjectFiles({ sessionId, events });
   const [selected, setSelected] = useState<string | undefined>(undefined);
   const { file, status: fileStatus } = useFileContent({ sessionId, path: selected });
