@@ -40,15 +40,19 @@ export function registerModelRoutes(
  *
  * `anthropic/claude-opus-5` is a route and a product name joined by a slash; the vendor prefix
  * is the part that never distinguishes anything in a list this short, so it goes. What is left
- * is title-cased with the separators dropped, which turns every id this project runs into its
- * real name and leaves anything unfamiliar legible rather than mangled.
+ * is title-cased at the hyphens, which turns every id this project runs into its real name and
+ * leaves anything unfamiliar legible rather than mangled.
  */
 export function modelLabel(id: string): string {
   const withoutVendor = id.includes("/") ? (id.split("/")[1] ?? id) : id;
 
-  return withoutVendor
-    .split(/[-.]/)
-    .filter((part) => part !== "")
-    .map((part) => (/^\d/.test(part) ? part : part.charAt(0).toUpperCase() + part.slice(1)))
-    .join(" ");
+  return (
+    withoutVendor
+      // Split on hyphens only. A dot is part of a version — splitting there turns `gpt-5.6-luna`
+      // into "Gpt 5 6 Luna", which reads as a different model from the one people asked for.
+      .split("-")
+      .filter((part) => part !== "")
+      .map((part) => (/^\d/.test(part) ? part : part.charAt(0).toUpperCase() + part.slice(1)))
+      .join(" ")
+  );
 }

@@ -72,6 +72,9 @@ describe("LiveChatPane", () => {
 
     // Through `submit`, not some second path: a retry is an ordinary turn and has to be subject
     // to the same rate limit and the same optimistic message as anything typed into the box.
-    expect(submit).toHaveBeenCalledWith("build me a todo list");
+    // It carries the chosen model too — retrying on a different one silently is the worst
+    // version of this control, since the turn that failed and the turn that replaces it would
+    // cost different amounts for no stated reason.
+    expect(submit).toHaveBeenCalledWith("build me a todo list", undefined);
   });
 });

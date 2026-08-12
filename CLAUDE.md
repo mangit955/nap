@@ -88,7 +88,7 @@ Drift here is the most expensive kind of mistake. Before adding code to a compon
 | `Runtime` | Turn lifecycle: acquire sandbox → build context → run agent → persist → publish → commit → snapshot. Budgets, cancellation, recovery. | Prompt content, model params, tool implementations |
 | `ContextEngine` | Assembling context and owning the token budget + truncation order | Calling the model; deciding when a turn ends |
 | `AgentService` | Driving the model loop for one turn; executing proxy tools; emitting typed events | Persistence, git, sandbox lifecycle, prompt assembly |
-| `LLMProvider` | Model id, effort, thinking config, refusal/fallback policy, retries, usage accounting | Vendor abstraction — it is *not* a cross-vendor swap |
+| `LLMProvider` | Model *policy* — effort, thinking config, refusal/fallback, retries, usage accounting — and the default model. A turn may override the model id through `startTurn({ model })` and nothing else | Vendor abstraction — it is *not* a cross-vendor swap. Deciding *which* models are allowed: that is the route's allowlist |
 | `MemoryProvider` | `retrieve()` / `write()`. v1 is `NoopMemoryProvider` | Anything in v1 — but its call sites are real |
 | `SandboxManager` | Sandbox lifecycle, filesystem, exec, preview URL | Knowing what an agent or a turn is |
 | `EventStore` / `EventBus` | Durable append, **then** fanout — in that order | Business logic |

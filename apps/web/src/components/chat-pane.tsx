@@ -1,10 +1,13 @@
 "use client";
 
+import type { ModelChoice } from "@nap/shared/models-protocol";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
+import { useState } from "react";
 import { ChatInput } from "../chat/chat-input.tsx";
 import { ChatTranscript } from "../chat/chat-transcript.tsx";
 import { buildTranscript } from "../chat/transcript.ts";
 import { useFirstPrompt } from "../chat/use-first-prompt.ts";
+import { useModels } from "../chat/use-models.ts";
 import { useTurnSubmission } from "../chat/use-turn-submission.ts";
 import { WorkingIndicator } from "../chat/working-indicator.tsx";
 import { turnStartedAt, workingLabel } from "../chat/working-state.ts";
@@ -32,6 +35,9 @@ export function ChatPane({
   onCancel = () => {},
   onRetry,
   files,
+  models,
+  model,
+  onModelChange,
 }: {
   events: readonly StoredEvent[];
   pending?: string | undefined;
@@ -43,6 +49,10 @@ export function ChatPane({
   onRetry?: ((message: string) => void) | undefined;
   /** The project's files, for the composer's `@` menu. */
   files?: readonly string[] | undefined;
+  /** What this deployment will run a turn on, and which of them is chosen. */
+  models?: readonly ModelChoice[] | undefined;
+  model?: string | undefined;
+  onModelChange?: ((model: string) => void) | undefined;
 }) {
   const empty = events.length === 0 && pending === undefined;
 
@@ -68,6 +78,9 @@ export function ChatPane({
           onSubmit={onSubmit}
           onCancel={onCancel}
           {...(files === undefined ? {} : { files })}
+          {...(models === undefined ? {} : { models })}
+          {...(model === undefined ? {} : { model })}
+          {...(onModelChange === undefined ? {} : { onModelChange })}
         />
       </div>
     </Pane>
@@ -142,6 +155,10 @@ export function LiveChatPane({
   // Fed this pane's own events rather than a second subscription: the listing goes stale when
   // a turn writes a file, and this component is already told about that.
   const { listing } = useProjectFiles({ sessionId, events });
+  const { models } = useModels();
+  // Held here rather than in the composer: the choice has to outlive the box being cleared on
+  // send, and a retry has to go out on the same model the user picked.
+  const [model, setModel] = useState<string | undefined>(undefined);
 
   // Through the same submission path as the input, so the front page's first message is an
   // ordinary turn — same optimistic message, same rate limit, same refusal wording.
@@ -153,12 +170,15 @@ export function LiveChatPane({
       pending={pending}
       running={running}
       error={error}
-      onSubmit={(message) => void submit(message)}
+      onSubmit={(message) => void submit(message, model)}
       onCancel={() => void cancel()}
       // The same submission path as the input: a retry is an ordinary turn, and routing it
       // anywhere else would give it different rate-limit and optimistic-message behaviour.
-      onRetry={(message) => void submit(message)}
+      onRetry={(message) => void submit(message, model)}
       files={listing?.files ?? []}
+      models={models?.models ?? []}
+      model={model ?? models?.fallback}
+      onModelChange={setModel}
     />
   );
 }

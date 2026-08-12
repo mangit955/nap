@@ -218,6 +218,61 @@ describe("the @ and / menus", () => {
   });
 });
 
+describe("the model picker", () => {
+  const models = [
+    { id: "openai/gpt-5.6-luna", label: "Gpt 5 6 Luna" },
+    { id: "anthropic/claude-opus-5", label: "Claude Opus 5" },
+  ];
+
+  it("names the model turns will run on", () => {
+    show({ models, model: "openai/gpt-5.6-luna" });
+
+    expect(screen.getByRole("button", { name: "Model" })).toHaveTextContent("Gpt 5 6 Luna");
+  });
+
+  it("stays hidden when the deployment offers no choice", () => {
+    // One allowed model is not a decision, and a menu with a single row implies one nobody has.
+    show({ models: [models[0]!], model: models[0]!.id });
+
+    expect(screen.queryByRole("button", { name: "Model" })).toBeNull();
+  });
+
+  it("stays hidden when the list could not be loaded at all", () => {
+    // The picker is a convenience; turns run on the server's default without it. A visible
+    // failure would tell somebody their app is broken because an optional control did not load.
+    show({ models: [] });
+
+    expect(screen.queryByRole("button", { name: "Model" })).toBeNull();
+  });
+
+  it("reports the model that was chosen", () => {
+    const onModelChange = vi.fn();
+    show({ models, model: "openai/gpt-5.6-luna", onModelChange });
+
+    fireEvent.click(screen.getByRole("button", { name: "Model" }));
+    fireEvent.click(screen.getByRole("button", { name: /Claude Opus 5/ }));
+
+    expect(onModelChange).toHaveBeenCalledWith("anthropic/claude-opus-5");
+  });
+
+  it("says which one is running, in words rather than only in colour", () => {
+    show({ models, model: "anthropic/claude-opus-5" });
+    fireEvent.click(screen.getByRole("button", { name: "Model" }));
+
+    // Which model is running decides what a turn costs, and a highlight alone is nothing to
+    // somebody listening to the page.
+    expect(screen.getByRole("button", { name: /Claude Opus 5/ })).toHaveTextContent("on");
+  });
+
+  it("cannot be changed mid-turn", () => {
+    // The turn already went out on a model. Offering to change it would imply the one running
+    // could be switched underneath itself.
+    show({ models, model: "openai/gpt-5.6-luna", running: true });
+
+    expect(screen.getByRole("button", { name: "Model" })).toBeDisabled();
+  });
+});
+
 describe("when something goes wrong", () => {
   it("says so", () => {
     show({ error: "That message didn't send. Try again." });

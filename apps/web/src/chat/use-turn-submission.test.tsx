@@ -33,11 +33,14 @@ const failed = (reason: "cancelled" | "internal" = "cancelled") =>
 
 function poster(status = 202) {
   const calls: string[] = [];
-  const fetchJson = async (url: string): Promise<Response> => {
+  /** What was actually sent, so the model on a turn can be asserted rather than assumed. */
+  const bodies: unknown[] = [];
+  const fetchJson = async (url: string, init?: RequestInit): Promise<Response> => {
     calls.push(new URL(url).pathname);
+    bodies.push(typeof init?.body === "string" ? JSON.parse(init.body) : undefined);
     return new Response(JSON.stringify({ accepted: true }), { status });
   };
-  return { fetchJson, calls };
+  return { fetchJson, calls, bodies };
 }
 
 /** Renders the hook with a mutable event list, the way the stream hands one back. */
@@ -211,6 +214,33 @@ describe("whether a turn is running", () => {
     });
 
     expect(result.current.running).toBe(false);
+  });
+});
+
+describe("the model a turn runs on", () => {
+  it("sends the chosen model with the message", async () => {
+    const { fetchJson, bodies } = poster();
+    const { result } = submission(fetchJson);
+
+    await act(async () => {
+      await result.current.submit("hello", "anthropic/claude-opus-5");
+    });
+
+    expect(bodies[0]).toEqual({ message: "hello", model: "anthropic/claude-opus-5" });
+  });
+
+  it("omits it entirely when none was chosen", async () => {
+    // Absent means "the deployment's default" to the route. A `model: undefined` would survive
+    // JSON.stringify as a missing key anyway, but sending `null` would be a body it refuses —
+    // so the shape is asserted rather than left to the serialiser's habits.
+    const { fetchJson, bodies } = poster();
+    const { result } = submission(fetchJson);
+
+    await act(async () => {
+      await result.current.submit("hello");
+    });
+
+    expect(bodies[0]).toEqual({ message: "hello" });
   });
 });
 

@@ -41,7 +41,7 @@ import type { FetchJson } from "../files/use-project-files.ts";
 
 export type TurnSubmission = {
   /** Resolves once the server has accepted or refused; the turn itself runs on past it. */
-  submit: (message: string) => Promise<void>;
+  submit: (message: string, model?: string) => Promise<void>;
   cancel: () => Promise<void>;
   /** The message the user sent that the log has not caught up with yet. */
   pending: string | undefined;
@@ -111,7 +111,7 @@ export function useTurnSubmission(options: {
     if (arrived) setPending(undefined);
   }, [events, pending]);
 
-  const submit = async (message: string): Promise<void> => {
+  const submit = async (message: string, model?: string): Promise<void> => {
     const text = message.trim();
     if (sessionId === undefined || text === "") return;
 
@@ -125,7 +125,11 @@ export function useTurnSubmission(options: {
         {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ message: text }),
+          // An unchosen model leaves the key out rather than sending null, which the route
+          // would refuse: `JSON.stringify` drops undefined properties, so this one expression
+          // produces both bodies. An explicit branch here reads as though it were doing
+          // something, and no test could tell the two apart.
+          body: JSON.stringify({ message: text, model }),
         },
       );
 

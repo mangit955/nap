@@ -24,6 +24,7 @@
  * character arrives in and nothing is ever seen at the wrong size.
  */
 
+import type { ModelChoice } from "@nap/shared/models-protocol";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { applyPick, menuRows, parseToken } from "./composer-menu.ts";
 
@@ -37,11 +38,22 @@ export function ChatInput({
   onSubmit,
   onCancel,
   files = [],
+  models = [],
+  model,
+  onModelChange,
 }: {
   running: boolean;
   error: string | undefined;
   onSubmit: (message: string) => void;
   onCancel: () => void;
+  /**
+   * What this deployment will run a turn on. Empty hides the control entirely — a deployment
+   * with one model has no choice to offer, and a menu with a single row is furniture.
+   */
+  models?: readonly ModelChoice[];
+  /** The chosen model. Absent means the server's default, which is what most turns run on. */
+  model?: string | undefined;
+  onModelChange?: ((model: string) => void) | undefined;
   /**
    * The project's files, for `@`. Defaulted so the many render tests need not supply them —
    * and an empty list is the honest state before a sandbox exists, not a broken menu.
@@ -53,6 +65,7 @@ export function ChatInput({
   /** Escape closes the menu without clearing the text, so it stays shut until the token changes. */
   const [dismissed, setDismissed] = useState("");
   const [active, setActive] = useState(0);
+  const [modelOpen, setModelOpen] = useState(false);
   /** The message currently in flight, kept only so a failure can hand it back. */
   const inFlight = useRef("");
   const box = useRef<HTMLTextAreaElement>(null);
@@ -111,6 +124,12 @@ export function ChatInput({
     setText("");
     onSubmit(message);
   };
+
+  // Hidden when there is no choice to make: a deployment with one allowed model has none, and
+  // a menu with a single row is furniture that implies a decision nobody has.
+  const picker =
+    models.length > 1 ? (models.find((choice) => choice.id === model) ?? models[0]) : undefined;
+  const sendColumn = picker === undefined ? "col-start-2" : "col-start-3";
 
   const empty = text.trim() === "";
 
@@ -177,7 +196,11 @@ export function ChatInput({
 
         <div
           ref={controls}
-          className="grid grid-cols-[minmax(0,1fr)_28px] items-end gap-x-1 gap-y-1.5"
+          className={`grid items-end gap-x-1 gap-y-1.5 ${
+            picker === undefined
+              ? "grid-cols-[minmax(0,1fr)_28px]"
+              : "grid-cols-[minmax(0,1fr)_auto_28px]"
+          }`}
         >
           <textarea
             ref={box}
@@ -226,13 +249,81 @@ export function ChatInput({
             }`}
           />
 
+          {picker !== undefined && (
+            <div
+              className={`relative ${expanded ? "col-start-2 row-start-2" : "col-start-2 row-start-1"}`}
+            >
+              {modelOpen && (
+                <ul
+                  aria-label="Model"
+                  className="nap-pop absolute right-0 bottom-9 z-10 w-44 overflow-hidden rounded-[10px] bg-field p-1 shadow-raised"
+                  style={{ transformOrigin: "bottom right" }}
+                >
+                  {models.map((choice) => (
+                    <li key={choice.id}>
+                      <button
+                        type="button"
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => {
+                          onModelChange?.(choice.id);
+                          setModelOpen(false);
+                          box.current?.focus();
+                        }}
+                        aria-current={choice.id === picker.id}
+                        className={`flex h-8 w-full items-center gap-2 rounded-[6px] px-2 text-left ${
+                          choice.id === picker.id ? "bg-hover" : ""
+                        }`}
+                      >
+                        <span className="min-w-0 flex-1 truncate font-medium text-[12.5px] text-ink">
+                          {choice.label}
+                        </span>
+                        {/*
+                          Said as a word, not only shown as a highlight: which model is running
+                          is the fact that decides what a turn costs, and a highlight alone is
+                          nothing at all to somebody listening to the page.
+                        */}
+                        {choice.id === picker.id && (
+                          <span className="shrink-0 text-[11px] text-muted">on</span>
+                        )}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              <button
+                type="button"
+                aria-label="Model"
+                aria-expanded={modelOpen}
+                disabled={running}
+                onClick={() => setModelOpen((current) => !current)}
+                className="flex h-7 shrink-0 items-center gap-1 rounded-[8px] px-1.5 font-medium text-[12px] text-ink-2 transition-colors duration-150 hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent disabled:text-muted"
+              >
+                {picker.label}
+                <svg
+                  width="11"
+                  height="11"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M6 9l6 6 6-6" />
+                </svg>
+              </button>
+            </div>
+          )}
+
           {running ? (
             <button
               type="button"
               onClick={onCancel}
               aria-label="Stop"
               className={`flex size-7 shrink-0 items-center justify-center rounded-[8px] bg-hover text-ink-2 transition-[background-color,color,transform] duration-150 hover:text-ink active:scale-[0.94] focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent ${
-                expanded ? "col-start-2 row-start-2" : "col-start-2 row-start-1"
+                expanded ? `${sendColumn} row-start-2` : `${sendColumn} row-start-1`
               }`}
             >
               {/* A filled square: the universal stop mark, and legible at 15px where a word is not. */}
@@ -254,7 +345,7 @@ export function ChatInput({
               aria-label="Send"
               className={`flex size-7 shrink-0 items-center justify-center rounded-[8px] transition-[background-color,color,transform] duration-200 enabled:active:scale-[0.94] focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent ${
                 empty ? "bg-line-strong text-ink-2" : "bg-ink text-surface"
-              } ${expanded ? "col-start-2 row-start-2" : "col-start-2 row-start-1"}`}
+              } ${expanded ? `${sendColumn} row-start-2` : `${sendColumn} row-start-1`}`}
             >
               <svg
                 width="16"

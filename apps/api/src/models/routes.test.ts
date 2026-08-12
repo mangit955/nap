@@ -41,8 +41,10 @@ describe("modelLabel", () => {
     expect(modelLabel("anthropic/claude-opus-5")).toBe("Claude Opus 5");
   });
 
-  it("reads a cross-vendor id as its product name", () => {
-    expect(modelLabel("openai/gpt-5.6-luna")).toBe("Gpt 5 6 Luna");
+  it("keeps a version number whole rather than splitting it into words", () => {
+    // `gpt-5.6-luna` is one model. "Gpt 5 6 Luna" reads as a different one, and the label is
+    // the only thing in the picker naming what a turn will cost.
+    expect(modelLabel("openai/gpt-5.6-luna")).toBe("Gpt 5.6 Luna");
   });
 
   it("leaves a bare id legible rather than mangled", () => {
