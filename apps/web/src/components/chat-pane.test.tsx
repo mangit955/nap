@@ -109,9 +109,9 @@ describe("ChatPane", () => {
     expect(container.textContent).toContain("Running bun install");
   });
 
-  it("puts it below the transcript, in the footer", () => {
-    // It stands in for the box you type into, which sits under the log — so a long turn keeps
-    // saying what it is doing however far up the transcript has been scrolled.
+  it("puts it after everything that has already happened", () => {
+    // Below the last step, not above it: the rail is a chronology, and work in flight is the
+    // newest thing on it.
     render(<ChatPane events={[started, call]} running={true} />);
 
     const log = screen.getByRole("log", { name: /transcript/i });

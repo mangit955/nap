@@ -74,72 +74,10 @@ describe("sending", () => {
 });
 
 describe("while a turn is running", () => {
-  it("gives the box over to the working indicator", () => {
-    // Not merely disabled: a two-row box that can do nothing is the largest thing in the
-    // footer and it says less than the label that replaces it.
-    show({ running: true, label: "Running bun install" });
+  it("will not take another message", () => {
+    show({ running: true });
 
-    expect(screen.queryByRole("textbox", { name: /message/i })).toBeNull();
-    expect(screen.getByRole("status", { name: "Agent is working" })).toBeInTheDocument();
-  });
-
-  it("says what the agent is doing, and for how long", () => {
-    const startedAt = new Date(Date.now() - 8000).toISOString();
-    const { container } = show({ running: true, label: "Writing Counter.tsx", startedAt });
-
-    expect(container.textContent).toContain("Writing Counter.tsx");
-    expect(container.textContent).toMatch(/\ds/);
-  });
-
-  it("keeps the words that were in the box", () => {
-    // The box unmounts while the turn runs, so anything typed into it lives or dies by where
-    // the state is held. A retry or a prompt carried in from the front page both start a turn
-    // without the box having been cleared.
-    const { rerender } = show();
-    type("a carefully worded prompt");
-
-    rerender(
-      <ChatInput running={true} error={undefined} onSubmit={() => {}} onCancel={() => {}} />,
-    );
-    rerender(
-      <ChatInput running={false} error={undefined} onSubmit={() => {}} onCancel={() => {}} />,
-    );
-
-    expect(box()).toHaveValue("a carefully worded prompt");
-  });
-
-  it("gives the box back the focus it took", () => {
-    // Enter sends, so the box is usually focused at the moment it disappears — and focus
-    // falling to the document body means the next message begins with a hunt for the cursor.
-    const { rerender } = show();
-    box().focus();
-
-    rerender(
-      <ChatInput running={true} error={undefined} onSubmit={() => {}} onCancel={() => {}} />,
-    );
-    rerender(
-      <ChatInput running={false} error={undefined} onSubmit={() => {}} onCancel={() => {}} />,
-    );
-
-    expect(box()).toHaveFocus();
-  });
-
-  it("leaves the focus alone when it was somewhere else", () => {
-    // The counterpart, and the one that matters: a turn ending while somebody is reading the
-    // file tree must not yank the cursor back to the chat box. Without this case, the test
-    // above passes against code that simply focuses on every turn end.
-    const elsewhere = document.createElement("button");
-    document.body.append(elsewhere);
-
-    const { rerender } = show({ running: true });
-    elsewhere.focus();
-
-    rerender(
-      <ChatInput running={false} error={undefined} onSubmit={() => {}} onCancel={() => {}} />,
-    );
-
-    expect(elsewhere).toHaveFocus();
-    elsewhere.remove();
+    expect(box()).toBeDisabled();
   });
 
   it("offers to stop instead of to send", () => {
