@@ -36,6 +36,7 @@ import type {
   LLMRequest,
   LLMToolCall,
   LLMTurn,
+  LLMTurnOptions,
   LLMTurnResult,
   TokenUsage,
 } from "@nap/shared/ports/llm-provider";
@@ -300,8 +301,14 @@ export class ClaudeProvider implements LLMProvider {
     this.#sleep = options.sleep ?? defaultSleep;
   }
 
-  startTurn(): LLMTurn {
-    return new ClaudeTurn(this.#client, this.#sleep, this.#config);
+  startTurn(options: LLMTurnOptions = {}): LLMTurn {
+    // The model is the only thing a caller may vary. Effort, thinking, retries and the cache
+    // breakpoints stay this provider's, because they are policy tuned to the deployment
+    // rather than a preference — and a caller that could set `maxTokens` on this route could
+    // reserve the whole balance, since OpenRouter admits a request against the ceiling.
+    const config =
+      options.model === undefined ? this.#config : { ...this.#config, model: options.model };
+    return new ClaudeTurn(this.#client, this.#sleep, config);
   }
 }
 

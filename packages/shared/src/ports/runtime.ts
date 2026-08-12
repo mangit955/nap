@@ -18,6 +18,8 @@ export type TurnRequest = {
   sessionId: string;
   message: string;
   signal?: AbortSignal;
+  /** Which model to run on. Absent is the deployment's default; the route validates it. */
+  model?: string | undefined;
 };
 
 export type TurnOutcome =

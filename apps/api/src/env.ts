@@ -81,6 +81,30 @@ const BaseSchema = z.object({
    */
   NAP_MODEL: z.string().min(1).default("openai/gpt-5.6-luna"),
   NAP_EFFORT: z.enum(["low", "medium", "high", "xhigh", "max"]).default("medium"),
+
+  /**
+   * Which models a request may ask for, as a comma-separated list.
+   *
+   * This exists because the turn endpoint accepts a model, and a model id taken from a request
+   * body and passed to the provider is a stranger choosing what you pay per token. The
+   * allowlist is the whole defence: anything not named here is refused before a sandbox is
+   * touched or a single token is spent.
+   *
+   * The default pairs the cheap model the loop is debugged against with the expensive one
+   * worth recording a demo on — roughly a twentieth and twenty times the same bill — because
+   * offering the choice is the entire point of the picker, and hiding the costly one would
+   * mean editing `.env` to record anything.
+   */
+  NAP_ALLOWED_MODELS: z
+    .string()
+    .default("openai/gpt-5.6-luna,anthropic/claude-opus-5")
+    .transform((list) =>
+      list
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter((entry) => entry !== ""),
+    )
+    .refine((models) => models.length > 0, { message: "must name at least one model" }),
   /** Model calls in one turn, and the ceiling on the context assembled for each of them. */
   NAP_MAX_STEPS: z.coerce.number().int().positive().default(24),
   NAP_CONTEXT_BUDGET_TOKENS: z.coerce.number().int().positive().default(80_000),
@@ -168,6 +192,16 @@ export const EnvSchema = BaseSchema.superRefine((env, ctx) => {
         message: "is required when the other GITHUB_CLIENT_* variable is set",
       });
     }
+  }
+
+  // The default has to be reachable, or every turn that names no model is refused by the
+  // allowlist that was meant to protect it — a server that boots fine and answers nothing.
+  if (!env.NAP_ALLOWED_MODELS.includes(env.NAP_MODEL)) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["NAP_ALLOWED_MODELS"],
+      message: `must include NAP_MODEL (${env.NAP_MODEL})`,
+    });
   }
 
   // A per-user cap above the machine-wide one is unreachable: the global check would refuse

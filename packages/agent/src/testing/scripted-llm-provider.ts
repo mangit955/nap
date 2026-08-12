@@ -22,6 +22,7 @@ import type {
   LLMRequest,
   LLMToolCall,
   LLMTurn,
+  LLMTurnOptions,
   LLMTurnResult,
   TokenUsage,
 } from "@nap/shared/ports/llm-provider";
@@ -75,11 +76,19 @@ export class ScriptedLLMProvider implements LLMProvider {
     this.#turns = turns;
   }
 
+  readonly #turnOptions: LLMTurnOptions[] = [];
+
   get requests(): readonly LLMRequest[] {
     return this.#requests;
   }
 
-  startTurn(): RecordingLLMTurn {
+  /** What each turn was started with, so a caller's model choice can be asserted on. */
+  get turnOptions(): readonly LLMTurnOptions[] {
+    return this.#turnOptions;
+  }
+
+  startTurn(options: LLMTurnOptions = {}): RecordingLLMTurn {
+    this.#turnOptions.push(options);
     const script = this.#turns[this.#started];
     if (script === undefined) {
       throw new Error(

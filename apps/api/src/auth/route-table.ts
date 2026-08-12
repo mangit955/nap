@@ -58,6 +58,7 @@ export type GuardedRoute = RouteEntry & {
  */
 export const GUARDED_ROUTES: GuardedRoute[] = [
   { method: "GET", path: "/ws", examplePath: `/ws?sessionId=${SESSION}` },
+  { method: "GET", path: "/models", examplePath: "/models" },
   { method: "GET", path: "/projects", examplePath: "/projects" },
   { method: "POST", path: "/projects", examplePath: "/projects", body: { name: "New" } },
   { method: "GET", path: "/projects/:projectId", examplePath: `/projects/${PROJECT}` },
@@ -142,6 +143,7 @@ export function fullyWiredDeps(seeded?: SeededSandbox): Omit<AppDeps, "logger"> 
       upgradeWebSocket: async () => new Response(null),
     },
     files: { sessions, sandbox },
+    models: { allowed: ["openai/gpt-5.6-luna"], fallback: "openai/gpt-5.6-luna" },
     turns: {
       // Never actually reached by an authorization test: a turn that got as far as running
       // would mean the route let somebody through, which is the thing being tested.
@@ -154,6 +156,7 @@ export function fullyWiredDeps(seeded?: SeededSandbox): Omit<AppDeps, "logger"> 
         }),
       },
       registry: new TurnRegistry(),
+      allowedModels: ["openai/gpt-5.6-luna"],
       sessions,
     },
     projects: {

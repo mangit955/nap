@@ -301,3 +301,36 @@ describe("what one person may spend", () => {
     );
   });
 });
+
+describe("NAP_ALLOWED_MODELS", () => {
+  it("defaults to the cheap model and the one worth recording on", () => {
+    // The picker exists to choose between those two. A default of one would make it a menu
+    // with a single row, and the demo model reachable only by editing `.env`.
+    expect(parseEnv(VALID).NAP_ALLOWED_MODELS).toEqual([
+      "openai/gpt-5.6-luna",
+      "anthropic/claude-opus-5",
+    ]);
+  });
+
+  it("splits a list and forgives the spaces people type after commas", () => {
+    const env = parseEnv({
+      ...VALID,
+      NAP_MODEL: "a/one",
+      NAP_ALLOWED_MODELS: "a/one, b/two ,c/three",
+    });
+
+    expect(env.NAP_ALLOWED_MODELS).toEqual(["a/one", "b/two", "c/three"]);
+  });
+
+  it("refuses to boot when the default is not one of the allowed models", () => {
+    // Otherwise every turn that names no model — which is all of them, by default — is refused
+    // by the allowlist meant to protect it: a server that starts cleanly and answers nothing.
+    expect(() => parseEnv({ ...VALID, NAP_MODEL: "a/one", NAP_ALLOWED_MODELS: "b/two" })).toThrow(
+      /NAP_ALLOWED_MODELS/,
+    );
+  });
+
+  it("refuses an empty list rather than allowing everything", () => {
+    expect(() => parseEnv({ ...VALID, NAP_ALLOWED_MODELS: " , " })).toThrow(/NAP_ALLOWED_MODELS/);
+  });
+});

@@ -90,7 +90,7 @@ class Turn {
     clock: () => number,
   ) {
     this.#request = request;
-    this.#turn = provider.startTurn();
+    this.#turn = provider.startTurn({ model: request.model });
     this.#budget = new TurnBudget(budget);
     this.#now = now;
     this.#startedAt = clock();

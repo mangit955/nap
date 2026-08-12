@@ -20,6 +20,7 @@ import { type AuthVariables, requireUser } from "./auth/require-user.ts";
 import { type FileRouteDeps, registerFileRoutes } from "./files/routes.ts";
 import type { HealthReport } from "./health.ts";
 import { idsFromRequest } from "./log-ids.ts";
+import { type ModelRouteDeps, registerModelRoutes } from "./models/routes.ts";
 import { type ProjectRouteDeps, registerProjectRoutes } from "./projects/routes.ts";
 import { registerTurnRoutes, type TurnRouteDeps } from "./turns/routes.ts";
 import { type HeartbeatOptions, openEventStream } from "./ws/event-stream.ts";
@@ -92,6 +93,8 @@ export type AppDeps = {
    * rather than a route that fails once it is called.
    */
   turns?: TurnRouteDeps;
+  /** Which models a turn may name. The picker reads this list; the turn route enforces it. */
+  models?: ModelRouteDeps;
   /**
    * Listing, creating, closing and deleting projects — the front door. Optional for the same
    * reason as above: most route tests have no database behind them, and an app built without
@@ -231,6 +234,7 @@ export function createApp(deps: AppDeps): Hono<{ Variables: AuthVariables }> {
 
   if (deps.files !== undefined) registerFileRoutes(app, deps.files);
   if (deps.turns !== undefined) registerTurnRoutes(app, deps.turns);
+  if (deps.models !== undefined) registerModelRoutes(app, deps.models);
   if (deps.projects !== undefined) registerProjectRoutes(app, deps.projects);
 
   // Hono's default 404 is text/plain; every client of this API speaks JSON, and an HTML or

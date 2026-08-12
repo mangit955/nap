@@ -91,6 +91,25 @@ function lastMessage(messages: readonly LLMMessage[]): LLMMessage {
   return last;
 }
 
+describe("the model a turn runs on", () => {
+  it("starts the provider's turn on the model the request named", async () => {
+    // The route validates it against an allowlist and the runtime carries it here. Without
+    // this, every layer type-checks with the model dropped and every turn quietly runs on the
+    // default while the picker in the browser says otherwise.
+    const { provider, agent } = service([[{ text: "done", toolCalls: [] }]]);
+    await agent.runTurn(request({ model: "anthropic/claude-opus-5" }));
+
+    expect(provider.turnOptions[0]).toEqual({ model: "anthropic/claude-opus-5" });
+  });
+
+  it("names no model when the request named none", async () => {
+    const { provider, agent } = service([[{ text: "done", toolCalls: [] }]]);
+    await agent.runTurn(request());
+
+    expect(provider.turnOptions[0]).toEqual({ model: undefined });
+  });
+});
+
 describe("runTurn — event ordering", () => {
   it("emits started, call, result, message, completed in exactly that order", async () => {
     await manager.writeFile(

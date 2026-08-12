@@ -41,6 +41,8 @@ export type TurnRouteDeps = {
    * refusing every turn because a limiter was not wired up would be a worse default than
    * running unlimited in a test.
    */
+  /** Every model a turn may name. The route refuses anything else. */
+  allowedModels: readonly string[];
   limits?: {
     rate: TurnRateLimiter;
     /** Counting live sandboxes; the same store the project routes use. */
@@ -55,6 +57,14 @@ const TurnBodySchema = z.object({
     .string()
     .transform((text) => text.trim())
     .refine((text) => text.length > 0, { message: "message must not be empty" }),
+  /**
+   * Which model to run on. Absent is the deployment's default, which is the normal case.
+   *
+   * Checked against the allowlist below rather than passed through: an unchecked model id from
+   * a request body is a stranger choosing what each of your turns costs, and the expensive
+   * models are the ones they would choose.
+   */
+  model: z.string().min(1).optional(),
 });
 
 export function registerTurnRoutes(
@@ -70,6 +80,19 @@ export function registerTurnRoutes(
       return c.json({ error: body.error.issues.map((issue) => issue.message).join("; ") }, 400);
     }
 
+    // Before the ceilings, because an unknown model is a malformed request rather than a
+    // limit: refusing it must not consume the asker's rate-limit allowance.
+    const model = body.data.model;
+    if (model !== undefined && !deps.allowedModels.includes(model)) {
+      return c.json(
+        {
+          error: `model must be one of: ${deps.allowedModels.join(", ")}`,
+          code: "model_not_allowed",
+        },
+        400,
+      );
+    }
+
     // Both ceilings are checked after the body, so a malformed request never costs somebody a
     // slot, and before the registry, so a refused turn leaves no trace of having been started.
     const refusal = await refuse(deps, found.value, c.get("userId"));
@@ -83,7 +106,12 @@ export function registerTurnRoutes(
     // the entry is cleared either way, or a cancel arriving later would abort a turn that
     // has already ended and the next turn would inherit an aborted signal.
     void deps.runtime
-      .runTurn({ sessionId, message: body.data.message, signal })
+      .runTurn({
+        sessionId,
+        message: body.data.message,
+        signal,
+        ...(model === undefined ? {} : { model }),
+      })
       .then((outcome) => {
         // `turnId` hoisted out of the outcome rather than left nested inside it: this line is
         // written by the request, which never learns the id the runtime generated, so without

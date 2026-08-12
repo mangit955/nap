@@ -331,6 +331,7 @@ export class SingleAgentRuntime implements Runtime {
         onEvent: sink.emit,
         finalize: () => this.#commit(sandboxId.value.id, request.message),
         ...(request.signal === undefined ? {} : { signal: request.signal }),
+        ...(request.model === undefined ? {} : { model: request.model }),
       });
 
       await sink.drain();

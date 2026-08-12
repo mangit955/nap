@@ -72,6 +72,7 @@ function app(runtime: Runtime, registry = new TurnRegistry(), logger = silent())
       turns: {
         runtime,
         registry,
+        allowedModels: ALLOWED,
         sessions: new InMemorySessionStore([{ sessionId: SESSION, projectId: "project-1" }]),
       },
     }),
@@ -85,6 +86,9 @@ const post = (hono: { request: Hono["request"] }, path: string, body?: unknown) 
     headers: { "content-type": "application/json" },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
+
+/** What this deployment will run a turn on, as the route enforces it. */
+const ALLOWED = ["openai/gpt-5.6-luna", "anthropic/claude-opus-5"];
 
 describe("POST /sessions/:sessionId/turns", () => {
   it("accepts the message and answers before the turn is done", async () => {
@@ -251,6 +255,7 @@ describe("limits", () => {
       turns: {
         runtime: options.runtime,
         registry: new TurnRegistry(),
+        allowedModels: ALLOWED,
         sessions: new InMemorySessionStore([
           {
             sessionId: SESSION,
@@ -266,6 +271,62 @@ describe("limits", () => {
       },
     });
   }
+
+  it("refuses a model that is not on the allowlist", async () => {
+    // A model id taken from a request body and handed to the provider is a stranger choosing
+    // what each turn costs — and the expensive one is the one they would choose.
+    const runtime = new SlowRuntime();
+    const hono = limited({ runtime });
+
+    const refused = await post(hono, `/sessions/${SESSION}/turns`, {
+      message: "hello",
+      model: "openai/o3-pro-max-expensive",
+    });
+
+    expect(refused.status).toBe(400);
+    await expect(refused.json()).resolves.toMatchObject({ code: "model_not_allowed" });
+    // The refusal has to happen before the runtime is reached, or the ceiling is decorative.
+    expect(runtime.requests).toEqual([]);
+  });
+
+  it("passes an allowed model down to the runtime", async () => {
+    const runtime = new SlowRuntime();
+    const hono = limited({ runtime });
+
+    const accepted = await post(hono, `/sessions/${SESSION}/turns`, {
+      message: "hello",
+      model: "anthropic/claude-opus-5",
+    });
+
+    expect(accepted.status).toBe(202);
+    expect(runtime.requests[0]).toMatchObject({ model: "anthropic/claude-opus-5" });
+    runtime.complete();
+  });
+
+  it("runs on the deployment's default when no model is named", async () => {
+    // Which is every turn, unless somebody opens the picker. The route must not invent a model
+    // here — the default lives in one place and it is the environment.
+    const runtime = new SlowRuntime();
+    const hono = limited({ runtime });
+
+    await post(hono, `/sessions/${SESSION}/turns`, { message: "hello" });
+
+    expect(runtime.requests[0]).not.toHaveProperty("model");
+    runtime.complete();
+  });
+
+  it("does not spend the caller's allowance on a model it refused", async () => {
+    // A refused attempt that consumed a slot pushes recovery away from anyone retrying, and
+    // the advertised wait never arrives. Same rule the rate limiter already follows.
+    const runtime = new SlowRuntime();
+    const hono = limited({ runtime, turns: 1 });
+
+    await post(hono, `/sessions/${SESSION}/turns`, { message: "one", model: "nope/nope" });
+    const accepted = await post(hono, `/sessions/${SESSION}/turns`, { message: "two" });
+
+    expect(accepted.status).toBe(202);
+    runtime.complete();
+  });
 
   it("answers 429 with a Retry-After once the rate limit is spent", async () => {
     const runtime = new SlowRuntime();

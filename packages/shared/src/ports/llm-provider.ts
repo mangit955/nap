@@ -65,9 +65,25 @@ export type LLMTurnResult =
   | { type: "refusal"; usage: TokenUsage }
   | { type: "error"; message: string; retryable: boolean; usage: TokenUsage };
 
+/**
+ * What may vary between one turn and the next.
+ *
+ * The model is chosen per *turn* rather than per call because a turn is one conversation —
+ * switching models between the tool call and its result would hand a second model a
+ * transcript it never wrote. `startTurn` is already the boundary usage is accounted across,
+ * which makes it the only seam this needs.
+ *
+ * A provider still owns *policy*: which models it will accept, retries, refusal handling,
+ * thinking and caching. What it no longer owns is the assumption that there is exactly one.
+ */
+export type LLMTurnOptions = {
+  /** Absent means the provider's configured default, which is the normal case. */
+  model?: string | undefined;
+};
+
 export interface LLMProvider {
   /** Opens a fresh usage scope. One per turn. */
-  startTurn(): LLMTurn;
+  startTurn(options?: LLMTurnOptions): LLMTurn;
 }
 
 export interface LLMTurn {

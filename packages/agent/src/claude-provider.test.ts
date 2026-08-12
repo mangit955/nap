@@ -229,6 +229,45 @@ describe("ClaudeProvider", () => {
       expect(body.thinking).toEqual({ type: "adaptive", display: "summarized" });
     });
 
+    it("runs a single turn on the model that turn was started with", async () => {
+      // Per turn rather than per call: a turn is one conversation, and swapping models between
+      // a tool call and its result hands a second model a transcript it never wrote.
+      const client = stubClient([message()]);
+
+      await new ClaudeProvider({ client, model: "claude-sonnet-5" })
+        .startTurn({ model: "anthropic/claude-opus-5" })
+        .complete(request());
+
+      const body = client.calls[0]?.body as Anthropic.MessageStreamParams;
+      expect(body.model).toBe("anthropic/claude-opus-5");
+    });
+
+    it("keeps its configured model when a turn names none", async () => {
+      const client = stubClient([message()]);
+
+      await new ClaudeProvider({ client, model: "claude-sonnet-5" })
+        .startTurn()
+        .complete(request());
+
+      const body = client.calls[0]?.body as Anthropic.MessageStreamParams;
+      expect(body.model).toBe("claude-sonnet-5");
+    });
+
+    it("lets a turn choose the model and nothing else", async () => {
+      // Effort, thinking and the output ceiling stay the deployment's. A caller that could set
+      // `max_tokens` here could reserve the whole balance — OpenRouter admits a request against
+      // the ceiling rather than against what it generates.
+      const client = stubClient([message()]);
+
+      await new ClaudeProvider({ client, model: "claude-sonnet-5", effort: "low", maxTokens: 4096 })
+        .startTurn({ model: "anthropic/claude-opus-5" })
+        .complete(request());
+
+      const body = client.calls[0]?.body as Anthropic.MessageStreamParams;
+      expect(body.output_config).toEqual({ effort: "low" });
+      expect(body.max_tokens).toBe(4096);
+    });
+
     it("can be given a smaller output ceiling, so a run cannot spend more than intended", async () => {
       const client = stubClient([message()]);
 

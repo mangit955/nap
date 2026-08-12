@@ -302,6 +302,45 @@ describe("SingleAgentRuntime", () => {
     expect(outcome).toStrictEqual({ ok: true, turnId: expect.any(String), commitSha: COMMIT_SHA });
   });
 
+  it("hands the agent the model the turn was asked for", async () => {
+    // The route validates the model against an allowlist and this carries it the rest of the
+    // way. Without an assertion here the whole path type-checks with the model silently
+    // dropped, and every turn runs on the default while the picker says otherwise.
+    const agent = new ScriptedAgent(HAPPY_SCRIPT, true);
+
+    await new SingleAgentRuntime({
+      sessions,
+      sandbox,
+      context,
+      agent,
+      events,
+      bus,
+      memory: new NoopMemoryProvider(),
+    }).runTurn({
+      sessionId: SESSION_ID,
+      message: "add a dark mode toggle",
+      model: "anthropic/claude-opus-5",
+    });
+
+    expect(agent.requests[0]?.model).toBe("anthropic/claude-opus-5");
+  });
+
+  it("names no model when the turn named none, leaving the default where it lives", async () => {
+    const agent = new ScriptedAgent(HAPPY_SCRIPT, true);
+
+    await new SingleAgentRuntime({
+      sessions,
+      sandbox,
+      context,
+      agent,
+      events,
+      bus,
+      memory: new NoopMemoryProvider(),
+    }).runTurn({ sessionId: SESSION_ID, message: "add a dark mode toggle" });
+
+    expect(agent.requests[0]).not.toHaveProperty("model");
+  });
+
   it("produces zero commits on a failed turn", async () => {
     const failing = new ScriptedAgent(
       () => [

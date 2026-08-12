@@ -24,6 +24,13 @@ export type AgentTurnRequest = {
   /** Cancellation mid-turn must stop tool execution, not just ignore the result. */
   signal?: AbortSignal;
   /**
+   * Which model to run this turn on. Absent is the deployment's default.
+   *
+   * Validated long before it arrives here — the route checks it against an allowlist, because
+   * an unchecked model id from a request body is somebody else spending your money.
+   */
+  model?: string | undefined;
+  /**
    * Run after the model stops, before the turn is reported complete.
    *
    * `turn.completed` carries the commit its changes landed in, but committing is the

@@ -177,10 +177,12 @@ const app = createApp({
   authenticate: auth.getUser,
   stream: { store, bus, sessions, upgradeWebSocket },
   files: { sessions, sandbox },
+  models: { allowed: env.NAP_ALLOWED_MODELS, fallback: env.NAP_MODEL },
   turns: {
     runtime,
     registry,
     sessions,
+    allowedModels: env.NAP_ALLOWED_MODELS,
     // What one person, and this whole process, may have running at once. This endpoint is the
     // only way to start a turn, so it is the only place either ceiling has to be applied.
     limits: {
