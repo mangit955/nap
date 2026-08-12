@@ -64,7 +64,15 @@ export function DashboardHero({
     // Nothing is clipped here. The rim light's halo paints a hundred pixels outside the box, so
     // an `overflow-hidden` on the band would cut that soft edge square — the same clearance the
     // landing hero keeps around its own lit object.
-    <div ref={band} className="relative border-edge border-b px-6 py-16">
+    //
+    // The band owns the first screenful: the grid below it is something you scroll to, not
+    // something competing with the box on arrival. `min-h` rather than a fixed height so a long
+    // name or a wrapped row of chips can push it taller, and just short of a full viewport so the
+    // top edge of the projects section shows and says there is more.
+    <div
+      ref={band}
+      className="relative flex min-h-[88dvh] flex-col justify-center border-edge border-b px-6 py-16"
+    >
       <div className="relative mx-auto flex w-full max-w-2xl flex-col items-center">
         <h1 className="mb-8 text-center font-display font-semibold text-3xl text-ink tracking-tight sm:text-4xl">
           Let&rsquo;s build something, {name}
