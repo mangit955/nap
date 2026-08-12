@@ -25,7 +25,6 @@ function show(props: Partial<Parameters<typeof WorkspaceHeader>[0]> = {}) {
       chatOpen={true}
       route="/"
       previewUrl="https://5173-abc.e2b.app"
-      status={null}
       {...handlers}
       {...props}
     />,

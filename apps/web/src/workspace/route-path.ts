@@ -52,12 +52,3 @@ export function previewUrlFor(base: string, route: string): string {
   const path = normaliseRoute(route);
   return path === "/" ? trimmed : `${trimmed}${path}`;
 }
-
-/** The sandbox's host, for a bar that has room to say which machine is serving this. */
-export function hostOf(url: string): string {
-  try {
-    return new URL(url).host;
-  } catch {
-    return url;
-  }
-}

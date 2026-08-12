@@ -85,7 +85,8 @@ const TREATMENTS = [
       durationMs: 8400,
       commitSha: "a1b2c3d",
     },
-    shows: /a1b2c3d/,
+    // The SHA and the token counts are gone from this row; the duration is what it says now.
+    shows: /8\.4s/,
   },
   {
     type: "turn.failed",
@@ -218,6 +219,25 @@ describe("a turn in progress", () => {
     const log = screen.getByRole("log");
     expect(log).toHaveTextContent(/warning/i);
     expect(log).not.toHaveTextContent(/agent:/i);
+  });
+
+  it("keeps the instrumentation out of the transcript", () => {
+    // Token counts and a forty-character commit SHA are not something anybody reads between
+    // turns, and the row carrying them was wide enough to give the whole pane a horizontal
+    // scrollbar. Both are still in the event log for anything that wants them.
+    show(
+      ev("turn.completed", {
+        usage: { inputTokens: 19909, outputTokens: 5569 },
+        durationMs: 45_500,
+        commitSha: "b3cf725b95b0b34198bf129e5ff430ac7e649c87",
+      }),
+    );
+
+    const log = screen.getByRole("log");
+    expect(log).toHaveTextContent(/45\.5s/);
+    expect(log).not.toHaveTextContent(/19909/);
+    expect(log).not.toHaveTextContent(/5569/);
+    expect(log).not.toHaveTextContent(/b3cf725b/);
   });
 
   it("says a turn changed nothing rather than showing an empty commit", () => {

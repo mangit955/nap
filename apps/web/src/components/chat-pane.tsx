@@ -65,7 +65,12 @@ export function ChatPane({
   return (
     <Pane id="chat" title="Chat" chrome="none">
       <div className="flex h-full min-h-0 flex-col">
-        <div ref={scroller} className="nap-scroll min-h-0 flex-1 overflow-auto">
+        <div
+          ref={scroller} // `overflow-x-hidden`, not `auto`: tool output is arbitrary text, and a long line
+          // belongs scrolling inside its own `OutputBlock` rather than dragging the whole
+          // conversation sideways.
+          className="nap-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden"
+        >
           {empty ? (
             <EmptyState onPick={onSubmit} />
           ) : (

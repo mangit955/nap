@@ -18,7 +18,7 @@ import { useEffect, useState } from "react";
 import { NapMark } from "../brand/nap-mark.tsx";
 import { EditableTitle } from "../ui/editable-title.tsx";
 import { ExternalIcon, PanelIcon, ReloadIcon } from "../ui/icons.tsx";
-import { hostOf, normaliseRoute, previewUrlFor } from "./route-path.ts";
+import { normaliseRoute, previewUrlFor } from "./route-path.ts";
 import { WORKBENCH_TABS, type WorkbenchTab } from "./tabs.ts";
 
 export function WorkspaceHeader({
@@ -28,7 +28,6 @@ export function WorkspaceHeader({
   chatOpen,
   route,
   previewUrl,
-  status,
   onTabChange,
   onReload,
   onRouteChange,
@@ -43,8 +42,6 @@ export function WorkspaceHeader({
   route: string;
   /** The sandbox's address, or absent while nothing is serving the project. */
   previewUrl: string | undefined;
-  /** The connection indicator, passed in so this bar needs no socket of its own. */
-  status: ReactNode;
   onTabChange: (tab: WorkbenchTab) => void;
   onReload: () => void;
   onRouteChange: (route: string) => void;
@@ -121,15 +118,6 @@ export function WorkspaceHeader({
       <div className="flex flex-1 items-center justify-end gap-2">
         {previewUrl !== undefined && (
           <>
-            <span
-              // Which machine is serving this, for anybody comparing two tabs. Hidden on a
-              // narrow window, where the route matters and the host is thirty characters of
-              // random subdomain.
-              className="hidden shrink-0 font-mono text-[11px] text-muted lg:block"
-            >
-              {hostOf(previewUrl)}
-            </span>
-
             <RouteField route={route} onRouteChange={onRouteChange} />
 
             <IconButton label="Reload the preview" onClick={onReload}>
@@ -147,8 +135,6 @@ export function WorkspaceHeader({
             </a>
           </>
         )}
-
-        {status}
       </div>
     </header>
   );

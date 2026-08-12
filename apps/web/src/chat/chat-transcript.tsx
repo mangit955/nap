@@ -206,9 +206,15 @@ function Item({
     case "turn-end":
       return item.outcome === "completed" ? (
         <Meta>
-          Done · {(item.durationMs / 1000).toFixed(1)}s · {item.inputTokens} in /{" "}
-          {item.outputTokens} out ·{" "}
-          {item.commitSha === null ? "no file changes" : <span>{item.commitSha}</span>}
+          {/*
+            Just how long it took, and whether anything changed. The token counts and the commit
+            SHA used to be here and are instrumentation rather than something a person reads
+            between turns — forty characters of hex that also pushed this row wider than the
+            pane and gave the whole transcript a horizontal scrollbar. Both are still in the
+            event log for anything that wants them.
+          */}
+          Done · {(item.durationMs / 1000).toFixed(1)}s
+          {item.commitSha === null ? " · no file changes" : ""}
         </Meta>
       ) : (
         <TurnFailure item={item} onRetry={onRetry} />
@@ -226,7 +232,13 @@ function Meta({ children }: { children: React.ReactNode }) {
   return (
     <p className="flex items-center gap-2.5 font-mono text-[11px] text-muted">
       <span aria-hidden="true" className="h-px flex-1 bg-edge" />
-      <span className="shrink-0">{children}</span>
+      {/*
+        `min-w-0 truncate` rather than `shrink-0`. A row that cannot shrink pushes the pane
+        wider than the window and gives the whole transcript a horizontal scrollbar — which is
+        what happened here. Shortening the text that caused it is not the fix; letting the row
+        shrink is, so the next long meta line cannot bring the scrollbar back.
+      */}
+      <span className="min-w-0 truncate">{children}</span>
       <span aria-hidden="true" className="h-px flex-1 bg-edge" />
     </p>
   );

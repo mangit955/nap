@@ -10,7 +10,6 @@ import { usePaneWidth } from "../workspace/use-pane-width.ts";
 import { Workbench } from "../workspace/workbench.tsx";
 import { WorkspaceHeader } from "../workspace/workspace-header.tsx";
 import { LiveChatPane } from "./chat-pane.tsx";
-import { LiveConnectionStatus } from "./connection-status.tsx";
 import { LivePreviewPane } from "./preview-pane.tsx";
 
 /**
@@ -59,7 +58,6 @@ export function AppShell({ projectId }: { projectId: string }) {
         chatOpen={chatOpen}
         route={route}
         previewUrl={previewUrl}
-        status={<LiveConnectionStatus sessionId={sessionId} />}
         onTabChange={setTab}
         onReload={() => setReloads((count) => count + 1)}
         onRouteChange={setRoute}

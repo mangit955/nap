@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hostOf, normaliseRoute, previewUrlFor } from "./route-path.ts";
+import { normaliseRoute, previewUrlFor } from "./route-path.ts";
 
 /**
  * The route box in the top bar: where to send the preview frame.
@@ -65,15 +65,5 @@ describe("the address the frame is given", () => {
 
   it("normalises on the way through, so one call is enough", () => {
     expect(previewUrlFor(BASE, "pricing")).toBe("https://5173-abc.e2b.app/pricing");
-  });
-});
-
-describe("naming the machine serving it", () => {
-  it("is the host, without the scheme nobody reads", () => {
-    expect(hostOf(BASE)).toBe("5173-abc.e2b.app");
-  });
-
-  it("hands back whatever it was given when that is not a URL", () => {
-    expect(hostOf("not a url")).toBe("not a url");
   });
 });
