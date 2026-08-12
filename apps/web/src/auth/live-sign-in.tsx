@@ -3,7 +3,7 @@
 /**
  * The half of sign-in that talks to the server.
  *
- * Split from `SignInForm` the way `LiveProjectList` is split from `ProjectList`: everything
+ * Split from `SignInForm` the way `LiveDashboard` is split from `Dashboard`: everything
  * worth asserting about the form is a prop, and everything here is a request, a redirect, or
  * an error turned into a sentence — none of which jsdom can prove anything about.
  *

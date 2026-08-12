@@ -54,11 +54,11 @@ describe("AppShell", () => {
     expect(screen.getByRole("banner")).toHaveTextContent(/nap/i);
   });
 
-  it("offers a way back to the list", () => {
+  it("offers a way back to the dashboard", () => {
     // Without it the workspace is a dead end: the URL is the only route out, and nobody types
     // one to leave a page.
     render(<AppShell projectId={PROJECT} />);
 
-    expect(screen.getByRole("link", { name: /nap/i })).toHaveAttribute("href", "/");
+    expect(screen.getByRole("link", { name: /nap/i })).toHaveAttribute("href", "/dashboard");
   });
 });
