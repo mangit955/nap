@@ -185,7 +185,23 @@ describe("a turn in progress", () => {
     expect(screen.getByRole("log")).not.toHaveTextContent(/running/i);
   });
 
-  it("gives the preview a link someone can open", () => {
+  it("does not print the sandbox host into the transcript", () => {
+    /*
+     * The host is in the bar above, the bar has its own link to it, and the Preview tab is
+     * showing the app — so a line saying "Preview ready · 5173-<random>.e2b.app" is the third
+     * copy of something already on screen, and a restarted dev server adds another.
+     *
+     * Asserting on the class is the deliberate exception to the no-class-names rule, for the
+     * same reason `file-viewer.test.tsx` has one: visually-hidden-ness has no accessible
+     * surface, jsdom applies no stylesheet, and no role or text query can tell the two apart.
+     * Without this, the next person restyling that arm puts the line back on screen.
+     */
+    show(ev("preview.ready", { url: "https://5173-abc.e2b.dev", port: 5173 }));
+
+    expect(screen.getByText(/preview ready/i)).toHaveClass("sr-only");
+  });
+
+  it("still tells a screen reader the app is running, and where", () => {
     show(ev("preview.ready", { url: "https://5173-abc.e2b.dev", port: 5173 }));
 
     const link = screen.getByRole("link", { name: /5173-abc\.e2b\.dev/ });

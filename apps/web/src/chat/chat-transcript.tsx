@@ -142,8 +142,19 @@ function Item({
       return <StepGroupCard group={item} />;
 
     case "preview":
+      /*
+       * **Announced, not drawn.** This used to be a visible meta row reading "Preview ready ·
+       * 5173-i59080byuko8pdezzh7u6.e2b.app", and on screen it is pure noise: the bar above
+       * already shows the host, the bar already has a link to open it, and the Preview tab is
+       * showing the running app. A restarting dev server emits another one, so a long session
+       * silts up with thirty-character subdomains nobody reads.
+       *
+       * It survives for somebody who cannot see any of that. "The app is running, and here is
+       * where" is real information, and the log is the only place it reaches them — so the text
+       * and the link stay in the accessibility tree while nothing appears in the transcript.
+       */
       return (
-        <Meta>
+        <p className="sr-only">
           Preview ready ·{" "}
           <a
             href={item.url}
@@ -151,11 +162,10 @@ function Item({
             // The preview is the user's own app served from another origin; `noopener` keeps
             // it from reaching back into this tab.
             rel="noopener noreferrer"
-            className="text-accent-ink underline underline-offset-2"
           >
             {new URL(item.url).host}
           </a>
-        </Meta>
+        </p>
       );
 
     case "preview-stopped":
