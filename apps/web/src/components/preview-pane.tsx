@@ -2,9 +2,11 @@
 
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { useEffect, useRef } from "react";
+import { NapMark } from "../brand/nap-mark.tsx";
 import { turnFailureCopy } from "../errors/failure-copy.ts";
 import { useEventStream } from "../hooks/use-event-stream.ts";
 import { isPutAway, type PreviewState, previewState } from "../preview/preview-state.ts";
+import { AlertIcon, SpinnerIcon } from "../ui/icons.tsx";
 import { previewUrlFor } from "../workspace/route-path.ts";
 import { Pane } from "./pane.tsx";
 
@@ -132,16 +134,30 @@ function Waiting({
   resumeError?: string | undefined;
 }) {
   return (
-    <div className="flex h-full items-center justify-center p-6">
-      <div className="flex w-full max-w-md flex-col items-center gap-2 rounded-xl border border-edge border-dashed p-10 text-center">
+    // No box. The workbench already draws a bordered panel around this, so a second frame two
+    // pixels inside it was a box in a box — and it was *dashed*, which reads as a drop zone
+    // waiting for content rather than as a state the project is in.
+    <div className="flex h-full items-center justify-center p-8">
+      <div className="flex max-w-sm flex-col items-center gap-3 text-center">
         {state.status === "idle" && (
-          <p className="text-muted text-sm">Describe an app in the chat and it appears here.</p>
+          <>
+            {/*
+              Deliberately no mark here. The chat pane's empty state is showing one a few
+              hundred pixels to the left, and two of them side by side reads as a mistake.
+            */}
+            <p className="font-display font-semibold text-[15px] text-ink">Nothing running yet</p>
+            <p className="text-[12.5px] text-muted leading-relaxed">
+              Describe an app in the chat and it appears here.
+            </p>
+          </>
         )}
 
         {state.status === "starting" && (
           <>
-            <span className="size-1.5 animate-pulse rounded-full bg-accent" aria-hidden="true" />
-            <p className="text-muted text-sm">Starting the dev server…</p>
+            <SpinnerIcon className="size-5 text-accent-ink" />
+            {/* The same shimmer the transcript's working indicator uses, so waiting looks
+                like one thing wherever it happens. */}
+            <p className="nap-shimmer text-[13px]">Starting the dev server…</p>
           </>
         )}
 
@@ -173,15 +189,26 @@ function PutAway({
 }) {
   return (
     <>
-      <p className="text-ink text-sm">This project is put away.</p>
-      <p className="text-muted text-xs">
+      {/*
+        The sleeping mark, which is the one place in the app where the brand's own metaphor is
+        literally the state being described: the project is having a nap.
+      */}
+      <NapMark className="size-8 text-muted" />
+
+      <p className="font-display font-semibold text-[15px] text-ink">This project is put away.</p>
+      <p className="text-[12.5px] text-muted leading-relaxed">
         Its files are still saved. Starting it back up takes a few seconds.
       </p>
 
+      {/*
+        Solid, matching the composer's send button. The outlined accent version here was the
+        only button of its kind in the app — and resuming is the primary action of this screen,
+        so it should look like one.
+      */}
       <button
         type="button"
         onClick={() => onResume?.()}
-        className="mt-2 rounded border border-accent px-3 py-1.5 font-medium text-accent text-xs hover:bg-accent/10 focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
+        className="mt-1 rounded-chip bg-ink px-3.5 py-1.5 font-medium text-[12.5px] text-surface transition-transform duration-150 hover:bg-white active:scale-[0.98] focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
       >
         Resume
       </button>
@@ -189,7 +216,7 @@ function PutAway({
       {error !== undefined && (
         // A live region: it appears in response to a press, and a message that only changes
         // visually is one a screen reader never mentions.
-        <p role="alert" className="mt-2 font-mono text-danger text-xs">
+        <p role="alert" className="mt-1 font-mono text-[11px] text-danger">
           {error}
         </p>
       )}
@@ -210,11 +237,14 @@ function PreviewFailure({ message }: { message: string }) {
   const copy = turnFailureCopy("sandbox_unavailable", message);
 
   return (
-    <>
-      <p className="text-ink text-sm">{copy.title}</p>
-      <p className="font-mono text-danger text-xs">{copy.detail}</p>
-      <p className="text-muted text-xs">{copy.action}</p>
-    </>
+    // The same danger-tinted card the transcript gives a failed turn, so one failure looks like
+    // one thing wherever somebody happens to be looking.
+    <div className="flex flex-col items-center gap-1.5 rounded-xl border border-danger/30 bg-danger/[0.06] px-5 py-4">
+      <AlertIcon className="size-5 text-danger" />
+      <p className="font-medium text-[13px] text-danger">{copy.title}</p>
+      <p className="font-mono text-[11px] text-muted">{copy.detail}</p>
+      <p className="text-[12px] text-muted leading-relaxed">{copy.action}</p>
+    </div>
   );
 }
 
