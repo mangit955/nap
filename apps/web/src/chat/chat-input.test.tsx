@@ -62,6 +62,19 @@ describe("sending", () => {
     expect(box()).toHaveValue("");
   });
 
+  it("does not send on the Enter that closes an IME candidate", () => {
+    // Japanese, Chinese and Korean input use Enter to accept the suggested word. Sending there
+    // posts a half-written sentence *and* eats the keystroke that was finishing it, so the
+    // words are gone and the message is wrong.
+    const onSubmit = vi.fn();
+    show({ onSubmit });
+
+    type("にほんご");
+    fireEvent.keyDown(box(), { key: "Enter", isComposing: true });
+
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
   it("refuses to send nothing", () => {
     const onSubmit = vi.fn();
     show({ onSubmit });

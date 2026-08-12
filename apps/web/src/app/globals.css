@@ -22,6 +22,39 @@
    */
   --color-danger: #e05561;
 
+  /*
+   * The composer's own scale.
+   *
+   * The palette above has one text weight for prose and one for machine output, which is
+   * enough for a transcript and not enough for a control with a label, a hint and a disabled
+   * state stacked in one row. These sit *between* the two rather than beside them: `ink-2` is
+   * a control at rest, `muted` (the composer's third step) is a hint, and `ink` is reserved
+   * for the thing under the cursor. Adding a third grey is the smallest change that keeps the
+   * frame receding — the alternative was a second accent, which would compete with the
+   * preview.
+   */
+  --color-ink-2: #b9b9c6;
+  /* A hairline that has to read as raised rather than as a division, so it is a step up from `edge`. */
+  --color-line-strong: #34343f;
+  /* Hover and the composer's inner wells. Translucent, so one value works over panel and surface both. */
+  --color-hover: #ffffff10;
+  --color-field: #16161c;
+  /* The accent, legible as text. `accent` is a fill colour and fails contrast on a dark ground at 13px. */
+  --color-accent-ink: #a894ff;
+  --color-accent-tint: #7c5cff26;
+
+  --radius-chip: 7px;
+
+  /*
+   * Three elevations, and the difference between them is the point: `hairline` is a chip
+   * sitting *in* the composer, `card` is the composer sitting on the pane, `raised` is a menu
+   * floating over both. A single shadow reused at three depths is what makes an interface look
+   * flat and busy at once.
+   */
+  --shadow-hairline: inset 0 0 0 1px #ffffff0f;
+  --shadow-card: 0 1px 2px #00000059, 0 0 0 1px #ffffff0a;
+  --shadow-raised: 0 12px 32px -8px #000000b8, 0 0 0 1px #ffffff14;
+
   --font-sans:
     ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
   --font-mono:
@@ -280,6 +313,59 @@ body {
     animation: none;
     background-image: none;
     color: var(--color-ink);
+  }
+}
+
+/*
+ * The composer's menus and its dictation meter.
+ *
+ * `pop-in` grows from the edge the menu is anchored to rather than from its own middle — the
+ * transform origin is set per menu, so one keyframe serves a list opening upward from the
+ * composer and a chip appearing inside it.
+ */
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* The three bars while dictation is listening. Staggered by an inline delay, like the z's. */
+@keyframes eq-bounce {
+  0%,
+  100% {
+    transform: scaleY(0.35);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+/*
+ * A class rather than an inline `animation`, so reduced motion can switch it off through the
+ * cascade. Turning off an inline animation needs `!important`, which reverses precedence for
+ * every rule after it — an expensive way to pay for a convenience.
+ */
+.nap-pop {
+  animation: pop-in 180ms cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /*
+   * The menu still appears and the meter still says it is listening — what goes is the travel.
+   * A menu that refused to open would read as broken rather than as considerate.
+   */
+  .nap-pop {
+    animation: none;
+  }
+
+  .nap-eq-bar {
+    animation: none;
+    transform: scaleY(0.7);
   }
 }
 
