@@ -29,6 +29,7 @@ import type { ProjectStore, ProjectSummary } from "@nap/shared/ports/project-sto
 import type { Runtime } from "@nap/shared/ports/runtime";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
+import { RenameProjectSchema } from "@nap/shared/projects-protocol";
 import type { Hono } from "hono";
 import { z } from "zod";
 import type { AuthVariables } from "../auth/require-user.ts";
@@ -162,6 +163,37 @@ export function registerProjectRoutes(
       });
 
     return c.json({ opened: true }, 202);
+  });
+
+  /**
+   * Giving a project a different name.
+   *
+   * **Deliberately not refused while a turn is running**, unlike close and delete. Those take the
+   * sandbox away from underneath an agent that is midway through writing files; a name is a label
+   * on a row, and renaming during a turn breaks nothing.
+   *
+   * Answers the updated record rather than an empty 204, so the client re-renders from what the
+   * server actually stored instead of from what it hoped it wrote.
+   */
+  app.patch("/projects/:projectId", async (c) => {
+    const project = await found(c.req.param("projectId"), c.get("userId"), deps);
+    if (!project.ok) return c.json({ error: project.error.message }, project.error.status);
+
+    const body = RenameProjectSchema.safeParse((await readJson(c.req.raw)) ?? {});
+    if (!body.success) {
+      return c.json({ error: body.error.issues.map((issue) => issue.message).join("; ") }, 400);
+    }
+
+    const renamed = await deps.projects.rename(
+      project.value.projectId,
+      c.get("userId"),
+      body.data.name,
+    );
+    // The lookup above found it, so a false here means it went away in between — which is a 404
+    // rather than a failure: the answer to "rename this" is that there is nothing to rename.
+    if (!renamed) return c.json({ error: "no such project" }, 404);
+
+    return c.json({ ...project.value, name: body.data.name });
   });
 
   app.post("/projects/:projectId/close", async (c) => {

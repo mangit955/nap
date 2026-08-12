@@ -31,7 +31,8 @@ import { LivePreviewPane } from "./preview-pane.tsx";
  * stale as soon as the project grew another.
  */
 export function AppShell({ projectId }: { projectId: string }) {
-  const { project, status, putAwayAt, resume, resuming, resumeError } = useProject(projectId);
+  const { project, status, putAwayAt, resume, resuming, resumeError, rename } =
+    useProject(projectId);
   const sessionId = project?.sessionIds[0];
 
   const [tab, setTab] = useState<WorkbenchTab>("preview");
@@ -51,6 +52,9 @@ export function AppShell({ projectId }: { projectId: string }) {
     <div className="flex h-dvh flex-col bg-surface">
       <WorkspaceHeader
         projectName={headerNote(status, project?.name)}
+        // Only once there is a real record. While the bar is showing "opening…" or "this project
+        // no longer exists", there is nothing a rename could be applied to.
+        {...(status === "ready" && project !== undefined ? { onRename: rename } : {})}
         tab={tab}
         chatOpen={chatOpen}
         route={route}

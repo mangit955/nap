@@ -357,3 +357,66 @@ describe("an app built without project routes", () => {
     expect((await bare.request("/projects")).status).toBe(404);
   });
 });
+
+describe("PATCH /projects/:projectId", () => {
+  const rename = (projectId: string, body: unknown) =>
+    app().request(`/projects/${projectId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  it("renames the project and answers the record it wrote", async () => {
+    // The updated record rather than a bare 204, so the client re-renders from what the server
+    // actually stored instead of from what it hoped it wrote.
+    const res = await rename(PROJECT, { name: "Small To-do App" });
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({ name: "Small To-do App" });
+    expect((await projects.get(PROJECT, FAKE_OWNER))?.name).toBe("Small To-do App");
+  });
+
+  it("trims what it was given", async () => {
+    await rename(PROJECT, { name: "  Padded  " });
+
+    expect((await projects.get(PROJECT, FAKE_OWNER))?.name).toBe("Padded");
+  });
+
+  it("refuses an empty name", async () => {
+    // A blank bar is worse than "Untitled project": it reads as a project whose record failed
+    // to load rather than one nobody has named.
+    const res = await rename(PROJECT, { name: "   " });
+
+    expect(res.status).toBe(400);
+    expect((await projects.get(PROJECT, FAKE_OWNER))?.name).toBe("Todo app");
+  });
+
+  it("refuses a name too long for anything to show", async () => {
+    const res = await rename(PROJECT, { name: "x".repeat(61) });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("refuses a body with no name in it", async () => {
+    expect((await rename(PROJECT, {})).status).toBe(400);
+  });
+
+  it("answers 404 for a project that is not there", async () => {
+    expect((await rename(UNKNOWN, { name: "Nope" })).status).toBe(404);
+  });
+
+  it("answers 400 for something that is not a project id", async () => {
+    expect((await rename("not-a-uuid", { name: "Nope" })).status).toBe(400);
+  });
+
+  it("renames while a turn is running", async () => {
+    // Unlike close and delete, which take the sandbox away from underneath an agent midway
+    // through writing files. A name is a label on a row; renaming during a turn breaks nothing,
+    // and refusing would be a rule with no reason behind it.
+    running.add(SESSION);
+
+    const res = await rename(PROJECT, { name: "Renamed Mid-turn" });
+
+    expect(res.status).toBe(200);
+  });
+});

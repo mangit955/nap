@@ -16,12 +16,14 @@
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { NapMark } from "../brand/nap-mark.tsx";
+import { EditableTitle } from "../ui/editable-title.tsx";
 import { ExternalIcon, PanelIcon, ReloadIcon } from "../ui/icons.tsx";
 import { hostOf, normaliseRoute, previewUrlFor } from "./route-path.ts";
 import { WORKBENCH_TABS, type WorkbenchTab } from "./tabs.ts";
 
 export function WorkspaceHeader({
   projectName,
+  onRename,
   tab,
   chatOpen,
   route,
@@ -33,6 +35,8 @@ export function WorkspaceHeader({
   onToggleChat,
 }: {
   projectName: string;
+  /** Absent while the bar is showing a sentence rather than a name; see below. */
+  onRename?: ((name: string) => Promise<string | undefined>) | undefined;
   tab: WorkbenchTab;
   chatOpen: boolean;
   /** The page the frame was last sent to. Always a path; see `route-path.ts`. */
@@ -73,7 +77,22 @@ export function WorkspaceHeader({
         <span aria-hidden="true" className="text-muted">
           /
         </span>
-        <span className="truncate text-ink-2 text-sm">{projectName}</span>
+        {/*
+          Editable only when it is a name. `headerNote` puts sentences here for the loading,
+          missing and error states — "this project no longer exists" is not something anybody
+          should be able to type over, and offering to rename a project that is gone is worse
+          than saying nothing.
+        */}
+        {onRename === undefined ? (
+          <span className="truncate text-ink-2 text-sm">{projectName}</span>
+        ) : (
+          <EditableTitle
+            name={projectName}
+            onRename={onRename}
+            className="text-ink-2 text-sm"
+            inputClassName="text-sm w-44"
+          />
+        )}
       </div>
 
       <div

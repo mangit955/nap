@@ -40,6 +40,7 @@ export function ProjectGrid({
   onOpen,
   onClose,
   onDelete,
+  onRename,
 }: {
   /** Already filtered — the grid does not decide what belongs in it. */
   projects: readonly ProjectSummaryPayload[];
@@ -56,6 +57,7 @@ export function ProjectGrid({
   onOpen: (projectId: string) => void;
   onClose: (projectId: string) => void;
   onDelete: (projectId: string) => void;
+  onRename?: ((projectId: string, name: string) => void) | undefined;
 }) {
   return (
     <section aria-label="Your projects" className="mx-auto w-full max-w-5xl px-6 py-10">
@@ -127,6 +129,7 @@ export function ProjectGrid({
               onOpen={onOpen}
               onClose={onClose}
               onDelete={onDelete}
+              {...(onRename === undefined ? {} : { onRename })}
             />
           ))}
         </ul>

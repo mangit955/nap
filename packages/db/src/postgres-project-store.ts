@@ -55,6 +55,19 @@ export class PostgresProjectStore implements ProjectStore {
     return row === undefined ? null : toSummary(row);
   }
 
+  async rename(projectId: string, userId: string, name: string): Promise<boolean> {
+    // `updated_at` moves with it, which is what the listing orders by — renaming a project is
+    // activity on it, and a rename that left it at the bottom of the grid would look ignored.
+    // The slug is left alone; see the port for why.
+    const renamed = await this.#db
+      .update(projects)
+      .set({ name, updatedAt: new Date() })
+      .where(and(eq(projects.id, projectId), eq(projects.userId, userId)))
+      .returning({ id: projects.id });
+
+    return renamed.length > 0;
+  }
+
   async delete(projectId: string, userId: string): Promise<boolean> {
     const deleted = await this.#db
       .delete(projects)

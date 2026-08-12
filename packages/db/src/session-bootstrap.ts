@@ -13,6 +13,7 @@
  * the same thing by the same person would otherwise collide on the second one.
  */
 
+import { UNTITLED_PROJECT } from "@nap/shared/project-title";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { projects, sessions } from "./schema.ts";
 
@@ -28,14 +29,18 @@ export type CreateProjectSessionOptions = {
   title?: string;
 };
 
-const DEFAULT_PROJECT_NAME = "Untitled project";
-
 export async function createProjectSession(
   db: PostgresJsDatabase,
   options: CreateProjectSessionOptions,
 ): Promise<CreatedSession> {
   const name = options.name?.trim() === "" ? undefined : options.name?.trim();
-  const projectName = name ?? DEFAULT_PROJECT_NAME;
+  /*
+   * The fallback comes from `@nap/shared` rather than a constant here, because the API asks
+   * `isUnnamed()` about this exact string when it decides whether to name a project after its
+   * first prompt. Two copies is how that check silently stops matching and every project stays
+   * untitled forever.
+   */
+  const projectName = name ?? UNTITLED_PROJECT;
 
   return db.transaction(async (tx) => {
     const [project] = await tx

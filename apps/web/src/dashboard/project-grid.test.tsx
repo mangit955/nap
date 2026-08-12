@@ -51,13 +51,17 @@ describe("the project grid", () => {
   it("draws a card per project, named so it can be opened", () => {
     show({ projects: [project({ name: "Todo Landing Page" })] });
 
-    expect(screen.getByRole("button", { name: "Todo Landing Page" })).toBeInTheDocument();
+    // "Open …" rather than the bare name: the name itself is now the rename control, so the
+    // button beside it says what pressing it does. A button whose only label was the project's
+    // name sat next to a second control carrying the same name, which is ambiguous to anybody
+    // navigating by voice or by a list of buttons.
+    expect(screen.getByRole("button", { name: "Open Todo Landing Page" })).toBeInTheDocument();
   });
 
   it("opens the one that was clicked", () => {
     const { onOpen } = show({ projects: [project({ projectId: "abc", name: "Todo" })] });
 
-    fireEvent.click(screen.getByRole("button", { name: "Todo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Todo" }));
 
     expect(onOpen).toHaveBeenCalledWith("abc");
   });

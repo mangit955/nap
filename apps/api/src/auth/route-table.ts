@@ -72,6 +72,12 @@ export const GUARDED_ROUTES: GuardedRoute[] = [
     path: "/projects/:projectId/close",
     examplePath: `/projects/${PROJECT}/close`,
   },
+  {
+    method: "PATCH",
+    path: "/projects/:projectId",
+    examplePath: `/projects/${PROJECT}`,
+    body: { name: "Renamed" },
+  },
   { method: "DELETE", path: "/projects/:projectId", examplePath: `/projects/${PROJECT}` },
   {
     method: "GET",
@@ -158,6 +164,7 @@ export function fullyWiredDeps(seeded?: SeededSandbox): Omit<AppDeps, "logger"> 
       registry: new TurnRegistry(),
       allowedModels: ["openai/gpt-5.6-luna"],
       sessions,
+      projects,
     },
     projects: {
       projects,

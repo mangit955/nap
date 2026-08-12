@@ -18,6 +18,7 @@
 
 import { type ProjectSummaryPayload, projectState } from "@nap/shared/projects-protocol";
 import { useState } from "react";
+import { EditableTitle } from "../ui/editable-title.tsx";
 import { tileGradient } from "./filters.ts";
 import { relativeTime } from "./relative-time.ts";
 
@@ -27,6 +28,7 @@ export function ProjectCard({
   onOpen,
   onClose,
   onDelete,
+  onRename,
 }: {
   project: ProjectSummaryPayload;
   /** Set while an action is in flight, so a card's buttons cannot be pressed twice. */
@@ -34,6 +36,8 @@ export function ProjectCard({
   onOpen: (projectId: string) => void;
   onClose: (projectId: string) => void;
   onDelete: (projectId: string) => void;
+  /** Optional so the render tests that are about the other actions need not supply one. */
+  onRename?: ((projectId: string, name: string) => void) | undefined;
 }) {
   const [confirming, setConfirming] = useState(false);
 
@@ -49,12 +53,37 @@ export function ProjectCard({
           className="h-28 w-full border-edge border-b"
           style={{ background: tileGradient(project.projectId) }}
         />
-        <span className="truncate px-3.5 pt-3 font-medium text-ink text-sm group-hover:text-accent-ink">
-          {project.name}
-        </span>
+        {/*
+          The name used to be inside this button and is now the editable control below it, which
+          left the button with nothing but a coloured rectangle in it — no accessible name at all,
+          and unreachable for anybody not using a mouse. It says what it does instead of what it
+          is: "Open" is the action, and the name identifies which project it opens.
+        */}
+        <span className="sr-only">Open {project.name}</span>
       </button>
 
-      <div className="flex items-center justify-between gap-2 px-3.5 pt-1 pb-3">
+      {/*
+        Outside the open button rather than inside it. Nesting an editable name in a button that
+        opens the project would make every click on the name a navigation — and the whole point
+        of the control is that clicking the name edits it.
+      */}
+      <div className="px-2 pt-2.5">
+        {onRename === undefined ? (
+          <span className="block truncate px-1.5 font-medium text-ink text-sm">{project.name}</span>
+        ) : (
+          <EditableTitle
+            name={project.name}
+            onRename={(name) => {
+              onRename(project.projectId, name);
+              return undefined;
+            }}
+            className="w-full font-medium text-ink text-sm"
+            inputClassName="w-full text-sm font-medium"
+          />
+        )}
+      </div>
+
+      <div className="flex items-center justify-between gap-2 px-3.5 pt-1.5 pb-3">
         <p className="font-mono text-[11px] text-muted">
           {projectState(project)} · {relativeTime(project.updatedAt)}
         </p>

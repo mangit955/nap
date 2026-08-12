@@ -182,6 +182,9 @@ const app = createApp({
     runtime,
     registry,
     sessions,
+    // The same store the project routes list from, so a project named on its first turn and one
+    // renamed by hand are written through one code path.
+    projects,
     allowedModels: env.NAP_ALLOWED_MODELS,
     // What one person, and this whole process, may have running at once. This endpoint is the
     // only way to start a turn, so it is the only place either ceiling has to be applied.

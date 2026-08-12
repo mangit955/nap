@@ -3,6 +3,7 @@ import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { FAKE_OWNER, InMemoryProjectStore } from "@nap/db/testing/in-memory-project-store";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import type { ResumeOutcome, Runtime, TurnOutcome, TurnRequest } from "@nap/shared/ports/runtime";
+import { UNTITLED_PROJECT } from "@nap/shared/project-title";
 import type { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import { createApp } from "../app.ts";
@@ -58,8 +59,28 @@ class ThrowingRuntime implements Runtime {
   }
 }
 
-function app(runtime: Runtime, registry = new TurnRegistry(), logger = silent()) {
+/** A project carrying the default name, which is what the auto-namer looks for. */
+function unnamedProject(name = UNTITLED_PROJECT) {
+  return new InMemoryProjectStore([
+    {
+      projectId: "project-1",
+      name,
+      status: "creating" as const,
+      sandboxId: null,
+      updatedAt: "2026-08-12T12:00:00.000Z",
+      sessionIds: [SESSION],
+    },
+  ]);
+}
+
+function app(
+  runtime: Runtime,
+  registry = new TurnRegistry(),
+  logger = silent(),
+  projects = unnamedProject(),
+) {
   return {
+    projects,
     app: createApp({
       logger,
       // Every guarded route needs a caller; this stands in for a signed-in session cookie.
@@ -72,6 +93,7 @@ function app(runtime: Runtime, registry = new TurnRegistry(), logger = silent())
       turns: {
         runtime,
         registry,
+        projects,
         allowedModels: ALLOWED,
         sessions: new InMemorySessionStore([{ sessionId: SESSION, projectId: "project-1" }]),
       },
@@ -255,6 +277,7 @@ describe("limits", () => {
       turns: {
         runtime: options.runtime,
         registry: new TurnRegistry(),
+        projects: unnamedProject(),
         allowedModels: ALLOWED,
         sessions: new InMemorySessionStore([
           {
@@ -453,5 +476,62 @@ describe("what a detached turn leaves in the log", () => {
 
     const threw = sink.records().find((r) => r.msg === "turn threw");
     expect(threw).toMatchObject({ sessionId: SESSION });
+  });
+});
+
+describe("naming a project after its first prompt", () => {
+  it("names a project that is still untitled", async () => {
+    // The whole point: a dashboard of identical "Untitled project" tiles tells nobody which of
+    // them is the thing they were working on.
+    const { app: hono, projects } = app(new SlowRuntime());
+
+    const response = await post(hono, `/sessions/${SESSION}/turns`, {
+      message: "Build a small to-do app for me.",
+    });
+
+    expect(response.status).toBe(202);
+    expect((await projects.get("project-1", FAKE_OWNER))?.name).toBe("Small To-do App");
+  });
+
+  it("leaves a project that already has a name alone", async () => {
+    // A name somebody chose must survive every turn after it. This is the assertion that makes
+    // the feature safe rather than merely present.
+    const { app: hono, projects } = app(
+      new SlowRuntime(),
+      new TurnRegistry(),
+      silent(),
+      unnamedProject("My Careful Name"),
+    );
+
+    await post(hono, `/sessions/${SESSION}/turns`, { message: "now add a dark theme" });
+
+    expect((await projects.get("project-1", FAKE_OWNER))?.name).toBe("My Careful Name");
+  });
+
+  it("still starts the turn when the rename fails", async () => {
+    // A name is a convenience. Costing somebody their turn because an UPDATE failed would trade
+    // the whole feature for a cosmetic one.
+    const runtime = new SlowRuntime();
+    const { app: hono } = app(
+      runtime,
+      new TurnRegistry(),
+      silent(),
+      unnamedProject().failRenameWith(new Error("no write")),
+    );
+
+    const response = await post(hono, `/sessions/${SESSION}/turns`, { message: "a timer" });
+
+    expect(response.status).toBe(202);
+    expect(runtime.requests).toHaveLength(1);
+  });
+
+  it("does not name a project when the turn was refused", async () => {
+    // A malformed request is not a first prompt, and naming a project after one would leave a
+    // title nobody asked for on a turn that never ran.
+    const { app: hono, projects } = app(new SlowRuntime());
+
+    await post(hono, `/sessions/${SESSION}/turns`, { message: "   " });
+
+    expect((await projects.get("project-1", FAKE_OWNER))?.name).toBe(UNTITLED_PROJECT);
   });
 });

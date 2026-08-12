@@ -36,6 +36,21 @@ export const CreatedProjectSchema = z.strictObject({
 });
 
 /**
+ * What a rename may say.
+ *
+ * Trimmed before the length is checked, so a name of spaces is refused rather than stored. The
+ * ceiling is 60 because both places that show a name — the workspace bar and the dashboard card
+ * — truncate, and a name nobody can read whole in either is not doing its job.
+ */
+export const RenameProjectSchema = z.strictObject({
+  name: z
+    .string()
+    .transform((text) => text.trim())
+    .refine((text) => text.length > 0, { message: "name must not be empty" })
+    .refine((text) => text.length <= 60, { message: "name must be 60 characters or fewer" }),
+});
+
+/**
  * Whether a project is running, put away, or has never been opened — in the words a person
  * would use, not the database's.
  *

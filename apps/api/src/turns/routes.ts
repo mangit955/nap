@@ -21,6 +21,7 @@ import { getLogger } from "@nap/shared/logging";
 import type { ProjectStore } from "@nap/shared/ports/project-store";
 import type { Runtime } from "@nap/shared/ports/runtime";
 import type { SessionRecord, SessionStore } from "@nap/shared/ports/session-store";
+import { isUnnamed, titleFromPrompt } from "@nap/shared/project-title";
 import type { Context, Hono } from "hono";
 import { z } from "zod";
 import { findOwnedSession } from "../auth/owned-session.ts";
@@ -32,6 +33,15 @@ import { checkSandboxQuota, type SandboxLimits } from "./sandbox-quota.ts";
 export type TurnRouteDeps = {
   runtime: Runtime;
   registry: TurnRegistry;
+  /**
+   * The projects these sessions belong to, so a project still carrying the default name can be
+   * named after the first thing it was asked for.
+   *
+   * Required rather than tucked inside `limits`, where a `ProjectStore` already lives: that bag
+   * is optional and absent in most route tests, and a namer that only ran when quotas were
+   * configured would be a feature that works in production and nowhere else.
+   */
+  projects: ProjectStore;
   /** Only to reject an unknown session before starting anything. */
   sessions: SessionStore;
   /**
@@ -101,6 +111,11 @@ export function registerTurnRoutes(
     const { sessionId } = found.value;
     const signal = deps.registry.start(sessionId);
     const logger = getLogger();
+
+    // Awaited rather than detached: it is one indexed update, and the client reloads the project
+    // record as soon as the turn is accepted — naming it in the background would race that read
+    // and leave the bar saying "Untitled project" until something else refreshed it.
+    await nameFromFirstPrompt(deps, found.value, c.get("userId"), body.data.message);
 
     // Deliberately not awaited — see the note above. Both settlement paths are handled, and
     // the entry is cleared either way, or a cancel arriving later would abort a turn that
@@ -208,5 +223,36 @@ async function readJson(request: Request): Promise<unknown> {
     return await request.json();
   } catch {
     return undefined;
+  }
+}
+
+/**
+ * Names a project after the first thing somebody asked it for.
+ *
+ * **Here, on the first turn, rather than when the project is created**, because that is the one
+ * hook every path goes through. The landing page and the dashboard composer both create a project
+ * and *then* send a prompt; the dashboard's "New project" button creates one with no prompt at
+ * all and the first message arrives minutes later. Naming at creation time would miss the third
+ * and would make the browser responsible for knowing how names are derived.
+ *
+ * It fires only while the name is still the default, which makes it idempotent and means a
+ * project somebody has renamed themselves is never overwritten.
+ *
+ * **A failure here is swallowed.** A name is a convenience; costing somebody their turn because
+ * an UPDATE failed would trade the whole feature for a cosmetic one.
+ */
+async function nameFromFirstPrompt(
+  deps: TurnRouteDeps,
+  session: SessionRecord,
+  userId: string,
+  message: string,
+): Promise<void> {
+  try {
+    const project = await deps.projects.get(session.projectId, userId);
+    if (project === null || !isUnnamed(project.name)) return;
+
+    await deps.projects.rename(session.projectId, userId, titleFromPrompt(message));
+  } catch (error) {
+    getLogger().warn({ err: error, projectId: session.projectId }, "could not name the project");
   }
 }

@@ -171,6 +171,69 @@ describe("delete", () => {
   });
 });
 
+describe("rename", () => {
+  it("writes the new name", async () => {
+    const projectId = await seedProject({ name: "Untitled project" });
+
+    await expect(store.rename(projectId, owner, "Small To-do App")).resolves.toBe(true);
+
+    expect((await store.get(projectId, owner))?.name).toBe("Small To-do App");
+  });
+
+  it("leaves the slug alone", async () => {
+    // The slug only exists to satisfy `(user_id, slug)`, and nothing routes by it. Recomputing
+    // one on every rename would make renaming two projects to the same thing a constraint
+    // violation, which is a failure the person typing a name cannot possibly interpret.
+    const projectId = await seedProject({ name: "Untitled project" });
+    const [before] = await db
+      .select({ slug: projects.slug })
+      .from(projects)
+      .where(eq(projects.id, projectId));
+
+    await store.rename(projectId, owner, "Small To-do App");
+
+    const [after] = await db
+      .select({ slug: projects.slug })
+      .from(projects)
+      .where(eq(projects.id, projectId));
+    expect(after?.slug).toBe(before?.slug);
+  });
+
+  it("counts as activity, so the project moves up the listing", async () => {
+    const projectId = await seedProject({ updatedAt: new Date("2020-01-01T00:00:00.000Z") });
+
+    await store.rename(projectId, owner, "Renamed");
+
+    const renamed = await store.get(projectId, owner);
+    expect(Date.parse(renamed?.updatedAt ?? "")).toBeGreaterThan(
+      Date.parse("2020-01-01T00:00:00.000Z"),
+    );
+  });
+
+  it("lets two projects share a name", async () => {
+    // Nothing about a name is unique, and a person with two attempts at the same idea is the
+    // ordinary case rather than a mistake to refuse.
+    const first = await seedProject();
+    const second = await seedProject();
+
+    await expect(store.rename(first, owner, "Same")).resolves.toBe(true);
+    await expect(store.rename(second, owner, "Same")).resolves.toBe(true);
+  });
+
+  it("says no for a project that is not there", async () => {
+    await expect(store.rename(randomUUID(), owner, "Nope")).resolves.toBe(false);
+  });
+
+  it("refuses to rename another user's project, and leaves the name where it was", async () => {
+    const stranger = await seedUser();
+    const theirs = await seedProject({ userId: stranger, name: "Theirs" });
+
+    await expect(store.rename(theirs, owner, "Mine now")).resolves.toBe(false);
+
+    expect((await store.get(theirs, stranger))?.name).toBe("Theirs");
+  });
+});
+
 describe("ownership", () => {
   it("does not list another user's projects", async () => {
     // The whole point of the scoping. Without the `where` on `user_id`, every project in the

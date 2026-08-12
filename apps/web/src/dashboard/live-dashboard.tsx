@@ -58,7 +58,7 @@ export function LiveDashboard() {
 /** The dashboard proper. Everything here may assume there is a session behind it. */
 function SignedInDashboard({ user }: { user: { name?: string | null; email?: string | null } }) {
   const router = useRouter();
-  const { projects, status, actionError, create, close, remove } = useProjects();
+  const { projects, status, actionError, create, close, remove, rename } = useProjects();
   const { busy, error, start } = useStartProject();
 
   const [prompt, setPrompt] = useState("");
@@ -124,6 +124,7 @@ function SignedInDashboard({ user }: { user: { name?: string | null; email?: str
           onOpen={(projectId) => router.push(`/p/${projectId}`)}
           onClose={(projectId) => run(projectId, close)}
           onDelete={(projectId) => run(projectId, remove)}
+          onRename={(projectId, name) => void rename(projectId, name)}
         />
       }
     />

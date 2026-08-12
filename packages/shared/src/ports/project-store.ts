@@ -65,6 +65,23 @@ export interface ProjectStore {
   get(projectId: string, userId: string): Promise<ProjectSummary | null>;
 
   /**
+   * Gives the project a different name.
+   *
+   * The only write on this interface, and it is here rather than on a wider one for the reason
+   * `delete` is: it belongs beside the listing that shows what is being renamed. False means
+   * there was no such project *for this user* — the same non-answer every method here gives.
+   *
+   * **The slug is deliberately not recomputed.** It exists only to satisfy the `(user_id, slug)`
+   * unique constraint and nothing routes by it, so deriving a new one would make renaming two
+   * projects to the same thing a constraint violation the user cannot see the cause of.
+   *
+   * The name is stored as given. Whatever validates its length is the boundary that accepted it
+   * from a stranger, which is the route — a store that also enforced a limit would be a second
+   * rule to keep in step with the first.
+   */
+  rename(projectId: string, userId: string, name: string): Promise<boolean>;
+
+  /**
    * Removes the project and everything the database hangs off it — sessions, events, snapshot
    * rows. **Not the objects those rows point at**, which live somewhere else entirely and have
    * to be deleted first, or nothing is left that knows their keys.

@@ -38,6 +38,7 @@ export type Projects = {
   create: () => Promise<string | undefined>;
   close: (projectId: string) => Promise<void>;
   remove: (projectId: string) => Promise<void>;
+  rename: (projectId: string, name: string) => Promise<void>;
 };
 
 const DEFAULT_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
@@ -132,7 +133,26 @@ export function useProjects(options: { baseUrl?: string; fetchJson?: FetchJson }
     [act, baseUrl, reload],
   );
 
-  return { projects, status, actionError, create, close, remove };
+  const rename = useCallback(
+    async (projectId: string, name: string): Promise<void> => {
+      const done = await act(
+        `${baseUrl}/projects/${projectId}`,
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ name }),
+        },
+        "Could not rename the project",
+      );
+      // Reloaded rather than patched in place, like every other action here: the server decides
+      // what the name ended up as — it trims, and it may refuse — and a list edited from an
+      // assumption is how a card ends up showing a name that was never stored.
+      if (done !== undefined) await reload();
+    },
+    [act, baseUrl, reload],
+  );
+
+  return { projects, status, actionError, create, close, remove, rename };
 }
 
 /** The server's explanation if it sent one, and a plain sentence if it did not. */
@@ -173,6 +193,11 @@ export type OpenProject = {
   resuming: boolean;
   /** Set when the last resume was refused, in the server's own words. */
   resumeError: string | undefined;
+  /**
+   * Renames the project. Resolves to the name that was actually stored, or `undefined` if the
+   * server refused — the caller puts the old one back rather than showing one nobody saved.
+   */
+  rename: (name: string) => Promise<string | undefined>;
 };
 
 /**
@@ -255,9 +280,33 @@ export function useProject(
     }
   }, [baseUrl, projectId]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: see the note in useProjectFiles
+  const rename = useCallback(
+    async (name: string): Promise<string | undefined> => {
+      try {
+        const response = await fetchJson(`${baseUrl}/projects/${projectId}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ name }),
+        });
+        if (!response.ok) return undefined;
+
+        // The record this hook holds is updated from the server's answer rather than from the
+        // string that was sent: the workspace has no list to reload, and the server trims.
+        const updated = ProjectSummarySchema.parse(await response.json());
+        setProject(updated);
+        return updated.name;
+      } catch {
+        return undefined;
+      }
+    },
+    [baseUrl, projectId],
+  );
+
   return {
     project,
     status,
+    rename,
     putAwayAt:
       !started && project !== undefined && projectState(project) === "put away"
         ? project.updatedAt
