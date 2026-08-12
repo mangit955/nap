@@ -7,12 +7,20 @@
  * it is the one piece of nap that is unmistakably nap — a dashboard that dropped it would be a
  * generic dark admin page. It works on a dark ground unchanged, because `rollPalette` writes the
  * rim's colours inline onto the element `paletteRef` points at before the first pulse; the
- * `.ai-stage` defaults in `globals.css` are never consulted. The ref is this band, never the
- * box: custom properties inherit, and a roll onto the box itself would leave the wash behind it
- * on its initial colour forever, silently.
+ * `.ai-stage` defaults in `globals.css` are never consulted. The ref is this band because
+ * `LitBox` asks for one and rolling onto an ancestor is what it documents — the properties
+ * inherit down to the rim layers either way.
  *
- * There is exactly one lit object on this page, as there is on the landing page. The pulse is
- * what makes the whole band look lit, and a second one is a second arc beating out of step.
+ * **The band itself is a fixed dark surface, and the light is the only thing that moves.** It
+ * used to carry a wash tinted with the rim's own first colour, on the theory that a surface
+ * changing colour with the light reads as being lit by it. It does not: it reads as the page
+ * tinting itself every few seconds for no reason a viewer can see, and it drags every neutral in
+ * the band along with it. That is the identical mistake the landing page's stage made and had
+ * removed — see `docs/GOTCHAS.md` § Web and UI. A room does not change colour because something
+ * in it lit up.
+ *
+ * There is exactly one lit object on this page, as there is on the landing page. A second one
+ * would be a second arc beating out of step with the first.
  *
  * Split like every pane in this app: this renders what it is given, and `LiveDashboard` owns the
  * request that turns a sentence into a project.
@@ -53,21 +61,10 @@ export function DashboardHero({
   };
 
   return (
-    <div ref={band} className="relative overflow-hidden border-edge border-b px-6 py-16">
-      {/*
-        A single wash rather than a picture. It is painted in the rim's own first colour, which
-        the pulse re-rolls — so the band drifts with the light instead of sitting under a fixed
-        purple that would disagree with it every few seconds.
-      */}
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 opacity-25"
-        style={{
-          background:
-            "radial-gradient(120% 80% at 50% 0%, var(--ai-c1, var(--color-accent)) 0%, transparent 70%)",
-        }}
-      />
-
+    // Nothing is clipped here. The rim light's halo paints a hundred pixels outside the box, so
+    // an `overflow-hidden` on the band would cut that soft edge square — the same clearance the
+    // landing hero keeps around its own lit object.
+    <div ref={band} className="relative border-edge border-b px-6 py-16">
       <div className="relative mx-auto flex w-full max-w-2xl flex-col items-center">
         <h1 className="mb-8 text-center font-display font-semibold text-3xl text-ink tracking-tight sm:text-4xl">
           Let&rsquo;s build something, {name}
