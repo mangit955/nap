@@ -62,7 +62,7 @@ This is what tells the next session that someone is mid-task rather than that th
 
 ### 6. Then do the work
 
-Read the task's entry in `docs/PLAN.md` §4. Every task lists its **tests first** — write them, watch them fail *for the right reason*, then implement. Conventions are in `CLAUDE.md`.
+Read the task's entry in `docs/PLAN.md` §4. Every task lists its **tests first** — write them, watch them fail *for the right reason*, then implement. Conventions are in `CLAUDE.md`; the constraints for the area you are touching are in `docs/GOTCHAS.md`.
 
 ---
 
@@ -91,7 +91,7 @@ Ask all four explicitly:
 - **Is the new code inside *every* existing gate?** A new directory is not automatically typechecked or linted. Verify it, don't assume it. *(This is not hypothetical — `test/` shipped outside typecheck for two commits.)*
 - Does it interact with the hooks in `.claude/settings.json`, lefthook, or CI?
 - Does any existing test, script, config, or glob need to learn it exists?
-- Do `CLAUDE.md`, `docs/PLAN.md`, and `PROGRESS.md` still describe reality?
+- Do `CLAUDE.md`, `docs/GOTCHAS.md`, `docs/PLAN.md`, and `PROGRESS.md` still describe reality?
 
 ### 4. Satisfy the task's own "Done when"
 
@@ -125,7 +125,8 @@ For stopping mid-task. Never leave uncommitted work.
 | Thing | Where |
 |---|---|
 | Task specs, "Done when" clauses | `docs/PLAN.md` §4 |
-| Conventions, commands, gotchas | `CLAUDE.md` |
+| Conventions, commands, gates | `CLAUDE.md` |
+| Why the code is shaped this way | `docs/GOTCHAS.md`, by area |
 | Task status and deps | `PROGRESS.md` |
 
 Branch per milestone (`feat/m0-scaffold`, `feat/m1-execution-plane`, …), one commit per completed task.

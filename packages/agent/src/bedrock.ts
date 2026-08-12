@@ -7,7 +7,7 @@
  * changes is how the client is constructed and that model ids carry a provider prefix — so
  * the swap is confined to this file, and the provider, the agent loop and the event contract
  * above it cannot tell the difference. A genuinely different vendor would break all three;
- * see the model-split note in `CLAUDE.md`.
+ * see the model-split note in `docs/GOTCHAS.md`.
  *
  * Why it exists: billing runs through AWS rather than Anthropic, which makes it a route to
  * the same models when direct API billing is unavailable.

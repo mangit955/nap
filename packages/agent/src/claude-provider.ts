@@ -81,7 +81,7 @@ export type ClaudeProviderOptions = {
    * answers best. Sonnet and Opus are structurally identical here: same SDK, same
    * `tool_use`/`tool_result` blocks, same streaming, same refusal semantics, so nothing
    * downstream can tell them apart. Swapping *vendors* to save money is a different and much
-   * worse idea — see the note in `CLAUDE.md`.
+   * worse idea — see the note in `docs/GOTCHAS.md`.
    */
   model?: Anthropic.Model;
   effort?: Effort;
@@ -118,7 +118,7 @@ export type ModelConfig = {
  * prose, where nothing executes it and the turn silently does nothing. `summarized` asks for
  * readable reasoning; the default hides it. Whether any of it comes back is the *route's*
  * business, and on OpenRouter's Anthropic endpoint it does not — see the gotcha in
- * `CLAUDE.md`. Asking costs nothing and is what makes a route that does forward it work.
+ * `docs/GOTCHAS.md`. Asking costs nothing and is what makes a route that does forward it work.
  *
  * No `temperature`, `top_p`, `top_k` or `budget_tokens`: the models reached this way reject
  * all four with a 400.
@@ -193,7 +193,7 @@ export function toTokenUsage(usage: AnthropicMessage["usage"] | undefined): Toke
  * types, and not one to make without numbers.
  *
  * **A prefix shorter than the model's minimum silently does not cache** — no error, just a zero
- * in `cache_creation_input_tokens`. See the gotcha in `CLAUDE.md` for the per-model figures and
+ * in `cache_creation_input_tokens`. See the gotcha in `docs/GOTCHAS.md` for the per-model figures and
  * what ours measures.
  */
 const CACHE_BREAKPOINT = { type: "ephemeral" } as const;
