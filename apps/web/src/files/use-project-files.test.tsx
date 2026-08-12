@@ -279,6 +279,112 @@ describe("useFileContent", () => {
     await waitFor(() => expect(calls.length).toBeGreaterThan(before));
   });
 
+  it("makes the first click instant when the file was read ahead", async () => {
+    // The whole point of this pass. Caching alone only ever helped the *second* visit to a
+    // file; a project's files are read before anybody clicks, so the first is instant too.
+    const { fetchJson, calls } = fetcher({
+      [`/sessions/${SESSION}/file?path=src%2FApp.tsx`]: CONTENT,
+    });
+
+    const { result, rerender } = renderHook(
+      ({ path }: { path: string | undefined }) =>
+        useFileContent({ sessionId: SESSION, path, fetchJson }),
+      { initialProps: { path: undefined as string | undefined } },
+    );
+
+    result.current.prefetch(["src/App.tsx"]);
+    await waitFor(() => expect(calls.length).toBe(1));
+
+    rerender({ path: "src/App.tsx" });
+
+    // No second request, and no `loading` on the way — it is simply there.
+    expect(result.current.status).toBe("ready");
+    expect(calls.length).toBe(1);
+  });
+
+  it("reads a file once when it is hovered and then clicked", async () => {
+    // Hovering a row prefetches it and clicking it selects it. Without an in-flight guard the
+    // two fire separate reads for the same file, and hovering would make things slower.
+    const { fetchJson, calls } = fetcher({
+      [`/sessions/${SESSION}/file?path=src%2FApp.tsx`]: CONTENT,
+    });
+
+    const { result, rerender } = renderHook(
+      ({ path }: { path: string | undefined }) =>
+        useFileContent({ sessionId: SESSION, path, fetchJson }),
+      { initialProps: { path: undefined as string | undefined } },
+    );
+
+    result.current.prefetch(["src/App.tsx"]);
+    rerender({ path: "src/App.tsx" });
+
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+    expect(calls.length).toBe(1);
+  });
+
+  it("does not re-read something already cached", async () => {
+    const { fetchJson, calls } = fetcher({
+      [`/sessions/${SESSION}/file?path=src%2FApp.tsx`]: CONTENT,
+    });
+
+    const { result } = renderHook(() =>
+      useFileContent({ sessionId: SESSION, path: "src/App.tsx", fetchJson }),
+    );
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    result.current.prefetch(["src/App.tsx"]);
+
+    await waitFor(() => expect(calls.length).toBe(1));
+  });
+
+  it("keeps at most four reads in the air at once", async () => {
+    /*
+     * The listing allows up to 500 entries, and every read is a call into the sandbox that the
+     * agent may be using at the same time. Unbounded, opening the Code tab on a large project
+     * would be a denial of service against the turn running beside it.
+     */
+    let open = 0;
+    let peak = 0;
+    const fetchJson = async (): Promise<Response> => {
+      open += 1;
+      peak = Math.max(peak, open);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      open -= 1;
+      return new Response(JSON.stringify(CONTENT), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    const { result } = renderHook(() =>
+      useFileContent({ sessionId: SESSION, path: undefined, fetchJson }),
+    );
+
+    result.current.prefetch(Array.from({ length: 20 }, (_, i) => `src/f${i}.ts`));
+    await waitFor(() => expect(open).toBe(0), { timeout: 3000 });
+
+    expect(peak).toBeLessThanOrEqual(4);
+  });
+
+  it("does not remember a prefetch that failed", async () => {
+    // A blip while reading ahead must not turn into a file that cannot be opened at all — the
+    // real click has to be free to try again and show a real error.
+    const { fetchJson, calls } = fetcher({});
+
+    const { result, rerender } = renderHook(
+      ({ path }: { path: string | undefined }) =>
+        useFileContent({ sessionId: SESSION, path, fetchJson }),
+      { initialProps: { path: undefined as string | undefined } },
+    );
+
+    result.current.prefetch(["src/App.tsx"]);
+    await waitFor(() => expect(calls.length).toBe(1));
+
+    rerender({ path: "src/App.tsx" });
+
+    await waitFor(() => expect(calls.length).toBe(2));
+  });
+
   it("fetches nothing while no file is selected", async () => {
     const { fetchJson, calls } = fetcher({});
 

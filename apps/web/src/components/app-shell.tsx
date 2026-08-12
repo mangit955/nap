@@ -94,6 +94,7 @@ export function AppShell({ projectId }: { projectId: string }) {
           code={
             <LiveCodePane
               sessionId={sessionId}
+              active={tab === "code"}
               resuming={resuming}
               {...(putAwayAt === undefined ? {} : { putAwayAt })}
             />

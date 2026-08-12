@@ -31,6 +31,7 @@ export function FileTreePane({
   changed,
   selected,
   onSelect,
+  onPrefetch,
   putAway,
 }: {
   listing: FileListing | undefined;
@@ -44,6 +45,11 @@ export function FileTreePane({
   changed: ReadonlySet<string>;
   selected: string | undefined;
   onSelect: (path: string) => void;
+  /**
+   * Reads a file before it is clicked. Optional so the render tests need not supply one — a
+   * tree that cannot prefetch is slower, not broken.
+   */
+  onPrefetch?: ((path: string) => void) | undefined;
 }) {
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const [query, setQuery] = useState("");
@@ -127,6 +133,7 @@ export function FileTreePane({
                     selected={selected}
                     onSelect={onSelect}
                     onToggle={toggle}
+                    {...(onPrefetch === undefined ? {} : { onPrefetch })}
                   />
                 ))}
               </ul>
@@ -152,6 +159,7 @@ function Node({
   selected,
   onSelect,
   onToggle,
+  onPrefetch,
 }: {
   node: TreeNode;
   depth: number;
@@ -160,6 +168,7 @@ function Node({
   selected: string | undefined;
   onSelect: (path: string) => void;
   onToggle: (path: string) => void;
+  onPrefetch?: ((path: string) => void) | undefined;
 }) {
   // The chevron column is reserved on file rows too, so filenames line up with the folder names
   // above them instead of sitting a character to the left of them.
@@ -183,6 +192,14 @@ function Node({
         <button
           type="button"
           onClick={() => onSelect(node.path)}
+          /*
+           * Read on intent, not on the click. A pointer arrives on a row 100–300ms before the
+           * button goes down, and a file read is a round trip to the sandbox — so this is most
+           * of the wait, taken for free. `onFocus` covers keyboard navigation, which hover
+           * never does. Both are cheap: the hook drops a path already cached or in flight.
+           */
+          onPointerEnter={() => onPrefetch?.(node.path)}
+          onFocus={() => onPrefetch?.(node.path)}
           style={indent}
           className={`${row} ${
             isSelected ? "bg-hover text-ink" : "text-ink-2 hover:bg-hover hover:text-ink"
@@ -239,6 +256,7 @@ function Node({
               selected={selected}
               onSelect={onSelect}
               onToggle={onToggle}
+              {...(onPrefetch === undefined ? {} : { onPrefetch })}
             />
           ))}
         </ul>

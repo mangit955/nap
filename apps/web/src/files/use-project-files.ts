@@ -24,7 +24,7 @@ import {
   FileListingSchema,
 } from "@nap/shared/files-protocol";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { credentialedFetch } from "../api/credentialed-fetch.ts";
 import { changeCount } from "./changed-paths.ts";
 
@@ -111,7 +111,21 @@ export function useProjectFiles(
 export type SelectedFile = {
   file: FileContent | undefined;
   status: LoadStatus;
+  /**
+   * Reads files into the cache before anybody asks for them, so the *first* click is instant
+   * too — caching alone only ever helped the second.
+   */
+  prefetch: (paths: readonly string[]) => void;
 };
+
+/**
+ * How many reads may be in the air at once.
+ *
+ * The listing allows up to 500 entries (`DEFAULT_MAX_ENTRIES` in
+ * `packages/sandbox/src/project-files.ts`), and every read is a call into the sandbox — firing
+ * them all at once would make browsing the files hostile to the turn running beside it.
+ */
+const PREFETCH_CONCURRENCY = 4;
 
 /**
  * One file's contents, **kept once they have been read**.
@@ -136,6 +150,15 @@ export function useFileContent(
   const [file, setFile] = useState<FileContent | undefined>(undefined);
   const [status, setStatus] = useState<LoadStatus>("idle");
   const cache = useRef(new Map<string, FileContent>());
+  /**
+   * The read in progress for each path, as a promise rather than a flag.
+   *
+   * A flag was not enough and a test caught it: hovering a row starts a prefetch, and clicking
+   * it a moment later found nothing in the cache — because the answer had not landed yet — and
+   * fired a *second* read for the same file. Holding the promise lets the click join the read
+   * already running, so hovering makes things faster and never slower.
+   */
+  const inFlight = useRef(new Map<string, Promise<FileContent | undefined>>());
 
   const staleness = stalenessOf(events);
 
@@ -147,6 +170,57 @@ export function useFileContent(
     lastStaleness.current = staleness;
     cache.current.clear();
   }
+
+  /**
+   * One read per path, however many callers want it.
+   *
+   * Both the selection effect and the prefetcher go through here, which is what makes the two
+   * unable to duplicate each other's work.
+   */
+  // biome-ignore lint/correctness/useExhaustiveDependencies: see the note in useProjectFiles
+  const read = useCallback(
+    (path: string): Promise<FileContent | undefined> => {
+      if (sessionId === undefined) return Promise.resolve(undefined);
+
+      const running = inFlight.current.get(path);
+      if (running !== undefined) return running;
+
+      const url = `${baseUrl}/sessions/${encodeURIComponent(sessionId)}/file?path=${encodeURIComponent(path)}`;
+      const pending = load(fetchJson, url, FileContentSchema).then((result) => {
+        inFlight.current.delete(path);
+        // Only a file that arrived is remembered. Caching a failure would turn one blip into a
+        // file that cannot be opened until the next turn.
+        if (result !== undefined) cache.current.set(path, result);
+        return result;
+      });
+
+      inFlight.current.set(path, pending);
+      return pending;
+    },
+    [sessionId, baseUrl],
+  );
+
+  const prefetch = useCallback(
+    (paths: readonly string[]) => {
+      if (sessionId === undefined) return;
+
+      const queue = paths.filter((path) => !cache.current.has(path) && !inFlight.current.has(path));
+      if (queue.length === 0) return;
+
+      // A fixed number of workers pulling from one queue, rather than a request per path: this
+      // is what bounds the load on the sandbox regardless of how big the project is.
+      const worker = async () => {
+        for (;;) {
+          const path = queue.shift();
+          if (path === undefined) return;
+          await read(path);
+        }
+      };
+
+      for (let i = 0; i < Math.min(PREFETCH_CONCURRENCY, queue.length); i++) void worker();
+    },
+    [sessionId, read],
+  );
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: see the note in useProjectFiles
   useEffect(() => {
@@ -169,8 +243,9 @@ export function useFileContent(
     setStatus("loading");
 
     void (async () => {
-      const url = `${baseUrl}/sessions/${encodeURIComponent(sessionId)}/file?path=${encodeURIComponent(path)}`;
-      const result = await load(fetchJson, url, FileContentSchema);
+      // Joins a read already running for this path — a row that was hovered a moment ago — so
+      // hovering can only ever help.
+      const result = await read(path);
       // Clicking two files in quick succession is ordinary, and nothing promises the answers
       // come back in that order. Without this the first file's contents appear under the
       // second file's name.
@@ -181,9 +256,6 @@ export function useFileContent(
         setFile(undefined);
         return;
       }
-      // Only a file that actually arrived is remembered — caching a failure would make one bad
-      // read permanent until the next turn.
-      cache.current.set(path, result);
       setFile(result);
       setStatus("ready");
     })();
@@ -191,9 +263,9 @@ export function useFileContent(
     return () => {
       abandoned = true;
     };
-  }, [sessionId, path, baseUrl, staleness]);
+  }, [sessionId, path, baseUrl, staleness, read]);
 
-  return { file, status };
+  return { file, status, prefetch };
 }
 
 /**

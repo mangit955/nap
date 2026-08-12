@@ -11,7 +11,7 @@
  * changed, and a file's contents are re-read when the sandbox that serves them appears.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { FileTreePane } from "../components/file-tree-pane.tsx";
 import { changedPaths } from "../files/changed-paths.ts";
 import { FileViewer } from "../files/file-viewer.tsx";
@@ -23,12 +23,26 @@ import { Splitter } from "../ui/splitter.tsx";
 import { TREE_SPLIT } from "./split.ts";
 import { usePaneWidth } from "./use-pane-width.ts";
 
+/**
+ * How much of a project to read ahead when somebody opens the Code tab.
+ *
+ * A generated project is a dozen files, so this covers all of it — while a listing that came
+ * back with its 500-entry limit must not turn one tab switch into 500 sandbox reads.
+ */
+const PREFETCH_LIMIT = 40;
+
 export function LiveCodePane({
   sessionId,
   putAwayAt,
   resuming,
+  active = true,
 }: {
   sessionId: string | undefined;
+  /**
+   * Whether this tab is the one on screen. Both panels stay mounted and one is merely hidden,
+   * so without this every workspace load would read forty files nobody is going to look at.
+   */
+  active?: boolean | undefined;
   /** When the record last said no sandbox was serving this project; see `isPutAway`. */
   putAwayAt?: string | undefined;
   resuming?: boolean | undefined;
@@ -40,7 +54,19 @@ export function LiveCodePane({
   const putAway = isPutAway(events, putAwayAt) && resuming !== true;
   const { listing, status } = useProjectFiles({ sessionId, events });
   const [selected, setSelected] = useState<string | undefined>(undefined);
-  const { file, status: fileStatus } = useFileContent({ sessionId, path: selected });
+  const {
+    file,
+    status: fileStatus,
+    prefetch,
+  } = useFileContent({ sessionId, path: selected, events });
+
+  // Once, when the tab is first shown and the listing is in. The hook skips anything already
+  // cached, so a second run after a turn rewrites the project costs only what actually changed.
+  const files = listing?.files;
+  useEffect(() => {
+    if (!active || files === undefined) return;
+    prefetch(files.slice(0, PREFETCH_LIMIT));
+  }, [active, files, prefetch]);
   const { width, containerRef, onGrab, onKeyDown } = usePaneWidth(TREE_SPLIT, 240);
 
   return (
@@ -53,6 +79,7 @@ export function LiveCodePane({
           changed={changedPaths(events)}
           selected={selected}
           onSelect={setSelected}
+          onPrefetch={(path) => prefetch([path])}
         />
       </div>
 
