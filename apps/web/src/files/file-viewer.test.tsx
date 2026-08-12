@@ -22,16 +22,16 @@ function open(props: Partial<Parameters<typeof FileViewer>[0]> = {}) {
 }
 
 describe("FileViewer", () => {
-  it("is a dialog named after the file", () => {
+  it("is a region named after the file", () => {
     open();
 
-    expect(screen.getByRole("dialog", { name: /src\/App\.tsx/ })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: /src\/App\.tsx/ })).toBeInTheDocument();
   });
 
   it("renders the file's contents", () => {
     open();
 
-    const source = screen.getByRole("dialog").textContent ?? "";
+    const source = screen.getByRole("region").textContent ?? "";
     expect(source).toContain("export function App() {");
     expect(source).toContain("const [count, setCount] = useState(0);");
   });

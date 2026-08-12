@@ -73,7 +73,7 @@ export function FileTreePane({
     });
 
   return (
-    <Pane id="files" title="Files">
+    <Pane id="files" title="Files" chrome="none">
       {listing === undefined || listing.files.length === 0 ? (
         <Empty listing={listing} status={status} putAway={putAway} />
       ) : (

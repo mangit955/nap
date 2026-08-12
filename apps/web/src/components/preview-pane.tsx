@@ -1,10 +1,11 @@
 "use client";
 
 import type { StoredEvent } from "@nap/shared/ports/event-store";
-import { useState } from "react";
+import { useEffect, useRef } from "react";
 import { turnFailureCopy } from "../errors/failure-copy.ts";
 import { useEventStream } from "../hooks/use-event-stream.ts";
 import { isPutAway, type PreviewState, previewState } from "../preview/preview-state.ts";
+import { previewUrlFor } from "../workspace/route-path.ts";
 import { Pane } from "./pane.tsx";
 
 /**
@@ -46,6 +47,10 @@ export type PreviewPaneProps = {
   /** From the request until the restore announces itself, which can be tens of seconds. */
   resuming?: boolean | undefined;
   resumeError?: string | undefined;
+  /** The page the frame is being sent to. Owned above, since the bar that sets it is up there. */
+  route?: string | undefined;
+  /** Bumped by the bar's Reload button; the frame's key reads it. */
+  reloads?: number | undefined;
 };
 
 export function PreviewPane({
@@ -54,39 +59,16 @@ export function PreviewPane({
   onResume,
   resuming,
   resumeError,
+  route = "/",
+  reloads = 0,
 }: PreviewPaneProps) {
   const state = displayState(previewState(events), { events, putAwayAt, resuming });
-  const [reloads, setReloads] = useState(0);
-
-  const ready = state.status === "ready" ? state : undefined;
 
   return (
-    <Pane
-      id="preview"
-      title="Preview"
-      action={
-        ready === undefined ? undefined : (
-          <div className="flex items-center gap-3">
-            <span className="font-mono text-muted text-xs">{host(ready.url)}</span>
-            <button
-              type="button"
-              onClick={() => setReloads(reloads + 1)}
-              className="rounded border border-edge px-1.5 py-0.5 text-[11px] text-muted hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
-            >
-              Reload
-            </button>
-            <a
-              href={ready.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-[11px] text-muted underline underline-offset-2 hover:text-ink"
-            >
-              Open
-            </a>
-          </div>
-        )
-      }
-    >
+    // No title bar: the workbench's tabs say which half this is, and the controls that used to
+    // sit here — the host, Reload, Open — are in the one bar across the top, where they stay
+    // reachable while somebody is looking at the code.
+    <Pane id="preview" title="Preview" chrome="none">
       {/* Narrowed on `state` itself rather than on `ready`, so the waiting half is typed. */}
       {state.status !== "ready" ? (
         <Waiting
@@ -96,8 +78,12 @@ export function PreviewPane({
         />
       ) : (
         <iframe
-          key={`${state.seq}:${reloads}`}
-          src={state.url}
+          // Three things remount the frame and nothing else may: a new announcement, the reload
+          // button, and being sent to another page. **The tab is deliberately absent** — the
+          // panel is hidden rather than unmounted, so glancing at the code cannot reload
+          // somebody's app.
+          key={`${state.seq}:${reloads}:${route}`}
+          src={previewUrlFor(state.url, route)}
           title={PREVIEW_TITLE}
           sandbox={SANDBOX}
           className="h-full w-full border-0 bg-white"
@@ -232,14 +218,6 @@ function PreviewFailure({ message }: { message: string }) {
   );
 }
 
-function host(url: string): string {
-  try {
-    return new URL(url).host;
-  } catch {
-    return url;
-  }
-}
-
 /**
  * `resume` and the two flags beside it come from the shell rather than from a hook of this
  * pane's own: the file tree needs the same answer, and two hooks asking the same question would
@@ -249,12 +227,32 @@ export function LivePreviewPane({
   sessionId,
   putAwayAt,
   onResume,
+  onPreviewUrl,
   resuming,
   resumeError,
+  route,
+  reloads,
 }: {
   sessionId: string | undefined;
+  /**
+   * Reports the address of whatever is serving the project, so the bar above can offer to open
+   * it. It is reported from here rather than read again up there because this pane already holds
+   * the subscription — and every `useEventStream` is a socket of its own, so asking the same
+   * question twice costs a second connection to say the same thing.
+   */
+  onPreviewUrl?: ((url: string | undefined) => void) | undefined;
 } & Omit<PreviewPaneProps, "events">) {
   const { events } = useEventStream({ sessionId });
+  const state = previewState(events);
+  const url = state.status === "ready" ? state.url : undefined;
+
+  // In an effect rather than during render: this reports *upward*, and a parent setting state
+  // while its child renders is the loop React warns about.
+  const report = useRef(onPreviewUrl);
+  report.current = onPreviewUrl;
+  useEffect(() => {
+    report.current?.(url);
+  }, [url]);
 
   return (
     <PreviewPane
@@ -263,6 +261,8 @@ export function LivePreviewPane({
       {...(onResume === undefined ? {} : { onResume })}
       {...(resuming === undefined ? {} : { resuming })}
       {...(resumeError === undefined ? {} : { resumeError })}
+      {...(route === undefined ? {} : { route })}
+      {...(reloads === undefined ? {} : { reloads })}
     />
   );
 }

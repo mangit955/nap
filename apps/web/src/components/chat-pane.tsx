@@ -57,7 +57,7 @@ export function ChatPane({
   const empty = events.length === 0 && pending === undefined;
 
   return (
-    <Pane id="chat" title="Chat">
+    <Pane id="chat" title="Chat" chrome="none">
       <div className="flex h-full min-h-0 flex-col">
         <div className="min-h-0 flex-1 overflow-auto">
           {empty ? (

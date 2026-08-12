@@ -84,10 +84,12 @@ export function FileViewer({
   }, [onClose]);
 
   return (
-    <div
-      role="dialog"
+    // A named region rather than a dialog: it sits beside the tree in the Code tab now, and
+    // nothing about it is modal — the tree stays usable while a file is open, which is the whole
+    // reason for showing them side by side.
+    <section
       aria-label={`${path} (read-only)`}
-      className="absolute inset-y-0 right-0 z-10 flex w-[min(46rem,70vw)] flex-col border-edge border-l bg-panel shadow-2xl"
+      className="flex min-h-0 min-w-0 flex-1 flex-col border-edge border-l"
     >
       <div className="flex h-11 shrink-0 items-center justify-between gap-3 border-edge border-b px-4">
         <span className="truncate font-mono text-ink text-xs">{path}</span>
@@ -115,7 +117,7 @@ export function FileViewer({
           Showing only the first part of this file — {formatSize(file.bytes)} in total.
         </p>
       )}
-    </div>
+    </section>
   );
 }
 

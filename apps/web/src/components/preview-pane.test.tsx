@@ -189,14 +189,6 @@ describe("the frame itself", () => {
     expect(sandbox).toContain("allow-scripts");
     expect(sandbox).toContain("allow-same-origin");
   });
-
-  it("offers the app in its own tab as well", () => {
-    show(ready());
-
-    const link = screen.getByRole("link", { name: /open/i });
-    expect(link).toHaveAttribute("href", "https://5173-abc.e2b.dev");
-    expect(link.getAttribute("rel")).toContain("noreferrer");
-  });
 });
 
 describe("reloading", () => {
@@ -231,12 +223,28 @@ describe("reloading", () => {
     expect(frame()).toBe(before);
   });
 
-  it("replaces the frame when asked to reload", () => {
-    show(ready());
+  it("replaces the frame when the bar asks for a reload", () => {
+    // The button lives in the workspace's top bar now — it counts, and this pane's frame is
+    // keyed on the count, because a cross-origin frame cannot be told to reload any other way.
+    const events = [asked(), ready()];
+    const { rerender } = render(<PreviewPane events={events} reloads={0} />);
     const before = frame();
 
-    fireEvent.click(screen.getByRole("button", { name: /reload/i }));
+    rerender(<PreviewPane events={events} reloads={1} />);
 
+    expect(frame()).not.toBe(before);
+  });
+
+  it("sends the frame to the page the bar names", () => {
+    const events = [asked(), ready()];
+    const { rerender } = render(<PreviewPane events={events} route="/" />);
+    const before = frame();
+
+    rerender(<PreviewPane events={events} route="/pricing" />);
+
+    expect(frame()).toHaveAttribute("src", "https://5173-abc.e2b.dev/pricing");
+    // A different page is a different page: the frame has to be replaced, not merely re-src'd,
+    // or an app that has navigated itself since would ignore the change.
     expect(frame()).not.toBe(before);
   });
 
@@ -254,11 +262,5 @@ describe("the pane itself", () => {
 
     rerender(<PreviewPane events={[asked(), ready()]} />);
     expect(screen.getByRole("region", { name: "Preview" })).toBeInTheDocument();
-  });
-
-  it("names the address it is showing", () => {
-    show(ready("https://5173-abc.e2b.dev"));
-
-    expect(screen.getByRole("region", { name: "Preview" })).toHaveTextContent("5173-abc.e2b.dev");
   });
 });
