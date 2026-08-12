@@ -18,7 +18,7 @@
 
 import type { FileContent } from "@nap/shared/files-protocol";
 import { Highlight, type PrismTheme } from "prism-react-renderer";
-import { useEffect } from "react";
+import { memo, useEffect } from "react";
 import { CloseIcon } from "../ui/icons.tsx";
 import type { LoadStatus } from "./use-project-files.ts";
 
@@ -160,7 +160,22 @@ function Breadcrumb({ path }: { path: string }) {
   );
 }
 
-function Source({ contents, language }: { contents: string; language: string }) {
+/**
+ * The highlighted file.
+ *
+ * **Memoised, and that is load-bearing rather than tidy.** The Code pane subscribes to the
+ * session's event stream, so every streamed token re-renders it — and Prism re-tokenises the
+ * *entire* open file on each render. During a turn that is dozens of full re-tokenisations a
+ * second, on the same thread the transcript is trying to animate on. Both props are primitives,
+ * so the default comparison is exactly right.
+ */
+const Source = memo(function Source({
+  contents,
+  language,
+}: {
+  contents: string;
+  language: string;
+}) {
   // A trailing newline is a line break, not an empty last line to number.
   const code = contents.replace(/\n$/, "");
 
@@ -201,7 +216,7 @@ function Source({ contents, language }: { contents: string; language: string }) 
       )}
     </Highlight>
   );
-}
+});
 
 /** Sizes are for orientation, so one unit and no decimals is all they need to carry. */
 function formatSize(bytes: number): string {

@@ -189,6 +189,96 @@ describe("useFileContent", () => {
     expect(result.current.file).toEqual(CONTENT);
   });
 
+  it("does not ask twice for a file it has already read", async () => {
+    /*
+     * The whole reason the cache exists. Every read is a round trip to the *sandbox*, so
+     * clicking back and forth between two files was two network round trips each way — which is
+     * what "the Code tab does not feel snappy" was.
+     */
+    const { fetchJson, calls } = fetcher({
+      [`/sessions/${SESSION}/file?path=src%2FApp.tsx`]: CONTENT,
+      [`/sessions/${SESSION}/file?path=src%2Fmain.tsx`]: { ...CONTENT, path: "src/main.tsx" },
+    });
+
+    const { result, rerender } = renderHook(
+      ({ path }: { path: string }) => useFileContent({ sessionId: SESSION, path, fetchJson }),
+      { initialProps: { path: "src/App.tsx" } },
+    );
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    rerender({ path: "src/main.tsx" });
+    await waitFor(() => expect(result.current.file?.path).toBe("src/main.tsx"));
+
+    const before = calls.length;
+    rerender({ path: "src/App.tsx" });
+
+    await waitFor(() => expect(result.current.file?.path).toBe("src/App.tsx"));
+    expect(calls.length).toBe(before);
+  });
+
+  it("shows a cached file without a loading state in between", async () => {
+    // A flash of "Loading…" for a file already in memory is exactly the stutter the cache is
+    // there to remove, so going back to one must never pass through `loading`.
+    const { fetchJson } = fetcher({
+      [`/sessions/${SESSION}/file?path=src%2FApp.tsx`]: CONTENT,
+      [`/sessions/${SESSION}/file?path=src%2Fmain.tsx`]: { ...CONTENT, path: "src/main.tsx" },
+    });
+
+    const { result, rerender } = renderHook(
+      ({ path }: { path: string }) => useFileContent({ sessionId: SESSION, path, fetchJson }),
+      { initialProps: { path: "src/App.tsx" } },
+    );
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+    rerender({ path: "src/main.tsx" });
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    rerender({ path: "src/App.tsx" });
+
+    expect(result.current.status).toBe("ready");
+    expect(result.current.file?.path).toBe("src/App.tsx");
+  });
+
+  it("reads a file again once the agent has written one", async () => {
+    // The other half. A cache that never let go would show yesterday's source for the file the
+    // turn just rewrote, which is far worse than a slow read.
+    const { fetchJson, calls } = fetcher({
+      [`/sessions/${SESSION}/file?path=src%2FApp.tsx`]: CONTENT,
+    });
+
+    const { result, rerender } = renderHook(
+      ({ events }: { events: StoredEvent[] }) =>
+        useFileContent({ sessionId: SESSION, path: "src/App.tsx", events, fetchJson }),
+      { initialProps: { events: [] as StoredEvent[] } },
+    );
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+    const before = calls.length;
+
+    rerender({
+      events: [ev("file.changed", { path: "src/App.tsx", changeType: "modified", diff: "+one\n" })],
+    });
+
+    await waitFor(() => expect(calls.length).toBeGreaterThan(before));
+  });
+
+  it("does not remember a file it failed to read", async () => {
+    // Caching a failure would make one bad read permanent until the next turn.
+    const { fetchJson, calls } = fetcher({});
+
+    const { result, rerender } = renderHook(
+      ({ path }: { path: string }) => useFileContent({ sessionId: SESSION, path, fetchJson }),
+      { initialProps: { path: "src/App.tsx" } },
+    );
+    await waitFor(() => expect(result.current.status).toBe("error"));
+
+    rerender({ path: "src/main.tsx" });
+    await waitFor(() => expect(result.current.status).toBe("error"));
+    const before = calls.length;
+
+    rerender({ path: "src/App.tsx" });
+
+    await waitFor(() => expect(calls.length).toBeGreaterThan(before));
+  });
+
   it("fetches nothing while no file is selected", async () => {
     const { fetchJson, calls } = fetcher({});
 

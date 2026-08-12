@@ -84,6 +84,31 @@ body {
   height: 100%;
 }
 
+/*
+ * Things you can press look like things you can press.
+ *
+ * A browser's own stylesheet gives `<button>` an arrow, not a hand — Tailwind does not override
+ * that in any version, so an app that never says otherwise has an interface where nothing reads
+ * as clickable. One rule here rather than a `cursor-pointer` on sixty elements, which is sixty
+ * chances to forget on the sixty-first.
+ *
+ * `summary` is in the list because the transcript is made of disclosures — the step cards and
+ * every tool row — and they are among the most-pressed things on the page. Anchors already get a
+ * hand from the browser. The pane dividers keep `cursor-col-resize`, which is more specific and
+ * says something this rule cannot.
+ */
+button:not(:disabled),
+summary,
+[role="tab"],
+label[for] {
+  cursor: pointer;
+}
+
+/* Not merely "not a hand": a control that is off right now should say so on contact. */
+button:disabled {
+  cursor: not-allowed;
+}
+
 body {
   background-color: var(--color-surface);
   color: var(--color-ink);

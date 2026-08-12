@@ -15,7 +15,7 @@
  */
 
 import type { FileListing } from "@nap/shared/files-protocol";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { changedPaths } from "../files/changed-paths.ts";
 import { FileViewer } from "../files/file-viewer.tsx";
 import { ancestorsOf, buildTree, filterTree, type TreeNode } from "../files/tree.ts";
@@ -74,7 +74,11 @@ export function FileTreePane({
       return next;
     });
 
-  const tree = filterTree(buildTree(listing?.files ?? []), query);
+  // Rebuilt only when the files or the query change. Without this both pure functions run on
+  // every render of a pane that is subscribed to the event stream — which is every streamed
+  // token of every turn, to produce the same tree each time.
+  const files = listing?.files;
+  const tree = useMemo(() => filterTree(buildTree(files ?? []), query), [files, query]);
 
   return (
     <Pane id="files" title="Files" chrome="none">

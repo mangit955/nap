@@ -24,7 +24,7 @@ import {
   FileListingSchema,
 } from "@nap/shared/files-protocol";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { credentialedFetch } from "../api/credentialed-fetch.ts";
 import { changeCount } from "./changed-paths.ts";
 
@@ -66,9 +66,7 @@ export function useProjectFiles(
    * a *new filesystem*, and the moment the endpoint stops answering `ready: false` — without it
    * the tree sits on that answer until the agent happens to write something.
    */
-  const staleness =
-    changeCount(events) +
-    events.filter((e) => e.type === "turn.completed" || e.type === "preview.ready").length;
+  const staleness = stalenessOf(events);
 
   // `fetchJson` is deliberately not a dependency: an inline arrow is a new function on every
   // render, and refetching the whole project each time is not what a caller means by passing
@@ -115,18 +113,55 @@ export type SelectedFile = {
   status: LoadStatus;
 };
 
-export function useFileContent(options: Request & { path: string | undefined }): SelectedFile {
-  const { sessionId, path, baseUrl = DEFAULT_BASE_URL } = options;
+/**
+ * One file's contents, **kept once they have been read**.
+ *
+ * Every read is a round trip from the browser to the API to the sandbox, and the sandbox hop is
+ * the slow part. Nothing can make that request fast; what a cache does is avoid making it at all
+ * for a file already on this machine — clicking back and forth between two files went from two
+ * network round trips to none, which is the whole of the "it does not feel snappy" complaint.
+ *
+ * **The cache is dropped wholesale whenever the project changes**, on the same `staleness` count
+ * the listing uses rather than a second rule of its own. Coarse on purpose: throwing everything
+ * away when anything changed is obviously correct, where invalidating per path is a second piece
+ * of bookkeeping to keep in step for no gain at a dozen files. A stale file shown as current is
+ * a much worse failure than a re-read.
+ */
+export function useFileContent(
+  options: Request & { path: string | undefined; events?: readonly StoredEvent[] },
+): SelectedFile {
+  const { sessionId, path, events = [], baseUrl = DEFAULT_BASE_URL } = options;
   const fetchJson = options.fetchJson ?? defaultFetch;
 
   const [file, setFile] = useState<FileContent | undefined>(undefined);
   const [status, setStatus] = useState<LoadStatus>("idle");
+  const cache = useRef(new Map<string, FileContent>());
+
+  const staleness = stalenessOf(events);
+
+  // Emptied during render rather than in an effect: an effect runs *after* the one below, so a
+  // stale entry would be served for a frame before being thrown away — and that frame is what
+  // the user would see.
+  const lastStaleness = useRef(staleness);
+  if (lastStaleness.current !== staleness) {
+    lastStaleness.current = staleness;
+    cache.current.clear();
+  }
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: see the note in useProjectFiles
   useEffect(() => {
     if (sessionId === undefined || path === undefined) {
       setStatus("idle");
       setFile(undefined);
+      return;
+    }
+
+    const cached = cache.current.get(path);
+    if (cached !== undefined) {
+      // No request, and no `loading` in between: a flash of "Loading…" for a file already in
+      // memory is exactly the stutter this exists to remove.
+      setFile(cached);
+      setStatus("ready");
       return;
     }
 
@@ -146,6 +181,9 @@ export function useFileContent(options: Request & { path: string | undefined }):
         setFile(undefined);
         return;
       }
+      // Only a file that actually arrived is remembered — caching a failure would make one bad
+      // read permanent until the next turn.
+      cache.current.set(path, result);
       setFile(result);
       setStatus("ready");
     })();
@@ -153,9 +191,28 @@ export function useFileContent(options: Request & { path: string | undefined }):
     return () => {
       abandoned = true;
     };
-  }, [sessionId, path, baseUrl]);
+  }, [sessionId, path, baseUrl, staleness]);
 
   return { file, status };
+}
+
+/**
+ * What makes anything read from the sandbox stale, as one number.
+ *
+ * A file the agent wrote is the obvious case; a finished turn is the one that is easy to miss,
+ * because a command like `bun add` changes a project without producing a single `file.changed`.
+ * A sandbox coming up is the third: it is a *new filesystem*, and the moment the endpoint stops
+ * answering `ready: false` — without it the tree sits on that answer until the agent happens to
+ * write something.
+ *
+ * One function for the listing and the file cache, so the two cannot disagree about when the
+ * project moved underneath them.
+ */
+function stalenessOf(events: readonly StoredEvent[]): number {
+  return (
+    changeCount(events) +
+    events.filter((e) => e.type === "turn.completed" || e.type === "preview.ready").length
+  );
 }
 
 /** `undefined` for anything that did not come back as the shape it promised. */
