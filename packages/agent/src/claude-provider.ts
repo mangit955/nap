@@ -55,11 +55,11 @@ export type AnthropicClient = {
       options?: { signal?: AbortSignal | undefined },
     ): {
       /**
-       * The SDK's own event emitter. `thinking` hands over `(delta, snapshot)` — the piece
-       * that just arrived, then the running total — which is why the listener below reads
-       * the first argument and ignores the second.
+       * The SDK's own event emitter. Both events hand over `(delta, snapshot)` — the piece
+       * that just arrived, then the running total — which is why the listeners below read
+       * the first argument and ignore the second.
        */
-      on(event: "thinking", listener: (delta: string, snapshot: string) => void): void;
+      on(event: "thinking" | "text", listener: (delta: string, snapshot: string) => void): void;
       finalMessage(): Promise<AnthropicMessage>;
     };
   };
@@ -340,6 +340,10 @@ class ClaudeTurn implements LLMTurn {
         if (request.onThinkingDelta !== undefined) {
           const forward = request.onThinkingDelta;
           stream.on("thinking", (delta) => forward(delta));
+        }
+        if (request.onTextDelta !== undefined) {
+          const forward = request.onTextDelta;
+          stream.on("text", (delta) => forward(delta));
         }
         const message = await stream.finalMessage();
         return this.#record(toTurnResult(message));

@@ -447,3 +447,84 @@ describe("runTurn — the model thinking out loud", () => {
     expect(() => NapEventSchema.parse({ ...thinking, seq: 1 })).not.toThrow();
   });
 });
+
+describe("runTurn — the model writing its answer", () => {
+  /** Long enough to cross the coalescer's threshold, so streaming is observable at all. */
+  const LONG = "I added the button and wired it to the toggle handler in App.tsx. ".repeat(4);
+  const pieces = (): string[] =>
+    recorder.payloadsOf("agent.message").map((payload) => (payload as { text: string }).text);
+
+  it("emits the prose in pieces as it is written", async () => {
+    // The point of streaming is that the reader sees the answer before it is finished. For a
+    // short reply that is invisible — the pieces coalesce into one event either way — so the
+    // assertion needs prose long enough to arrive in more than one.
+    const { agent } = service([[{ streamedText: [...LONG], text: LONG }]]);
+
+    await agent.runTurn(request());
+
+    expect(pieces().length).toBeGreaterThan(1);
+    expect(pieces().join("")).toBe(LONG);
+  });
+
+  it("does not repeat the assembled answer after streaming it", async () => {
+    // The assembled response carries the same words the deltas did. Emitting both would put
+    // the whole answer on the rail twice, once in pieces and once whole.
+    const { agent } = service([[{ streamedText: [...LONG], text: LONG }]]);
+
+    await agent.runTurn(request());
+
+    expect(pieces().join("")).toBe(LONG);
+  });
+
+  it("falls back to the assembled answer when nothing was streamed", async () => {
+    // Not every model or route sends text deltas. Saying nothing at all in that case would
+    // trade a lump of prose for no prose.
+    const { agent } = service([[{ text: "I added the button." }]]);
+
+    await agent.runTurn(request());
+
+    expect(pieces()).toEqual(["I added the button."]);
+  });
+
+  it("keeps the prose ahead of the tool call it introduces", async () => {
+    const { agent } = service([
+      [
+        {
+          thinking: ["I need to write a file"],
+          streamedText: ["Adding ", "the component."],
+          text: "Adding the component.",
+          toolCalls: [call("list_files", {}, "toolu_1")],
+        },
+        { streamedText: ["Done."], text: "Done." },
+      ],
+    ]);
+
+    await agent.runTurn(request());
+
+    expect(recorder.types).toEqual([
+      "turn.started",
+      "agent.thinking",
+      "agent.message",
+      "tool.call",
+      "tool.result",
+      "agent.message",
+      "turn.completed",
+    ]);
+  });
+
+  it("says nothing for a step that wrote no prose at all", async () => {
+    const { agent } = service([
+      [{ toolCalls: [call("list_files", {}, "toolu_1")] }, { text: "done" }],
+    ]);
+
+    await agent.runTurn(request());
+
+    expect(recorder.types).toEqual([
+      "turn.started",
+      "tool.call",
+      "tool.result",
+      "agent.message",
+      "turn.completed",
+    ]);
+  });
+});

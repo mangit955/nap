@@ -155,6 +155,38 @@ describe("messages", () => {
     expect(grown?.key).toBe(first?.key);
   });
 
+  it("folds a run of agent messages into one answer", () => {
+    // Prose arrives in pieces because it is shown as it is written. One paragraph per piece
+    // would break a sentence across a dozen blocks at whatever sizes the network delivered.
+    const items = fold(
+      ev("agent.message", { text: "I changed " }),
+      ev("agent.message", { text: "the header colour." }),
+    );
+
+    expect(items).toEqual([
+      { kind: "message", key: 1, from: "agent", text: "I changed the header colour." },
+    ]);
+  });
+
+  it("never folds what the user said into what the agent said", () => {
+    const items = fold(
+      ev("user.message", { text: "make it blue" }),
+      ev("agent.message", { text: "Done." }),
+    );
+
+    expect(items.map((i) => (i.kind === "message" ? i.from : i.kind))).toEqual(["user", "agent"]);
+  });
+
+  it("starts a new answer after a tool call came between", () => {
+    const items = fold(
+      ev("agent.message", { text: "Reading the file." }),
+      ev("tool.call", { toolCallId: "c1", toolName: "read_file", input: {} }),
+      ev("agent.message", { text: "It renders a heading." }),
+    );
+
+    expect(items.map((i) => i.kind)).toEqual(["message", "step", "message"]);
+  });
+
   it("starts a new passage after something else happened", () => {
     const items = fold(
       ev("agent.thinking", { text: "before" }),

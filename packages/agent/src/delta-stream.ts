@@ -1,15 +1,16 @@
 /**
- * The model's summarized reasoning, on its way from a token stream to the event log.
+ * What the model is writing, on its way from a token stream to the event log.
  *
- * The model emits reasoning a few characters at a time, dozens of times a second. Every event
- * this repo produces is a durable row, appended and then fanned out — so forwarding each delta
- * as its own event would write thousands of rows for one turn's thinking and answer the same
- * question a hundred times over. Buffering them into phrase-sized pieces costs a fraction of a
- * second of latency and turns that into a few dozen rows, which is what makes the reasoning
- * something a client can replay after a reload rather than something it had to be watching for.
+ * Two things arrive this way — its summarized reasoning and the prose of its answer — and both
+ * come a few characters at a time, dozens of times a second. Every event this repo produces is
+ * a durable row, appended and then fanned out, so forwarding each delta as its own event would
+ * write thousands of rows for one turn. Buffering them into phrase-sized pieces costs a
+ * fraction of a second of latency and turns that into a few dozen rows, which is what makes
+ * the stream something a client can replay after a reload rather than something it had to be
+ * watching for.
  *
  * Two thresholds, because either one alone has a failure: characters alone leaves a short
- * closing thought sitting in the buffer until the next burst arrives, and time alone chops a
+ * closing phrase sitting in the buffer until the next burst arrives, and time alone chops a
  * fast burst into whatever landed in each window. Whichever comes first wins.
  *
  * Pure, with an injected clock, so the interesting cases — a tail below both thresholds, a
@@ -26,7 +27,7 @@ export const FLUSH_AFTER_CHARS = 120;
  */
 export const FLUSH_AFTER_MS = 400;
 
-export class ThinkingStream {
+export class DeltaStream {
   readonly #emit: (text: string) => void;
   readonly #now: () => number;
   #buffer = "";

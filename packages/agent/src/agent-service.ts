@@ -32,8 +32,8 @@ import type {
   LLMToolCall,
   LLMTurn,
 } from "@nap/shared/ports/llm-provider";
+import { DeltaStream } from "./delta-stream.ts";
 import { TurnBudget, type TurnBudgetOptions } from "./safety/budget.ts";
-import { ThinkingStream } from "./thinking-stream.ts";
 import { TOOL_DEFINITIONS } from "./tools/definitions.ts";
 import { executeTool, type ToolContext } from "./tools/execute.ts";
 
@@ -113,19 +113,30 @@ class Turn {
       // call returns and before any branch below can leave the loop, so the last thought of
       // a turn survives whichever way that turn ended — a refusal and an upstream failure
       // are the two cases where the reasoning is the only account of what happened.
-      const thinking = new ThinkingStream((text) =>
+      const thinking = new DeltaStream((text) =>
         this.#emit({ type: "agent.thinking", payload: { text } }),
       );
+
+      // The answer's prose, on its own stream. `wrote` is what decides whether the assembled
+      // text is emitted afterwards: a model or a route that sends no text deltas would
+      // otherwise say nothing at all, and one that sends them would say everything twice.
+      let wrote = false;
+      const prose = new DeltaStream((text) => {
+        wrote = true;
+        this.#emit({ type: "agent.message", payload: { text } });
+      });
 
       const result = await this.#turn.complete({
         systemPrompt: this.#request.context.systemPrompt,
         messages: this.#messages,
         tools: TOOL_DEFINITIONS,
         onThinkingDelta: (delta) => thinking.push(delta),
+        onTextDelta: (delta) => prose.push(delta),
         ...(this.#request.signal === undefined ? {} : { signal: this.#request.signal }),
       });
 
       thinking.flush();
+      prose.flush();
 
       if (result.type === "refusal") {
         return this.#fail("refusal", "The model declined to answer this request.");
@@ -136,7 +147,9 @@ class Turn {
       const tokenBudget = this.#budget.check();
       if (!tokenBudget.ok) return this.#failWith(tokenBudget.failure);
 
-      if (result.text !== "") {
+      // Only when the prose did not already arrive in pieces. The assembled text is the same
+      // words the deltas carried, so emitting it as well would print the answer twice.
+      if (!wrote && result.text !== "") {
         this.#emit({ type: "agent.message", payload: { text: result.text } });
       }
 

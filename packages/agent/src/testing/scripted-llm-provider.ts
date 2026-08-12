@@ -45,6 +45,14 @@ export type ScriptedResponse = {
    * spend, which is what makes the wiring verifiable without a model.
    */
   thinking?: string[];
+  /**
+   * The answer's prose, handed over in pieces before the response resolves.
+   *
+   * Distinct from `text`, which is what the assembled response carries. A script setting
+   * both is describing a model that streamed its answer and then reported the same answer —
+   * which is exactly what a real one does.
+   */
+  streamedText?: string[];
 };
 
 /** The responses one turn hands out, in call order. */
@@ -134,6 +142,7 @@ class ScriptedTurnHandle implements RecordingLLMTurn {
     // the call is still open, and a fake that delivered it afterwards would let a caller that
     // never subscribes look identical to one that does.
     for (const delta of response.thinking ?? []) request.onThinkingDelta?.(delta);
+    for (const delta of response.streamedText ?? []) request.onTextDelta?.(delta);
 
     const result = toResult(response);
     this.#usage = {

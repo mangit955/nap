@@ -71,6 +71,15 @@ export type LLMRequest = {
    * types, and not watching is the ordinary case.
    */
   onThinkingDelta?: ((delta: string) => void) | undefined;
+  /**
+   * The answer's own prose, as the model writes it.
+   *
+   * Separate from the reasoning because the two are different things to a reader, and
+   * separate from the assembled `text` below because that only exists once the call is over.
+   * A caller taking this must not also print the assembled text: the same words would
+   * arrive twice.
+   */
+  onTextDelta?: ((delta: string) => void) | undefined;
 };
 
 export type LLMTurnResult =

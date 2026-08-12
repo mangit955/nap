@@ -11,8 +11,8 @@ import {
 
 /**
  * What the SDK announces as a response is assembled, named by the event the stream emits.
- * `text` is here so a test can prove it is *not* forwarded — the final message already
- * carries the prose, and a provider that streamed it too would print the answer twice.
+ * The two are kept apart all the way down: reasoning and prose are different things to a
+ * reader, and a provider that crossed them would caption the answer as thinking.
  */
 type Delta = { event: "thinking" | "text"; text: string };
 
@@ -542,9 +542,9 @@ describe("ClaudeProvider", () => {
       expect(seen).toEqual(["Looking at ", "the button."]);
     });
 
-    it("leaves the answer's own text alone", async () => {
-      // Prose reaches the caller once, in the assembled message. Streaming it here as well
-      // would put the whole answer on the rail a second time.
+    it("keeps reasoning and prose on their own channels", async () => {
+      // Crossing them would caption the answer as thinking, and print the reasoning where
+      // the reader expects the reply.
       const client = stubClient([
         {
           deltas: [
@@ -555,13 +555,39 @@ describe("ClaudeProvider", () => {
           message: message(),
         },
       ]);
-      const seen: string[] = [];
+      const thought: string[] = [];
+      const wrote: string[] = [];
 
       await provider(client)
         .startTurn()
-        .complete(request({ onThinkingDelta: (delta) => seen.push(delta) }));
+        .complete(
+          request({
+            onThinkingDelta: (delta) => thought.push(delta),
+            onTextDelta: (delta) => wrote.push(delta),
+          }),
+        );
 
-      expect(seen).toEqual(["checking the file"]);
+      expect(thought).toEqual(["checking the file"]);
+      expect(wrote).toEqual(["I added ", "the button."]);
+    });
+
+    it("forwards prose to a caller that only wants prose", async () => {
+      const client = stubClient([
+        {
+          deltas: [
+            { event: "thinking", text: "unwanted" },
+            { event: "text", text: "the answer" },
+          ],
+          message: message(),
+        },
+      ]);
+      const wrote: string[] = [];
+
+      await provider(client)
+        .startTurn()
+        .complete(request({ onTextDelta: (delta) => wrote.push(delta) }));
+
+      expect(wrote).toEqual(["the answer"]);
     });
 
     it("runs a request that is not watching", async () => {

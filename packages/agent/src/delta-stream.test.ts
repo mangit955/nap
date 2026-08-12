@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FLUSH_AFTER_CHARS, FLUSH_AFTER_MS, ThinkingStream } from "./thinking-stream.ts";
+import { DeltaStream, FLUSH_AFTER_CHARS, FLUSH_AFTER_MS } from "./delta-stream.ts";
 
 /** A clock a test moves by hand, so the time threshold costs no wall time. */
 function fakeClock(): { now: () => number; advance: (ms: number) => void } {
@@ -13,14 +13,14 @@ function fakeClock(): { now: () => number; advance: (ms: number) => void } {
 }
 
 function collect(now: () => number = () => 0): {
-  stream: ThinkingStream;
+  stream: DeltaStream;
   emitted: string[];
 } {
   const emitted: string[] = [];
-  return { stream: new ThinkingStream((text) => emitted.push(text), now), emitted };
+  return { stream: new DeltaStream((text) => emitted.push(text), now), emitted };
 }
 
-describe("ThinkingStream", () => {
+describe("DeltaStream", () => {
   it("holds a delta shorter than both thresholds", () => {
     const { stream, emitted } = collect();
 

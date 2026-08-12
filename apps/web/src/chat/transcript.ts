@@ -106,9 +106,17 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
         lastUserMessage = event.payload.text;
         break;
 
-      case "agent.message":
-        items.push({ kind: "message", key, from: "agent", text: event.payload.text });
+      case "agent.message": {
+        // Same rule as reasoning below, and for the same reason: the answer is shown as it is
+        // written, so it reaches the log as a run of events. They join into one paragraph
+        // keyed to the `seq` it opened with. Only ever joined to the *agent's* own prose —
+        // a step in between means the model said two things, and folding across one would
+        // attribute the second half to before the tool ran.
+        const open = items.at(-1);
+        if (open?.kind === "message" && open.from === "agent") open.text += event.payload.text;
+        else items.push({ kind: "message", key, from: "agent", text: event.payload.text });
         break;
+      }
 
       case "agent.thinking": {
         // Reasoning is streamed and coalesced into phrase-sized events, so one thought is a
