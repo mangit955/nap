@@ -3,6 +3,7 @@ import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { ChatTranscript } from "./chat-transcript.tsx";
+import { REVEAL_CLASS } from "./streaming-text.tsx";
 
 const SESSION = "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f";
 const TURN = "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f";
@@ -228,5 +229,68 @@ describe("a turn in progress", () => {
     expect(log).toHaveTextContent(/workspace/i);
     // And it says what to do, which is the whole point of the state existing.
     expect(log).toHaveTextContent(/send the message again/i);
+  });
+});
+
+describe("reasoning arriving as it is produced", () => {
+  const reveal = (container: HTMLElement) => container.querySelectorAll(`.${REVEAL_CLASS}`).length;
+
+  it("reveals the last thing on the rail while the turn is open", () => {
+    const { container } = show(
+      ev("turn.started", {}),
+      ev("agent.thinking", { text: "I should read App.tsx" }),
+    );
+
+    expect(reveal(container)).toBeGreaterThan(0);
+  });
+
+  it("leaves everything above it alone", () => {
+    // Only the newest item can still be growing. Re-revealing the ones above it would
+    // replay the whole turn every time another word arrived.
+    const { container } = show(
+      ev("turn.started", {}),
+      ev("agent.thinking", { text: "an earlier thought" }),
+      ev("agent.message", { text: "Added App.tsx." }),
+      ev("agent.thinking", { text: "and a later one" }),
+    );
+
+    expect(reveal(container)).toBe("and a later one".split(" ").length);
+  });
+
+  it("replays a finished turn flat", () => {
+    // Opening a project replays its whole log, and a transcript that re-ran every passage's
+    // reveal would say the agent is working on a turn that ended yesterday. What prevents it
+    // is that a finished turn ends *with* its terminal event, so the last line has no prose.
+    const { container } = show(
+      ev("turn.started", {}),
+      ev("agent.thinking", { text: "a thought from yesterday" }),
+      ev("turn.completed", {
+        usage: { inputTokens: 1, outputTokens: 1 },
+        durationMs: 10,
+        commitSha: null,
+      }),
+    );
+
+    expect(reveal(container)).toBe(0);
+    expect(screen.getByRole("log")).toHaveTextContent(/a thought from yesterday/);
+  });
+
+  it("reveals a passage in a log that begins mid-turn", () => {
+    // What a client sees when it reconnects partway through: no `turn.started`, because that
+    // event arrived before it asked. The turn is still running and the passage is still being
+    // written, so treating a missing start as a finished turn would freeze it.
+    const { container } = show(ev("agent.thinking", { text: "still thinking about this" }));
+
+    expect(reveal(container)).toBeGreaterThan(0);
+  });
+
+  it("shows a run of thinking events as one passage", () => {
+    show(
+      ev("turn.started", {}),
+      ev("agent.thinking", { text: "I should read " }),
+      ev("agent.thinking", { text: "App.tsx first." }),
+    );
+
+    expect(screen.getByText("I should read App.tsx first.")).toBeTruthy();
   });
 });

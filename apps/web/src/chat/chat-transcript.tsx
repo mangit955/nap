@@ -18,6 +18,7 @@
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { turnFailureCopy } from "../errors/failure-copy.ts";
 import { OutputBlock } from "./output-block.tsx";
+import { StreamingText } from "./streaming-text.tsx";
 import { ToolStep } from "./tool-step.tsx";
 import { buildTranscript, type TranscriptItem } from "./transcript.ts";
 
@@ -30,6 +31,14 @@ export function ChatTranscript({
   onRetry?: ((message: string) => void) | undefined;
 }) {
   const items = buildTranscript(events);
+  // The only item that can still be added to is the last one — everything above it has been
+  // overtaken by something newer. That alone is the whole rule, and it needs no check for
+  // whether a turn is open: a turn that ended ends *with* its `turn.completed` or
+  // `turn.failed`, so replaying a finished session leaves the last word on a line that has
+  // no prose to reveal. Asking `turnStartedAt` as well would look like a safety net and be a
+  // bug — a client that reconnected mid-turn has no `turn.started` in its log, and the
+  // passage the model is writing right now is exactly what it would refuse to animate.
+  const liveKey = items.at(-1)?.key;
 
   return (
     <div
@@ -42,7 +51,7 @@ export function ChatTranscript({
       className="flex flex-col px-4 py-3"
     >
       {items.map((item) => (
-        <Row key={item.key} item={item} onRetry={onRetry} />
+        <Row key={item.key} item={item} live={item.key === liveKey} onRetry={onRetry} />
       ))}
     </div>
   );
@@ -51,23 +60,28 @@ export function ChatTranscript({
 /** Every item hangs off the rail, so the rail is drawn once, here. */
 function Row({
   item,
+  live,
   onRetry,
 }: {
   item: TranscriptItem;
+  /** Whether this item can still be added to. Only ever true of the last one, mid-turn. */
+  live: boolean;
   onRetry?: ((message: string) => void) | undefined;
 }) {
   return (
     <div className="relative border-edge border-l pb-2 pl-4 last:pb-0">
-      <Item item={item} onRetry={onRetry} />
+      <Item item={item} live={live} onRetry={onRetry} />
     </div>
   );
 }
 
 function Item({
   item,
+  live,
   onRetry,
 }: {
   item: TranscriptItem;
+  live: boolean;
   onRetry?: ((message: string) => void) | undefined;
 }) {
   switch (item.kind) {
@@ -83,14 +97,14 @@ function Item({
             colour, which is nothing at all to someone listening to the page.
           */}
           <span className="sr-only">{item.from === "user" ? "You: " : "Agent: "}</span>
-          {item.text}
+          {item.from === "agent" ? <StreamingText text={item.text} live={live} /> : item.text}
         </p>
       );
 
     case "thinking":
       return (
         <p className="whitespace-pre-wrap text-muted/70 text-xs italic leading-relaxed">
-          {item.text}
+          <StreamingText text={item.text} live={live} />
         </p>
       );
 

@@ -394,3 +394,156 @@ describe("runTurn — completion", () => {
     ]);
   });
 });
+
+describe("runTurn — the model thinking out loud", () => {
+  it("emits the reasoning before the step it explains", async () => {
+    const { agent } = service([
+      [
+        { thinking: ["I should read App.tsx"], toolCalls: [call("list_files", {}, "toolu_1")] },
+        { thinking: ["Now I can answer"], text: "A heading." },
+      ],
+    ]);
+
+    await agent.runTurn(request());
+
+    // Reasoning leads its step in both round trips. A turn whose thinking arrived after the
+    // tool call it motivated would read as an explanation of the wrong thing.
+    expect(recorder.types).toEqual([
+      "turn.started",
+      "agent.thinking",
+      "tool.call",
+      "tool.result",
+      "agent.thinking",
+      "agent.message",
+      "turn.completed",
+    ]);
+  });
+
+  it("coalesces a burst of deltas rather than emitting one event each", async () => {
+    const { agent } = service([[{ thinking: ["Read ", "the ", "file"], text: "done" }]]);
+
+    await agent.runTurn(request());
+
+    expect(recorder.payloadsOf("agent.thinking")).toEqual([{ text: "Read the file" }]);
+  });
+
+  it("emits nothing for a step that did no thinking", async () => {
+    const { agent } = service([[{ text: "done" }]]);
+
+    await agent.runTurn(request());
+
+    expect(recorder.types).not.toContain("agent.thinking");
+  });
+
+  it("keeps the reasoning of a turn that then failed", async () => {
+    // The thinking is the only account of what the model was doing when it stopped, and it
+    // is most worth having on the path where nothing else explains the turn.
+    const { agent } = service([[{ thinking: ["Considering the request"], refusal: true }]]);
+
+    await agent.runTurn(request());
+
+    expect(recorder.types).toEqual(["turn.started", "agent.thinking", "turn.failed"]);
+  });
+
+  it("keeps the reasoning of a turn the provider could not complete", async () => {
+    const { agent } = service([
+      [{ thinking: ["Starting"], error: { message: "upstream is down", retryable: false } }],
+    ]);
+
+    await agent.runTurn(request());
+
+    expect(recorder.types).toEqual(["turn.started", "agent.thinking", "turn.failed"]);
+  });
+
+  it("carries the session and turn a step's other events carry", async () => {
+    const { agent } = service([[{ thinking: ["a thought"], text: "done" }]]);
+
+    await agent.runTurn(request());
+
+    const thinking = recorder.events.find((event) => event.type === "agent.thinking");
+    expect(thinking).toMatchObject({ sessionId: SESSION_ID, turnId: TURN_ID });
+    // Through the schema, so this is a real event rather than an object shaped like one.
+    expect(() => NapEventSchema.parse({ ...thinking, seq: 1 })).not.toThrow();
+  });
+});
+
+describe("runTurn — the model writing its answer", () => {
+  /** Long enough to cross the coalescer's threshold, so streaming is observable at all. */
+  const LONG = "I added the button and wired it to the toggle handler in App.tsx. ".repeat(4);
+  const pieces = (): string[] =>
+    recorder.payloadsOf("agent.message").map((payload) => (payload as { text: string }).text);
+
+  it("emits the prose in pieces as it is written", async () => {
+    // The point of streaming is that the reader sees the answer before it is finished. For a
+    // short reply that is invisible — the pieces coalesce into one event either way — so the
+    // assertion needs prose long enough to arrive in more than one.
+    const { agent } = service([[{ streamedText: [...LONG], text: LONG }]]);
+
+    await agent.runTurn(request());
+
+    expect(pieces().length).toBeGreaterThan(1);
+    expect(pieces().join("")).toBe(LONG);
+  });
+
+  it("does not repeat the assembled answer after streaming it", async () => {
+    // The assembled response carries the same words the deltas did. Emitting both would put
+    // the whole answer on the rail twice, once in pieces and once whole.
+    const { agent } = service([[{ streamedText: [...LONG], text: LONG }]]);
+
+    await agent.runTurn(request());
+
+    expect(pieces().join("")).toBe(LONG);
+  });
+
+  it("falls back to the assembled answer when nothing was streamed", async () => {
+    // Not every model or route sends text deltas. Saying nothing at all in that case would
+    // trade a lump of prose for no prose.
+    const { agent } = service([[{ text: "I added the button." }]]);
+
+    await agent.runTurn(request());
+
+    expect(pieces()).toEqual(["I added the button."]);
+  });
+
+  it("keeps the prose ahead of the tool call it introduces", async () => {
+    const { agent } = service([
+      [
+        {
+          thinking: ["I need to write a file"],
+          streamedText: ["Adding ", "the component."],
+          text: "Adding the component.",
+          toolCalls: [call("list_files", {}, "toolu_1")],
+        },
+        { streamedText: ["Done."], text: "Done." },
+      ],
+    ]);
+
+    await agent.runTurn(request());
+
+    expect(recorder.types).toEqual([
+      "turn.started",
+      "agent.thinking",
+      "agent.message",
+      "tool.call",
+      "tool.result",
+      "agent.message",
+      "turn.completed",
+    ]);
+  });
+
+  it("says nothing for a step that wrote no prose at all", async () => {
+    const { agent } = service([
+      [{ toolCalls: [call("list_files", {}, "toolu_1")] }, { text: "done" }],
+    ]);
+
+    await agent.runTurn(request());
+
+    expect(recorder.types).toEqual([
+      "turn.started",
+      "tool.call",
+      "tool.result",
+      "agent.message",
+      "turn.completed",
+    ]);
+  });
+});

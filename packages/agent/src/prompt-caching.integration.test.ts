@@ -95,6 +95,11 @@ function recordingClient(): AnthropicClient & { responses: AnthropicMessage[] } 
       stream(body, options) {
         const stream = client.messages.stream(body, options);
         return {
+          // Forwarded rather than swallowed: this stub stands in for the SDK on the one
+          // path that reaches it for real, so it has to offer everything the provider uses.
+          on: (event, listener) => {
+            stream.on(event, listener);
+          },
           finalMessage: async () => {
             const message = await stream.finalMessage();
             responses.push(message);

@@ -130,6 +130,72 @@ describe("messages", () => {
 
     expect(items.map((i) => i.kind)).toEqual(["thinking", "message"]);
   });
+
+  it("folds a run of thinking events into one passage", () => {
+    // The agent's reasoning arrives coalesced into phrase-sized events, several a second.
+    // One paragraph per event would break a single thought across a dozen blocks.
+    const items = fold(
+      ev("agent.thinking", { text: "I should read " }),
+      ev("agent.thinking", { text: "App.tsx first." }),
+    );
+
+    expect(items).toEqual([{ kind: "thinking", key: 1, text: "I should read App.tsx first." }]);
+  });
+
+  it("keys the passage to where it began", () => {
+    // The key is what React renders the passage under, and the passage grows on every frame
+    // while the model thinks. A key that moved with the newest event would remount the
+    // element each time, restarting the reveal of every word already on screen.
+    const [first] = fold(ev("agent.thinking", { text: "one" }));
+    const [grown] = fold(
+      ev("agent.thinking", { text: "one" }),
+      ev("agent.thinking", { text: " two" }),
+    );
+
+    expect(grown?.key).toBe(first?.key);
+  });
+
+  it("folds a run of agent messages into one answer", () => {
+    // Prose arrives in pieces because it is shown as it is written. One paragraph per piece
+    // would break a sentence across a dozen blocks at whatever sizes the network delivered.
+    const items = fold(
+      ev("agent.message", { text: "I changed " }),
+      ev("agent.message", { text: "the header colour." }),
+    );
+
+    expect(items).toEqual([
+      { kind: "message", key: 1, from: "agent", text: "I changed the header colour." },
+    ]);
+  });
+
+  it("never folds what the user said into what the agent said", () => {
+    const items = fold(
+      ev("user.message", { text: "make it blue" }),
+      ev("agent.message", { text: "Done." }),
+    );
+
+    expect(items.map((i) => (i.kind === "message" ? i.from : i.kind))).toEqual(["user", "agent"]);
+  });
+
+  it("starts a new answer after a tool call came between", () => {
+    const items = fold(
+      ev("agent.message", { text: "Reading the file." }),
+      ev("tool.call", { toolCallId: "c1", toolName: "read_file", input: {} }),
+      ev("agent.message", { text: "It renders a heading." }),
+    );
+
+    expect(items.map((i) => i.kind)).toEqual(["message", "step", "message"]);
+  });
+
+  it("starts a new passage after something else happened", () => {
+    const items = fold(
+      ev("agent.thinking", { text: "before" }),
+      ev("agent.message", { text: "Added App.tsx." }),
+      ev("agent.thinking", { text: "after" }),
+    );
+
+    expect(items.map((i) => i.kind)).toEqual(["thinking", "message", "thinking"]);
+  });
 });
 
 describe("tool steps", () => {

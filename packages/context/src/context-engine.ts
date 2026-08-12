@@ -91,13 +91,35 @@ function toMessages(events: NapEvent[]): LLMMessage[] {
     messages.push({ role, content: [block] });
   };
 
+  /**
+   * Adds prose to the open text block if there is one, and starts a new block otherwise.
+   *
+   * Only ever joins text to *text*: a tool call between two pieces of prose means the model
+   * said two things, and joining across it would attribute the second half to before the tool
+   * ran.
+   */
+  const appendText = (role: LLMMessage["role"], text: string): void => {
+    const last = messages.at(-1);
+    const openBlock = Array.isArray(last?.content) ? last.content.at(-1) : undefined;
+    if (last?.role === role && openBlock?.type === "text") {
+      openBlock.text += text;
+      return;
+    }
+    push(role, textBlock(text));
+  };
+
   for (const event of events) {
     switch (event.type) {
       case "user.message":
         push("user", textBlock(event.payload.text));
         break;
       case "agent.message":
-        push("assistant", textBlock(event.payload.text));
+        // Appended to the block already there when the previous event was also prose, rather
+        // than pushed as a new one. An answer reaches the log in pieces now — it is shown as
+        // it is written — and the conversation the model is re-sent has to look the way it
+        // did when it wrote it: one answer, not a paragraph broken at the sizes the network
+        // happened to deliver, and not a message that grows a content block per event.
+        appendText("assistant", event.payload.text);
         break;
       case "tool.call": {
         const { toolCallId, toolName, input } = event.payload;

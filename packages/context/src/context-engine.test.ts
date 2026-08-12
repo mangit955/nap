@@ -284,6 +284,62 @@ describe("NapContextEngine", () => {
         "add a dark mode toggle",
       ]);
     });
+
+    it("rejoins an answer the model streamed in pieces", async () => {
+      // Prose now reaches the log as several events, because it is shown as it is written.
+      // The conversation the model is re-sent has to look the way it did when it wrote it:
+      // one answer, not a paragraph broken into the sizes the network happened to deliver.
+      const history = [
+        userMessage(1, "make it blue"),
+        agentMessage(1, "I changed "),
+        agentMessage(1, "the header colour."),
+      ];
+
+      const context = await engine().build(request({ history }));
+
+      expect(texts(context.messages)).toEqual([
+        "make it blue",
+        "I changed the header colour.",
+        "add a dark mode toggle",
+      ]);
+    });
+
+    it("gives a rejoined answer one content block, not several", async () => {
+      // Asserting on the blocks and not just the text: several text blocks in a row read
+      // back the same, so a version that leaves them separate passes the test above while
+      // sending the model a shape it never produced — and one that grows a block per event.
+      const history = [
+        userMessage(1, "make it blue"),
+        agentMessage(1, "I changed "),
+        agentMessage(1, "the header colour."),
+      ];
+
+      const context = await engine().build(request({ history }));
+      const assistant = context.messages.find((message) => message.role === "assistant");
+
+      expect(Array.isArray(assistant?.content) ? assistant.content : []).toEqual([
+        { type: "text", text: "I changed the header colour." },
+      ]);
+    });
+
+    it("still separates prose that a tool call came between", async () => {
+      // Two answers with work in the middle are two things the model said, and joining them
+      // would attribute the second half to before the tool ran.
+      const history = [
+        agentMessage(1, "Reading the file."),
+        toolCall(1, "tc_1"),
+        toolResult(1, "tc_1", "contents"),
+        agentMessage(1, "It renders a heading."),
+      ];
+
+      const context = await engine().build(request({ history }));
+
+      expect(texts(context.messages)).toEqual([
+        "Reading the file.",
+        "It renders a heading.",
+        "add a dark mode toggle",
+      ]);
+    });
   });
 
   describe("the project's files", () => {

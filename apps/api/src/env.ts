@@ -69,15 +69,17 @@ const BaseSchema = z.object({
    * What a turn is allowed to spend, and on what.
    *
    * Every message typed into the chat box is a real model call and a real sandbox, so the
-   * default is the cheap one — the same model `bun run harness --real` defaults to. Recording
-   * a demo means setting `NAP_MODEL=anthropic/claude-opus-5` and `NAP_EFFORT=xhigh` for that
-   * run, which is one line rather than a code change.
+   * default is the cheap one, and it is the model this project runs everywhere — the harness,
+   * the API and the provider's own fallback all name it. Raising the ceiling for something
+   * people will watch is `NAP_MODEL` and `NAP_EFFORT` on that run, which is one line rather
+   * than a code change.
    *
-   * The default is priced at roughly a twentieth of Claude Sonnet 5 per token, which is what
-   * makes it the one to debug the agent loop against: most turns during development are spent
-   * proving event ordering and tool sequencing, and that does not need a good model, only one
-   * that returns well-formed tool calls. It is a *fully namespaced* OpenRouter id — a bare
-   * name is assumed to be Anthropic's, which is how this codebase has always spelled a model.
+   * It is priced at roughly a twentieth of a frontier model per token, which is what makes it
+   * the one to debug the agent loop against: most turns during development are spent proving
+   * event ordering and tool sequencing, and that does not need a good model, only one that
+   * returns well-formed tool calls. It is a *fully namespaced* OpenRouter id — a bare name is
+   * assumed to be Anthropic's, which is how this codebase has always spelled a model, so a
+   * namespace is what keeps the default pointed where it says.
    */
   NAP_MODEL: z.string().min(1).default("openai/gpt-5.6-luna"),
   NAP_EFFORT: z.enum(["low", "medium", "high", "xhigh", "max"]).default("medium"),

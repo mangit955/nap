@@ -8,9 +8,10 @@
  *
  * Four choices here are worth explaining, because none is obvious from the code:
  *
- *  - **Streaming, always.** Not because anything consumes the chunks — nothing does yet —
- *    but because a non-streaming request with a large `max_tokens` runs into the SDK's
- *    HTTP timeout. `finalMessage()` gives back the assembled message either way.
+ *  - **Streaming, always.** Originally because a non-streaming request with a large
+ *    `max_tokens` runs into the SDK's HTTP timeout; now also because the chunks are read.
+ *    `finalMessage()` still gives back the assembled message, so the two uses coexist:
+ *    reasoning is forwarded as it arrives, the answer is taken from the assembled whole.
  *  - **We own the retry loop.** The SDK retries by default, which would be fine except
  *    that it is invisible: "gives up after N attempts" is a policy this project has to be
  *    able to test, so the client is constructed with retries off and the loop below is
@@ -53,7 +54,15 @@ export type AnthropicClient = {
       // one passed as undefined are different types, and a request without a signal is
       // the normal case.
       options?: { signal?: AbortSignal | undefined },
-    ): { finalMessage(): Promise<AnthropicMessage> };
+    ): {
+      /**
+       * The SDK's own event emitter. Both events hand over `(delta, snapshot)` — the piece
+       * that just arrived, then the running total — which is why the listeners below read
+       * the first argument and ignore the second.
+       */
+      on(event: "thinking" | "text", listener: (delta: string, snapshot: string) => void): void;
+      finalMessage(): Promise<AnthropicMessage>;
+    };
   };
 };
 
@@ -97,18 +106,29 @@ export type ModelConfig = {
 };
 
 /**
- * `claude-opus-5` at `xhigh` effort with adaptive thinking, summarized.
+ * `openai/gpt-5.6-luna` at `xhigh` effort with adaptive thinking, summarized.
  *
- * `xhigh` is the setting this model is tuned for on coding and agentic work. Thinking is
- * left on — disabling it makes the model occasionally write a tool call into its prose,
- * where nothing executes it and the turn silently does nothing. `summarized` keeps the
- * reasoning readable for the day the UI shows it; the default hides it.
+ * **The default model is deliberately not Anthropic's**, even though everything below speaks
+ * the Anthropic Messages API. The two are independent: OpenRouter publishes that API in front
+ * of every vendor's models, so the request shape here is a *protocol* choice and the model is
+ * a *cost* choice. Luna is roughly a twentieth of Opus per token, and a turn that proves the
+ * loop works is not more convincing for having been expensive.
  *
- * No `temperature`, `top_p`, `top_k` or `budget_tokens`: this model rejects all four with
- * a 400.
+ * Thinking is left on — disabling it makes a model occasionally write a tool call into its
+ * prose, where nothing executes it and the turn silently does nothing. `summarized` asks for
+ * readable reasoning; the default hides it. Whether any of it comes back is the *route's*
+ * business, and on OpenRouter's Anthropic endpoint it does not — see the gotcha in
+ * `CLAUDE.md`. Asking costs nothing and is what makes a route that does forward it work.
+ *
+ * No `temperature`, `top_p`, `top_k` or `budget_tokens`: the models reached this way reject
+ * all four with a 400.
+ *
+ * A fully namespaced id, because a bare name is read as Anthropic's. That also makes this
+ * default wrong for `--platform=anthropic`, which serves Anthropic's catalogue alone — a
+ * caller reaching for the first-party API has to name a model it actually has.
  */
 export const DEFAULT_MODEL_CONFIG: ModelConfig = {
-  model: "claude-opus-5",
+  model: "openai/gpt-5.6-luna",
   effort: "xhigh",
   /** Room to think and answer across a long tool loop. */
   maxTokens: 64_000,
@@ -330,9 +350,20 @@ class ClaudeTurn implements LLMTurn {
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
       try {
-        const message = await this.#client.messages
-          .stream(body, { signal: request.signal })
-          .finalMessage();
+        const stream = this.#client.messages.stream(body, { signal: request.signal });
+        // Subscribed per attempt rather than once, because each attempt is its own stream.
+        // A retried attempt therefore re-sends the reasoning from the beginning — the model
+        // is genuinely thinking again, and a repeated thought is a better answer than a turn
+        // that falls silent the moment the first attempt is dropped.
+        if (request.onThinkingDelta !== undefined) {
+          const forward = request.onThinkingDelta;
+          stream.on("thinking", (delta) => forward(delta));
+        }
+        if (request.onTextDelta !== undefined) {
+          const forward = request.onTextDelta;
+          stream.on("text", (delta) => forward(delta));
+        }
+        const message = await stream.finalMessage();
         return this.#record(toTurnResult(message));
       } catch (cause) {
         lastError = cause;

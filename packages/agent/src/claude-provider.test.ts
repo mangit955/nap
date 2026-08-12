@@ -10,11 +10,29 @@ import {
 } from "./claude-provider.ts";
 
 /**
+ * What the SDK announces as a response is assembled, named by the event the stream emits.
+ * The two are kept apart all the way down: reasoning and prose are different things to a
+ * reader, and a provider that crossed them would caption the answer as thinking.
+ */
+type Delta = { event: "thinking" | "text"; text: string };
+
+/** A scripted call: what the stream emits along the way, and what it finally resolves to. */
+type Scripted = AnthropicMessage | Error | { deltas: Delta[]; message: AnthropicMessage | Error };
+
+function isScript(next: Scripted): next is { deltas: Delta[]; message: AnthropicMessage | Error } {
+  return !(next instanceof Error) && "deltas" in next;
+}
+
+/**
  * A stub standing in for the SDK. Everything the provider does to a response goes
  * through here, so failure paths are drivable without a network or `vi.mock`.
+ *
+ * The deltas replay when `finalMessage()` is awaited rather than when `stream()` returns,
+ * because that is the order the real client has: subscribing happens between the two, and a
+ * stub that fired first would let a provider that never subscribes pass anyway.
  */
 function stubClient(
-  responses: (AnthropicMessage | Error)[],
+  responses: Scripted[],
 ): AnthropicClient & { calls: { body: unknown; options: unknown }[] } {
   const calls: { body: unknown; options: unknown }[] = [];
   let index = 0;
@@ -27,10 +45,25 @@ function stubClient(
         const next = responses[index];
         index += 1;
         if (next === undefined) throw new Error(`stub has no response for call ${index}`);
+
+        const deltas = isScript(next) ? next.deltas : [];
+        const result = isScript(next) ? next.message : next;
+        const listeners = new Map<string, ((delta: string, snapshot: string) => void)[]>();
+
         return {
+          on(event: string, listener: (delta: string, snapshot: string) => void) {
+            listeners.set(event, [...(listeners.get(event) ?? []), listener]);
+          },
           finalMessage: async () => {
-            if (next instanceof Error) throw next;
-            return next;
+            for (const delta of deltas) {
+              // Second argument is the snapshot the real stream passes; present so a
+              // provider reading the wrong one is caught here rather than in production.
+              for (const listener of listeners.get(delta.event) ?? []) {
+                listener(delta.text, `snapshot:${delta.text}`);
+              }
+            }
+            if (result instanceof Error) throw result;
+            return result;
           },
         };
       },
@@ -205,7 +238,7 @@ describe("ClaudeProvider", () => {
       await provider(client).startTurn().complete(request());
 
       const body = client.calls[0]?.body as Anthropic.MessageStreamParams;
-      expect(body.model).toBe("claude-opus-5");
+      expect(body.model).toBe("openai/gpt-5.6-luna");
       expect(body.output_config).toEqual({ effort: "xhigh" });
       expect(body.thinking).toEqual({ type: "adaptive", display: "summarized" });
       // A block array rather than a string, because the prompt carries a cache breakpoint —
@@ -214,17 +247,18 @@ describe("ClaudeProvider", () => {
     });
 
     it("can be pointed at a cheaper model and a lower effort without changing anything else", async () => {
-      // Development turns are spent debugging the loop rather than judging its answers, and
-      // the two models are structurally identical — same blocks, same streaming, same refusal
-      // semantics. Anything that is not a model or an effort must be unaffected.
+      // The id is passed through verbatim, so what it names does not matter here — only that
+      // it is not the default. Every model reached this way is structurally identical: same
+      // blocks, same streaming, same refusal semantics. Anything that is not a model or an
+      // effort must be unaffected.
       const client = stubClient([message()]);
 
-      await new ClaudeProvider({ client, model: "claude-sonnet-5", effort: "low" })
+      await new ClaudeProvider({ client, model: "vendor/some-other-model", effort: "low" })
         .startTurn()
         .complete(request());
 
       const body = client.calls[0]?.body as Anthropic.MessageStreamParams;
-      expect(body.model).toBe("claude-sonnet-5");
+      expect(body.model).toBe("vendor/some-other-model");
       expect(body.output_config).toEqual({ effort: "low" });
       expect(body.thinking).toEqual({ type: "adaptive", display: "summarized" });
     });
@@ -523,6 +557,103 @@ describe("ClaudeProvider", () => {
 
       expect(body.messages).toEqual([]);
       expect(breakpoints(body)).toHaveLength(1);
+    });
+  });
+
+  describe("streaming the model's reasoning", () => {
+    it("forwards each thinking delta as it arrives", async () => {
+      const client = stubClient([
+        {
+          deltas: [
+            { event: "thinking", text: "Looking at " },
+            { event: "thinking", text: "the button." },
+          ],
+          message: message(),
+        },
+      ]);
+      const seen: string[] = [];
+
+      await provider(client)
+        .startTurn()
+        .complete(request({ onThinkingDelta: (delta) => seen.push(delta) }));
+
+      // The delta, not the snapshot: the caller accumulates, and forwarding the running
+      // total instead would repeat every earlier word in every event.
+      expect(seen).toEqual(["Looking at ", "the button."]);
+    });
+
+    it("keeps reasoning and prose on their own channels", async () => {
+      // Crossing them would caption the answer as thinking, and print the reasoning where
+      // the reader expects the reply.
+      const client = stubClient([
+        {
+          deltas: [
+            { event: "text", text: "I added " },
+            { event: "thinking", text: "checking the file" },
+            { event: "text", text: "the button." },
+          ],
+          message: message(),
+        },
+      ]);
+      const thought: string[] = [];
+      const wrote: string[] = [];
+
+      await provider(client)
+        .startTurn()
+        .complete(
+          request({
+            onThinkingDelta: (delta) => thought.push(delta),
+            onTextDelta: (delta) => wrote.push(delta),
+          }),
+        );
+
+      expect(thought).toEqual(["checking the file"]);
+      expect(wrote).toEqual(["I added ", "the button."]);
+    });
+
+    it("forwards prose to a caller that only wants prose", async () => {
+      const client = stubClient([
+        {
+          deltas: [
+            { event: "thinking", text: "unwanted" },
+            { event: "text", text: "the answer" },
+          ],
+          message: message(),
+        },
+      ]);
+      const wrote: string[] = [];
+
+      await provider(client)
+        .startTurn()
+        .complete(request({ onTextDelta: (delta) => wrote.push(delta) }));
+
+      expect(wrote).toEqual(["the answer"]);
+    });
+
+    it("runs a request that is not watching", async () => {
+      const client = stubClient([
+        { deltas: [{ event: "thinking", text: "unwatched" }], message: message() },
+      ]);
+
+      const result = await provider(client).startTurn().complete(request());
+
+      expect(result.type).toBe("message");
+    });
+
+    it("keeps forwarding after a retry", async () => {
+      // A retried attempt re-thinks from the start, so the reasoning arrives twice. Better a
+      // repeated thought than a turn that goes quiet the moment the first attempt is dropped.
+      const client = stubClient([
+        { deltas: [{ event: "thinking", text: "first try" }], message: rateLimited() },
+        { deltas: [{ event: "thinking", text: "second try" }], message: message() },
+      ]);
+      const seen: string[] = [];
+
+      await provider(client)
+        .startTurn()
+        .complete(request({ onThinkingDelta: (delta) => seen.push(delta) }));
+
+      expect(seen).toEqual(["first try", "second try"]);
     });
   });
 });
