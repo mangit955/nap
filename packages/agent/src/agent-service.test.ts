@@ -375,3 +375,75 @@ describe("runTurn — completion", () => {
     ]);
   });
 });
+
+describe("runTurn — the model thinking out loud", () => {
+  it("emits the reasoning before the step it explains", async () => {
+    const { agent } = service([
+      [
+        { thinking: ["I should read App.tsx"], toolCalls: [call("list_files", {}, "toolu_1")] },
+        { thinking: ["Now I can answer"], text: "A heading." },
+      ],
+    ]);
+
+    await agent.runTurn(request());
+
+    // Reasoning leads its step in both round trips. A turn whose thinking arrived after the
+    // tool call it motivated would read as an explanation of the wrong thing.
+    expect(recorder.types).toEqual([
+      "turn.started",
+      "agent.thinking",
+      "tool.call",
+      "tool.result",
+      "agent.thinking",
+      "agent.message",
+      "turn.completed",
+    ]);
+  });
+
+  it("coalesces a burst of deltas rather than emitting one event each", async () => {
+    const { agent } = service([[{ thinking: ["Read ", "the ", "file"], text: "done" }]]);
+
+    await agent.runTurn(request());
+
+    expect(recorder.payloadsOf("agent.thinking")).toEqual([{ text: "Read the file" }]);
+  });
+
+  it("emits nothing for a step that did no thinking", async () => {
+    const { agent } = service([[{ text: "done" }]]);
+
+    await agent.runTurn(request());
+
+    expect(recorder.types).not.toContain("agent.thinking");
+  });
+
+  it("keeps the reasoning of a turn that then failed", async () => {
+    // The thinking is the only account of what the model was doing when it stopped, and it
+    // is most worth having on the path where nothing else explains the turn.
+    const { agent } = service([[{ thinking: ["Considering the request"], refusal: true }]]);
+
+    await agent.runTurn(request());
+
+    expect(recorder.types).toEqual(["turn.started", "agent.thinking", "turn.failed"]);
+  });
+
+  it("keeps the reasoning of a turn the provider could not complete", async () => {
+    const { agent } = service([
+      [{ thinking: ["Starting"], error: { message: "upstream is down", retryable: false } }],
+    ]);
+
+    await agent.runTurn(request());
+
+    expect(recorder.types).toEqual(["turn.started", "agent.thinking", "turn.failed"]);
+  });
+
+  it("carries the session and turn a step's other events carry", async () => {
+    const { agent } = service([[{ thinking: ["a thought"], text: "done" }]]);
+
+    await agent.runTurn(request());
+
+    const thinking = recorder.events.find((event) => event.type === "agent.thinking");
+    expect(thinking).toMatchObject({ sessionId: SESSION_ID, turnId: TURN_ID });
+    // Through the schema, so this is a real event rather than an object shaped like one.
+    expect(() => NapEventSchema.parse({ ...thinking, seq: 1 })).not.toThrow();
+  });
+});

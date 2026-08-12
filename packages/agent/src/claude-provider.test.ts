@@ -10,11 +10,29 @@ import {
 } from "./claude-provider.ts";
 
 /**
+ * What the SDK announces as a response is assembled, named by the event the stream emits.
+ * `text` is here so a test can prove it is *not* forwarded — the final message already
+ * carries the prose, and a provider that streamed it too would print the answer twice.
+ */
+type Delta = { event: "thinking" | "text"; text: string };
+
+/** A scripted call: what the stream emits along the way, and what it finally resolves to. */
+type Scripted = AnthropicMessage | Error | { deltas: Delta[]; message: AnthropicMessage | Error };
+
+function isScript(next: Scripted): next is { deltas: Delta[]; message: AnthropicMessage | Error } {
+  return !(next instanceof Error) && "deltas" in next;
+}
+
+/**
  * A stub standing in for the SDK. Everything the provider does to a response goes
  * through here, so failure paths are drivable without a network or `vi.mock`.
+ *
+ * The deltas replay when `finalMessage()` is awaited rather than when `stream()` returns,
+ * because that is the order the real client has: subscribing happens between the two, and a
+ * stub that fired first would let a provider that never subscribes pass anyway.
  */
 function stubClient(
-  responses: (AnthropicMessage | Error)[],
+  responses: Scripted[],
 ): AnthropicClient & { calls: { body: unknown; options: unknown }[] } {
   const calls: { body: unknown; options: unknown }[] = [];
   let index = 0;
@@ -27,10 +45,25 @@ function stubClient(
         const next = responses[index];
         index += 1;
         if (next === undefined) throw new Error(`stub has no response for call ${index}`);
+
+        const deltas = isScript(next) ? next.deltas : [];
+        const result = isScript(next) ? next.message : next;
+        const listeners = new Map<string, ((delta: string, snapshot: string) => void)[]>();
+
         return {
+          on(event: string, listener: (delta: string, snapshot: string) => void) {
+            listeners.set(event, [...(listeners.get(event) ?? []), listener]);
+          },
           finalMessage: async () => {
-            if (next instanceof Error) throw next;
-            return next;
+            for (const delta of deltas) {
+              // Second argument is the snapshot the real stream passes; present so a
+              // provider reading the wrong one is caught here rather than in production.
+              for (const listener of listeners.get(delta.event) ?? []) {
+                listener(delta.text, `snapshot:${delta.text}`);
+              }
+            }
+            if (result instanceof Error) throw result;
+            return result;
           },
         };
       },
@@ -484,6 +517,77 @@ describe("ClaudeProvider", () => {
 
       expect(body.messages).toEqual([]);
       expect(breakpoints(body)).toHaveLength(1);
+    });
+  });
+
+  describe("streaming the model's reasoning", () => {
+    it("forwards each thinking delta as it arrives", async () => {
+      const client = stubClient([
+        {
+          deltas: [
+            { event: "thinking", text: "Looking at " },
+            { event: "thinking", text: "the button." },
+          ],
+          message: message(),
+        },
+      ]);
+      const seen: string[] = [];
+
+      await provider(client)
+        .startTurn()
+        .complete(request({ onThinkingDelta: (delta) => seen.push(delta) }));
+
+      // The delta, not the snapshot: the caller accumulates, and forwarding the running
+      // total instead would repeat every earlier word in every event.
+      expect(seen).toEqual(["Looking at ", "the button."]);
+    });
+
+    it("leaves the answer's own text alone", async () => {
+      // Prose reaches the caller once, in the assembled message. Streaming it here as well
+      // would put the whole answer on the rail a second time.
+      const client = stubClient([
+        {
+          deltas: [
+            { event: "text", text: "I added " },
+            { event: "thinking", text: "checking the file" },
+            { event: "text", text: "the button." },
+          ],
+          message: message(),
+        },
+      ]);
+      const seen: string[] = [];
+
+      await provider(client)
+        .startTurn()
+        .complete(request({ onThinkingDelta: (delta) => seen.push(delta) }));
+
+      expect(seen).toEqual(["checking the file"]);
+    });
+
+    it("runs a request that is not watching", async () => {
+      const client = stubClient([
+        { deltas: [{ event: "thinking", text: "unwatched" }], message: message() },
+      ]);
+
+      const result = await provider(client).startTurn().complete(request());
+
+      expect(result.type).toBe("message");
+    });
+
+    it("keeps forwarding after a retry", async () => {
+      // A retried attempt re-thinks from the start, so the reasoning arrives twice. Better a
+      // repeated thought than a turn that goes quiet the moment the first attempt is dropped.
+      const client = stubClient([
+        { deltas: [{ event: "thinking", text: "first try" }], message: rateLimited() },
+        { deltas: [{ event: "thinking", text: "second try" }], message: message() },
+      ]);
+      const seen: string[] = [];
+
+      await provider(client)
+        .startTurn()
+        .complete(request({ onThinkingDelta: (delta) => seen.push(delta) }));
+
+      expect(seen).toEqual(["first try", "second try"]);
     });
   });
 });

@@ -58,6 +58,19 @@ export type LLMRequest = {
   /** Declared every call: a model that was not told about a tool never asks for one. */
   tools: LLMToolDefinition[];
   signal?: AbortSignal;
+  /**
+   * Summarized reasoning, delivered as the model produces it rather than when the call ends.
+   *
+   * A turn is bursts of tool calls separated by silences of ten and twenty seconds, and the
+   * silence *is* the model thinking — so this is the only thing that can say what is happening
+   * while it happens. Absent means nobody is watching, and a provider that is handed nothing
+   * costs nothing extra.
+   *
+   * `| undefined` spelled out, for the reason `signal` above does: under
+   * `exactOptionalPropertyTypes` an absent callback and one passed as undefined are different
+   * types, and not watching is the ordinary case.
+   */
+  onThinkingDelta?: ((delta: string) => void) | undefined;
 };
 
 export type LLMTurnResult =

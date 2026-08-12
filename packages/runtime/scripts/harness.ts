@@ -48,15 +48,18 @@ if (!parsedArgs.ok) {
 const options = parsedArgs.value;
 
 /**
- * A model that writes one file and then answers.
+ * A model that thinks, writes one file, and then answers.
  *
- * Enough to exercise every part of the stream a real turn produces — a tool call, its
- * result, a file diff, a message, a commit — without a request leaving the machine.
+ * Enough to exercise every part of the stream a real turn produces — reasoning arriving in
+ * pieces, a tool call, its result, a file diff, a message, a commit — without a request
+ * leaving the machine. The thinking is scripted as several deltas rather than one string
+ * because coalescing them is the part worth seeing work.
  */
 function scriptedProvider(): LLMProvider {
   return new ScriptedLLMProvider([
     [
       {
+        thinking: ["The project has no toggle yet, ", "so I will add one component."],
         text: "I'll add the component.",
         toolCalls: [
           {
@@ -71,7 +74,11 @@ function scriptedProvider(): LLMProvider {
         ],
         usage: { inputTokens: 1_200, outputTokens: 90 },
       },
-      { text: "Added the toggle component.", usage: { inputTokens: 1_400, outputTokens: 20 } },
+      {
+        thinking: ["The file is written. ", "Nothing else is needed."],
+        text: "Added the toggle component.",
+        usage: { inputTokens: 1_400, outputTokens: 20 },
+      },
     ],
   ]);
 }

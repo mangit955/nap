@@ -8,9 +8,10 @@
  *
  * Four choices here are worth explaining, because none is obvious from the code:
  *
- *  - **Streaming, always.** Not because anything consumes the chunks — nothing does yet —
- *    but because a non-streaming request with a large `max_tokens` runs into the SDK's
- *    HTTP timeout. `finalMessage()` gives back the assembled message either way.
+ *  - **Streaming, always.** Originally because a non-streaming request with a large
+ *    `max_tokens` runs into the SDK's HTTP timeout; now also because the chunks are read.
+ *    `finalMessage()` still gives back the assembled message, so the two uses coexist:
+ *    reasoning is forwarded as it arrives, the answer is taken from the assembled whole.
  *  - **We own the retry loop.** The SDK retries by default, which would be fine except
  *    that it is invisible: "gives up after N attempts" is a policy this project has to be
  *    able to test, so the client is constructed with retries off and the loop below is
@@ -52,7 +53,15 @@ export type AnthropicClient = {
       // one passed as undefined are different types, and a request without a signal is
       // the normal case.
       options?: { signal?: AbortSignal | undefined },
-    ): { finalMessage(): Promise<AnthropicMessage> };
+    ): {
+      /**
+       * The SDK's own event emitter. `thinking` hands over `(delta, snapshot)` — the piece
+       * that just arrived, then the running total — which is why the listener below reads
+       * the first argument and ignores the second.
+       */
+      on(event: "thinking", listener: (delta: string, snapshot: string) => void): void;
+      finalMessage(): Promise<AnthropicMessage>;
+    };
   };
 };
 
@@ -323,9 +332,16 @@ class ClaudeTurn implements LLMTurn {
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
       try {
-        const message = await this.#client.messages
-          .stream(body, { signal: request.signal })
-          .finalMessage();
+        const stream = this.#client.messages.stream(body, { signal: request.signal });
+        // Subscribed per attempt rather than once, because each attempt is its own stream.
+        // A retried attempt therefore re-sends the reasoning from the beginning — the model
+        // is genuinely thinking again, and a repeated thought is a better answer than a turn
+        // that falls silent the moment the first attempt is dropped.
+        if (request.onThinkingDelta !== undefined) {
+          const forward = request.onThinkingDelta;
+          stream.on("thinking", (delta) => forward(delta));
+        }
+        const message = await stream.finalMessage();
         return this.#record(toTurnResult(message));
       } catch (cause) {
         lastError = cause;

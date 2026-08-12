@@ -37,6 +37,14 @@ export type ScriptedResponse = {
   usage?: TokenUsage;
   refusal?: boolean;
   error?: { message: string; retryable: boolean };
+  /**
+   * Summarized reasoning to hand over before the response resolves, one entry per delta.
+   *
+   * Here rather than only on the real provider so the free path exercises the same
+   * composition: `bun run harness` prints real `agent.thinking` events with no network and no
+   * spend, which is what makes the wiring verifiable without a model.
+   */
+  thinking?: string[];
 };
 
 /** The responses one turn hands out, in call order. */
@@ -121,6 +129,11 @@ class ScriptedTurnHandle implements RecordingLLMTurn {
     this.#consumed += 1;
     this.#requests.push(request);
     this.#allRequests.push(request);
+
+    // Before the result, which is the order a real stream has — the reasoning arrives while
+    // the call is still open, and a fake that delivered it afterwards would let a caller that
+    // never subscribes look identical to one that does.
+    for (const delta of response.thinking ?? []) request.onThinkingDelta?.(delta);
 
     const result = toResult(response);
     this.#usage = {

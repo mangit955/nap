@@ -262,13 +262,74 @@ body {
 }
 
 /*
+ * The agent's reasoning arriving, a word at a time.
+ *
+ * Each word resolves out of blur and settles a couple of pixels, which reads as the sentence
+ * being written rather than as text appearing. The blur is what makes it legible as *thinking*
+ * — a plain fade reads as a page loading, and a slide reads as a menu.
+ *
+ * `both` is load-bearing rather than tidy: a word is mounted with its delay already counting,
+ * so without the backwards fill it would paint sharp for the length of its own stagger and then
+ * blur — every word flashing before it arrives. `will-change` is set because the whole passage
+ * animates at once and a filter is the expensive half.
+ */
+.nap-stream-word {
+  display: inline;
+  animation: nap-stream-in 420ms cubic-bezier(0.22, 0.61, 0.25, 1) both;
+  will-change: filter, opacity;
+}
+
+@keyframes nap-stream-in {
+  from {
+    opacity: 0;
+    filter: blur(4px);
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0);
+  }
+}
+
+/*
+ * The caret sits at the end of a passage that is still being written, and it is the only part
+ * that says the thought is unfinished — the words alone cannot, since a passage stops growing
+ * the same way whether the model paused or moved on.
+ */
+.nap-stream-caret {
+  display: inline-block;
+  width: 2px;
+  height: 0.85em;
+  margin-left: 2px;
+  translate: 0 0.1em;
+  border-radius: 1px;
+  background-color: currentColor;
+  animation: nap-stream-blink 1s steps(2, start) infinite;
+}
+
+@keyframes nap-stream-blink {
+  0%,
+  100% {
+    opacity: 0.9;
+  }
+  50% {
+    opacity: 0.15;
+  }
+}
+
+/*
  * Reduced motion stops the grid and the band, and deliberately leaves the clock ticking: the
  * elapsed time is information rather than decoration, and a turn that has been running for two
  * minutes is exactly what somebody who turned the animation off still needs to know. The cells
  * hold their dim state and the label holds full ink, so both are still legible standing still.
  *
+ * The reasoning is the same case as the clock: the words are the content, so they stay — what
+ * goes is the way they arrive. The caret keeps its full opacity rather than disappearing, since
+ * an unfinished thought still needs to look unfinished when nothing is allowed to move.
+ *
  * A CSS block owns this, unlike the rim light further down — nothing in JavaScript reads the
- * media query for these two, so there is no second owner to disagree with.
+ * media query for these, so there is no second owner to disagree with.
  */
 @media (prefers-reduced-motion: reduce) {
   .nap-pixel {
@@ -280,6 +341,15 @@ body {
     animation: none;
     background-image: none;
     color: var(--color-ink);
+  }
+
+  .nap-stream-word {
+    animation: none;
+  }
+
+  .nap-stream-caret {
+    animation: none;
+    opacity: 0.9;
   }
 }
 

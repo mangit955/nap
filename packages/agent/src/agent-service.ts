@@ -33,6 +33,7 @@ import type {
   LLMTurn,
 } from "@nap/shared/ports/llm-provider";
 import { TurnBudget, type TurnBudgetOptions } from "./safety/budget.ts";
+import { ThinkingStream } from "./thinking-stream.ts";
 import { TOOL_DEFINITIONS } from "./tools/definitions.ts";
 import { executeTool, type ToolContext } from "./tools/execute.ts";
 
@@ -108,12 +109,23 @@ class Turn {
       const stepBudget = this.#budget.check();
       if (!stepBudget.ok) return this.#failWith(stepBudget.failure);
 
+      // One per step, because a step is one stream. Its buffer is flushed the moment the
+      // call returns and before any branch below can leave the loop, so the last thought of
+      // a turn survives whichever way that turn ended — a refusal and an upstream failure
+      // are the two cases where the reasoning is the only account of what happened.
+      const thinking = new ThinkingStream((text) =>
+        this.#emit({ type: "agent.thinking", payload: { text } }),
+      );
+
       const result = await this.#turn.complete({
         systemPrompt: this.#request.context.systemPrompt,
         messages: this.#messages,
         tools: TOOL_DEFINITIONS,
+        onThinkingDelta: (delta) => thinking.push(delta),
         ...(this.#request.signal === undefined ? {} : { signal: this.#request.signal }),
       });
+
+      thinking.flush();
 
       if (result.type === "refusal") {
         return this.#fail("refusal", "The model declined to answer this request.");

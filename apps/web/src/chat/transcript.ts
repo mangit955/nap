@@ -110,9 +110,17 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
         items.push({ kind: "message", key, from: "agent", text: event.payload.text });
         break;
 
-      case "agent.thinking":
-        items.push({ kind: "thinking", key, text: event.payload.text });
+      case "agent.thinking": {
+        // Reasoning is streamed and coalesced into phrase-sized events, so one thought is a
+        // run of them. They join into a single passage rather than a paragraph each — and
+        // the passage keeps the `seq` it opened with, because that key is what React renders
+        // it under: keyed to the newest event instead, the element would remount on every
+        // frame the model is thinking and restart the reveal of every word already on screen.
+        const open = items.at(-1);
+        if (open?.kind === "thinking") open.text += event.payload.text;
+        else items.push({ kind: "thinking", key, text: event.payload.text });
         break;
+      }
 
       case "tool.call": {
         const step: Step = {

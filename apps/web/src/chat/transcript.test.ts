@@ -130,6 +130,40 @@ describe("messages", () => {
 
     expect(items.map((i) => i.kind)).toEqual(["thinking", "message"]);
   });
+
+  it("folds a run of thinking events into one passage", () => {
+    // The agent's reasoning arrives coalesced into phrase-sized events, several a second.
+    // One paragraph per event would break a single thought across a dozen blocks.
+    const items = fold(
+      ev("agent.thinking", { text: "I should read " }),
+      ev("agent.thinking", { text: "App.tsx first." }),
+    );
+
+    expect(items).toEqual([{ kind: "thinking", key: 1, text: "I should read App.tsx first." }]);
+  });
+
+  it("keys the passage to where it began", () => {
+    // The key is what React renders the passage under, and the passage grows on every frame
+    // while the model thinks. A key that moved with the newest event would remount the
+    // element each time, restarting the reveal of every word already on screen.
+    const [first] = fold(ev("agent.thinking", { text: "one" }));
+    const [grown] = fold(
+      ev("agent.thinking", { text: "one" }),
+      ev("agent.thinking", { text: " two" }),
+    );
+
+    expect(grown?.key).toBe(first?.key);
+  });
+
+  it("starts a new passage after something else happened", () => {
+    const items = fold(
+      ev("agent.thinking", { text: "before" }),
+      ev("agent.message", { text: "Added App.tsx." }),
+      ev("agent.thinking", { text: "after" }),
+    );
+
+    expect(items.map((i) => i.kind)).toEqual(["thinking", "message", "thinking"]);
+  });
 });
 
 describe("tool steps", () => {
