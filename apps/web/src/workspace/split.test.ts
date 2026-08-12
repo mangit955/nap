@@ -3,6 +3,7 @@ import {
   chatWidthFrom,
   clampChatWidth,
   DEFAULT_CHAT_WIDTH,
+  makeSplit,
   readChatWidth,
   writeChatWidth,
 } from "./split.ts";
@@ -85,6 +86,41 @@ describe("remembering it", () => {
 
     expect(readChatWidth(hostile, 1440)).toBe(DEFAULT_CHAT_WIDTH);
     expect(() => writeChatWidth(hostile, 500)).not.toThrow();
+  });
+});
+
+describe("a second divider", () => {
+  /** The file tree's, which is narrower and allowed a smaller share than the chat's. */
+  const tree = makeSplit({ key: "nap.tree-width", fallback: 240, min: 180, maxFraction: 0.4 });
+
+  it("keeps its width apart from the chat's", () => {
+    // One storage, two dividers. Sharing a key would make dragging either one move both, and
+    // the failure would only show up on the *next* visit — after the write, before the reload.
+    const store = storage();
+
+    writeChatWidth(store, 512);
+    tree.write(store, 300);
+
+    expect(readChatWidth(store, 1440)).toBe(512);
+    expect(tree.read(store, 1440)).toBe(300);
+  });
+
+  it("holds its own floor rather than the chat's", () => {
+    // 180 is readable for a column of filenames and nowhere near readable for a transcript,
+    // which is the whole reason the bounds are per-divider rather than shared constants.
+    expect(tree.clamp(40, 1440)).toBe(180);
+  });
+
+  it("holds its own ceiling", () => {
+    expect(tree.clamp(2_000, 1440)).toBe(1440 * 0.4);
+  });
+
+  it("falls back to its own default", () => {
+    expect(tree.read(storage(), 1440)).toBe(240);
+  });
+
+  it("measures a drag from the edge it was given", () => {
+    expect(tree.widthFrom({ pointerX: 500, leftEdge: 200, viewportWidth: 1440 })).toBe(300);
   });
 });
 

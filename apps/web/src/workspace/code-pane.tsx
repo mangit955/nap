@@ -18,6 +18,10 @@ import { FileViewer } from "../files/file-viewer.tsx";
 import { useFileContent, useProjectFiles } from "../files/use-project-files.ts";
 import { useEventStream } from "../hooks/use-event-stream.ts";
 import { isPutAway } from "../preview/preview-state.ts";
+import { FileIcon } from "../ui/icons.tsx";
+import { Splitter } from "../ui/splitter.tsx";
+import { TREE_SPLIT } from "./split.ts";
+import { usePaneWidth } from "./use-pane-width.ts";
 
 export function LiveCodePane({
   sessionId,
@@ -37,10 +41,11 @@ export function LiveCodePane({
   const { listing, status } = useProjectFiles({ sessionId, events });
   const [selected, setSelected] = useState<string | undefined>(undefined);
   const { file, status: fileStatus } = useFileContent({ sessionId, path: selected });
+  const { width, containerRef, onGrab, onKeyDown } = usePaneWidth(TREE_SPLIT, 240);
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1">
-      <div className="w-60 shrink-0 overflow-auto border-edge border-r">
+    <div ref={containerRef} className="flex min-h-0 min-w-0 flex-1">
+      <div style={{ width: `${width}px` }} className="min-h-0 shrink-0 border-edge border-r">
         <FileTreePane
           listing={listing}
           status={status}
@@ -51,9 +56,16 @@ export function LiveCodePane({
         />
       </div>
 
+      <Splitter label="File tree width" value={width} onGrab={onGrab} onKeyDown={onKeyDown} />
+
       {selected === undefined ? (
-        <div className="grid min-w-0 flex-1 place-items-center p-6">
-          <p className="text-muted text-sm">Pick a file to read it.</p>
+        <div className="flex min-w-0 flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
+          <FileIcon className="size-6 text-edge" />
+          <p className="text-[13px] text-ink-2">Pick a file to read it</p>
+          <p className="max-w-[36ch] text-[12px] text-muted leading-relaxed">
+            Everything the agent wrote is here, exactly as it left it. Files it touched this session
+            are marked.
+          </p>
         </div>
       ) : (
         <FileViewer

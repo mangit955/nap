@@ -2,9 +2,11 @@
 
 import { useState } from "react";
 import { type OpenProject, useProject } from "../projects/use-projects.ts";
+import { Splitter } from "../ui/splitter.tsx";
 import { LiveCodePane } from "../workspace/code-pane.tsx";
+import { CHAT_SPLIT, DEFAULT_CHAT_WIDTH } from "../workspace/split.ts";
 import type { WorkbenchTab } from "../workspace/tabs.ts";
-import { useChatWidth } from "../workspace/use-chat-width.ts";
+import { usePaneWidth } from "../workspace/use-pane-width.ts";
 import { Workbench } from "../workspace/workbench.tsx";
 import { WorkspaceHeader } from "../workspace/workspace-header.tsx";
 import { LiveChatPane } from "./chat-pane.tsx";
@@ -43,7 +45,7 @@ export function AppShell({ projectId }: { projectId: string }) {
   const [route, setRoute] = useState("/");
   /** Reported by the preview pane, which is the one component already watching for it. */
   const [previewUrl, setPreviewUrl] = useState<string | undefined>(undefined);
-  const { width, containerRef, onGrab, onKeyDown } = useChatWidth();
+  const { width, containerRef, onGrab, onKeyDown } = usePaneWidth(CHAT_SPLIT, DEFAULT_CHAT_WIDTH);
 
   return (
     <div className="flex h-dvh flex-col bg-surface">
@@ -69,23 +71,7 @@ export function AppShell({ projectId }: { projectId: string }) {
           <>
             <LiveChatPane sessionId={sessionId} projectId={projectId} />
 
-            {/*
-              A real separator rather than a styled div: it carries the width it controls, and it
-              answers arrow keys. A handle that only followed a pointer would be unreachable for
-              anybody who does not use one — and this one decides how much of the screen the
-              transcript gets.
-            */}
-            {/* An `<hr>` because its implicit role is already `separator`; a focusable one is a
-                widget, which is exactly what this is. */}
-            <hr
-              aria-label="Chat width"
-              aria-orientation="vertical"
-              aria-valuenow={width}
-              tabIndex={0}
-              onPointerDown={onGrab}
-              onKeyDown={onKeyDown}
-              className="m-0 h-full w-1 cursor-col-resize border-0 bg-edge transition-colors hover:bg-line-strong focus-visible:bg-accent focus-visible:outline-none"
-            />
+            <Splitter label="Chat width" value={width} onGrab={onGrab} onKeyDown={onKeyDown} />
           </>
         )}
 

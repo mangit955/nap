@@ -16,6 +16,7 @@
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { NapMark } from "../brand/nap-mark.tsx";
+import { ExternalIcon, PanelIcon, ReloadIcon } from "../ui/icons.tsx";
 import { hostOf, normaliseRoute, previewUrlFor } from "./route-path.ts";
 import { WORKBENCH_TABS, type WorkbenchTab } from "./tabs.ts";
 
@@ -203,47 +204,7 @@ function IconButton({
 }
 
 /*
- * The icons are `aria-hidden` — each button carries its own label, and an icon that announced
- * itself would have every control read out twice. The attribute is written on each `<svg>`
- * rather than folded into the shared props, because the lint rule that insists an icon be either
- * labelled or hidden cannot see through a spread.
+ * The icons live in `ui/icons.tsx` — one set for the whole workspace, so a chevron in this bar
+ * and a chevron in the file tree are the same shape at the same weight. See that file for why
+ * each one writes its own `aria-hidden`.
  */
-const STROKE = {
-  viewBox: "0 0 16 16",
-  fill: "none",
-  stroke: "currentColor",
-  strokeWidth: 1.4,
-  strokeLinecap: "round",
-  strokeLinejoin: "round",
-  className: "size-4",
-} as const;
-
-function PanelIcon({ open }: { open: boolean }) {
-  return (
-    <svg aria-hidden="true" {...STROKE}>
-      <rect x="2" y="3" width="12" height="10" rx="1.5" />
-      <path d="M6.5 3v10" />
-      {/* Filled while the chat is showing, so the button reads as a state as well as an action. */}
-      {open && <path d="M4.2 3.2v9.6" strokeWidth="2.6" />}
-    </svg>
-  );
-}
-
-function ReloadIcon() {
-  return (
-    <svg aria-hidden="true" {...STROKE}>
-      <path d="M13 8a5 5 0 1 1-1.6-3.7" />
-      <path d="M13.2 2.6v2.6h-2.6" />
-    </svg>
-  );
-}
-
-function ExternalIcon() {
-  return (
-    <svg aria-hidden="true" {...STROKE}>
-      <path d="M9.5 3h3.5v3.5" />
-      <path d="m13 3-5 5" />
-      <path d="M12 10v2.5a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-8a.5.5 0 0 1 .5-.5H6" />
-    </svg>
-  );
-}

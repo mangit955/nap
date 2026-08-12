@@ -3,14 +3,17 @@
 import type { ModelChoice } from "@nap/shared/models-protocol";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { useState } from "react";
+import { NapMark } from "../brand/nap-mark.tsx";
 import { ChatInput } from "../chat/chat-input.tsx";
 import { ChatTranscript } from "../chat/chat-transcript.tsx";
 import { buildTranscript } from "../chat/transcript.ts";
 import { useFirstPrompt } from "../chat/use-first-prompt.ts";
 import { useModels } from "../chat/use-models.ts";
+import { useStickToBottom } from "../chat/use-stick-to-bottom.ts";
 import { useTurnSubmission } from "../chat/use-turn-submission.ts";
 import { WorkingIndicator } from "../chat/working-indicator.tsx";
 import { turnStartedAt, workingLabel } from "../chat/working-state.ts";
+import { EXAMPLE_PROMPTS } from "../dashboard/example-prompts.ts";
 import { useProjectFiles } from "../files/use-project-files.ts";
 import { useEventStream } from "../hooks/use-event-stream.ts";
 import { Pane } from "./pane.tsx";
@@ -55,13 +58,16 @@ export function ChatPane({
   onModelChange?: ((model: string) => void) | undefined;
 }) {
   const empty = events.length === 0 && pending === undefined;
+  // What "there is something new to see" means here. The event count alone would miss a turn
+  // ending, and the running flag alone would miss every event inside it.
+  const scroller = useStickToBottom<HTMLDivElement>(`${events.length}:${pending}:${running}`);
 
   return (
     <Pane id="chat" title="Chat" chrome="none">
       <div className="flex h-full min-h-0 flex-col">
-        <div className="min-h-0 flex-1 overflow-auto">
+        <div ref={scroller} className="nap-scroll min-h-0 flex-1 overflow-auto">
           {empty ? (
-            <EmptyState />
+            <EmptyState onPick={onSubmit} />
           ) : (
             <>
               {events.length > 0 && <ChatTranscript events={events} onRetry={onRetry} />}
@@ -90,54 +96,74 @@ export function ChatPane({
 /**
  * The message the user just sent, before the log has caught up with it.
  *
- * Drawn exactly like a stored user message — same rail, same face — because it *is* the same
- * message. A differently-styled placeholder that swaps for the real thing a moment later is a
- * flicker with no meaning behind it.
+ * Drawn exactly like a stored user message — same bubble, same face, same side — because it *is*
+ * the same message. A differently-styled placeholder that swaps for the real thing a moment later
+ * is a flicker with no meaning behind it.
  */
 function PendingMessage({ text }: { text: string }) {
   return (
-    <div className="px-4 pb-3">
-      <div className="border-edge border-l pl-4">
-        <p className="whitespace-pre-wrap text-ink text-sm leading-relaxed">
-          <span className="sr-only">You: </span>
-          {text}
-        </p>
-      </div>
+    <div className="flex justify-end px-4 pb-3">
+      <p className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-bubble px-3.5 py-2 text-[13px] text-ink leading-relaxed">
+        <span className="sr-only">You: </span>
+        {text}
+      </p>
     </div>
   );
 }
 
 /**
- * The last thing on the rail while a turn is open.
+ * The last thing in the pane while a turn is open.
  *
  * Outside the `log`, for the reason `PendingMessage` is: the transcript is folded from stored
  * events and this is not one of them — it is the *absence* of the next event, which is precisely
- * what nothing in the log can express. It wears the rail by hand so it lines up with the steps
- * above rather than floating beside them.
+ * what nothing in the log can express.
  */
 function Working({ events }: { events: readonly StoredEvent[] }) {
   const startedAt = turnStartedAt(events);
 
   return (
     <div className="px-4 pb-3">
-      <div className="border-edge border-l py-1 pl-4">
-        <WorkingIndicator
-          label={workingLabel(buildTranscript(events))}
-          {...(startedAt === undefined ? {} : { startedAt })}
-        />
-      </div>
+      <WorkingIndicator
+        label={workingLabel(buildTranscript(events))}
+        {...(startedAt === undefined ? {} : { startedAt })}
+      />
     </div>
   );
 }
 
-/** An empty screen is an invitation, so it says what to do rather than what this is. */
-function EmptyState() {
+/**
+ * An empty screen is an invitation, so it says what to do rather than what this is.
+ *
+ * The examples are the same four the front page offers, from one list rather than a second copy
+ * — they are chosen to be small and finishable, and a divergent set here would be a different
+ * promise about what this thing is for. They send a turn directly rather than filling the box:
+ * a prompt somebody has to press twice is a prompt with a step in it for no reason.
+ */
+function EmptyState({ onPick }: { onPick: (message: string) => void }) {
   return (
-    <div className="p-4">
-      <p className="text-muted text-sm leading-relaxed">
-        Describe the app you want. Every file the agent writes and every command it runs shows up
-        here as it happens.
-      </p>
+    <div className="flex h-full flex-col items-center justify-center gap-5 px-6 py-10 text-center">
+      <NapMark className="size-9 text-muted" />
+
+      <div className="flex flex-col gap-1.5">
+        <p className="font-display font-semibold text-[15px] text-ink">Describe the app you want</p>
+        <p className="max-w-[34ch] text-[12.5px] text-muted leading-relaxed">
+          Every file the agent writes and every command it runs shows up here as it happens.
+        </p>
+      </div>
+
+      <ul aria-label="Example prompts" className="flex flex-col items-stretch gap-1.5">
+        {EXAMPLE_PROMPTS.map((prompt) => (
+          <li key={prompt}>
+            <button
+              type="button"
+              onClick={() => onPick(prompt)}
+              className="w-full rounded-chip border border-edge bg-field/60 px-3 py-2 text-left text-[12.5px] text-ink-2 transition-colors hover:border-line-strong hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
+            >
+              {prompt}
+            </button>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
