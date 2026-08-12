@@ -22,8 +22,14 @@
 export const FLUSH_AFTER_CHARS = 120;
 
 /**
- * Slow enough that a burst arrives in one piece, fast enough that a pause between thoughts
- * still puts something on screen.
+ * How long buffered text may wait before it is shown. Slow enough that a burst arrives in
+ * one piece, fast enough that a pause between thoughts still puts something on screen.
+ *
+ * Measured from the moment text first enters the buffer, **not** from when the stream was
+ * built. A model takes seconds to produce its first token, so a window opened at
+ * construction has already expired when that token lands — and every message would begin
+ * with a lone character sitting on its own line. That is not hypothetical: it is what the
+ * first real turn printed.
  */
 export const FLUSH_AFTER_MS = 400;
 
@@ -31,21 +37,22 @@ export class DeltaStream {
   readonly #emit: (text: string) => void;
   readonly #now: () => number;
   #buffer = "";
-  #lastFlushedAt: number;
+  /** When the text now buffered started waiting. Undefined whenever the buffer is empty. */
+  #openedAt: number | undefined;
 
   constructor(emit: (text: string) => void, now: () => number = () => Date.now()) {
     this.#emit = emit;
     this.#now = now;
-    this.#lastFlushedAt = now();
   }
 
   push(delta: string): void {
     if (delta === "") return;
+    if (this.#buffer === "") this.#openedAt = this.#now();
     this.#buffer += delta;
 
     if (
       this.#buffer.length >= FLUSH_AFTER_CHARS ||
-      this.#now() - this.#lastFlushedAt >= FLUSH_AFTER_MS
+      this.#now() - (this.#openedAt ?? this.#now()) >= FLUSH_AFTER_MS
     ) {
       this.flush();
     }
@@ -59,13 +66,13 @@ export class DeltaStream {
    * otherwise put an empty paragraph on the rail.
    */
   flush(): void {
-    // The timestamp moves even with nothing to send: the window measures time since the last
-    // decision, and leaving it behind would make the next delta flush on its own.
-    this.#lastFlushedAt = this.#now();
     if (this.#buffer === "") return;
 
     const text = this.#buffer;
     this.#buffer = "";
+    // Closed with the buffer it belonged to. The next piece of text opens its own window
+    // when it arrives, which is what keeps a long silence from expiring one in advance.
+    this.#openedAt = undefined;
     this.#emit(text);
   }
 }

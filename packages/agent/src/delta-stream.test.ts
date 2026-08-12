@@ -57,17 +57,33 @@ describe("DeltaStream", () => {
     expect(emitted).toEqual(["first second"]);
   });
 
-  it("starts the next window at the flush, not at the turn", () => {
+  it("does not punish the first delta for the wait before it", () => {
+    // Observed on a real turn: the model takes seconds to produce its first token, so a
+    // window opened when the stream was built is already expired when that token lands and
+    // the delta is emitted alone. Every message began "I" / "\'ll look at the app" and
+    // "There" / "\'s now a button". The window belongs to the buffered text, so it starts
+    // when text first enters the buffer.
     const clock = fakeClock();
     const { stream, emitted } = collect(clock.now);
 
-    clock.advance(FLUSH_AFTER_MS);
+    clock.advance(FLUSH_AFTER_MS * 20);
+    stream.push("I");
+    stream.push("'ll look at the app.");
+
+    expect(emitted).toEqual([]);
+  });
+
+  it("measures the window from the oldest buffered text", () => {
+    const clock = fakeClock();
+    const { stream, emitted } = collect(clock.now);
+
     stream.push("first");
+    clock.advance(FLUSH_AFTER_MS);
     stream.push(" second");
 
-    // The window is measured from the last flush. Measuring it from construction would
-    // make every delta after the first one its own event.
-    expect(emitted).toEqual(["first"]);
+    // The point of the time threshold is that nothing sits unseen for long, so it is the
+    // wait of the text already buffered that decides — not the age of the stream.
+    expect(emitted).toEqual(["first second"]);
   });
 
   it("emits the tail on flush", () => {
@@ -92,10 +108,10 @@ describe("DeltaStream", () => {
     expect(emitted).toEqual(["something"]);
   });
 
-  it("restarts the window on a flush that emitted nothing", () => {
-    // The loop flushes after every model call, and a step that thought nothing still took
-    // seconds. Leaving the window where it was makes the *next* step's very first delta
-    // overdue the moment it arrives, so each burst opens with a one-character event.
+  it("leaves nothing behind after a flush that emitted nothing", () => {
+    // The loop flushes after every model call, including steps that produced nothing. Such
+    // a flush must not leave a window open, or the next step's first delta is overdue the
+    // moment it arrives and the burst opens with a one-character event.
     const clock = fakeClock();
     const { stream, emitted } = collect(clock.now);
 
