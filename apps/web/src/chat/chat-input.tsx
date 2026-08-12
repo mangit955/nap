@@ -66,6 +66,7 @@ export function ChatInput({
   const [dismissed, setDismissed] = useState("");
   const [active, setActive] = useState(0);
   const [modelOpen, setModelOpen] = useState(false);
+  const footer = useRef<HTMLDivElement>(null);
   /** The message currently in flight, kept only so a failure can hand it back. */
   const inFlight = useRef("");
   const box = useRef<HTMLTextAreaElement>(null);
@@ -78,6 +79,20 @@ export function ChatInput({
     setText(inFlight.current);
     inFlight.current = "";
   }, [error]);
+
+  useEffect(() => {
+    if (!modelOpen) return;
+
+    // `pointerdown` rather than `click`: the row buttons call `preventDefault` on mousedown to
+    // keep focus in the field, and waiting for `click` would let a press outside land before
+    // this ever ran. Capture, so a handler that stops propagation cannot strand the menu open.
+    const close = (event: PointerEvent) => {
+      if (footer.current?.contains(event.target as Node) === true) return;
+      setModelOpen(false);
+    };
+    document.addEventListener("pointerdown", close, true);
+    return () => document.removeEventListener("pointerdown", close, true);
+  }, [modelOpen]);
 
   useLayoutEffect(() => {
     const field = box.current;
@@ -134,7 +149,7 @@ export function ChatInput({
   const empty = text.trim() === "";
 
   return (
-    <div className="shrink-0 p-3">
+    <div ref={footer} className="shrink-0 p-3">
       {error !== undefined && (
         // `alert` so it is announced: the message the user just sent has vanished from the
         // screen, and nothing else on the page explains why.
@@ -180,6 +195,59 @@ export function ChatInput({
         </div>
       )}
 
+      {/*
+        Outside the composer, not inside it. The composer is `overflow-hidden` — for its rounded
+        corners — and this menu grows *upward* past its top edge, so nested it was clipped away
+        entirely and the button appeared to do nothing. The token menu above is outside for the
+        same reason; this one was not, and that was the bug.
+      */}
+      <div className="relative">
+        {modelOpen && picker !== undefined && (
+          <ul
+            aria-label="Model"
+            className="nap-pop absolute right-0 bottom-1 z-10 w-52 overflow-hidden rounded-[10px] bg-field p-1 shadow-raised"
+            style={{ transformOrigin: "bottom right" }}
+          >
+            {models.map((choice) => (
+              <li key={choice.id}>
+                <button
+                  type="button"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => {
+                    onModelChange?.(choice.id);
+                    setModelOpen(false);
+                    box.current?.focus();
+                  }}
+                  aria-current={choice.id === picker.id}
+                  className={`flex h-8 w-full items-center gap-2 rounded-[6px] px-2 text-left ${
+                    choice.id === picker.id ? "bg-hover" : ""
+                  }`}
+                >
+                  <span className="min-w-0 flex-1 truncate font-medium text-[12.5px] text-ink">
+                    {choice.label}
+                  </span>
+                  {/*
+                    Both markers are words rather than only colours, for the same reason: what a
+                    turn costs is the fact this menu exists to decide, and a highlight or a tint
+                    is nothing at all to somebody listening to the page. `free` is read from the
+                    server's field, never from the id — the `:free` suffix is OpenRouter's
+                    convention and the browser is not a second place that has to know it.
+                  */}
+                  {choice.free && (
+                    <span className="shrink-0 rounded-[4px] bg-hover px-1 py-px font-medium text-[10px] text-muted uppercase tracking-wide">
+                      Free
+                    </span>
+                  )}
+                  {choice.id === picker.id && (
+                    <span className="shrink-0 text-[11px] text-muted">on</span>
+                  )}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
       <div className="relative isolate flex flex-col gap-1.5 overflow-hidden rounded-[14px] border border-edge bg-panel p-1.5 shadow-card transition-colors duration-150 focus-within:border-line-strong">
         {/*
           Never painted and never read aloud — it exists only to be measured. The field itself
@@ -208,7 +276,12 @@ export function ChatInput({
             rows={1}
             value={text}
             disabled={running}
-            onChange={(event) => setText(event.target.value)}
+            onChange={(event) => {
+              setText(event.target.value);
+              // Two menus over one composer would overlap each other; the one the user is
+              // typing into wins.
+              setModelOpen(false);
+            }}
             onKeyDown={(event) => {
               // A composing IME owns Enter *and* the arrows — they drive the candidate window,
               // and taking any of them here posts a half-written word.
@@ -253,44 +326,6 @@ export function ChatInput({
             <div
               className={`relative ${expanded ? "col-start-2 row-start-2" : "col-start-2 row-start-1"}`}
             >
-              {modelOpen && (
-                <ul
-                  aria-label="Model"
-                  className="nap-pop absolute right-0 bottom-9 z-10 w-44 overflow-hidden rounded-[10px] bg-field p-1 shadow-raised"
-                  style={{ transformOrigin: "bottom right" }}
-                >
-                  {models.map((choice) => (
-                    <li key={choice.id}>
-                      <button
-                        type="button"
-                        onMouseDown={(event) => event.preventDefault()}
-                        onClick={() => {
-                          onModelChange?.(choice.id);
-                          setModelOpen(false);
-                          box.current?.focus();
-                        }}
-                        aria-current={choice.id === picker.id}
-                        className={`flex h-8 w-full items-center gap-2 rounded-[6px] px-2 text-left ${
-                          choice.id === picker.id ? "bg-hover" : ""
-                        }`}
-                      >
-                        <span className="min-w-0 flex-1 truncate font-medium text-[12.5px] text-ink">
-                          {choice.label}
-                        </span>
-                        {/*
-                          Said as a word, not only shown as a highlight: which model is running
-                          is the fact that decides what a turn costs, and a highlight alone is
-                          nothing at all to somebody listening to the page.
-                        */}
-                        {choice.id === picker.id && (
-                          <span className="shrink-0 text-[11px] text-muted">on</span>
-                        )}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-
               <button
                 type="button"
                 aria-label="Model"

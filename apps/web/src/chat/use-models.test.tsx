@@ -14,8 +14,9 @@ import { useModels } from "./use-models.ts";
 
 const LIST = {
   models: [
-    { id: "openai/gpt-5.6-luna", label: "Gpt 5 6 Luna" },
-    { id: "anthropic/claude-opus-5", label: "Claude Opus 5" },
+    { id: "openai/gpt-5.6-luna", label: "Gpt 5 6 Luna", free: false },
+    { id: "anthropic/claude-opus-5", label: "Claude Opus 5", free: false },
+    { id: "openai/gpt-oss-20b:free", label: "Gpt Oss 20b", free: true },
   ],
   fallback: "openai/gpt-5.6-luna",
 };

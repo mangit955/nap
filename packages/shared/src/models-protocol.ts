@@ -16,6 +16,14 @@ export const ModelChoiceSchema = z.strictObject({
   id: z.string().min(1),
   /** The id said out loud, for the menu. Derived by the server so one place decides. */
   label: z.string().min(1),
+  /**
+   * Whether this one costs nothing.
+   *
+   * Sent rather than sniffed from the id in the browser: the `:free` suffix is OpenRouter's
+   * convention, and a client that learned to read it would be a second place that has to be
+   * updated when the route's idea of free changes.
+   */
+  free: z.boolean(),
 });
 export type ModelChoice = z.infer<typeof ModelChoiceSchema>;
 

@@ -303,13 +303,32 @@ describe("what one person may spend", () => {
 });
 
 describe("NAP_ALLOWED_MODELS", () => {
-  it("defaults to the cheap model and the one worth recording on", () => {
-    // The picker exists to choose between those two. A default of one would make it a menu
-    // with a single row, and the demo model reachable only by editing `.env`.
+  it("defaults to a list spanning the three prices a turn can have", () => {
+    // The picker exists to choose between them, and the choice that matters is what a turn
+    // costs — so the default has to reach all three tiers. A default of one model would make
+    // it a menu with a single row, with everything else reachable only by editing `.env`.
     expect(parseEnv(VALID).NAP_ALLOWED_MODELS).toEqual([
       "openai/gpt-5.6-luna",
+      "openai/gpt-5.6-terra",
+      "openai/gpt-5.6-sol",
+      "anthropic/claude-sonnet-5",
       "anthropic/claude-opus-5",
+      "openai/gpt-oss-20b:free",
+      "nvidia/nemotron-3-super-120b-a12b:free",
+      "google/gemma-4-31b-it:free",
     ]);
+  });
+
+  it("starts the default the model every turn falls back to", () => {
+    // The boot check below refuses a default that is not allowed, so this is not about
+    // reachability — it is that the cheapest model should be the one a fresh checkout runs on.
+    const allowed = parseEnv(VALID).NAP_ALLOWED_MODELS;
+
+    expect(allowed[0]).toBe(parseEnv(VALID).NAP_MODEL);
+  });
+
+  it("offers models that cost nothing, since trying the thing should not need a balance", () => {
+    expect(parseEnv(VALID).NAP_ALLOWED_MODELS.filter((id) => id.endsWith(":free"))).toHaveLength(3);
   });
 
   it("splits a list and forgives the spaces people type after commas", () => {

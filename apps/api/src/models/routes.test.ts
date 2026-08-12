@@ -27,6 +27,17 @@ describe("GET /models", () => {
     expect(body.fallback).toBe("openai/gpt-5.6-luna");
   });
 
+  it("says which models cost nothing, so the browser never has to read an id", async () => {
+    // The route is the one place that decides. A client that learned to spot `:free` itself
+    // would be a second thing to change when the idea of free changes.
+    const result = await app(["openai/gpt-oss-20b:free", "anthropic/claude-opus-5"], "x/y").request(
+      "/models",
+    );
+
+    const body = ModelListSchema.parse(await result.json());
+    expect(body.models.map((model) => model.free)).toEqual([true, false]);
+  });
+
   it("names the fallback rather than leaving it to be guessed from list order", async () => {
     // The picker has to show a selection before anybody has chosen. Inferring it from position
     // puts the tick against the wrong model the first time the allowlist is reordered.
@@ -49,5 +60,11 @@ describe("modelLabel", () => {
 
   it("leaves a bare id legible rather than mangled", () => {
     expect(modelLabel("claude-sonnet-5")).toBe("Claude Sonnet 5");
+  });
+
+  it("drops the `:free` suffix, which the menu says in words beside it", () => {
+    // Left in, the id reads as "Gpt Oss 20b:free" — punctuation in the middle of a product
+    // name, saying the same thing as the marker next to it.
+    expect(modelLabel("openai/gpt-oss-20b:free")).toBe("Gpt Oss 20b");
   });
 });

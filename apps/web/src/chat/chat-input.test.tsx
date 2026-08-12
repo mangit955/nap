@@ -220,8 +220,9 @@ describe("the @ and / menus", () => {
 
 describe("the model picker", () => {
   const models = [
-    { id: "openai/gpt-5.6-luna", label: "Gpt 5 6 Luna" },
-    { id: "anthropic/claude-opus-5", label: "Claude Opus 5" },
+    { id: "openai/gpt-5.6-luna", label: "Gpt 5 6 Luna", free: false },
+    { id: "anthropic/claude-opus-5", label: "Claude Opus 5", free: false },
+    { id: "openai/gpt-oss-20b:free", label: "Gpt Oss 20b", free: true },
   ];
 
   it("names the model turns will run on", () => {
@@ -262,6 +263,52 @@ describe("the model picker", () => {
     // Which model is running decides what a turn costs, and a highlight alone is nothing to
     // somebody listening to the page.
     expect(screen.getByRole("button", { name: /Claude Opus 5/ })).toHaveTextContent("on");
+  });
+
+  it("says which ones cost nothing, in words rather than only in colour", () => {
+    // The same argument as the "on" marker above, and it applies harder: price is the reason
+    // somebody reaches for this menu at all, and a colour says nothing to a screen reader.
+    show({ models, model: "openai/gpt-5.6-luna" });
+    fireEvent.click(screen.getByRole("button", { name: "Model" }));
+
+    expect(screen.getByRole("button", { name: /Gpt Oss 20b/ })).toHaveAccessibleName(/free/i);
+    expect(screen.getByRole("button", { name: /Claude Opus 5/ })).not.toHaveAccessibleName(/free/i);
+  });
+
+  it("opens a list that is actually on the page", () => {
+    // Proves the menu is rendered and populated — and **cannot** prove it is visible. The bug
+    // this replaced was clipping: nested inside the `overflow-hidden` composer, the menu laid
+    // out at -29px against a composer starting at 44px and was painted away entirely, with the
+    // button appearing dead. jsdom has no layout, so this test passed against the broken code
+    // too. The guard for the clipping itself is a measurement in a real browser.
+    show({ models, model: "openai/gpt-5.6-luna" });
+
+    expect(screen.queryByRole("list", { name: "Model" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Model" }));
+
+    const menu = screen.getByRole("list", { name: "Model" });
+    expect(menu).toBeInTheDocument();
+    for (const choice of models) expect(menu).toHaveTextContent(choice.label);
+  });
+
+  it("closes when something outside it is pressed", () => {
+    show({ models, model: "openai/gpt-5.6-luna" });
+    fireEvent.click(screen.getByRole("button", { name: "Model" }));
+
+    fireEvent.pointerDown(document.body);
+
+    expect(screen.queryByRole("list", { name: "Model" })).toBeNull();
+  });
+
+  it("gets out of the way when a trigger is typed", () => {
+    // Two menus over one composer overlap rather than offering a choice.
+    show({ models, model: "openai/gpt-5.6-luna", files: ["src/App.tsx"] });
+    fireEvent.click(screen.getByRole("button", { name: "Model" }));
+
+    type("@");
+
+    expect(screen.queryByRole("list", { name: "Model" })).toBeNull();
+    expect(screen.getByRole("list", { name: "Files" })).toBeInTheDocument();
   });
 
   it("cannot be changed mid-turn", () => {

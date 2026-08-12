@@ -90,14 +90,33 @@ const BaseSchema = z.object({
    * allowlist is the whole defence: anything not named here is refused before a sandbox is
    * touched or a single token is spent.
    *
-   * The default pairs the cheap model the loop is debugged against with the expensive one
-   * worth recording a demo on — roughly a twentieth and twenty times the same bill — because
-   * offering the choice is the entire point of the picker, and hiding the costly one would
-   * mean editing `.env` to record anything.
+   * The default spans the three prices a turn can have: the cheap OpenAI models the loop is
+   * debugged against, the Claude models worth recording a demo on, and free ones for trying the
+   * thing at no cost at all.
+   *
+   * **Every id here was read from OpenRouter's live catalogue and every one supports tool
+   * calling.** That second filter is not a nicety — this agent *is* a tool loop, so a model
+   * without tools cannot take a single step and every turn on it fails identically. Two thirds
+   * of OpenRouter's free models are in that category, which is why the free entries here are a
+   * chosen three rather than everything that costs nothing.
    */
   NAP_ALLOWED_MODELS: z
     .string()
-    .default("openai/gpt-5.6-luna,anthropic/claude-opus-5")
+    .default(
+      [
+        // Cheap first, because it is the default and the one most turns should run on.
+        "openai/gpt-5.6-luna",
+        "openai/gpt-5.6-terra",
+        "openai/gpt-5.6-sol",
+        "anthropic/claude-sonnet-5",
+        "anthropic/claude-opus-5",
+        // Free, and therefore the ones to reach for when the point is to try the thing rather
+        // than to get a good answer.
+        "openai/gpt-oss-20b:free",
+        "nvidia/nemotron-3-super-120b-a12b:free",
+        "google/gemma-4-31b-it:free",
+      ].join(","),
+    )
     .transform((list) =>
       list
         .split(",")
