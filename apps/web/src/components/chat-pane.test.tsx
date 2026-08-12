@@ -13,6 +13,24 @@ const message: StoredEvent = {
   payload: { text: "Added App.tsx." },
 } satisfies NapEvent;
 
+const started: StoredEvent = {
+  type: "turn.started",
+  sessionId: message.sessionId,
+  turnId: message.turnId,
+  seq: 3,
+  createdAt: "2026-08-09T12:00:00.000Z",
+  payload: {},
+} satisfies NapEvent;
+
+const call: StoredEvent = {
+  type: "tool.call",
+  sessionId: message.sessionId,
+  turnId: message.turnId,
+  seq: 4,
+  createdAt: "2026-08-09T12:00:01.000Z",
+  payload: { toolCallId: "a", toolName: "run_command", input: { command: "bun install" } },
+} satisfies NapEvent;
+
 describe("ChatPane", () => {
   it("invites a first prompt when nothing has happened yet", () => {
     render(<ChatPane events={[]} />);
@@ -69,5 +87,44 @@ describe("ChatPane", () => {
     render(<ChatPane events={[userMessage]} pending={undefined} />);
 
     expect(screen.getAllByText("build me a todo list")).toHaveLength(1);
+  });
+
+  it("says the agent is working while a turn is open", () => {
+    render(<ChatPane events={[started]} running={true} />);
+
+    expect(screen.getByRole("status", { name: "Agent is working" })).toBeInTheDocument();
+  });
+
+  it("says nothing of the kind when no turn is running", () => {
+    render(<ChatPane events={[message]} running={false} />);
+
+    expect(screen.queryByRole("status", { name: "Agent is working" })).not.toBeInTheDocument();
+  });
+
+  it("names the tool call that is still out", () => {
+    // The label is the reason this is not just a spinner: during the twenty-second silences a
+    // turn is mostly made of, it is the only thing on screen saying what is happening.
+    const { container } = render(<ChatPane events={[started, call]} running={true} />);
+
+    expect(container.textContent).toContain("Running bun install");
+  });
+
+  it("puts it after everything that has already happened", () => {
+    // Below the last step, not above it: the rail is a chronology, and work in flight is the
+    // newest thing on it.
+    render(<ChatPane events={[started, call]} running={true} />);
+
+    const log = screen.getByRole("log", { name: /transcript/i });
+    const status = screen.getByRole("status", { name: "Agent is working" });
+
+    expect(log.compareDocumentPosition(status) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("appears before the server has acknowledged the turn at all", () => {
+    // `running` is true from the click, and the gap before `turn.started` arrives is exactly
+    // when a pane with nothing moving in it looks broken.
+    render(<ChatPane events={[]} pending="build me a todo list" running={true} />);
+
+    expect(screen.getByRole("status", { name: "Agent is working" })).toBeInTheDocument();
   });
 });

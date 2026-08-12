@@ -3,8 +3,11 @@
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { ChatInput } from "../chat/chat-input.tsx";
 import { ChatTranscript } from "../chat/chat-transcript.tsx";
+import { buildTranscript } from "../chat/transcript.ts";
 import { useFirstPrompt } from "../chat/use-first-prompt.ts";
 import { useTurnSubmission } from "../chat/use-turn-submission.ts";
+import { WorkingIndicator } from "../chat/working-indicator.tsx";
+import { turnStartedAt, workingLabel } from "../chat/working-state.ts";
 import { useEventStream } from "../hooks/use-event-stream.ts";
 import { Pane } from "./pane.tsx";
 
@@ -51,6 +54,8 @@ export function ChatPane({
               {pending !== undefined && <PendingMessage text={pending} />}
             </>
           )}
+
+          {running && <Working events={events} />}
         </div>
 
         <ChatInput running={running} error={error} onSubmit={onSubmit} onCancel={onCancel} />
@@ -74,6 +79,29 @@ function PendingMessage({ text }: { text: string }) {
           <span className="sr-only">You: </span>
           {text}
         </p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The last thing on the rail while a turn is open.
+ *
+ * Outside the `log`, for the reason `PendingMessage` is: the transcript is folded from stored
+ * events and this is not one of them — it is the *absence* of the next event, which is precisely
+ * what nothing in the log can express. It wears the rail by hand so it lines up with the steps
+ * above rather than floating beside them.
+ */
+function Working({ events }: { events: readonly StoredEvent[] }) {
+  const startedAt = turnStartedAt(events);
+
+  return (
+    <div className="px-4 pb-3">
+      <div className="border-edge border-l py-1 pl-4">
+        <WorkingIndicator
+          label={workingLabel(buildTranscript(events))}
+          {...(startedAt === undefined ? {} : { startedAt })}
+        />
       </div>
     </div>
   );

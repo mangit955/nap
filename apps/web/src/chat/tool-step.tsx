@@ -19,6 +19,7 @@
 import type { ToolName } from "@nap/shared/events";
 import { OutputBlock } from "./output-block.tsx";
 import type { FileChange, TranscriptItem } from "./transcript.ts";
+import { stepTarget } from "./working-state.ts";
 
 type Step = Extract<TranscriptItem, { kind: "step" }>;
 
@@ -44,28 +45,6 @@ const CHANGE_WORDS: Record<FileChange["changeType"], string> = {
   deleted: "deleted",
 };
 
-/**
- * The one argument that says which call this is. A step's identity is its target, not its
- * full arguments — those are available by expanding it.
- */
-function target(step: Step): string {
-  const { command, path, pattern } = step.input as {
-    command?: unknown;
-    path?: unknown;
-    pattern?: unknown;
-  };
-
-  for (const value of [command, pattern, path]) {
-    if (typeof value === "string" && value !== "") return shorten(value);
-  }
-  return "";
-}
-
-/** Paths are absolute in the sandbox; the project root is noise in every single line. */
-function shorten(value: string): string {
-  return value.replace("/home/user/app/", "");
-}
-
 export function ToolStep({ step }: { step: Step }) {
   const failed = step.status === "failed";
   const running = step.status === "running";
@@ -82,7 +61,7 @@ export function ToolStep({ step }: { step: Step }) {
           ▸
         </span>
         <span className={failed ? "text-danger" : "text-ink"}>{VERBS[step.toolName]}</span>
-        <span className="min-w-0 flex-1 truncate text-muted">{target(step)}</span>
+        <span className="min-w-0 flex-1 truncate text-muted">{stepTarget(step)}</span>
         <span className={`shrink-0 text-[11px] ${failed ? "text-danger" : "text-muted"}`}>
           {STATUS_WORDS[step.status]}
         </span>
