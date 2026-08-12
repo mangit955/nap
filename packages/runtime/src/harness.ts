@@ -17,7 +17,7 @@ import type { Result } from "@nap/shared/result";
  * to end, and a working loop is not more convincing for having been expensive; the model choice
  * changes nothing structural, since every model reached this way speaks the same blocks and the
  * same streaming events. All of it is overridable for the day this is used to record something —
- * `--model=anthropic/claude-opus-5` is the whole difference.
+ * `--model=<a stronger id>` is the whole difference.
  */
 export const HARNESS_DEFAULTS = {
   platform: "openrouter",

@@ -238,7 +238,7 @@ describe("ClaudeProvider", () => {
       await provider(client).startTurn().complete(request());
 
       const body = client.calls[0]?.body as Anthropic.MessageStreamParams;
-      expect(body.model).toBe("claude-opus-5");
+      expect(body.model).toBe("openai/gpt-5.6-luna");
       expect(body.output_config).toEqual({ effort: "xhigh" });
       expect(body.thinking).toEqual({ type: "adaptive", display: "summarized" });
       // A block array rather than a string, because the prompt carries a cache breakpoint —
@@ -247,17 +247,18 @@ describe("ClaudeProvider", () => {
     });
 
     it("can be pointed at a cheaper model and a lower effort without changing anything else", async () => {
-      // Development turns are spent debugging the loop rather than judging its answers, and
-      // the two models are structurally identical — same blocks, same streaming, same refusal
-      // semantics. Anything that is not a model or an effort must be unaffected.
+      // The id is passed through verbatim, so what it names does not matter here — only that
+      // it is not the default. Every model reached this way is structurally identical: same
+      // blocks, same streaming, same refusal semantics. Anything that is not a model or an
+      // effort must be unaffected.
       const client = stubClient([message()]);
 
-      await new ClaudeProvider({ client, model: "claude-sonnet-5", effort: "low" })
+      await new ClaudeProvider({ client, model: "vendor/some-other-model", effort: "low" })
         .startTurn()
         .complete(request());
 
       const body = client.calls[0]?.body as Anthropic.MessageStreamParams;
-      expect(body.model).toBe("claude-sonnet-5");
+      expect(body.model).toBe("vendor/some-other-model");
       expect(body.output_config).toEqual({ effort: "low" });
       expect(body.thinking).toEqual({ type: "adaptive", display: "summarized" });
     });
