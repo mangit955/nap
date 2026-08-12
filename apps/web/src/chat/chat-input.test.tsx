@@ -123,6 +123,101 @@ describe("while a turn is running", () => {
   });
 });
 
+describe("the @ and / menus", () => {
+  const files = ["src/App.tsx", "src/Counter.tsx", "package.json"];
+
+  it("offers the project's real files on @", () => {
+    show({ files });
+    type("@Coun");
+
+    expect(screen.getByRole("list", { name: "Files" })).toHaveTextContent("src/Counter.tsx");
+  });
+
+  it("stays shut for an email address", () => {
+    show({ files });
+    type("mail ada@example.com");
+
+    expect(screen.queryByRole("list", { name: "Files" })).toBeNull();
+  });
+
+  it("puts the picked file in the box, keeping what came before", () => {
+    show({ files });
+    type("change the colour in @Coun");
+    fireEvent.click(screen.getByRole("button", { name: /src\/Counter\.tsx/ }));
+
+    expect(box()).toHaveValue("change the colour in @src/Counter.tsx ");
+  });
+
+  it("takes Enter while it is open, rather than sending", () => {
+    // The half-typed token is not a message. Sending it would post "@Coun" and lose the
+    // file the user was in the middle of naming.
+    const onSubmit = vi.fn();
+    show({ files, onSubmit });
+    type("@Coun");
+    fireEvent.keyDown(box(), { key: "Enter" });
+
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(box()).toHaveValue("@src/Counter.tsx ");
+  });
+
+  it("walks the list with the arrow keys", () => {
+    show({ files });
+    type("@src");
+    fireEvent.keyDown(box(), { key: "ArrowDown" });
+    fireEvent.keyDown(box(), { key: "Enter" });
+
+    expect(box()).toHaveValue("@src/Counter.tsx ");
+  });
+
+  it("wraps to the end when walking up from the top", () => {
+    // Three rows, deliberately: with two, up and down from the first row land on the same one
+    // and this passes against an ArrowUp that steps forwards.
+    show({ files });
+    type("@");
+    fireEvent.keyDown(box(), { key: "ArrowUp" });
+    fireEvent.keyDown(box(), { key: "Enter" });
+
+    expect(box()).toHaveValue("@package.json ");
+  });
+
+  it("closes on Escape but reopens when the token changes", () => {
+    // Dismissal is remembered against the text it was showing for. Remembering it as a flag
+    // would keep the menu shut for the rest of the sentence.
+    show({ files });
+    type("@Coun");
+    fireEvent.keyDown(box(), { key: "Escape" });
+    expect(screen.queryByRole("list", { name: "Files" })).toBeNull();
+
+    type("@Count");
+    expect(screen.getByRole("list", { name: "Files" })).toBeInTheDocument();
+  });
+
+  it("sends normally once a mention is finished", () => {
+    const onSubmit = vi.fn();
+    show({ files, onSubmit });
+    type("@src/App.tsx needs a header");
+    fireEvent.keyDown(box(), { key: "Enter" });
+
+    expect(onSubmit).toHaveBeenCalledWith("@src/App.tsx needs a header");
+  });
+
+  it("turns a slash command into the opening of a sentence", () => {
+    show({ files });
+    type("/fi");
+    fireEvent.keyDown(box(), { key: "Enter" });
+
+    expect(box()).toHaveValue("Fix the ");
+  });
+
+  it("offers nothing while a turn is running", () => {
+    // The field is disabled, so a menu over it could be walked with the keyboard and picked
+    // into a box that cannot be typed in.
+    show({ files, running: true });
+
+    expect(screen.queryByRole("list", { name: "Files" })).toBeNull();
+  });
+});
+
 describe("when something goes wrong", () => {
   it("says so", () => {
     show({ error: "That message didn't send. Try again." });

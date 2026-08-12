@@ -8,6 +8,7 @@ import { useFirstPrompt } from "../chat/use-first-prompt.ts";
 import { useTurnSubmission } from "../chat/use-turn-submission.ts";
 import { WorkingIndicator } from "../chat/working-indicator.tsx";
 import { turnStartedAt, workingLabel } from "../chat/working-state.ts";
+import { useProjectFiles } from "../files/use-project-files.ts";
 import { useEventStream } from "../hooks/use-event-stream.ts";
 import { Pane } from "./pane.tsx";
 
@@ -30,6 +31,7 @@ export function ChatPane({
   onSubmit = () => {},
   onCancel = () => {},
   onRetry,
+  files,
 }: {
   events: readonly StoredEvent[];
   pending?: string | undefined;
@@ -39,6 +41,8 @@ export function ChatPane({
   onCancel?: () => void;
   /** Re-sends a failed turn's message. Optional so the many render tests need not supply one. */
   onRetry?: ((message: string) => void) | undefined;
+  /** The project's files, for the composer's `@` menu. */
+  files?: readonly string[] | undefined;
 }) {
   const empty = events.length === 0 && pending === undefined;
 
@@ -58,7 +62,13 @@ export function ChatPane({
           {running && <Working events={events} />}
         </div>
 
-        <ChatInput running={running} error={error} onSubmit={onSubmit} onCancel={onCancel} />
+        <ChatInput
+          running={running}
+          error={error}
+          onSubmit={onSubmit}
+          onCancel={onCancel}
+          {...(files === undefined ? {} : { files })}
+        />
       </div>
     </Pane>
   );
@@ -129,6 +139,9 @@ export function LiveChatPane({
 }) {
   const { events } = useEventStream({ sessionId });
   const { submit, cancel, pending, running, error } = useTurnSubmission({ sessionId, events });
+  // Fed this pane's own events rather than a second subscription: the listing goes stale when
+  // a turn writes a file, and this component is already told about that.
+  const { listing } = useProjectFiles({ sessionId, events });
 
   // Through the same submission path as the input, so the front page's first message is an
   // ordinary turn — same optimistic message, same rate limit, same refusal wording.
@@ -145,6 +158,7 @@ export function LiveChatPane({
       // The same submission path as the input: a retry is an ordinary turn, and routing it
       // anywhere else would give it different rate-limit and optimistic-message behaviour.
       onRetry={(message) => void submit(message)}
+      files={listing?.files ?? []}
     />
   );
 }
