@@ -19,11 +19,12 @@
  * first frame and on the server, with no layout pass and no resize observer.
  */
 
-import { type CSSProperties, useMemo } from "react";
+import { type CSSProperties, useMemo, useRef } from "react";
 import { type SkinBox, skinPath } from "../liquid/skin.ts";
 import { EyeIcon, FileIcon, ListIcon, ReloadIcon, TerminalIcon } from "../ui/icons.tsx";
 import { SectionHeading } from "./section-heading.tsx";
 import { revealProps, useReveal } from "./use-reveal.ts";
+import { useSpaceScale } from "./use-space-scale.ts";
 
 /**
  * The design space the tiles are placed in. Scaled to the container, never re-measured.
@@ -120,6 +121,8 @@ function tileStyle(box: Capability["box"]): CSSProperties {
 
 export function Capabilities() {
   const { ref, state } = useReveal<HTMLDivElement>();
+  const host = useRef<HTMLDivElement>(null);
+  useSpaceScale(host, SPACE.w);
   // Constant input, so this runs once for the life of the page; the memo is here to say that the
   // grid sample is not free rather than to save a recompute anybody would notice.
   const skin = useMemo(() => skinPath(BOXES, { k: BLEND, radius: 22, cell: 6 }), []);
@@ -146,8 +149,12 @@ export function Capabilities() {
             scaled to whatever width the column has — `aspect-ratio` holds the box's proportions
             so the tiles and the traced skin stay in the same space at every width.
           */}
-          <div className="relative mt-16 md:aspect-[880/492] md:[container-type:inline-size]">
-            <div className="md:absolute md:top-0 md:left-0 md:h-[492px] md:w-[880px] md:origin-top-left md:[scale:calc(100cqw/880)]">
+          <div
+            ref={host}
+            className="nap-space-host-md relative mt-16"
+            style={{ "--space-w": SPACE.w, "--space-h": SPACE.h } as CSSProperties}
+          >
+            <div className="nap-space-md">
               {/*
                 The skin sits at the path's own origin, which is outside the space: the blend
                 paints past every tile. It is colour and nothing else, so it is hidden from
