@@ -205,6 +205,409 @@ body {
   opacity: 1;
 }
 
+/*
+ * ─── The stickers, doing something ──────────────────────────────────────────────────────────
+ *
+ * Each sticker has an idle loop that says what it is up to, and a hover reaction that is its
+ * own — no two of the four react the same way. The idle side is kept under three pixels of
+ * travel and runs slow: this is the furniture around the box somebody came here to type in, and
+ * anything faster turns the edges of the band into the thing being watched. Every loop has a
+ * different period so the four never fall into step, which is what makes them read as four
+ * characters rather than one animation applied four times.
+ *
+ * **`transform` here composes with the tilt, it does not replace it.** Each sticker is placed at
+ * an angle with a Tailwind rotate utility, which in v4 writes the *individual* `rotate`
+ * property; `translate`, `rotate` and `transform` are applied in that order, so a keyframe using
+ * `transform` moves the sticker around the angle it was pinned at. Writing `rotate()` inside
+ * `transform` therefore *adds* to the tilt, which is what the hover flourish wants.
+ */
+.nap-sticker {
+  transition:
+    border-color 260ms ease,
+    background-color 260ms ease;
+}
+
+.nap-sticker:hover {
+  border-color: var(--color-line-strong);
+}
+
+/*
+ * Headphones: a nod on a two-and-a-half second beat, with the cups swelling on the same beat so
+ * the sound looks like it is coming from somewhere. Hovering turns it up — the beat doubles and
+ * the nod widens, which is a different gesture rather than the same one hurried.
+ */
+.nap-sticker-music {
+  animation: nap-nod 2400ms ease-in-out infinite;
+}
+
+.nap-sticker-music:hover {
+  animation: nap-nod-loud 1100ms ease-in-out infinite;
+}
+
+.nap-sticker-music .nap-cans {
+  animation: nap-cans 2400ms ease-in-out infinite;
+}
+
+.nap-sticker-music:hover .nap-cans {
+  animation-duration: 1100ms;
+}
+
+/*
+ * The notes leave one at a time on inline delays, for the same reason the z's do. Hover only
+ * shortens the flight: the delays are inline styles and a stylesheet cannot outrank them, so
+ * the stagger stays put and the stream simply gets denser.
+ */
+.nap-note {
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: nap-note 1800ms ease-out infinite both;
+}
+
+.nap-sticker-music:hover .nap-note {
+  animation-duration: 1000ms;
+}
+
+/*
+ * Laptop: typing comes in bursts with pauses between them, because an even jitter reads as the
+ * drawing vibrating rather than as somebody working. The screen breathes on its own longer
+ * period. Hovering leans the whole sticker toward the laptop and lights the code up in accent —
+ * the *only* one of the four that moves toward something.
+ */
+.nap-sticker-code {
+  animation: nap-type 5200ms linear infinite;
+}
+
+.nap-sticker-code:hover {
+  animation: nap-type-hard 900ms linear infinite;
+}
+
+.nap-sticker-code .nap-screen {
+  opacity: 0.5;
+  animation: nap-screen 3000ms ease-in-out infinite;
+}
+
+.nap-sticker-code:hover .nap-screen {
+  animation: none;
+  opacity: 1;
+  stroke: var(--color-accent);
+}
+
+/*
+ * Sleeping: the mark already breathes and lets z's go, so all this adds is a slow sway and a
+ * blanket that settles with it — five seconds, the longest period of the four, because it is
+ * the one that is supposed to look like nothing is happening.
+ */
+.nap-sticker-sleep {
+  animation: nap-snore 5200ms ease-in-out infinite;
+}
+
+.nap-sticker-sleep .nap-blanket {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: nap-blanket 5200ms ease-in-out infinite;
+}
+
+/* Startled: the z's stop mid-air, the eyes come up, and it hops once and settles rather than
+   holding a raised pose — being woken is an event, not a state. */
+.nap-sticker-sleep:hover {
+  animation: nap-startle 620ms cubic-bezier(0.2, 0.9, 0.25, 1);
+}
+
+.nap-sticker-sleep:hover .nap-mark-zzz {
+  display: none;
+}
+
+.nap-sticker-sleep:hover .nap-mark-shut {
+  opacity: 0;
+}
+
+.nap-sticker-sleep:hover .nap-mark-open {
+  opacity: 1;
+}
+
+/* Once the hop is over it looks around, which is the mark's own waking gesture. The delay keeps
+   the glance from starting while the eyes are still opening. */
+.nap-sticker-sleep:hover .nap-mark-eyes {
+  animation: nap-glance 3s ease-in-out 620ms infinite;
+}
+
+/*
+ * Spark: a twinkle and a wand ticking against it, three seconds apart from every other loop.
+ * Hovering is the only place sparks are actually thrown — an idle sticker firing sparks every
+ * few seconds is a notification, and there is nothing here to be notified about.
+ */
+.nap-sticker-spark .nap-star {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: nap-twinkle 3000ms ease-in-out infinite;
+}
+
+.nap-sticker-spark .nap-wand {
+  transform-box: fill-box;
+  transform-origin: 30% 70%;
+  animation: nap-wand 3000ms ease-in-out infinite;
+}
+
+.nap-sticker-spark:hover {
+  animation: nap-flourish 700ms cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+.nap-sticker-spark:hover .nap-star {
+  animation: nap-spin 700ms cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+/* Each spark carries its own direction inline, so three dots leaving one point look thrown
+   rather than swept. `both` holds them invisible through their delay. */
+.nap-spark {
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.nap-sticker-spark:hover .nap-spark {
+  animation: nap-spark-fly 620ms ease-out both;
+}
+
+@keyframes nap-nod {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-1deg);
+  }
+  50% {
+    transform: translateY(-1.6px) rotate(1deg);
+  }
+}
+
+@keyframes nap-nod-loud {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-3.5deg);
+  }
+  50% {
+    transform: translateY(-3px) rotate(3.5deg);
+  }
+}
+
+@keyframes nap-cans {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes nap-note {
+  0% {
+    opacity: 0;
+    transform: translate(0, 2px) scale(0.6);
+  }
+  25% {
+    opacity: 0.9;
+  }
+  70% {
+    opacity: 0.5;
+  }
+  100% {
+    opacity: 0;
+    /* SVG user units on a 96-wide viewBox drawn at 80px, so this is about ten screen pixels. */
+    transform: translate(5px, -13px) scale(1.05) rotate(12deg);
+  }
+}
+
+/* Two bursts of four keystrokes in five seconds, with long flat stretches between them. The
+   percentages are the burst; everything else is the pause, which is most of the loop. */
+@keyframes nap-type {
+  0%,
+  30% {
+    transform: translateY(0);
+  }
+  32% {
+    transform: translateY(1px);
+  }
+  34% {
+    transform: translateY(0);
+  }
+  36% {
+    transform: translateY(1px);
+  }
+  38%,
+  66% {
+    transform: translateY(0);
+  }
+  68% {
+    transform: translateY(1px);
+  }
+  70% {
+    transform: translateY(0);
+  }
+  72% {
+    transform: translateY(1px);
+  }
+  74%,
+  100% {
+    transform: translateY(0);
+  }
+}
+
+@keyframes nap-type-hard {
+  0%,
+  100% {
+    transform: translate(-3px, 0) scale(1.06);
+  }
+  25% {
+    transform: translate(-3px, 1.4px) scale(1.06);
+  }
+  50% {
+    transform: translate(-3px, 0) scale(1.06);
+  }
+  75% {
+    transform: translate(-3px, 1.4px) scale(1.06);
+  }
+}
+
+@keyframes nap-screen {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes nap-snore {
+  0%,
+  100% {
+    transform: translate(0, 0) rotate(0deg);
+  }
+  50% {
+    transform: translate(1.5px, 1px) rotate(-1.2deg);
+  }
+}
+
+@keyframes nap-blanket {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(0.8px);
+  }
+}
+
+@keyframes nap-startle {
+  0% {
+    transform: translateY(0) scale(1);
+  }
+  35% {
+    transform: translateY(-5px) scale(1.05);
+  }
+  65% {
+    transform: translateY(1px) scale(0.99);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes nap-twinkle {
+  0%,
+  100% {
+    opacity: 0.5;
+    transform: scale(0.9);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.1);
+  }
+}
+
+@keyframes nap-wand {
+  0%,
+  100% {
+    transform: rotate(-3deg);
+  }
+  50% {
+    transform: rotate(3deg);
+  }
+}
+
+@keyframes nap-flourish {
+  0% {
+    transform: rotate(0deg) scale(1);
+  }
+  40% {
+    transform: rotate(-7deg) scale(1.08);
+  }
+  100% {
+    transform: rotate(0deg) scale(1);
+  }
+}
+
+@keyframes nap-spin {
+  0% {
+    transform: rotate(0deg) scale(1);
+  }
+  60% {
+    transform: rotate(200deg) scale(1.25);
+  }
+  100% {
+    transform: rotate(180deg) scale(1);
+  }
+}
+
+@keyframes nap-spark-fly {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0) scale(0.4);
+  }
+  20%,
+  65% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--spark-x, 6px), var(--spark-y, -8px)) scale(1.15);
+  }
+}
+
+/*
+ * Reduced motion keeps every *state* and drops everything that travels, exactly as the mark
+ * does above: the sleeper still opens its eyes when pointed at, the laptop screen still lights
+ * up in accent, and the notes and sparks sit still at low opacity instead of vanishing — a
+ * sticker whose props disappeared would look half-drawn rather than considerate.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .nap-sticker,
+  .nap-sticker:hover,
+  .nap-sticker .nap-cans,
+  .nap-sticker .nap-screen,
+  .nap-sticker .nap-blanket,
+  .nap-sticker .nap-star,
+  .nap-sticker .nap-wand,
+  .nap-sticker-music:hover .nap-cans,
+  .nap-sticker-spark:hover .nap-star,
+  .nap-sticker-sleep:hover .nap-mark-eyes {
+    animation: none;
+  }
+
+  .nap-note,
+  .nap-sticker-music:hover .nap-note,
+  .nap-spark,
+  .nap-sticker-spark:hover .nap-spark {
+    animation: none;
+    opacity: 0.6;
+    transform: none;
+  }
+
+  .nap-sticker .nap-screen {
+    opacity: 0.75;
+  }
+}
+
 @keyframes nap-glance {
   0%,
   14% {

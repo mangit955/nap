@@ -75,6 +75,28 @@ describe("the dashboard hero", () => {
     expect(screen.getByTestId("nap-stickers")).toBeInTheDocument();
   });
 
+  /**
+   * Animation has no accessible surface, so this is the deliberate exception to the
+   * no-class-names rule — the same reason the syntax-highlighting test queries tokens directly.
+   * What it protects is the *distinctness*: the stickers are four copies of one component and a
+   * copy-paste that leaves two of them on the same `kind` gives two of them the same idle loop
+   * and the same hover, which is exactly what nobody notices by eye.
+   */
+  it("gives each sticker its own behaviour rather than four copies of one", () => {
+    show();
+
+    const stickers = [...screen.getByTestId("nap-stickers").querySelectorAll(".nap-sticker")];
+    const kinds = stickers.map((sticker) =>
+      [...sticker.classList].find(
+        (name) => name.startsWith("nap-sticker-") && name !== "nap-sticker-awake",
+      ),
+    );
+
+    expect(stickers).toHaveLength(4);
+    expect(new Set(kinds).size).toBe(4);
+    expect(kinds).not.toContain(undefined);
+  });
+
   it("sends what was typed on Enter", () => {
     const { onSubmit } = show({ value: "a habit tracker" });
 
