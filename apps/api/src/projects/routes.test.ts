@@ -1,8 +1,10 @@
+import { FakePageCapture } from "@nap/capture/testing/fake-page-capture";
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { InMemoryProjectSandboxStore } from "@nap/db/testing/in-memory-project-sandbox-store";
 import { FAKE_OWNER, InMemoryProjectStore } from "@nap/db/testing/in-memory-project-store";
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
+import { TEMPLATE_DEV_PORT } from "@nap/sandbox/template";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import type { ProjectSummary } from "@nap/shared/ports/project-store";
 import type { ResumeOutcome } from "@nap/shared/ports/runtime";
@@ -34,6 +36,8 @@ let resume: () => Promise<ResumeOutcome>;
 let limits: SandboxLimits | undefined;
 /** The log the app writes to, so a close's announcement can be read back. */
 let events: InMemoryEventStore;
+/** A browser for the close route, when a test wants one. */
+let capture: FakePageCapture | undefined;
 
 function summary(overrides: Partial<ProjectSummary> = {}): ProjectSummary {
   return {
@@ -69,6 +73,7 @@ beforeEach(async () => {
   resumed = [];
   resume = async () => ({ ok: true, sandboxId: "resumed-sandbox", created: true });
   limits = undefined;
+  capture = undefined;
   events = new InMemoryEventStore();
 });
 
@@ -88,6 +93,7 @@ function app() {
       snapshots,
       objects,
       sandbox,
+      ...(capture === undefined ? {} : { capture }),
       createProject: async () => created,
       isBusy: (sessionIds) => sessionIds.some((id) => running.has(id)),
       events: { events, bus: new InMemoryEventBus() },
@@ -220,6 +226,17 @@ describe("GET /projects/:projectId/thumbnail", () => {
 });
 
 describe("POST /projects/:projectId/close", () => {
+  it("photographs the project on the way out when there is a browser to do it with", async () => {
+    // Wiring, not behaviour: `putProjectAway` owns the picture, and this asserts the route
+    // actually hands its browser over rather than quietly dropping it.
+    capture = new FakePageCapture();
+    sandbox.listen(sandboxId, TEMPLATE_DEV_PORT);
+
+    await app().request(`/projects/${PROJECT}/close`, { method: "POST" });
+
+    expect(objects.keys()).toContain(`projects/${PROJECT}/thumbnail.png`);
+  });
+
   it("puts the project away and says where the bytes went", async () => {
     const res = await app().request(`/projects/${PROJECT}/close`, { method: "POST" });
 

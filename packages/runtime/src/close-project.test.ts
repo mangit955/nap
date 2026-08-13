@@ -1,3 +1,4 @@
+import { FakePageCapture } from "@nap/capture/testing/fake-page-capture";
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { InMemoryProjectSandboxStore } from "@nap/db/testing/in-memory-project-sandbox-store";
@@ -6,8 +7,11 @@ import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-m
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import { beforeEach, describe, expect, it } from "vitest";
 import { putProjectAway } from "./close-project.ts";
+import { thumbnailKey } from "./turn-thumbnail.ts";
 
 const PROJECT = "3e0fbc41-6f5d-4a8e-ab9c-4d5e6f708192";
+/** The port the project's dev server is declared to be serving on. */
+const PREVIEW_PORT = 5173;
 const SHA = "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f80912";
 const ACTIVE = "2026-08-09T11:00:00.000Z";
 /** Two, because a sandbox belongs to the project every one of its sessions shares. */
@@ -36,13 +40,15 @@ beforeEach(async () => {
   const created = await sandbox.create(PROJECT);
   if (!created.ok) throw new Error("could not create a sandbox");
   sandboxId = created.value.id;
+  // The project's app is up, as it is for any project somebody is closing by hand.
+  sandbox.listen(sandboxId, PREVIEW_PORT);
 
   projects = new InMemoryProjectSandboxStore([
     { projectId: PROJECT, sandboxId, lastActiveAt: ACTIVE },
   ]);
 });
 
-function close(id = sandboxId) {
+function close(id = sandboxId, capture?: FakePageCapture) {
   return putProjectAway({
     projects,
     sandbox,
@@ -51,6 +57,7 @@ function close(id = sandboxId) {
     projectId: PROJECT,
     sandboxId: id,
     announce: { events, bus, sessionIds: SESSIONS },
+    ...(capture === undefined ? {} : { capture, previewPort: PREVIEW_PORT }),
   });
 }
 
@@ -189,5 +196,38 @@ describe("closing a project that a turn has already snapshotted", () => {
       sandboxId: null,
       snapshotKey: "projects/p/from-the-turn.bundle",
     });
+  });
+});
+
+describe("the picture on the way out", () => {
+  it("photographs the project before the sandbox is destroyed", async () => {
+    // The last moment the app exists anywhere. A shot taken after the teardown would be of an
+    // address that stopped answering seconds earlier.
+    const capture = new FakePageCapture();
+
+    await close(sandboxId, capture);
+
+    expect(capture.requests).toHaveLength(1);
+    expect(objects.keys()).toContain(thumbnailKey(PROJECT));
+  });
+
+  it("still puts the project away when the picture fails", async () => {
+    // A sandbox costs money by the second. Refusing to close one over a screenshot would trade
+    // the expensive problem for the cosmetic one.
+    const capture = new FakePageCapture().failWith({ code: "timeout", message: "never settled" });
+
+    const result = await close(sandboxId, capture);
+
+    expect(result).toMatchObject({ outcome: "put_away" });
+    await expect(sandbox.resume(sandboxId)).resolves.toMatchObject({
+      ok: false,
+      error: { code: "destroyed" },
+    });
+  });
+
+  it("photographs nothing when there is no browser to do it with", async () => {
+    await close();
+
+    expect(objects.keys()).not.toContain(thumbnailKey(PROJECT));
   });
 });

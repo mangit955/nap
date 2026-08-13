@@ -259,6 +259,16 @@ export class SingleAgentRuntime implements Runtime {
       await sink.drain();
       getLogger().info({ created: acquired.value.created }, "project resumed");
 
+      // A project that has just come back up is serving again, and its card may be showing
+      // nothing at all — every project made before there was a browser to photograph one has
+      // no picture, and a turn is the only other thing that would take it. Gated on the same
+      // condition as the announcement above: a sandbox that was already serving has not
+      // changed since whatever last photographed it.
+      //
+      // Last, and after the outcome is already decided: resuming is what the caller asked for,
+      // and a browser launch must not be able to delay or fail it.
+      if (acquired.value.created) await this.#photograph(session.projectId, acquired.value.id);
+
       return { ok: true, sandboxId: acquired.value.id, created: acquired.value.created };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -352,7 +362,10 @@ export class SingleAgentRuntime implements Runtime {
         await this.#preserve(session.projectId, sandboxId.value.id, terminal.payload.commitSha);
         // After the snapshot, deliberately: the work reaching storage is what must not be
         // delayed by a browser launch, and a picture is the one thing here nobody would miss.
-        await this.#photograph(session.projectId, sandboxId.value.id, terminal.payload.commitSha);
+        // Only when the turn changed something — an unchanged app photographs identically.
+        if (terminal.payload.commitSha !== null) {
+          await this.#photograph(session.projectId, sandboxId.value.id);
+        }
         return { ok: true, turnId, commitSha: terminal.payload.commitSha };
       }
       if (terminal?.type === "turn.failed") {
@@ -428,19 +441,21 @@ export class SingleAgentRuntime implements Runtime {
   /**
    * Photographs the project while it is still up, for the dashboard's card.
    *
-   * **This is the only moment the picture can be taken.** A preview URL answers for exactly as
-   * long as its sandbox lives, and the card is looked at days later, when there is nothing
-   * running to point a browser at. So the shot is of the app as its last turn left it — which
-   * is the honest trade behind doing this at all.
+   * **A picture can only be taken while a sandbox lives**, and the card is looked at days
+   * later, when nothing is running to point a browser at. So every moment the project is
+   * known to be serving is a chance worth taking: the end of a turn that changed something,
+   * and a project coming back up. Putting one away takes its own shot from `close-project.ts`,
+   * on the way past.
    *
-   * Everything the snapshot above is careful about applies here and matters less: only after a
-   * turn that committed, never in the turn's way, and **never a reason to fail a turn**. A
-   * missing screenshot costs the user a thumbnail; failing the turn would cost them the work.
+   * Whoever calls decides *whether* there is anything new to see — a turn that committed
+   * nothing, or a sandbox that was already serving, has not changed since the last shot. What
+   * this owns is that a failure is only ever a log line: a missing screenshot costs a card its
+   * picture, and nothing here is worth failing a turn or a resume over.
    */
-  async #photograph(projectId: string, sandboxId: string, commitSha: string | null): Promise<void> {
+  async #photograph(projectId: string, sandboxId: string): Promise<void> {
     const capture = this.#options.capture;
     const objects = this.#options.objects;
-    if (capture === undefined || objects === undefined || commitSha === null) return;
+    if (capture === undefined || objects === undefined) return;
 
     const shot = await captureThumbnail({
       sandbox: this.#options.sandbox,

@@ -40,6 +40,14 @@ export type CaptureThumbnailOptions = {
    * waiting the full budget would hold a browser open for a picture nobody is waiting for.
    */
   previewTimeoutMs?: number;
+  /**
+   * How long the browser may spend loading the page.
+   *
+   * Separate from the wait above because they fail for different reasons — nothing serving at
+   * all, versus a page that serves and then never settles — and a caller with somebody waiting
+   * on it wants both cut short.
+   */
+  captureTimeoutMs?: number;
 };
 
 const DEFAULT_PREVIEW_TIMEOUT_MS = 15_000;
@@ -61,7 +69,12 @@ export async function captureThumbnail(
     return { ok: false, error: { message: `no preview to photograph: ${preview.error.message}` } };
   }
 
-  const shot = await capture.capture(preview.value);
+  const shot = await capture.capture(
+    preview.value,
+    // Left to the adapter's own default when the caller has no opinion, rather than repeated
+    // here — two places holding a number that has to agree is how they stop agreeing.
+    options.captureTimeoutMs === undefined ? {} : { timeoutMs: options.captureTimeoutMs },
+  );
   if (!shot.ok) {
     return { ok: false, error: { message: `could not capture the page: ${shot.error.message}` } };
   }

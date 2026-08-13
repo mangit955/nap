@@ -24,6 +24,7 @@
 import type { EventBus } from "@nap/shared/ports/event-bus";
 import type { EventStore } from "@nap/shared/ports/event-store";
 import type { ObjectStore } from "@nap/shared/ports/object-store";
+import type { PageCapture } from "@nap/shared/ports/page-capture";
 import type { IdleProject, ProjectSandboxStore } from "@nap/shared/ports/project-sandbox-store";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
@@ -57,6 +58,13 @@ export type SweepOptions = {
   snapshots: SnapshotStore;
   /** How long a project must have been quiet before its sandbox is put away. */
   idleMs: number;
+  /**
+   * A browser, so a project swept while nobody was looking still leaves a picture behind.
+   *
+   * Threaded through to `putProjectAway` rather than used here: a sweep is a close that nobody
+   * asked for, and the two must not differ in what they leave behind.
+   */
+  capture?: PageCapture;
   /**
    * Whether a turn is running for any of the project's sessions. Injected because turns are
    * tracked by whatever is serving requests, and this package has no idea what that is.
@@ -93,6 +101,7 @@ export async function sweepIdleProjects(options: SweepOptions): Promise<SweepRes
       snapshots: options.snapshots,
       projectId: project.projectId,
       sandboxId: project.sandboxId,
+      ...(options.capture === undefined ? {} : { capture: options.capture }),
       ...(options.announce === undefined
         ? {}
         : { announce: { ...options.announce, sessionIds: project.sessionIds } }),

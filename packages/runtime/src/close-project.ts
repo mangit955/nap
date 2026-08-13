@@ -18,15 +18,18 @@
  *     nobody can find and nobody stops paying for.
  */
 
+import { TEMPLATE_DEV_PORT } from "@nap/sandbox/template";
 import { getLogger } from "@nap/shared/logging";
 import type { EventBus } from "@nap/shared/ports/event-bus";
 import type { EventStore, PendingEvent } from "@nap/shared/ports/event-store";
 import type { ObjectStore } from "@nap/shared/ports/object-store";
+import type { PageCapture } from "@nap/shared/ports/page-capture";
 import type { ProjectSandboxStore } from "@nap/shared/ports/project-sandbox-store";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
 import { EventSink } from "./event-sink.ts";
 import { tearDownProject } from "./teardown.ts";
+import { captureThumbnail } from "./turn-thumbnail.ts";
 
 export type CloseOutcome =
   /** Snapshotted, destroyed, and the project now points at the bundle. */
@@ -60,10 +63,34 @@ export type CloseProjectOptions = {
   projectId: string;
   sandboxId: string;
   announce?: CloseAnnouncement;
+  /**
+   * A browser, for one last picture of the project before its sandbox goes.
+   *
+   * Optional like everything else that only some deployments have. Absent, a project is put
+   * away exactly as it was before there was any such thing as a thumbnail.
+   */
+  capture?: PageCapture;
+  /** The port the project's dev server listens on. Defaults to the template's. */
+  previewPort?: number;
 };
+
+/**
+ * How long the picture may take, on the way out.
+ *
+ * Much shorter than the turn path allows, because somebody is waiting on this request and the
+ * app has been serving all along: a preview that is not answering promptly at close time is not
+ * about to start.
+ */
+const CLOSING_PREVIEW_TIMEOUT_MS = 8_000;
+const CLOSING_CAPTURE_TIMEOUT_MS = 10_000;
 
 export async function putProjectAway(options: CloseProjectOptions): Promise<CloseOutcome> {
   const { projects, projectId, sandboxId } = options;
+
+  // Before the teardown, because the teardown destroys the sandbox — this is the last moment
+  // the app is running anywhere. The card is what somebody sees the next time they come
+  // looking for this project, and a picture of the state they left it in is the whole point.
+  await photograph(options);
 
   const torn = await tearDownProject({
     sandbox: options.sandbox,
@@ -91,6 +118,38 @@ export async function putProjectAway(options: CloseProjectOptions): Promise<Clos
   }));
   await announceStopped(options);
   return outcome;
+}
+
+/**
+ * The last picture of the project, for the card somebody will find it by.
+ *
+ * **Never a reason for a close to fail.** The sandbox still has to be snapshotted and
+ * destroyed; refusing to put a project away because a screenshot did not work would leave a
+ * sandbox billing by the second over a thumbnail. Everything here is therefore swallowed —
+ * including a thrown error, which from a browser is a bug rather than an outcome, but not one
+ * worth taking the close down with.
+ */
+async function photograph(options: CloseProjectOptions): Promise<void> {
+  const { capture, objects, sandbox, projectId, sandboxId } = options;
+  if (capture === undefined) return;
+
+  const shot = await captureThumbnail({
+    sandbox,
+    capture,
+    objects,
+    projectId,
+    sandboxId,
+    port: options.previewPort ?? TEMPLATE_DEV_PORT,
+    previewTimeoutMs: CLOSING_PREVIEW_TIMEOUT_MS,
+    captureTimeoutMs: CLOSING_CAPTURE_TIMEOUT_MS,
+  }).catch((error: unknown) => ({ ok: false as const, error: { message: String(error) } }));
+
+  if (shot.ok) {
+    getLogger().info({ key: shot.value.key }, "project photographed on the way out");
+    return;
+  }
+
+  getLogger().warn({ reason: shot.error.message }, "could not photograph the project being closed");
 }
 
 /**

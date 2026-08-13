@@ -87,6 +87,19 @@ const objects = new R2ObjectStore(
     secretAccessKey: env.R2_SECRET_ACCESS_KEY,
   }),
 );
+/**
+ * The browser that photographs projects for the dashboard's cards, if this machine has one.
+ *
+ * One instance, shared by everything that can catch a project while it is running: the end of
+ * a turn, a project coming back up, and the last moment before one is put away by hand or by
+ * the reaper. Undefined is an ordinary state — every one of those call sites skips the picture
+ * and the cards fall back to a colour.
+ */
+const capture =
+  env.NAP_CHROME_PATH === undefined
+    ? undefined
+    : new ChromePageCapture({ executablePath: env.NAP_CHROME_PATH });
+
 const snapshots = new PostgresSnapshotStore(db);
 const projectSandboxes = new PostgresProjectSandboxStore(db);
 const projects = new PostgresProjectStore(db);
@@ -131,12 +144,8 @@ const runtime = new SingleAgentRuntime({
   // from its last snapshot rather than starting again from an empty template.
   objects,
   snapshots,
-  // A picture of each finished turn for the dashboard's cards, when there is a browser on this
-  // machine to take one. Absent, turns run exactly as before and the cards show a colour —
-  // which is why nothing here goes hunting for a Chrome that was never configured.
-  ...(env.NAP_CHROME_PATH === undefined
-    ? {}
-    : { capture: new ChromePageCapture({ executablePath: env.NAP_CHROME_PATH }) }),
+  // A picture of each finished turn, and of each project coming back up.
+  ...(capture === undefined ? {} : { capture }),
   sandboxTtlMs: env.NAP_SANDBOX_TTL_MINUTES * 60 * 1000,
   context: new NapContextEngine({ budgetTokens: env.NAP_CONTEXT_BUDGET_TOKENS }),
   agent: new NapAgentService({
@@ -210,6 +219,9 @@ const app = createApp({
     snapshots,
     objects,
     sandbox,
+    // So closing a project takes one last picture of it on the way past — the state somebody
+    // left it in is the state their card should show when they come back.
+    ...(capture === undefined ? {} : { capture }),
     createProject: (options) => createProjectSession(db, options),
     // The same runtime the turn routes drive: resuming a project and running a turn in it are
     // serialized per session there, which is what stops the two starting two sandboxes.
@@ -247,6 +259,9 @@ const reaper = startReaper({
       sandbox,
       objects,
       snapshots,
+      // A swept project is one nobody was looking at, which is exactly the one whose card is
+      // the only thing left of it.
+      ...(capture === undefined ? {} : { capture }),
       idleMs: env.NAP_REAP_IDLE_MINUTES * 60 * 1000,
       isBusy: (project) => project.sessionIds.some((id) => registry.isRunning(id)),
       // A swept project's tabs are still open on it, showing an address that is about to stop

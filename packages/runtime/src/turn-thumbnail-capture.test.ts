@@ -152,3 +152,50 @@ describe("when the capture fails", () => {
     expect(objects.keys().some((key) => key.endsWith(".bundle"))).toBe(true);
   });
 });
+
+describe("a project coming back up", () => {
+  /** A resume against a session whose sandbox has to be created, as an old project's would. */
+  function resume(withCapture = true) {
+    const runtime = new SingleAgentRuntime({
+      sessions,
+      sandbox,
+      context: new StubContextEngine(),
+      agent: new ScriptedAgent(completed(COMMIT_SHA)),
+      events: new InMemoryEventStore(),
+      bus: new InMemoryEventBus(),
+      memory: new NoopMemoryProvider(),
+      objects,
+      snapshots: new InMemorySnapshotStore(),
+      ...(withCapture ? { capture } : {}),
+    });
+
+    return runtime.resumeSession(SESSION_ID);
+  }
+
+  it("photographs it, without any turn having run", async () => {
+    // Every project made before there was a browser has no picture at all, and a turn is the
+    // only other thing that would take one — so opening a project is the cheapest way for its
+    // card to catch up, and it costs no model call.
+    const outcome = await resume();
+
+    expect(outcome.ok).toBe(true);
+    expect(objects.keys()).toContain(thumbnailKey(PROJECT_ID));
+  });
+
+  it("takes no picture when the sandbox was already serving", async () => {
+    // Nothing has changed since whatever last photographed it, so a second shot is a browser
+    // launch for a byte-identical picture — the same reason the preview is not re-announced.
+    await resume();
+    capture.requests.length = 0;
+
+    await resume();
+
+    expect(capture.requests).toEqual([]);
+  });
+
+  it("still resumes when the picture fails", async () => {
+    capture.failWith({ code: "unavailable", message: "no browser at that path" });
+
+    expect(await resume()).toMatchObject({ ok: true });
+  });
+});
