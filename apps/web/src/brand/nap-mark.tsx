@@ -33,9 +33,8 @@ import type { SVGProps } from "react";
 import { useId } from "react";
 import {
   NAP_BODY,
-  NAP_BROW_LEFT,
-  NAP_BROW_RIGHT,
-  NAP_BROW_WEIGHT,
+  NAP_EYE_BORED_LEFT,
+  NAP_EYE_BORED_RIGHT,
   NAP_EYE_OPEN,
   NAP_EYE_OPEN_RX,
   NAP_EYE_OPEN_RY,
@@ -108,16 +107,10 @@ export function NapMark({ className = "", ...props }: SVGProps<SVGSVGElement>) {
             <path d={NAP_EYE_SQUINT_RIGHT} />
           </g>
 
-          {/* And a fourth: two angled brows, for whenever he needs to look put out. */}
-          <g
-            className="nap-mark-brows"
-            fill="none"
-            stroke="#000"
-            strokeWidth={NAP_BROW_WEIGHT}
-            strokeLinecap="round"
-          >
-            <path d={NAP_BROW_LEFT} />
-            <path d={NAP_BROW_RIGHT} />
+          {/* And a fourth: lids halfway down, for whenever he needs to look unimpressed. */}
+          <g className="nap-mark-bored">
+            <path d={NAP_EYE_BORED_LEFT} />
+            <path d={NAP_EYE_BORED_RIGHT} />
           </g>
         </g>
       </mask>

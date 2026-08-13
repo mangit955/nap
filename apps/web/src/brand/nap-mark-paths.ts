@@ -63,14 +63,16 @@ export const NAP_EYE_SQUINT_RIGHT = "M16.6 10.7 14.4 12.4 16.6 14.1";
 export const NAP_EYE_SQUINT_WEIGHT = 1.25;
 
 /**
- * Brows, angled down towards the middle: the whole of an annoyed face in two strokes.
+ * Half-lidded: the open eyes with a lid drawn flat across the top of each, leaving the lower
+ * two thirds. The face of somebody who has seen this before and is not impressed.
  *
- * They sit close over the eyes on purpose. Higher up they read as surprise however steeply they
- * are angled, and the gap between brow and eye is the part a viewer actually measures.
+ * Angled brows were tried first and read as *angry*, which is a mood with an opinion in it. A
+ * straight lid has none — it is the eye doing less work — and that is the difference between
+ * cross and unbothered. Same centres and the same radii as the open eyes, so the face does not
+ * move when one is swapped for the other; only the lid line is new.
  */
-export const NAP_BROW_LEFT = "M6.5 9 10.4 10.4";
-export const NAP_BROW_RIGHT = "M17.5 9 13.6 10.4";
-export const NAP_BROW_WEIGHT = 1.15;
+export const NAP_EYE_BORED_LEFT = "M7.25 12h2.7v0.4a1.35 1.7 0 0 1-2.7 0Z";
+export const NAP_EYE_BORED_RIGHT = "M14.05 12h2.7v0.4a1.35 1.7 0 0 1-2.7 0Z";
 
 /**
  * The z's that drift off it while it sleeps, drawn as strokes rather than filled letterforms —

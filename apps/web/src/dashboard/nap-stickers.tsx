@@ -25,18 +25,7 @@
  * mark's own animations rather than in inline styles here.
  */
 
-import type { CSSProperties } from "react";
 import { NapMark } from "../brand/nap-mark.tsx";
-
-/**
- * The three sparks the wand throws on hover, in the spark sticker's own 88×92 user units — the
- * distances are SVG coordinates, not CSS pixels, so they read smaller on screen than they look.
- */
-const SPARKS = [
-  { d: "M62 20h.01", delay: "0ms", x: "14px", y: "-14px" },
-  { d: "M70 34h.01", delay: "80ms", x: "17px", y: "5px" },
-  { d: "M54 32h.01", delay: "160ms", x: "-13px", y: "-11px" },
-] as const;
 
 const PEN = {
   fill: "none",
@@ -158,13 +147,19 @@ export function NapStickers() {
         </svg>
       </Sticker>
 
-      {/* A pause between ideas: this one is the mark in its natural sleeping state. */}
+      {/*
+        A pause between ideas: this one is the mark in its natural sleeping state.
+
+        He is drawn in the same ink as the other three. Greyed down he read as the disabled one
+        of the set rather than as the sleeping one — asleep is what the shut eyes and the z's are
+        for, and dimming him on top of that says "unavailable", which is a different word.
+      */}
       <Sticker kind="sleep" className="bottom-[16%] left-[10%] rotate-3">
-        <NapMark className="size-[4.8rem] text-muted" />
+        <NapMark className="size-[4.8rem]" />
         <svg
           aria-hidden="true"
           viewBox="0 0 112 94"
-          className="absolute -bottom-3 -left-7 size-[5.4rem] text-muted/80"
+          className="absolute -bottom-3 -left-7 size-[5.4rem] text-muted"
           {...PEN}
           strokeWidth="2"
         >
@@ -178,6 +173,32 @@ export function NapStickers() {
       {/* Nap making something: a little spark is enough to imply the next project. */}
       <Sticker kind="spark" className="right-[12%] bottom-[15%] -rotate-8" awake>
         <NapMark className="size-[4.5rem]" />
+
+        {/*
+          The vein: the comic shorthand for somebody's patience running out, popped **on his
+          head** rather than in the corner of the card. In the corner it was a badge, and a red
+          badge on a dashboard tile is an error; on the temple of a character it is a mood. It is
+          the one place in this app the danger colour means something other than a failure, and
+          it exists only while the cursor is on him.
+        */}
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 24 24"
+          className="nap-anger absolute top-[1.6rem] left-[1.2rem] w-[1.05rem] text-danger"
+        >
+          {/*
+            Four arms around a hollow middle, drawn as one closed outline. Filled it was a solid
+            red blob at this size — the notches between the arms close up and it reads as a cross
+            in a corner, which on a dashboard is a delete button rather than a temper. The empty
+            centre is what makes it legible, and it matches every other prop on these stickers,
+            all of which are line drawings.
+          */}
+          <path
+            {...PEN}
+            strokeWidth="2.3"
+            d="M19.1 4.9 15.2 12l3.9 7.1L12 15.2l-7.1 3.9L8.8 12 4.9 4.9 12 8.8Z"
+          />
+        </svg>
         <svg
           aria-hidden="true"
           viewBox="0 0 88 92"
@@ -191,27 +212,6 @@ export function NapStickers() {
           <g className="nap-wand">
             <path d="m21 64 15-16 7 7-15 16-10 3 3-10Z" />
             <path d="m37 47 7 7M18 78l-4 5" />
-          </g>
-
-          {/* Thrown only on hover — an idle sticker firing sparks every few seconds is a
-              notification, and there is nothing here to be notified about. */}
-          <g className="nap-sparks" strokeWidth="3.4">
-            {SPARKS.map((spark) => (
-              <path
-                key={spark.d}
-                className="nap-spark"
-                d={spark.d}
-                // Direction per dot, read by `nap-spark-fly`: three sparks leaving one point on
-                // the same vector look swept, and only a fan of them looks thrown.
-                style={
-                  {
-                    animationDelay: spark.delay,
-                    "--spark-x": spark.x,
-                    "--spark-y": spark.y,
-                  } as CSSProperties
-                }
-              />
-            ))}
           </g>
         </svg>
       </Sticker>

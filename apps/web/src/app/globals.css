@@ -227,7 +227,10 @@ body {
     background-color 260ms ease;
 }
 
-.nap-sticker:hover {
+/* Every card but the wand's brightens under the cursor. His is excluded here rather than
+   overridden below, so there is one place that says which cards react and it cannot disagree
+   with itself. */
+.nap-sticker:hover:not(.nap-sticker-spark) {
   border-color: var(--color-line-strong);
 }
 
@@ -241,7 +244,7 @@ body {
 }
 
 /* Same deal: off unless a sticker asks for it, so the header and the favicon never see it. */
-.nap-mark-brows {
+.nap-mark-bored {
   display: none;
 }
 
@@ -250,12 +253,18 @@ body {
  * pair of cups pulsing in and out reads as the drawing flickering rather than as sound, and the
  * nod already says everything the beat needs to say. Hovering turns it up: the beat doubles and
  * the nod widens, which is a different gesture rather than the same one hurried.
+ *
+ * **The card never moves — he does.** Animating the sticker itself was a shortcut, and it read
+ * as a floating tile wobbling with a drawing inside it rather than as somebody nodding: the
+ * border, the fill and the shadow all travelled too. The children are targeted instead of a
+ * wrapper because the headphones are positioned against the *card*, and reparenting them into a
+ * new element would move the drawing eight pixels off his head.
  */
-.nap-sticker-music {
+.nap-sticker-music > * {
   animation: nap-nod 2400ms ease-in-out infinite;
 }
 
-.nap-sticker-music:hover {
+.nap-sticker-music:hover > * {
   animation: nap-nod-loud 1100ms ease-in-out infinite;
 }
 
@@ -312,13 +321,9 @@ body {
  * It is a transition, not an animation, so leaving the sticker plays it backwards for free and
  * he climbs back up.
  */
-.nap-sticker-code {
-  animation: nap-type 5200ms linear infinite;
-}
-
-/* The ghost, the paws and the code each move on their own beat — everything arriving at once
-   reads as one object sliding rather than as somebody pulling themselves down out of view. */
+/* He types; the desk he is typing at does not, and neither does the card around both. */
 .nap-sticker-code .nap-mark {
+  animation: nap-type 5200ms linear infinite;
   transition: transform 340ms cubic-bezier(0.3, 0.85, 0.35, 1);
 }
 
@@ -328,11 +333,10 @@ body {
     opacity 200ms ease 120ms;
 }
 
-.nap-sticker-code:hover {
-  animation: none;
-}
-
+/* The jitter has to stop, not merely be overridden: an animation on `transform` beats the
+   property, so leaving it running would hold him at the keyboard while he tried to duck. */
 .nap-sticker-code:hover .nap-mark {
+  animation: none;
   transform: translateY(19px);
 }
 
@@ -355,9 +359,10 @@ body {
 /*
  * Sleeping: the mark already breathes and lets z's go, so all this adds is a slow sway and a
  * blanket that settles with it — five seconds, the longest period of the four, because it is
- * the one that is supposed to look like nothing is happening.
+ * the one that is supposed to look like nothing is happening. He sways inside the card; the
+ * card itself is a sticker stuck to the page and stickers do not breathe.
  */
-.nap-sticker-sleep {
+.nap-sticker-sleep > * {
   animation: nap-snore 5200ms ease-in-out infinite;
 }
 
@@ -369,7 +374,7 @@ body {
 
 /* Startled: the z's stop mid-air, the eyes come up, and it hops once and settles rather than
    holding a raised pose — being woken is an event, not a state. */
-.nap-sticker-sleep:hover {
+.nap-sticker-sleep:hover > * {
   animation: nap-startle 620ms cubic-bezier(0.2, 0.9, 0.25, 1);
 }
 
@@ -393,13 +398,45 @@ body {
 
 /*
  * Spark: a twinkle and a wand ticking against it, three seconds apart from every other loop.
- * Hovering is the only place sparks are actually thrown — an idle sticker firing sparks every
- * few seconds is a notification, and there is nothing here to be notified about.
+ *
+ * **This is the one that refuses to play along.** The other three answer the cursor by doing
+ * more of what they were doing; he does none of it — the lids stay halfway down, he does not
+ * look up, the card does not light, and the only thing that happens is a vein popping over his
+ * head. A character who ignores you is only funny if he *visibly* ignores you, which means every
+ * reaction the rest of the set has must be switched off here rather than merely not added.
  */
-/* This one is not enjoying the work: brows down, which at this size is the entire expression.
-   Pointing at him does not calm him down — the flourish is a swipe of the wand, not a wave. */
-.nap-sticker-spark .nap-mark-brows {
+.nap-sticker-spark .nap-mark-bored {
   display: block;
+}
+
+/*
+ * The lids stay down through the hover, which takes an extra class to say: the mark's own waking
+ * rule is `.nap-mark:hover .nap-mark-open`, and a pseudo-class counts as a class, so it outranks
+ * a plain two-class selector and pops his eyes open the moment the pointer lands.
+ */
+.nap-sticker-spark .nap-mark-open,
+.nap-sticker-spark .nap-mark:hover .nap-mark-open {
+  opacity: 0;
+}
+
+.nap-sticker-spark .nap-mark:hover .nap-mark-eyes,
+.nap-sticker-spark .nap-mark:hover .nap-mark-body {
+  animation: none;
+}
+
+/*
+ * The vein pops, throbs once and stays for as long as the cursor does. It arrives a beat late on
+ * purpose: instant, it reads as a hover state lighting up, where a pause reads as him having put
+ * up with it for a moment and then not.
+ */
+.nap-anger {
+  opacity: 0;
+  transform: scale(0.4);
+  transform-origin: center;
+}
+
+.nap-sticker-spark:hover .nap-anger {
+  animation: nap-anger 900ms cubic-bezier(0.2, 1.3, 0.4, 1) 220ms forwards;
 }
 
 .nap-sticker-spark .nap-star {
@@ -412,26 +449,6 @@ body {
   transform-box: fill-box;
   transform-origin: 30% 70%;
   animation: nap-wand 3000ms ease-in-out infinite;
-}
-
-.nap-sticker-spark:hover {
-  animation: nap-flourish 700ms cubic-bezier(0.2, 0.8, 0.3, 1);
-}
-
-.nap-sticker-spark:hover .nap-star {
-  animation: nap-spin 700ms cubic-bezier(0.2, 0.8, 0.3, 1);
-}
-
-/* Each spark carries its own direction inline, so three dots leaving one point look thrown
-   rather than swept. `both` holds them invisible through their delay. */
-.nap-spark {
-  opacity: 0;
-  transform-box: fill-box;
-  transform-origin: center;
-}
-
-.nap-sticker-spark:hover .nap-spark {
-  animation: nap-spark-fly 620ms ease-out both;
 }
 
 @keyframes nap-nod {
@@ -574,42 +591,24 @@ body {
   }
 }
 
-@keyframes nap-flourish {
-  0% {
-    transform: rotate(0deg) scale(1);
-  }
-  40% {
-    transform: rotate(-7deg) scale(1.08);
-  }
-  100% {
-    transform: rotate(0deg) scale(1);
-  }
-}
-
-@keyframes nap-spin {
-  0% {
-    transform: rotate(0deg) scale(1);
-  }
-  60% {
-    transform: rotate(200deg) scale(1.25);
-  }
-  100% {
-    transform: rotate(180deg) scale(1);
-  }
-}
-
-@keyframes nap-spark-fly {
+@keyframes nap-anger {
   0% {
     opacity: 0;
-    transform: translate(0, 0) scale(0.4);
+    transform: scale(0.4);
   }
-  20%,
-  65% {
+  35% {
     opacity: 1;
+    transform: scale(1.15);
+  }
+  55% {
+    transform: scale(0.95);
+  }
+  75% {
+    transform: scale(1.06);
   }
   100% {
-    opacity: 0;
-    transform: translate(var(--spark-x, 6px), var(--spark-y, -8px)) scale(1.15);
+    opacity: 1;
+    transform: scale(1);
   }
 }
 
@@ -620,23 +619,31 @@ body {
  * sticker whose props disappeared would look half-drawn rather than considerate.
  */
 @media (prefers-reduced-motion: reduce) {
-  .nap-sticker,
-  .nap-sticker:hover,
+  /* `> *` and `> *:hover`-adjacent selectors, because the loops live on the characters now and
+     not on the cards — a rule aimed at `.nap-sticker` would switch off nothing at all. */
+  .nap-sticker > *,
+  .nap-sticker:hover > *,
+  .nap-sticker .nap-mark,
+  .nap-sticker:hover .nap-mark,
   .nap-sticker .nap-screen,
   .nap-sticker .nap-blanket,
   .nap-sticker .nap-star,
   .nap-sticker .nap-wand,
-  .nap-sticker-spark:hover .nap-star,
   .nap-sticker-sleep:hover .nap-mark-eyes {
     animation: none;
   }
 
   .nap-note,
-  .nap-sticker-music:hover .nap-note,
-  .nap-spark,
-  .nap-sticker-spark:hover .nap-spark {
+  .nap-sticker-music:hover .nap-note {
     animation: none;
     opacity: 0.6;
+    transform: none;
+  }
+
+  /* The temper is a state, so it survives — it simply appears instead of popping. */
+  .nap-sticker-spark:hover .nap-anger {
+    animation: none;
+    opacity: 1;
     transform: none;
   }
 
