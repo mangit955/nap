@@ -89,22 +89,73 @@ export function NapStickers() {
         </svg>
       </Sticker>
 
-      {/* Nap at a laptop: a proper tiny coding session, not an extra interactive control. */}
+      {/*
+        Nap at a laptop, seen from the far side of the desk: the machine is *in front of* him and
+        opaque, so it covers the bottom of his body and he reads as sitting behind it rather than
+        next to a drawing of one. Beside him the laptop was just a prop; occluding him is the
+        whole trick, and it is why the lid is filled with the page's own panel colour instead of
+        being an outline you can see straight through.
+      */}
       <Sticker kind="code" className="top-[22%] right-[6%] rotate-5" awake>
-        <NapMark className="size-[4.6rem]" />
+        <div className="-translate-y-2 relative">
+          <NapMark className="size-[4.2rem]" />
+
+          {/*
+            Glasses, on the mark's own 24-grid so the lenses land on the eyes: same viewBox as
+            `NapMark`, same size, laid over the top. They are drawn *over* rather than cut out
+            because they are a thing he is wearing, not a hole in him — and the accent is what
+            makes them read as glasses at this size instead of as a second pair of eyebrows.
+          */}
+          <svg
+            aria-hidden="true"
+            viewBox="-1 -6 32 32"
+            className="absolute inset-0 size-[4.2rem] text-accent"
+            {...PEN}
+            strokeWidth="0.85"
+          >
+            <rect x="5.9" y="10.3" width="5.4" height="4.4" rx="1.5" />
+            <rect x="12.7" y="10.3" width="5.4" height="4.4" rx="1.5" />
+            <path d="M11.3 12.2h1.4M5.9 12.1 3.6 11M18.1 12.1l2.3-1.1" />
+            {/*
+              A short highlight in the corner of each lens — the difference between glass and two
+              empty rings. It has to stay in the corner: drawn across the middle it reads as a
+              line struck through the eye rather than as a reflection.
+            */}
+            <path strokeWidth="0.7" d="m6.9 12.4 1.1-1.3M13.7 12.4l1.1-1.3" />
+          </svg>
+        </div>
+
         <svg
           aria-hidden="true"
-          viewBox="0 0 110 104"
-          className="absolute -right-8 bottom-0 size-20 text-muted"
+          viewBox="0 0 120 62"
+          className="-translate-x-1/2 absolute bottom-1 left-1/2 w-[5rem] text-muted"
           {...PEN}
-          strokeWidth="2"
+          strokeWidth="2.4"
         >
-          <path d="M32 29h51c2 0 4 2 4 4v31H28V33c0-2 2-4 4-4Z" />
-          <path d="M21 67h73l-6 8H27l-6-8Z" />
-          {/* The code on the screen is what brightens; the case around it holds steady, because
-              a whole laptop pulsing reads as the drawing fading rather than as a screen. */}
+          {/* Back of the lid and the base under it, both filled: what makes this a desk rather
+              than a sticker of a wireframe laid over a ghost. */}
+          <path className="fill-panel" d="M22 6h76c2.2 0 4 1.8 4 4v32H18V10c0-2.2 1.8-4 4-4Z" />
+          <path
+            className="fill-panel"
+            d="M14 42h92l8 10c0 2-1.6 3.4-3.6 3.4H9.6C7.6 55.4 6 54 6 52l8-10Z"
+          />
+          <path d="M50 49h20" />
+        </svg>
+
+        {/*
+          The code he is writing, thrown up beside the screen because the screen itself is facing
+          away. It is the only part that brightens — a whole laptop pulsing reads as the drawing
+          fading rather than as something being worked on.
+        */}
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 48 32"
+          className="absolute top-1 right-1 w-8 text-accent"
+          {...PEN}
+          strokeWidth="2.6"
+        >
           <g className="nap-screen">
-            <path d="m47 42-7 7 7 7M67 42l7 7-7 7M61 39l-5 21" />
+            <path d="m14 8-7 8 7 8M34 8l7 8-7 8M28 5l-8 22" />
           </g>
         </svg>
       </Sticker>
