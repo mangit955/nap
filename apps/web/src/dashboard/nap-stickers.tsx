@@ -52,7 +52,7 @@ export function NapStickers() {
       data-testid="nap-stickers"
       className="pointer-events-none absolute inset-0 hidden overflow-hidden lg:block"
     >
-      {/* Nap, headphones on, nodding along while an idea lands. */}
+      {/* Nap, headphones on, eyes shut, nodding along while an idea lands. */}
       <Sticker kind="music" className="top-[15%] left-[5%] -rotate-6" awake>
         <NapMark className="size-20" />
         <svg

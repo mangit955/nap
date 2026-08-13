@@ -232,6 +232,15 @@ body {
 }
 
 /*
+ * The squint ships with the mark and is off everywhere unless something asks for it, so the
+ * header, the loader and the favicon are untouched by its existence.
+ */
+.nap-mark-squint {
+  display: none;
+  transition: opacity 260ms ease;
+}
+
+/*
  * Headphones: a nod on a two-and-a-half second beat. The headphones themselves hold still — a
  * pair of cups pulsing in and out reads as the drawing flickering rather than as sound, and the
  * nod already says everything the beat needs to say. Hovering turns it up: the beat doubles and
@@ -243,6 +252,29 @@ body {
 
 .nap-sticker-music:hover {
   animation: nap-nod-loud 1100ms ease-in-out infinite;
+}
+
+/*
+ * It listens with its eyes screwed shut — the one thing a face does that says *enjoying this*
+ * rather than merely awake — and opens them when you point at it, as if you had interrupted.
+ * The two faces cross-fade on the same 260ms the mark's own waking uses, so this reads as the
+ * same character doing the same trick rather than as a second effect bolted on.
+ */
+.nap-sticker-music .nap-mark-squint {
+  display: block;
+  opacity: 1;
+}
+
+.nap-sticker-music .nap-mark-open {
+  opacity: 0;
+}
+
+.nap-sticker-music:hover .nap-mark-squint {
+  opacity: 0;
+}
+
+.nap-sticker-music:hover .nap-mark-open {
+  opacity: 1;
 }
 
 /*

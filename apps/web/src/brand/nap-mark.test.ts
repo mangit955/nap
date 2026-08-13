@@ -70,6 +70,14 @@ describe("the component", () => {
     expect(component).toContain('fill="currentColor"');
   });
 
+  it("cuts the squint out with the other faces, not over them", () => {
+    // It is drawn with a black stroke, which inside the mask means "a hole shaped like this"
+    // and outside it means two black chevrons painted onto a ghost that is otherwise one
+    // colour — legible on the dark dashboard and invisible on a light stage.
+    const [beforeMask = ""] = component.split("</mask>");
+    expect(beforeMask).toContain("nap-mark-squint");
+  });
+
   it("draws the z's outside the mask", () => {
     // Inside it they would be cut *out* of the ghost instead of drawn in the air beside it —
     // three z-shaped holes in its shoulder, which is a very strange thing to see and exactly

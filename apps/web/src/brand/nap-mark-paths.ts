@@ -48,6 +48,21 @@ export const NAP_EYE_OPEN_RX = 1.35;
 export const NAP_EYE_OPEN_RY = 1.7;
 
 /**
+ * Squinting: two chevrons pointing in at each other, the face of somebody enjoying themselves
+ * with their eyes shut. Same centres again, so nothing on the face moves between the three
+ * states — only which one is visible.
+ *
+ * These are strokes rather than filled wedges. Filled, a chevron this small closes up into a
+ * triangle at any size the mark is actually used at; as a thick round-capped line it keeps the
+ * gap in the middle, which is the entire shape.
+ */
+export const NAP_EYE_SQUINT_LEFT = "M7.4 10.7 9.6 12.4 7.4 14.1";
+export const NAP_EYE_SQUINT_RIGHT = "M16.6 10.7 14.4 12.4 16.6 14.1";
+
+/** As thick as the closed lids, and for the same reason: a finer line vanishes at 24px. */
+export const NAP_EYE_SQUINT_WEIGHT = 1.25;
+
+/**
  * The z's that drift off it while it sleeps, drawn as strokes rather than filled letterforms —
  * a filled `z` at this size is a blob, while a three-segment zigzag survives being four pixels
  * tall.
