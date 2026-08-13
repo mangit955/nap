@@ -27,14 +27,25 @@
  */
 
 import type { ModelChoice } from "@nap/shared/models-protocol";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ModelPicker } from "../chat/model-picker.tsx";
 import { LitBox } from "../glow/lit-box.tsx";
 import { EXAMPLE_PROMPTS } from "./example-prompts.ts";
+import { NapStickers } from "./nap-stickers.tsx";
 import { appendDictation, useDictation } from "./use-dictation.ts";
 
 /** The composer's face when the light is out — it is a control and has to look like one. */
 const FACE = "border border-edge bg-field shadow-card";
+
+const PROMPT_PREFIX = "Let's build ";
+const PROMPT_ENDINGS = [
+  "a data visualization tool.",
+  "a calm habit tracker.",
+  "an enterprise solution.",
+] as const;
+const TYPE_MS = 55;
+const ERASE_MS = 28;
+const HOLD_MS = 1_800;
 
 export function DashboardHero({
   name,
@@ -65,6 +76,7 @@ export function DashboardHero({
   const box = useRef<HTMLTextAreaElement>(null);
   const band = useRef<HTMLDivElement>(null);
   const dictation = useDictation((spoken) => onChange(appendDictation(value, spoken)));
+  const placeholder = usePromptHint({ paused: value !== "" || busy });
 
   // Navigation begins immediately after project creation. Releasing the recognizer first keeps
   // a listening browser tab from surviving under the workspace that replaces this page.
@@ -91,7 +103,9 @@ export function DashboardHero({
       ref={band}
       className="relative flex min-h-[88dvh] flex-col justify-center border-edge border-b px-6 py-16"
     >
-      <div className="relative mx-auto flex w-full max-w-2xl flex-col items-center">
+      <NapStickers />
+
+      <div className="relative z-10 mx-auto flex w-full max-w-2xl flex-col items-center">
         <h1 className="mb-8 text-center font-display font-semibold text-3xl text-ink tracking-tight sm:text-4xl">
           Let&rsquo;s build something, {name}
         </h1>
@@ -110,7 +124,7 @@ export function DashboardHero({
               event.preventDefault();
               send();
             }}
-            placeholder="a habit tracker with a weekly grid"
+            placeholder={placeholder}
             className="block w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-[15px] text-ink leading-relaxed outline-none placeholder:text-muted disabled:text-muted"
           />
 
@@ -228,4 +242,49 @@ export function DashboardHero({
       </div>
     </div>
   );
+}
+
+/**
+ * A small demonstration of what this box can start, while it has no content of its own.
+ *
+ * It stays a native placeholder rather than a second visual layer over the textarea: the label
+ * remains the one accessible name, the caret cannot collide with a fake line of text, and typing
+ * immediately replaces the suggestion in the normal browser way.
+ */
+function usePromptHint({ paused }: { paused: boolean }): string {
+  const [example, setExample] = useState(0);
+  const [shown, setShown] = useState(0);
+  const [erasing, setErasing] = useState(false);
+  const ending = PROMPT_ENDINGS[example] ?? "";
+
+  useEffect(() => {
+    if (paused) return;
+
+    const complete = shown === ending.length;
+    const timer = window.setTimeout(
+      () => {
+        if (complete && !erasing) {
+          setErasing(true);
+          return;
+        }
+
+        if (erasing) {
+          const next = shown - 1;
+          setShown(next);
+          if (next === 0) {
+            setErasing(false);
+            setExample((current) => (current + 1) % PROMPT_ENDINGS.length);
+          }
+          return;
+        }
+
+        setShown((current) => current + 1);
+      },
+      complete ? HOLD_MS : erasing ? ERASE_MS : TYPE_MS,
+    );
+
+    return () => window.clearTimeout(timer);
+  }, [ending.length, erasing, paused, shown]);
+
+  return `${PROMPT_PREFIX}${ending.slice(0, shown)}`;
 }

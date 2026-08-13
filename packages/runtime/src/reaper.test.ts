@@ -1,15 +1,12 @@
-import { FakePageCapture } from "@nap/capture/testing/fake-page-capture";
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { InMemoryProjectSandboxStore } from "@nap/db/testing/in-memory-project-sandbox-store";
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
-import { TEMPLATE_DEV_PORT } from "@nap/sandbox/template";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import type { IdleProject } from "@nap/shared/ports/project-sandbox-store";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startReaper, sweepIdleProjects } from "./reaper.ts";
-import { thumbnailKey } from "./turn-thumbnail.ts";
 
 const PROJECT = "3e0fbc41-6f5d-4a8e-ab9c-4d5e6f708192";
 const SESSION = "2a3f8a24-6c1b-4e0e-9b6f-3a5c0a1d9e77";
@@ -53,16 +50,13 @@ beforeEach(async () => {
   ]);
 });
 
-function sweep(
-  overrides: { isBusy?: (project: IdleProject) => boolean; capture?: FakePageCapture } = {},
-) {
+function sweep(overrides: { isBusy?: (project: IdleProject) => boolean } = {}) {
   return sweepIdleProjects({
     projects,
     sandbox,
     objects,
     snapshots,
     idleMs: IDLE_MS,
-    ...(overrides.capture === undefined ? {} : { capture: overrides.capture }),
     isBusy: overrides.isBusy ?? (() => false),
     now: () => NOW,
     announce: { events, bus: new InMemoryEventBus() },
@@ -70,18 +64,6 @@ function sweep(
 }
 
 describe("reaping an idle project", () => {
-  it("photographs it on the way out, like a close does", async () => {
-    // A swept project is one nobody was looking at, which makes its card the only thing left of
-    // it until somebody opens it again. The browser is threaded through `putProjectAway` rather
-    // than used here, so this is really asserting that the option is not silently dropped.
-    const capture = new FakePageCapture();
-    sandbox.listen(sandboxId, TEMPLATE_DEV_PORT);
-
-    await sweep({ capture });
-
-    expect(objects.keys()).toContain(thumbnailKey(PROJECT));
-  });
-
   it("snapshots it and destroys the sandbox", async () => {
     const result = await sweep();
 

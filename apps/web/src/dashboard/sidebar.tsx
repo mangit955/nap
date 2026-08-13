@@ -51,7 +51,7 @@ export function Sidebar({
   return (
     <nav
       aria-label="Dashboard"
-      className="flex h-dvh w-full flex-col gap-6 overflow-y-auto border-edge border-r bg-panel px-3 py-4"
+      className="nap-scroll-hidden flex h-dvh w-full flex-col gap-6 overflow-y-auto border-edge border-r bg-panel px-3 py-4"
     >
       <div className="flex items-center gap-1.5 px-2">
         <NapMark className="size-8" />
@@ -103,7 +103,7 @@ export function Sidebar({
             {...(scope === entry.id ? { "aria-current": true } : {})}
             className={`flex items-center justify-between rounded-chip px-2.5 py-1.5 text-sm transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent ${
               scope === entry.id
-                ? "bg-accent-tint text-accent-ink"
+                ? "bg-hover font-medium text-ink"
                 : "text-ink-2 hover:bg-hover hover:text-ink"
             }`}
           >

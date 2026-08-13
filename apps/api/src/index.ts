@@ -219,9 +219,6 @@ const app = createApp({
     snapshots,
     objects,
     sandbox,
-    // So closing a project takes one last picture of it on the way past — the state somebody
-    // left it in is the state their card should show when they come back.
-    ...(capture === undefined ? {} : { capture }),
     createProject: (options) => createProjectSession(db, options),
     // The same runtime the turn routes drive: resuming a project and running a turn in it are
     // serialized per session there, which is what stops the two starting two sandboxes.
@@ -259,9 +256,6 @@ const reaper = startReaper({
       sandbox,
       objects,
       snapshots,
-      // A swept project is one nobody was looking at, which is exactly the one whose card is
-      // the only thing left of it.
-      ...(capture === undefined ? {} : { capture }),
       idleMs: env.NAP_REAP_IDLE_MINUTES * 60 * 1000,
       isBusy: (project) => project.sessionIds.some((id) => registry.isRunning(id)),
       // A swept project's tabs are still open on it, showing an address that is about to stop

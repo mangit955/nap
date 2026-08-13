@@ -54,6 +54,7 @@ function installRecognition() {
 
 afterEach(() => {
   delete (window as Window & { SpeechRecognition?: unknown }).SpeechRecognition;
+  vi.useRealTimers();
 });
 
 describe("the dashboard hero", () => {
@@ -68,12 +69,27 @@ describe("the dashboard hero", () => {
     expect(screen.getByRole("heading", { name: /Manas/ })).toBeInTheDocument();
   });
 
+  it("adds quiet Nap stickers around the otherwise empty prompt band", () => {
+    show();
+
+    expect(screen.getByTestId("nap-stickers")).toBeInTheDocument();
+  });
+
   it("sends what was typed on Enter", () => {
     const { onSubmit } = show({ value: "a habit tracker" });
 
     fireEvent.keyDown(box(), { key: "Enter" });
 
     expect(onSubmit).toHaveBeenCalledWith("a habit tracker");
+  });
+
+  it("types an example into an empty prompt hint", () => {
+    vi.useFakeTimers();
+    show();
+
+    act(() => vi.advanceTimersByTime(55));
+
+    expect(box()).toHaveAttribute("placeholder", "Let's build a");
   });
 
   it("makes a newline on Shift+Enter instead", () => {

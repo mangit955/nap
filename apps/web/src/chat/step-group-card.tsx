@@ -20,6 +20,7 @@ import { AlertIcon, CheckIcon, ChevronRight, SpinnerIcon } from "../ui/icons.tsx
 import { OutputBlock } from "./output-block.tsx";
 import { groupSummary, type StepGroup } from "./step-group.ts";
 import { ToolStep } from "./tool-step.tsx";
+import type { FileChange } from "./transcript.ts";
 import { stepTarget } from "./working-state.ts";
 
 /** Short verbs, the same ones the rows use. Present tense, because this is what is happening. */
@@ -35,6 +36,7 @@ const LIVE_VERBS = {
 export function StepGroupCard({ group }: { group: StepGroup }) {
   const failed = group.status === "failed";
   const running = group.status === "running";
+  const changes = changedFiles(group);
 
   return (
     <details
@@ -76,9 +78,48 @@ export function StepGroupCard({ group }: { group: StepGroup }) {
             <OutputBlock text={file.diff} />
           </details>
         ))}
+
+        {changes.length > 0 && <ChangedFiles changes={changes} />}
       </div>
     </details>
   );
+}
+
+/**
+ * The card's compact answer to "what did that run change?".
+ *
+ * Individual tool rows retain their detailed diff and operation wording. This is deliberately a
+ * separate, quiet pass across the run: it lets someone who only needs the changed files scan
+ * them without opening each write step, while not turning every operation in the transcript into
+ * a competing card.
+ */
+function ChangedFiles({ changes }: { changes: readonly FileChange[] }) {
+  return (
+    <ul
+      aria-label="Changed files"
+      className="mt-1.5 flex flex-wrap gap-1.5 border-edge border-t px-1.5 pt-2"
+    >
+      {changes.map((file) => (
+        <li
+          // The full change is stable across streaming updates. A path alone is not: one tool
+          // run can edit the same file twice, with each edit carrying a different diff.
+          key={`${file.path}:${file.changeType}:${file.added}:${file.removed}:${file.diff}`}
+          className="flex h-7 max-w-full items-center gap-1.5 rounded-chip bg-panel px-2 font-mono text-[11px] shadow-hairline"
+        >
+          <span className="min-w-0 truncate text-ink-2">{file.path}</span>
+          <span className="shrink-0 text-muted tabular-nums">+{file.added}</span>
+          {file.removed > 0 && (
+            <span className="shrink-0 text-muted tabular-nums">−{file.removed}</span>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** All changes have the same one-line treatment, whether a tool or a reconnect produced them. */
+function changedFiles(group: StepGroup): FileChange[] {
+  return [...group.steps.flatMap((step) => step.files), ...group.files];
 }
 
 /**

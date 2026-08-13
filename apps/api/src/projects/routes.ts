@@ -25,7 +25,6 @@ import { getLogger } from "@nap/shared/logging";
 import type { EventBus } from "@nap/shared/ports/event-bus";
 import type { EventStore } from "@nap/shared/ports/event-store";
 import type { ObjectStore } from "@nap/shared/ports/object-store";
-import type { PageCapture } from "@nap/shared/ports/page-capture";
 import type { ProjectSandboxStore } from "@nap/shared/ports/project-sandbox-store";
 import type { ProjectStore, ProjectSummary } from "@nap/shared/ports/project-store";
 import type { Runtime } from "@nap/shared/ports/runtime";
@@ -47,11 +46,6 @@ export type ProjectRouteDeps = {
   snapshots: SnapshotStore;
   objects: ObjectStore;
   sandbox: SandboxManager;
-  /**
-   * A browser, so closing a project photographs it before its sandbox goes. Optional like
-   * `limits`: absent means no picture, which is how every deployment without a browser runs.
-   */
-  capture?: PageCapture;
   createProject: (options: { userId: string; name?: string }) => Promise<CreatedProject>;
   /** Only `resumeSession`: nothing here starts a turn, and a wider type would let it. */
   runtime: Pick<Runtime, "resumeSession">;
@@ -252,9 +246,6 @@ export function registerProjectRoutes(
       snapshots: deps.snapshots,
       projectId: project.value.projectId,
       sandboxId: project.value.sandboxId,
-      // The last moment this app is running anywhere; after the teardown there is nothing left
-      // to photograph until somebody opens it again.
-      ...(deps.capture === undefined ? {} : { capture: deps.capture }),
       // So every tab open on this project learns its preview has stopped, rather than keeping
       // an iframe pointed at a sandbox that no longer exists.
       announce: { ...deps.events, sessionIds: project.value.sessionIds },

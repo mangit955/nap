@@ -194,6 +194,17 @@ body {
   animation: nap-bob 3s ease-in-out 240ms infinite;
 }
 
+/* The dashboard stickers show Nap mid-task rather than asleep. They borrow the real mark but
+   hold its awake face open, because music and coding do not pair well with drifting z's. */
+.nap-sticker-awake .nap-mark-shut,
+.nap-sticker-awake .nap-mark-zzz {
+  display: none;
+}
+
+.nap-sticker-awake .nap-mark-open {
+  opacity: 1;
+}
+
 @keyframes nap-glance {
   0%,
   14% {
@@ -1142,4 +1153,18 @@ body {
 /* Two bars meeting in the corner is a small grey square the eye finds; nothing belongs there. */
 .nap-scroll::-webkit-scrollbar-corner {
   background: transparent;
+}
+
+/*
+ * Dashboard surfaces still respond to a mouse wheel, trackpad and touch, but do not carry a
+ * permanent browser trough. The page is a focused starting point, not a document, and the
+ * hidden bar keeps the quiet edge treatment intact while leaving its content fully reachable.
+ */
+.nap-scroll-hidden {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.nap-scroll-hidden::-webkit-scrollbar {
+  display: none;
 }

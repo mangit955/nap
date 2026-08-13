@@ -132,9 +132,17 @@ export function ProjectCard({
               type="button"
               disabled={busy}
               onClick={() => onClose(project.projectId)}
-              className="text-muted hover:text-ink disabled:opacity-40 focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
+              aria-label={busy ? `Closing ${project.name}` : "Close"}
+              className="inline-flex min-w-10 items-center justify-center text-muted hover:text-ink disabled:opacity-40 focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
             >
-              Close
+              {busy ? (
+                <span
+                  aria-hidden="true"
+                  className="size-3 animate-spin rounded-full border border-current border-t-transparent"
+                />
+              ) : (
+                "Close"
+              )}
             </button>
           )}
 

@@ -146,4 +146,36 @@ describe("what is inside it", () => {
 
     expect(card()).toHaveTextContent(/ENOENT: no such file/);
   });
+
+  it("summarises changed files as compact chips", () => {
+    nextKey = 1;
+    show(
+      step({
+        toolName: "write_file",
+        files: [
+          {
+            path: "src/App.tsx",
+            changeType: "modified",
+            diff: "",
+            added: 42,
+            removed: 11,
+          },
+          {
+            path: "src/theme.css",
+            changeType: "created",
+            diff: "",
+            added: 13,
+            removed: 0,
+          },
+        ],
+      }),
+    );
+
+    const changes = screen.getByLabelText("Changed files");
+    expect(changes).toHaveTextContent("src/App.tsx");
+    expect(changes).toHaveTextContent("+42");
+    expect(changes).toHaveTextContent("−11");
+    expect(changes).toHaveTextContent("src/theme.css");
+    expect(changes).toHaveTextContent("+13");
+  });
 });

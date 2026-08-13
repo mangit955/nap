@@ -73,4 +73,21 @@ describe("the tile", () => {
     expect(deleteButton.querySelector("svg")).not.toBeNull();
     expect(deleteButton).not.toHaveTextContent("Delete");
   });
+
+  it("replaces Close with a loader while putting a running project away", () => {
+    render(
+      <ProjectCard
+        project={{ ...PROJECT, sandboxId: "sbx_live" }}
+        busy
+        onOpen={() => {}}
+        onClose={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+
+    const close = screen.getByRole("button", { name: "Closing Todo app" });
+    expect(close).toBeDisabled();
+    expect(close).not.toHaveTextContent("Close");
+    expect(close.querySelector("span.animate-spin")).not.toBeNull();
+  });
 });
