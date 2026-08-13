@@ -232,8 +232,9 @@ body {
 }
 
 /*
- * Headphones: a nod on a two-and-a-half second beat, with the cups swelling on the same beat so
- * the sound looks like it is coming from somewhere. Hovering turns it up — the beat doubles and
+ * Headphones: a nod on a two-and-a-half second beat. The headphones themselves hold still — a
+ * pair of cups pulsing in and out reads as the drawing flickering rather than as sound, and the
+ * nod already says everything the beat needs to say. Hovering turns it up: the beat doubles and
  * the nod widens, which is a different gesture rather than the same one hurried.
  */
 .nap-sticker-music {
@@ -242,14 +243,6 @@ body {
 
 .nap-sticker-music:hover {
   animation: nap-nod-loud 1100ms ease-in-out infinite;
-}
-
-.nap-sticker-music .nap-cans {
-  animation: nap-cans 2400ms ease-in-out infinite;
-}
-
-.nap-sticker-music:hover .nap-cans {
-  animation-duration: 1100ms;
 }
 
 /*
@@ -386,16 +379,6 @@ body {
   }
   50% {
     transform: translateY(-3px) rotate(3.5deg);
-  }
-}
-
-@keyframes nap-cans {
-  0%,
-  100% {
-    opacity: 0.55;
-  }
-  50% {
-    opacity: 1;
   }
 }
 
@@ -583,12 +566,10 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .nap-sticker,
   .nap-sticker:hover,
-  .nap-sticker .nap-cans,
   .nap-sticker .nap-screen,
   .nap-sticker .nap-blanket,
   .nap-sticker .nap-star,
   .nap-sticker .nap-wand,
-  .nap-sticker-music:hover .nap-cans,
   .nap-sticker-spark:hover .nap-star,
   .nap-sticker-sleep:hover .nap-mark-eyes {
     animation: none;

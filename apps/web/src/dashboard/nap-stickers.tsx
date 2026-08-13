@@ -58,13 +58,22 @@ export function NapStickers() {
         <svg
           aria-hidden="true"
           viewBox="0 0 96 96"
-          className="absolute inset-0 size-20 text-accent/70"
+          className="absolute inset-0 size-20 text-accent"
           {...PEN}
           strokeWidth="2.2"
         >
-          <g className="nap-cans">
+          {/*
+            The cups are solid and the band is a line, which is how a real pair of headphones
+            reads: the ear pads are the only part with any bulk to them. Left as outlines the
+            whole thing sat on the ghost's white silhouette as four thin arcs and dissolved into
+            it — a filled pad is the one bit of colour that survives at this size.
+          */}
+          <g>
             <path d="M24 50c0-18 10-29 24-29s24 11 24 29" />
-            <path d="M22 49c-4 1-6 5-6 10v8c0 4 3 7 7 7h4V52h-5ZM74 49c4 1 6 5 6 10v8c0 4-3 7-7 7h-4V52h5Z" />
+            <path
+              fill="currentColor"
+              d="M22 49c-4 1-6 5-6 10v8c0 4 3 7 7 7h4V52h-5ZM74 49c4 1 6 5 6 10v8c0 4-3 7-7 7h-4V52h5Z"
+            />
           </g>
           <path d="M82 28c4-4 7-5 10-5M85 35c4-1 7-1 10 1" />
 
