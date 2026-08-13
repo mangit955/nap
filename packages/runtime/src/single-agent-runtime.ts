@@ -32,6 +32,7 @@ import type { EventBus } from "@nap/shared/ports/event-bus";
 import type { EventStore, PendingEvent } from "@nap/shared/ports/event-store";
 import type { MemoryProvider } from "@nap/shared/ports/memory-provider";
 import type { ObjectStore } from "@nap/shared/ports/object-store";
+import type { PageCapture } from "@nap/shared/ports/page-capture";
 import type { ResumeOutcome, Runtime, TurnOutcome, TurnRequest } from "@nap/shared/ports/runtime";
 import type { SandboxError, SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SessionRecord, SessionStore } from "@nap/shared/ports/session-store";
@@ -40,6 +41,7 @@ import type { Result } from "@nap/shared/result";
 import { EventSink } from "./event-sink.ts";
 import { openProject } from "./restore.ts";
 import { captureSnapshot } from "./teardown.ts";
+import { captureThumbnail } from "./turn-thumbnail.ts";
 
 type Payload<T extends NapEvent["type"]> = NapEventOf<T>["payload"];
 
@@ -108,6 +110,15 @@ export type SingleAgentRuntimeOptions = {
    */
   objects?: ObjectStore;
   snapshots?: SnapshotStore;
+  /**
+   * A browser, for the picture of the project the dashboard puts on its card.
+   *
+   * Optional and independent of the pair above: a deployment with no browser to drive still
+   * runs turns and still keeps the work — it just shows a colour where a screenshot would be.
+   * It needs `objects` to have anywhere to put the bytes, so both must be present or nothing
+   * is captured.
+   */
+  capture?: PageCapture;
   /** Injected so a test can assert on whole events rather than on everything but the clock. */
   now?: () => string;
   /** Injected for the same reason: a turn id a test can predict. */
@@ -248,6 +259,16 @@ export class SingleAgentRuntime implements Runtime {
       await sink.drain();
       getLogger().info({ created: acquired.value.created }, "project resumed");
 
+      // A project that has just come back up is serving again, and its card may be showing
+      // nothing at all — every project made before there was a browser to photograph one has
+      // no picture, and a turn is the only other thing that would take it. Gated on the same
+      // condition as the announcement above: a sandbox that was already serving has not
+      // changed since whatever last photographed it.
+      //
+      // Last, and after the outcome is already decided: resuming is what the caller asked for,
+      // and a browser launch must not be able to delay or fail it.
+      if (acquired.value.created) await this.#photograph(session.projectId, acquired.value.id);
+
       return { ok: true, sandboxId: acquired.value.id, created: acquired.value.created };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -339,6 +360,12 @@ export class SingleAgentRuntime implements Runtime {
       const terminal = sink.terminal;
       if (terminal?.type === "turn.completed") {
         await this.#preserve(session.projectId, sandboxId.value.id, terminal.payload.commitSha);
+        // After the snapshot, deliberately: the work reaching storage is what must not be
+        // delayed by a browser launch, and a picture is the one thing here nobody would miss.
+        // Only when the turn changed something — an unchanged app photographs identically.
+        if (terminal.payload.commitSha !== null) {
+          await this.#photograph(session.projectId, sandboxId.value.id);
+        }
         return { ok: true, turnId, commitSha: terminal.payload.commitSha };
       }
       if (terminal?.type === "turn.failed") {
@@ -409,6 +436,42 @@ export class SingleAgentRuntime implements Runtime {
       { commitSha, reason: captured.error.message },
       "could not snapshot the turn; the work is still only in the sandbox",
     );
+  }
+
+  /**
+   * Photographs the project while it is still up, for the dashboard's card.
+   *
+   * **A picture can only be taken while a sandbox lives**, and the card is looked at days
+   * later, when nothing is running to point a browser at. So every moment the project is
+   * known to be serving is a chance worth taking: the end of a turn that changed something,
+   * and a project coming back up. Putting one away takes its own shot from `close-project.ts`,
+   * on the way past.
+   *
+   * Whoever calls decides *whether* there is anything new to see — a turn that committed
+   * nothing, or a sandbox that was already serving, has not changed since the last shot. What
+   * this owns is that a failure is only ever a log line: a missing screenshot costs a card its
+   * picture, and nothing here is worth failing a turn or a resume over.
+   */
+  async #photograph(projectId: string, sandboxId: string): Promise<void> {
+    const capture = this.#options.capture;
+    const objects = this.#options.objects;
+    if (capture === undefined || objects === undefined) return;
+
+    const shot = await captureThumbnail({
+      sandbox: this.#options.sandbox,
+      capture,
+      objects,
+      projectId,
+      sandboxId,
+      port: this.#previewPort,
+    }).catch((error: unknown) => ({ ok: false as const, error: { message: String(error) } }));
+
+    if (shot.ok) {
+      getLogger().info({ key: shot.value.key }, "project thumbnail captured");
+      return;
+    }
+
+    getLogger().warn({ reason: shot.error.message }, "could not capture a project thumbnail");
   }
 
   /**

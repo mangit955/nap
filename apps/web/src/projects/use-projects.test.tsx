@@ -1,6 +1,6 @@
 import type { ProjectSummaryPayload } from "@nap/shared/projects-protocol";
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { useProject, useProjects } from "./use-projects.ts";
 
 /**
@@ -237,6 +237,36 @@ describe("opening one project", () => {
   });
 });
 
+describe("whether the record says anything is running", () => {
+  it("dates the answer, because the record goes stale the moment a turn starts", async () => {
+    // `putAwayAt` is "the server had no sandbox as of this instant", not a bare boolean: a
+    // sandbox created after this reading is announced on the socket, and a boolean cannot say
+    // which of the two is newer.
+    const fetchJson = server({
+      [`GET /projects/${PROJECT}`]: () =>
+        json(summary({ sandboxId: null, status: "idle", updatedAt: "2026-08-12T10:00:00.000Z" })),
+    }).fetchJson;
+    const { result } = renderHook(() => useProject(PROJECT, { baseUrl: BASE, fetchJson }));
+
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    expect(result.current.putAwayAt).toBe("2026-08-12T10:00:00.000Z");
+  });
+
+  it("says nothing about a project that has never had a sandbox", async () => {
+    // A project made a second ago is not "put away" — it was never put anywhere. Saying so
+    // tells somebody whose first turn is still starting that their app has been filed away.
+    const fetchJson = server({
+      [`GET /projects/${PROJECT}`]: () => json(summary({ sandboxId: null, status: "creating" })),
+    }).fetchJson;
+    const { result } = renderHook(() => useProject(PROJECT, { baseUrl: BASE, fetchJson }));
+
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    expect(result.current.putAwayAt).toBeUndefined();
+  });
+});
+
 describe("starting a put-away project back up", () => {
   const putAway = () => summary({ sandboxId: null, status: "idle" });
 
@@ -269,13 +299,13 @@ describe("starting a put-away project back up", () => {
     const { fetchJson } = openable(() => json({ opened: true }, 202));
     const { result } = renderHook(() => useProject(PROJECT, { baseUrl: BASE, fetchJson }));
     await waitFor(() => expect(result.current.status).toBe("ready"));
-    expect(result.current.putAway).toBe(true);
+    expect(result.current.putAwayAt).toBeDefined();
 
     await act(async () => {
       await result.current.resume();
     });
 
-    expect(result.current.putAway).toBe(false);
+    expect(result.current.putAwayAt).toBeUndefined();
   });
 
   it("treats a project that was already running as a project that is running", async () => {
@@ -289,7 +319,7 @@ describe("starting a put-away project back up", () => {
       await result.current.resume();
     });
 
-    expect(result.current.putAway).toBe(false);
+    expect(result.current.putAwayAt).toBeUndefined();
     expect(result.current.resuming).toBe(false);
     expect(result.current.resumeError).toBeUndefined();
   });
@@ -308,7 +338,7 @@ describe("starting a put-away project back up", () => {
     expect(result.current.resumeError).toMatch(/2 projects running/);
     expect(result.current.resuming).toBe(false);
     // Nothing came back up, so the button has to still be there.
-    expect(result.current.putAway).toBe(true);
+    expect(result.current.putAwayAt).toBeDefined();
   });
 
   it("says so when the server cannot be reached at all", async () => {
@@ -329,5 +359,79 @@ describe("starting a put-away project back up", () => {
 
     expect(result.current.resumeError).toMatch(/could not reach the server/i);
     expect(result.current.resuming).toBe(false);
+  });
+});
+
+describe("knowing when the restore has actually come up", () => {
+  const putAway = () => summary({ sandboxId: null, status: "idle" });
+
+  /** A hook whose `previewSeq` a test can move, the way the pane's socket moves it. */
+  function watching(seq: number | undefined) {
+    const { fetchJson } = server({
+      [`GET /projects/${PROJECT}`]: () => json(putAway()),
+      [`POST /projects/${PROJECT}/open`]: () => json({ opened: true }, 202),
+    });
+
+    return renderHook(
+      ({ previewSeq }: { previewSeq: number | undefined }) =>
+        useProject(PROJECT, { baseUrl: BASE, fetchJson, previewSeq }),
+      { initialProps: { previewSeq: seq } },
+    );
+  }
+
+  it("stops waiting once a newer preview is announced", async () => {
+    // The bug this exists for: nothing else ever ended the wait, so the pane sat on "Starting
+    // the dev server…" until the page was reloaded — which was exactly when the flag was lost.
+    const { result, rerender } = watching(4);
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    await act(async () => {
+      await result.current.resume();
+    });
+    expect(result.current.resuming).toBe(true);
+
+    rerender({ previewSeq: 9 });
+
+    expect(result.current.resuming).toBe(false);
+  });
+
+  it("keeps waiting while the only announcement is the one from before the close", async () => {
+    // The log still holds the `preview.ready` from the last time this project ran. Ending the
+    // wait on that would point the frame at a sandbox that has since been destroyed — which is
+    // the reason this is a sequence number rather than "is there a preview".
+    const { result, rerender } = watching(4);
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    await act(async () => {
+      await result.current.resume();
+    });
+
+    rerender({ previewSeq: 4 });
+
+    expect(result.current.resuming).toBe(true);
+  });
+
+  it("stops claiming to be starting something if nothing is ever announced", async () => {
+    // A resume can fail on the server with only a `system.notice` to show for it, and a pane
+    // that spins forever is the whole class of bug being fixed here.
+    vi.useFakeTimers();
+    try {
+      const { result } = watching(undefined);
+      await vi.waitFor(() => expect(result.current.status).toBe("ready"));
+
+      await act(async () => {
+        await result.current.resume();
+      });
+      expect(result.current.resuming).toBe(true);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3 * 60 * 1000 + 1000);
+      });
+
+      expect(result.current.resuming).toBe(false);
+      expect(result.current.resumeError).toMatch(/taking longer/i);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

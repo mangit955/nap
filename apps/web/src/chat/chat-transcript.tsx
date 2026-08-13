@@ -1,14 +1,17 @@
 "use client";
 
 /**
- * The transcript: everything that happened, on one rail.
+ * The transcript: a conversation, with the machinery folded up between the turns.
  *
- * A turn is a sequence of small machine actions with occasional prose in the middle, and the
- * thing a reader needs is to see the shape of it at a glance — where it started, what it is
- * doing now, whether it ended. So a single hairline runs down the pane and every item hangs off
- * it: the rail *is* the turn, it opens at `turn.started` and stops at `turn.completed` or
- * `turn.failed`. Prose sits in the sans face at full width; everything the machine authored is
- * mono. That split is the whole type system here, and it says who wrote each line.
+ * It used to be one hairline rail with every event hanging off it — which is an accurate picture
+ * of an event log and the wrong picture of a conversation. What somebody is actually reading is
+ * an exchange: they asked for something, the agent said what it would do, it went away and did
+ * forty small things, and it came back. So the two voices are drawn as two voices — the user's
+ * words in a bubble on the right, the agent's as prose across the pane — and the forty small
+ * things collapse into one card between them (see `step-group.ts`).
+ *
+ * Prose is in the sans face and everything the machine authored is mono. That split is the whole
+ * type system here, and it says who wrote each line.
  *
  * The container is a `log` landmark, which is what makes new events announce themselves to a
  * screen reader instead of appearing silently — a transcript that only updates visually is
@@ -16,11 +19,12 @@
  */
 
 import type { StoredEvent } from "@nap/shared/ports/event-store";
+import { NapMark } from "../brand/nap-mark.tsx";
 import { turnFailureCopy } from "../errors/failure-copy.ts";
-import { OutputBlock } from "./output-block.tsx";
+import { type DisplayItem, groupSteps } from "./step-group.ts";
+import { StepGroupCard } from "./step-group-card.tsx";
 import { StreamingText } from "./streaming-text.tsx";
-import { ToolStep } from "./tool-step.tsx";
-import { buildTranscript, type TranscriptItem } from "./transcript.ts";
+import { buildTranscript } from "./transcript.ts";
 
 export function ChatTranscript({
   events,
@@ -30,7 +34,7 @@ export function ChatTranscript({
   /** Re-sends a failed turn's message. Absent means no retry is offered, not a broken button. */
   onRetry?: ((message: string) => void) | undefined;
 }) {
-  const items = buildTranscript(events);
+  const items = groupSteps(buildTranscript(events));
   // The only item that can still be added to is the last one — everything above it has been
   // overtaken by something newer. That alone is the whole rule, and it needs no check for
   // whether a turn is open: a turn that ended ends *with* its `turn.completed` or
@@ -48,91 +52,109 @@ export function ChatTranscript({
       // peers in a list.
       role="log"
       aria-label="Transcript"
-      className="flex flex-col px-4 py-3"
+      className="flex flex-col gap-3 px-4 py-4"
     >
-      {items.map((item) => (
-        <Row key={item.key} item={item} live={item.key === liveKey} onRetry={onRetry} />
+      {items.map((item, index) => (
+        <Item
+          key={item.key}
+          item={item}
+          live={item.key === liveKey}
+          // Whether the agent has already spoken since the last thing the user said. Its prose
+          // is labelled once per block rather than once per paragraph, the way a chat names a
+          // speaker only when the speaker changes.
+          opensBlock={opensBlock(items, index)}
+          onRetry={onRetry}
+        />
       ))}
     </div>
   );
 }
 
-/** Every item hangs off the rail, so the rail is drawn once, here. */
-function Row({
-  item,
-  live,
-  onRetry,
-}: {
-  item: TranscriptItem;
-  /** Whether this item can still be added to. Only ever true of the last one, mid-turn. */
-  live: boolean;
-  onRetry?: ((message: string) => void) | undefined;
-}) {
-  return (
-    <div className="relative border-edge border-l pb-2 pl-4 last:pb-0">
-      <Item item={item} live={live} onRetry={onRetry} />
-    </div>
-  );
+/**
+ * Whether this item starts a new stretch of the agent talking.
+ *
+ * The label is drawn against the first of them, so a turn that says three things separated by
+ * tool calls is not signed three times.
+ */
+function opensBlock(items: readonly DisplayItem[], index: number): boolean {
+  const item = items[index];
+  if (item?.kind !== "message" || item.from !== "agent") return false;
+
+  const previous = items[index - 1];
+  return previous === undefined || previous.kind !== "message" || previous.from !== "agent";
 }
 
 function Item({
   item,
   live,
+  opensBlock,
   onRetry,
 }: {
-  item: TranscriptItem;
+  item: DisplayItem;
+  /** Whether this item can still be added to. Only ever true of the last one, mid-turn. */
   live: boolean;
+  opensBlock: boolean;
   onRetry?: ((message: string) => void) | undefined;
 }) {
   switch (item.kind) {
     case "message":
-      return (
-        <p
-          className={`whitespace-pre-wrap text-sm leading-relaxed ${
-            item.from === "user" ? "text-ink" : "text-muted"
-          }`}
-        >
-          {/*
-            Read aloud but not drawn: the two speakers are told apart visually by weight and
-            colour, which is nothing at all to someone listening to the page.
-          */}
-          <span className="sr-only">{item.from === "user" ? "You: " : "Agent: "}</span>
-          {item.from === "agent" ? <StreamingText text={item.text} live={live} /> : item.text}
-        </p>
+      // The user's words in a bubble on the right, the agent's as prose across the pane. The
+      // asymmetry is deliberate and it is the oldest convention in the medium: what you said is
+      // a short thing you can find again by its shape, and what the agent said is something to
+      // read. Making both bubbles gives a paragraph of explanation the shape of a text message.
+      return item.from === "user" ? (
+        <div className="flex justify-end pt-1">
+          <p className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-bubble px-3.5 py-2 text-[13px] text-ink leading-relaxed">
+            {/*
+              Read aloud but not drawn: the two speakers are told apart visually by position and
+              shape, which is nothing at all to someone listening to the page.
+            */}
+            <span className="sr-only">You: </span>
+            {item.text}
+          </p>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-1.5">
+          {opensBlock && (
+            <span
+              aria-hidden="true"
+              className="flex items-center gap-1.5 font-display font-semibold text-[12px] text-muted"
+            >
+              <NapMark className="size-4" />
+              nap
+            </span>
+          )}
+          <p className="whitespace-pre-wrap text-[13.5px] text-ink-2 leading-[1.65]">
+            <span className="sr-only">Agent: </span>
+            <StreamingText text={item.text} live={live} />
+          </p>
+        </div>
       );
 
     case "thinking":
       return (
-        <p className="whitespace-pre-wrap text-muted/70 text-xs italic leading-relaxed">
+        <p className="whitespace-pre-wrap text-[12px] text-muted/70 italic leading-relaxed">
           <StreamingText text={item.text} live={live} />
         </p>
       );
 
-    case "step":
-      return <ToolStep step={item} />;
-
-    case "files":
-      // A change with no step to hang it on — the tool call it belonged to arrived before
-      // this client connected. Its own disclosure, since there is no step to open.
-      return (
-        <>
-          {item.files.map((file) => (
-            <details key={file.path}>
-              <summary className="flex cursor-pointer list-none items-baseline gap-1.5 font-mono text-[11px] focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent">
-                <span className="text-ink">{file.path}</span>
-                <span className="text-muted">
-                  +{file.added} −{file.removed}
-                </span>
-              </summary>
-              <OutputBlock text={file.diff} />
-            </details>
-          ))}
-        </>
-      );
+    case "steps":
+      return <StepGroupCard group={item} />;
 
     case "preview":
+      /*
+       * **Announced, not drawn.** This used to be a visible meta row reading "Preview ready ·
+       * 5173-i59080byuko8pdezzh7u6.e2b.app", and on screen it is pure noise: the bar above
+       * already shows the host, the bar already has a link to open it, and the Preview tab is
+       * showing the running app. A restarting dev server emits another one, so a long session
+       * silts up with thirty-character subdomains nobody reads.
+       *
+       * It survives for somebody who cannot see any of that. "The app is running, and here is
+       * where" is real information, and the log is the only place it reaches them — so the text
+       * and the link stay in the accessibility tree while nothing appears in the transcript.
+       */
       return (
-        <p className="font-mono text-muted text-xs">
+        <p className="sr-only">
           Preview ready ·{" "}
           <a
             href={item.url}
@@ -140,7 +162,6 @@ function Item({
             // The preview is the user's own app served from another origin; `noopener` keeps
             // it from reaching back into this tab.
             rel="noopener noreferrer"
-            className="text-accent underline underline-offset-2"
           >
             {new URL(item.url).host}
           </a>
@@ -148,17 +169,22 @@ function Item({
       );
 
     case "preview-stopped":
-      return (
-        <p className="font-mono text-muted text-xs">Preview stopped · the project was put away</p>
+      // The one that still describes the project gets a line; the ones a later restart already
+      // answered stay in the log for anybody listening to it, and stay out of the way for
+      // everybody reading it. Five identical "put away" lines in a transcript read as five
+      // failures rather than as an afternoon of ordinary opening and closing.
+      return item.superseded ? (
+        <p className="sr-only">Preview stopped · the project was put away</p>
+      ) : (
+        <Meta>Preview stopped · the project was put away</Meta>
       );
 
     case "notice":
-      // Mono and labelled, like every other machine-authored line. The label is drawn rather
-      // than implied by colour, so it survives being read aloud and being read by someone who
-      // cannot tell the two colours apart.
+      // Labelled in words rather than by colour, so it survives being read aloud and being read
+      // by someone who cannot tell the two colours apart.
       return (
         <p
-          className={`font-mono text-xs leading-relaxed ${
+          className={`font-mono text-[11.5px] leading-relaxed ${
             item.level === "warning" ? "text-danger" : "text-muted"
           }`}
         >
@@ -170,19 +196,60 @@ function Item({
       );
 
     case "turn-start":
-      return <p className="font-mono text-[11px] text-muted uppercase tracking-wide">Started</p>;
+      // **A rule, not a line of text.** "Started" spelled out was bookkeeping: the bubble above
+      // it already says a turn began, and the word was one more thing between the reader and
+      // the work. The word survives as `sr-only`, because a hairline is not visible to somebody
+      // listening and a turn boundary is real information.
+      //
+      // No `role="separator"`, deliberately: that role is for a widget dividing two panes, and
+      // claiming it here would put a focusable-looking thing between every pair of turns. This
+      // is a paragraph break drawn as a line.
+      return (
+        <div className="my-1 flex items-center first:hidden">
+          <span className="sr-only">Turn started</span>
+          <span aria-hidden="true" className="h-px flex-1 bg-edge" />
+        </div>
+      );
 
     case "turn-end":
       return item.outcome === "completed" ? (
-        <p className="font-mono text-[11px] text-muted">
-          Done · {(item.durationMs / 1000).toFixed(1)}s · {item.inputTokens} in /{" "}
-          {item.outputTokens} out ·{" "}
-          {item.commitSha === null ? "no file changes" : <span>{item.commitSha}</span>}
-        </p>
+        <Meta>
+          {/*
+            Just how long it took, and whether anything changed. The token counts and the commit
+            SHA used to be here and are instrumentation rather than something a person reads
+            between turns — forty characters of hex that also pushed this row wider than the
+            pane and gave the whole transcript a horizontal scrollbar. Both are still in the
+            event log for anything that wants them.
+          */}
+          Done · {(item.durationMs / 1000).toFixed(1)}s
+          {item.commitSha === null ? " · no file changes" : ""}
+        </Meta>
       ) : (
         <TurnFailure item={item} onRetry={onRetry} />
       );
   }
+}
+
+/**
+ * A line about the turn rather than from it.
+ *
+ * Centred between two hairlines, so it reads as a boundary in the conversation instead of as
+ * something one of the two speakers said.
+ */
+function Meta({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="flex items-center gap-2.5 font-mono text-[11px] text-muted">
+      <span aria-hidden="true" className="h-px flex-1 bg-edge" />
+      {/*
+        `min-w-0 truncate` rather than `shrink-0`. A row that cannot shrink pushes the pane
+        wider than the window and gives the whole transcript a horizontal scrollbar — which is
+        what happened here. Shortening the text that caused it is not the fix; letting the row
+        shrink is, so the next long meta line cannot bring the scrollbar back.
+      */}
+      <span className="min-w-0 truncate">{children}</span>
+      <span aria-hidden="true" className="h-px flex-1 bg-edge" />
+    </p>
+  );
 }
 
 /**
@@ -201,7 +268,7 @@ function TurnFailure({
   item,
   onRetry,
 }: {
-  item: Extract<TranscriptItem, { kind: "turn-end" }> & { outcome: "failed" };
+  item: Extract<DisplayItem, { kind: "turn-end" }> & { outcome: "failed" };
   onRetry?: ((message: string) => void) | undefined;
 }) {
   const copy = turnFailureCopy(item.reason, item.message);
@@ -210,17 +277,17 @@ function TurnFailure({
     copy.recovery === "retry" && onRetry !== undefined && message !== undefined && message !== "";
 
   return (
-    <div className="flex flex-col gap-1">
-      <p className="text-danger text-sm">{copy.title}</p>
-      {/* Mono, because this half is the machine talking — the same split the rest of the rail uses. */}
+    <div className="flex flex-col gap-1 rounded-xl border border-danger/30 bg-danger/[0.06] px-3 py-2.5">
+      <p className="font-medium text-[13px] text-danger">{copy.title}</p>
+      {/* Mono, because this half is the machine talking — the same split the rest of the pane uses. */}
       <p className="font-mono text-[11px] text-muted">{copy.detail}</p>
-      <p className="text-muted text-xs">{copy.action}</p>
+      <p className="text-[12px] text-muted">{copy.action}</p>
 
       {canRetry && (
         <button
           type="button"
           onClick={() => onRetry(message)}
-          className="mt-1 self-start rounded border border-edge px-2 py-0.5 text-[11px] text-muted hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
+          className="mt-1.5 self-start rounded-chip border border-edge px-2 py-1 text-[11px] text-ink-2 transition-colors hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
         >
           Try again
         </button>

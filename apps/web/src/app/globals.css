@@ -39,6 +39,18 @@
   /* Hover and the composer's inner wells. Translucent, so one value works over panel and surface both. */
   --color-hover: #ffffff10;
   --color-field: #16161c;
+  /*
+   * What the user said, in the transcript. One step above `field` so a bubble reads as raised
+   * against the pane without needing a border — a border here would put a second hairline
+   * beside every line of the agent's prose, which has none.
+   */
+  --color-bubble: #1c1c24;
+  /*
+   * Line numbers in the file viewer. They were on `edge` (#22222a), which is a *border* colour:
+   * against the panel it measures about 1.2:1, so the gutter was there in the markup and
+   * invisible on screen. This is the dimmest a number can be and still be read at 12px.
+   */
+  --color-gutter: #55556a;
   /* The accent, legible as text. `accent` is a fill colour and fails contrast on a dark ground at 13px. */
   --color-accent-ink: #a894ff;
   --color-accent-tint: #7c5cff26;
@@ -70,6 +82,31 @@
 html,
 body {
   height: 100%;
+}
+
+/*
+ * Things you can press look like things you can press.
+ *
+ * A browser's own stylesheet gives `<button>` an arrow, not a hand — Tailwind does not override
+ * that in any version, so an app that never says otherwise has an interface where nothing reads
+ * as clickable. One rule here rather than a `cursor-pointer` on sixty elements, which is sixty
+ * chances to forget on the sixty-first.
+ *
+ * `summary` is in the list because the transcript is made of disclosures — the step cards and
+ * every tool row — and they are among the most-pressed things on the page. Anchors already get a
+ * hand from the browser. The pane dividers keep `cursor-col-resize`, which is more specific and
+ * says something this rule cannot.
+ */
+button:not(:disabled),
+summary,
+[role="tab"],
+label[for] {
+  cursor: pointer;
+}
+
+/* Not merely "not a hand": a control that is off right now should say so on contact. */
+button:disabled {
+  cursor: not-allowed;
 }
 
 body {
@@ -157,6 +194,482 @@ body {
   animation: nap-bob 3s ease-in-out 240ms infinite;
 }
 
+/* The dashboard stickers show Nap mid-task rather than asleep. They borrow the real mark but
+   hold its awake face open, because music and coding do not pair well with drifting z's. */
+.nap-sticker-awake .nap-mark-shut,
+.nap-sticker-awake .nap-mark-zzz {
+  display: none;
+}
+
+.nap-sticker-awake .nap-mark-open {
+  opacity: 1;
+}
+
+/*
+ * ─── The stickers, doing something ──────────────────────────────────────────────────────────
+ *
+ * Each sticker has an idle loop that says what it is up to, and a hover reaction that is its
+ * own — no two of the four react the same way. The idle side is kept under three pixels of
+ * travel and runs slow: this is the furniture around the box somebody came here to type in, and
+ * anything faster turns the edges of the band into the thing being watched. Every loop has a
+ * different period so the four never fall into step, which is what makes them read as four
+ * characters rather than one animation applied four times.
+ *
+ * **`transform` here composes with the tilt, it does not replace it.** Each sticker is placed at
+ * an angle with a Tailwind rotate utility, which in v4 writes the *individual* `rotate`
+ * property; `translate`, `rotate` and `transform` are applied in that order, so a keyframe using
+ * `transform` moves the sticker around the angle it was pinned at. Writing `rotate()` inside
+ * `transform` therefore *adds* to the tilt, which is what the hover flourish wants.
+ */
+.nap-sticker {
+  transition:
+    border-color 260ms ease,
+    background-color 260ms ease;
+}
+
+/* Every card but the wand's brightens under the cursor. His is excluded here rather than
+   overridden below, so there is one place that says which cards react and it cannot disagree
+   with itself. */
+.nap-sticker:hover:not(.nap-sticker-spark) {
+  border-color: var(--color-line-strong);
+}
+
+/*
+ * The squint ships with the mark and is off everywhere unless something asks for it, so the
+ * header, the loader and the favicon are untouched by its existence.
+ */
+.nap-mark-squint {
+  display: none;
+  transition: opacity 260ms ease;
+}
+
+/* Same deal: off unless a sticker asks for it, so the header and the favicon never see it. */
+.nap-mark-bored {
+  display: none;
+}
+
+/*
+ * Headphones: a nod on a two-and-a-half second beat. The headphones themselves hold still — a
+ * pair of cups pulsing in and out reads as the drawing flickering rather than as sound, and the
+ * nod already says everything the beat needs to say. Hovering turns it up: the beat doubles and
+ * the nod widens, which is a different gesture rather than the same one hurried.
+ *
+ * **The card never moves — he does.** Animating the sticker itself was a shortcut, and it read
+ * as a floating tile wobbling with a drawing inside it rather than as somebody nodding: the
+ * border, the fill and the shadow all travelled too. The children are targeted instead of a
+ * wrapper because the headphones are positioned against the *card*, and reparenting them into a
+ * new element would move the drawing eight pixels off his head.
+ */
+.nap-sticker-music > * {
+  animation: nap-nod 2400ms ease-in-out infinite;
+}
+
+.nap-sticker-music:hover > * {
+  animation: nap-nod-loud 1100ms ease-in-out infinite;
+}
+
+/*
+ * It listens with its eyes screwed shut — the one thing a face does that says *enjoying this*
+ * rather than merely awake — and opens them when you point at it, as if you had interrupted.
+ * The two faces cross-fade on the same 260ms the mark's own waking uses, so this reads as the
+ * same character doing the same trick rather than as a second effect bolted on.
+ */
+.nap-sticker-music .nap-mark-squint {
+  display: block;
+  opacity: 1;
+}
+
+.nap-sticker-music .nap-mark-open {
+  opacity: 0;
+}
+
+.nap-sticker-music:hover .nap-mark-squint {
+  opacity: 0;
+}
+
+.nap-sticker-music:hover .nap-mark-open {
+  opacity: 1;
+}
+
+/*
+ * The notes leave one at a time on inline delays, for the same reason the z's do. Hover only
+ * shortens the flight: the delays are inline styles and a stylesheet cannot outrank them, so
+ * the stagger stays put and the stream simply gets denser.
+ */
+.nap-note {
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: nap-note 1800ms ease-out infinite both;
+}
+
+.nap-sticker-music:hover .nap-note {
+  animation-duration: 1000ms;
+}
+
+/*
+ * Laptop: typing comes in bursts with pauses between them, because an even jitter reads as the
+ * drawing vibrating rather than as somebody working. The screen breathes on its own longer
+ * period.
+ *
+ * **Hovering makes him hide.** He drops behind the lid until only the top of the dome shows, the
+ * paws slide off the edge after him, the typing stops and the code he was writing fades — caught
+ * working and ducking out of sight, which is a reaction to *you* rather than a louder version of
+ * what he was already doing. The dome is deliberately left showing: an empty laptop reads as the
+ * drawing having broken, and the sliver is what makes it read as hiding.
+ *
+ * It is a transition, not an animation, so leaving the sticker plays it backwards for free and
+ * he climbs back up.
+ */
+/* He types; the desk he is typing at does not, and neither does the card around both. */
+.nap-sticker-code .nap-mark {
+  animation: nap-type 5200ms linear infinite;
+}
+
+/*
+ * Unhurried on the way down and on the way back: he is sinking out of sight, not being dropped
+ * through a trapdoor. A short, sharp curve here reads as a UI element toggling — which is the
+ * one thing these are not.
+ */
+.nap-sticker-code .nap-hider {
+  transition: transform 620ms cubic-bezier(0.45, 0.05, 0.25, 1);
+}
+
+.nap-sticker-code .nap-paws {
+  transition:
+    transform 620ms cubic-bezier(0.45, 0.05, 0.25, 1) 40ms,
+    opacity 380ms ease 140ms;
+}
+
+/* The typing stops the moment he moves — hands off the keys first, then down. */
+.nap-sticker-code:hover .nap-mark {
+  animation: none;
+}
+
+.nap-sticker-code:hover .nap-hider {
+  transform: translateY(19px);
+}
+
+.nap-sticker-code:hover .nap-paws {
+  transform: translateY(7px);
+  opacity: 0;
+}
+
+.nap-sticker-code .nap-screen {
+  opacity: 0.5;
+  animation: nap-screen 3000ms ease-in-out infinite;
+  transition: opacity 200ms ease;
+}
+
+.nap-sticker-code:hover .nap-screen {
+  animation: none;
+  opacity: 0;
+}
+
+/*
+ * Sleeping: the mark already breathes and lets z's go, so all this adds is a slow sway and a
+ * blanket that settles with it — five seconds, the longest period of the four, because it is
+ * the one that is supposed to look like nothing is happening. He sways inside the card; the
+ * card itself is a sticker stuck to the page and stickers do not breathe.
+ */
+.nap-sticker-sleep > * {
+  animation: nap-snore 5200ms ease-in-out infinite;
+}
+
+.nap-sticker-sleep .nap-blanket {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: nap-blanket 5200ms ease-in-out infinite;
+}
+
+/* Startled: the z's stop mid-air, the eyes come up, and it hops once and settles rather than
+   holding a raised pose — being woken is an event, not a state. */
+.nap-sticker-sleep:hover > * {
+  animation: nap-startle 620ms cubic-bezier(0.2, 0.9, 0.25, 1);
+}
+
+.nap-sticker-sleep:hover .nap-mark-zzz {
+  display: none;
+}
+
+.nap-sticker-sleep:hover .nap-mark-shut {
+  opacity: 0;
+}
+
+.nap-sticker-sleep:hover .nap-mark-open {
+  opacity: 1;
+}
+
+/* Once the hop is over it looks around, which is the mark's own waking gesture. The delay keeps
+   the glance from starting while the eyes are still opening. */
+.nap-sticker-sleep:hover .nap-mark-eyes {
+  animation: nap-glance 3s ease-in-out 620ms infinite;
+}
+
+/*
+ * Spark: a twinkle and a wand ticking against it, three seconds apart from every other loop.
+ *
+ * **This is the one that refuses to play along.** The other three answer the cursor by doing
+ * more of what they were doing; he does none of it — the lids stay halfway down, he does not
+ * look up, the card does not light, and the only thing that happens is a vein popping over his
+ * head. A character who ignores you is only funny if he *visibly* ignores you, which means every
+ * reaction the rest of the set has must be switched off here rather than merely not added.
+ */
+.nap-sticker-spark .nap-mark-bored {
+  display: block;
+}
+
+/*
+ * The lids stay down through the hover, which takes an extra class to say: the mark's own waking
+ * rule is `.nap-mark:hover .nap-mark-open`, and a pseudo-class counts as a class, so it outranks
+ * a plain two-class selector and pops his eyes open the moment the pointer lands.
+ */
+.nap-sticker-spark .nap-mark-open,
+.nap-sticker-spark .nap-mark:hover .nap-mark-open {
+  opacity: 0;
+}
+
+.nap-sticker-spark .nap-mark:hover .nap-mark-eyes,
+.nap-sticker-spark .nap-mark:hover .nap-mark-body {
+  animation: none;
+}
+
+/*
+ * The vein pops, throbs once and stays for as long as the cursor does. It arrives a beat late on
+ * purpose: instant, it reads as a hover state lighting up, where a pause reads as him having put
+ * up with it for a moment and then not.
+ */
+.nap-anger {
+  opacity: 0;
+  transform: scale(0.4);
+  transform-origin: center;
+}
+
+.nap-sticker-spark:hover .nap-anger {
+  animation: nap-anger 900ms cubic-bezier(0.2, 1.3, 0.4, 1) 220ms forwards;
+}
+
+.nap-sticker-spark .nap-star {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: nap-twinkle 3000ms ease-in-out infinite;
+}
+
+.nap-sticker-spark .nap-wand {
+  transform-box: fill-box;
+  transform-origin: 30% 70%;
+  animation: nap-wand 3000ms ease-in-out infinite;
+}
+
+@keyframes nap-nod {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-1deg);
+  }
+  50% {
+    transform: translateY(-1.6px) rotate(1deg);
+  }
+}
+
+@keyframes nap-nod-loud {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-3.5deg);
+  }
+  50% {
+    transform: translateY(-3px) rotate(3.5deg);
+  }
+}
+
+@keyframes nap-note {
+  0% {
+    opacity: 0;
+    transform: translate(0, 2px) scale(0.6);
+  }
+  25% {
+    opacity: 0.9;
+  }
+  70% {
+    opacity: 0.5;
+  }
+  100% {
+    opacity: 0;
+    /* SVG user units on a 96-wide viewBox drawn at 80px, so this is about ten screen pixels. */
+    transform: translate(5px, -13px) scale(1.05) rotate(12deg);
+  }
+}
+
+/* Two bursts of four keystrokes in five seconds, with long flat stretches between them. The
+   percentages are the burst; everything else is the pause, which is most of the loop. */
+@keyframes nap-type {
+  0%,
+  30% {
+    transform: translateY(0);
+  }
+  32% {
+    transform: translateY(1px);
+  }
+  34% {
+    transform: translateY(0);
+  }
+  36% {
+    transform: translateY(1px);
+  }
+  38%,
+  66% {
+    transform: translateY(0);
+  }
+  68% {
+    transform: translateY(1px);
+  }
+  70% {
+    transform: translateY(0);
+  }
+  72% {
+    transform: translateY(1px);
+  }
+  74%,
+  100% {
+    transform: translateY(0);
+  }
+}
+
+@keyframes nap-screen {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes nap-snore {
+  0%,
+  100% {
+    transform: translate(0, 0) rotate(0deg);
+  }
+  50% {
+    transform: translate(1.5px, 1px) rotate(-1.2deg);
+  }
+}
+
+@keyframes nap-blanket {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(0.8px);
+  }
+}
+
+@keyframes nap-startle {
+  0% {
+    transform: translateY(0) scale(1);
+  }
+  35% {
+    transform: translateY(-5px) scale(1.05);
+  }
+  65% {
+    transform: translateY(1px) scale(0.99);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes nap-twinkle {
+  0%,
+  100% {
+    opacity: 0.5;
+    transform: scale(0.9);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.1);
+  }
+}
+
+@keyframes nap-wand {
+  0%,
+  100% {
+    transform: rotate(-3deg);
+  }
+  50% {
+    transform: rotate(3deg);
+  }
+}
+
+@keyframes nap-anger {
+  0% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  35% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+  55% {
+    transform: scale(0.95);
+  }
+  75% {
+    transform: scale(1.06);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/*
+ * Reduced motion keeps every *state* and drops everything that travels, exactly as the mark
+ * does above: the sleeper still opens its eyes when pointed at, the laptop screen still lights
+ * up in accent, and the notes and sparks sit still at low opacity instead of vanishing — a
+ * sticker whose props disappeared would look half-drawn rather than considerate.
+ */
+@media (prefers-reduced-motion: reduce) {
+  /* `> *` and `> *:hover`-adjacent selectors, because the loops live on the characters now and
+     not on the cards — a rule aimed at `.nap-sticker` would switch off nothing at all. */
+  .nap-sticker > *,
+  .nap-sticker:hover > *,
+  .nap-sticker .nap-mark,
+  .nap-sticker:hover .nap-mark,
+  .nap-sticker .nap-screen,
+  .nap-sticker .nap-blanket,
+  .nap-sticker .nap-star,
+  .nap-sticker .nap-wand,
+  .nap-sticker-sleep:hover .nap-mark-eyes {
+    animation: none;
+  }
+
+  .nap-note,
+  .nap-sticker-music:hover .nap-note {
+    animation: none;
+    opacity: 0.6;
+    transform: none;
+  }
+
+  /* The temper is a state, so it survives — it simply appears instead of popping. */
+  .nap-sticker-spark:hover .nap-anger {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+
+  .nap-sticker .nap-screen {
+    opacity: 0.75;
+  }
+
+  /* He still hides — that is the point of the sticker — he just arrives there instead of
+     sliding, which is the same bargain the mark's own waking makes. */
+  .nap-sticker-code .nap-hider,
+  .nap-sticker-code .nap-paws,
+  .nap-sticker-code .nap-screen {
+    transition: none;
+  }
+}
+
 @keyframes nap-glance {
   0%,
   14% {
@@ -242,6 +755,299 @@ body {
 }
 
 /*
+ * The mark as a loading state: awake, and keeping itself busy.
+ *
+ * A project takes tens of seconds to come back up, and for all of them the preview pane is the
+ * largest empty surface in the app. A spinner there says "working" for about two seconds and
+ * then says "stuck"; a character doing something different every couple of seconds keeps
+ * reading as alive, because the next thing it does is not the thing you just watched.
+ *
+ * **Awake is the whole difference from the resting mark.** The lids come off, the eyes come up,
+ * and the z's stop — a ghost yawning over "starting the dev server" would be saying the
+ * opposite of what the pane means. Breathing is left running underneath, so between tricks it
+ * is still visibly a live thing rather than a paused drawing.
+ *
+ * Which trick is showing arrives as `data-trick` from `nap-loader.tsx`; between them the
+ * attribute is absent, which is the still beat and needs no rule of its own. The selectors are
+ * deliberately more specific than the mark's own `.nap-mark-body` animation so a trick
+ * overrides the breath while it runs — and the reduced-motion block at the foot of this section
+ * matches that specificity, or a ghost that was asked to hold still would hop anyway.
+ */
+/*
+ * **Four layers, on four clocks.** The first version of this put every gesture on one element
+ * and one timeline: the ghost held perfectly still, did a trick, and held still again — which
+ * reads as an image being transformed rather than as something alive. What reads as alive is
+ * several small motions whose periods share no common factor, so the composite drifts in and
+ * out of phase and never settles into a loop anybody can learn.
+ *
+ * The layers are nested rather than stacked on one element because two animations driving
+ * `transform` do not compose — the last declared wins outright.
+ *
+ *   .nap-loader        float, 2.9s   — the whole thing rising and settling
+ *   .nap-loader-sway   sway,  5.3s   — a slow lean, never quite upright
+ *   .nap-mark-body     breathe 3.6s  — and whichever trick is showing
+ *   .nap-mark-eyes     saccade 7.1s  — small darts with long holds
+ *   .nap-mark-open     blink,  6.7s  — two fast closures, unevenly spaced
+ */
+.nap-loader {
+  display: inline-block;
+  animation: nap-float 2900ms ease-in-out infinite;
+}
+
+.nap-loader-sway {
+  display: block;
+  width: 100%;
+  height: 100%;
+  animation: nap-sway 5300ms ease-in-out infinite;
+}
+
+/*
+ * The eyes, which are most of the effect.
+ *
+ * A face that never blinks is the thing that makes a character read as a decal, and it is the
+ * single cheapest fix available here: two closures a few seconds apart, each about ninety
+ * milliseconds, which is roughly what a real one takes. Fewer than that and it is a glitch;
+ * slower and it is a creature falling asleep.
+ *
+ * The blink is a crossfade between the two groups the mark already has — lids and open eyes —
+ * so it is the same drawing doing it, not an overlay. The saccade moves the pair sideways on a
+ * *different* property and a different element, which is what lets both run at once.
+ */
+.nap-loader .nap-mark-shut {
+  opacity: 0;
+  animation: nap-lid 6700ms ease-in-out infinite;
+}
+
+.nap-loader .nap-mark-open {
+  opacity: 1;
+  animation: nap-blink 6700ms ease-in-out infinite;
+}
+
+.nap-loader .nap-mark-eyes {
+  animation: nap-saccade 7100ms ease-in-out infinite;
+}
+
+/* Nothing yawns while it is busy. */
+.nap-loader .nap-mark-z {
+  animation: none;
+  opacity: 0;
+}
+
+/* Barely a pixel and a half at 56px. Enough to read as weightless, not enough to be a bounce. */
+@keyframes nap-float {
+  0%,
+  100% {
+    transform: translateY(2.5%);
+  }
+  50% {
+    transform: translateY(-2.5%);
+  }
+}
+
+/* Off-centre on purpose: the two ends differ, so the lean never looks like a metronome. */
+@keyframes nap-sway {
+  0%,
+  100% {
+    transform: rotate(-2.4deg);
+  }
+  38% {
+    transform: rotate(1.8deg);
+  }
+  72% {
+    transform: rotate(3deg);
+  }
+}
+
+/*
+ * Two blinks per cycle, unevenly spaced, each about 90ms of a 6.7s loop — hence the very tight
+ * keyframe percentages. Evenly spaced blinks are a ticking clock; these read as a face.
+ */
+@keyframes nap-blink {
+  0%,
+  25.6%,
+  27%,
+  32.4%,
+  33.8%,
+  100% {
+    opacity: 1;
+  }
+  26%,
+  26.6%,
+  32.8%,
+  33.4% {
+    opacity: 0;
+  }
+}
+
+/* The lids, exactly inverse, so the eyes are never both closed and open at once. */
+@keyframes nap-lid {
+  0%,
+  25.6%,
+  27%,
+  32.4%,
+  33.8%,
+  100% {
+    opacity: 0;
+  }
+  26%,
+  26.6%,
+  32.8%,
+  33.4% {
+    opacity: 1;
+  }
+}
+
+/*
+ * Looking about while it waits: two darts and a long hold back at centre.
+ *
+ * The holds are the point. Eyes that slide continuously read as a scanning machine; eyes that
+ * jump and then rest read as something deciding where to look next.
+ */
+@keyframes nap-saccade {
+  0%,
+  18% {
+    transform: translateX(0);
+  }
+  22%,
+  36% {
+    transform: translateX(1.9px);
+  }
+  40%,
+  44% {
+    transform: translateX(0);
+  }
+  48%,
+  62% {
+    transform: translateX(-2.1px);
+  }
+  66%,
+  100% {
+    transform: translateX(0);
+  }
+}
+
+.nap-loader[data-trick="glance"] .nap-mark-eyes {
+  animation: nap-glance 2.4s ease-in-out both;
+}
+
+.nap-loader[data-trick="hop"] .nap-mark-body {
+  animation: nap-trick-hop 1.1s cubic-bezier(0.3, 0.9, 0.4, 1) both;
+}
+
+.nap-loader[data-trick="wobble"] .nap-mark-body {
+  animation: nap-trick-wobble 1.4s ease-in-out both;
+}
+
+.nap-loader[data-trick="peek"] .nap-mark-body {
+  animation: nap-trick-peek 1.6s ease-in-out both;
+}
+
+.nap-loader[data-trick="spin"] .nap-mark-body {
+  animation: nap-trick-spin 1.3s cubic-bezier(0.5, 0, 0.3, 1) both;
+}
+
+/*
+ * A hop, with the squash on either end of it.
+ *
+ * The crouch before and the flatten after are what make it read as weight rather than as a
+ * shape being translated upwards — nine tenths of the charm of this is in two keyframes that
+ * are barely five per cent wide.
+ */
+@keyframes nap-trick-hop {
+  0%,
+  100% {
+    transform: translateY(0) scale(1, 1);
+  }
+  12% {
+    transform: translateY(0.6px) scale(1.08, 0.92);
+  }
+  45% {
+    transform: translateY(-3.4px) scale(0.94, 1.06);
+  }
+  78% {
+    transform: translateY(0.5px) scale(1.06, 0.94);
+  }
+}
+
+/* A shrug: over, back through centre, over the other way, and settle. */
+@keyframes nap-trick-wobble {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(7deg);
+  }
+  60% {
+    transform: rotate(-7deg);
+  }
+  85% {
+    transform: rotate(2deg);
+  }
+}
+
+/* Ducking out of frame and coming back up, the way somebody checks whether the coast is clear. */
+@keyframes nap-trick-peek {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  30%,
+  45% {
+    transform: translateY(4px) scale(0.9, 0.86);
+  }
+  70% {
+    transform: translateY(-1.2px) scale(1.02);
+  }
+}
+
+/*
+ * One full turn — the rare one, and the reason `nextTrick` is weighted.
+ *
+ * It dips into the turn and comes out of it slightly small, so the ghost looks like it threw
+ * itself round rather than like an image being rotated by a stylesheet.
+ */
+@keyframes nap-trick-spin {
+  0% {
+    transform: rotate(0deg) scale(1);
+  }
+  35% {
+    transform: rotate(150deg) scale(0.92);
+  }
+  100% {
+    transform: rotate(360deg) scale(1);
+  }
+}
+
+/*
+ * Asked to hold still, it holds still — awake, eyes open, and doing none of the above. The
+ * selectors here have to match the specificity of the ones above; the mark's own reduced-motion
+ * block is a class shorter, so on its own it would lose to `[data-trick]` and the ghost would
+ * hop at somebody who had switched motion off.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .nap-loader,
+  .nap-loader-sway,
+  .nap-loader .nap-mark-open,
+  .nap-loader .nap-mark-shut,
+  .nap-loader[data-trick] .nap-mark-body,
+  .nap-loader[data-trick] .nap-mark-eyes,
+  .nap-loader .nap-mark-eyes {
+    animation: none;
+  }
+
+  /* With the blink switched off, the two groups have to be left in their resting state by
+     hand — the crossfade above is what was holding the lids out of the way. */
+  .nap-loader .nap-mark-shut {
+    opacity: 0;
+  }
+
+  .nap-loader .nap-mark-open {
+    opacity: 1;
+  }
+}
+
+/*
  * The working indicator in the chat pane: a grid of cells, and a label lit by a passing band.
  *
  * The cells rest dim rather than off. A wavefront moving through cells that are otherwise
@@ -272,6 +1078,55 @@ body {
  * the image and its box, so with the image at twice the width they run backwards: animating
  * 0% → 100% would slide the light the wrong way. Checked by eye, not by reasoning.
  */
+/*
+ * A block waiting to be content: a soft fill with a band travelling across it.
+ *
+ * Separate from `.nap-shimmer` below rather than shared with it, because that one is
+ * `background-clip: text` — it lights up glyphs and paints nothing at all on an empty element,
+ * which is exactly what a skeleton is.
+ *
+ * The fill is barely there on purpose. A placeholder with real contrast reads as content that
+ * arrived broken; one this quiet reads as a space something is about to occupy. The band is the
+ * only part with any brightness, and it is what says *loading* rather than *empty*.
+ */
+.nap-skeleton {
+  display: block;
+  background-color: color-mix(in oklab, var(--color-ink) 7%, transparent);
+  background-image: linear-gradient(
+    90deg,
+    transparent 20%,
+    color-mix(in oklab, var(--color-ink) 9%, transparent) 50%,
+    transparent 80%
+  );
+  background-size: 200% 100%;
+  background-repeat: no-repeat;
+  animation: nap-skeleton-sweep 1.6s linear infinite;
+}
+
+/*
+ * Right to left in source terms, left to right on screen: percentage background positions are
+ * resolved against the difference between the image and its box, so with the image at twice the
+ * width they run backwards — the same trap documented on `.nap-shimmer` below.
+ */
+@keyframes nap-skeleton-sweep {
+  from {
+    background-position: 150% 0;
+  }
+  to {
+    background-position: -50% 0;
+  }
+}
+
+/*
+ * Still a placeholder, just not a moving one. The fill alone still says "something goes here",
+ * which is the whole job; it simply stops saying it over and over.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .nap-skeleton {
+    animation: none;
+  }
+}
+
 .nap-shimmer {
   background-image: linear-gradient(
     90deg,
@@ -422,6 +1277,11 @@ body {
  */
 .nap-pop {
   animation: pop-in 180ms cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+
+.nap-eq-bar {
+  animation: eq-bounce 640ms ease-in-out infinite;
+  transform-origin: center;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -704,4 +1564,72 @@ body {
   to {
     transform: rotate(360deg);
   }
+}
+
+/*
+ * The ring on a group of actions that is still running.
+ *
+ * A class rather than an inline `animation` on the icon, so reduced motion can stop it through
+ * the cascade — turning off an inline animation needs `!important`, which reverses precedence for
+ * every rule after it. It keeps its gap when it stops turning, so the shape still reads as
+ * *in progress* rather than as a circle somebody drew.
+ */
+.nap-spin {
+  animation: ai-spin 900ms linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nap-spin {
+    animation: none;
+  }
+}
+
+/*
+ * The panes' own scrollbars.
+ *
+ * macOS hides its overlay bar until you scroll, so this looks like nothing there and is the
+ * difference between a finished pane and a default one everywhere else — a 15px light-grey
+ * trough down the side of a dark transcript. Scoped to a class rather than applied to
+ * everything, because the preview frame is the user's own app and its scrollbars are theirs.
+ */
+.nap-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-edge) transparent;
+}
+
+.nap-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.nap-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.nap-scroll::-webkit-scrollbar-thumb {
+  background-color: var(--color-edge);
+  border-radius: 4px;
+}
+
+.nap-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-line-strong);
+}
+
+/* Two bars meeting in the corner is a small grey square the eye finds; nothing belongs there. */
+.nap-scroll::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/*
+ * Dashboard surfaces still respond to a mouse wheel, trackpad and touch, but do not carry a
+ * permanent browser trough. The page is a focused starting point, not a document, and the
+ * hidden bar keeps the quiet edge treatment intact while leaving its content fully reachable.
+ */
+.nap-scroll-hidden {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.nap-scroll-hidden::-webkit-scrollbar {
+  display: none;
 }

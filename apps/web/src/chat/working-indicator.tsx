@@ -22,7 +22,7 @@
  * What is left is `role="status"` named once, on insert.
  */
 
-import { useEffect, useState } from "react";
+import { useElapsed } from "../ui/use-elapsed.ts";
 
 /** Column plus distance from the middle row: a chevron, pointing right. */
 const CHEVRON = Array.from({ length: 9 }, (_, index) => {
@@ -45,7 +45,9 @@ export function WorkingIndicator({
    */
   startedAt?: string | undefined;
 }) {
-  const elapsed = useElapsed(startedAt);
+  // Tenths, because the server replaces this a moment later with its own `Done · 12.4s` and
+  // the handover should read as one measurement rather than two.
+  const elapsed = useElapsed({ startedAt, precision: 1, tickMs: TICK_MS });
 
   return (
     <div role="status" aria-label="Agent is working" className="flex w-fit items-center gap-2.5">
@@ -75,35 +77,4 @@ export function WorkingIndicator({
       </span>
     </div>
   );
-}
-
-/**
- * Time since the turn began, as a string.
- *
- * Read off the clock each tick rather than accumulated by counting them: a background tab
- * throttles intervals, and a counter that adds 100ms per fire would drift further behind the
- * longer nobody was looking. Tenths, because this is replaced a moment later by the
- * `Done · 12.4s` line the server computes, and the handover should read as one measurement.
- */
-function useElapsed(startedAt: string | undefined): string {
-  // Mount time is the fallback, and it has to be captured once rather than read each render —
-  // recomputing it would move the anchor forward in step with the clock and pin the elapsed
-  // time at zero. It is a *fallback*: `startedAt` arrives a moment after the indicator appears,
-  // and taking it the moment it does is what makes the count survive a reload.
-  const [mountedAt] = useState(() => Date.now());
-  const parsed = startedAt === undefined ? Number.NaN : Date.parse(startedAt);
-  const anchor = Number.isNaN(parsed) ? mountedAt : parsed;
-
-  const [now, setNow] = useState(() => Date.now());
-
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), TICK_MS);
-    return () => clearInterval(timer);
-  }, []);
-
-  // Clamped, because the anchor comes from the server and this subtraction from the browser.
-  // A clock a few seconds ahead of ours would otherwise render the turn as not yet begun.
-  const seconds = Math.max(0, now - anchor) / 1000;
-  if (seconds < 60) return `${seconds.toFixed(1)}s`;
-  return `${Math.floor(seconds / 60)}m ${(seconds % 60).toFixed(1)}s`;
 }

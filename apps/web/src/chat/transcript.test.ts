@@ -360,7 +360,26 @@ describe("the rest of the turn", () => {
     // otherwise an app that vanished for no stated reason.
     const items = fold(ev("preview.stopped", {}));
 
-    expect(items[0]).toEqual({ kind: "preview-stopped", key: 1 });
+    expect(items[0]).toEqual({ kind: "preview-stopped", key: 1, superseded: false });
+  });
+
+  it("marks a stop that a later restart has already answered", () => {
+    // Five ordinary sleep/wake cycles over an afternoon put five identical "put away" lines in
+    // the transcript, each one contradicted a few minutes later by a `preview.ready` that
+    // renders as nothing at all. Only the stop that still describes the project is news.
+    const items = fold(
+      ev("preview.stopped", {}),
+      ev("preview.ready", { url: "https://5173-a.e2b.app", port: 5173 }),
+      ev("preview.stopped", {}),
+      ev("preview.ready", { url: "https://5173-b.e2b.app", port: 5173 }),
+      ev("preview.stopped", {}),
+    );
+
+    expect(items.filter((item) => item.kind === "preview-stopped")).toEqual([
+      { kind: "preview-stopped", key: 1, superseded: true },
+      { kind: "preview-stopped", key: 3, superseded: true },
+      { kind: "preview-stopped", key: 5, superseded: false },
+    ]);
   });
 
   it("keeps a system notice out of the agent's voice", () => {

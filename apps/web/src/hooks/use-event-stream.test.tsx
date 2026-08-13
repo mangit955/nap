@@ -366,3 +366,52 @@ describe("unmounting", () => {
     expect(net.seqOf(1)).toBe("0");
   });
 });
+
+describe("knowing the log has all arrived", () => {
+  it("starts out not knowing", () => {
+    // Everything above this hook has to be able to tell "no events yet" from "no events" —
+    // and until the server says so, it cannot.
+    const net = sockets();
+    const { result } = render(net);
+    act(() => net.latest.open());
+
+    expect(result.current.replayed).toBe(false);
+  });
+
+  it("knows once the server says so", () => {
+    const net = sockets();
+    const { result } = render(net);
+    act(() => net.latest.open());
+
+    act(() => net.latest.deliver({ type: "ready" }));
+
+    expect(result.current.replayed).toBe(true);
+  });
+
+  it("keeps knowing across a dropped connection", () => {
+    // A reconnect resumes from `seq` rather than starting over, so what has already been
+    // delivered stays delivered. Forgetting here would put a placeholder over a transcript the
+    // client is still holding, every time a laptop lid closed.
+    vi.useFakeTimers();
+    const net = sockets();
+    const { result } = render(net);
+    act(() => net.latest.open());
+    act(() => net.latest.deliver({ type: "ready" }));
+
+    act(() => net.latest.drop());
+
+    expect(result.current.replayed).toBe(true);
+  });
+
+  it("forgets it when the session changes", () => {
+    // A different session is a different transcript, and its log has not been delivered at all.
+    const net = sockets();
+    const { result, rerender } = renderWith(net, SESSION);
+    act(() => net.latest.open());
+    act(() => net.latest.deliver({ type: "ready" }));
+
+    rerender({ id: "8f7e6d5c-4b3a-4291-8776-5544332211ff" });
+
+    expect(result.current.replayed).toBe(false);
+  });
+});

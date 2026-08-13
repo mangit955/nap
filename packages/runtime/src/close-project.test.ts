@@ -36,7 +36,6 @@ beforeEach(async () => {
   const created = await sandbox.create(PROJECT);
   if (!created.ok) throw new Error("could not create a sandbox");
   sandboxId = created.value.id;
-
   projects = new InMemoryProjectSandboxStore([
     { projectId: PROJECT, sandboxId, lastActiveAt: ACTIVE },
   ]);

@@ -63,6 +63,11 @@ export const GUARDED_ROUTES: GuardedRoute[] = [
   { method: "POST", path: "/projects", examplePath: "/projects", body: { name: "New" } },
   { method: "GET", path: "/projects/:projectId", examplePath: `/projects/${PROJECT}` },
   {
+    method: "GET",
+    path: "/projects/:projectId/thumbnail",
+    examplePath: `/projects/${PROJECT}/thumbnail`,
+  },
+  {
     method: "POST",
     path: "/projects/:projectId/open",
     examplePath: `/projects/${PROJECT}/open`,
@@ -71,6 +76,12 @@ export const GUARDED_ROUTES: GuardedRoute[] = [
     method: "POST",
     path: "/projects/:projectId/close",
     examplePath: `/projects/${PROJECT}/close`,
+  },
+  {
+    method: "PATCH",
+    path: "/projects/:projectId",
+    examplePath: `/projects/${PROJECT}`,
+    body: { name: "Renamed" },
   },
   { method: "DELETE", path: "/projects/:projectId", examplePath: `/projects/${PROJECT}` },
   {
@@ -96,12 +107,19 @@ export const GUARDED_ROUTES: GuardedRoute[] = [
   },
 ];
 
-export type SeededSandbox = { sandbox: InMemorySandboxManager; sandboxId: string };
+export type SeededSandbox = {
+  sandbox: InMemorySandboxManager;
+  sandboxId: string;
+  objects: InMemoryObjectStore;
+};
 
 /**
- * A sandbox with one readable file in it, so the owner's request for that file succeeds on its
- * merits rather than 404ing because the fixture is empty — which would make "the owner is not
- * refused" pass for the wrong reason and, worse, look identical to being refused.
+ * A world the owner's requests can actually succeed in: a sandbox with one readable file, and a
+ * bucket holding the project's thumbnail.
+ *
+ * Both exist so the owner's request 200s *on its merits* rather than 404ing because the fixture
+ * is empty — which would make "the owner is not refused" pass for the wrong reason and, worse,
+ * look identical to being refused.
  */
 export async function seedSandbox(): Promise<SeededSandbox> {
   const sandbox = new InMemorySandboxManager();
@@ -109,7 +127,11 @@ export async function seedSandbox(): Promise<SeededSandbox> {
   if (!created.ok) throw new Error("could not create the fixture sandbox");
 
   await sandbox.writeFile(created.value.id, `${TEMPLATE_WORKDIR}/src/App.tsx`, "export default 1;");
-  return { sandbox, sandboxId: created.value.id };
+
+  const objects = new InMemoryObjectStore();
+  await objects.put(`projects/${PROJECT}/thumbnail.png`, new Uint8Array([137, 80, 78, 71]));
+
+  return { sandbox, sandboxId: created.value.id, objects };
 }
 
 /**
@@ -158,12 +180,13 @@ export function fullyWiredDeps(seeded?: SeededSandbox): Omit<AppDeps, "logger"> 
       registry: new TurnRegistry(),
       allowedModels: ["openai/gpt-5.6-luna"],
       sessions,
+      projects,
     },
     projects: {
       projects,
       projectSandboxes: new InMemoryProjectSandboxStore([]),
       snapshots: new InMemorySnapshotStore(),
-      objects: new InMemoryObjectStore(),
+      objects: seeded?.objects ?? new InMemoryObjectStore(),
       sandbox,
       createProject: async (options) => {
         void options;

@@ -17,6 +17,7 @@ import { NapAgentService } from "@nap/agent/agent-service";
 import { createBedrockClient, toBedrockModel } from "@nap/agent/bedrock";
 import { ClaudeProvider } from "@nap/agent/claude-provider";
 import { createOpenRouterClient, toOpenRouterModel } from "@nap/agent/openrouter";
+import { ChromePageCapture } from "@nap/capture/chrome-page-capture";
 import { NapContextEngine } from "@nap/context/context-engine";
 import { NoopMemoryProvider } from "@nap/context/noop-memory-provider";
 import { createDatabase, pingDatabase } from "@nap/db/client";
@@ -86,6 +87,20 @@ const objects = new R2ObjectStore(
     secretAccessKey: env.R2_SECRET_ACCESS_KEY,
   }),
 );
+/**
+ * The browser that photographs projects for the dashboard's cards, if this machine has one.
+ *
+ * One instance, shared by everything that can catch a project while it is running: the end of a
+ * turn, and a project coming back up. Closing is deliberately not one of them — the picture it
+ * would take is the one the last turn already took, and waiting for a page load would hold the
+ * close request open before teardown even started. Undefined is an ordinary state — both call
+ * sites skip the picture and the cards fall back to a colour.
+ */
+const capture =
+  env.NAP_CHROME_PATH === undefined
+    ? undefined
+    : new ChromePageCapture({ executablePath: env.NAP_CHROME_PATH });
+
 const snapshots = new PostgresSnapshotStore(db);
 const projectSandboxes = new PostgresProjectSandboxStore(db);
 const projects = new PostgresProjectStore(db);
@@ -130,6 +145,8 @@ const runtime = new SingleAgentRuntime({
   // from its last snapshot rather than starting again from an empty template.
   objects,
   snapshots,
+  // A picture of each finished turn, and of each project coming back up.
+  ...(capture === undefined ? {} : { capture }),
   sandboxTtlMs: env.NAP_SANDBOX_TTL_MINUTES * 60 * 1000,
   context: new NapContextEngine({ budgetTokens: env.NAP_CONTEXT_BUDGET_TOKENS }),
   agent: new NapAgentService({
@@ -182,6 +199,9 @@ const app = createApp({
     runtime,
     registry,
     sessions,
+    // The same store the project routes list from, so a project named on its first turn and one
+    // renamed by hand are written through one code path.
+    projects,
     allowedModels: env.NAP_ALLOWED_MODELS,
     // What one person, and this whole process, may have running at once. This endpoint is the
     // only way to start a turn, so it is the only place either ceiling has to be applied.
@@ -273,6 +293,9 @@ logger.info(
     platform: env.NAP_PLATFORM,
     model: env.NAP_MODEL,
     effort: env.NAP_EFFORT,
+    // Whether the dashboard's cards will get pictures. Off is a perfectly good state to run in,
+    // but it is indistinguishable from a capture that keeps failing unless the boot says which.
+    screenshots: env.NAP_CHROME_PATH === undefined ? "off" : "on",
     reapIdleMinutes: env.NAP_REAP_IDLE_MINUTES,
     sandboxTtlMinutes: env.NAP_SANDBOX_TTL_MINUTES,
     turnsPerHour: env.NAP_TURNS_PER_HOUR,

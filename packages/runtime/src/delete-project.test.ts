@@ -61,6 +61,16 @@ describe("deleting a project", () => {
     expect(objects.keys()).toEqual([]);
   });
 
+  it("takes the dashboard's picture of the project with it", async () => {
+    // The one object no listing names: its key comes from the project id, and the rows this
+    // deletes are the only other thing that could have led anybody back to it.
+    await objects.put(`projects/${PROJECT}/thumbnail.png`, new Uint8Array([137, 80, 78, 71]));
+
+    await remove();
+
+    expect(objects.keys()).toEqual([]);
+  });
+
   it("removes the row, and with it everything the database hangs off it", async () => {
     await remove();
 

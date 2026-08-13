@@ -69,11 +69,11 @@ A lefthook pre-commit hook runs `biome check` + `typecheck` + `vitest --changed`
 ## Layout
 
 ```
-packages/  shared  db  sandbox  storage  agent  context  runtime
+packages/  shared  db  sandbox  storage  capture  agent  context  runtime
 apps/      web (Next.js)   api (Hono, runs on Bun)
 ```
 
-**Dependency direction, enforced:** `runtime` → {`context`, `agent`, `sandbox`, `storage`, `db`} → `shared`.
+**Dependency direction, enforced:** `runtime` → {`context`, `agent`, `sandbox`, `storage`, `capture`, `db`} → `shared`.
 `agent` imports the `SandboxManager` *interface*, never the E2B adapter.
 
 This is enforced by `test/architecture.ts`, not by vigilance — adding a dependency that
@@ -86,12 +86,13 @@ Drift here is the most expensive kind of mistake. Before adding code to a compon
 
 | Component | Owns | Never does |
 |---|---|---|
-| `Runtime` | Turn lifecycle: acquire sandbox → build context → run agent → persist → publish → commit → snapshot. Budgets, cancellation, recovery. | Prompt content, model params, tool implementations |
+| `Runtime` | Turn lifecycle: acquire sandbox → build context → run agent → persist → publish → commit → snapshot → photograph. Budgets, cancellation, recovery. | Prompt content, model params, tool implementations |
 | `ContextEngine` | Assembling context and owning the token budget + truncation order | Calling the model; deciding when a turn ends |
 | `AgentService` | Driving the model loop for one turn; executing proxy tools; emitting typed events | Persistence, git, sandbox lifecycle, prompt assembly |
 | `LLMProvider` | Model *policy* — effort, thinking config, refusal/fallback, retries, usage accounting — and the default model. A turn may override the model id through `startTurn({ model })` and nothing else | Vendor abstraction — it is *not* a cross-vendor swap. Deciding *which* models are allowed: that is the route's allowlist |
 | `MemoryProvider` | `retrieve()` / `write()`. v1 is `NoopMemoryProvider` | Anything in v1 — but its call sites are real |
 | `SandboxManager` | Sandbox lifecycle, filesystem, exec, preview URL | Knowing what an agent or a turn is |
+| `PageCapture` | Turning a URL that is already serving into PNG bytes | Waiting for a dev server, deciding when to photograph, or knowing where the picture is kept |
 | `EventStore` / `EventBus` | Durable append, **then** fanout — in that order | Business logic |
 
 **Where tools execute:** we run no agent harness with built-in tools, because a harness's `Read`/`Write`/`Edit`/`Bash` act on the API server's filesystem, not the sandbox. `AgentService` owns its own loop over the `LLMProvider` port, and **the only tools that exist are the six in `packages/agent/src/tools/`**, every one of which proxies to `SandboxManager`. See `docs/PLAN.md` §0.

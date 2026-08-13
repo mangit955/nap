@@ -12,7 +12,8 @@
  *
  *   1. destroy the sandbox, best effort — a sandbox that cannot be reached must not block a
  *      delete, but one nobody destroys keeps billing;
- *   2. read the snapshot rows, which name every object;
+ *   2. read the snapshot rows, which name every object but the thumbnail — that one is named
+ *      by the project id itself;
  *   3. delete the objects, and **stop here if any of that fails** — the rows still name them,
  *      so the same call can be made again;
  *   4. delete the project, which takes its sessions, events and snapshot rows with it.
@@ -26,6 +27,7 @@ import type { ProjectStore } from "@nap/shared/ports/project-store";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
 import type { Result } from "@nap/shared/result";
+import { thumbnailKey } from "./turn-thumbnail.ts";
 
 export type DeleteFailureReason =
   /** Object storage refused. Nothing has been removed from the database. */
@@ -80,6 +82,23 @@ export async function deleteProject(
   }
 
   const rows = await snapshots.listFor(projectId);
+
+  // The dashboard's picture of this project, which is the one object no listing would mention:
+  // its key is derived from the project rather than recorded in a row. Removed first, while the
+  // project id is still something anybody has — after the rows go, nothing in the system could
+  // name it again. It is deliberately left out of the count: deleting a key that was never
+  // written succeeds, so counting it would claim an object was removed for every project that
+  // never had a picture, and that count is the only evidence anyone gets that the bytes went.
+  const picture = await objects.delete(thumbnailKey(projectId));
+  if (!picture.ok) {
+    return {
+      ok: false,
+      error: {
+        reason: "objects_failed",
+        message: `could not delete the thumbnail: ${picture.error.message}`,
+      },
+    };
+  }
 
   let objectsDeleted = 0;
   for (const row of rows) {

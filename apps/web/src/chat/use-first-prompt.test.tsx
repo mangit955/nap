@@ -28,18 +28,18 @@ afterEach(() => {
 
 describe("the first turn of a project made from the front page", () => {
   it("is sent once the session is known", () => {
-    stashFirstPrompt(PROJECT, "a habit tracker");
+    stashFirstPrompt(PROJECT, { text: "a habit tracker" });
     const submit = vi.fn();
 
     render(<Probe projectId={PROJECT} sessionId={SESSION} submit={submit} />);
 
-    expect(submit).toHaveBeenCalledWith("a habit tracker");
+    expect(submit).toHaveBeenCalledWith("a habit tracker", undefined);
   });
 
   it("is sent exactly once, however often the effect runs", () => {
     // Each extra send is a message the user did not write and a turn they did not ask to
     // pay for. Re-rendering is the ordinary case: events arrive and the tree updates.
-    stashFirstPrompt(PROJECT, "a habit tracker");
+    stashFirstPrompt(PROJECT, { text: "a habit tracker" });
     const submit = vi.fn();
 
     const view = render(<Probe projectId={PROJECT} sessionId={SESSION} submit={submit} />);
@@ -52,14 +52,14 @@ describe("the first turn of a project made from the front page", () => {
 
   it("waits for the session rather than dropping the prompt", () => {
     // The project's conversation is resolved from the server a moment after the page opens.
-    stashFirstPrompt(PROJECT, "a habit tracker");
+    stashFirstPrompt(PROJECT, { text: "a habit tracker" });
     const submit = vi.fn();
 
     const view = render(<Probe projectId={PROJECT} sessionId={undefined} submit={submit} />);
     expect(submit).not.toHaveBeenCalled();
 
     view.rerender(<Probe projectId={PROJECT} sessionId={SESSION} submit={submit} />);
-    expect(submit).toHaveBeenCalledWith("a habit tracker");
+    expect(submit).toHaveBeenCalledWith("a habit tracker", undefined);
   });
 
   it("sends nothing when the visitor simply opened an old project", () => {
@@ -71,12 +71,21 @@ describe("the first turn of a project made from the front page", () => {
   });
 
   it("leaves another project's prompt for that project", () => {
-    stashFirstPrompt("some-other-project", "a habit tracker");
+    stashFirstPrompt("some-other-project", { text: "a habit tracker" });
     const submit = vi.fn();
 
     render(<Probe projectId={PROJECT} sessionId={SESSION} submit={submit} />);
 
     expect(submit).not.toHaveBeenCalled();
     expect(window.sessionStorage.getItem("nap.first-prompt")).not.toBeNull();
+  });
+
+  it("sends the dashboard model with the first turn", () => {
+    stashFirstPrompt(PROJECT, { text: "a habit tracker", model: "anthropic/claude-opus-5" });
+    const submit = vi.fn();
+
+    render(<Probe projectId={PROJECT} sessionId={SESSION} submit={submit} />);
+
+    expect(submit).toHaveBeenCalledWith("a habit tracker", "anthropic/claude-opus-5");
   });
 });

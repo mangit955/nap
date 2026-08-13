@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@nap/agent": "workspace:*",
+    "@nap/capture": "workspace:*",
     "@nap/context": "workspace:*",
     "@nap/db": "workspace:*",
     "@nap/runtime": "workspace:*",

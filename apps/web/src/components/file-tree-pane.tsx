@@ -15,12 +15,14 @@
  */
 
 import type { FileListing } from "@nap/shared/files-protocol";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { changedPaths } from "../files/changed-paths.ts";
 import { FileViewer } from "../files/file-viewer.tsx";
-import { ancestorsOf, buildTree, type TreeNode } from "../files/tree.ts";
+import { ancestorsOf, buildTree, filterTree, type TreeNode } from "../files/tree.ts";
 import { type LoadStatus, useFileContent, useProjectFiles } from "../files/use-project-files.ts";
 import { useEventStream } from "../hooks/use-event-stream.ts";
+import { isPutAway } from "../preview/preview-state.ts";
+import { ChevronRight, CloseIcon, FileIcon, FolderIcon, SearchIcon } from "../ui/icons.tsx";
 import { Pane } from "./pane.tsx";
 
 export function FileTreePane({
@@ -29,6 +31,7 @@ export function FileTreePane({
   changed,
   selected,
   onSelect,
+  onPrefetch,
   putAway,
 }: {
   listing: FileListing | undefined;
@@ -42,8 +45,14 @@ export function FileTreePane({
   changed: ReadonlySet<string>;
   selected: string | undefined;
   onSelect: (path: string) => void;
+  /**
+   * Reads a file before it is clicked. Optional so the render tests need not supply one — a
+   * tree that cannot prefetch is slower, not broken.
+   */
+  onPrefetch?: ((path: string) => void) | undefined;
 }) {
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  const [query, setQuery] = useState("");
 
   // A set is a new object on every render, so the effect keys on its contents instead.
   const changedKey = [...changed].sort().join("|");
@@ -71,34 +80,73 @@ export function FileTreePane({
       return next;
     });
 
-  return (
-    <Pane id="files" title="Files">
-      {listing === undefined || listing.files.length === 0 ? (
-        <Empty listing={listing} status={status} putAway={putAway} />
-      ) : (
-        <>
-          <ul className="py-2">
-            {buildTree(listing.files).map((node) => (
-              <Node
-                key={node.path}
-                node={node}
-                depth={0}
-                collapsed={collapsed}
-                changed={changed}
-                selected={selected}
-                onSelect={onSelect}
-                onToggle={toggle}
-              />
-            ))}
-          </ul>
+  // Rebuilt only when the files or the query change. Without this both pure functions run on
+  // every render of a pane that is subscribed to the event stream — which is every streamed
+  // token of every turn, to produce the same tree each time.
+  const files = listing?.files;
+  const tree = useMemo(() => filterTree(buildTree(files ?? []), query), [files, query]);
 
-          {listing.truncated && (
-            <p className="px-4 py-2 text-muted text-xs">
-              This project is large — some files are not shown.
-            </p>
+  return (
+    <Pane id="files" title="Files" chrome="none">
+      <div className="flex h-full min-h-0 flex-col">
+        {/*
+          The header is drawn whatever the tree says, so the filter does not appear and disappear
+          under the cursor as a project's first files land.
+        */}
+        <div className="flex h-9 shrink-0 items-center gap-2 border-edge border-b px-2.5">
+          <SearchIcon className="size-3.5 shrink-0 text-muted" />
+          <input
+            aria-label="Filter files"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Files"
+            spellCheck={false}
+            className="min-w-0 flex-1 bg-transparent text-[12.5px] text-ink outline-none placeholder:text-muted"
+          />
+          {query !== "" && (
+            <button
+              type="button"
+              aria-label="Clear the filter"
+              onClick={() => setQuery("")}
+              className="grid size-5 shrink-0 place-items-center rounded text-muted transition-colors hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
+            >
+              <CloseIcon className="size-3" />
+            </button>
           )}
-        </>
-      )}
+        </div>
+
+        <div className="nap-scroll min-h-0 flex-1 overflow-auto py-1.5">
+          {listing === undefined || listing.files.length === 0 ? (
+            <Empty listing={listing} status={status} putAway={putAway} />
+          ) : tree.length === 0 ? (
+            <p className="px-3 py-2 text-[12.5px] text-muted">No file matches “{query}”.</p>
+          ) : (
+            <>
+              <ul>
+                {tree.map((node) => (
+                  <Node
+                    key={node.path}
+                    node={node}
+                    depth={0}
+                    collapsed={collapsed}
+                    changed={changed}
+                    selected={selected}
+                    onSelect={onSelect}
+                    onToggle={toggle}
+                    {...(onPrefetch === undefined ? {} : { onPrefetch })}
+                  />
+                ))}
+              </ul>
+
+              {listing.truncated && (
+                <p className="px-3 py-2 text-muted text-xs">
+                  This project is large — some files are not shown.
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      </div>
     </Pane>
   );
 }
@@ -111,6 +159,7 @@ function Node({
   selected,
   onSelect,
   onToggle,
+  onPrefetch,
 }: {
   node: TreeNode;
   depth: number;
@@ -119,26 +168,57 @@ function Node({
   selected: string | undefined;
   onSelect: (path: string) => void;
   onToggle: (path: string) => void;
+  onPrefetch?: ((path: string) => void) | undefined;
 }) {
-  const indent = { paddingLeft: `${depth * 12 + 16}px` };
+  // The chevron column is reserved on file rows too, so filenames line up with the folder names
+  // above them instead of sitting a character to the left of them.
+  const indent = { paddingLeft: `${depth * 12 + 8}px` };
+
+  /*
+   * Sans, not mono. The tree is navigation — a column of names to aim at — and mono here reads
+   * as terminal output, sets the names wider than they need to be, and costs the tree a couple
+   * of characters of width it does not have to spare. Source stays mono in the viewer, where it
+   * is being read as code.
+   */
+  const row =
+    "group flex h-7 w-full items-center gap-1.5 rounded-md pr-2 text-left text-[12.5px] transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent";
 
   if (node.type === "file") {
     const isChanged = changed.has(node.path);
     const isSelected = selected === node.path;
 
     return (
-      <li>
+      <li className="px-1">
         <button
           type="button"
           onClick={() => onSelect(node.path)}
+          /*
+           * Read on intent, not on the click. A pointer arrives on a row 100–300ms before the
+           * button goes down, and a file read is a round trip to the sandbox — so this is most
+           * of the wait, taken for free. `onFocus` covers keyboard navigation, which hover
+           * never does. Both are cheap: the hook drops a path already cached or in flight.
+           */
+          onPointerEnter={() => onPrefetch?.(node.path)}
+          onFocus={() => onPrefetch?.(node.path)}
           style={indent}
-          className={`flex w-full items-baseline gap-2 py-0.5 pr-3 text-left font-mono text-xs focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent ${
-            isSelected ? "bg-edge text-ink" : "text-muted hover:text-ink"
+          className={`${row} ${
+            isSelected ? "bg-hover text-ink" : "text-ink-2 hover:bg-hover hover:text-ink"
           }`}
         >
+          <span aria-hidden="true" className="size-4 shrink-0" />
+          <FileIcon className="size-3.5 shrink-0 text-muted" />
           <span className="min-w-0 flex-1 truncate">{node.name}</span>
-          {/* In words, not colour alone — the rule the transcript follows for a failed step. */}
-          {isChanged && <span className="shrink-0 text-[10px] text-accent">changed</span>}
+          {/*
+            A dot rather than the word, which used to eat a third of a narrow tree's width and
+            truncate the filename beside it. The word survives for anybody listening — the rule
+            the transcript follows for a failed step is that state is never colour alone.
+          */}
+          {isChanged && (
+            <>
+              <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-accent" />
+              <span className="sr-only">changed</span>
+            </>
+          )}
         </button>
       </li>
     );
@@ -147,17 +227,20 @@ function Node({
   const isCollapsed = collapsed.has(node.path);
 
   return (
-    <li>
+    <li className="px-1">
       <button
         type="button"
         aria-expanded={!isCollapsed}
         onClick={() => onToggle(node.path)}
         style={indent}
-        className="flex w-full items-baseline gap-1.5 py-0.5 pr-3 text-left font-mono text-ink text-xs focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
+        className={`${row} text-ink hover:bg-hover`}
       >
-        <span aria-hidden="true" className={`text-edge ${isCollapsed ? "" : "rotate-90"}`}>
-          ▸
-        </span>
+        <ChevronRight
+          className={`size-4 shrink-0 text-muted transition-transform duration-150 ${
+            isCollapsed ? "" : "rotate-90"
+          }`}
+        />
+        <FolderIcon className="size-3.5 shrink-0 text-muted" />
         <span className="min-w-0 flex-1 truncate">{node.name}</span>
       </button>
 
@@ -173,6 +256,7 @@ function Node({
               selected={selected}
               onSelect={onSelect}
               onToggle={onToggle}
+              {...(onPrefetch === undefined ? {} : { onPrefetch })}
             />
           ))}
         </ul>
@@ -209,12 +293,19 @@ function Empty({
 
 export function LiveFileTreePane({
   sessionId,
-  putAway,
+  putAwayAt,
+  resuming,
 }: {
   sessionId: string | undefined;
-  putAway?: boolean | undefined;
+  /** When the record last said no sandbox was serving this project; see `isPutAway`. */
+  putAwayAt?: string | undefined;
+  resuming?: boolean | undefined;
 }) {
   const { events } = useEventStream({ sessionId });
+  // The same question the preview pane asks, answered by the same function rather than by a
+  // second rule here — two panes disagreeing about whether a project is running is precisely
+  // the confusion this pane's copy is trying to resolve.
+  const putAway = isPutAway(events, putAwayAt) && resuming !== true;
   const { listing, status } = useProjectFiles({ sessionId, events });
   const [selected, setSelected] = useState<string | undefined>(undefined);
   const { file, status: fileStatus } = useFileContent({ sessionId, path: selected });

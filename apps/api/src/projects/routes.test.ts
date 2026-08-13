@@ -175,7 +175,72 @@ describe("GET /projects/:projectId", () => {
   });
 });
 
+describe("GET /projects/:projectId/thumbnail", () => {
+  const PNG = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+
+  it("answers with the picture, as an image", async () => {
+    // The client is an `<img>`, so anything but PNG bytes under an image content type means a
+    // fetch and a data URL to show something the browser can request for itself.
+    await objects.put(`projects/${PROJECT}/thumbnail.png`, PNG);
+
+    const res = await app().request(`/projects/${PROJECT}/thumbnail`);
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("image/png");
+    expect([...new Uint8Array(await res.arrayBuffer())]).toEqual([...PNG]);
+  });
+
+  it("is 404 for a project that has never been photographed", async () => {
+    // The ordinary state of every project until a turn completes with a browser configured.
+    // The card asks anyway and falls back to its colour, so this must be a plain miss.
+    const res = await app().request(`/projects/${PROJECT}/thumbnail`);
+
+    expect(res.status).toBe(404);
+  });
+
+  it("tells somebody else's project apart from a missing one in no way at all", async () => {
+    // A 403 would confirm the project exists, which is the one thing a stranger must not learn
+    // from asking. The lookup is scoped to the caller, so this is the same 404 as above.
+    await objects.put(`projects/${UNKNOWN}/thumbnail.png`, PNG);
+
+    const res = await app().request(`/projects/${UNKNOWN}/thumbnail`);
+
+    expect(res.status).toBe(404);
+  });
+
+  it("keeps the picture out of shared caches", async () => {
+    // It is a screenshot of somebody's own app. A public cache would hand it to whoever asks
+    // for that URL next.
+    await objects.put(`projects/${PROJECT}/thumbnail.png`, PNG);
+
+    const res = await app().request(`/projects/${PROJECT}/thumbnail`);
+
+    expect(res.headers.get("cache-control")).toMatch(/private/);
+  });
+});
+
 describe("POST /projects/:projectId/close", () => {
+  it("does not stop to photograph the project on the way out", async () => {
+    // Closing takes no new picture: the last completed turn already captured the app, and
+    // waiting for a browser here would hold the request open for the length of a page load
+    // before teardown even started. The project keeps the thumbnail it already had, and the
+    // only object this writes is the snapshot bundle.
+    //
+    // Asserted here as well as in `close-project.test.ts` because the route is where a browser
+    // would be handed over, and a route that quietly started passing one again would put the
+    // wait back without any test of the sequence noticing.
+    const shelved = new Uint8Array([137, 80, 78, 71]);
+    await objects.put(`projects/${PROJECT}/thumbnail.png`, shelved);
+
+    await app().request(`/projects/${PROJECT}/close`, { method: "POST" });
+
+    // On the bytes rather than on the key: a fresh capture writes to the same key, so a count
+    // of the objects would be identical either way and the test would pass on the thing it
+    // exists to catch.
+    const kept = await objects.get(`projects/${PROJECT}/thumbnail.png`);
+    expect(kept.ok && [...kept.value]).toEqual([...shelved]);
+  });
+
   it("puts the project away and says where the bytes went", async () => {
     const res = await app().request(`/projects/${PROJECT}/close`, { method: "POST" });
 
@@ -355,5 +420,68 @@ describe("an app built without project routes", () => {
     });
 
     expect((await bare.request("/projects")).status).toBe(404);
+  });
+});
+
+describe("PATCH /projects/:projectId", () => {
+  const rename = (projectId: string, body: unknown) =>
+    app().request(`/projects/${projectId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  it("renames the project and answers the record it wrote", async () => {
+    // The updated record rather than a bare 204, so the client re-renders from what the server
+    // actually stored instead of from what it hoped it wrote.
+    const res = await rename(PROJECT, { name: "Small To-do App" });
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({ name: "Small To-do App" });
+    expect((await projects.get(PROJECT, FAKE_OWNER))?.name).toBe("Small To-do App");
+  });
+
+  it("trims what it was given", async () => {
+    await rename(PROJECT, { name: "  Padded  " });
+
+    expect((await projects.get(PROJECT, FAKE_OWNER))?.name).toBe("Padded");
+  });
+
+  it("refuses an empty name", async () => {
+    // A blank bar is worse than "Untitled project": it reads as a project whose record failed
+    // to load rather than one nobody has named.
+    const res = await rename(PROJECT, { name: "   " });
+
+    expect(res.status).toBe(400);
+    expect((await projects.get(PROJECT, FAKE_OWNER))?.name).toBe("Todo app");
+  });
+
+  it("refuses a name too long for anything to show", async () => {
+    const res = await rename(PROJECT, { name: "x".repeat(61) });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("refuses a body with no name in it", async () => {
+    expect((await rename(PROJECT, {})).status).toBe(400);
+  });
+
+  it("answers 404 for a project that is not there", async () => {
+    expect((await rename(UNKNOWN, { name: "Nope" })).status).toBe(404);
+  });
+
+  it("answers 400 for something that is not a project id", async () => {
+    expect((await rename("not-a-uuid", { name: "Nope" })).status).toBe(400);
+  });
+
+  it("renames while a turn is running", async () => {
+    // Unlike close and delete, which take the sandbox away from underneath an agent midway
+    // through writing files. A name is a label on a row; renaming during a turn breaks nothing,
+    // and refusing would be a rule with no reason behind it.
+    running.add(SESSION);
+
+    const res = await rename(PROJECT, { name: "Renamed Mid-turn" });
+
+    expect(res.status).toBe(200);
   });
 });

@@ -19,7 +19,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("./client.ts", () => ({
-  AFTER_SIGN_IN: "/",
+  AFTER_SIGN_IN: "/dashboard",
   authClient: {
     signIn: {
       email: (...args: unknown[]) => signInEmail(...args),
@@ -99,7 +99,7 @@ describe("when it works", () => {
     submit();
 
     expect(await screen.findByRole("button", { name: "One moment…" })).toBeDisabled();
-    expect(push).toHaveBeenCalledWith("/");
+    expect(push).toHaveBeenCalledWith("/dashboard");
   });
 });
 

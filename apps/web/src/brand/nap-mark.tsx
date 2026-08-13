@@ -33,11 +33,16 @@ import type { SVGProps } from "react";
 import { useId } from "react";
 import {
   NAP_BODY,
+  NAP_EYE_BORED_LEFT,
+  NAP_EYE_BORED_RIGHT,
   NAP_EYE_OPEN,
   NAP_EYE_OPEN_RX,
   NAP_EYE_OPEN_RY,
   NAP_EYE_SHUT_LEFT,
   NAP_EYE_SHUT_RIGHT,
+  NAP_EYE_SQUINT_LEFT,
+  NAP_EYE_SQUINT_RIGHT,
+  NAP_EYE_SQUINT_WEIGHT,
   NAP_ZS,
   zPath,
 } from "./nap-mark-paths.ts";
@@ -82,6 +87,30 @@ export function NapMark({ className = "", ...props }: SVGProps<SVGSVGElement>) {
                 ry={NAP_EYE_OPEN_RY}
               />
             ))}
+          </g>
+
+          {/*
+            A third face, hidden unless something asks for it: eyes screwed shut in enjoyment.
+            It ships with the mark rather than being drawn over the top by a caller because the
+            face is *cut out* of the body — anything painted on top would have to guess the
+            colour behind the ghost, which is the mistake the mask exists to avoid.
+          */}
+          <g
+            className="nap-mark-squint"
+            fill="none"
+            stroke="#000"
+            strokeWidth={NAP_EYE_SQUINT_WEIGHT}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d={NAP_EYE_SQUINT_LEFT} />
+            <path d={NAP_EYE_SQUINT_RIGHT} />
+          </g>
+
+          {/* And a fourth: lids halfway down, for whenever he needs to look unimpressed. */}
+          <g className="nap-mark-bored">
+            <path d={NAP_EYE_BORED_LEFT} />
+            <path d={NAP_EYE_BORED_RIGHT} />
           </g>
         </g>
       </mask>

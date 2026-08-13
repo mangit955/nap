@@ -41,6 +41,7 @@ import type {
   LLMTurnResult,
   TokenUsage,
 } from "@nap/shared/ports/llm-provider";
+import { z } from "zod";
 
 /** The assembled response. Named locally so tests do not reach into the SDK's namespace. */
 export type AnthropicMessage = Anthropic.Message;
@@ -138,6 +139,30 @@ export const DEFAULT_MODEL_CONFIG: ModelConfig = {
 export const MAX_ATTEMPTS = 3;
 const BASE_BACKOFF_MS = 500;
 
+/**
+ * How long to wait when the model itself is throttled, rather than the connection being unlucky.
+ *
+ * Half a second is the right scale for a dropped socket and two orders of magnitude too small
+ * for a per-minute pool limit: all three attempts land inside the same throttled window and the
+ * turn dies having waited a second and a half. Three seconds doubling to six spans most short
+ * throttles, and costs nothing but latency — a rejected request bills no tokens.
+ */
+const RATE_LIMIT_BACKOFF_MS = 3_000;
+
+/**
+ * The error types that mean "the model, briefly" rather than "this request, always".
+ *
+ * These arrive with **no status** when the provider reports them *inside* the stream: an
+ * upstream throttle on a 200 response is an SSE `error` frame, which the SDK turns into an
+ * `APIError` carrying `body.error.type` and nothing else. See `docs/GOTCHAS.md` § Model and
+ * provider — a status-based rule cannot see any of it.
+ */
+const TRANSIENT_ERROR_TYPES: readonly string[] = [
+  "rate_limit_error",
+  "overloaded_error",
+  "api_error",
+];
+
 const NO_USAGE: TokenUsage = { inputTokens: 0, outputTokens: 0 };
 
 const defaultSleep = (ms: number): Promise<void> =>
@@ -153,8 +178,46 @@ const defaultSleep = (ms: number): Promise<void> =>
 export function isRetryable(cause: unknown): boolean {
   if (cause instanceof RateLimitError) return true;
   if (cause instanceof APIConnectionError) return true;
-  if (cause instanceof APIError) return typeof cause.status === "number" && cause.status >= 500;
+  if (cause instanceof APIError) {
+    // The type before the status, because the throttle that prompted this rule has no status:
+    // `RateLimitError` is only ever constructed from a 429 *response*, and a 200 that fails
+    // mid-stream never produces one.
+    if (typeof cause.type === "string" && TRANSIENT_ERROR_TYPES.includes(cause.type)) return true;
+    return typeof cause.status === "number" && cause.status >= 500;
+  }
   return false;
+}
+
+/** Whether the wait before the next attempt should be the throttled one. */
+function isThrottled(cause: unknown): boolean {
+  if (cause instanceof RateLimitError) return true;
+  return (
+    cause instanceof APIError &&
+    (cause.type === "rate_limit_error" || cause.type === "overloaded_error")
+  );
+}
+
+/**
+ * The shape a vendor error body arrives in. Parsed rather than cast: it crosses a boundary from
+ * somebody else's server, and the whole reason this exists is that its inside was being printed
+ * to a user.
+ */
+const ErrorBodySchema = z.object({ error: z.object({ message: z.string().min(1) }) });
+
+/**
+ * What to tell the user happened.
+ *
+ * `APIError` builds its own message by stringifying the entire body when it cannot find a
+ * `message` at the top level — and on this route the sentence is one level down, at
+ * `body.error.message`. The result was a wall of JSON in the chat where a plain sentence was
+ * available the whole time.
+ */
+export function describeError(cause: unknown): string {
+  if (cause instanceof APIError) {
+    const body = ErrorBodySchema.safeParse(cause.error);
+    if (body.success) return body.data.error.message;
+  }
+  return cause instanceof Error ? cause.message : String(cause);
 }
 
 /** Total input, including the parts the API bills separately because they were cached. */
@@ -368,13 +431,16 @@ class ClaudeTurn implements LLMTurn {
       } catch (cause) {
         lastError = cause;
         if (!isRetryable(cause)) break;
-        if (attempt < MAX_ATTEMPTS) await this.#sleep(BASE_BACKOFF_MS * 2 ** (attempt - 1));
+        if (attempt < MAX_ATTEMPTS) {
+          const base = isThrottled(cause) ? RATE_LIMIT_BACKOFF_MS : BASE_BACKOFF_MS;
+          await this.#sleep(base * 2 ** (attempt - 1));
+        }
       }
     }
 
     return this.#record({
       type: "error",
-      message: lastError instanceof Error ? lastError.message : String(lastError),
+      message: describeError(lastError),
       retryable: isRetryable(lastError),
       usage: NO_USAGE,
     });

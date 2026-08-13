@@ -40,6 +40,13 @@ export const TurnFailureReasonSchema = z.enum([
   "budget_exceeded",
   "cancelled",
   "sandbox_unavailable",
+  /**
+   * The model could not be reached — throttled upstream, overloaded, or briefly down — and the
+   * provider's retries were spent on it. Separate from `internal` because nothing here is
+   * broken: the answer is to wait a moment and send the same message again, where `internal`
+   * means this system did something wrong and the user can only try.
+   */
+  "model_unavailable",
   "internal",
 ]);
 export type TurnFailureReason = z.infer<typeof TurnFailureReasonSchema>;

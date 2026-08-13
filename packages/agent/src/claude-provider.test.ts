@@ -1,5 +1,5 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import { APIConnectionError, BadRequestError, RateLimitError } from "@anthropic-ai/sdk";
+import { APIConnectionError, APIError, BadRequestError, RateLimitError } from "@anthropic-ai/sdk";
 import type { LLMRequest } from "@nap/shared/ports/llm-provider";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -87,6 +87,26 @@ function message(overrides: Partial<AnthropicMessage> = {}): AnthropicMessage {
 
 function rateLimited(): RateLimitError {
   return new RateLimitError(429, undefined, "slow down", new Headers());
+}
+
+/**
+ * What OpenRouter actually sends when the model behind it is throttled: **HTTP 200**, and then
+ * an `error` frame inside the stream. The SDK turns that into an `APIError` with **no status**
+ * and `type` taken from `body.error.type` — which is why a status-based retry rule never sees it.
+ *
+ * Built with the real constructor rather than a hand-rolled object, so this test fails if a
+ * future SDK stops deriving `type` from the body.
+ */
+function throttledMidStream(): APIError {
+  const body = {
+    type: "error",
+    error: {
+      type: "rate_limit_error",
+      message: "openai/gpt-5.6-luna is temporarily rate-limited upstream. Please retry shortly.",
+      error_type: "rate_limit_exceeded",
+    },
+  } as const;
+  return new APIError(undefined, body, undefined, new Headers(), body.error.type);
 }
 
 function request(overrides: Partial<LLMRequest> = {}): LLMRequest {
@@ -215,6 +235,70 @@ describe("ClaudeProvider", () => {
       const result = await provider(client).startTurn().complete(request());
 
       expect(result).toMatchObject({ type: "error", retryable: false });
+      expect(client.calls).toHaveLength(1);
+    });
+
+    it("retries a throttle reported inside the stream, where there is no status to read", async () => {
+      // The defect this exists for: OpenRouter answers 200 and reports the rate limit as an SSE
+      // error frame, so the SDK's error carries `status: undefined`. A rule that only knew 429
+      // and 5xx gave up on the first attempt and told the user the agent had broken.
+      const client = stubClient([throttledMidStream(), message({ usage: usage(5, 2) })]);
+
+      const result = await provider(client).startTurn().complete(request());
+
+      expect(result).toMatchObject({ type: "message", text: "hello" });
+      expect(client.calls).toHaveLength(2);
+    });
+
+    it("waits longer for a throttle than for a dropped connection", async () => {
+      // A per-minute pool limit outlasts half a second by two orders of magnitude, so the
+      // ordinary backoff spends three attempts inside the same throttled window.
+      const throttle = vi.fn((_ms: number) => Promise.resolve());
+      await new ClaudeProvider({
+        client: stubClient([throttledMidStream(), message()]),
+        sleep: throttle,
+      })
+        .startTurn()
+        .complete(request());
+
+      const dropped = vi.fn((_ms: number) => Promise.resolve());
+      await new ClaudeProvider({
+        client: stubClient([new APIConnectionError({ message: "socket hang up" }), message()]),
+        sleep: dropped,
+      })
+        .startTurn()
+        .complete(request());
+
+      expect(throttle.mock.calls[0]?.[0] ?? 0).toBeGreaterThan(dropped.mock.calls[0]?.[0] ?? 0);
+    });
+
+    it("reports the model's own sentence, never the envelope it arrived in", async () => {
+      // `APIError` stringifies the whole body when it cannot find a `message` at the top level,
+      // and that JSON was reaching the transcript verbatim.
+      const client = stubClient(Array.from({ length: MAX_ATTEMPTS }, () => throttledMidStream()));
+
+      const result = await provider(client).startTurn().complete(request());
+
+      expect(result).toMatchObject({ type: "error", retryable: true });
+      expect(result.type === "error" && result.message).toBe(
+        "openai/gpt-5.6-luna is temporarily rate-limited upstream. Please retry shortly.",
+      );
+    });
+
+    it("does not retry a malformed request that arrived the same way", async () => {
+      // Same shape, different `type`: the request itself is wrong, and sending it again buys
+      // the same answer twice.
+      const body = {
+        type: "error",
+        error: { type: "invalid_request_error", message: "bad tools" },
+      } as const;
+      const client = stubClient([
+        new APIError(undefined, body, undefined, new Headers(), body.error.type),
+      ]);
+
+      const result = await provider(client).startTurn().complete(request());
+
+      expect(result).toMatchObject({ type: "error", retryable: false, message: "bad tools" });
       expect(client.calls).toHaveLength(1);
     });
 

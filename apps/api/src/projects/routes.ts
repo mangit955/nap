@@ -20,6 +20,7 @@
 
 import { putProjectAway } from "@nap/runtime/close-project";
 import { deleteProject } from "@nap/runtime/delete-project";
+import { thumbnailKey } from "@nap/runtime/turn-thumbnail";
 import { getLogger } from "@nap/shared/logging";
 import type { EventBus } from "@nap/shared/ports/event-bus";
 import type { EventStore } from "@nap/shared/ports/event-store";
@@ -29,6 +30,7 @@ import type { ProjectStore, ProjectSummary } from "@nap/shared/ports/project-sto
 import type { Runtime } from "@nap/shared/ports/runtime";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
+import { RenameProjectSchema } from "@nap/shared/projects-protocol";
 import type { Hono } from "hono";
 import { z } from "zod";
 import type { AuthVariables } from "../auth/require-user.ts";
@@ -107,6 +109,37 @@ export function registerProjectRoutes(
   });
 
   /**
+   * The picture of the project the dashboard draws on its card.
+   *
+   * Bytes rather than JSON, because the client is an `<img>`: anything else would mean a
+   * fetch, a base64 decode and a data URL to show a picture the browser can request itself.
+   *
+   * **404 is an ordinary answer here.** A project has no thumbnail until a turn has completed
+   * in it with a browser configured, so the card asks and falls back to its colour — which is
+   * why this must not log or alarm on a miss.
+   *
+   * Cached hard *and privately*: the client's URL carries the project's `updatedAt`, so a new
+   * picture arrives under a new URL and an unchanged one is never re-fetched. Private because
+   * a screenshot of somebody's app is theirs, and a shared cache must not hand it to the next
+   * caller who guesses the id.
+   */
+  app.get("/projects/:projectId/thumbnail", async (c) => {
+    const project = await found(c.req.param("projectId"), c.get("userId"), deps);
+    if (!project.ok) return c.json({ error: project.error.message }, project.error.status);
+
+    const stored = await deps.objects.get(thumbnailKey(project.value.projectId));
+    if (!stored.ok) {
+      const status = stored.error.code === "not_found" ? 404 : 503;
+      return c.json({ error: "no thumbnail for this project" }, status);
+    }
+
+    return c.body(toArrayBuffer(stored.value), 200, {
+      "Content-Type": "image/png",
+      "Cache-Control": "private, max-age=31536000, immutable",
+    });
+  });
+
+  /**
    * Starting a project back up, so its preview and its files are there to look at.
    *
    * **202, and the restore runs detached** — the same shape as starting a turn, and for the
@@ -162,6 +195,37 @@ export function registerProjectRoutes(
       });
 
     return c.json({ opened: true }, 202);
+  });
+
+  /**
+   * Giving a project a different name.
+   *
+   * **Deliberately not refused while a turn is running**, unlike close and delete. Those take the
+   * sandbox away from underneath an agent that is midway through writing files; a name is a label
+   * on a row, and renaming during a turn breaks nothing.
+   *
+   * Answers the updated record rather than an empty 204, so the client re-renders from what the
+   * server actually stored instead of from what it hoped it wrote.
+   */
+  app.patch("/projects/:projectId", async (c) => {
+    const project = await found(c.req.param("projectId"), c.get("userId"), deps);
+    if (!project.ok) return c.json({ error: project.error.message }, project.error.status);
+
+    const body = RenameProjectSchema.safeParse((await readJson(c.req.raw)) ?? {});
+    if (!body.success) {
+      return c.json({ error: body.error.issues.map((issue) => issue.message).join("; ") }, 400);
+    }
+
+    const renamed = await deps.projects.rename(
+      project.value.projectId,
+      c.get("userId"),
+      body.data.name,
+    );
+    // The lookup above found it, so a false here means it went away in between — which is a 404
+    // rather than a failure: the answer to "rename this" is that there is nothing to rename.
+    if (!renamed) return c.json({ error: "no such project" }, 404);
+
+    return c.json({ ...project.value, name: body.data.name });
   });
 
   app.post("/projects/:projectId/close", async (c) => {
@@ -243,6 +307,18 @@ async function found(
   if (project === null) return { ok: false, error: { status: 404, message: "no such project" } };
 
   return { ok: true, value: project };
+}
+
+/**
+ * The bytes as a body Hono will send unchanged.
+ *
+ * A `Uint8Array` from the object store may be a view onto a larger buffer — its `.buffer` is
+ * the whole allocation, not the object — so handing that over sends whatever else happens to
+ * be in it. Slicing to the view's own bounds is the difference between a PNG and a PNG with a
+ * stranger's bytes stapled to it.
+ */
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 }
 
 async function readJson(request: Request): Promise<unknown> {

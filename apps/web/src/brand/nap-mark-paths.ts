@@ -48,6 +48,33 @@ export const NAP_EYE_OPEN_RX = 1.35;
 export const NAP_EYE_OPEN_RY = 1.7;
 
 /**
+ * Squinting: two chevrons pointing in at each other, the face of somebody enjoying themselves
+ * with their eyes shut. Same centres again, so nothing on the face moves between the three
+ * states — only which one is visible.
+ *
+ * These are strokes rather than filled wedges. Filled, a chevron this small closes up into a
+ * triangle at any size the mark is actually used at; as a thick round-capped line it keeps the
+ * gap in the middle, which is the entire shape.
+ */
+export const NAP_EYE_SQUINT_LEFT = "M7.4 10.7 9.6 12.4 7.4 14.1";
+export const NAP_EYE_SQUINT_RIGHT = "M16.6 10.7 14.4 12.4 16.6 14.1";
+
+/** As thick as the closed lids, and for the same reason: a finer line vanishes at 24px. */
+export const NAP_EYE_SQUINT_WEIGHT = 1.25;
+
+/**
+ * Half-lidded: the open eyes with a lid drawn flat across the top of each, leaving the lower
+ * two thirds. The face of somebody who has seen this before and is not impressed.
+ *
+ * Angled brows were tried first and read as *angry*, which is a mood with an opinion in it. A
+ * straight lid has none — it is the eye doing less work — and that is the difference between
+ * cross and unbothered. Same centres and the same radii as the open eyes, so the face does not
+ * move when one is swapped for the other; only the lid line is new.
+ */
+export const NAP_EYE_BORED_LEFT = "M7.25 12h2.7v0.4a1.35 1.7 0 0 1-2.7 0Z";
+export const NAP_EYE_BORED_RIGHT = "M14.05 12h2.7v0.4a1.35 1.7 0 0 1-2.7 0Z";
+
+/**
  * The z's that drift off it while it sleeps, drawn as strokes rather than filled letterforms —
  * a filled `z` at this size is a blob, while a three-segment zigzag survives being four pixels
  * tall.

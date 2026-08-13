@@ -30,6 +30,7 @@ export class InMemoryProjectStore implements ProjectStore {
   readonly #projects = new Map<string, ProjectSummary & { userId: string }>();
   #failure: Error | undefined;
   #deleteFailure: Error | undefined;
+  #renameFailure: Error | undefined;
 
   constructor(seed: OwnedProject[] = []) {
     for (const project of seed) this.put(project);
@@ -48,6 +49,17 @@ export class InMemoryProjectStore implements ProjectStore {
    */
   failDeleteWith(error: Error | undefined): this {
     this.#deleteFailure = error;
+    return this;
+  }
+
+  /**
+   * Makes only `rename` fail. The turn route names an unnamed project as a side effect of
+   * starting a turn, and the case worth pinning is that a failed rename does *not* cost the
+   * user their turn — which a store failing everything could never demonstrate, because the
+   * lookup before it would fail first.
+   */
+  failRenameWith(error: Error | undefined): this {
+    this.#renameFailure = error;
     return this;
   }
 
@@ -73,6 +85,19 @@ export class InMemoryProjectStore implements ProjectStore {
     // real store's `where` clause makes it.
     if (found === undefined || found.userId !== userId) return null;
     return withoutOwner(found);
+  }
+
+  async rename(projectId: string, userId: string, name: string): Promise<boolean> {
+    this.#throwIfFailing();
+    if (this.#renameFailure !== undefined) throw this.#renameFailure;
+
+    const found = this.#projects.get(projectId);
+    if (found === undefined || found.userId !== userId) return false;
+
+    // `updatedAt` moves, as it does in the real store — the listing is ordered by it, and a
+    // fake that left it behind would let a store that forgot to touch it pass.
+    this.#projects.set(projectId, { ...found, name, updatedAt: new Date().toISOString() });
+    return true;
   }
 
   async delete(projectId: string, userId: string): Promise<boolean> {

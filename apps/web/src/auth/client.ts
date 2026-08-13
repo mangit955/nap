@@ -13,5 +13,11 @@ const DEFAULT_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:30
 
 export const authClient = createAuthClient({ baseURL: DEFAULT_BASE_URL });
 
-/** Where to come back to once GitHub has finished with us. */
-export const AFTER_SIGN_IN = "/";
+/**
+ * Where to come back to once GitHub has finished with us, and where an email sign-in lands.
+ *
+ * The dashboard rather than the front page: the front page is a pitch for people without an
+ * account, and it now sends anybody who has one here anyway — so landing on `/` first would be
+ * a redirect the person watching has no reason for.
+ */
+export const AFTER_SIGN_IN = "/dashboard";

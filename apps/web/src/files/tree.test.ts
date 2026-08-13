@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ancestorsOf, buildTree, type TreeNode } from "./tree.ts";
+import { ancestorsOf, buildTree, filterTree, type TreeNode } from "./tree.ts";
 
 /** A shape that is easy to read in a failure: "src/", "src/App.tsx", … in render order. */
 function flatten(nodes: readonly TreeNode[], depth = 0): string[] {
@@ -68,5 +68,46 @@ describe("ancestorsOf", () => {
 
   it("is empty for a file at the root", () => {
     expect(ancestorsOf("index.html")).toEqual([]);
+  });
+});
+
+describe("narrowing the tree to a query", () => {
+  const paths = ["src/App.tsx", "src/lib/date.ts", "public/logo.svg", "package.json"];
+
+  it("keeps the files whose path matches", () => {
+    expect(filterTree(buildTree(paths), "date")).toEqual(buildTree(["src/lib/date.ts"]));
+  });
+
+  it("keeps a folder whose own name matches, with everything under it", () => {
+    // Typing "lib" means "show me lib", not "show me the files called lib" — of which there
+    // are none, so a name-only match would answer an obviously-present folder with nothing.
+    expect(filterTree(buildTree(paths), "lib")).toEqual(buildTree(["src/lib/date.ts"]));
+  });
+
+  it("matches against the whole path, not only the filename", () => {
+    // "src/App" is how somebody disambiguates two files called App.tsx.
+    expect(filterTree(buildTree(paths), "src/App")).toEqual(buildTree(["src/App.tsx"]));
+  });
+
+  it("ignores case, because nobody types Capitalised filenames into a filter", () => {
+    expect(filterTree(buildTree(paths), "app.TSX")).toEqual(buildTree(["src/App.tsx"]));
+  });
+
+  it("gives back the whole tree for an empty query", () => {
+    // The filter is the tree's resting state as much as its active one, so "no query" has to
+    // be the identity rather than a special case the caller remembers to skip.
+    expect(filterTree(buildTree(paths), "")).toEqual(buildTree(paths));
+  });
+
+  it("gives back nothing when nothing matches", () => {
+    expect(filterTree(buildTree(paths), "kotlin")).toEqual([]);
+  });
+
+  it("drops a folder left with no matching children", () => {
+    // Otherwise a search for "logo" leaves `src` sitting there empty, which reads as a folder
+    // whose contents failed to load.
+    const kept = filterTree(buildTree(paths), "logo");
+
+    expect(kept.map((node) => node.name)).toEqual(["public"]);
   });
 });

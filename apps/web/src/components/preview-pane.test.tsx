@@ -9,13 +9,17 @@ const TURN = "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f";
 
 let nextSeq = 1;
 
-function ev<T extends NapEventType>(type: T, payload: Extract<NapEvent, { type: T }>["payload"]) {
+function ev<T extends NapEventType>(
+  type: T,
+  payload: Extract<NapEvent, { type: T }>["payload"],
+  createdAt = "2026-08-09T12:00:00.000Z",
+) {
   return {
     type,
     sessionId: SESSION,
     turnId: TURN,
     seq: nextSeq++,
-    createdAt: "2026-08-09T12:00:00.000Z",
+    createdAt,
     payload,
   } as StoredEvent;
 }
@@ -111,6 +115,24 @@ describe("a project that has been put away", () => {
     expect(screen.queryByRole("button", { name: /resume/i })).not.toBeInTheDocument();
   });
 
+  it("counts how long the wait has been going on", () => {
+    // The one hard fact on this screen, and what tells slow apart from stuck. The rotating word
+    // above it is flavour and hidden from readers; this line is what gets announced.
+    render(<PreviewPane events={[asked(), ready(), stopped()]} resuming />);
+
+    expect(screen.getByText(/starting the dev server/i)).toHaveTextContent(/\d+s/);
+  });
+
+  it("waits with the ghost rather than a spinner", () => {
+    // The wait is tens of seconds in a pane with nothing else in it. Queried by class, which is
+    // the same exception the syntax-highlighting tests take: an animated mark is decoration and
+    // has no accessible surface at all — the sentence beside it is what a reader gets, and that
+    // is asserted above.
+    const { container } = render(<PreviewPane events={[asked(), ready(), stopped()]} resuming />);
+
+    expect(container.querySelector(".nap-loader")).toBeInTheDocument();
+  });
+
   it("shows a refusal next to the button that caused it", () => {
     render(
       <PreviewPane
@@ -124,13 +146,47 @@ describe("a project that has been put away", () => {
     expect(screen.getByRole("button", { name: /resume/i })).toBeInTheDocument();
   });
 
-  it("trusts the record when the log has not caught up", () => {
+  it("trusts the record about an announcement made before it", () => {
     // Nothing announces a sandbox the provider reclaimed on its own timer, so a project can be
     // put away while the newest event in the log still says a preview is ready.
-    render(<PreviewPane events={[asked(), ready()]} putAway />);
+    render(
+      <PreviewPane
+        events={[
+          asked(),
+          ev(
+            "preview.ready",
+            { url: "https://5173-old.e2b.dev", port: 5173 },
+            "2026-08-09T11:00:00.000Z",
+          ),
+        ]}
+        putAwayAt="2026-08-09T12:00:00.000Z"
+      />,
+    );
 
     expect(frame()).toBeNull();
     expect(screen.getByRole("button", { name: /resume/i })).toBeInTheDocument();
+  });
+
+  it("shows a sandbox that came up after the record was read", () => {
+    // The defect this exists for: the workspace reads the project once, on mount, and the first
+    // turn creates a sandbox seconds later. Offering Resume for something already running is the
+    // page telling somebody their app is gone while it is on screen behind the panel.
+    render(
+      <PreviewPane
+        events={[
+          asked(),
+          ev(
+            "preview.ready",
+            { url: "https://5173-new.e2b.dev", port: 5173 },
+            "2026-08-09T13:00:00.000Z",
+          ),
+        ]}
+        putAwayAt="2026-08-09T12:00:00.000Z"
+      />,
+    );
+
+    expect(frame()).toHaveAttribute("src", "https://5173-new.e2b.dev");
+    expect(screen.queryByRole("button", { name: /resume/i })).toBeNull();
   });
 
   it("shows the app again once it is serving", () => {
@@ -150,14 +206,6 @@ describe("the frame itself", () => {
     const sandbox = frame()?.getAttribute("sandbox") ?? "";
     expect(sandbox).toContain("allow-scripts");
     expect(sandbox).toContain("allow-same-origin");
-  });
-
-  it("offers the app in its own tab as well", () => {
-    show(ready());
-
-    const link = screen.getByRole("link", { name: /open/i });
-    expect(link).toHaveAttribute("href", "https://5173-abc.e2b.dev");
-    expect(link.getAttribute("rel")).toContain("noreferrer");
   });
 });
 
@@ -193,12 +241,28 @@ describe("reloading", () => {
     expect(frame()).toBe(before);
   });
 
-  it("replaces the frame when asked to reload", () => {
-    show(ready());
+  it("replaces the frame when the bar asks for a reload", () => {
+    // The button lives in the workspace's top bar now — it counts, and this pane's frame is
+    // keyed on the count, because a cross-origin frame cannot be told to reload any other way.
+    const events = [asked(), ready()];
+    const { rerender } = render(<PreviewPane events={events} reloads={0} />);
     const before = frame();
 
-    fireEvent.click(screen.getByRole("button", { name: /reload/i }));
+    rerender(<PreviewPane events={events} reloads={1} />);
 
+    expect(frame()).not.toBe(before);
+  });
+
+  it("sends the frame to the page the bar names", () => {
+    const events = [asked(), ready()];
+    const { rerender } = render(<PreviewPane events={events} route="/" />);
+    const before = frame();
+
+    rerender(<PreviewPane events={events} route="/pricing" />);
+
+    expect(frame()).toHaveAttribute("src", "https://5173-abc.e2b.dev/pricing");
+    // A different page is a different page: the frame has to be replaced, not merely re-src'd,
+    // or an app that has navigated itself since would ignore the change.
     expect(frame()).not.toBe(before);
   });
 
@@ -216,11 +280,5 @@ describe("the pane itself", () => {
 
     rerender(<PreviewPane events={[asked(), ready()]} />);
     expect(screen.getByRole("region", { name: "Preview" })).toBeInTheDocument();
-  });
-
-  it("names the address it is showing", () => {
-    show(ready("https://5173-abc.e2b.dev"));
-
-    expect(screen.getByRole("region", { name: "Preview" })).toHaveTextContent("5173-abc.e2b.dev");
   });
 });

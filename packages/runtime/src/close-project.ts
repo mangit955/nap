@@ -62,6 +62,12 @@ export type CloseProjectOptions = {
   announce?: CloseAnnouncement;
 };
 
+/**
+ * Closing deliberately does not take another thumbnail. A completed turn has already captured
+ * the current app, and waiting for a browser at this point could hold the close request for
+ * eighteen seconds before teardown even starts. The dashboard needs the sandbox gone promptly;
+ * its existing thumbnail remains the project's shelf image.
+ */
 export async function putProjectAway(options: CloseProjectOptions): Promise<CloseOutcome> {
   const { projects, projectId, sandboxId } = options;
 

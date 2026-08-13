@@ -54,8 +54,16 @@ export type TranscriptItem =
     }
   | { kind: "files"; key: number; files: FileChange[] }
   | { kind: "preview"; key: number; url: string; port: number }
-  /** Carries nothing: it is the fact that the app stopped being served, and when. */
-  | { kind: "preview-stopped"; key: number }
+  /**
+   * The fact that the app stopped being served, and when.
+   *
+   * `superseded` means the project came back up afterwards, which makes this one history
+   * rather than news. Both are kept — the chronology is real and a reader listening to the log
+   * should hear it — but only the one that still describes the project is drawn: a project put
+   * away and reopened five times over an afternoon otherwise stacks five identical lines in the
+   * transcript, each contradicted by an event a few minutes later that renders as nothing.
+   */
+  | { kind: "preview-stopped"; key: number; superseded: boolean }
   | { kind: "notice"; key: number; level: "info" | "warning"; text: string }
   | { kind: "turn-start"; key: number }
   | ({ kind: "turn-end"; key: number } & TurnOutcome);
@@ -181,14 +189,20 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
       }
 
       case "preview.ready":
+        // Every stop before this one is now history: the app is being served again. Marked
+        // here rather than in a pass afterwards, because the rule is simply "a later ready
+        // supersedes them", and this is the moment a later ready exists.
+        for (const item of items) if (item.kind === "preview-stopped") item.superseded = true;
         items.push({ kind: "preview", key, url: event.payload.url, port: event.payload.port });
         break;
 
       // The preview pane says what to do about it; this is the chronology. An app that
       // disappeared because a sweep put the project away, or because somebody closed it in
       // another tab, is otherwise an app that vanished for no stated reason.
+      // Every earlier stop is now history: the app is being served again, so a line saying it
+      // is not would be contradicted by this very event — which itself draws nothing.
       case "preview.stopped":
-        items.push({ kind: "preview-stopped", key });
+        items.push({ kind: "preview-stopped", key, superseded: false });
         break;
 
       // Its own item rather than a message: the platform speaking is not the agent speaking,

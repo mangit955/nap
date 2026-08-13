@@ -85,7 +85,8 @@ const TREATMENTS = [
       durationMs: 8400,
       commitSha: "a1b2c3d",
     },
-    shows: /a1b2c3d/,
+    // The SHA and the token counts are gone from this row; the duration is what it says now.
+    shows: /8\.4s/,
   },
   {
     type: "turn.failed",
@@ -185,7 +186,23 @@ describe("a turn in progress", () => {
     expect(screen.getByRole("log")).not.toHaveTextContent(/running/i);
   });
 
-  it("gives the preview a link someone can open", () => {
+  it("does not print the sandbox host into the transcript", () => {
+    /*
+     * The host is in the bar above, the bar has its own link to it, and the Preview tab is
+     * showing the app — so a line saying "Preview ready · 5173-<random>.e2b.app" is the third
+     * copy of something already on screen, and a restarted dev server adds another.
+     *
+     * Asserting on the class is the deliberate exception to the no-class-names rule, for the
+     * same reason `file-viewer.test.tsx` has one: visually-hidden-ness has no accessible
+     * surface, jsdom applies no stylesheet, and no role or text query can tell the two apart.
+     * Without this, the next person restyling that arm puts the line back on screen.
+     */
+    show(ev("preview.ready", { url: "https://5173-abc.e2b.dev", port: 5173 }));
+
+    expect(screen.getByText(/preview ready/i)).toHaveClass("sr-only");
+  });
+
+  it("still tells a screen reader the app is running, and where", () => {
     show(ev("preview.ready", { url: "https://5173-abc.e2b.dev", port: 5173 }));
 
     const link = screen.getByRole("link", { name: /5173-abc\.e2b\.dev/ });
@@ -202,6 +219,25 @@ describe("a turn in progress", () => {
     const log = screen.getByRole("log");
     expect(log).toHaveTextContent(/warning/i);
     expect(log).not.toHaveTextContent(/agent:/i);
+  });
+
+  it("keeps the instrumentation out of the transcript", () => {
+    // Token counts and a forty-character commit SHA are not something anybody reads between
+    // turns, and the row carrying them was wide enough to give the whole pane a horizontal
+    // scrollbar. Both are still in the event log for anything that wants them.
+    show(
+      ev("turn.completed", {
+        usage: { inputTokens: 19909, outputTokens: 5569 },
+        durationMs: 45_500,
+        commitSha: "b3cf725b95b0b34198bf129e5ff430ac7e649c87",
+      }),
+    );
+
+    const log = screen.getByRole("log");
+    expect(log).toHaveTextContent(/45\.5s/);
+    expect(log).not.toHaveTextContent(/19909/);
+    expect(log).not.toHaveTextContent(/5569/);
+    expect(log).not.toHaveTextContent(/b3cf725b/);
   });
 
   it("says a turn changed nothing rather than showing an empty commit", () => {
@@ -292,5 +328,40 @@ describe("reasoning arriving as it is produced", () => {
     );
 
     expect(screen.getByText("I should read App.tsx first.")).toBeTruthy();
+  });
+});
+
+describe("a project opened and closed many times", () => {
+  const stop = () => ev("preview.stopped", {});
+  const start = (host: string) =>
+    ev("preview.ready", { url: `https://5173-${host}.e2b.app`, port: 5173 });
+
+  it("draws one put-away line, not one per cycle", () => {
+    // What this was: five identical "the project was put away" lines stacked in the transcript
+    // after an afternoon of ordinary opening and closing — because a stop draws a full-width
+    // line while the restart a few minutes later draws nothing visible at all. Five ordinary
+    // events reading as five failures.
+    show(stop(), start("a"), stop(), start("b"), stop());
+
+    const lines = screen.getAllByText(/the project was put away/i);
+    const visible = lines.filter((line) => !line.closest(".sr-only"));
+    expect(visible).toHaveLength(1);
+  });
+
+  it("keeps every one of them in the log for a reader", () => {
+    // The chronology is real and somebody listening to the transcript should still hear it —
+    // the point is that it stops shouting, not that it forgets.
+    show(stop(), start("a"), stop());
+
+    expect(screen.getAllByText(/the project was put away/i)).toHaveLength(2);
+  });
+
+  it("says nothing at all once the project is back up", () => {
+    show(stop(), start("a"));
+
+    const visible = screen
+      .getAllByText(/the project was put away/i)
+      .filter((line) => !line.closest(".sr-only"));
+    expect(visible).toEqual([]);
   });
 });

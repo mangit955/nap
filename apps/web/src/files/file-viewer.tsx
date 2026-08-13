@@ -18,7 +18,8 @@
 
 import type { FileContent } from "@nap/shared/files-protocol";
 import { Highlight, type PrismTheme } from "prism-react-renderer";
-import { useEffect } from "react";
+import { memo, useEffect } from "react";
+import { CloseIcon } from "../ui/icons.tsx";
 import type { LoadStatus } from "./use-project-files.ts";
 
 /** Extensions to Prism's language names. Anything absent renders as plain text. */
@@ -84,23 +85,37 @@ export function FileViewer({
   }, [onClose]);
 
   return (
-    <div
-      role="dialog"
+    // A named region rather than a dialog: it sits beside the tree in the Code tab now, and
+    // nothing about it is modal — the tree stays usable while a file is open, which is the whole
+    // reason for showing them side by side.
+    <section
       aria-label={`${path} (read-only)`}
-      className="absolute inset-y-0 right-0 z-10 flex w-[min(46rem,70vw)] flex-col border-edge border-l bg-panel shadow-2xl"
+      className="flex min-h-0 min-w-0 flex-1 flex-col border-edge border-l"
     >
-      <div className="flex h-11 shrink-0 items-center justify-between gap-3 border-edge border-b px-4">
-        <span className="truncate font-mono text-ink text-xs">{path}</span>
-        <button
-          type="button"
-          onClick={onClose}
-          className="shrink-0 rounded border border-edge px-1.5 py-0.5 text-[11px] text-muted hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
-        >
-          Close
-        </button>
+      <div className="flex h-9 shrink-0 items-center justify-between gap-3 border-edge border-b px-3">
+        <Breadcrumb path={path} />
+
+        <div className="flex shrink-0 items-center gap-2">
+          {/*
+            The language, because a reader looking at a file with no extension — or at one whose
+            highlighting looks wrong — has no other way to find out what Prism decided it was.
+          */}
+          <span className="rounded-[5px] bg-hover px-1.5 py-px font-mono text-[10px] text-muted uppercase tracking-wide">
+            {languageOf(path)}
+          </span>
+
+          <button
+            type="button"
+            aria-label="Close this file"
+            onClick={onClose}
+            className="grid size-6 place-items-center rounded text-muted transition-colors hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
+          >
+            <CloseIcon className="size-3.5" />
+          </button>
+        </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div className="nap-scroll min-h-0 flex-1 overflow-auto">
         {file === undefined ? (
           <p className="p-4 text-muted text-sm">
             {status === "loading" ? "Loading…" : "Couldn't read this file."}
@@ -115,11 +130,52 @@ export function FileViewer({
           Showing only the first part of this file — {formatSize(file.bytes)} in total.
         </p>
       )}
-    </div>
+    </section>
   );
 }
 
-function Source({ contents, language }: { contents: string; language: string }) {
+/**
+ * Where the file sits, with the filename picked out of it.
+ *
+ * A path set in one weight is a string somebody has to parse; the part that answers "which file
+ * am I looking at" is the last segment, so it gets the ink and the directories recede.
+ */
+function Breadcrumb({ path }: { path: string }) {
+  const segments = path.split("/");
+  const name = segments.at(-1) ?? path;
+  const directories = segments.slice(0, -1);
+
+  return (
+    <span className="min-w-0 truncate font-mono text-[12px]">
+      {directories.map((segment, index) => (
+        // Segments repeat within one path (`src/components/src`), so the name alone is not a
+        // key; the prefix up to this point is unique by construction.
+        // biome-ignore lint/suspicious/noArrayIndexKey: the index *is* the identity here
+        <span key={`${segment}-${index}`} className="text-muted">
+          {segment}/
+        </span>
+      ))}
+      <span className="text-ink">{name}</span>
+    </span>
+  );
+}
+
+/**
+ * The highlighted file.
+ *
+ * **Memoised, and that is load-bearing rather than tidy.** The Code pane subscribes to the
+ * session's event stream, so every streamed token re-renders it — and Prism re-tokenises the
+ * *entire* open file on each render. During a turn that is dozens of full re-tokenisations a
+ * second, on the same thread the transcript is trying to animate on. Both props are primitives,
+ * so the default comparison is exactly right.
+ */
+const Source = memo(function Source({
+  contents,
+  language,
+}: {
+  contents: string;
+  language: string;
+}) {
   // A trailing newline is a line break, not an empty last line to number.
   const code = contents.replace(/\n$/, "");
 
@@ -132,13 +188,23 @@ function Source({ contents, language }: { contents: string; language: string }) 
             // is on screen.
             // biome-ignore lint/suspicious/noArrayIndexKey: see above
             <div key={index} {...getLineProps({ line })} className="flex">
+              {/*
+                `sticky left-0` so the numbers survive scrolling sideways through a long line —
+                a gutter that slides off the left edge takes the reader's place in the file with
+                it. It needs its own opaque background for that, which is also what separates it
+                from the code the way an editor's does.
+
+                The colour is `gutter` rather than `edge`: `edge` is a *border* value and
+                measures about 1.2:1 against this surface, so the numbers were in the markup and
+                invisible on screen.
+              */}
               <span
                 aria-hidden="true"
-                className="w-12 shrink-0 select-none pr-4 text-right text-edge"
+                className="sticky left-0 w-12 shrink-0 select-none border-edge border-r bg-panel pr-3 text-right text-gutter"
               >
                 {index + 1}
               </span>
-              <span className="whitespace-pre pr-4">
+              <span className="whitespace-pre pr-4 pl-4">
                 {line.map((token, tokenIndex) => (
                   // biome-ignore lint/suspicious/noArrayIndexKey: see above
                   <span key={tokenIndex} {...getTokenProps({ token })} />
@@ -150,7 +216,7 @@ function Source({ contents, language }: { contents: string; language: string }) 
       )}
     </Highlight>
   );
-}
+});
 
 /** Sizes are for orientation, so one unit and no decimals is all they need to carry. */
 function formatSize(bytes: number): string {

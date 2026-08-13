@@ -22,13 +22,19 @@ export type PromptStorage = {
 const PROJECT_KEY = "nap.first-prompt";
 
 /** The prompt to send as a new project's first turn. */
+export type FirstPrompt = {
+  text: string;
+  /** Absent means the server's fallback, rather than a browser guess at what that is. */
+  model?: string | undefined;
+};
+
 export function stashFirstPrompt(
   projectId: string,
-  text: string,
+  prompt: FirstPrompt,
   storage: PromptStorage | undefined = defaultStorage(),
 ): void {
-  if (storage === undefined || text.trim() === "") return;
-  storage.setItem(PROJECT_KEY, JSON.stringify({ projectId, text }));
+  if (storage === undefined || prompt.text.trim() === "") return;
+  storage.setItem(PROJECT_KEY, JSON.stringify({ projectId, ...prompt }));
 }
 
 /**
@@ -39,7 +45,7 @@ export function stashFirstPrompt(
 export function takeFirstPrompt(
   projectId: string,
   storage: PromptStorage | undefined = defaultStorage(),
-): string | undefined {
+): FirstPrompt | undefined {
   if (storage === undefined) return undefined;
 
   const raw = storage.getItem(PROJECT_KEY);
@@ -54,16 +60,18 @@ export function takeFirstPrompt(
   if (stash.projectId !== projectId) return undefined;
 
   storage.removeItem(PROJECT_KEY);
-  return stash.text;
+  return { text: stash.text, ...(stash.model === undefined ? {} : { model: stash.model }) };
 }
 
-function parse(raw: string): { projectId: string; text: string } | undefined {
+function parse(raw: string): ({ projectId: string } & FirstPrompt) | undefined {
   try {
     const value: unknown = JSON.parse(raw);
     if (typeof value !== "object" || value === null) return undefined;
-    const { projectId, text } = value as Record<string, unknown>;
-    return typeof projectId === "string" && typeof text === "string"
-      ? { projectId, text }
+    const { projectId, text, model } = value as Record<string, unknown>;
+    return typeof projectId === "string" &&
+      typeof text === "string" &&
+      (model === undefined || typeof model === "string")
+      ? { projectId, text, ...(typeof model === "string" ? { model } : {}) }
       : undefined;
   } catch {
     return undefined;
