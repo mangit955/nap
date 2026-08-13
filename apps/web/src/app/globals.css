@@ -1418,6 +1418,43 @@ body {
 }
 
 /*
+ * The clearing in the middle of the sign-in page's doodle sheet.
+ *
+ * The drawings run right across the page — that density is what makes it read as a filled sheet
+ * of paper rather than as a few marks somebody added to be friendly — and the form then sits in
+ * a hole cut through them with a mask. Two things this is deliberately *not*:
+ *
+ *   - **Not a gap in the layout table.** A hole written into the placements has to be re-cut
+ *     every time the form changes height, and the sign-up form is a field taller than the
+ *     sign-in one. A radial mask is wherever the form is, at any height, in any language.
+ *   - **Not a lower opacity on the whole layer.** Fading everything to clear the centre dulls
+ *     the edges too, and a uniformly grey wall of line art reads as a printing fault.
+ *
+ * The stop is soft and long — clear until 52%, full only at the very edge of the ellipse —
+ * because a hard edge draws a visible oval on the page, which is a worse artefact than the
+ * doodles it was hiding.
+ */
+/*
+ * Two clearings, not one: the form in the middle, and the wordmark in the top-left corner. The
+ * mark is a link and the one way back out of this page, and a drawing behind a small ghost logo
+ * makes it read as part of the wallpaper rather than as something to press.
+ *
+ * `mask-composite: intersect` is what makes two gradients mean "clear here *and* here" — layered
+ * without it they compose as a union, every pixel one of them keeps is kept, and the page ends up
+ * with no clearing at all. The `-webkit-` twin spells the same thing `source-in`.
+ */
+.nap-doodle-wall {
+  -webkit-mask-image:
+    radial-gradient(ellipse 44% 40% at 50% 47%, transparent 52%, #000 100%),
+    radial-gradient(150px 96px at 52px 34px, transparent 42%, #000 100%);
+  -webkit-mask-composite: source-in;
+  mask-image:
+    radial-gradient(ellipse 44% 40% at 50% 47%, transparent 52%, #000 100%),
+    radial-gradient(150px 96px at 52px 34px, transparent 42%, #000 100%);
+  mask-composite: intersect;
+}
+
+/*
  * One layer of the falloff. The mask — a blurred, stroked, partially transparent ring drawn on
  * a canvas — is what turns this flat gradient into a band of light hugging the shape.
  *

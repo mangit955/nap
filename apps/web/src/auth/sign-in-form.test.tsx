@@ -140,3 +140,31 @@ describe("when something goes wrong", () => {
     expect(screen.getByRole("button", { name: "Continue with GitHub" })).toBeDisabled();
   });
 });
+
+describe("the paper it is written on", () => {
+  /**
+   * Queried by test id and by counting elements, which the rest of this file never does — the
+   * doodle sheet has no accessible surface *by design*, so a role query is the one thing that
+   * cannot see it. The same exception the syntax highlighting makes; see `docs/GOTCHAS.md`
+   * § Web and UI.
+   */
+  it("hangs a sheet of doodles behind the form, out of everyone's way", () => {
+    setup();
+
+    const wall = screen.getByTestId("doodle-wall");
+
+    // Hidden from assistive technology and untouchable by the pointer. A full-screen layer over
+    // the one form on the page is exactly the shape of thing that swallows a click, and a
+    // hundred unlabelled drawings in the accessibility tree is a page nobody can navigate.
+    expect(wall).toHaveAttribute("aria-hidden", "true");
+    expect(wall.className).toContain("pointer-events-none");
+
+    // A wall rather than a few marks: if the layout ever collapses to a handful of drawings the
+    // page still looks intentional, which is why this is worth pinning to a number.
+    expect(wall.querySelectorAll("svg").length).toBeGreaterThan(60);
+
+    // And the form is still a form.
+    expect(screen.getByRole("button", { name: "Sign in" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Email")).toBeInTheDocument();
+  });
+});

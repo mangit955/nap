@@ -23,6 +23,7 @@
 
 import { useState } from "react";
 import { NapMark } from "../brand/nap-mark.tsx";
+import { DoodleWall } from "./doodle-wall.tsx";
 
 export type SignInMode = "sign-in" | "sign-up";
 
@@ -98,6 +99,14 @@ export function SignInForm({
 
   return (
     <div className="ai-stage relative flex min-h-dvh flex-col items-center justify-center px-6 py-20">
+      {/*
+        The paper this is written on. A large light surface with one object in the middle of it
+        reads as unfinished rather than as calm — the same problem the landing page has, answered
+        the same way and much further: a sheet of doodles covering the page, with a clearing
+        masked through the middle so the form still sits on plain white.
+      */}
+      <DoodleWall />
+
       {/*
         The mark is the way back out. An auth page with no exit is a dead end for anybody who
         arrived by accident, and the wordmark is the one thing on it people already know is a
