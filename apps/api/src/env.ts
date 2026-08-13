@@ -169,6 +169,16 @@ const BaseSchema = z.object({
   NAP_REAP_IDLE_MINUTES: z.coerce.number().int().positive().default(10),
   NAP_REAP_INTERVAL_SECONDS: z.coerce.number().int().positive().default(60),
   NAP_SANDBOX_TTL_MINUTES: z.coerce.number().int().positive().default(30),
+
+  /**
+   * A Chrome or Chromium binary to photograph finished turns with, for the dashboard's cards.
+   *
+   * Optional, and the one env key here that is genuinely allowed to be absent: without it the
+   * API runs exactly as before and the dashboard draws a colour where a screenshot would be.
+   * Nothing goes looking for a browser — a capture that silently found *some* binary is worse
+   * than one that says it has none.
+   */
+  NAP_CHROME_PATH: z.string().min(1).optional(),
 });
 
 /**

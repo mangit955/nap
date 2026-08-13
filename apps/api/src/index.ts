@@ -17,6 +17,7 @@ import { NapAgentService } from "@nap/agent/agent-service";
 import { createBedrockClient, toBedrockModel } from "@nap/agent/bedrock";
 import { ClaudeProvider } from "@nap/agent/claude-provider";
 import { createOpenRouterClient, toOpenRouterModel } from "@nap/agent/openrouter";
+import { ChromePageCapture } from "@nap/capture/chrome-page-capture";
 import { NapContextEngine } from "@nap/context/context-engine";
 import { NoopMemoryProvider } from "@nap/context/noop-memory-provider";
 import { createDatabase, pingDatabase } from "@nap/db/client";
@@ -130,6 +131,12 @@ const runtime = new SingleAgentRuntime({
   // from its last snapshot rather than starting again from an empty template.
   objects,
   snapshots,
+  // A picture of each finished turn for the dashboard's cards, when there is a browser on this
+  // machine to take one. Absent, turns run exactly as before and the cards show a colour —
+  // which is why nothing here goes hunting for a Chrome that was never configured.
+  ...(env.NAP_CHROME_PATH === undefined
+    ? {}
+    : { capture: new ChromePageCapture({ executablePath: env.NAP_CHROME_PATH }) }),
   sandboxTtlMs: env.NAP_SANDBOX_TTL_MINUTES * 60 * 1000,
   context: new NapContextEngine({ budgetTokens: env.NAP_CONTEXT_BUDGET_TOKENS }),
   agent: new NapAgentService({

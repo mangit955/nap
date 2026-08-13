@@ -1,0 +1,16 @@
+{
+  "name": "@nap/capture",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@nap/shared": "workspace:*",
+    "puppeteer-core": "^24.30.0"
+  }
+}

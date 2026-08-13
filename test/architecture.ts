@@ -29,12 +29,16 @@ const ALLOWED: Record<string, readonly string[]> = {
   // Object storage sits beside the sandbox and the database as infrastructure: it holds a
   // project's bytes while nothing is running, and knows nothing about turns or projects.
   "@nap/storage": ["@nap/shared"],
+  // A browser, behind the PageCapture port. Beside storage and the sandbox for the same reason:
+  // it photographs an address it is handed and knows nothing about projects or turns.
+  "@nap/capture": ["@nap/shared"],
   "@nap/runtime": [
     "@nap/context",
     "@nap/agent",
     "@nap/sandbox",
     "@nap/db",
     "@nap/storage",
+    "@nap/capture",
     "@nap/shared",
   ],
   // Apps compose everything; they are the top of the graph.
@@ -61,6 +65,11 @@ const EXCLUSIVE_EXTERNALS: Record<string, { owner: string; reason: string }> = {
     owner: "@nap/storage",
     reason:
       "The S3 client belongs to @nap/storage, which is the only place that knows a project's bytes live in R2. Depend on the ObjectStore interface from @nap/shared instead — everything above it is written against three methods and must keep working when the bucket is a map in a test.",
+  },
+  "puppeteer-core": {
+    owner: "@nap/capture",
+    reason:
+      "The browser belongs to @nap/capture, which is the only place that knows a thumbnail is made by rendering a page. Depend on the PageCapture interface from @nap/shared instead — everything above it is written against one method and must keep working when the browser is a fake handing back four bytes.",
   },
   "@anthropic-ai/bedrock-sdk": {
     owner: "@nap/agent",

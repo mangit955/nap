@@ -3,10 +3,16 @@
 /**
  * One project, as a card.
  *
- * The tile above the name stands where a screenshot would, and is deliberately not one: a live
- * preview would boot the sandbox it claims to be showing — which costs money and takes a minute
- * — and a stored thumbnail would be a picture of an app as it was some other day. What it is
- * instead is a colour hashed from the project's id, so the grid is at least a map.
+ * The tile above the name is a picture of the app itself, taken with a real browser at the end
+ * of the last turn that changed it. Not a live preview: that would boot the sandbox it claims
+ * to be showing, which costs money and takes a minute. So it *is* a picture of the app as it
+ * was some other day — the trade this makes deliberately, because a grid of real apps is worth
+ * far more than a grid of colours, and the day in question is the last one anybody worked on it.
+ *
+ * **The colour is still here, underneath.** A project has no picture until a turn completes
+ * with a browser configured, so the gradient hashed from the project's id remains the tile's
+ * background and the image sits on top of it. A request that 404s just leaves it showing — a
+ * card must not sprout a broken-image icon because a screenshot was never taken.
  *
  * **State is a word, never a colour.** "running", "put away", "new" — the same rule the chat
  * pane and the old list followed, for the same reason: a dot tells a screen reader nothing and
@@ -21,6 +27,7 @@ import { useState } from "react";
 import { EditableTitle } from "../ui/editable-title.tsx";
 import { tileGradient } from "./filters.ts";
 import { relativeTime } from "./relative-time.ts";
+import { thumbnailUrl } from "./thumbnail-url.ts";
 
 export function ProjectCard({
   project,
@@ -40,6 +47,14 @@ export function ProjectCard({
   onRename?: ((projectId: string, name: string) => void) | undefined;
 }) {
   const [confirming, setConfirming] = useState(false);
+  /**
+   * Set when the picture does not load, which is the ordinary case for a project that has never
+   * finished a turn. Keyed off the address so a *new* picture is tried again: without the reset
+   * a card that missed once would stay a gradient for as long as the page stayed open.
+   */
+  const [missingFor, setMissingFor] = useState<string | undefined>(undefined);
+  const source = thumbnailUrl(project.projectId, project.updatedAt);
+  const missing = missingFor === source;
 
   return (
     <li className="flex flex-col overflow-hidden rounded-xl border border-edge bg-panel transition-colors hover:border-line-strong">
@@ -50,9 +65,31 @@ export function ProjectCard({
       >
         <span
           aria-hidden="true"
-          className="h-28 w-full border-edge border-b"
+          className="relative block h-28 w-full overflow-hidden border-edge border-b"
           style={{ background: tileGradient(project.projectId) }}
-        />
+        >
+          {!missing && (
+            // Decorative: the button around this already says "Open {name}", and a screenshot
+            // of an app is not something a reader can be told anything useful about.
+            //
+            // `crossOrigin` because the API is another origin and an image request carries no
+            // cookie without it — the picture is the caller's own and the route asks who they
+            // are. `object-top` so the tile shows the top of the page rather than its middle.
+            //
+            // `next/image` is not an option and the reason is the cookie again: it fetches
+            // through the optimizer, a server holding none of this user's credentials, which
+            // would collect a 401 for every card.
+            // biome-ignore lint/performance/noImgElement: a private image cannot be optimized by a shared server
+            <img
+              src={source}
+              alt=""
+              crossOrigin="use-credentials"
+              loading="lazy"
+              onError={() => setMissingFor(source)}
+              className="size-full object-cover object-top"
+            />
+          )}
+        </span>
         {/*
           The name used to be inside this button and is now the editable control below it, which
           left the button with nothing but a coloured rectangle in it — no accessible name at all,

@@ -32,6 +32,7 @@ import type { EventBus } from "@nap/shared/ports/event-bus";
 import type { EventStore, PendingEvent } from "@nap/shared/ports/event-store";
 import type { MemoryProvider } from "@nap/shared/ports/memory-provider";
 import type { ObjectStore } from "@nap/shared/ports/object-store";
+import type { PageCapture } from "@nap/shared/ports/page-capture";
 import type { ResumeOutcome, Runtime, TurnOutcome, TurnRequest } from "@nap/shared/ports/runtime";
 import type { SandboxError, SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SessionRecord, SessionStore } from "@nap/shared/ports/session-store";
@@ -40,6 +41,7 @@ import type { Result } from "@nap/shared/result";
 import { EventSink } from "./event-sink.ts";
 import { openProject } from "./restore.ts";
 import { captureSnapshot } from "./teardown.ts";
+import { captureThumbnail } from "./turn-thumbnail.ts";
 
 type Payload<T extends NapEvent["type"]> = NapEventOf<T>["payload"];
 
@@ -108,6 +110,15 @@ export type SingleAgentRuntimeOptions = {
    */
   objects?: ObjectStore;
   snapshots?: SnapshotStore;
+  /**
+   * A browser, for the picture of the project the dashboard puts on its card.
+   *
+   * Optional and independent of the pair above: a deployment with no browser to drive still
+   * runs turns and still keeps the work — it just shows a colour where a screenshot would be.
+   * It needs `objects` to have anywhere to put the bytes, so both must be present or nothing
+   * is captured.
+   */
+  capture?: PageCapture;
   /** Injected so a test can assert on whole events rather than on everything but the clock. */
   now?: () => string;
   /** Injected for the same reason: a turn id a test can predict. */
@@ -339,6 +350,9 @@ export class SingleAgentRuntime implements Runtime {
       const terminal = sink.terminal;
       if (terminal?.type === "turn.completed") {
         await this.#preserve(session.projectId, sandboxId.value.id, terminal.payload.commitSha);
+        // After the snapshot, deliberately: the work reaching storage is what must not be
+        // delayed by a browser launch, and a picture is the one thing here nobody would miss.
+        await this.#photograph(session.projectId, sandboxId.value.id, terminal.payload.commitSha);
         return { ok: true, turnId, commitSha: terminal.payload.commitSha };
       }
       if (terminal?.type === "turn.failed") {
@@ -409,6 +423,40 @@ export class SingleAgentRuntime implements Runtime {
       { commitSha, reason: captured.error.message },
       "could not snapshot the turn; the work is still only in the sandbox",
     );
+  }
+
+  /**
+   * Photographs the project while it is still up, for the dashboard's card.
+   *
+   * **This is the only moment the picture can be taken.** A preview URL answers for exactly as
+   * long as its sandbox lives, and the card is looked at days later, when there is nothing
+   * running to point a browser at. So the shot is of the app as its last turn left it — which
+   * is the honest trade behind doing this at all.
+   *
+   * Everything the snapshot above is careful about applies here and matters less: only after a
+   * turn that committed, never in the turn's way, and **never a reason to fail a turn**. A
+   * missing screenshot costs the user a thumbnail; failing the turn would cost them the work.
+   */
+  async #photograph(projectId: string, sandboxId: string, commitSha: string | null): Promise<void> {
+    const capture = this.#options.capture;
+    const objects = this.#options.objects;
+    if (capture === undefined || objects === undefined || commitSha === null) return;
+
+    const shot = await captureThumbnail({
+      sandbox: this.#options.sandbox,
+      capture,
+      objects,
+      projectId,
+      sandboxId,
+      port: this.#previewPort,
+    }).catch((error: unknown) => ({ ok: false as const, error: { message: String(error) } }));
+
+    if (shot.ok) {
+      getLogger().info({ key: shot.value.key }, "project thumbnail captured");
+      return;
+    }
+
+    getLogger().warn({ reason: shot.error.message }, "could not capture a project thumbnail");
   }
 
   /**

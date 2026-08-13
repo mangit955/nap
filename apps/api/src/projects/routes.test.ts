@@ -175,6 +175,50 @@ describe("GET /projects/:projectId", () => {
   });
 });
 
+describe("GET /projects/:projectId/thumbnail", () => {
+  const PNG = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+
+  it("answers with the picture, as an image", async () => {
+    // The client is an `<img>`, so anything but PNG bytes under an image content type means a
+    // fetch and a data URL to show something the browser can request for itself.
+    await objects.put(`projects/${PROJECT}/thumbnail.png`, PNG);
+
+    const res = await app().request(`/projects/${PROJECT}/thumbnail`);
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("image/png");
+    expect([...new Uint8Array(await res.arrayBuffer())]).toEqual([...PNG]);
+  });
+
+  it("is 404 for a project that has never been photographed", async () => {
+    // The ordinary state of every project until a turn completes with a browser configured.
+    // The card asks anyway and falls back to its colour, so this must be a plain miss.
+    const res = await app().request(`/projects/${PROJECT}/thumbnail`);
+
+    expect(res.status).toBe(404);
+  });
+
+  it("tells somebody else's project apart from a missing one in no way at all", async () => {
+    // A 403 would confirm the project exists, which is the one thing a stranger must not learn
+    // from asking. The lookup is scoped to the caller, so this is the same 404 as above.
+    await objects.put(`projects/${UNKNOWN}/thumbnail.png`, PNG);
+
+    const res = await app().request(`/projects/${UNKNOWN}/thumbnail`);
+
+    expect(res.status).toBe(404);
+  });
+
+  it("keeps the picture out of shared caches", async () => {
+    // It is a screenshot of somebody's own app. A public cache would hand it to whoever asks
+    // for that URL next.
+    await objects.put(`projects/${PROJECT}/thumbnail.png`, PNG);
+
+    const res = await app().request(`/projects/${PROJECT}/thumbnail`);
+
+    expect(res.headers.get("cache-control")).toMatch(/private/);
+  });
+});
+
 describe("POST /projects/:projectId/close", () => {
   it("puts the project away and says where the bytes went", async () => {
     const res = await app().request(`/projects/${PROJECT}/close`, { method: "POST" });

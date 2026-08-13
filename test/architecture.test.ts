@@ -34,6 +34,7 @@ describe("dependency direction", () => {
     expect(names.toSorted()).toEqual([
       "@nap/agent",
       "@nap/api",
+      "@nap/capture",
       "@nap/context",
       "@nap/db",
       "@nap/runtime",
