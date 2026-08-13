@@ -134,7 +134,7 @@ export function NapStickers() {
             behind it and reads as a paw. Drawn last so the lid's stroke passes underneath and
             they look like they are gripping.
           */}
-          <g className="fill-ink stroke-panel" strokeWidth="2.4">
+          <g className="nap-paws fill-ink stroke-panel" strokeWidth="2.4">
             <rect x="14" y="-7" width="17" height="15" rx="7.5" />
             <rect x="69" y="-7" width="17" height="15" rx="7.5" />
           </g>

@@ -240,6 +240,11 @@ body {
   transition: opacity 260ms ease;
 }
 
+/* Same deal: off unless a sticker asks for it, so the header and the favicon never see it. */
+.nap-mark-brows {
+  display: none;
+}
+
 /*
  * Headphones: a nod on a two-and-a-half second beat. The headphones themselves hold still — a
  * pair of cups pulsing in and out reads as the drawing flickering rather than as sound, and the
@@ -296,26 +301,55 @@ body {
 /*
  * Laptop: typing comes in bursts with pauses between them, because an even jitter reads as the
  * drawing vibrating rather than as somebody working. The screen breathes on its own longer
- * period. Hovering leans the whole sticker toward the laptop and lights the code up in accent —
- * the *only* one of the four that moves toward something.
+ * period.
+ *
+ * **Hovering makes him hide.** He drops behind the lid until only the top of the dome shows, the
+ * paws slide off the edge after him, the typing stops and the code he was writing fades — caught
+ * working and ducking out of sight, which is a reaction to *you* rather than a louder version of
+ * what he was already doing. The dome is deliberately left showing: an empty laptop reads as the
+ * drawing having broken, and the sliver is what makes it read as hiding.
+ *
+ * It is a transition, not an animation, so leaving the sticker plays it backwards for free and
+ * he climbs back up.
  */
 .nap-sticker-code {
   animation: nap-type 5200ms linear infinite;
 }
 
+/* The ghost, the paws and the code each move on their own beat — everything arriving at once
+   reads as one object sliding rather than as somebody pulling themselves down out of view. */
+.nap-sticker-code .nap-mark {
+  transition: transform 340ms cubic-bezier(0.3, 0.85, 0.35, 1);
+}
+
+.nap-sticker-code .nap-paws {
+  transition:
+    transform 340ms cubic-bezier(0.3, 0.85, 0.35, 1) 60ms,
+    opacity 200ms ease 120ms;
+}
+
 .nap-sticker-code:hover {
-  animation: nap-type-hard 900ms linear infinite;
+  animation: none;
+}
+
+.nap-sticker-code:hover .nap-mark {
+  transform: translateY(19px);
+}
+
+.nap-sticker-code:hover .nap-paws {
+  transform: translateY(7px);
+  opacity: 0;
 }
 
 .nap-sticker-code .nap-screen {
   opacity: 0.5;
   animation: nap-screen 3000ms ease-in-out infinite;
+  transition: opacity 200ms ease;
 }
 
 .nap-sticker-code:hover .nap-screen {
   animation: none;
-  opacity: 1;
-  stroke: var(--color-accent);
+  opacity: 0;
 }
 
 /*
@@ -362,6 +396,12 @@ body {
  * Hovering is the only place sparks are actually thrown — an idle sticker firing sparks every
  * few seconds is a notification, and there is nothing here to be notified about.
  */
+/* This one is not enjoying the work: brows down, which at this size is the entire expression.
+   Pointing at him does not calm him down — the flourish is a swipe of the wand, not a wave. */
+.nap-sticker-spark .nap-mark-brows {
+  display: block;
+}
+
 .nap-sticker-spark .nap-star {
   transform-box: fill-box;
   transform-origin: center;
@@ -464,22 +504,6 @@ body {
   74%,
   100% {
     transform: translateY(0);
-  }
-}
-
-@keyframes nap-type-hard {
-  0%,
-  100% {
-    transform: translate(-3px, 0) scale(1.06);
-  }
-  25% {
-    transform: translate(-3px, 1.4px) scale(1.06);
-  }
-  50% {
-    transform: translate(-3px, 0) scale(1.06);
-  }
-  75% {
-    transform: translate(-3px, 1.4px) scale(1.06);
   }
 }
 
@@ -618,6 +642,14 @@ body {
 
   .nap-sticker .nap-screen {
     opacity: 0.75;
+  }
+
+  /* He still hides — that is the point of the sticker — he just arrives there instead of
+     sliding, which is the same bargain the mark's own waking makes. */
+  .nap-sticker-code .nap-mark,
+  .nap-sticker-code .nap-paws,
+  .nap-sticker-code .nap-screen {
+    transition: none;
   }
 }
 

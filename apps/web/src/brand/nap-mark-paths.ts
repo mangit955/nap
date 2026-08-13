@@ -63,6 +63,16 @@ export const NAP_EYE_SQUINT_RIGHT = "M16.6 10.7 14.4 12.4 16.6 14.1";
 export const NAP_EYE_SQUINT_WEIGHT = 1.25;
 
 /**
+ * Brows, angled down towards the middle: the whole of an annoyed face in two strokes.
+ *
+ * They sit close over the eyes on purpose. Higher up they read as surprise however steeply they
+ * are angled, and the gap between brow and eye is the part a viewer actually measures.
+ */
+export const NAP_BROW_LEFT = "M6.5 9 10.4 10.4";
+export const NAP_BROW_RIGHT = "M17.5 9 13.6 10.4";
+export const NAP_BROW_WEIGHT = 1.15;
+
+/**
  * The z's that drift off it while it sleeps, drawn as strokes rather than filled letterforms —
  * a filled `z` at this size is a blob, while a three-segment zigzag survives being four pixels
  * tall.
