@@ -23,6 +23,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { authClient } from "../auth/client.ts";
+import { useModels } from "../chat/use-models.ts";
 import { useProjects } from "../projects/use-projects.ts";
 import { useStartProject } from "../projects/use-start-project.ts";
 import { Dashboard } from "./dashboard.tsx";
@@ -60,8 +61,12 @@ function SignedInDashboard({ user }: { user: { name?: string | null; email?: str
   const router = useRouter();
   const { projects, status, actionError, create, close, remove, rename } = useProjects();
   const { busy, error, start } = useStartProject();
+  const { models } = useModels();
 
   const [prompt, setPrompt] = useState("");
+  // `undefined` is intentional: it sends no model key, so the server owns the default until
+  // the person makes an explicit choice. The fallback is still shown in the picker below.
+  const [model, setModel] = useState<string | undefined>(undefined);
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState<ProjectScope>("all");
   const [busyProjectId, setBusyProjectId] = useState<string | undefined>(undefined);
@@ -105,8 +110,11 @@ function SignedInDashboard({ user }: { user: { name?: string | null; email?: str
           value={prompt}
           busy={busy}
           error={error}
+          models={models?.models ?? []}
+          model={model ?? models?.fallback}
+          onModelChange={setModel}
           onChange={setPrompt}
-          onSubmit={(message) => void start(message)}
+          onSubmit={(message) => void start(message, model)}
         />
       }
       grid={

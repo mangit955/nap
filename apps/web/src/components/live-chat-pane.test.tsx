@@ -34,10 +34,24 @@ vi.mock("../chat/use-turn-submission.ts", () => ({
   }),
 }));
 
+vi.mock("../chat/use-models.ts", () => ({
+  useModels: () => ({
+    models: {
+      models: [
+        { id: "openai/gpt-5.6-luna", label: "Gpt 5 6 Luna", free: false },
+        { id: "anthropic/claude-opus-5", label: "Claude Opus 5", free: false },
+      ],
+      fallback: "openai/gpt-5.6-luna",
+    },
+  }),
+}));
+
+const { stashFirstPrompt } = await import("../chat/first-prompt.ts");
 const { LiveChatPane } = await import("./chat-pane.tsx");
 
 const SESSION = "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f";
 const TURN = "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f";
+const PROJECT = "3e0fbc41-6f5d-4a8e-ab9c-4d5e6f708192";
 
 function ev<T extends NapEventType>(
   type: T,
@@ -56,6 +70,7 @@ function ev<T extends NapEventType>(
 
 beforeEach(() => {
   submit.mockClear();
+  window.sessionStorage.clear();
   events.length = 0;
   events.push(
     ev("user.message", { text: "build me a todo list" }, 1),
@@ -76,5 +91,14 @@ describe("LiveChatPane", () => {
     // version of this control, since the turn that failed and the turn that replaces it would
     // cost different amounts for no stated reason.
     expect(submit).toHaveBeenCalledWith("build me a todo list", undefined);
+  });
+
+  it("keeps the dashboard model selected after sending its first prompt", () => {
+    stashFirstPrompt(PROJECT, { text: "build me a todo list", model: "anthropic/claude-opus-5" });
+
+    render(<LiveChatPane projectId={PROJECT} sessionId={SESSION} />);
+
+    expect(submit).toHaveBeenCalledWith("build me a todo list", "anthropic/claude-opus-5");
+    expect(screen.getByRole("button", { name: "Model" })).toHaveTextContent("Claude Opus 5");
   });
 });

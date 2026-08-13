@@ -256,6 +256,14 @@ describe("the model picker", () => {
     expect(onModelChange).toHaveBeenCalledWith("anthropic/claude-opus-5");
   });
 
+  it("highlights model choices on hover", () => {
+    show({ models, model: "openai/gpt-5.6-luna" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Model" }));
+
+    expect(screen.getByRole("button", { name: /Claude Opus 5/ })).toHaveClass("hover:bg-hover");
+  });
+
   it("says which one is running, in words rather than only in colour", () => {
     show({ models, model: "anthropic/claude-opus-5" });
     fireEvent.click(screen.getByRole("button", { name: "Model" }));

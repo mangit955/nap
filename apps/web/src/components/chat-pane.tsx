@@ -205,7 +205,16 @@ export function LiveChatPane({
 
   // Through the same submission path as the input, so the front page's first message is an
   // ordinary turn — same optimistic message, same rate limit, same refusal wording.
-  useFirstPrompt({ projectId, sessionId, submit: (message) => void submit(message) });
+  useFirstPrompt({
+    projectId,
+    sessionId,
+    submit: (message, firstModel) => {
+      // The dashboard's selected model is part of its first prompt. Put it in the workspace
+      // state before sending, so the composer stays truthful for the turns that follow.
+      if (firstModel !== undefined) setModel(firstModel);
+      void submit(message, firstModel);
+    },
+  });
 
   return (
     <ChatPane

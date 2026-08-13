@@ -23,7 +23,7 @@ import { takeFirstPrompt } from "./first-prompt.ts";
 export function useFirstPrompt(options: {
   projectId: string | undefined;
   sessionId: string | undefined;
-  submit: (message: string) => void;
+  submit: (message: string, model?: string) => void;
 }): void {
   const { projectId, sessionId, submit } = options;
 
@@ -36,9 +36,9 @@ export function useFirstPrompt(options: {
   useEffect(() => {
     if (projectId === undefined || sessionId === undefined) return;
 
-    const message = takeFirstPrompt(projectId);
-    if (message === undefined) return;
+    const prompt = takeFirstPrompt(projectId);
+    if (prompt === undefined) return;
 
-    submitRef.current(message);
+    submitRef.current(prompt.text, prompt.model);
   }, [projectId, sessionId]);
 }

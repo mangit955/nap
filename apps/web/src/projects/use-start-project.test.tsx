@@ -61,7 +61,7 @@ describe("starting a project from a prompt", () => {
       expect.objectContaining({ method: "POST" }),
     );
     // The workspace is where the turn is actually sent, so the sentence has to survive the trip.
-    expect(takeFirstPrompt(PROJECT)).toBe("a habit tracker");
+    expect(takeFirstPrompt(PROJECT)).toEqual({ text: "a habit tracker" });
     expect(push).toHaveBeenCalledWith(`/p/${PROJECT}`);
   });
 
@@ -115,5 +115,19 @@ describe("starting a project from a prompt", () => {
     });
 
     expect(fetchJson).not.toHaveBeenCalled();
+  });
+
+  it("carries an explicit model into the first prompt", async () => {
+    const fetchJson = vi.fn().mockResolvedValue(created());
+    const box = mount(fetchJson);
+
+    await act(async () => {
+      await box.current.start("a habit tracker", "anthropic/claude-opus-5");
+    });
+
+    expect(takeFirstPrompt(PROJECT)).toEqual({
+      text: "a habit tracker",
+      model: "anthropic/claude-opus-5",
+    });
   });
 });

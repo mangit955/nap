@@ -25,6 +25,7 @@
 import { type ProjectSummaryPayload, projectState } from "@nap/shared/projects-protocol";
 import { useState } from "react";
 import { EditableTitle } from "../ui/editable-title.tsx";
+import { TrashIcon } from "../ui/icons.tsx";
 import { tileGradient } from "./filters.ts";
 import { relativeTime } from "./relative-time.ts";
 import { thumbnailUrl } from "./thumbnail-url.ts";
@@ -162,11 +163,13 @@ export function ProjectCard({
           ) : (
             <button
               type="button"
+              aria-label={`Delete ${project.name}`}
+              title="Delete project"
               disabled={busy}
               onClick={() => setConfirming(true)}
-              className="text-muted hover:text-danger disabled:opacity-40 focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
+              className="inline-flex size-6 items-center justify-center rounded-chip text-muted hover:bg-danger/10 hover:text-danger disabled:opacity-40 focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
             >
-              Delete
+              <TrashIcon className="size-3.5" />
             </button>
           )}
         </div>

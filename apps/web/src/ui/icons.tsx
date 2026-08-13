@@ -77,6 +77,16 @@ export function PencilIcon({ className = "size-4" }: IconProps) {
   );
 }
 
+export function TrashIcon({ className = "size-4" }: IconProps) {
+  return (
+    <svg aria-hidden="true" {...STROKE} className={className}>
+      <path d="M3.5 5h9" />
+      <path d="M6 5V3.5h4V5M4.5 5l.7 8h5.6l.7-8" />
+      <path d="M6.8 7.2v3.6M9.2 7.2v3.6" />
+    </svg>
+  );
+}
+
 export function TerminalIcon({ className = "size-4" }: IconProps) {
   return (
     <svg aria-hidden="true" {...STROKE} className={className}>

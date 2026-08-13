@@ -64,4 +64,13 @@ describe("the tile", () => {
 
     expect(screen.getByRole("button", { name: /open todo app/i })).toBeInTheDocument();
   });
+
+  it("uses a labelled bin icon to start deletion", () => {
+    show();
+
+    const deleteButton = screen.getByRole("button", { name: /delete todo app/i });
+    expect(deleteButton).toHaveAttribute("title", "Delete project");
+    expect(deleteButton.querySelector("svg")).not.toBeNull();
+    expect(deleteButton).not.toHaveTextContent("Delete");
+  });
 });

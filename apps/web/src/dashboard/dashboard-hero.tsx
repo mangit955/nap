@@ -26,9 +26,12 @@
  * request that turns a sentence into a project.
  */
 
-import { useRef } from "react";
+import type { ModelChoice } from "@nap/shared/models-protocol";
+import { useEffect, useRef } from "react";
+import { ModelPicker } from "../chat/model-picker.tsx";
 import { LitBox } from "../glow/lit-box.tsx";
 import { EXAMPLE_PROMPTS } from "./example-prompts.ts";
+import { appendDictation, useDictation } from "./use-dictation.ts";
 
 /** The composer's face when the light is out — it is a control and has to look like one. */
 const FACE = "border border-edge bg-field shadow-card";
@@ -39,6 +42,9 @@ export function DashboardHero({
   busy = false,
   error,
   prompts = EXAMPLE_PROMPTS,
+  models = [],
+  model,
+  onModelChange,
   onChange,
   onSubmit,
 }: {
@@ -48,11 +54,23 @@ export function DashboardHero({
   busy?: boolean;
   error?: string | undefined;
   prompts?: readonly string[];
+  /** The deployment-backed choices; a single model leaves the control out. */
+  models?: readonly ModelChoice[];
+  /** The selected model or the server fallback shown before a selection is made. */
+  model?: string | undefined;
+  onModelChange?: ((model: string) => void) | undefined;
   onChange: (value: string) => void;
   onSubmit: (message: string) => void;
 }) {
   const box = useRef<HTMLTextAreaElement>(null);
   const band = useRef<HTMLDivElement>(null);
+  const dictation = useDictation((spoken) => onChange(appendDictation(value, spoken)));
+
+  // Navigation begins immediately after project creation. Releasing the recognizer first keeps
+  // a listening browser tab from surviving under the workspace that replaces this page.
+  useEffect(() => {
+    if (busy) dictation.stop();
+  }, [busy, dictation.stop]);
 
   const send = () => {
     const message = value.trim();
@@ -97,30 +115,90 @@ export function DashboardHero({
           />
 
           <div className="flex items-center justify-between px-3.5 pb-3">
-            <span aria-hidden="true" className="text-[11px] text-muted">
-              Enter to send
-            </span>
+            {dictation.supported ? (
+              <div className="flex min-w-0 items-center gap-2 text-[11px] text-muted">
+                <button
+                  type="button"
+                  aria-label={dictation.listening ? "Stop dictation" : "Start dictation"}
+                  aria-pressed={dictation.listening}
+                  disabled={busy}
+                  onClick={dictation.toggle}
+                  className={`grid size-8 shrink-0 place-items-center rounded-[9px] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2 disabled:text-muted ${
+                    dictation.listening
+                      ? "bg-accent text-ink"
+                      : "text-muted hover:bg-hover hover:text-ink"
+                  }`}
+                >
+                  {dictation.listening ? (
+                    <span aria-hidden="true" className="flex h-4 items-center gap-px">
+                      {[0, 1, 2].map((bar) => (
+                        <span
+                          key={bar}
+                          className="nap-eq-bar h-3 w-[2px] rounded-full bg-current"
+                          style={{ animationDelay: `${bar * 110}ms` }}
+                        />
+                      ))}
+                    </span>
+                  ) : (
+                    <svg
+                      viewBox="0 0 16 16"
+                      aria-hidden="true"
+                      className="size-4 fill-none stroke-current"
+                      strokeWidth="1.4"
+                      strokeLinecap="round"
+                    >
+                      <rect x="5.3" y="1.8" width="5.4" height="8.2" rx="2.7" />
+                      <path d="M3.4 7.8a4.6 4.6 0 0 0 9.2 0M8 12.4v2M5.8 14.4h4.4" />
+                    </svg>
+                  )}
+                </button>
 
-            <button
-              type="button"
-              aria-label="Send"
-              onClick={send}
-              disabled={busy || value.trim() === ""}
-              className="grid size-8 place-items-center rounded-[9px] bg-accent transition-opacity hover:opacity-90 disabled:bg-hover disabled:text-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
-            >
-              <svg
-                viewBox="0 0 12 12"
-                aria-hidden="true"
-                className="size-4 fill-none stroke-current text-ink"
-                strokeWidth="1.6"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+                {dictation.listening && (
+                  <span className="min-w-0 truncate" aria-live="polite">
+                    {dictation.interim === "" ? "Listening…" : dictation.interim}
+                  </span>
+                )}
+              </div>
+            ) : (
+              <span aria-hidden="true" className="text-[11px] text-muted" />
+            )}
+
+            <div className="flex items-center gap-2">
+              <ModelPicker
+                models={models}
+                model={model}
+                disabled={busy}
+                onChange={(choice) => onModelChange?.(choice)}
+                onPick={() => box.current?.focus()}
+              />
+
+              <button
+                type="button"
+                aria-label="Send"
+                onClick={send}
+                disabled={busy || value.trim() === ""}
+                className="grid size-8 place-items-center rounded-[9px] bg-accent transition-opacity hover:opacity-90 disabled:bg-hover disabled:text-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
               >
-                <path d="M6 9.5V2.5M6 2.5 3 5.5M6 2.5 9 5.5" />
-              </svg>
-            </button>
+                <svg
+                  viewBox="0 0 12 12"
+                  aria-hidden="true"
+                  className="size-4 fill-none stroke-current text-ink"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M6 9.5V2.5M6 2.5 3 5.5M6 2.5 9 5.5" />
+                </svg>
+              </button>
+            </div>
           </div>
         </LitBox>
+
+        {dictation.error !== undefined && (
+          <p role="alert" className="mt-4 text-danger text-sm">
+            {dictation.error}
+          </p>
+        )}
 
         {error !== undefined && (
           // `alert` because the sentence the user just sent has gone nowhere and nothing else on

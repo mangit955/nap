@@ -81,7 +81,7 @@ describe("the project grid", () => {
   it("asks before deleting, because the bytes go too", () => {
     const { onDelete } = show();
 
-    fireEvent.click(screen.getByRole("button", { name: /^delete$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /delete habit builder/i }));
     expect(onDelete).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: /yes, delete/i }));
