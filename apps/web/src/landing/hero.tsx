@@ -26,6 +26,7 @@ import { BadgeTrail } from "../badge-trail/badge-trail.tsx";
 import { MorphCard } from "../glow/morph-card.tsx";
 import { Doodles } from "./doodles.tsx";
 import { Headline } from "./headline.tsx";
+import { WayIn } from "./way-in.tsx";
 
 /**
  * The sentence, and where it breaks.
@@ -77,13 +78,15 @@ export function Hero() {
           <MorphCard paletteRef={stage} faceClassName={RAISED} />
         </div>
 
-        <WayIn />
+        <div className="mt-10">
+          <WayIn />
+        </div>
       </div>
 
       {/*
-        Inside the stage rather than under it. The hero fills the viewport, so anything placed
-        after it would be a strip of the dark page at the foot of the first screen — which is
-        the one thing this section is not supposed to have.
+        Inside the stage rather than under it. The hero fills the viewport, so a line placed after
+        it would sit in the gap between the first screen and the next section — where it reads as
+        the top of that section rather than as the foot of this one.
       */}
       <p className="absolute inset-x-0 bottom-6 text-center text-[var(--s-text-subtle)] text-xs">
         {/* The span, not the paragraph: the paragraph is the full width of the stage and would
@@ -91,29 +94,5 @@ export function Hero() {
         <span data-no-trail>Every app is built in its own sandbox, and only you can open it.</span>
       </p>
     </section>
-  );
-}
-
-/**
- * Two links rather than one: signing up and signing in are different intentions, and a single
- * button asks the person who already has an account to guess that it means them too. They lead
- * to the same page, which opens on the half they asked for.
- */
-function WayIn() {
-  return (
-    <div className="mt-10 flex items-center gap-3">
-      <a
-        href="/sign-up"
-        className="rounded-full bg-[var(--s-text-primary)] px-5 py-2.5 font-medium text-[var(--s-text-inverse)] text-sm transition-opacity hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--s-text-primary)] focus-visible:outline-offset-2"
-      >
-        Sign up
-      </a>
-      <a
-        href="/sign-in"
-        className="rounded-full border border-[var(--s-border-1)] px-5 py-2.5 font-medium text-[var(--s-text-body)] text-sm transition-colors hover:border-[var(--s-text-subtle)] hover:text-[var(--s-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--s-text-primary)] focus-visible:outline-offset-2"
-      >
-        Sign in
-      </a>
-    </div>
   );
 }

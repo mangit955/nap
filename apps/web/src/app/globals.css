@@ -1622,6 +1622,46 @@ body {
 }
 
 /*
+ * Sections arriving as the landing page is scrolled.
+ *
+ * The hiding rule is keyed on `data-reveal="pending"`, an attribute `useReveal` only writes once
+ * it has an observer that will take it off again — so markup that has never met JavaScript has
+ * nothing here to match, and cannot be left blank. The travel is small and the fade does most of
+ * the work: a section sliding a long way reads as a slide, where fourteen pixels reads as the
+ * page settling.
+ *
+ * The delay is a custom property rather than a rule per position, which is what lets one row
+ * stagger its children by handing each a different number.
+ */
+.nap-reveal {
+  transition:
+    opacity 520ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    transform 520ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  transition-delay: var(--nap-reveal-delay, 0ms);
+}
+
+.nap-reveal[data-reveal="pending"] {
+  opacity: 0;
+  transform: translateY(14px);
+}
+
+/*
+ * Belt and braces with the hook, which also declines to arm under this query. Two mechanisms
+ * because they fail differently: the hook cannot help a page whose script never ran, and a
+ * stylesheet cannot stop an observer from writing the attribute.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .nap-reveal {
+    transition: none;
+  }
+
+  .nap-reveal[data-reveal="pending"] {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/*
  * The panes' own scrollbars.
  *
  * macOS hides its overlay bar until you scroll, so this looks like nothing there and is the

@@ -179,6 +179,19 @@ export function PanelIcon({ open, className = "size-4" }: IconProps & { open: bo
   );
 }
 
+/**
+ * The GitHub mark — the one icon here that is filled rather than stroked, because it is somebody
+ * else's logo and redrawing it at 1.4 stroke would make it a different mark. It keeps the 16px
+ * grid and `currentColor` so it still tints and sizes like the rest of the set.
+ */
+export function GithubIcon({ className = "size-4" }: IconProps) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 16 16" fill="currentColor" className={className}>
+      <path d="M8 .2a8 8 0 0 0-2.53 15.6c.4.07.55-.18.55-.39l-.01-1.37c-2.01.37-2.53-.49-2.7-.94-.09-.24-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.4 7.4 0 0 1 2-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48l-.01 2.19c0 .21.15.47.55.39A8 8 0 0 0 8 .2" />
+    </svg>
+  );
+}
+
 export function CloseIcon({ className = "size-4" }: IconProps) {
   return (
     <svg aria-hidden="true" {...STROKE} className={className}>
