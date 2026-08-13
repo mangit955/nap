@@ -283,6 +283,9 @@ logger.info(
     platform: env.NAP_PLATFORM,
     model: env.NAP_MODEL,
     effort: env.NAP_EFFORT,
+    // Whether the dashboard's cards will get pictures. Off is a perfectly good state to run in,
+    // but it is indistinguishable from a capture that keeps failing unless the boot says which.
+    screenshots: env.NAP_CHROME_PATH === undefined ? "off" : "on",
     reapIdleMinutes: env.NAP_REAP_IDLE_MINUTES,
     sandboxTtlMinutes: env.NAP_SANDBOX_TTL_MINUTES,
     turnsPerHour: env.NAP_TURNS_PER_HOUR,
