@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { nextTrick, TRICKS } from "./nap-tricks.ts";
+import { nextTrick, pickDifferent, TRICKS } from "./nap-tricks.ts";
 
 /**
  * The choosing, which is the half that can be wrong without looking wrong: a ghost stuck on an
@@ -48,5 +48,33 @@ describe("choosing the next trick", () => {
     // The durations belong to the animations in `globals.css`; one cut short drops the ghost
     // through the floor mid-hop.
     for (const trick of TRICKS) expect(trick.ms).toBeGreaterThanOrEqual(1000);
+  });
+});
+
+describe("picking one of anything", () => {
+  const WORDS = ["Stretching", "Yawning", "Rummaging"] as const;
+
+  it("never repeats the previous choice", () => {
+    // The loader picks two things this way — what the ghost does and the word under it — and
+    // both are ruined by the same failure: a repeat reads as the screen having frozen.
+    for (const previous of WORDS) {
+      for (let step = 0; step <= 20; step += 1) {
+        expect(pickDifferent(WORDS, previous, step / 20)).not.toBe(previous);
+      }
+    }
+  });
+
+  it("reaches every option", () => {
+    const seen = new Set(
+      Array.from({ length: 60 }, (_, step) => pickDifferent(WORDS, undefined, step / 60)),
+    );
+
+    expect([...seen].toSorted()).toEqual([...WORDS].toSorted());
+  });
+
+  it("still answers when only one option is left", () => {
+    // Two options and one of them just used: the alternative is a list of nothing to choose
+    // from, and a picker that returned `undefined` there would blank the line it feeds.
+    expect(pickDifferent(["a", "b"], "a", 0.9)).toBe("b");
   });
 });

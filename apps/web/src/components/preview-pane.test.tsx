@@ -115,6 +115,14 @@ describe("a project that has been put away", () => {
     expect(screen.queryByRole("button", { name: /resume/i })).not.toBeInTheDocument();
   });
 
+  it("counts how long the wait has been going on", () => {
+    // The one hard fact on this screen, and what tells slow apart from stuck. The rotating word
+    // above it is flavour and hidden from readers; this line is what gets announced.
+    render(<PreviewPane events={[asked(), ready(), stopped()]} resuming />);
+
+    expect(screen.getByText(/starting the dev server/i)).toHaveTextContent(/\d+s/);
+  });
+
   it("waits with the ghost rather than a spinner", () => {
     // The wait is tens of seconds in a pane with nothing else in it. Queried by class, which is
     // the same exception the syntax-highlighting tests take: an animated mark is decoration and

@@ -297,22 +297,157 @@ body {
  * overrides the breath while it runs — and the reduced-motion block at the foot of this section
  * matches that specificity, or a ghost that was asked to hold still would hop anyway.
  */
+/*
+ * **Four layers, on four clocks.** The first version of this put every gesture on one element
+ * and one timeline: the ghost held perfectly still, did a trick, and held still again — which
+ * reads as an image being transformed rather than as something alive. What reads as alive is
+ * several small motions whose periods share no common factor, so the composite drifts in and
+ * out of phase and never settles into a loop anybody can learn.
+ *
+ * The layers are nested rather than stacked on one element because two animations driving
+ * `transform` do not compose — the last declared wins outright.
+ *
+ *   .nap-loader        float, 2.9s   — the whole thing rising and settling
+ *   .nap-loader-sway   sway,  5.3s   — a slow lean, never quite upright
+ *   .nap-mark-body     breathe 3.6s  — and whichever trick is showing
+ *   .nap-mark-eyes     saccade 7.1s  — small darts with long holds
+ *   .nap-mark-open     blink,  6.7s  — two fast closures, unevenly spaced
+ */
 .nap-loader {
   display: inline-block;
+  animation: nap-float 2900ms ease-in-out infinite;
 }
 
+.nap-loader-sway {
+  display: block;
+  width: 100%;
+  height: 100%;
+  animation: nap-sway 5300ms ease-in-out infinite;
+}
+
+/*
+ * The eyes, which are most of the effect.
+ *
+ * A face that never blinks is the thing that makes a character read as a decal, and it is the
+ * single cheapest fix available here: two closures a few seconds apart, each about ninety
+ * milliseconds, which is roughly what a real one takes. Fewer than that and it is a glitch;
+ * slower and it is a creature falling asleep.
+ *
+ * The blink is a crossfade between the two groups the mark already has — lids and open eyes —
+ * so it is the same drawing doing it, not an overlay. The saccade moves the pair sideways on a
+ * *different* property and a different element, which is what lets both run at once.
+ */
 .nap-loader .nap-mark-shut {
   opacity: 0;
+  animation: nap-lid 6700ms ease-in-out infinite;
 }
 
 .nap-loader .nap-mark-open {
   opacity: 1;
+  animation: nap-blink 6700ms ease-in-out infinite;
+}
+
+.nap-loader .nap-mark-eyes {
+  animation: nap-saccade 7100ms ease-in-out infinite;
 }
 
 /* Nothing yawns while it is busy. */
 .nap-loader .nap-mark-z {
   animation: none;
   opacity: 0;
+}
+
+/* Barely a pixel and a half at 56px. Enough to read as weightless, not enough to be a bounce. */
+@keyframes nap-float {
+  0%,
+  100% {
+    transform: translateY(2.5%);
+  }
+  50% {
+    transform: translateY(-2.5%);
+  }
+}
+
+/* Off-centre on purpose: the two ends differ, so the lean never looks like a metronome. */
+@keyframes nap-sway {
+  0%,
+  100% {
+    transform: rotate(-2.4deg);
+  }
+  38% {
+    transform: rotate(1.8deg);
+  }
+  72% {
+    transform: rotate(3deg);
+  }
+}
+
+/*
+ * Two blinks per cycle, unevenly spaced, each about 90ms of a 6.7s loop — hence the very tight
+ * keyframe percentages. Evenly spaced blinks are a ticking clock; these read as a face.
+ */
+@keyframes nap-blink {
+  0%,
+  25.6%,
+  27%,
+  32.4%,
+  33.8%,
+  100% {
+    opacity: 1;
+  }
+  26%,
+  26.6%,
+  32.8%,
+  33.4% {
+    opacity: 0;
+  }
+}
+
+/* The lids, exactly inverse, so the eyes are never both closed and open at once. */
+@keyframes nap-lid {
+  0%,
+  25.6%,
+  27%,
+  32.4%,
+  33.8%,
+  100% {
+    opacity: 0;
+  }
+  26%,
+  26.6%,
+  32.8%,
+  33.4% {
+    opacity: 1;
+  }
+}
+
+/*
+ * Looking about while it waits: two darts and a long hold back at centre.
+ *
+ * The holds are the point. Eyes that slide continuously read as a scanning machine; eyes that
+ * jump and then rest read as something deciding where to look next.
+ */
+@keyframes nap-saccade {
+  0%,
+  18% {
+    transform: translateX(0);
+  }
+  22%,
+  36% {
+    transform: translateX(1.9px);
+  }
+  40%,
+  44% {
+    transform: translateX(0);
+  }
+  48%,
+  62% {
+    transform: translateX(-2.1px);
+  }
+  66%,
+  100% {
+    transform: translateX(0);
+  }
 }
 
 .nap-loader[data-trick="glance"] .nap-mark-eyes {
@@ -415,9 +550,24 @@ body {
  * hop at somebody who had switched motion off.
  */
 @media (prefers-reduced-motion: reduce) {
+  .nap-loader,
+  .nap-loader-sway,
+  .nap-loader .nap-mark-open,
+  .nap-loader .nap-mark-shut,
   .nap-loader[data-trick] .nap-mark-body,
-  .nap-loader[data-trick] .nap-mark-eyes {
+  .nap-loader[data-trick] .nap-mark-eyes,
+  .nap-loader .nap-mark-eyes {
     animation: none;
+  }
+
+  /* With the blink switched off, the two groups have to be left in their resting state by
+     hand — the crossfade above is what was holding the lids out of the way. */
+  .nap-loader .nap-mark-shut {
+    opacity: 0;
+  }
+
+  .nap-loader .nap-mark-open {
+    opacity: 1;
   }
 }
 

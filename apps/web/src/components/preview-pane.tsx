@@ -1,13 +1,15 @@
 "use client";
 
 import type { StoredEvent } from "@nap/shared/ports/event-store";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NapLoader } from "../brand/nap-loader.tsx";
 import { NapMark } from "../brand/nap-mark.tsx";
+import { pickDifferent } from "../brand/nap-tricks.ts";
 import { turnFailureCopy } from "../errors/failure-copy.ts";
 import { useEventStream } from "../hooks/use-event-stream.ts";
 import { isPutAway, type PreviewState, previewState } from "../preview/preview-state.ts";
 import { AlertIcon } from "../ui/icons.tsx";
+import { useElapsed } from "../ui/use-elapsed.ts";
 import { previewUrlFor } from "../workspace/route-path.ts";
 import { Pane } from "./pane.tsx";
 
@@ -31,6 +33,25 @@ import { Pane } from "./pane.tsx";
 export const PREVIEW_TITLE = "App preview";
 
 const SANDBOX = "allow-scripts allow-same-origin allow-forms allow-popups allow-modals";
+
+/**
+ * What the ghost is up to while a project comes back.
+ *
+ * Flavour, and unmistakably so — nothing here claims a step has finished, because nothing in
+ * the system reports one. The factual line sits underneath, unchanged, with a clock beside it.
+ */
+const WAITING_WORDS = [
+  "Waking up",
+  "Stretching",
+  "Yawning",
+  "Rummaging about",
+  "Finding your files",
+  "Putting the kettle on",
+  "Tidying up",
+] as const;
+
+/** Long enough to read, short enough that the screen is never still for long. */
+const WORD_MS = 2800;
 
 export type PreviewPaneProps = {
   events: readonly StoredEvent[];
@@ -153,19 +174,7 @@ function Waiting({
           </>
         )}
 
-        {state.status === "starting" && (
-          <>
-            {/*
-              The ghost rather than a spinner, and big enough to be a character rather than an
-              icon: this wait is tens of seconds long in a pane with nothing else in it, and a
-              spinner that size stops reading as progress about two seconds in.
-            */}
-            <NapLoader className="size-14 text-ink-2" />
-            {/* The same shimmer the transcript's working indicator uses, so waiting looks
-                like one thing wherever it happens. */}
-            <p className="nap-shimmer text-[13px]">Starting the dev server…</p>
-          </>
-        )}
+        {state.status === "starting" && <StartingUp />}
 
         {state.status === "stopped" && <PutAway onResume={onResume} error={resumeError} />}
 
@@ -173,6 +182,65 @@ function Waiting({
       </div>
     </div>
   );
+}
+
+/**
+ * The wait while a sandbox comes up, which is tens of seconds in an otherwise empty pane.
+ *
+ * Three things, and each says something the others cannot. The **ghost** says the page is
+ * alive. The **word above the line** changes every few seconds, which is what stops a static
+ * screen reading as a stalled one — and it is deliberately whimsy rather than a phase, because
+ * **nothing reports the real phase**: a restore emits no progress events, so "Installing
+ * dependencies…" would be a number invented to look informative. The **elapsed count** is the
+ * one hard fact available, and it is the thing that distinguishes slow from stuck.
+ *
+ * Only the fixed line is announced. A reader gets "Starting the dev server" once rather than a
+ * new word every three seconds, and a clock that would be read out on every tick.
+ */
+function StartingUp() {
+  const word = useRotating(WAITING_WORDS, WORD_MS);
+  const elapsed = useElapsed({ precision: 0 });
+
+  return (
+    <>
+      {/*
+        The ghost rather than a spinner, and big enough to be a character rather than an icon:
+        a 20px spinner in a pane this size stops reading as progress about two seconds in.
+      */}
+      <NapLoader className="size-14 text-ink-2" />
+
+      <div className="flex flex-col items-center gap-1">
+        {/* The same shimmer the transcript's working indicator uses, so waiting looks like one
+            thing wherever it happens. */}
+        <p aria-hidden="true" className="nap-shimmer text-[13px]">
+          {word}…
+        </p>
+        <p className="font-mono text-[11px] text-muted tabular-nums">
+          Starting the dev server · <span aria-hidden="true">{elapsed}</span>
+        </p>
+      </div>
+    </>
+  );
+}
+
+/**
+ * A different word every `everyMs`, and never the one before it.
+ *
+ * The same pick the ghost's own tricks use, for the same reason: a fixed rotation is learned in
+ * one cycle, after which the screen may as well be static again.
+ */
+function useRotating(words: readonly string[], everyMs: number): string {
+  const [word, setWord] = useState(() => words[0] ?? "");
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setWord((previous) => pickDifferent(words, previous, Math.random()));
+    }, everyMs);
+
+    return () => clearInterval(timer);
+  }, [words, everyMs]);
+
+  return word;
 }
 
 /**

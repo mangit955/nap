@@ -139,6 +139,22 @@ describe("opening a put-away project", () => {
     expect(screen.queryByRole("button", { name: /^resume$/i })).not.toBeInTheDocument();
   });
 
+  it("never flashes the put-away screen on the way in", async () => {
+    // Effects run *after* paint, so a flag set by the auto-start effect is false for the frame
+    // the panes first draw in — and in that frame the log already says `preview.stopped`, so
+    // the pane drew the whole "This project is put away" screen and its button. An offer to do
+    // something that was already happening, for one frame, every single time.
+    render(<AppShell projectId={PROJECT} />);
+
+    // The first paint, before anything has settled.
+    expect(screen.queryByRole("button", { name: /^resume$/i })).not.toBeInTheDocument();
+
+    // And every frame after it, up to the request going out.
+    await waitFor(() => expect(opens).toBe(1));
+    expect(screen.queryByRole("button", { name: /^resume$/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/starting the dev server/i)).toBeInTheDocument();
+  });
+
   it("shows the app as soon as the restore announces itself, with no reload", async () => {
     render(<AppShell projectId={PROJECT} />);
     await waitFor(() => expect(opens).toBe(1));

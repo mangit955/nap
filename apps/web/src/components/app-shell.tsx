@@ -5,6 +5,7 @@ import { type OpenProject, useProject } from "../projects/use-projects.ts";
 import { Splitter } from "../ui/splitter.tsx";
 import { LiveCodePane } from "../workspace/code-pane.tsx";
 import { CHAT_SPLIT, DEFAULT_CHAT_WIDTH } from "../workspace/split.ts";
+import { isStartingUp } from "../workspace/starting-up.ts";
 import type { WorkbenchTab } from "../workspace/tabs.ts";
 import { usePaneWidth } from "../workspace/use-pane-width.ts";
 import { Workbench } from "../workspace/workbench.tsx";
@@ -69,6 +70,8 @@ export function AppShell({ projectId }: { projectId: string }) {
     void resume();
   }, [status, putAwayAt, projectId, resume]);
 
+  const startingUp = isStartingUp({ status, resuming, putAwayAt, resumeError });
+
   const [tab, setTab] = useState<WorkbenchTab>("preview");
   const [chatOpen, setChatOpen] = useState(true);
   /**
@@ -119,7 +122,7 @@ export function AppShell({ projectId }: { projectId: string }) {
               reloads={reloads}
               onPreviewReady={setReady}
               onResume={() => void resume()}
-              resuming={resuming}
+              resuming={startingUp}
               {...(putAwayAt === undefined ? {} : { putAwayAt })}
               {...(resumeError === undefined ? {} : { resumeError })}
             />
@@ -128,7 +131,7 @@ export function AppShell({ projectId }: { projectId: string }) {
             <LiveCodePane
               sessionId={sessionId}
               active={tab === "code"}
-              resuming={resuming}
+              resuming={startingUp}
               {...(putAwayAt === undefined ? {} : { putAwayAt })}
             />
           }

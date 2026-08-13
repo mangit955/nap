@@ -36,8 +36,15 @@ export const TRICKS: readonly Trick[] = [
   { name: "spin", ms: 1300, weight: 1 },
 ] as const;
 
-/** The still beat between two tricks. Without it the ghost never stops moving, which is manic. */
-export const REST_MS = 700;
+/**
+ * The beat between two tricks.
+ *
+ * Short, because it is no longer a *still* beat: the ghost floats, sways, breathes and blinks
+ * underneath whatever it is doing, so this is the pause between two deliberate gestures rather
+ * than a pause in the animation. When it was seven hundred milliseconds of nothing moving, the
+ * whole thing read as a picture being transformed on a timer.
+ */
+export const REST_MS = 350;
 
 /**
  * The next thing to do, given the last one.
@@ -51,20 +58,40 @@ export const REST_MS = 700;
  * of its inputs and every branch is reachable from a test.
  */
 export function nextTrick(previous: Trick | undefined, random: number): Trick {
-  const eligible = TRICKS.filter((trick) => trick.name !== previous?.name);
-  const total = eligible.reduce((sum, trick) => sum + trick.weight, 0);
+  return pickDifferent(TRICKS, previous, random, (trick) => trick.weight);
+}
+
+/**
+ * One of `options`, weighted, and never the one just used.
+ *
+ * Shared because the loader picks two things this way — what the ghost does, and the word under
+ * it — and a second copy of the never-repeat rule is a second place for it to stop being true.
+ *
+ * The equality that decides "the same one" is identity: callers hand back the item they were
+ * given last time, so nothing here needs to know what an item *is*.
+ */
+export function pickDifferent<T>(
+  options: readonly T[],
+  previous: T | undefined,
+  random: number,
+  weightOf: (option: T) => number = () => 1,
+): T {
+  const eligible = options.filter((option) => option !== previous);
+  const total = eligible.reduce((sum, option) => sum + weightOf(option), 0);
 
   // Clamped rather than trusted: `random` is a caller's number, and one that arrives at exactly
   // 1 — or above it — would walk off the end of the list and freeze the ghost on `undefined`.
   const target = Math.min(Math.max(random, 0), 0.999999) * total;
 
   let seen = 0;
-  for (const trick of eligible) {
-    seen += trick.weight;
-    if (target < seen) return trick;
+  for (const option of eligible) {
+    seen += weightOf(option);
+    if (target < seen) return option;
   }
 
-  // Unreachable while the list has weight, and a real value beats a throw: the ghost is
-  // decoration, and nothing about a loading state is worth taking a pane down for.
-  return eligible[0] ?? TRICKS[0] ?? { name: "glance", ms: 2400, weight: 1 };
+  // Unreachable while the list has weight, and a real value beats a throw: this is decoration,
+  // and nothing about a loading state is worth taking a pane down for.
+  const fallback = eligible[0] ?? options[0];
+  if (fallback === undefined) throw new Error("pickDifferent needs something to pick from");
+  return fallback;
 }

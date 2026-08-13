@@ -54,12 +54,21 @@ export function NapLoader({ className = "size-12" }: { className?: string }) {
   }, []);
 
   return (
+    // Three nested elements because three things move at once and they must not fight: two
+    // animations on one element that both drive `transform` do not compose — the last one
+    // declared simply wins, which is how the first version of this ended up with a ghost that
+    // was completely still except when it was doing a trick. Nested, each layer owns its own
+    // transform: the outer floats, the inner sways, and the drawing inside breathes and
+    // performs. Their periods share no common factor, so the composite never settles into a
+    // loop the eye can learn.
     <span
       aria-hidden="true"
       className={`nap-loader ${className}`}
       {...(trick === undefined ? {} : { "data-trick": trick.name })}
     >
-      <NapMark className="size-full" />
+      <span className="nap-loader-sway">
+        <NapMark className="size-full" />
+      </span>
     </span>
   );
 }
