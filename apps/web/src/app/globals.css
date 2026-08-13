@@ -324,19 +324,29 @@ body {
 /* He types; the desk he is typing at does not, and neither does the card around both. */
 .nap-sticker-code .nap-mark {
   animation: nap-type 5200ms linear infinite;
-  transition: transform 340ms cubic-bezier(0.3, 0.85, 0.35, 1);
+}
+
+/*
+ * Unhurried on the way down and on the way back: he is sinking out of sight, not being dropped
+ * through a trapdoor. A short, sharp curve here reads as a UI element toggling — which is the
+ * one thing these are not.
+ */
+.nap-sticker-code .nap-hider {
+  transition: transform 620ms cubic-bezier(0.45, 0.05, 0.25, 1);
 }
 
 .nap-sticker-code .nap-paws {
   transition:
-    transform 340ms cubic-bezier(0.3, 0.85, 0.35, 1) 60ms,
-    opacity 200ms ease 120ms;
+    transform 620ms cubic-bezier(0.45, 0.05, 0.25, 1) 40ms,
+    opacity 380ms ease 140ms;
 }
 
-/* The jitter has to stop, not merely be overridden: an animation on `transform` beats the
-   property, so leaving it running would hold him at the keyboard while he tried to duck. */
+/* The typing stops the moment he moves — hands off the keys first, then down. */
 .nap-sticker-code:hover .nap-mark {
   animation: none;
+}
+
+.nap-sticker-code:hover .nap-hider {
   transform: translateY(19px);
 }
 
@@ -653,7 +663,7 @@ body {
 
   /* He still hides — that is the point of the sticker — he just arrives there instead of
      sliding, which is the same bargain the mark's own waking makes. */
-  .nap-sticker-code .nap-mark,
+  .nap-sticker-code .nap-hider,
   .nap-sticker-code .nap-paws,
   .nap-sticker-code .nap-screen {
     transition: none;

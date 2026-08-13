@@ -96,8 +96,15 @@ export function NapStickers() {
           Nudged right, because the ghost is not centred in its own viewBox — the box is grown up
           and to the right to give the z's room to rise into, so centring the *svg* leaves the
           drawing sitting left of centre and the two paws land lopsided on the lid.
+
+          The wrapper exists so that the two things he does can happen on two elements: it owns
+          the slide down out of sight, the mark inside it owns the typing. Both on one element,
+          the jitter's `transform` outranks the slide's — so leaving the sticker snapped him back
+          to the keyboard the instant the animation resumed, instead of letting him climb.
         */}
-        <NapMark className="-translate-y-2 size-[4.4rem] translate-x-[0.36rem]" />
+        <div className="nap-hider -translate-y-2 translate-x-[0.36rem]">
+          <NapMark className="size-[4.4rem]" />
+        </div>
 
         <svg
           aria-hidden="true"
