@@ -279,6 +279,149 @@ body {
 }
 
 /*
+ * The mark as a loading state: awake, and keeping itself busy.
+ *
+ * A project takes tens of seconds to come back up, and for all of them the preview pane is the
+ * largest empty surface in the app. A spinner there says "working" for about two seconds and
+ * then says "stuck"; a character doing something different every couple of seconds keeps
+ * reading as alive, because the next thing it does is not the thing you just watched.
+ *
+ * **Awake is the whole difference from the resting mark.** The lids come off, the eyes come up,
+ * and the z's stop — a ghost yawning over "starting the dev server" would be saying the
+ * opposite of what the pane means. Breathing is left running underneath, so between tricks it
+ * is still visibly a live thing rather than a paused drawing.
+ *
+ * Which trick is showing arrives as `data-trick` from `nap-loader.tsx`; between them the
+ * attribute is absent, which is the still beat and needs no rule of its own. The selectors are
+ * deliberately more specific than the mark's own `.nap-mark-body` animation so a trick
+ * overrides the breath while it runs — and the reduced-motion block at the foot of this section
+ * matches that specificity, or a ghost that was asked to hold still would hop anyway.
+ */
+.nap-loader {
+  display: inline-block;
+}
+
+.nap-loader .nap-mark-shut {
+  opacity: 0;
+}
+
+.nap-loader .nap-mark-open {
+  opacity: 1;
+}
+
+/* Nothing yawns while it is busy. */
+.nap-loader .nap-mark-z {
+  animation: none;
+  opacity: 0;
+}
+
+.nap-loader[data-trick="glance"] .nap-mark-eyes {
+  animation: nap-glance 2.4s ease-in-out both;
+}
+
+.nap-loader[data-trick="hop"] .nap-mark-body {
+  animation: nap-trick-hop 1.1s cubic-bezier(0.3, 0.9, 0.4, 1) both;
+}
+
+.nap-loader[data-trick="wobble"] .nap-mark-body {
+  animation: nap-trick-wobble 1.4s ease-in-out both;
+}
+
+.nap-loader[data-trick="peek"] .nap-mark-body {
+  animation: nap-trick-peek 1.6s ease-in-out both;
+}
+
+.nap-loader[data-trick="spin"] .nap-mark-body {
+  animation: nap-trick-spin 1.3s cubic-bezier(0.5, 0, 0.3, 1) both;
+}
+
+/*
+ * A hop, with the squash on either end of it.
+ *
+ * The crouch before and the flatten after are what make it read as weight rather than as a
+ * shape being translated upwards — nine tenths of the charm of this is in two keyframes that
+ * are barely five per cent wide.
+ */
+@keyframes nap-trick-hop {
+  0%,
+  100% {
+    transform: translateY(0) scale(1, 1);
+  }
+  12% {
+    transform: translateY(0.6px) scale(1.08, 0.92);
+  }
+  45% {
+    transform: translateY(-3.4px) scale(0.94, 1.06);
+  }
+  78% {
+    transform: translateY(0.5px) scale(1.06, 0.94);
+  }
+}
+
+/* A shrug: over, back through centre, over the other way, and settle. */
+@keyframes nap-trick-wobble {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(7deg);
+  }
+  60% {
+    transform: rotate(-7deg);
+  }
+  85% {
+    transform: rotate(2deg);
+  }
+}
+
+/* Ducking out of frame and coming back up, the way somebody checks whether the coast is clear. */
+@keyframes nap-trick-peek {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  30%,
+  45% {
+    transform: translateY(4px) scale(0.9, 0.86);
+  }
+  70% {
+    transform: translateY(-1.2px) scale(1.02);
+  }
+}
+
+/*
+ * One full turn — the rare one, and the reason `nextTrick` is weighted.
+ *
+ * It dips into the turn and comes out of it slightly small, so the ghost looks like it threw
+ * itself round rather than like an image being rotated by a stylesheet.
+ */
+@keyframes nap-trick-spin {
+  0% {
+    transform: rotate(0deg) scale(1);
+  }
+  35% {
+    transform: rotate(150deg) scale(0.92);
+  }
+  100% {
+    transform: rotate(360deg) scale(1);
+  }
+}
+
+/*
+ * Asked to hold still, it holds still — awake, eyes open, and doing none of the above. The
+ * selectors here have to match the specificity of the ones above; the mark's own reduced-motion
+ * block is a class shorter, so on its own it would lose to `[data-trick]` and the ghost would
+ * hop at somebody who had switched motion off.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .nap-loader[data-trick] .nap-mark-body,
+  .nap-loader[data-trick] .nap-mark-eyes {
+    animation: none;
+  }
+}
+
+/*
  * The working indicator in the chat pane: a grid of cells, and a label lit by a passing band.
  *
  * The cells rest dim rather than off. A wavefront moving through cells that are otherwise

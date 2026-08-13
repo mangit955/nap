@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { type OpenProject, useProject } from "../projects/use-projects.ts";
 import { Splitter } from "../ui/splitter.tsx";
 import { LiveCodePane } from "../workspace/code-pane.tsx";
@@ -42,6 +42,32 @@ export function AppShell({ projectId }: { projectId: string }) {
     { previewSeq: ready?.seq },
   );
   const sessionId = project?.sessionIds[0];
+
+  /**
+   * Which project this page has already asked to start, so it never asks twice.
+   *
+   * A refused resume — the sandbox quota answers 409 — deliberately leaves the record saying
+   * the project is put away, so without this a re-render would fire the request again, and
+   * again. One attempt per project; if it fails, the pane's own Resume button is the retry.
+   */
+  const started = useRef<string | undefined>(undefined);
+
+  /**
+   * Opening a project starts it. Nobody navigates to their own app to be asked whether they
+   * meant it — the button that used to be the only way in is now the fallback for a start that
+   * was refused.
+   *
+   * Only for a project the server says is put away. One that has never run reports no
+   * `putAwayAt` at all, and starting a sandbox for it would spend a minute of somebody's quota
+   * on an empty template; its first prompt is what brings it up.
+   */
+  useEffect(() => {
+    if (status !== "ready" || putAwayAt === undefined) return;
+    if (started.current === projectId) return;
+
+    started.current = projectId;
+    void resume();
+  }, [status, putAwayAt, projectId, resume]);
 
   const [tab, setTab] = useState<WorkbenchTab>("preview");
   const [chatOpen, setChatOpen] = useState(true);

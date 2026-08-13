@@ -115,6 +115,16 @@ describe("a project that has been put away", () => {
     expect(screen.queryByRole("button", { name: /resume/i })).not.toBeInTheDocument();
   });
 
+  it("waits with the ghost rather than a spinner", () => {
+    // The wait is tens of seconds in a pane with nothing else in it. Queried by class, which is
+    // the same exception the syntax-highlighting tests take: an animated mark is decoration and
+    // has no accessible surface at all — the sentence beside it is what a reader gets, and that
+    // is asserted above.
+    const { container } = render(<PreviewPane events={[asked(), ready(), stopped()]} resuming />);
+
+    expect(container.querySelector(".nap-loader")).toBeInTheDocument();
+  });
+
   it("shows a refusal next to the button that caused it", () => {
     render(
       <PreviewPane

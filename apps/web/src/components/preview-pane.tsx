@@ -2,11 +2,12 @@
 
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { useEffect, useRef } from "react";
+import { NapLoader } from "../brand/nap-loader.tsx";
 import { NapMark } from "../brand/nap-mark.tsx";
 import { turnFailureCopy } from "../errors/failure-copy.ts";
 import { useEventStream } from "../hooks/use-event-stream.ts";
 import { isPutAway, type PreviewState, previewState } from "../preview/preview-state.ts";
-import { AlertIcon, SpinnerIcon } from "../ui/icons.tsx";
+import { AlertIcon } from "../ui/icons.tsx";
 import { previewUrlFor } from "../workspace/route-path.ts";
 import { Pane } from "./pane.tsx";
 
@@ -154,7 +155,12 @@ function Waiting({
 
         {state.status === "starting" && (
           <>
-            <SpinnerIcon className="size-5 text-accent-ink" />
+            {/*
+              The ghost rather than a spinner, and big enough to be a character rather than an
+              icon: this wait is tens of seconds long in a pane with nothing else in it, and a
+              spinner that size stops reading as progress about two seconds in.
+            */}
+            <NapLoader className="size-14 text-ink-2" />
             {/* The same shimmer the transcript's working indicator uses, so waiting looks
                 like one thing wherever it happens. */}
             <p className="nap-shimmer text-[13px]">Starting the dev server…</p>

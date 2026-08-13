@@ -296,6 +296,14 @@ export function useProject(
   useEffect(() => {
     let abandoned = false;
 
+    // Everything below describes the *previous* project: whether it had been started from this
+    // page, which announcement a restore of it was waiting for, and why the last attempt was
+    // refused. Carried over, they would say that a project nobody has touched is already on its
+    // way up — and the panes would sit waiting for a restore that was never asked for.
+    setStarted(false);
+    setAwaitingSince(undefined);
+    setResumeError(undefined);
+
     void (async () => {
       try {
         const response = await fetchJson(`${baseUrl}/projects/${projectId}`);

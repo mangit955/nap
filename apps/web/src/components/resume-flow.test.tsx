@@ -16,6 +16,7 @@
 import type { NapEvent, NapEventType } from "@nap/shared/events";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -83,15 +84,18 @@ function ev<T extends NapEventType>(
   } as StoredEvent;
 }
 
-/** A project the server says is put away, and an open request it accepts with a 202. */
+/** Every open request the page made, so "exactly once" is a countable thing. */
+let opens: number;
+/** What the server says to an open request. A 202 unless a test wants a refusal. */
+let openWith: () => Response;
+
+/** A project the server says is put away, and whatever `openWith` answers to an open. */
 function serve() {
   vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (init?.method === "POST" && url.endsWith("/open")) {
-      return new Response(JSON.stringify({ opened: true }), {
-        status: 202,
-        headers: { "content-type": "application/json" },
-      });
+      opens += 1;
+      return openWith();
     }
 
     return new Response(
@@ -116,20 +120,28 @@ beforeEach(() => {
     ev("preview.ready", { url: "https://5173-old.e2b.app", port: 5173 }, 7),
     ev("preview.stopped", {}, 8),
   );
+  opens = 0;
+  openWith = () =>
+    new Response(JSON.stringify({ opened: true }), {
+      status: 202,
+      headers: { "content-type": "application/json" },
+    });
   serve();
 });
 
-describe("resuming a put-away project", () => {
-  it("shows the app as soon as the restore announces itself, with no reload", async () => {
+describe("opening a put-away project", () => {
+  it("starts it without anybody pressing anything", async () => {
+    // Nobody navigates to their own app to be asked whether they meant it.
     render(<AppShell projectId={PROJECT} />);
 
-    const resume = await screen.findByRole("button", { name: /^resume$/i });
-    await act(async () => {
-      fireEvent.click(resume);
-    });
-
-    // The restore is running: the server took the request and nothing has come up yet.
+    await waitFor(() => expect(opens).toBe(1));
     expect(screen.getByText(/starting the dev server/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^resume$/i })).not.toBeInTheDocument();
+  });
+
+  it("shows the app as soon as the restore announces itself, with no reload", async () => {
+    render(<AppShell projectId={PROJECT} />);
+    await waitFor(() => expect(opens).toBe(1));
 
     await act(async () => {
       stream.__push(ev("preview.ready", { url: "https://5173-new.e2b.app", port: 5173 }, 9));
@@ -140,5 +152,60 @@ describe("resuming a put-away project", () => {
       "src",
       expect.stringContaining("5173-new"),
     );
+  });
+
+  it("asks once, and only once, when the server refuses", async () => {
+    // A refusal deliberately leaves the record still saying the project is put away — the
+    // project *is* put away, the request was turned down — so nothing about the page's own
+    // state would stop a second attempt, and a page that retries a quota refusal on every
+    // render is a page hammering an endpoint that has already said no.
+    //
+    // Rendered under `StrictMode` because that is how Next runs this in development: it mounts,
+    // unmounts and remounts to shake out effects that are not safe to run twice.
+    openWith = () =>
+      new Response(JSON.stringify({ error: "You already have 2 projects running." }), {
+        status: 409,
+        headers: { "content-type": "application/json" },
+      });
+
+    render(
+      <StrictMode>
+        <AppShell projectId={PROJECT} />
+      </StrictMode>,
+    );
+
+    // The refusal, its reason, and the button that is now the way through.
+    expect(await screen.findByRole("alert")).toHaveTextContent(/2 projects running/);
+    expect(screen.getByRole("button", { name: /^resume$/i })).toBeInTheDocument();
+    expect(opens).toBe(1);
+  });
+
+  it("starts the next project too, rather than latching after the first", async () => {
+    // The guard is keyed to *which* project was started, not to "have I ever started one". A
+    // plain boolean would mean the second project you opened in a session never came up — and
+    // that failure looks exactly like a server that ignored the request.
+    const { rerender } = render(<AppShell projectId={PROJECT} />);
+    await waitFor(() => expect(opens).toBe(1));
+
+    rerender(<AppShell projectId="9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d" />);
+
+    await waitFor(() => expect(opens).toBe(2));
+  });
+
+  it("still starts it by hand after a refusal", async () => {
+    openWith = () =>
+      new Response(JSON.stringify({ error: "You already have 2 projects running." }), {
+        status: 409,
+        headers: { "content-type": "application/json" },
+      });
+
+    render(<AppShell projectId={PROJECT} />);
+    const resume = await screen.findByRole("button", { name: /^resume$/i });
+
+    await act(async () => {
+      fireEvent.click(resume);
+    });
+
+    expect(opens).toBe(2);
   });
 });
