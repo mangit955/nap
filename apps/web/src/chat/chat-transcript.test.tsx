@@ -330,3 +330,38 @@ describe("reasoning arriving as it is produced", () => {
     expect(screen.getByText("I should read App.tsx first.")).toBeTruthy();
   });
 });
+
+describe("a project opened and closed many times", () => {
+  const stop = () => ev("preview.stopped", {});
+  const start = (host: string) =>
+    ev("preview.ready", { url: `https://5173-${host}.e2b.app`, port: 5173 });
+
+  it("draws one put-away line, not one per cycle", () => {
+    // What this was: five identical "the project was put away" lines stacked in the transcript
+    // after an afternoon of ordinary opening and closing — because a stop draws a full-width
+    // line while the restart a few minutes later draws nothing visible at all. Five ordinary
+    // events reading as five failures.
+    show(stop(), start("a"), stop(), start("b"), stop());
+
+    const lines = screen.getAllByText(/the project was put away/i);
+    const visible = lines.filter((line) => !line.closest(".sr-only"));
+    expect(visible).toHaveLength(1);
+  });
+
+  it("keeps every one of them in the log for a reader", () => {
+    // The chronology is real and somebody listening to the transcript should still hear it —
+    // the point is that it stops shouting, not that it forgets.
+    show(stop(), start("a"), stop());
+
+    expect(screen.getAllByText(/the project was put away/i)).toHaveLength(2);
+  });
+
+  it("says nothing at all once the project is back up", () => {
+    show(stop(), start("a"));
+
+    const visible = screen
+      .getAllByText(/the project was put away/i)
+      .filter((line) => !line.closest(".sr-only"));
+    expect(visible).toEqual([]);
+  });
+});

@@ -169,7 +169,15 @@ function Item({
       );
 
     case "preview-stopped":
-      return <Meta>Preview stopped · the project was put away</Meta>;
+      // The one that still describes the project gets a line; the ones a later restart already
+      // answered stay in the log for anybody listening to it, and stay out of the way for
+      // everybody reading it. Five identical "put away" lines in a transcript read as five
+      // failures rather than as an afternoon of ordinary opening and closing.
+      return item.superseded ? (
+        <p className="sr-only">Preview stopped · the project was put away</p>
+      ) : (
+        <Meta>Preview stopped · the project was put away</Meta>
+      );
 
     case "notice":
       // Labelled in words rather than by colour, so it survives being read aloud and being read
