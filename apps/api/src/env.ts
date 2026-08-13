@@ -60,6 +60,37 @@ const BaseSchema = z.object({
    */
   GITHUB_CLIENT_ID: z.string().min(1).optional(),
   GITHUB_CLIENT_SECRET: z.string().min(1).optional(),
+  /** A Google OAuth client, if there is one. Optional but paired, exactly like GitHub's. */
+  GOOGLE_CLIENT_ID: z.string().min(1).optional(),
+  GOOGLE_CLIENT_SECRET: z.string().min(1).optional(),
+  /**
+   * Whether somebody with no account at all may look around.
+   *
+   * On by default, because a builder nobody can try is a screenshot. A demo visitor gets a
+   * throwaway identity, their own projects, and the free models under the lower ceilings
+   * below — so the door being open costs this deployment a bounded amount rather than an
+   * unbounded one. Turning it off is for a deployment that wants a private instance.
+   */
+  NAP_ALLOW_DEMO: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((value) => value === "true"),
+  /**
+   * Seals the API keys people bring with them. 32 bytes, base64.
+   *
+   * Required, because the account routes exist unconditionally and a process that can store a
+   * key it cannot encrypt is worse than one that stores none. Losing or changing it does not
+   * corrupt anything — every stored key simply stops opening, and everyone falls back to the
+   * free tier until they paste theirs again. That is the intended behaviour of a rotation.
+   *
+   * `openssl rand -base64 32`.
+   */
+  NAP_KEY_ENCRYPTION_SECRET: z
+    .string()
+    .min(1)
+    .refine((value) => Buffer.from(value, "base64").length === 32, {
+      message: "must be 32 bytes of base64 — try `openssl rand -base64 32`",
+    }),
   /** Environments are all strings; the rest of the app should not have to remember that. */
   PORT: z.coerce.number().int().positive().default(3001),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
@@ -148,6 +179,27 @@ const BaseSchema = z.object({
   NAP_MAX_SANDBOXES_TOTAL: z.coerce.number().int().positive().default(10),
 
   /**
+   * What somebody spending *this deployment's* money may have.
+   *
+   * The three above apply to a person paying for their own turns, where the ceiling exists to
+   * stop a runaway loop. These apply to everyone else — the demo visitor and the signed-in
+   * person who skipped the key step — where the ceiling is the whole reason the door can be
+   * open at all. Tighter on purpose: enough to build something and see it work, not enough to
+   * be worth abusing. A free model costs no tokens, but every turn is still a sandbox billed
+   * by the second, which is what these actually limit.
+   */
+  NAP_FREE_TURNS_PER_HOUR: z.coerce.number().int().positive().default(5),
+  NAP_FREE_MAX_SANDBOXES_PER_USER: z.coerce.number().int().positive().default(1),
+  /**
+   * What a turn runs on when nobody is paying for it.
+   *
+   * Separate from `NAP_MODEL` and checked below to be genuinely free: `NAP_MODEL` is a *paid*
+   * model, so a free-tier turn falling through to it would be this deployment buying tokens
+   * for a stranger — silently, and only visible on an invoice.
+   */
+  NAP_FREE_MODEL: z.string().min(1).default("openai/gpt-oss-20b:free"),
+
+  /**
    * Where a project's bytes live while no sandbox is holding them.
    *
    * Required from the moment the server can put a project away and take it out again: a
@@ -204,23 +256,34 @@ export const EnvSchema = BaseSchema.superRefine((env, ctx) => {
     });
   }
 
-  // Half a GitHub app is not a smaller GitHub app. Configured with only one of the two, the
+  // Half an OAuth app is not a smaller OAuth app. Configured with only one of the two, the
   // provider would either be silently skipped — a button that vanished for no stated reason —
-  // or registered with a blank secret, which fails at the redirect back from GitHub, several
-  // steps away from the thing that is actually wrong.
-  const github = [
-    ["GITHUB_CLIENT_ID", env.GITHUB_CLIENT_ID],
-    ["GITHUB_CLIENT_SECRET", env.GITHUB_CLIENT_SECRET],
+  // or registered with a blank secret, which fails at the redirect back from the provider,
+  // several steps away from the thing that is actually wrong.
+  //
+  // Written as a loop over the providers rather than once per provider: a copy of this block
+  // per vendor is a block somebody adds a third vendor without.
+  const oauthPairs = [
+    [
+      ["GITHUB_CLIENT_ID", env.GITHUB_CLIENT_ID],
+      ["GITHUB_CLIENT_SECRET", env.GITHUB_CLIENT_SECRET],
+    ],
+    [
+      ["GOOGLE_CLIENT_ID", env.GOOGLE_CLIENT_ID],
+      ["GOOGLE_CLIENT_SECRET", env.GOOGLE_CLIENT_SECRET],
+    ],
   ] as const;
-  const supplied = github.filter(([, value]) => value !== undefined);
 
-  if (supplied.length === 1) {
-    for (const [key, value] of github) {
+  for (const pair of oauthPairs) {
+    if (pair.filter(([, value]) => value !== undefined).length !== 1) continue;
+
+    for (const [key, value] of pair) {
       if (value !== undefined) continue;
+      const sibling = pair.find(([name]) => name !== key)?.[0];
       ctx.addIssue({
         code: "custom",
         path: [key],
-        message: "is required when the other GITHUB_CLIENT_* variable is set",
+        message: `is required when ${sibling} is set`,
       });
     }
   }
@@ -235,13 +298,35 @@ export const EnvSchema = BaseSchema.superRefine((env, ctx) => {
     });
   }
 
+  // The free-tier model has to be reachable too, or every turn by somebody without a key is
+  // refused by the allowlist — which is everybody on their first visit.
+  if (!env.NAP_ALLOWED_MODELS.includes(env.NAP_FREE_MODEL)) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["NAP_ALLOWED_MODELS"],
+      message: `must include NAP_FREE_MODEL (${env.NAP_FREE_MODEL})`,
+    });
+  }
+
+  // And it has to actually be free. This is the check that stops the demo door from being an
+  // open tab on this deployment's account: a `NAP_FREE_MODEL` with a price is a stranger's
+  // turns billed here, and nothing else in the system would notice.
+  if (!env.NAP_FREE_MODEL.endsWith(":free")) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["NAP_FREE_MODEL"],
+      message: "must be a free model — the id has to end in :free, or the demo spends real money",
+    });
+  }
+
   // A per-user cap above the machine-wide one is unreachable: the global check would refuse
   // first, and the message would talk about the server being busy when the projects filling it
   // are the asker's own. Loud here rather than confusing at request time.
-  if (env.NAP_MAX_SANDBOXES_PER_USER > env.NAP_MAX_SANDBOXES_TOTAL) {
+  for (const key of ["NAP_MAX_SANDBOXES_PER_USER", "NAP_FREE_MAX_SANDBOXES_PER_USER"] as const) {
+    if (env[key] <= env.NAP_MAX_SANDBOXES_TOTAL) continue;
     ctx.addIssue({
       code: "custom",
-      path: ["NAP_MAX_SANDBOXES_PER_USER"],
+      path: [key],
       message: `must not exceed NAP_MAX_SANDBOXES_TOTAL (${env.NAP_MAX_SANDBOXES_TOTAL}), or the per-user limit can never be reached`,
     });
   }

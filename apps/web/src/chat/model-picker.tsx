@@ -6,12 +6,16 @@ import type { ModelChoice } from "@nap/shared/models-protocol";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
+/** Ties a locked row to the words explaining why, for anyone not reading with their eyes. */
+const LOCKED_HINT_ID = "model-locked";
+
 export function ModelPicker({
   models,
   model,
   disabled = false,
   onChange,
   onPick,
+  onAddKey,
   closeWhen,
 }: {
   models: readonly ModelChoice[];
@@ -21,6 +25,14 @@ export function ModelPicker({
   onChange: (model: string) => void;
   /** Returns focus to the composer after a choice, where one was supplied. */
   onPick?: (() => void) | undefined;
+  /**
+   * Opening the place where a key is pasted, for a model this caller cannot reach.
+   *
+   * Absent leaves the locked entries inert but still visible. They are *shown* either way and
+   * never filtered out: a menu that silently omits Opus makes the product look smaller than it
+   * is, and gives nobody a way to find out that one key is all it takes.
+   */
+  onAddKey?: (() => void) | undefined;
   /** A changing composer token closes the menu before a competing suggestion menu opens. */
   closeWhen?: unknown;
 }) {
@@ -30,8 +42,14 @@ export function ModelPicker({
   const [position, setPosition] = useState<{ bottom: number; right: number } | undefined>(
     undefined,
   );
+  // The tick falls back to the first *reachable* model rather than the first listed one, so a
+  // free caller never sees a locked model named as the one their message will run on.
   const selected =
-    models.length > 1 ? (models.find((choice) => choice.id === model) ?? models[0]) : undefined;
+    models.length > 1
+      ? (models.find((choice) => choice.id === model) ??
+        models.find((choice) => choice.available) ??
+        models[0])
+      : undefined;
 
   useEffect(() => {
     if (!open) return;
@@ -71,16 +89,31 @@ export function ModelPicker({
                   type="button"
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => {
+                    // A locked entry is a doorway rather than a dead end: pressing it opens
+                    // the key form, which is the only thing that would make it selectable.
+                    if (!choice.available) {
+                      setOpen(false);
+                      onAddKey?.();
+                      return;
+                    }
                     onChange(choice.id);
                     setOpen(false);
                     onPick?.();
                   }}
                   aria-current={choice.id === selected.id}
+                  // Not `disabled`: a disabled control is unreachable by keyboard and
+                  // unannounced by a screen reader, so the one explanation of why this model
+                  // is out of reach would be visible only to people using a mouse and eyes.
+                  aria-describedby={choice.available ? undefined : `${LOCKED_HINT_ID}-${choice.id}`}
                   className={`flex h-8 w-full items-center gap-2 rounded-[6px] px-2 text-left hover:bg-hover ${
                     choice.id === selected.id ? "bg-hover" : ""
                   }`}
                 >
-                  <span className="min-w-0 flex-1 truncate font-medium text-[12.5px] text-ink">
+                  <span
+                    className={`min-w-0 flex-1 truncate font-medium text-[12.5px] ${
+                      choice.available ? "text-ink" : "text-muted"
+                    }`}
+                  >
                     {choice.label}
                   </span>
                   {choice.free && (
@@ -88,7 +121,15 @@ export function ModelPicker({
                       Free
                     </span>
                   )}
-                  {choice.id === selected.id && (
+                  {!choice.available && (
+                    <span
+                      id={`${LOCKED_HINT_ID}-${choice.id}`}
+                      className="shrink-0 text-[11px] text-muted"
+                    >
+                      needs your key
+                    </span>
+                  )}
+                  {choice.available && choice.id === selected.id && (
                     <span className="shrink-0 text-[11px] text-muted">on</span>
                   )}
                 </button>

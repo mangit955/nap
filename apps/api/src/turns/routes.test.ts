@@ -84,7 +84,7 @@ function app(
     app: createApp({
       logger,
       // Every guarded route needs a caller; this stands in for a signed-in session cookie.
-      authenticate: async () => ({ userId: FAKE_OWNER }),
+      authenticate: async () => ({ userId: FAKE_OWNER, isAnonymous: false }),
       stream: {
         store: new InMemoryEventStore(),
         bus: new InMemoryEventBus(),
@@ -95,6 +95,11 @@ function app(
         registry,
         projects,
         allowedModels: ALLOWED,
+        // Somebody who brought their own key, which is what most of these tests are about —
+        // the free tier's narrower rules have their own block below.
+        keys: async () => OPENROUTER_KEY,
+        freeModel: FREE_MODEL,
+        defaultModel: ALLOWED[0] ?? "",
         sessions: new InMemorySessionStore([{ sessionId: SESSION, projectId: "project-1" }]),
       },
     }),
@@ -110,7 +115,11 @@ const post = (hono: { request: Hono["request"] }, path: string, body?: unknown) 
   });
 
 /** What this deployment will run a turn on, as the route enforces it. */
-const ALLOWED = ["openai/gpt-5.6-luna", "anthropic/claude-opus-5"];
+const ALLOWED = ["openai/gpt-5.6-luna", "anthropic/claude-opus-5", "openai/gpt-oss-20b:free"];
+/** What a turn runs on when nobody is paying for it. */
+const FREE_MODEL = "openai/gpt-oss-20b:free";
+/** A caller who brought their own key, and may therefore reach the paid models. */
+const OPENROUTER_KEY = { platform: "openrouter", apiKey: "sk-or-theirs" } as const;
 
 describe("POST /sessions/:sessionId/turns", () => {
   it("accepts the message and answers before the turn is done", async () => {
@@ -232,7 +241,7 @@ describe("when the app is built without a runtime", () => {
       logger: silent(),
       // Signed in, so a 404 here is about the route not existing rather than about who is
       // asking — which is what this test is for.
-      authenticate: async () => ({ userId: FAKE_OWNER }),
+      authenticate: async () => ({ userId: FAKE_OWNER, isAnonymous: false }),
       stream: {
         store: new InMemoryEventStore(),
         bus: new InMemoryEventBus(),
@@ -249,6 +258,11 @@ describe("limits", () => {
   function limited(options: {
     runtime: Runtime;
     turns?: number;
+    /** The tighter ceilings, which apply when this deployment is paying for the turn. */
+    freeTurns?: number;
+    freePerUser?: number;
+    /** No key of their own, so the free tier's rules and the free tier's limiters apply. */
+    noKey?: boolean;
     perUser?: number;
     total?: number;
     running?: { sandboxId: string | null; userId?: string }[];
@@ -268,7 +282,7 @@ describe("limits", () => {
 
     return createApp({
       logger: silent(),
-      authenticate: async () => ({ userId: FAKE_OWNER }),
+      authenticate: async () => ({ userId: FAKE_OWNER, isAnonymous: false }),
       stream: {
         store: new InMemoryEventStore(),
         bus: new InMemoryEventBus(),
@@ -279,6 +293,9 @@ describe("limits", () => {
         registry: new TurnRegistry(),
         projects: unnamedProject(),
         allowedModels: ALLOWED,
+        keys: async () => (options.noKey === true ? null : OPENROUTER_KEY),
+        freeModel: FREE_MODEL,
+        defaultModel: ALLOWED[0] ?? "",
         sessions: new InMemorySessionStore([
           {
             sessionId: SESSION,
@@ -288,8 +305,16 @@ describe("limits", () => {
         ]),
         limits: {
           rate: new TurnRateLimiter({ limit: options.turns ?? 100, windowMs: 60 * 60 * 1000 }),
+          freeRate: new TurnRateLimiter({
+            limit: options.freeTurns ?? 100,
+            windowMs: 60 * 60 * 1000,
+          }),
           projects,
           sandboxes: { perUser: options.perUser ?? 100, total: options.total ?? 100 },
+          freeSandboxes: {
+            perUser: options.freePerUser ?? 100,
+            total: options.total ?? 100,
+          },
         },
       },
     });
@@ -326,15 +351,88 @@ describe("limits", () => {
     runtime.complete();
   });
 
-  it("runs on the deployment's default when no model is named", async () => {
-    // Which is every turn, unless somebody opens the picker. The route must not invent a model
-    // here — the default lives in one place and it is the environment.
+  it("resolves the default itself rather than leaving the runtime to apply one", async () => {
+    // This used to send no model at all and let the provider's own default stand. It cannot
+    // any more: which default is right depends on who is asking — a paid one for somebody
+    // spending their own money, a free one for everybody else — and that is a fact only this
+    // layer has. Leaving it unset would mean a key-less turn silently falling through to
+    // `NAP_MODEL`, which this deployment pays for.
     const runtime = new SlowRuntime();
     const hono = limited({ runtime });
 
     await post(hono, `/sessions/${SESSION}/turns`, { message: "hello" });
 
-    expect(runtime.requests[0]).not.toHaveProperty("model");
+    expect(runtime.requests[0]).toMatchObject({ model: ALLOWED[0] });
+    runtime.complete();
+  });
+
+  it("bills a turn to the caller's own key", async () => {
+    // Without this the credential never leaves the route and every turn is charged to the
+    // deployment — the feature would look complete and change nothing about who pays.
+    const runtime = new SlowRuntime();
+    const hono = limited({ runtime });
+
+    await post(hono, `/sessions/${SESSION}/turns`, { message: "hello" });
+
+    expect(runtime.requests[0]).toMatchObject({ credentials: OPENROUTER_KEY });
+    runtime.complete();
+  });
+
+  it("sends no credentials at all for somebody with no key", async () => {
+    // Which is what makes the deployment's own account pay — and is only safe because the
+    // model resolved alongside it is a free one, asserted next.
+    const runtime = new SlowRuntime();
+    const hono = limited({ runtime, noKey: true });
+
+    await post(hono, `/sessions/${SESSION}/turns`, { message: "hello" });
+
+    expect(runtime.requests[0]).not.toHaveProperty("credentials");
+    expect(runtime.requests[0]).toMatchObject({ model: FREE_MODEL });
+    runtime.complete();
+  });
+
+  it("refuses a paid model to somebody with no key, and says a key is what is missing", async () => {
+    // The rule the whole free tier rests on. The status is 403 rather than 400 because there
+    // is something the asker can do about it, and the browser offers the key form on this code.
+    const runtime = new SlowRuntime();
+    const hono = limited({ runtime, noKey: true });
+
+    const refused = await post(hono, `/sessions/${SESSION}/turns`, {
+      message: "hello",
+      model: "anthropic/claude-opus-5",
+    });
+
+    expect(refused.status).toBe(403);
+    await expect(refused.json()).resolves.toMatchObject({ code: "byok_required" });
+    expect(runtime.requests).toHaveLength(0);
+  });
+
+  it("holds a key-less caller to the tighter turn limit", async () => {
+    // Two limiters rather than two numbers on one: a free turn must not consume the allowance
+    // somebody's paid turns are counted against, or "5 free turns an hour" would mean
+    // something different depending on what else they did that hour.
+    const runtime = new SlowRuntime();
+    const hono = limited({ runtime, noKey: true, turns: 100, freeTurns: 1 });
+
+    await post(hono, `/sessions/${SESSION}/turns`, { message: "one" });
+    runtime.complete();
+    const second = await post(hono, `/sessions/${SESSION}/turns`, { message: "two" });
+
+    expect(second.status).toBe(429);
+    await expect(second.json()).resolves.toMatchObject({ code: "rate_limited" });
+  });
+
+  it("leaves a caller with a key on the ordinary turn limit", async () => {
+    // The mirror of the test above, and the one that proves the two limiters are really
+    // separate: the same tight free ceiling must not apply to somebody paying their own way.
+    const runtime = new SlowRuntime();
+    const hono = limited({ runtime, turns: 100, freeTurns: 1 });
+
+    await post(hono, `/sessions/${SESSION}/turns`, { message: "one" });
+    runtime.complete();
+    const second = await post(hono, `/sessions/${SESSION}/turns`, { message: "two" });
+
+    expect(second.status).toBe(202);
     runtime.complete();
   });
 

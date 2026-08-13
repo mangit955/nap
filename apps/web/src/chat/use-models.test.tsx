@@ -14,11 +14,13 @@ import { useModels } from "./use-models.ts";
 
 const LIST = {
   models: [
-    { id: "openai/gpt-5.6-luna", label: "Gpt 5 6 Luna", free: false },
-    { id: "anthropic/claude-opus-5", label: "Claude Opus 5", free: false },
-    { id: "openai/gpt-oss-20b:free", label: "Gpt Oss 20b", free: true },
+    { id: "openai/gpt-5.6-luna", label: "Gpt 5 6 Luna", free: false, available: true },
+    { id: "anthropic/claude-opus-5", label: "Claude Opus 5", free: false, available: true },
+    { id: "openai/gpt-oss-20b:free", label: "Gpt Oss 20b", free: true, available: true },
   ],
   fallback: "openai/gpt-5.6-luna",
+  // Whether this caller brought their own key, which is what decides the flags above.
+  key: { configured: true, platform: "openrouter", hint: "sk-or-…4f2a" },
 };
 
 const answering =

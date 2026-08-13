@@ -35,6 +35,8 @@ export function Sidebar({
   onScopeChange,
   onSearch,
   onNewProject,
+  onApiKey,
+  keyHint,
   onSignOut,
 }: {
   name: string;
@@ -46,6 +48,16 @@ export function Sidebar({
   onScopeChange: (scope: ProjectScope) => void;
   onSearch: () => void;
   onNewProject: () => void;
+  /** Opening the place a key is pasted. The rail is where somebody goes looking for it. */
+  onApiKey: () => void;
+  /**
+   * The masked tail of the key in use, when there is one — `sk-or-…4f2a`.
+   *
+   * Shown rather than a bare "API key" entry because which state you are in is the thing
+   * people actually come here to check, and a menu item that looks identical either way makes
+   * them open it to find out. Undefined means the free models, which the label then says.
+   */
+  keyHint: string | undefined;
   onSignOut: () => void;
 }) {
   return (
@@ -154,6 +166,10 @@ export function Sidebar({
             )}
           </span>
         </div>
+
+        <RailButton onClick={onApiKey}>
+          {keyHint === undefined ? "Add your API key" : `API key · ${keyHint}`}
+        </RailButton>
 
         <RailButton onClick={onSignOut}>Sign out</RailButton>
       </div>

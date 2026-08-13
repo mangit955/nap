@@ -3,6 +3,8 @@
 import type { ModelChoice } from "@nap/shared/models-protocol";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { useState } from "react";
+import { ApiKeyPanel } from "../account/api-key-panel.tsx";
+import { useApiKey } from "../account/use-api-key.ts";
 import { NapMark } from "../brand/nap-mark.tsx";
 import { ChatInput } from "../chat/chat-input.tsx";
 import { ChatTranscript } from "../chat/chat-transcript.tsx";
@@ -43,6 +45,7 @@ export function ChatPane({
   models,
   model,
   onModelChange,
+  onAddKey,
 }: {
   events: readonly StoredEvent[];
   /**
@@ -66,6 +69,8 @@ export function ChatPane({
   models?: readonly ModelChoice[] | undefined;
   model?: string | undefined;
   onModelChange?: ((model: string) => void) | undefined;
+  /** Opening the key form, for a model this caller cannot reach. */
+  onAddKey?: (() => void) | undefined;
 }) {
   const empty = events.length === 0 && pending === undefined;
   // What "there is something new to see" means here. The event count alone would miss a turn
@@ -104,6 +109,7 @@ export function ChatPane({
           {...(models === undefined ? {} : { models })}
           {...(model === undefined ? {} : { model })}
           {...(onModelChange === undefined ? {} : { onModelChange })}
+          {...(onAddKey === undefined ? {} : { onAddKey })}
         />
       </div>
     </Pane>
@@ -199,6 +205,10 @@ export function LiveChatPane({
   // a turn writes a file, and this component is already told about that.
   const { listing } = useProjectFiles({ sessionId, events });
   const { models } = useModels();
+  // Somebody who meets a locked model, or a turn refused for want of a key, should be able to
+  // fix it here rather than being sent to the dashboard and back.
+  const key = useApiKey();
+  const [keyPanelOpen, setKeyPanelOpen] = useState(false);
   // Held here rather than in the composer: the choice has to outlive the box being cleared on
   // send, and a retry has to go out on the same model the user picked.
   const [model, setModel] = useState<string | undefined>(undefined);
@@ -217,23 +227,28 @@ export function LiveChatPane({
   });
 
   return (
-    <ChatPane
-      events={events}
-      // Nothing has been asked for yet when there is no session: the project record is still on
-      // its way, so the log this pane will show has not even been subscribed to.
-      loading={sessionId === undefined || (!replayed && events.length === 0)}
-      pending={pending}
-      running={running}
-      error={error}
-      onSubmit={(message) => void submit(message, model)}
-      onCancel={() => void cancel()}
-      // The same submission path as the input: a retry is an ordinary turn, and routing it
-      // anywhere else would give it different rate-limit and optimistic-message behaviour.
-      onRetry={(message) => void submit(message, model)}
-      files={listing?.files ?? []}
-      models={models?.models ?? []}
-      model={model ?? models?.fallback}
-      onModelChange={setModel}
-    />
+    <>
+      <ApiKeyPanel open={keyPanelOpen} onClose={() => setKeyPanelOpen(false)} keyState={key} />
+
+      <ChatPane
+        events={events}
+        // Nothing has been asked for yet when there is no session: the project record is still on
+        // its way, so the log this pane will show has not even been subscribed to.
+        loading={sessionId === undefined || (!replayed && events.length === 0)}
+        pending={pending}
+        running={running}
+        error={error}
+        onSubmit={(message) => void submit(message, model)}
+        onCancel={() => void cancel()}
+        // The same submission path as the input: a retry is an ordinary turn, and routing it
+        // anywhere else would give it different rate-limit and optimistic-message behaviour.
+        onRetry={(message) => void submit(message, model)}
+        files={listing?.files ?? []}
+        models={models?.models ?? []}
+        model={model ?? models?.fallback}
+        onModelChange={setModel}
+        onAddKey={() => setKeyPanelOpen(true)}
+      />
+    </>
   );
 }

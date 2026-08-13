@@ -13,6 +13,7 @@
  */
 
 import type { TurnFailureReason } from "../events.ts";
+import type { ModelCredentials } from "./llm-provider.ts";
 
 export type TurnRequest = {
   sessionId: string;
@@ -20,6 +21,15 @@ export type TurnRequest = {
   signal?: AbortSignal;
   /** Which model to run on. Absent is the deployment's default; the route validates it. */
   model?: string | undefined;
+  /**
+   * Whose account pays. Absent is the deployment's own, which is what a turn on the free
+   * models runs on.
+   *
+   * Resolved by the route, because that is the only layer that knows who is asking — and it
+   * resolves the *model* at the same time and from the same fact, since which models somebody
+   * may reach depends on whether they brought a key.
+   */
+  credentials?: ModelCredentials | undefined;
 };
 
 export type TurnOutcome =

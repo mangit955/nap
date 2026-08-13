@@ -71,6 +71,16 @@ export const users = pgTable("users", {
   emailVerified: boolean("email_verified").notNull().default(false),
   /** An avatar URL, when an OAuth provider supplies one. */
   image: text("image"),
+  /**
+   * Somebody who pressed "try it free" rather than signing up — a throwaway identity with a
+   * real cookie, a real row and their own projects.
+   *
+   * The column is declared by the auth library's anonymous plugin rather than wanted by
+   * anything here, which is why it sits with the three above it. What the app does with it is
+   * decide how much of the deployment's money this person may spend; see the free tier in
+   * `apps/api/src/turns/model-access.ts`.
+   */
+  isAnonymous: boolean("is_anonymous").notNull().default(false),
   createdAt,
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -146,6 +156,36 @@ export const verifications = pgTable("verifications", {
   identifier: text("identifier").notNull(),
   value: text("value").notNull(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt,
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * The API key somebody brought with them, so their turns are billed to their account and not
+ * to this deployment's.
+ *
+ * **Never plaintext.** The bytes here are AES-256-GCM ciphertext sealed by
+ * `apps/api/src/account/secret-box.ts`; this table has no way to read them and neither does a
+ * query log, a backup, or anyone who gets a copy of the database without also having
+ * `NAP_KEY_ENCRYPTION_SECRET`. `hint` is the only part meant to be shown — a masked tail, so
+ * somebody can tell which of their keys this is without being shown the key.
+ *
+ * `user_id` is the primary key rather than a column beside one: a person has at most one key,
+ * and expressing that in the schema means "replace my key" is an upsert instead of a delete
+ * and an insert that could half-fail.
+ */
+export const userApiKeys = pgTable("user_api_keys", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  /** Which vendor the key belongs to, and therefore which client a turn on it builds. */
+  platform: text("platform").$type<"openrouter" | "anthropic">().notNull(),
+  /** Base64 AES-256-GCM ciphertext with its auth tag appended. */
+  ciphertext: text("ciphertext").notNull(),
+  /** Base64, 12 random bytes, fresh for every write. Never reused across two seals. */
+  iv: text("iv").notNull(),
+  /** What is safe to show: `sk-or-…4f2a`. */
+  hint: text("hint").notNull(),
   createdAt,
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

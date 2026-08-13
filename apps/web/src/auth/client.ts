@@ -7,17 +7,38 @@
  * the `credentials: "include"` that `credentialedFetch` adds to the hand-written calls.
  */
 
+import { anonymousClient } from "better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
 
 const DEFAULT_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
 
-export const authClient = createAuthClient({ baseURL: DEFAULT_BASE_URL });
+/**
+ * The `anonymous` plugin has to be listed on both ends.
+ *
+ * Registering it on the server creates the endpoint; registering it here is what puts
+ * `signIn.anonymous` on this object. Miss this half and the demo button is a type error, which
+ * is the good failure — the bad one would be a 404 at runtime.
+ */
+export const authClient = createAuthClient({
+  baseURL: DEFAULT_BASE_URL,
+  plugins: [anonymousClient()],
+});
 
 /**
- * Where to come back to once GitHub has finished with us, and where an email sign-in lands.
+ * Where to come back to once a provider has finished with us, and where an email sign-in lands.
  *
- * The dashboard rather than the front page: the front page is a pitch for people without an
- * account, and it now sends anybody who has one here anyway — so landing on `/` first would be
- * a redirect the person watching has no reason for.
+ * The key step rather than the dashboard: somebody who just made an account is the one person
+ * who has not yet been asked whether they want to bring a key, and this is the only moment
+ * where asking is not an interruption of something else. It skips itself for anybody who
+ * already has one, and "just try it free" is always one click away — see `/welcome`.
  */
-export const AFTER_SIGN_IN = "/dashboard";
+export const AFTER_SIGN_IN = "/welcome";
+
+/**
+ * Where the demo lands, which is straight to work.
+ *
+ * Deliberately not `AFTER_SIGN_IN`. Somebody who chose "without an account" has already
+ * answered the question that page asks, and putting it in front of them anyway would turn
+ * "try it" into "fill in a form" — which is the friction the demo door exists to remove.
+ */
+export const AFTER_DEMO_SIGN_IN = "/dashboard";

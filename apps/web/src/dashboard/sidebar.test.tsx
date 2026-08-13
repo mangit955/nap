@@ -27,6 +27,7 @@ function show(props: Partial<Parameters<typeof Sidebar>[0]> = {}) {
     onScopeChange: vi.fn(),
     onSearch: vi.fn(),
     onNewProject: vi.fn(),
+    onApiKey: vi.fn(),
     onSignOut: vi.fn(),
   };
 
@@ -37,6 +38,7 @@ function show(props: Partial<Parameters<typeof Sidebar>[0]> = {}) {
       scope="all"
       counts={{ all: 3, running: 1, "put-away": 2 }}
       recents={[project()]}
+      keyHint={undefined}
       {...handlers}
       {...props}
     />,
@@ -121,5 +123,21 @@ describe("the dashboard sidebar", () => {
     fireEvent.click(screen.getByRole("button", { name: /new project/i }));
 
     expect(onNewProject).toHaveBeenCalled();
+  });
+
+  it("offers somewhere to put an API key, and says there is none yet", () => {
+    const { onApiKey } = show({ keyHint: undefined });
+
+    fireEvent.click(screen.getByRole("button", { name: "Add your API key" }));
+
+    expect(onApiKey).toHaveBeenCalled();
+  });
+
+  it("shows which key is in use, so nobody has to open it to find out", () => {
+    // The state is the thing people come to this entry to check. A label that reads the same
+    // either way makes them open it every time.
+    show({ keyHint: "sk-or-…4f2a" });
+
+    expect(screen.getByRole("button", { name: "API key · sk-or-…4f2a" })).toBeInTheDocument();
   });
 });

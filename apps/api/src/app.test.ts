@@ -36,7 +36,7 @@ function app(overrides: Partial<AppDeps> = {}) {
     logger: silent(),
     // Signed in by default. The tests that care about *not* being signed in override this,
     // so every other assertion here is about routing rather than about the gate in front of it.
-    authenticate: async () => ({ userId: FAKE_OWNER }),
+    authenticate: async () => ({ userId: FAKE_OWNER, isAnonymous: false }),
     stream: {
       store: new InMemoryEventStore(),
       bus: new InMemoryEventBus(),

@@ -92,7 +92,7 @@ async function main(): Promise<void> {
     // `/ws` is a guarded route: it streams everything that happens in somebody's project, so
     // it needs a caller and a way to check the session belongs to them. Standing both in here
     // keeps this script about the socket rather than about sign-in.
-    authenticate: async () => ({ userId: OWNER }),
+    authenticate: async () => ({ userId: OWNER, isAnonymous: false }),
     // A heartbeat measured in milliseconds rather than the half-minute a real deployment
     // uses, so a silent connection can be watched dying inside one run.
     stream: {

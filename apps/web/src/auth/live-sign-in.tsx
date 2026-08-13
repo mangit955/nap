@@ -16,9 +16,12 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { credentialedFetch } from "../api/credentialed-fetch.ts";
-import { AFTER_SIGN_IN, authClient } from "./client.ts";
+import { AFTER_DEMO_SIGN_IN, AFTER_SIGN_IN, authClient } from "./client.ts";
 import { pathForMode } from "./mode-path.ts";
-import { SignInForm, type SignInMode } from "./sign-in-form.tsx";
+import { SignInForm, type SignInMode, type SocialProvider } from "./sign-in-form.tsx";
+
+/** The two this page knows how to draw, which is what the API's answer is narrowed to. */
+const SOCIAL_PROVIDERS: readonly SocialProvider[] = ["google", "github"];
 
 const DEFAULT_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
 
@@ -48,18 +51,27 @@ export function LiveSignIn({
   const [mode, setMode] = useState<SignInMode>(initialMode);
   const [error, setError] = useState<string | undefined>(undefined);
   const [submitting, setSubmitting] = useState(false);
-  const [githubEnabled, setGithubEnabled] = useState(false);
+  const [ways, setWays] = useState<{ social: SocialProvider[]; demo: boolean }>({
+    social: [],
+    demo: false,
+  });
 
   useEffect(() => {
     let cancelled = false;
 
     void credentialedFetch(`${DEFAULT_BASE_URL}/auth/providers`)
-      .then((response) => (response.ok ? response.json() : { socialProviders: [] }))
-      .then((body: { socialProviders?: string[] }) => {
-        if (!cancelled) setGithubEnabled(body.socialProviders?.includes("github") === true);
+      .then((response) => (response.ok ? response.json() : {}))
+      .then((body: { socialProviders?: string[]; demo?: boolean }) => {
+        if (cancelled) return;
+        setWays({
+          // Narrowed to the two this page knows how to draw. A provider the API grows before
+          // this page does would otherwise become a button with no handler behind it.
+          social: SOCIAL_PROVIDERS.filter((provider) => body.socialProviders?.includes(provider)),
+          demo: body.demo === true,
+        });
       })
-      // A server that cannot say which providers it has is one we offer none of. The email
-      // form still works, and that is a better answer than a button that cannot.
+      // A server that cannot say which ways in it has is one we offer none of. The email form
+      // still works, and that is a better answer than a button that cannot.
       .catch(() => {});
 
     return () => {
@@ -108,6 +120,35 @@ export function LiveSignIn({
     router.push(AFTER_SIGN_IN);
   };
 
+  /**
+   * In with no account: a throwaway identity, a real session, and straight to work.
+   *
+   * Lands on the dashboard rather than the key step every other route goes through. Somebody
+   * who just chose "without an account" has already answered the question that page asks, and
+   * putting it in front of them anyway would make "try it" mean "fill in a form".
+   */
+  const startDemo = async () => {
+    setSubmitting(true);
+    setError(undefined);
+
+    // Same two failure shapes as the email path: a refused sign-in answers with a result, one
+    // that could not be sent at all rejects. Both leave the button stuck without this.
+    try {
+      const result = await authClient.signIn.anonymous();
+      if (result.error) {
+        setError(result.error.message ?? UNKNOWN);
+        setSubmitting(false);
+        return;
+      }
+    } catch {
+      setError(UNREACHABLE);
+      setSubmitting(false);
+      return;
+    }
+
+    router.push(AFTER_DEMO_SIGN_IN);
+  };
+
   return (
     <SignInForm
       notice={notice}
@@ -125,17 +166,19 @@ export function LiveSignIn({
         window.history.replaceState(null, "", pathForMode(next));
       }}
       onSubmit={(credentials) => void submit(credentials)}
-      onGithub={() => {
+      onSocial={(provider) => {
         setSubmitting(true);
         setError(undefined);
-        // A full-page redirect to GitHub, so nothing after this runs — unless it never gets
-        // that far, which leaves the same stuck button as a failed email sign-in.
-        authClient.signIn.social({ provider: "github", callbackURL: AFTER_SIGN_IN }).catch(() => {
+        // A full-page redirect to the provider, so nothing after this runs — unless it never
+        // gets that far, which leaves the same stuck button as a failed email sign-in.
+        authClient.signIn.social({ provider, callbackURL: AFTER_SIGN_IN }).catch(() => {
           setError(UNREACHABLE);
           setSubmitting(false);
         });
       }}
-      githubEnabled={githubEnabled}
+      onDemo={() => void startDemo()}
+      socialProviders={ways.social}
+      demoEnabled={ways.demo}
       error={error}
       submitting={submitting}
     />

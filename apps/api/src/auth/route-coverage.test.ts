@@ -28,7 +28,7 @@ const NOT_A_ROUTE = new Set(["*", "/*"]);
 function registeredRoutes(): { method: string; path: string }[] {
   const app = createApp({
     logger: createLogger({ level: "silent" }, { write: () => {} }),
-    authenticate: async () => ({ userId: FAKE_OWNER }),
+    authenticate: async () => ({ userId: FAKE_OWNER, isAnonymous: false }),
     ...fullyWiredDeps(),
   });
 

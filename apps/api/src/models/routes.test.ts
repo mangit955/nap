@@ -1,14 +1,40 @@
 import { ModelListSchema } from "@nap/shared/models-protocol";
+import type { StoredKeyRecord } from "@nap/shared/ports/user-key-store";
 import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import type { AuthVariables } from "../auth/require-user.ts";
 import { modelLabel, registerModelRoutes } from "./routes.ts";
 
-function app(allowed: string[], fallback: string) {
+/**
+ * A caller with an OpenRouter key, unless told otherwise — which is the case that shows the
+ * whole allowlist, and therefore the one most of these assertions are about. The key-less case
+ * has its own tests below.
+ */
+function app(allowed: string[], fallback: string, key: StoredKeyRecord | null = OPENROUTER_KEY) {
   const instance = new Hono<{ Variables: AuthVariables }>();
-  registerModelRoutes(instance, { allowed, fallback });
+  // Every guarded route runs behind `requireUser`, which is what would normally set this.
+  instance.use("*", async (c, next) => {
+    c.set("userId", "user-1");
+    c.set("isAnonymous", false);
+    await next();
+  });
+  registerModelRoutes(instance, {
+    allowed,
+    fallback,
+    freeModel: "openai/gpt-oss-20b:free",
+    keys: async () => key,
+  });
   return instance;
 }
+
+const OPENROUTER_KEY: StoredKeyRecord = {
+  userId: "user-1",
+  platform: "openrouter",
+  ciphertext: "sealed",
+  iv: "iv",
+  hint: "sk-or-…4f2a",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+};
 
 describe("GET /models", () => {
   it("answers with the deployment's allowlist, in a shape the browser validates", async () => {
@@ -44,6 +70,65 @@ describe("GET /models", () => {
     const result = await app(["a/one", "b/two"], "b/two").request("/models");
 
     expect(ModelListSchema.parse(await result.json()).fallback).toBe("b/two");
+  });
+});
+
+describe("GET /models, for somebody with no key of their own", () => {
+  const ALLOWED = ["openai/gpt-5.6-luna", "anthropic/claude-opus-5", "openai/gpt-oss-20b:free"];
+
+  async function listFor(key: StoredKeyRecord | null) {
+    const result = await app(ALLOWED, "openai/gpt-5.6-luna", key).request("/models");
+    return ModelListSchema.parse(await result.json());
+  }
+
+  it("still lists every model, marking the ones they cannot run", async () => {
+    // Marked rather than removed: a menu that silently shortens makes the product look smaller
+    // than it is, and gives nobody a way to discover that Opus is one key away.
+    const body = await listFor(null);
+
+    expect(body.models.map((model) => model.id)).toEqual(ALLOWED);
+    expect(body.models.filter((model) => model.available).map((model) => model.id)).toEqual([
+      "openai/gpt-oss-20b:free",
+    ]);
+  });
+
+  it("falls back to a free model rather than the deployment's paid default", async () => {
+    // The tick in the picker has to be on the model a message would really run on, and for
+    // somebody with no key that is never `NAP_MODEL`.
+    expect((await listFor(null)).fallback).toBe("openai/gpt-oss-20b:free");
+  });
+
+  it("says no key is configured", async () => {
+    expect((await listFor(null)).key).toEqual({ configured: false });
+  });
+
+  it("opens everything once a key is there, and reports it as a hint", async () => {
+    const body = await listFor(OPENROUTER_KEY);
+
+    expect(body.models.every((model) => model.available)).toBe(true);
+    expect(body.fallback).toBe("openai/gpt-5.6-luna");
+    expect(body.key).toEqual({
+      configured: true,
+      platform: "openrouter",
+      hint: "sk-or-…4f2a",
+    });
+  });
+
+  it("never answers with anything resembling the key itself", async () => {
+    // The route reads the *stored* record, which holds ciphertext — so the failure this pins
+    // is a future edit that reaches for the opened key to say something about it.
+    const body = JSON.stringify(await listFor(OPENROUTER_KEY));
+
+    expect(body).not.toContain("sealed");
+    expect(body).not.toContain(OPENROUTER_KEY.ciphertext);
+  });
+
+  it("offers an Anthropic key only the Claude models", async () => {
+    const body = await listFor({ ...OPENROUTER_KEY, platform: "anthropic", hint: "sk-ant-…9c1d" });
+
+    expect(body.models.filter((model) => model.available).map((model) => model.id)).toEqual([
+      "anthropic/claude-opus-5",
+    ]);
   });
 });
 

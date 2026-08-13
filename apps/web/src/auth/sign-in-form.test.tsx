@@ -13,8 +13,10 @@ function setup(overrides: Partial<SignInFormProps> = {}) {
     mode: "sign-in",
     onModeChange: vi.fn(),
     onSubmit: vi.fn(),
-    onGithub: vi.fn(),
-    githubEnabled: true,
+    onSocial: vi.fn(),
+    onDemo: vi.fn(),
+    socialProviders: ["google", "github"],
+    demoEnabled: true,
     ...overrides,
   };
   render(<SignInForm {...props} />);
@@ -38,8 +40,10 @@ describe("what the page says it is", () => {
         mode="sign-in"
         onModeChange={vi.fn()}
         onSubmit={vi.fn()}
-        onGithub={vi.fn()}
-        githubEnabled={false}
+        onSocial={vi.fn()}
+        onDemo={vi.fn()}
+        socialProviders={[]}
+        demoEnabled={false}
       />,
     );
     expect(screen.getByRole("heading", { level: 1, name: "Welcome back." })).toBeInTheDocument();
@@ -106,21 +110,66 @@ describe("signing up", () => {
   });
 });
 
-describe("GitHub", () => {
-  it("is offered when the API has an app configured", () => {
-    const props = setup({ githubEnabled: true });
+describe("the social providers", () => {
+  it.each([
+    ["google", "Continue with Google"],
+    ["github", "Continue with GitHub"],
+  ] as const)("offers %s when the API has an app configured", (provider, label) => {
+    const props = setup({ socialProviders: [provider] });
 
-    click("Continue with GitHub");
+    click(label);
 
-    expect(props.onGithub).toHaveBeenCalled();
+    // Named rather than just called: two buttons calling one handler with no argument would
+    // send everybody to whichever provider the handler happened to hard-code.
+    expect(props.onSocial).toHaveBeenCalledWith(provider);
   });
 
-  it("is not offered when it is not configured", () => {
-    // A button that looks fine and dies at the redirect back from GitHub is the failure the
-    // whole paired-credentials rule exists to prevent; not drawing it is the other half.
-    setup({ githubEnabled: false });
+  it("offers neither when neither is configured", () => {
+    // A button that looks fine and dies at the redirect back is the failure the whole
+    // paired-credentials rule exists to prevent; not drawing it is the other half.
+    setup({ socialProviders: [] });
 
     expect(screen.queryByRole("button", { name: "Continue with GitHub" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Continue with Google" })).toBeNull();
+  });
+
+  it("draws only the one that is configured", () => {
+    setup({ socialProviders: ["google"] });
+
+    expect(screen.getByRole("button", { name: "Continue with Google" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Continue with GitHub" })).toBeNull();
+  });
+
+  it("keeps a fixed order rather than following the API's", () => {
+    // A menu that reorders itself between deployments is one nobody builds muscle memory for.
+    setup({ socialProviders: ["github", "google"] });
+
+    const labels = screen
+      .getAllByRole("button", { name: /^Continue with/ })
+      .map((button) => button.textContent);
+    expect(labels).toEqual(["Continue with Google", "Continue with GitHub"]);
+  });
+});
+
+describe("the way in with no account", () => {
+  it("is offered when the deployment allows it", () => {
+    const props = setup({ demoEnabled: true });
+
+    click("Try it without an account");
+
+    expect(props.onDemo).toHaveBeenCalled();
+  });
+
+  it("says what it costs, so nobody meets a greyed-out picker unprepared", () => {
+    setup({ demoEnabled: true });
+
+    expect(screen.getByText(/free models/)).toBeInTheDocument();
+  });
+
+  it("is not offered when the deployment has closed that door", () => {
+    setup({ demoEnabled: false });
+
+    expect(screen.queryByRole("button", { name: "Try it without an account" })).toBeNull();
   });
 });
 

@@ -27,13 +27,38 @@ import { DoodleWall } from "./doodle-wall.tsx";
 
 export type SignInMode = "sign-in" | "sign-up";
 
+/** The identity providers this page can offer. Which are *offered* is the API's answer. */
+export type SocialProvider = "google" | "github";
+
+/**
+ * What each social button says, in the order they are drawn.
+ *
+ * Google first because it is the one most people have and the one fewest people have to think
+ * about. The order is fixed here rather than following whatever order the API listed them in:
+ * a menu that reorders itself between deployments is one nobody builds muscle memory for.
+ */
+const SOCIAL: readonly { provider: SocialProvider; label: string }[] = [
+  { provider: "google", label: "Continue with Google" },
+  { provider: "github", label: "Continue with GitHub" },
+];
+
 export type SignInFormProps = {
   mode: SignInMode;
   onModeChange: (mode: SignInMode) => void;
   onSubmit: (credentials: { email: string; password: string; name: string }) => void;
-  onGithub: () => void;
-  /** Offered only when the API has a GitHub app; see `/auth/providers`. */
-  githubEnabled: boolean;
+  /** Pressing one of the social buttons, named by which. */
+  onSocial: (provider: SocialProvider) => void;
+  /**
+   * Going in without an account at all.
+   *
+   * A different kind of act from the three above it — nothing is being proved about who you
+   * are — which is why it is drawn below the card rather than as a fourth button in the stack.
+   */
+  onDemo: () => void;
+  /** Only the providers the API actually has credentials for; see `/auth/providers`. */
+  socialProviders: readonly SocialProvider[];
+  /** Whether this deployment lets anybody in without an account at all. */
+  demoEnabled: boolean;
   /** In words, for the person who just tried. Undefined when nothing has gone wrong. */
   error?: string | undefined;
   /**
@@ -83,8 +108,10 @@ export function SignInForm({
   mode,
   onModeChange,
   onSubmit,
-  onGithub,
-  githubEnabled,
+  onSocial,
+  onDemo,
+  socialProviders,
+  demoEnabled,
   error,
   notice,
   submitting = false,
@@ -96,6 +123,9 @@ export function SignInForm({
   const signingUp = mode === "sign-up";
   const verb = signingUp ? "Create account" : "Sign in";
   const copy = COPY[mode];
+  // This page's order, filtered by what the API has credentials for — rather than the API's
+  // order, which is an implementation detail of how boot happens to check them.
+  const offered = SOCIAL.filter(({ provider }) => socialProviders.includes(provider));
 
   return (
     <div className="ai-stage relative flex min-h-dvh flex-col items-center justify-center px-6 py-20">
@@ -209,11 +239,11 @@ export function SignInForm({
             </button>
           </form>
 
-          {githubEnabled && (
+          {offered.length > 0 && (
             <>
               {/*
-                A divider rather than a second button in the stack: these two are alternatives,
-                and stacked identically they read as steps.
+                A divider rather than more buttons in the stack: these are alternatives to the
+                form above, and stacked identically they read as steps.
               */}
               <div aria-hidden="true" className="my-4 flex items-center gap-3">
                 <span className="h-px flex-1 bg-[var(--s-border-1)]" />
@@ -221,17 +251,44 @@ export function SignInForm({
                 <span className="h-px flex-1 bg-[var(--s-border-1)]" />
               </div>
 
-              <button
-                type="button"
-                onClick={onGithub}
-                disabled={submitting}
-                className={`${PILL} w-full border border-[var(--s-border-1)] text-[var(--s-text-body)] hover:border-[var(--s-text-subtle)]`}
-              >
-                Continue with GitHub
-              </button>
+              <div className="flex flex-col gap-2">
+                {offered.map(({ provider, label }) => (
+                  <button
+                    key={provider}
+                    type="button"
+                    onClick={() => onSocial(provider)}
+                    disabled={submitting}
+                    className={`${PILL} w-full border border-[var(--s-border-1)] text-[var(--s-text-body)] hover:border-[var(--s-text-subtle)]`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
             </>
           )}
         </div>
+
+        {/*
+          The way in for somebody who has not decided to trust this yet.
+
+          Below the card and set quietly, because it is a different kind of act from the three
+          inside it: nothing is being proved about who you are, and nothing is kept. It says
+          what it costs — free models — because arriving at a picker where the good models are
+          greyed out with no explanation is worse than knowing in advance.
+        */}
+        {demoEnabled && (
+          <p className="mt-6 text-center text-[var(--s-text-muted)] text-sm">
+            <button
+              type="button"
+              onClick={onDemo}
+              disabled={submitting}
+              className="font-medium text-[var(--s-text-primary)] underline underline-offset-4 focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--s-text-primary)] disabled:opacity-50"
+            >
+              Try it without an account
+            </button>{" "}
+            — free models, nothing to set up.
+          </p>
+        )}
 
         <p className="mt-6 text-center text-[var(--s-text-muted)] text-sm">
           {signingUp ? "Already have an account?" : "No account yet?"}{" "}

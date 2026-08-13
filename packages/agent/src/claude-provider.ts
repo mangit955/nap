@@ -39,9 +39,12 @@ import type {
   LLMTurn,
   LLMTurnOptions,
   LLMTurnResult,
+  ModelCredentials,
   TokenUsage,
 } from "@nap/shared/ports/llm-provider";
 import { z } from "zod";
+import { toDirectAnthropicModel } from "./anthropic.ts";
+import { createOpenRouterClient } from "./openrouter.ts";
 
 /** The assembled response. Named locally so tests do not reach into the SDK's namespace. */
 export type AnthropicMessage = Anthropic.Message;
@@ -87,6 +90,15 @@ export type ClaudeProviderOptions = {
   model?: Anthropic.Model;
   effort?: Effort;
   maxTokens?: number;
+  /**
+   * How a client is built for a turn that brought its own key. Defaults to the real thing.
+   *
+   * Injected for the same reason `client` is, and it is not the same seam: `client` is the one
+   * this process uses, while this is the one somebody *else's* credential produces. Without a
+   * way to override it, the only way to observe which client a turn picked is to make a
+   * request with it — a live call to a vendor from a unit test.
+   */
+  createClient?: (credentials: ModelCredentials) => AnthropicClient;
 };
 
 /**
@@ -368,6 +380,21 @@ export class ClaudeProvider implements LLMProvider {
   readonly #client: AnthropicClient;
   readonly #sleep: (ms: number) => Promise<void>;
   readonly #config: ModelConfig;
+  /**
+   * One client per credential, kept for the life of the process.
+   *
+   * Not an optimisation for its own sake: a client owns an HTTP agent and its connection pool,
+   * so building one per turn means a fresh TLS handshake on every message somebody sends, and
+   * a busy user would leave a trail of pools nothing closes. Keyed by platform *and* key,
+   * because the same string is a different credential at a different vendor.
+   *
+   * The map holds secrets, which is why it is private and why nothing ever enumerates it. It
+   * is also unbounded — one entry per distinct key this process has ever seen. That is fine at
+   * the scale this runs at and is the kind of thing to notice before it is not: the fix is an
+   * LRU, not a rebuild.
+   */
+  readonly #clients = new Map<string, AnthropicClient>();
+  readonly #createClient: (credentials: ModelCredentials) => AnthropicClient;
 
   constructor(options: ClaudeProviderOptions = {}) {
     this.#config = {
@@ -382,17 +409,79 @@ export class ClaudeProvider implements LLMProvider {
       // attempt count triple what it says.
       new Anthropic({ apiKey: options.apiKey, maxRetries: 0 });
     this.#sleep = options.sleep ?? defaultSleep;
+    this.#createClient = options.createClient ?? createClientFor;
   }
 
   startTurn(options: LLMTurnOptions = {}): LLMTurn {
-    // The model is the only thing a caller may vary. Effort, thinking, retries and the cache
-    // breakpoints stay this provider's, because they are policy tuned to the deployment
-    // rather than a preference — and a caller that could set `maxTokens` on this route could
-    // reserve the whole balance, since OpenRouter admits a request against the ceiling.
-    const config =
-      options.model === undefined ? this.#config : { ...this.#config, model: options.model };
-    return new ClaudeTurn(this.#client, this.#sleep, config);
+    // The model and the credential are the only two things a caller may vary, and both are
+    // facts about *who asked* rather than preferences. Effort, thinking, retries and the cache
+    // breakpoints stay this provider's, because they are policy tuned to the deployment — and
+    // a caller that could set `maxTokens` on this route could reserve the whole balance, since
+    // OpenRouter admits a request against the ceiling.
+    const model =
+      options.model === undefined
+        ? this.#config.model
+        : // Spelled for whichever vendor is about to be asked. The rest of the codebase names
+          // models the OpenRouter way, so an Anthropic key needs the namespace taken back off;
+          // without this, somebody's own key would 404 on every turn and the reason would be
+          // three layers away.
+          toModelId(options.model, options.credentials?.platform);
+
+    return new ClaudeTurn(this.#clientFor(options.credentials), this.#sleep, {
+      ...this.#config,
+      model,
+    });
   }
+
+  /**
+   * The client a turn's credential buys, or this process's own when it brought none.
+   *
+   * The default path is deliberately untouched — an injected stub stays the client in tests,
+   * and a deployment with no per-user keys behaves exactly as it did before any of this.
+   */
+  #clientFor(credentials: ModelCredentials | undefined): AnthropicClient {
+    if (credentials === undefined) return this.#client;
+
+    const cacheKey = `${credentials.platform}:${credentials.apiKey}`;
+    const cached = this.#clients.get(cacheKey);
+    if (cached !== undefined) return cached;
+
+    const built = this.#createClient(credentials);
+    this.#clients.set(cacheKey, built);
+    return built;
+  }
+}
+
+/**
+ * A real client for somebody else's key.
+ *
+ * Split out and injectable for the same reason `client` itself is: constructing one is the
+ * only step here that reaches the network when used, so a test that wants to prove *which*
+ * client a turn picked must be able to answer without making a request. Every version of this
+ * test that called `complete` on a real client sent a live request to a vendor, which is
+ * exactly what `test:integration` exists to contain.
+ */
+function createClientFor(credentials: ModelCredentials): AnthropicClient {
+  return credentials.platform === "openrouter"
+    ? createOpenRouterClient({ apiKey: credentials.apiKey })
+    : // Retries off, for the reason the constructor gives: the loop in `complete` is the
+      // policy, and a second invisible one underneath it would make "gave up after N attempts"
+      // untestable and the real attempt count triple what it says.
+      new Anthropic({ apiKey: credentials.apiKey, maxRetries: 0 });
+}
+
+/**
+ * A model id spelled the way the vendor about to be asked spells it.
+ *
+ * Exported so the mapping can be pinned directly: it is one line with two branches and three
+ * ways to be silently wrong, and every one of them surfaces as a 404 from somebody else's
+ * server rather than as anything this codebase says.
+ */
+export function toModelId(
+  model: string,
+  platform: ModelCredentials["platform"] | undefined,
+): string {
+  return platform === "anthropic" ? toDirectAnthropicModel(model) : model;
 }
 
 class ClaudeTurn implements LLMTurn {

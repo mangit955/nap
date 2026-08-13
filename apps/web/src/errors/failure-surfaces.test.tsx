@@ -144,8 +144,10 @@ describe("5 · auth expiry", () => {
         mode="sign-in"
         onModeChange={() => {}}
         onSubmit={() => {}}
-        onGithub={() => {}}
-        githubEnabled={false}
+        onSocial={() => {}}
+        onDemo={() => {}}
+        socialProviders={[]}
+        demoEnabled={false}
         notice={notice}
       />,
     );
@@ -163,8 +165,10 @@ describe("5 · auth expiry", () => {
         mode="sign-in"
         onModeChange={() => {}}
         onSubmit={() => {}}
-        onGithub={() => {}}
-        githubEnabled={false}
+        onSocial={() => {}}
+        onDemo={() => {}}
+        socialProviders={[]}
+        demoEnabled={false}
         notice={expiredNotice(undefined)}
       />,
     );

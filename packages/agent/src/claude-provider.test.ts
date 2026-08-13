@@ -7,6 +7,7 @@ import {
   type AnthropicMessage,
   ClaudeProvider,
   MAX_ATTEMPTS,
+  toModelId,
 } from "./claude-provider.ts";
 
 /**
@@ -384,6 +385,86 @@ describe("ClaudeProvider", () => {
       const body = client.calls[0]?.body as Anthropic.MessageStreamParams;
       expect(body.output_config).toEqual({ effort: "low" });
       expect(body.max_tokens).toBe(4096);
+    });
+
+    it("keeps using the injected client when a turn brings no credentials", async () => {
+      // The path every turn took before anyone could bring a key, and the one the free tier
+      // still takes. If a credential-less turn stopped reaching the injected client, every
+      // other test in this file would be asserting against a real network client.
+      const client = stubClient([message()]);
+
+      await new ClaudeProvider({ client }).startTurn().complete(request());
+
+      expect(client.calls).toHaveLength(1);
+    });
+
+    it("spends a turn's own credentials rather than the process's", async () => {
+      // The whole point of the feature: a turn started with somebody's key must not reach the
+      // client this process was constructed with, or their choice of key is decoration and the
+      // deployment pays for every turn anyway.
+      const own = stubClient([message()]);
+      const theirs = stubClient([message()]);
+      const provider = new ClaudeProvider({
+        client: own,
+        createClient: () => theirs,
+      });
+
+      await provider
+        .startTurn({ credentials: { platform: "openrouter", apiKey: "sk-or-theirs" } })
+        .complete(request());
+
+      expect(theirs.calls).toHaveLength(1);
+      expect(own.calls).toHaveLength(0);
+    });
+
+    it("hands the credential through to the client it builds", async () => {
+      const built = vi.fn(() => stubClient([message()]));
+
+      await new ClaudeProvider({ client: stubClient([message()]), createClient: built })
+        .startTurn({ credentials: { platform: "anthropic", apiKey: "sk-ant-theirs" } })
+        .complete(request());
+
+      expect(built).toHaveBeenCalledWith({ platform: "anthropic", apiKey: "sk-ant-theirs" });
+    });
+
+    it("builds one client per credential and reuses it", async () => {
+      // A client owns a connection pool, so building one per turn is a fresh TLS handshake on
+      // every message somebody sends and a trail of pools nothing closes.
+      const built = vi.fn(() => stubClient([message(), message()]));
+      const provider = new ClaudeProvider({ client: stubClient([]), createClient: built });
+      const credentials = { platform: "openrouter" as const, apiKey: "sk-or-theirs" };
+
+      await provider.startTurn({ credentials }).complete(request());
+      await provider.startTurn({ credentials }).complete(request());
+
+      expect(built).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps two people's keys apart", async () => {
+      // Keyed by the credential, not by the user — but the effect is the one that matters: two
+      // keys must never share a client, or one person's turns are billed to the other.
+      const built = vi.fn(() => stubClient([message()]));
+      const provider = new ClaudeProvider({ client: stubClient([]), createClient: built });
+
+      await provider
+        .startTurn({ credentials: { platform: "openrouter", apiKey: "sk-or-ada" } })
+        .complete(request());
+      await provider
+        .startTurn({ credentials: { platform: "openrouter", apiKey: "sk-or-grace" } })
+        .complete(request());
+
+      expect(built).toHaveBeenCalledTimes(2);
+    });
+
+    it("strips the vendor namespace for a turn on an Anthropic key", async () => {
+      // The codebase spells every model the OpenRouter way. Sent unchanged to Anthropic's own
+      // API, `anthropic/claude-opus-5` is a 404 — three layers away from the key that caused it.
+      expect(toModelId("anthropic/claude-opus-5", "anthropic")).toBe("claude-opus-5");
+    });
+
+    it("leaves the namespace on for a turn on an OpenRouter key, and for no credentials", () => {
+      expect(toModelId("anthropic/claude-opus-5", "openrouter")).toBe("anthropic/claude-opus-5");
+      expect(toModelId("anthropic/claude-opus-5", undefined)).toBe("anthropic/claude-opus-5");
     });
 
     it("can be given a smaller output ceiling, so a run cannot spend more than intended", async () => {

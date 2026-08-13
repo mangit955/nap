@@ -14,6 +14,7 @@ import { VERSION } from "@nap/shared/version";
 import { type Context, Hono } from "hono";
 import { cors } from "hono/cors";
 import type { WSEvents } from "hono/ws";
+import { type AccountRouteDeps, registerAccountRoutes } from "./account/routes.ts";
 import type { Authenticate, AuthInstance } from "./auth/auth.ts";
 import { findOwnedSession } from "./auth/owned-session.ts";
 import { type AuthVariables, requireUser } from "./auth/require-user.ts";
@@ -95,6 +96,12 @@ export type AppDeps = {
   turns?: TurnRouteDeps;
   /** Which models a turn may name. The picker reads this list; the turn route enforces it. */
   models?: ModelRouteDeps;
+  /**
+   * Saving and removing the API key somebody brought with them. Optional for the same reason
+   * the rest are: an app assembled without a key store should have no route that pretends to
+   * save one.
+   */
+  account?: AccountRouteDeps;
   /**
    * Listing, creating, closing and deleting projects — the front door. Optional for the same
    * reason as above: most route tests have no database behind them, and an app built without
@@ -226,12 +233,15 @@ export function createApp(deps: AppDeps): Hono<{ Variables: AuthVariables }> {
     const { auth } = deps;
     app.all("/api/auth/*", (c) => auth.handler(c.req.raw));
 
-    // What the sign-in page needs before anybody has signed in, so it offers a GitHub button
-    // only when there is a GitHub app behind it. Necessarily unauthenticated, and says
-    // nothing a stranger could not learn by pressing the button.
-    app.get("/auth/providers", (c) => c.json({ socialProviders: auth.socialProviders }));
+    // What the sign-in page needs before anybody has signed in, so it offers a button only
+    // when there is something behind it — a Google or GitHub app, or the demo plugin.
+    // Necessarily unauthenticated, and says nothing a stranger could not learn by pressing.
+    app.get("/auth/providers", (c) =>
+      c.json({ socialProviders: auth.socialProviders, demo: auth.demo }),
+    );
   }
 
+  if (deps.account !== undefined) registerAccountRoutes(app, deps.account);
   if (deps.files !== undefined) registerFileRoutes(app, deps.files);
   if (deps.turns !== undefined) registerTurnRoutes(app, deps.turns);
   if (deps.models !== undefined) registerModelRoutes(app, deps.models);

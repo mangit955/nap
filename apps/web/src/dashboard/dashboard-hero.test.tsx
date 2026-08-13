@@ -59,8 +59,8 @@ afterEach(() => {
 
 describe("the dashboard hero", () => {
   const models = [
-    { id: "openai/gpt-5.6-luna", label: "Gpt 5 6 Luna", free: false },
-    { id: "anthropic/claude-opus-5", label: "Claude Opus 5", free: false },
+    { id: "openai/gpt-5.6-luna", label: "Gpt 5 6 Luna", free: false, available: true },
+    { id: "anthropic/claude-opus-5", label: "Claude Opus 5", free: false, available: true },
   ];
 
   it("greets the person by name", () => {

@@ -56,6 +56,7 @@ export function DashboardHero({
   models = [],
   model,
   onModelChange,
+  onAddKey,
   onChange,
   onSubmit,
 }: {
@@ -70,6 +71,8 @@ export function DashboardHero({
   /** The selected model or the server fallback shown before a selection is made. */
   model?: string | undefined;
   onModelChange?: ((model: string) => void) | undefined;
+  /** Opening the key form, for a model this caller cannot reach. */
+  onAddKey?: (() => void) | undefined;
   onChange: (value: string) => void;
   onSubmit: (message: string) => void;
 }) {
@@ -183,6 +186,7 @@ export function DashboardHero({
                 model={model}
                 disabled={busy}
                 onChange={(choice) => onModelChange?.(choice)}
+                onAddKey={onAddKey}
                 onPick={() => box.current?.focus()}
               />
 

@@ -36,20 +36,24 @@ const GITHUB_EMAIL = "octocat@example.com";
 
 let db: ReturnType<typeof createDatabase>;
 let app: ReturnType<typeof createApp>;
+/** Held as well as mounted, because `getUser` is what the rest of the app actually calls. */
+let auth: ReturnType<typeof createAuth>;
 
 const realFetch = globalThis.fetch;
 
 beforeAll(() => {
   db = createDatabase(inject("postgresUrl"), { max: 4 });
+  auth = createAuth(db.db, {
+    secret: "a-test-secret-that-is-long-enough-to-be-a-secret",
+    baseUrl: API_ORIGIN,
+    webOrigin: WEB_ORIGIN,
+    github: { clientId: "test-client-id", clientSecret: "test-client-secret" },
+    allowAnonymous: true,
+  });
   app = createApp({
     logger: createLogger({ level: "silent" }, { write: () => {} }),
     webOrigin: WEB_ORIGIN,
-    auth: createAuth(db.db, {
-      secret: "a-test-secret-that-is-long-enough-to-be-a-secret",
-      baseUrl: API_ORIGIN,
-      webOrigin: WEB_ORIGIN,
-      github: { clientId: "test-client-id", clientSecret: "test-client-secret" },
-    }),
+    auth,
     // Required by `createApp` and irrelevant here; nothing in this file opens a socket.
     stream: {
       store: new InMemoryEventStore(),
@@ -148,6 +152,52 @@ describe("signup, login, logout", () => {
 
     expect(attempt.status).toBeGreaterThanOrEqual(400);
     expect(attempt.headers.getSetCookie()).toHaveLength(0);
+  });
+});
+
+describe("the demo door", () => {
+  it("issues a real session to somebody with no account", async () => {
+    // A throwaway identity with a real cookie and a real row, which is what makes their
+    // projects theirs — a shared demo user would show every visitor everyone else's work.
+    const response = await post("/api/auth/sign-in/anonymous", {});
+
+    expect(response.status).toBe(200);
+    expect(await whoAmI(cookieFrom(response))).not.toBeNull();
+  });
+
+  it("marks the user as anonymous, which is what puts them on the free tier", async () => {
+    // The one thing the rest of the app reads. Without the column the plugin declares, the
+    // flag is silently absent and a demo visitor is indistinguishable from a paying account.
+    const cookie = cookieFrom(await post("/api/auth/sign-in/anonymous", {}));
+
+    const caller = await auth.getUser(new Headers({ cookie }));
+
+    expect(caller?.isAnonymous).toBe(true);
+  });
+
+  it("gives two visitors two different identities", async () => {
+    const first = cookieFrom(await post("/api/auth/sign-in/anonymous", {}));
+    const second = cookieFrom(await post("/api/auth/sign-in/anonymous", {}));
+
+    const [one, two] = await Promise.all([
+      auth.getUser(new Headers({ cookie: first })),
+      auth.getUser(new Headers({ cookie: second })),
+    ]);
+
+    expect(one?.userId).not.toBe(two?.userId);
+  });
+
+  it("reports a signed-up account as not anonymous", async () => {
+    const email = anEmail();
+    const signedUp = await post("/api/auth/sign-up/email", {
+      email,
+      password: "correct horse battery staple",
+      name: "Ada",
+    });
+
+    const caller = await auth.getUser(new Headers({ cookie: cookieFrom(signedUp) }));
+
+    expect(caller?.isAnonymous).toBe(false);
   });
 });
 
