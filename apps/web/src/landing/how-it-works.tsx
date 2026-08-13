@@ -51,7 +51,6 @@ export function HowItWorks() {
       <div className="mx-auto max-w-5xl">
         <SectionHeading
           id="how-it-works"
-          eyebrow="How it works"
           lines={["You describe it. nap builds it.", "You wake up to it running."]}
           emphasis="nap"
           sub="One turn, start to finish. Everything below happens on a machine that is yours for the length of the project."

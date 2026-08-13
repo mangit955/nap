@@ -100,8 +100,13 @@ describe("signing out", () => {
     });
   });
 
+  /** Behind the account menu now, which every case here has to open first. */
+  function openAccountMenu() {
+    fireEvent.click(screen.getByRole("button", { name: /Manas/ }));
+  }
+
   function signOutButton() {
-    return screen.getByRole("button", { name: "Sign out" });
+    return screen.getByRole("menuitem", { name: "Sign out" });
   }
 
   it("marks the rail busy from the press, not from the answer", async () => {
@@ -111,6 +116,7 @@ describe("signing out", () => {
     signOut.mockReturnValue(new Promise(() => {}));
     render(<LiveDashboard />);
 
+    openAccountMenu();
     fireEvent.click(signOutButton());
 
     await vi.waitFor(() => expect(signOutButton()).toHaveAttribute("aria-busy", "true"));
@@ -123,6 +129,7 @@ describe("signing out", () => {
     signOut.mockResolvedValue({});
     render(<LiveDashboard />);
 
+    openAccountMenu();
     fireEvent.click(signOutButton());
 
     await vi.waitFor(() => expect(replace).toHaveBeenCalledWith("/"));
@@ -136,6 +143,7 @@ describe("signing out", () => {
     signOut.mockRejectedValue(new Error("offline"));
     render(<LiveDashboard />);
 
+    openAccountMenu();
     fireEvent.click(signOutButton());
 
     await vi.waitFor(() => expect(signOutButton()).toBeEnabled());

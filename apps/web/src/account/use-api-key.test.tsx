@@ -37,12 +37,30 @@ describe("reading what is saved", () => {
         hint: "sk-or-…4f2a",
       }),
     );
+    expect(result.current.loaded).toBe(true);
+  });
+
+  it("has not finished asking on the first tick", () => {
+    // The state `loaded` exists to describe. A caller drawing a spinner needs a value that is
+    // false *before* the answer, or the spinner never appears and the flash it replaces is back.
+    const { result } = renderHook(() => useApiKey({ fetchJson: answering(CONFIGURED) }));
+
+    expect(result.current.loaded).toBe(false);
   });
 
   it("reports no key when there is none", async () => {
     const { result } = renderHook(() => useApiKey({ fetchJson: answering({ configured: false }) }));
 
     await waitFor(() => expect(result.current.state).toEqual({ configured: false }));
+    expect(result.current.loaded).toBe(true);
+  });
+
+  it("has finished asking even when the answer was a refusal", async () => {
+    const { result } = renderHook(() => useApiKey({ fetchJson: answering({ error: "no" }, 500) }));
+
+    await settle();
+    expect(result.current.state).toBeUndefined();
+    expect(result.current.loaded).toBe(true);
   });
 
   it("stays undecided when the server cannot be reached", async () => {
@@ -58,6 +76,9 @@ describe("reading what is saved", () => {
 
     await settle();
     expect(result.current.state).toBeUndefined();
+    // Undecided, but no longer *asking* — the distinction the welcome step needs to draw a form
+    // rather than a spinner that would never stop while the API is down.
+    expect(result.current.loaded).toBe(true);
   });
 
   it("stays undecided when the body is the wrong shape", async () => {
@@ -65,6 +86,7 @@ describe("reading what is saved", () => {
 
     await settle();
     expect(result.current.state).toBeUndefined();
+    expect(result.current.loaded).toBe(true);
   });
 });
 

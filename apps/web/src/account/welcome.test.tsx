@@ -12,10 +12,11 @@ const push = vi.fn();
 const replace = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push, replace }) }));
 
-const state = vi.hoisted(() => ({ key: undefined as unknown, save: vi.fn() }));
+const state = vi.hoisted(() => ({ key: undefined as unknown, loaded: true, save: vi.fn() }));
 vi.mock("./use-api-key.ts", () => ({
   useApiKey: () => ({
     state: state.key,
+    loaded: state.loaded,
     error: undefined,
     busy: false,
     save: state.save,
@@ -27,6 +28,7 @@ beforeEach(() => {
   push.mockClear();
   replace.mockClear();
   state.key = { configured: false };
+  state.loaded = true;
   state.save = vi.fn(async () => true);
   localStorage.clear();
 });
@@ -57,6 +59,17 @@ describe("skipping", () => {
     expect(push).toHaveBeenCalledWith("/dashboard");
     expect(hasSkippedWelcome()).toBe(true);
   });
+
+  it("is remembered, so the question is not asked again on the next sign-in", async () => {
+    // The flag was written and never read, which made "Just try it free" an answer this page
+    // forgot the moment it was given — and every sign-in afterwards asked again.
+    localStorage.setItem("nap.welcome.skipped", "true");
+
+    render(<Welcome />);
+
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/dashboard"));
+    expect(screen.queryByLabelText("API key")).toBeNull();
+  });
 });
 
 describe("somebody who already has a key", () => {
@@ -79,5 +92,44 @@ describe("somebody who already has a key", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("is never shown the form on the way past", async () => {
+    // The bug this page had: it drew the paste form while the answer was in flight, so somebody
+    // who saved a key long ago was asked for it again and then yanked to the dashboard when the
+    // answer landed. Being asked a question you have already answered is a worse first second
+    // than a moment of nothing.
+    state.key = { configured: true, platform: "openrouter", hint: "sk-or-…4f2a" };
+
+    render(<Welcome />);
+
+    expect(screen.queryByLabelText("API key")).toBeNull();
+    expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/dashboard"));
+  });
+});
+
+describe("while it does not yet know", () => {
+  it("waits on a loader rather than guessing", () => {
+    state.loaded = false;
+    state.key = undefined;
+
+    render(<Welcome />);
+
+    expect(screen.getByRole("status")).toBeInTheDocument();
+    expect(screen.queryByLabelText("API key")).toBeNull();
+  });
+
+  it("draws the form once asking has finished, even with nothing to show for it", () => {
+    // The failure the `loaded` flag exists for: a server that could not be reached leaves the
+    // state undefined, which is the same value it holds mid-flight. Waiting on that alone would
+    // strand somebody on a spinner with no way to paste the key they came here to paste.
+    state.loaded = true;
+    state.key = undefined;
+
+    render(<Welcome />);
+
+    expect(screen.getByLabelText("API key")).toBeInTheDocument();
+    expect(screen.queryByRole("status")).toBeNull();
   });
 });

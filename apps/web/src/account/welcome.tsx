@@ -21,6 +21,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { NapMark } from "../brand/nap-mark.tsx";
+import { SpinnerIcon } from "../ui/icons.tsx";
 import { ApiKeyForm } from "./api-key-form.tsx";
 import { useApiKey } from "./use-api-key.ts";
 
@@ -54,7 +55,16 @@ function rememberSkip(): void {
 
 export function Welcome() {
   const router = useRouter();
-  const { state, error, busy, save } = useApiKey();
+  const { state, loaded, error, busy, save } = useApiKey();
+
+  // Somebody who already said no is not asked again, which is the whole point of remembering it.
+  // Checked before anything is known and without a request, because the answer is already in this
+  // browser: a skipper never sees this page at all rather than seeing it until the server replies.
+  const skipped = hasSkippedWelcome();
+
+  useEffect(() => {
+    if (skipped) router.replace(AFTER);
+  }, [skipped, router]);
 
   // Sent straight on if there is already a key, so this is a first-run step and not a page
   // between somebody and their work every time they sign in. `undefined` means the answer has
@@ -63,6 +73,20 @@ export function Welcome() {
   useEffect(() => {
     if (state?.configured === true) router.replace(AFTER);
   }, [state, router]);
+
+  /*
+   * Nothing but a spinner until it is known whether this page is needed.
+   *
+   * This used to draw the paste form while it waited, on the reasoning that the form is what
+   * almost everybody landing here needs. What that missed is the other case: somebody who saved
+   * a key months ago signs in, is shown a form asking for the key they already gave, and is then
+   * yanked to the dashboard when the answer lands. Being asked a question you have answered is a
+   * worse first second than a moment of nothing.
+   *
+   * `loaded` rather than `state === undefined`, so a server that cannot be reached ends up at the
+   * form — where a key can still be pasted — instead of spinning here forever.
+   */
+  const deciding = !loaded || skipped || state?.configured === true;
 
   const skip = () => {
     rememberSkip();
@@ -81,43 +105,62 @@ export function Welcome() {
       </a>
 
       <main className="flex w-full max-w-sm flex-col">
-        <h1 className="text-center font-display font-extralight text-[var(--s-text-body)] text-3xl tracking-[-0.03em]">
-          One more thing —{" "}
-          <span className="font-semibold text-[var(--s-text-primary)]">optional.</span>
-        </h1>
-        <p className="mt-2.5 text-balance text-center text-[var(--s-text-muted)] text-sm">
-          Nap runs on free models out of the box. Bring your own API key to build with Claude Opus
-          and the paid GPT models instead.
-        </p>
-
-        <div className="mt-8 rounded-[20px] border border-[var(--s-border-1)] bg-[var(--s-surface-1)] p-6 shadow-[0_1px_2px_rgba(12,38,77,0.06),0_10px_30px_-12px_rgba(12,38,77,0.18)]">
-          <ApiKeyForm
-            // Until the answer arrives, the paste form is the right thing to draw: it is what
-            // almost everybody landing here needs, and the redirect above catches the rest.
-            state={state ?? { configured: false }}
-            onSave={(apiKey) => {
-              void save(apiKey).then((saved) => {
-                if (saved) router.push(AFTER);
-              });
-            }}
-            // Unreachable from this page — a key that is already saved sends the person on
-            // before the form renders — but the prop is required, and routing to the dashboard
-            // is the honest answer to "I no longer want this key" wherever it is pressed.
-            onRemove={skip}
-            error={error}
-            busy={busy}
-          />
-        </div>
-
-        <p className="mt-6 text-center">
-          <button
-            type="button"
-            onClick={skip}
-            className="font-medium text-[var(--s-text-primary)] text-sm underline underline-offset-4 focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--s-text-primary)]"
+        {/*
+          The heading waits too. "One more thing — optional." is the wrong sentence to show
+          somebody who is about to be sent to their dashboard, and showing it under a spinner
+          would be promising a question that never gets asked.
+        */}
+        {deciding ? (
+          <p
+            role="status"
+            className="flex items-center justify-center py-10 text-[var(--s-text-subtle)]"
           >
-            Just try it free
-          </button>
-        </p>
+            <SpinnerIcon className="size-6" />
+            <span className="sr-only">Checking your account…</span>
+          </p>
+        ) : (
+          <>
+            <h1 className="text-center font-display font-extralight text-[var(--s-text-body)] text-3xl tracking-[-0.03em]">
+              One more thing —{" "}
+              <span className="font-semibold text-[var(--s-text-primary)]">optional.</span>
+            </h1>
+            <p className="mt-2.5 text-balance text-center text-[var(--s-text-muted)] text-sm">
+              Nap runs on free models out of the box. Bring your own API key to build with Claude
+              Opus and the paid GPT models instead.
+            </p>
+
+            <div className="mt-8 rounded-[20px] border border-[var(--s-border-1)] bg-[var(--s-surface-1)] p-6 shadow-[0_1px_2px_rgba(12,38,77,0.06),0_10px_30px_-12px_rgba(12,38,77,0.18)]">
+              <ApiKeyForm
+                // Only ever the unconfigured form: a saved key redirects above, and this branch
+                // is not reached until the answer has arrived. A server that could not be asked
+                // lands here too, which is right — a key can still be pasted.
+                state={state ?? { configured: false }}
+                onSave={(apiKey) => {
+                  void save(apiKey).then((saved) => {
+                    if (saved) router.push(AFTER);
+                  });
+                }}
+                // Unreachable from this page — a key that is already saved sends the person on
+                // before the form renders — but the prop is required, and routing to the
+                // dashboard is the honest answer to "I no longer want this key" wherever it is
+                // pressed.
+                onRemove={skip}
+                error={error}
+                busy={busy}
+              />
+            </div>
+
+            <p className="mt-6 text-center">
+              <button
+                type="button"
+                onClick={skip}
+                className="font-medium text-[var(--s-text-primary)] text-sm underline underline-offset-4 focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--s-text-primary)]"
+              >
+                Just try it free
+              </button>
+            </p>
+          </>
+        )}
       </main>
     </div>
   );

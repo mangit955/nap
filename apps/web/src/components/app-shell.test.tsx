@@ -74,6 +74,25 @@ describe("AppShell", () => {
     expect(screen.getAllByRole("main")).toHaveLength(1);
   });
 
+  it("clips at the frame, so no pane can scroll the whole page", () => {
+    /*
+     * Reached by class, which this file otherwise never does, and it is worth saying why rather
+     * than quietly making an exception. The workspace is a fixed-height frame: only the iframe,
+     * the file viewer, the tree and the transcript may scroll. Nothing clipped between `main` and
+     * the document, and `html, body` are `height: 100%` with overflow visible — so one leaking
+     * row in the transcript scrolled the entire page, top bar and all, out of the window.
+     *
+     * jsdom lays nothing out. `scrollHeight` is 0 for every element here, so the declaration is
+     * the only observable and this test cannot prove the page does not scroll — only that the
+     * clamp has not been dropped by a refactor. The measurement that proves it needs a browser:
+     * `documentElement.scrollHeight === documentElement.clientHeight`.
+     */
+    const { container } = render(<AppShell projectId={PROJECT} />);
+
+    expect(screen.getByRole("main")).toHaveClass("overflow-hidden");
+    expect(container.firstElementChild).toHaveClass("overflow-hidden");
+  });
+
   it("renders a banner identifying the product", () => {
     render(<AppShell projectId={PROJECT} />);
 

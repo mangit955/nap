@@ -47,6 +47,15 @@ function show(props: Partial<Parameters<typeof Sidebar>[0]> = {}) {
   return handlers;
 }
 
+/**
+ * The account's own actions live behind the name now, so every case about them opens it first.
+ *
+ * A press is the only way it opens — see the case below about hover.
+ */
+function openAccountMenu() {
+  fireEvent.click(screen.getByRole("button", { name: /Manas/ }));
+}
+
 describe("the dashboard sidebar", () => {
   it("is a navigation landmark with a name, since the page has two", () => {
     show();
@@ -78,21 +87,23 @@ describe("the dashboard sidebar", () => {
     // The one action in this rail that is neither instant nor visible: nothing on the page
     // changes until the redirect lands, so an unmarked slow sign-out reads as a dead button.
     show({ signingOut: true });
+    openAccountMenu();
 
-    const button = screen.getByRole("button", { name: "Sign out" });
-    expect(button).toHaveAttribute("aria-busy", "true");
-    expect(button).toBeDisabled();
+    const item = screen.getByRole("menuitem", { name: "Sign out" });
+    expect(item).toHaveAttribute("aria-busy", "true");
+    expect(item).toBeDisabled();
     // Reached by class, as the spinner is `aria-hidden` and has no role to query. `aria-busy`
     // above is the half a screen reader gets; this is the half everyone else gets.
-    expect(button.querySelector(".nap-spin")).not.toBeNull();
+    expect(item.querySelector(".nap-spin")).not.toBeNull();
   });
 
   it("says nothing about being busy when it is not", () => {
     show();
+    openAccountMenu();
 
-    const button = screen.getByRole("button", { name: "Sign out" });
-    expect(button).not.toHaveAttribute("aria-busy");
-    expect(button).toBeEnabled();
+    const item = screen.getByRole("menuitem", { name: "Sign out" });
+    expect(item).not.toHaveAttribute("aria-busy");
+    expect(item).toBeEnabled();
   });
 
   it("changes the scope when one is picked", () => {
@@ -129,13 +140,58 @@ describe("the dashboard sidebar", () => {
     expect(screen.queryByRole("heading", { name: /recents/i })).not.toBeInTheDocument();
   });
 
-  it("names the person signed in, and offers the way out", () => {
+  it("names the person signed in, and offers the way out behind their name", () => {
     const { onSignOut } = show();
 
+    // The name and email stay on the rail; only the actions moved.
     expect(screen.getByText("manas@example.com")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /sign out/i }));
+    openAccountMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: /sign out/i }));
 
     expect(onSignOut).toHaveBeenCalled();
+  });
+
+  it("keeps the account's actions shut until they are asked for", () => {
+    // Signing out sat one careless click from Dashboard when it was a rail item. Behind the name
+    // it is two deliberate ones, and the rail goes back to listing places rather than verbs.
+    show();
+
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: /sign out/i })).toBeNull();
+  });
+
+  it("stays shut when the pointer merely passes over it", () => {
+    // A menu that opens on hover opens when nobody asked, over the recents somebody is reading.
+    show();
+
+    fireEvent.pointerEnter(screen.getByRole("button", { name: /Manas/ }).parentElement as Element);
+
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("says it has a menu, which hovering cannot", () => {
+    // A pointer-only menu is unreachable by keyboard and unusable on a touch screen. These two
+    // attributes are what make the trigger a control rather than a decorated name.
+    show();
+
+    const trigger = screen.getByRole("button", { name: /Manas/ });
+    expect(trigger).toHaveAttribute("aria-haspopup", "menu");
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+
+    openAccountMenu();
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("closes on Escape and gives focus back to the name", () => {
+    // Focus left on an element that has just stopped existing is focus on `<body>`, and the next
+    // Tab starts again from the top of the page.
+    show();
+    openAccountMenu();
+
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(screen.getByRole("button", { name: /Manas/ })).toHaveFocus();
   });
 
   it("starts a new project from the rail", () => {
@@ -148,8 +204,9 @@ describe("the dashboard sidebar", () => {
 
   it("offers somewhere to put an API key, and says there is none yet", () => {
     const { onApiKey } = show({ keyHint: undefined });
+    openAccountMenu();
 
-    fireEvent.click(screen.getByRole("button", { name: "Add your API key" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Add your API key" }));
 
     expect(onApiKey).toHaveBeenCalled();
   });
@@ -158,7 +215,8 @@ describe("the dashboard sidebar", () => {
     // The state is the thing people come to this entry to check. A label that reads the same
     // either way makes them open it every time.
     show({ keyHint: "sk-or-…4f2a" });
+    openAccountMenu();
 
-    expect(screen.getByRole("button", { name: "API key · sk-or-…4f2a" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "API key · sk-or-…4f2a" })).toBeInTheDocument();
   });
 });
