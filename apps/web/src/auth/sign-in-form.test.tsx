@@ -144,10 +144,23 @@ describe("the social providers", () => {
     // A menu that reorders itself between deployments is one nobody builds muscle memory for.
     setup({ socialProviders: ["github", "google"] });
 
+    // The accessible name, not `textContent`: these buttons are a logo and nothing else, so
+    // their text content is empty and an assertion on it would pass on two blank strings.
     const labels = screen
       .getAllByRole("button", { name: /^Continue with/ })
-      .map((button) => button.textContent);
+      .map((button) => button.getAttribute("aria-label"));
     expect(labels).toEqual(["Continue with Google", "Continue with GitHub"]);
+  });
+
+  it("says who it is for a screen reader, since the mark is all there is to see", () => {
+    // The cost of dropping the words: an unlabelled icon button is announced as "button", and
+    // two of them are two identical buttons with no way to tell which is which.
+    setup({ socialProviders: ["github"] });
+
+    const button = screen.getByRole("button", { name: "Continue with GitHub" });
+    expect(button).toHaveTextContent("");
+    // A pointer gets the same sentence a screen reader does.
+    expect(button).toHaveAttribute("title", "Continue with GitHub");
   });
 });
 
@@ -155,7 +168,7 @@ describe("the way in with no account", () => {
   it("is offered when the deployment allows it", () => {
     const props = setup({ demoEnabled: true });
 
-    click("Try it without an account");
+    click("Try for free");
 
     expect(props.onDemo).toHaveBeenCalled();
   });
@@ -169,7 +182,7 @@ describe("the way in with no account", () => {
   it("is not offered when the deployment has closed that door", () => {
     setup({ demoEnabled: false });
 
-    expect(screen.queryByRole("button", { name: "Try it without an account" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Try for free" })).toBeNull();
   });
 });
 
@@ -187,6 +200,20 @@ describe("when something goes wrong", () => {
 
     expect(screen.getByRole("button", { name: "One moment…" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Continue with GitHub" })).toBeDisabled();
+  });
+
+  it("turns a ring beside the words while it waits", () => {
+    // Reached by class, which this file otherwise never does: a spinner is decorative by
+    // design — `aria-hidden`, no role, no name — so a role query is the one thing that cannot
+    // see it. The same exception the doodle sheet below makes.
+    //
+    // The words are asserted by the accessible name, and both halves matter: without the ring
+    // a stalled request looks identical to a fast one, and without the sentence there is
+    // nothing for a screen reader to announce at the moment it needs to say "wait".
+    setup({ submitting: true });
+
+    const button = screen.getByRole("button", { name: "One moment…" });
+    expect(button.querySelector(".nap-spin")).not.toBeNull();
   });
 });
 

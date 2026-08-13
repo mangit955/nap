@@ -35,9 +35,14 @@ const WHERE: Record<"openrouter" | "anthropic", { name: string; url: string }> =
   anthropic: { name: "Anthropic", url: "https://console.anthropic.com/settings/keys" },
 };
 
+/*
+ * Monospaced, like the hint a saved key is shown as — a credential is machine output, and this
+ * app sets machine output in one typeface everywhere. It also keeps the password bullets on an
+ * even pitch instead of the ragged proportional ones.
+ */
 const FIELD =
   "w-full rounded-[10px] border border-[var(--s-border-1)] bg-[var(--s-surface-1)] px-3.5 py-2.5 " +
-  "text-[16px] text-[var(--s-text-primary)] outline-none placeholder:text-[var(--s-text-subtle)] " +
+  "font-mono text-[16px] text-[var(--s-text-primary)] outline-none placeholder:text-[var(--s-text-subtle)] " +
   "focus-visible:border-[var(--s-text-subtle)] focus-visible:outline focus-visible:outline-2 " +
   "focus-visible:outline-[var(--s-text-primary)] focus-visible:outline-offset-1";
 

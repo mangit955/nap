@@ -16,7 +16,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { credentialedFetch } from "../api/credentialed-fetch.ts";
-import { AFTER_DEMO_SIGN_IN, AFTER_SIGN_IN, authClient } from "./client.ts";
+import { AFTER_DEMO_SIGN_IN, AFTER_SIGN_IN, authClient, returnTo } from "./client.ts";
 import { pathForMode } from "./mode-path.ts";
 import { SignInForm, type SignInMode, type SocialProvider } from "./sign-in-form.tsx";
 
@@ -171,7 +171,7 @@ export function LiveSignIn({
         setError(undefined);
         // A full-page redirect to the provider, so nothing after this runs — unless it never
         // gets that far, which leaves the same stuck button as a failed email sign-in.
-        authClient.signIn.social({ provider, callbackURL: AFTER_SIGN_IN }).catch(() => {
+        authClient.signIn.social({ provider, callbackURL: returnTo(AFTER_SIGN_IN) }).catch(() => {
           setError(UNREACHABLE);
           setSubmitting(false);
         });

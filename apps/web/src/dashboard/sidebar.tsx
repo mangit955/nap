@@ -18,6 +18,7 @@
 
 import type { ProjectSummaryPayload } from "@nap/shared/projects-protocol";
 import { NapMark } from "../brand/nap-mark.tsx";
+import { SpinnerIcon } from "../ui/icons.tsx";
 import type { ProjectScope } from "./filters.ts";
 
 const SCOPES: readonly { id: ProjectScope; label: string }[] = [
@@ -38,6 +39,7 @@ export function Sidebar({
   onApiKey,
   keyHint,
   onSignOut,
+  signingOut = false,
 }: {
   name: string;
   email: string | undefined;
@@ -59,6 +61,15 @@ export function Sidebar({
    */
   keyHint: string | undefined;
   onSignOut: () => void;
+  /**
+   * Whether signing out is in flight.
+   *
+   * Worth showing because it is the one action in this rail that is neither instant nor
+   * visible: the request crosses the network to drop the session, and until the redirect lands
+   * the page looks exactly as it did before the press. Without a mark, a slow one reads as a
+   * button that did nothing and gets pressed again.
+   */
+  signingOut?: boolean;
 }) {
   return (
     <nav
@@ -171,19 +182,40 @@ export function Sidebar({
           {keyHint === undefined ? "Add your API key" : `API key · ${keyHint}`}
         </RailButton>
 
-        <RailButton onClick={onSignOut}>Sign out</RailButton>
+        {/*
+          The ring sits after the words rather than replacing them, unlike the sign-in button:
+          this is a rail item, and swapping its label would move every item below it. `aria-busy`
+          carries the same news to a screen reader, which a decorative spinner cannot.
+        */}
+        <RailButton onClick={onSignOut} disabled={signingOut} busy={signingOut}>
+          Sign out
+          {signingOut && <SpinnerIcon className="size-3.5 shrink-0 text-muted" />}
+        </RailButton>
       </div>
     </nav>
   );
 }
 
 /** Everything in the rail that does something rather than going somewhere. */
-function RailButton({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+function RailButton({
+  onClick,
+  disabled = false,
+  busy = false,
+  children,
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+  /** Announced as `aria-busy`, for an item whose spinner says nothing to a screen reader. */
+  busy?: boolean;
+  children: React.ReactNode;
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="flex items-center gap-2.5 rounded-chip px-2.5 py-2 text-ink-2 text-sm transition-colors hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
+      disabled={disabled}
+      aria-busy={busy || undefined}
+      className="flex items-center gap-2.5 rounded-chip px-2.5 py-2 text-ink-2 text-sm transition-colors hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent disabled:hover:bg-transparent disabled:hover:text-ink-2"
     >
       {children}
     </button>

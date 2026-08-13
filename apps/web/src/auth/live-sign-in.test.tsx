@@ -24,6 +24,7 @@ vi.mock("next/navigation", () => ({
 vi.mock("./client.ts", () => ({
   AFTER_SIGN_IN: "/welcome",
   AFTER_DEMO_SIGN_IN: "/dashboard",
+  returnTo: (path: string) => new URL(path, window.location.origin).toString(),
   authClient: {
     signIn: {
       email: (...args: unknown[]) => signInEmail(...args),
@@ -136,7 +137,7 @@ describe("the way in with no account", () => {
     // and a demo link on a deployment that has closed that door leads nowhere.
     render(<LiveSignIn />);
 
-    expect(screen.queryByRole("button", { name: "Try it without an account" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Try for free" })).toBeNull();
   });
 
   it("signs in anonymously and goes straight to work", async () => {
@@ -146,7 +147,7 @@ describe("the way in with no account", () => {
     signInAnonymous.mockResolvedValue({});
     render(<LiveSignIn />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Try it without an account" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Try for free" }));
 
     await vi.waitFor(() => expect(push).toHaveBeenCalledWith("/dashboard"));
   });
@@ -158,7 +159,7 @@ describe("the way in with no account", () => {
     signInAnonymous.mockRejectedValue(new Error("offline"));
     render(<LiveSignIn />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Try it without an account" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Try for free" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("couldn't reach the server");
     expect(push).not.toHaveBeenCalled();
@@ -173,7 +174,12 @@ describe("the social buttons", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Continue with Google" }));
 
-    expect(signInSocial).toHaveBeenCalledWith({ provider: "google", callbackURL: "/welcome" });
+    // Absolute, not `/welcome`: a relative callback is resolved against the *API's* origin,
+    // which has no such page and answers the redirect with a JSON 404.
+    expect(signInSocial).toHaveBeenCalledWith({
+      provider: "google",
+      callbackURL: "http://localhost:3000/welcome",
+    });
     expect(screen.queryByRole("button", { name: "Continue with GitHub" })).toBeNull();
   });
 

@@ -14,6 +14,7 @@
  */
 
 import { useEffect, useRef } from "react";
+import { CloseIcon } from "../ui/icons.tsx";
 import { ApiKeyForm } from "./api-key-form.tsx";
 import type { useApiKey } from "./use-api-key.ts";
 
@@ -56,26 +57,53 @@ export function ApiKeyPanel({
       closedby="any"
       // Escape, the backdrop and `close()` all arrive here.
       onClose={onClose}
-      className="m-auto w-full max-w-sm rounded-[20px] border border-[var(--s-border-1)] bg-[var(--s-surface-1)] p-6 text-[var(--s-text-primary)] backdrop:bg-black/40"
+      /*
+       * `ai-stage-dark` is what makes the shared form legible here.
+       *
+       * `ApiKeyForm` paints itself in the `--s-*` ramp, which is scoped to `.ai-stage` — the
+       * light pages. Over the workspace those variables resolve to nothing, which is not an
+       * error and not a fallback: it is a dialog with no fill, no border and the page showing
+       * through its text. The class hands the same names a dark set of values. See `globals.css`.
+       *
+       * The rest is depth. A modal over a near-black frame cannot separate itself with a
+       * hairline alone, so it is a raised panel over a dimmed, blurred room: a long shadow for
+       * the lift, and one inset highlight along the top edge, which is how a real surface catches
+       * the light and the cheapest thing that stops a flat rectangle reading as a cutout.
+       */
+      className="nap-dialog ai-stage-dark m-auto w-full max-w-md rounded-[20px] border border-edge bg-panel p-7 text-ink shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_32px_64px_-16px_rgba(0,0,0,0.75)] backdrop:bg-black/60 backdrop:backdrop-blur-[3px]"
     >
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex items-start justify-between gap-5">
         <div>
-          <h2 className="font-semibold text-base">Your API key</h2>
-          <p className="mt-1 text-[var(--s-text-muted)] text-sm">
+          <h2 className="font-semibold text-[15px] text-ink tracking-tight">Your API key</h2>
+          {/*
+            The offer, not a requirement — whoever is reading this already has a working app on
+            the free models. `text-pretty` keeps the second line from falling to one short word.
+          */}
+          <p className="mt-1.5 text-pretty text-[13px] text-muted leading-relaxed">
             Unlocks Claude Opus and the paid GPT models. Free models work without one.
           </p>
         </div>
+        {/*
+          A drawn ✕ rather than the character. The glyph is a different weight, size and
+          baseline in every font a browser might reach for, so it never quite sat on the centre
+          of its own button; this one is on the same 16px grid as every other icon in the app.
+          The well appears on hover rather than sitting there, because dismissing is not the
+          thing anybody opened this to do.
+        */}
         <button
           type="button"
           onClick={onClose}
           aria-label="Close"
-          className="shrink-0 rounded-full px-2 py-1 text-[var(--s-text-muted)] hover:text-[var(--s-text-primary)] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--s-text-primary)]"
+          className="-mr-1.5 -mt-1.5 flex size-8 shrink-0 items-center justify-center rounded-full text-muted transition-colors hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         >
-          ✕
+          <CloseIcon className="size-4" />
         </button>
       </div>
 
-      <div className="mt-5">
+      {/* A full-bleed rule, so the head reads as a head rather than as the first paragraph. */}
+      <div aria-hidden="true" className="-mx-7 mt-5 h-px bg-edge" />
+
+      <div className="mt-6">
         <ApiKeyForm
           state={keyState.state ?? { configured: false }}
           onSave={(apiKey) => void keyState.save(apiKey)}

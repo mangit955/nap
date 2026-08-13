@@ -74,6 +74,27 @@ describe("the dashboard sidebar", () => {
     );
   });
 
+  it("marks signing out as in flight, and holds the button while it is", () => {
+    // The one action in this rail that is neither instant nor visible: nothing on the page
+    // changes until the redirect lands, so an unmarked slow sign-out reads as a dead button.
+    show({ signingOut: true });
+
+    const button = screen.getByRole("button", { name: "Sign out" });
+    expect(button).toHaveAttribute("aria-busy", "true");
+    expect(button).toBeDisabled();
+    // Reached by class, as the spinner is `aria-hidden` and has no role to query. `aria-busy`
+    // above is the half a screen reader gets; this is the half everyone else gets.
+    expect(button.querySelector(".nap-spin")).not.toBeNull();
+  });
+
+  it("says nothing about being busy when it is not", () => {
+    show();
+
+    const button = screen.getByRole("button", { name: "Sign out" });
+    expect(button).not.toHaveAttribute("aria-busy");
+    expect(button).toBeEnabled();
+  });
+
   it("changes the scope when one is picked", () => {
     const { onScopeChange } = show();
 

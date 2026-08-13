@@ -137,7 +137,6 @@ export function Capabilities() {
       <div className="mx-auto max-w-5xl">
         <SectionHeading
           id="capabilities"
-          eyebrow="Sleep on it"
           lines={["It keeps its head while you don't."]}
           emphasis="head"
           sub="The parts that make walking away from a half-built app a reasonable thing to do."

@@ -42,3 +42,18 @@ export const AFTER_SIGN_IN = "/welcome";
  * "try it" into "fill in a form" — which is the friction the demo door exists to remove.
  */
 export const AFTER_DEMO_SIGN_IN = "/dashboard";
+
+/**
+ * Turns one of the paths above into somewhere a *provider* can send the browser back to.
+ *
+ * Email and demo sign-in return here and the router handles the rest, so a path is enough for
+ * them. A social redirect leaves this app entirely and comes back through the API, which is
+ * where the difference bites: the auth server resolves a relative `callbackURL` against its own
+ * `baseURL`, so `/welcome` becomes `/welcome` *on the API's origin* — a route that only the
+ * front end has, answered by the API's 404 as JSON. Passing the full URL makes the origin
+ * explicit rather than inherited. It has to be in `trustedOrigins` on the server, and is:
+ * `apps/api/src/index.ts` passes `NAP_WEB_ORIGIN`.
+ */
+export function returnTo(path: string): string {
+  return new URL(path, window.location.origin).toString();
+}

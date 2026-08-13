@@ -68,6 +68,7 @@ function SignedInDashboard({ user }: { user: { name?: string | null; email?: str
   // about whether a key is saved.
   const key = useApiKey();
   const [keyPanelOpen, setKeyPanelOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
 
   const [prompt, setPrompt] = useState("");
   // `undefined` is intentional: it sends no model key, so the server owns the default until
@@ -106,12 +107,24 @@ function SignedInDashboard({ user }: { user: { name?: string | null; email?: str
                 if (projectId !== undefined) router.push(`/p/${projectId}`);
               });
             }}
+            signingOut={signingOut}
             onSignOut={() => {
-              void authClient.signOut().then(() => {
-                // The session hook and the project list both hold answers that are now wrong, and
-                // the landing page is where a signed-out visitor belongs.
-                router.replace("/");
-              });
+              setSigningOut(true);
+              void authClient
+                .signOut()
+                .then(() => {
+                  // The session hook and the project list both hold answers that are now wrong,
+                  // and the landing page is where a signed-out visitor belongs. The rail is left
+                  // marked busy through the redirect: releasing it first invites a second press
+                  // on a page that is already on its way out.
+                  router.replace("/");
+                })
+                .catch(() => {
+                  // A sign-out that cannot reach the server has not happened, and the honest
+                  // thing is to hand the button back rather than spin forever on a session the
+                  // person is still inside.
+                  setSigningOut(false);
+                });
             }}
           />
         }

@@ -1418,6 +1418,81 @@ body {
 }
 
 /*
+ * The same ramp again, this time in the dark.
+ *
+ * `ApiKeyForm` is written once and shown in two places: on `/welcome`, which is a light stage,
+ * and in a dialog over the workspace, which is not. Because the ramp above is scoped to
+ * `.ai-stage`, that second placement resolved every `--s-*` to nothing — a dialog with no
+ * surface, no border and inherited text, which is to say a transparent one with the page
+ * legible straight through it. The failure is silent: an undefined custom property is not an
+ * error, it just paints nothing.
+ *
+ * So rather than fork the form or hard-code a light card into a dark frame, this maps the same
+ * variable names onto the workspace palette. The form keeps naming surfaces and text weights;
+ * which ramp it gets is a fact about where it is mounted. Every value here is a `--color-*`
+ * token, so the two palettes cannot drift apart into two different dark greys.
+ */
+.ai-stage-dark {
+  /* Inputs and inset rows. A step above the panel they sit on, so a field reads as a well. */
+  --s-surface-1: var(--color-field);
+  --s-surface-2: var(--color-bubble);
+  --s-surface-3: var(--color-edge);
+  --s-border-1: var(--color-edge);
+  --s-text-primary: var(--color-ink);
+  --s-text-body: var(--color-ink-2);
+  --s-text-muted: var(--color-muted);
+  --s-text-subtle: var(--color-gutter);
+  /*
+   * What sits *on* `--s-text-primary`, which the shared pill uses as a fill. Near-black on the
+   * near-white pill: the light ramp's white would be white on white, an invisible button.
+   */
+  --s-text-inverse: var(--color-surface);
+
+  color: var(--color-ink-2);
+}
+
+/*
+ * A dialog arriving, and the room dimming behind it.
+ *
+ * Modals that appear instantly read as a page navigation — the eye has nothing to follow and
+ * has to re-find where it was. 140ms and a 2% rise is under the threshold where an animation
+ * starts to feel like a wait, which is the only budget a control surface gets.
+ *
+ * An animation rather than a transition, because a `<dialog>` enters the top layer straight from
+ * `display: none`: there is no previous computed style to transition *from*, so a transition on
+ * `[open]` runs on nothing at all. Only the way in is animated — the way out would need the
+ * element kept alive past `close()`, which is state this component would have to hold for the
+ * sake of 140ms. Reduced motion keeps the fade and drops the movement, rather than turning the
+ * whole thing off: a modal that blinks into existence is the harsher of the two results.
+ */
+@keyframes nap-dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+}
+
+@keyframes nap-backdrop-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.nap-dialog[open] {
+  animation: nap-dialog-in 140ms cubic-bezier(0.2, 0, 0.2, 1);
+}
+
+.nap-dialog[open]::backdrop {
+  animation: nap-backdrop-in 140ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nap-dialog[open] {
+    animation-name: nap-backdrop-in;
+  }
+}
+
+/*
  * The clearing in the middle of the sign-in page's doodle sheet.
  *
  * The drawings run right across the page — that density is what makes it read as a filled sheet
