@@ -90,69 +90,67 @@ export function NapStickers() {
       </Sticker>
 
       {/*
-        Nap at a laptop, seen from the far side of the desk: the machine is *in front of* him and
-        opaque, so it covers the bottom of his body and he reads as sitting behind it rather than
-        next to a drawing of one. Beside him the laptop was just a prop; occluding him is the
-        whole trick, and it is why the lid is filled with the page's own panel colour instead of
-        being an outline you can see straight through.
+        Nap peeking over a laptop he is holding, with two paws hooked over the lid.
+        *
+        The paws are the whole sticker. A ghost behind a large machine is a scene with a mascot
+        somewhere in it — accurate, and lifeless, because he is not doing anything to the thing
+        in front of him. Two blunt paws over the top edge make it something he is *holding*, and
+        they cost two rounded shapes. So the laptop is small and soft rather than a correct
+        drawing of a computer, and he stays the largest thing on the sticker.
+        *
+        The lid is filled with the page's own panel colour so it genuinely covers his hem — the
+        occlusion is what puts him behind it — and the paws are filled in the ink he is drawn in,
+        so they read as his and not as two more props.
       */}
       <Sticker kind="code" className="top-[22%] right-[6%] rotate-5" awake>
-        <div className="-translate-y-2 relative">
-          <NapMark className="size-[4.2rem]" />
-
-          {/*
-            Glasses, on the mark's own 24-grid so the lenses land on the eyes: same viewBox as
-            `NapMark`, same size, laid over the top. They are drawn *over* rather than cut out
-            because they are a thing he is wearing, not a hole in him — and the accent is what
-            makes them read as glasses at this size instead of as a second pair of eyebrows.
-          */}
-          <svg
-            aria-hidden="true"
-            viewBox="-1 -6 32 32"
-            className="absolute inset-0 size-[4.2rem] text-accent"
-            {...PEN}
-            strokeWidth="0.85"
-          >
-            <rect x="5.9" y="10.3" width="5.4" height="4.4" rx="1.5" />
-            <rect x="12.7" y="10.3" width="5.4" height="4.4" rx="1.5" />
-            <path d="M11.3 12.2h1.4M5.9 12.1 3.6 11M18.1 12.1l2.3-1.1" />
-            {/*
-              A short highlight in the corner of each lens — the difference between glass and two
-              empty rings. It has to stay in the corner: drawn across the middle it reads as a
-              line struck through the eye rather than as a reflection.
-            */}
-            <path strokeWidth="0.7" d="m6.9 12.4 1.1-1.3M13.7 12.4l1.1-1.3" />
-          </svg>
-        </div>
+        {/*
+          Nudged right, because the ghost is not centred in its own viewBox — the box is grown up
+          and to the right to give the z's room to rise into, so centring the *svg* leaves the
+          drawing sitting left of centre and the two paws land lopsided on the lid.
+        */}
+        <NapMark className="-translate-y-2 size-[4.4rem] translate-x-[0.36rem]" />
 
         <svg
           aria-hidden="true"
-          viewBox="0 0 120 62"
-          className="-translate-x-1/2 absolute bottom-1 left-1/2 w-[5rem] text-muted"
+          viewBox="0 0 100 52"
+          className="-translate-x-1/2 absolute bottom-2 left-1/2 w-[4.6rem] text-muted"
           {...PEN}
-          strokeWidth="2.4"
+          strokeWidth="2.6"
         >
-          {/* Back of the lid and the base under it, both filled: what makes this a desk rather
-              than a sticker of a wireframe laid over a ghost. */}
-          <path className="fill-panel" d="M22 6h76c2.2 0 4 1.8 4 4v32H18V10c0-2.2 1.8-4 4-4Z" />
           <path
             className="fill-panel"
-            d="M14 42h92l8 10c0 2-1.6 3.4-3.6 3.4H9.6C7.6 55.4 6 54 6 52l8-10Z"
+            d="M16 4h68c2.4 0 4.4 2 4.4 4.4V34H11.6V8.4C11.6 6 13.6 4 16 4Z"
           />
-          <path d="M50 49h20" />
+          <path
+            className="fill-panel"
+            d="M9 34h82l6.4 8.6c0 2-1.6 3.4-3.6 3.4H6.2C4.2 46 2.6 44.6 2.6 42.6L9 34Z"
+          />
+          <path d="M42 40h16" />
+
+          {/*
+            Hooked over the lid, half above the edge and half behind it, and out at the corners
+            rather than in the middle: he is drawn in the same ink they are, so a paw in front of
+            his body is a white shape on a white shape and disappears. Out here each one has dark
+            behind it and reads as a paw. Drawn last so the lid's stroke passes underneath and
+            they look like they are gripping.
+          */}
+          <g className="fill-ink stroke-panel" strokeWidth="2.4">
+            <rect x="14" y="-7" width="17" height="15" rx="7.5" />
+            <rect x="69" y="-7" width="17" height="15" rx="7.5" />
+          </g>
         </svg>
 
         {/*
-          The code he is writing, thrown up beside the screen because the screen itself is facing
-          away. It is the only part that brightens — a whole laptop pulsing reads as the drawing
-          fading rather than as something being worked on.
+          The code he is writing, thrown up beside the lid because the screen faces away. It is
+          the only part that brightens — a whole laptop pulsing reads as the drawing fading
+          rather than as something being worked on.
         */}
         <svg
           aria-hidden="true"
           viewBox="0 0 48 32"
-          className="absolute top-1 right-1 w-8 text-accent"
+          className="absolute top-1.5 right-1.5 w-7 text-accent"
           {...PEN}
-          strokeWidth="2.6"
+          strokeWidth="2.8"
         >
           <g className="nap-screen">
             <path d="m14 8-7 8 7 8M34 8l7 8-7 8M28 5l-8 22" />
