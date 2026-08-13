@@ -142,7 +142,18 @@ export type ModelConfig = {
  */
 export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   model: "openai/gpt-5.6-luna",
-  effort: "xhigh",
+  /*
+   * `medium`, because it was measured rather than chosen — and because this used to say `xhigh`
+   * while `NAP_EFFORT` said `medium`, so the API and anything falling back to this default were
+   * running at different settings.
+   *
+   * Fifteen turns over five prompts at three levels: `medium` was the cheapest and the fastest,
+   * and the app it produced on the hardest prompt was not worse — read back and compared rather
+   * than taken on the model's word. `high` is the surprise, costing 2.3x `medium` on input where
+   * `xhigh` costs 1.11x; what a level changes is how many times the loop goes round, not simply
+   * how long it thinks.
+   */
+  effort: "medium",
   /** Room to think and answer across a long tool loop. */
   maxTokens: 64_000,
 };

@@ -113,6 +113,11 @@ const BaseSchema = z.object({
    * namespace is what keeps the default pointed where it says.
    */
   NAP_MODEL: z.string().min(1).default("openai/gpt-5.6-luna"),
+  /**
+   * `medium` because it was measured, not guessed — fifteen turns over five prompts at three
+   * levels found it cheapest, fastest, and no worse in what the agent produced. It matches
+   * `DEFAULT_MODEL_CONFIG`, which used to disagree with it.
+   */
   NAP_EFFORT: z.enum(["low", "medium", "high", "xhigh", "max"]).default("medium"),
 
   /**

@@ -410,7 +410,7 @@ snapshots    id, project_id, r2_key, git_sha, created_at
 > is itself a fact about someone else's data, so another user's resource is indistinguishable from
 > one that was never there. The check is stricter than the original, not looser.
 
-**Before declaring v1 done:** sweep `effort` (`medium`/`high`/`xhigh`) over a fixed set of five prompts, record token spend and wall-clock per turn, and lock the default.
+**Before declaring v1 done:** sweep `effort` (`medium`/`high`/`xhigh`) over a fixed set of five prompts, record token spend and wall-clock per turn, and lock the default. — **Done (F-4).** `medium` locked, in `NAP_EFFORT` and `DEFAULT_MODEL_CONFIG` both; the numbers are in `PROGRESS.md`.
 
 ---
 
