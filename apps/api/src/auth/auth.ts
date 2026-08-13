@@ -27,6 +27,8 @@ import type { Database } from "@nap/db/client";
 import { accounts, authSessions, users, verifications } from "@nap/db/schema";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { anonymous } from "better-auth/plugins/anonymous";
+import { z } from "zod";
 
 /**
  * The connection, as `createDatabase` hands it over. Taken from there rather than imported
@@ -34,8 +36,15 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
  */
 type Db = Database["db"];
 
-/** Who is asking, as everything downstream needs them: an id, or nobody. */
-export type Caller = { userId: string };
+/**
+ * Who is asking, as everything downstream needs them.
+ *
+ * `isAnonymous` rides along with the id because the two are learned in the same lookup and the
+ * alternative is a second query per request to answer "is this a demo visitor?". Nothing
+ * *authorizes* on it — a demo user owns their projects exactly as anybody else does — it is
+ * only ever a hint for the parts of the app that talk about signing up.
+ */
+export type Caller = { userId: string; isAnonymous: boolean };
 
 /**
  * Resolves the caller from a request's headers, or `null` when there is no valid session.
@@ -60,9 +69,16 @@ export type AuthInstance = {
    * on its own, because the credentials are the API's.
    */
   socialProviders: string[];
+  /**
+   * Whether somebody with no account may look around.
+   *
+   * Asked for by the same page and for the same reason as `socialProviders`: a "try it free"
+   * link that leads to a 404 because the plugin is not registered is worse than no link.
+   */
+  demo: boolean;
 };
 
-export type GithubCredentials = {
+export type OAuthCredentials = {
   clientId: string;
   clientSecret: string;
 };
@@ -79,8 +95,28 @@ export type AuthConfig = {
    * registered and email sign-in still works. A provider wired up with blank credentials
    * would present a button that fails only once somebody presses it.
    */
-  github?: GithubCredentials;
+  github?: OAuthCredentials;
+  /** The same arrangement for Google, and omitted for the same reason. */
+  google?: OAuthCredentials;
+  /**
+   * Whether to offer a throwaway identity to somebody who does not want an account.
+   *
+   * The demo door. What makes it affordable to leave open is not this flag but the free tier
+   * behind it — an anonymous visitor reaches the free models and nothing else, under lower
+   * ceilings than a signed-in person. See `apps/api/src/turns/model-access.ts`.
+   */
+  allowAnonymous: boolean;
 };
+
+/**
+ * The one field of the session's user this app reads, parsed rather than cast.
+ *
+ * The library types a user as `Record<string, any> & {…}`, so `session.user.isAnonymous` is
+ * `any` — and an `any` crossing into `Caller` is exactly the thing the strict-TypeScript rule
+ * in `CLAUDE.md` exists to stop. Parsing costs one schema and makes a plugin that stops
+ * setting the field read as `false` rather than as `undefined` leaking downstream.
+ */
+const SessionUserSchema = z.object({ isAnonymous: z.boolean().optional() });
 
 export function createAuth(db: Db, config: AuthConfig): AuthInstance {
   const auth = betterAuth({
@@ -109,19 +145,45 @@ export function createAuth(db: Db, config: AuthConfig): AuthInstance {
 
     emailAndPassword: { enabled: true },
 
-    ...(config.github === undefined ? {} : { socialProviders: { github: config.github } }),
+    // Assembled as one object rather than spread per provider, so adding a third is a line
+    // here and a line in the list below rather than another conditional spread.
+    socialProviders: {
+      ...(config.github === undefined ? {} : { github: config.github }),
+      ...(config.google === undefined ? {} : { google: config.google }),
+    },
+
+    // The demo door. Registered conditionally rather than gated at the route, because a
+    // plugin that is not registered has no endpoint at all — which is the honest answer to a
+    // deployment that turned the demo off, and what `/auth/providers` reports.
+    plugins: config.allowAnonymous ? [anonymous()] : [],
   });
+
+  const socialProviders = [
+    ...(config.github === undefined ? [] : ["github"]),
+    ...(config.google === undefined ? [] : ["google"]),
+  ];
 
   return {
     handler: auth.handler,
 
-    // The library answers with the session *and* the user; only the id leaves this file, so
-    // nothing downstream can start depending on a shape better-auth is free to change.
+    // The library answers with the session *and* the user; only the id and the one flag leave
+    // this file, so nothing downstream can start depending on a shape better-auth is free to
+    // change.
     getUser: async (headers) => {
       const session = await auth.api.getSession({ headers });
-      return session === null ? null : { userId: session.user.id };
+      if (session === null) return null;
+
+      const parsed = SessionUserSchema.safeParse(session.user);
+      return {
+        userId: session.user.id,
+        // Absent means a real account: the column defaults to false, and every row that
+        // predates the demo has it. Reading a failed parse the same way is deliberate — the
+        // safe answer to "is this a throwaway?" is the one that grants less, not more.
+        isAnonymous: parsed.success && parsed.data.isAnonymous === true,
+      };
     },
 
-    socialProviders: config.github === undefined ? [] : ["github"],
+    socialProviders,
+    demo: config.allowAnonymous,
   };
 }

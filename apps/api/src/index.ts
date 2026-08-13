@@ -27,6 +27,7 @@ import { PostgresProjectSandboxStore } from "@nap/db/postgres-project-sandbox-st
 import { PostgresProjectStore } from "@nap/db/postgres-project-store";
 import { PostgresSessionStore } from "@nap/db/postgres-session-store";
 import { PostgresSnapshotStore } from "@nap/db/postgres-snapshot-store";
+import { PostgresUserKeyStore } from "@nap/db/postgres-user-key-store";
 import { createProjectSession } from "@nap/db/session-bootstrap";
 import { startReaper, sweepIdleProjects } from "@nap/runtime/reaper";
 import { SingleAgentRuntime } from "@nap/runtime/single-agent-runtime";
@@ -35,6 +36,8 @@ import { NAP_TEMPLATE } from "@nap/sandbox/template";
 import { setRootLogger } from "@nap/shared/logging";
 import { createR2Client, R2ObjectStore } from "@nap/storage/r2-object-store";
 import { upgradeWebSocket, websocket } from "hono/bun";
+import { createKeyVerifier } from "./account/routes.ts";
+import { encryptionKeyFrom, open } from "./account/secret-box.ts";
 import { createApp } from "./app.ts";
 import { createAuth } from "./auth/auth.ts";
 import { EnvValidationError, parseEnv } from "./env.ts";
@@ -171,7 +174,40 @@ const auth = createAuth(db, {
           clientSecret: env.GITHUB_CLIENT_SECRET,
         },
       }),
+  ...(env.GOOGLE_CLIENT_ID === undefined || env.GOOGLE_CLIENT_SECRET === undefined
+    ? {}
+    : {
+        google: {
+          clientId: env.GOOGLE_CLIENT_ID,
+          clientSecret: env.GOOGLE_CLIENT_SECRET,
+        },
+      }),
+  allowAnonymous: env.NAP_ALLOW_DEMO,
 });
+
+/**
+ * The keys people brought with them, and the secret that seals them.
+ *
+ * `openCallerKey` is the one place ciphertext becomes a credential. It answers `null` for
+ * anything it cannot open — a key sealed under a secret that has since been rotated — which
+ * puts that person back on the free tier rather than failing their turn with something they
+ * cannot act on. Their next save fixes it, and the log line is what says why it happened.
+ */
+const userKeys = new PostgresUserKeyStore(db);
+const encryptionKey = encryptionKeyFrom(env.NAP_KEY_ENCRYPTION_SECRET);
+
+const openCallerKey = async (userId: string) => {
+  const stored = await userKeys.get(userId);
+  if (stored === null) return null;
+
+  const opened = open({ ciphertext: stored.ciphertext, iv: stored.iv }, encryptionKey);
+  if (!opened.ok) {
+    logger.warn({ userId, reason: opened.reason }, "stored API key could not be opened");
+    return null;
+  }
+
+  return { platform: stored.platform, apiKey: opened.value };
+};
 
 const app = createApp({
   logger,
@@ -194,11 +230,27 @@ const app = createApp({
   authenticate: auth.getUser,
   stream: { store, bus, sessions, upgradeWebSocket },
   files: { sessions, sandbox },
-  models: { allowed: env.NAP_ALLOWED_MODELS, fallback: env.NAP_MODEL },
+  account: {
+    keys: userKeys,
+    encryptionKey,
+    verify: createKeyVerifier(),
+  },
+  models: {
+    allowed: env.NAP_ALLOWED_MODELS,
+    fallback: env.NAP_MODEL,
+    freeModel: env.NAP_FREE_MODEL,
+    // The stored record, not the opened key: the picker needs the platform and the hint, and
+    // nothing on that route spends anything.
+    keys: (userId) => userKeys.get(userId),
+  },
   turns: {
     runtime,
     registry,
     sessions,
+    // Who pays for each turn, which is also what decides the models they may name.
+    keys: openCallerKey,
+    freeModel: env.NAP_FREE_MODEL,
+    defaultModel: env.NAP_MODEL,
     // The same store the project routes list from, so a project named on its first turn and one
     // renamed by hand are written through one code path.
     projects,
@@ -207,9 +259,19 @@ const app = createApp({
     // only way to start a turn, so it is the only place either ceiling has to be applied.
     limits: {
       rate: new TurnRateLimiter({ limit: env.NAP_TURNS_PER_HOUR, windowMs: 60 * 60 * 1000 }),
+      // The tighter one, for turns this deployment is paying for. Its own limiter rather than
+      // its own number, so a person's paid turns cannot eat their free allowance.
+      freeRate: new TurnRateLimiter({
+        limit: env.NAP_FREE_TURNS_PER_HOUR,
+        windowMs: 60 * 60 * 1000,
+      }),
       projects,
       sandboxes: {
         perUser: env.NAP_MAX_SANDBOXES_PER_USER,
+        total: env.NAP_MAX_SANDBOXES_TOTAL,
+      },
+      freeSandboxes: {
+        perUser: env.NAP_FREE_MAX_SANDBOXES_PER_USER,
         total: env.NAP_MAX_SANDBOXES_TOTAL,
       },
     },

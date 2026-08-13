@@ -12,31 +12,37 @@ describe("the three beats of a turn", () => {
   });
 
   it("tells the story in order", () => {
-    // Source order is reading order on a phone; the alternating sides are a wide-screen effect
-    // laid on top of it, so this is what somebody actually reads.
+    // Source order is reading order; the demo beside it plays these acts in the same sequence.
     render(<HowItWorks />);
     const titles = screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
 
     expect(titles).toEqual(["Say it in one sentence", "Then nod off", "Wake up to it running"]);
   });
 
-  it("keeps its pictures out of the accessibility tree", () => {
-    // They are drawings of the product, and the sentence beside each one is what says the thing.
-    // Announced, a reader would get "pencil, src/app/page.tsx, check" instead of a beat.
-    //
-    // Asserted through `closest`, not through a text query: testing-library's text queries walk
-    // the DOM and happily find content inside an `aria-hidden` subtree, so `queryByText(...)
-    // .not.toBeInTheDocument()` would fail here even though nothing announces it.
+  it("reads at full strength until something is actually playing", () => {
+    // The lit beat arrives as `data-beat`, written by the stage once it starts. Nothing writes it
+    // under reduced motion or with no script — so the resting state has to be *all three legible*,
+    // not all three dimmed waiting for a highlight that will never come.
+    const { container } = render(<HowItWorks />);
+
+    expect(container.querySelector("section")).not.toHaveAttribute("data-beat");
+    expect(screen.getAllByRole("listitem")).toHaveLength(3);
+  });
+
+  it("keeps the demo out of the accessibility tree", () => {
+    // It is an illustration of what the copy says. Asserted through `closest` because a text
+    // query walks the DOM, not the accessibility tree, and would find this either way.
     render(<HowItWorks />);
 
-    for (const text of ["build me a habit tracker", "habit-tracker.nap.run", "12 actions"]) {
-      expect(screen.getByText(text).closest("[aria-hidden='true']")).not.toBeNull();
-    }
+    expect(
+      screen.getByText("habit-tracker.nap.run").closest("[aria-hidden='true']"),
+    ).not.toBeNull();
   });
 
   it("offers nothing to press", () => {
-    // Every way in on this page is in the hero or the closing band. A link here would be a fourth
-    // place to click for the same thing, in the middle of an explanation.
+    // Every way in is in the hero or the closing band. A control here would be a fourth place to
+    // click for the same thing, in the middle of an explanation — and the demo's own send button
+    // is a drawing, not a button.
     const { container } = render(<HowItWorks />);
     const section = within(container);
 

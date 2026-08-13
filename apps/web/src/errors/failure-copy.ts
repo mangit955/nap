@@ -29,7 +29,15 @@ type TurnFailureReason = NapEventOf<"turn.failed">["payload"]["reason"];
  * `none` is a real answer, not a gap: a turn the user cancelled needs no recovery, and offering
  * one would imply something went wrong when nothing did.
  */
-export type Recovery = "retry" | "rephrase" | "wait" | "close-project" | "sign-in" | "none";
+export type Recovery =
+  | "retry"
+  | "rephrase"
+  | "wait"
+  | "close-project"
+  | "sign-in"
+  /** Paste an API key. The only recovery that unlocks something rather than undoing it. */
+  | "add-key"
+  | "none";
 
 export type FailureCopy = {
   /** A short sentence naming what failed, in the user's vocabulary rather than the system's. */
@@ -127,6 +135,15 @@ export function requestFailureCopy(
       detail: trimmed === "" ? "You are at the limit of running projects." : trimmed,
       recovery: "close-project",
       action: "Close one from the project list, then send this again.",
+    };
+  }
+
+  if (code === "byok_required") {
+    return {
+      title: "That model needs your own API key.",
+      detail: trimmed === "" ? "Free models work without one." : trimmed,
+      recovery: "add-key",
+      action: "Add a key to use it, or pick a free model and send this again.",
     };
   }
 

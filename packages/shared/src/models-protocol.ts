@@ -24,17 +24,40 @@ export const ModelChoiceSchema = z.strictObject({
    * updated when the route's idea of free changes.
    */
   free: z.boolean(),
+  /**
+   * Whether *this* caller may actually run it.
+   *
+   * The list stays complete and the unavailable entries are marked rather than removed: a menu
+   * that silently shortens makes the product look smaller than it is, and gives somebody no
+   * way to discover that Opus is a key away. The turn route enforces the same rule from the
+   * same function, so the two cannot say different things.
+   */
+  available: z.boolean(),
 });
 export type ModelChoice = z.infer<typeof ModelChoiceSchema>;
 
+/** What the browser needs to say "you are on the free models" without a second request. */
+export const KeyStatusSchema = z.strictObject({
+  configured: z.boolean(),
+  /** Absent when nothing is saved. */
+  platform: z.enum(["openrouter", "anthropic"]).optional(),
+  /** A masked tail — never the key. Absent when nothing is saved. */
+  hint: z.string().min(1).optional(),
+});
+export type KeyStatus = z.infer<typeof KeyStatusSchema>;
+
 export const ModelListSchema = z.strictObject({
   models: z.array(ModelChoiceSchema).min(1),
+  /** Whether this caller has brought a key, and which kind. */
+  key: KeyStatusSchema,
   /**
-   * What a turn runs on when it names nothing.
+   * What a turn runs on when it names nothing — for *this* caller.
    *
    * Sent rather than assumed to be the first entry: the picker has to show which model is
    * selected before anybody has chosen, and guessing that from list order would put a tick
-   * against the wrong one every time the allowlist was reordered.
+   * against the wrong one every time the allowlist was reordered. It is per-caller for the
+   * same reason the availability flags are — somebody with no key falls back to a free model,
+   * not to the deployment's default.
    */
   fallback: z.string().min(1),
 });

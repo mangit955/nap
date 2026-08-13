@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -12,6 +12,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const replace = vi.fn();
 const useSession = vi.fn();
 const useProjects = vi.fn();
+const signOut = vi.fn();
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace, refresh: vi.fn() }),
@@ -19,7 +20,7 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("../auth/client.ts", () => ({
   AFTER_SIGN_IN: "/dashboard",
-  authClient: { useSession: () => useSession(), signOut: vi.fn() },
+  authClient: { useSession: () => useSession(), signOut: () => signOut() },
 }));
 
 vi.mock("../projects/use-projects.ts", () => ({
@@ -88,5 +89,64 @@ describe("the dashboard, before there is a session", () => {
     expect(screen.getByRole("heading", { name: /Manas/ })).toBeInTheDocument();
     expect(useProjects).toHaveBeenCalled();
     expect(replace).not.toHaveBeenCalled();
+  });
+});
+
+describe("signing out", () => {
+  beforeEach(() => {
+    useSession.mockReturnValue({
+      data: { user: { name: "Manas Raghuwanshi", email: "manas@example.com" } },
+      isPending: false,
+    });
+  });
+
+  /** Behind the account menu now, which every case here has to open first. */
+  function openAccountMenu() {
+    fireEvent.click(screen.getByRole("button", { name: /Manas/ }));
+  }
+
+  function signOutButton() {
+    return screen.getByRole("menuitem", { name: "Sign out" });
+  }
+
+  it("marks the rail busy from the press, not from the answer", async () => {
+    // A promise that never settles, which is the state being asserted: between the click and
+    // the server's reply nothing else on this page changes, so if the mark waited for the
+    // answer there would be no feedback during the only part that takes time.
+    signOut.mockReturnValue(new Promise(() => {}));
+    render(<LiveDashboard />);
+
+    openAccountMenu();
+    fireEvent.click(signOutButton());
+
+    await vi.waitFor(() => expect(signOutButton()).toHaveAttribute("aria-busy", "true"));
+    expect(signOutButton()).toBeDisabled();
+  });
+
+  it("lands on the front page, still held down", async () => {
+    // Released before the redirect, the button invites a second press on a page already on its
+    // way out — a second sign-out against a session that no longer exists.
+    signOut.mockResolvedValue({});
+    render(<LiveDashboard />);
+
+    openAccountMenu();
+    fireEvent.click(signOutButton());
+
+    await vi.waitFor(() => expect(replace).toHaveBeenCalledWith("/"));
+    expect(signOutButton()).toBeDisabled();
+  });
+
+  it("hands the button back when the server cannot be reached", async () => {
+    // The failure the sign-in form documents, in the other direction: a sign-out that never
+    // reached the server has not happened, and the person is still inside the session. Left
+    // spinning, the rail says otherwise and there is nothing to press to try again.
+    signOut.mockRejectedValue(new Error("offline"));
+    render(<LiveDashboard />);
+
+    openAccountMenu();
+    fireEvent.click(signOutButton());
+
+    await vi.waitFor(() => expect(signOutButton()).toBeEnabled());
+    expect(replace).not.toHaveBeenCalledWith("/");
   });
 });

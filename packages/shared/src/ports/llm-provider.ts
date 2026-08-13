@@ -88,19 +88,43 @@ export type LLMTurnResult =
   | { type: "error"; message: string; retryable: boolean; usage: TokenUsage };
 
 /**
+ * Whose account pays for a turn.
+ *
+ * A deployment cannot fund every stranger who opens it, so a person may bring their own key
+ * and have their turns billed to them instead. That makes the *credential* the second thing
+ * that varies between one turn and the next, for exactly the reason the model is the first:
+ * it is a property of who asked, not of how this process is configured.
+ *
+ * The platform travels with the key because the two are inseparable — the same string is a
+ * valid credential at one vendor and a 401 at the other, and it is what decides both which
+ * client is built and how the model id is spelled.
+ */
+export type ModelCredentials = {
+  platform: "openrouter" | "anthropic";
+  apiKey: string;
+};
+
+/**
  * What may vary between one turn and the next.
  *
  * The model is chosen per *turn* rather than per call because a turn is one conversation —
  * switching models between the tool call and its result would hand a second model a
  * transcript it never wrote. `startTurn` is already the boundary usage is accounted across,
- * which makes it the only seam this needs.
+ * which makes it the only seam this needs, and the credential varies at the same boundary for
+ * the same reason: a turn is billed to one account from beginning to end.
  *
  * A provider still owns *policy*: which models it will accept, retries, refusal handling,
- * thinking and caching. What it no longer owns is the assumption that there is exactly one.
+ * thinking and caching. What it no longer owns is the assumption that there is exactly one
+ * model, or exactly one payer.
  */
 export type LLMTurnOptions = {
   /** Absent means the provider's configured default, which is the normal case. */
   model?: string | undefined;
+  /**
+   * Absent means this deployment's own account — which is what a turn on the free models runs
+   * on, and what every turn ran on before anyone could bring a key.
+   */
+  credentials?: ModelCredentials | undefined;
 };
 
 export interface LLMProvider {

@@ -22,6 +22,8 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { ApiKeyPanel } from "../account/api-key-panel.tsx";
+import { useApiKey } from "../account/use-api-key.ts";
 import { authClient } from "../auth/client.ts";
 import { useModels } from "../chat/use-models.ts";
 import { useProjects } from "../projects/use-projects.ts";
@@ -62,6 +64,11 @@ function SignedInDashboard({ user }: { user: { name?: string | null; email?: str
   const { projects, status, actionError, create, close, remove, rename } = useProjects();
   const { busy, error, start } = useStartProject();
   const { models } = useModels();
+  // The same hook the welcome step uses, so the rail's label and that page cannot disagree
+  // about whether a key is saved.
+  const key = useApiKey();
+  const [keyPanelOpen, setKeyPanelOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
 
   const [prompt, setPrompt] = useState("");
   // `undefined` is intentional: it sends no model key, so the server owns the default until
@@ -79,62 +86,81 @@ function SignedInDashboard({ user }: { user: { name?: string | null; email?: str
   };
 
   return (
-    <Dashboard
-      sidebar={
-        <Sidebar
-          name={greetingName(user)}
-          email={user.email ?? undefined}
-          scope={scope}
-          counts={scopeCounts(projects)}
-          recents={recentProjects(projects)}
-          onScopeChange={setScope}
-          onSearch={() => search.current?.focus()}
-          onNewProject={() => {
-            void create().then((projectId) => {
-              // Straight into the new project: nobody makes one in order to look at it in a grid.
-              if (projectId !== undefined) router.push(`/p/${projectId}`);
-            });
-          }}
-          onSignOut={() => {
-            void authClient.signOut().then(() => {
-              // The session hook and the project list both hold answers that are now wrong, and
-              // the landing page is where a signed-out visitor belongs.
-              router.replace("/");
-            });
-          }}
-        />
-      }
-      hero={
-        <DashboardHero
-          name={greetingName(user)}
-          value={prompt}
-          busy={busy}
-          error={error}
-          models={models?.models ?? []}
-          model={model ?? models?.fallback}
-          onModelChange={setModel}
-          onChange={setPrompt}
-          onSubmit={(message) => void start(message, model)}
-        />
-      }
-      grid={
-        <ProjectGrid
-          projects={filterProjects(projects, { query, scope })}
-          status={status}
-          actionError={actionError}
-          query={query}
-          scope={scope}
-          counts={scopeCounts(projects)}
-          searchRef={search}
-          busyProjectId={busyProjectId}
-          onQueryChange={setQuery}
-          onScopeChange={setScope}
-          onOpen={(projectId) => router.push(`/p/${projectId}`)}
-          onClose={(projectId) => run(projectId, close)}
-          onDelete={(projectId) => run(projectId, remove)}
-          onRename={(projectId, name) => void rename(projectId, name)}
-        />
-      }
-    />
+    <>
+      <ApiKeyPanel open={keyPanelOpen} onClose={() => setKeyPanelOpen(false)} keyState={key} />
+
+      <Dashboard
+        sidebar={
+          <Sidebar
+            name={greetingName(user)}
+            email={user.email ?? undefined}
+            scope={scope}
+            counts={scopeCounts(projects)}
+            recents={recentProjects(projects)}
+            onScopeChange={setScope}
+            onSearch={() => search.current?.focus()}
+            onApiKey={() => setKeyPanelOpen(true)}
+            keyHint={key.state?.configured === true ? key.state.hint : undefined}
+            onNewProject={() => {
+              void create().then((projectId) => {
+                // Straight into the new project: nobody makes one in order to look at it in a grid.
+                if (projectId !== undefined) router.push(`/p/${projectId}`);
+              });
+            }}
+            signingOut={signingOut}
+            onSignOut={() => {
+              setSigningOut(true);
+              void authClient
+                .signOut()
+                .then(() => {
+                  // The session hook and the project list both hold answers that are now wrong,
+                  // and the landing page is where a signed-out visitor belongs. The rail is left
+                  // marked busy through the redirect: releasing it first invites a second press
+                  // on a page that is already on its way out.
+                  router.replace("/");
+                })
+                .catch(() => {
+                  // A sign-out that cannot reach the server has not happened, and the honest
+                  // thing is to hand the button back rather than spin forever on a session the
+                  // person is still inside.
+                  setSigningOut(false);
+                });
+            }}
+          />
+        }
+        hero={
+          <DashboardHero
+            name={greetingName(user)}
+            value={prompt}
+            busy={busy}
+            error={error}
+            models={models?.models ?? []}
+            model={model ?? models?.fallback}
+            onModelChange={setModel}
+            onAddKey={() => setKeyPanelOpen(true)}
+            onChange={setPrompt}
+            onSubmit={(message) => void start(message, model)}
+          />
+        }
+        grid={
+          <ProjectGrid
+            projects={filterProjects(projects, { query, scope })}
+            status={status}
+            actionError={actionError}
+            query={query}
+            scope={scope}
+            counts={scopeCounts(projects)}
+            searchRef={search}
+            busyProjectId={busyProjectId}
+            onQueryChange={setQuery}
+            onScopeChange={setScope}
+            onOpen={(projectId) => router.push(`/p/${projectId}`)}
+            onClose={(projectId) => run(projectId, close)}
+            onDelete={(projectId) => run(projectId, remove)}
+            onRename={(projectId, name) => void rename(projectId, name)}
+          />
+        }
+      />
+    </>
   );
 }

@@ -23,7 +23,12 @@ export function SectionHeading({
 }: {
   /** The section labels itself with this, so a screen reader's landmark list is readable. */
   id: string;
-  eyebrow: string;
+  /**
+   * Optional, because a section whose heading already says plainly what it is does not need
+   * saying twice — the label exists for the headings that are jokes. Omitting it drops the line
+   * rather than leaving a gap: the space above belongs to the section, not to the eyebrow.
+   */
+  eyebrow?: string;
   /**
    * One string per visual line. Where a heading breaks is a decision, not an outcome: left to
    * `text-balance` these headings break mid-sentence, which reads as a typo rather than a rhythm.
@@ -34,13 +39,15 @@ export function SectionHeading({
 }) {
   return (
     <div className="flex flex-col items-center text-center">
-      <p className="text-[11px] text-[var(--s-text-subtle)] uppercase tracking-[0.18em]">
-        {eyebrow}
-      </p>
+      {eyebrow !== undefined && (
+        <p className="text-[11px] text-[var(--s-text-subtle)] uppercase tracking-[0.18em]">
+          {eyebrow}
+        </p>
+      )}
 
       <h2
         id={id}
-        className="mt-4 text-balance font-display font-extralight text-[2rem] text-[var(--s-text-body)] leading-[1.1] tracking-[-0.03em] sm:text-[2.6rem]"
+        className={`text-balance font-display font-extralight text-[2rem] text-[var(--s-text-body)] leading-[1.1] tracking-[-0.03em] sm:text-[2.6rem] ${eyebrow === undefined ? "" : "mt-4"}`}
       >
         {lines.map((line, index) => (
           // Fixed content in source order, and nothing else to key a line on.

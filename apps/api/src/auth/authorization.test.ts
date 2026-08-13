@@ -43,7 +43,7 @@ function appAs(userId: string | undefined): ReturnType<typeof createApp> {
   return createApp({
     logger: silent(),
     ...deps,
-    authenticate: async () => (userId === undefined ? null : { userId }),
+    authenticate: async () => (userId === undefined ? null : { userId, isAnonymous: false }),
   });
 }
 

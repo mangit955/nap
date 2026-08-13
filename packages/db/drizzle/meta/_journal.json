@@ -15,6 +15,13 @@
       "when": 1786327167484,
       "tag": "0001_amusing_marvel_apes",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1786622675661,
+      "tag": "0002_great_stingray",
+      "breakpoints": true
     }
   ]
 }

@@ -21,8 +21,12 @@ import { LivePreviewPane } from "./preview-pane.tsx";
  * in the middle. Now there is one workbench with two faces, and the tabs that switch them live
  * in the same bar as the project's name and the app's own controls.
  *
- * `h-dvh` with `min-h-0` on the panes is what keeps each pane scrolling independently instead of
- * the whole page growing.
+ * **The frame clips and the panes scroll, and it takes both to hold.** `h-dvh` fixes the height and
+ * `min-h-0` stops a pane forcing its track taller — but neither *contains* a child that overflows
+ * anyway, and there is no scroll container between here and the document. So one leaking row in the
+ * transcript used to scroll the entire page, top bar and all, out of the window. The two
+ * `overflow-hidden`s below are what make that impossible rather than unlikely: scrolling belongs to
+ * the iframe, the file viewer, the tree and the transcript, and nowhere else.
  *
  * **The project is resolved once, here, and its session passed down.** Each pane subscribes to
  * that session independently, and several panes resolving it themselves would be several
@@ -84,7 +88,9 @@ export function AppShell({ projectId }: { projectId: string }) {
   const { width, containerRef, onGrab, onKeyDown } = usePaneWidth(CHAT_SPLIT, DEFAULT_CHAT_WIDTH);
 
   return (
-    <div className="flex h-dvh flex-col bg-surface">
+    // Scoped here rather than as `body { overflow: hidden }`: the landing page and the welcome
+    // step are full-length scrolling documents, and a global rule would break both.
+    <div className="flex h-dvh flex-col overflow-hidden bg-surface">
       <WorkspaceHeader
         projectName={headerNote(status, project?.name)}
         // Only once there is a real record. While the bar is showing "opening…" or "this project
@@ -102,7 +108,9 @@ export function AppShell({ projectId }: { projectId: string }) {
 
       <main
         ref={containerRef}
-        className="grid min-h-0 flex-1"
+        // The second clamp, and not a redundant one: this catches whatever a pane leaks, the root
+        // above catches the header and anything drawn outside this grid.
+        className="grid min-h-0 flex-1 overflow-hidden"
         style={{ gridTemplateColumns: chatOpen ? `${width}px auto 1fr` : "1fr" }}
       >
         {chatOpen && (

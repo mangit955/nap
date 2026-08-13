@@ -24,8 +24,15 @@ import { addLogContext } from "@nap/shared/logging";
 import type { MiddlewareHandler } from "hono";
 import type { Authenticate } from "./auth.ts";
 
-/** What the middleware puts on the context for handlers below it. */
-export type AuthVariables = { userId: string };
+/**
+ * What the middleware puts on the context for handlers below it.
+ *
+ * `isAnonymous` is here rather than looked up again because it arrives in the same session
+ * read that produced the id. Nothing authorizes on it — a demo visitor owns their projects
+ * exactly as anybody else does — it exists so the parts of the app that talk about accounts
+ * can tell a throwaway identity from a real one.
+ */
+export type AuthVariables = { userId: string; isAnonymous: boolean };
 
 /** Matched exactly, not by prefix: `/healthz` is a different route from `/health`. */
 const PUBLIC_PATHS = new Set(["/health", "/auth/providers"]);
@@ -62,6 +69,7 @@ export function requireUser(authenticate: Authenticate | undefined): MiddlewareH
     }
 
     c.set("userId", caller.userId);
+    c.set("isAnonymous", caller.isAnonymous);
     // Who is asking is only knowable here, and everything below this point — including the
     // request's own summary line, which is written after the handler returns — should say so.
     // Enriching the open context rather than nesting a new one is what makes that summary

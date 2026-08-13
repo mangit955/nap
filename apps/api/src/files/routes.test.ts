@@ -37,7 +37,7 @@ function app() {
   return createApp({
     logger: silent(),
     // Every guarded route needs a caller; this stands in for a signed-in session cookie.
-    authenticate: async () => ({ userId: FAKE_OWNER }),
+    authenticate: async () => ({ userId: FAKE_OWNER, isAnonymous: false }),
     stream: {
       store: new InMemoryEventStore(),
       bus: new InMemoryEventBus(),
@@ -186,7 +186,7 @@ describe("when the app is built without file dependencies", () => {
       logger: silent(),
       // Signed in, so a 404 here is about the route not existing rather than about who is
       // asking — which is what this test is for.
-      authenticate: async () => ({ userId: FAKE_OWNER }),
+      authenticate: async () => ({ userId: FAKE_OWNER, isAnonymous: false }),
       stream: {
         store: new InMemoryEventStore(),
         bus: new InMemoryEventBus(),

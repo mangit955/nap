@@ -20,6 +20,8 @@ const VALID = {
   // The default platform, so this is the key a default configuration needs.
   OPENROUTER_API_KEY: "sk-or-test",
   BETTER_AUTH_SECRET: "a-secret-long-enough-to-sign-a-cookie-with",
+  // 32 bytes of base64, which is what seals the API keys people bring with them.
+  NAP_KEY_ENCRYPTION_SECRET: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
   ...R2,
   PORT: "3001",
   LOG_LEVEL: "info",
@@ -32,6 +34,7 @@ const REQUIRED = {
   E2B_API_KEY: VALID.E2B_API_KEY,
   OPENROUTER_API_KEY: VALID.OPENROUTER_API_KEY,
   BETTER_AUTH_SECRET: VALID.BETTER_AUTH_SECRET,
+  NAP_KEY_ENCRYPTION_SECRET: VALID.NAP_KEY_ENCRYPTION_SECRET,
   ...R2,
 } as const;
 
@@ -62,6 +65,7 @@ describe("parseEnv", () => {
       AWS_BEARER_TOKEN_BEDROCK: "ABSK-test",
       AWS_REGION: "us-east-1",
       BETTER_AUTH_SECRET: VALID.BETTER_AUTH_SECRET,
+      NAP_KEY_ENCRYPTION_SECRET: VALID.NAP_KEY_ENCRYPTION_SECRET,
       ...R2,
     };
 
@@ -78,6 +82,7 @@ describe("parseEnv", () => {
       AWS_BEARER_TOKEN_BEDROCK: "ABSK-test",
       AWS_REGION: "us-east-1",
       BETTER_AUTH_SECRET: VALID.BETTER_AUTH_SECRET,
+      NAP_KEY_ENCRYPTION_SECRET: VALID.NAP_KEY_ENCRYPTION_SECRET,
       ...R2,
     };
     delete bedrock[key];
@@ -94,6 +99,7 @@ describe("parseEnv", () => {
         AWS_BEARER_TOKEN_BEDROCK: "ABSK-test",
         AWS_REGION: "us-east-1",
         BETTER_AUTH_SECRET: VALID.BETTER_AUTH_SECRET,
+        NAP_KEY_ENCRYPTION_SECRET: VALID.NAP_KEY_ENCRYPTION_SECRET,
         ...R2,
       }),
     ).not.toThrow();
@@ -115,6 +121,7 @@ describe("parseEnv", () => {
       NAP_PLATFORM: "anthropic",
       ANTHROPIC_API_KEY: "sk-ant-test",
       BETTER_AUTH_SECRET: VALID.BETTER_AUTH_SECRET,
+      NAP_KEY_ENCRYPTION_SECRET: VALID.NAP_KEY_ENCRYPTION_SECRET,
       ...R2,
     };
 
@@ -148,6 +155,74 @@ describe("parseEnv", () => {
     expect(() =>
       parseEnv({ ...REQUIRED, GITHUB_CLIENT_ID: "Iv1.test", GITHUB_CLIENT_SECRET: "ghs_test" }),
     ).not.toThrow();
+  });
+
+  it.each(["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"])(
+    "refuses %s on its own, the same way GitHub's halves are paired",
+    (key) => {
+      const other = key === "GOOGLE_CLIENT_ID" ? "GOOGLE_CLIENT_SECRET" : "GOOGLE_CLIENT_ID";
+
+      expect(() => parseEnv({ ...REQUIRED, [key]: "set" })).toThrow(new RegExp(other));
+    },
+  );
+
+  it("accepts both halves of a Google app together", () => {
+    expect(() =>
+      parseEnv({
+        ...REQUIRED,
+        GOOGLE_CLIENT_ID: "123.apps.googleusercontent.com",
+        GOOGLE_CLIENT_SECRET: "GOCSPX-test",
+      }),
+    ).not.toThrow();
+  });
+
+  it("leaves the demo door open unless it is closed deliberately", () => {
+    // A builder nobody can try is a screenshot. What keeps that affordable is the free tier's
+    // own ceilings, not a closed door.
+    expect(parseEnv(REQUIRED).NAP_ALLOW_DEMO).toBe(true);
+    expect(parseEnv({ ...REQUIRED, NAP_ALLOW_DEMO: "false" }).NAP_ALLOW_DEMO).toBe(false);
+  });
+
+  it("requires an encryption secret of exactly 32 bytes", () => {
+    // A short secret is the realistic mistake — a hand-typed value rather than
+    // `openssl rand -base64 32` — and without this it fails at somebody's first save instead
+    // of at boot.
+    expect(() => parseEnv({ ...REQUIRED, NAP_KEY_ENCRYPTION_SECRET: "too-short" })).toThrow(
+      /NAP_KEY_ENCRYPTION_SECRET/,
+    );
+  });
+
+  it("refuses a free-tier model that is not free", () => {
+    // The check that stops the demo door being an open tab on this deployment's account: a
+    // paid `NAP_FREE_MODEL` bills every stranger's turns here, visibly only on an invoice.
+    expect(() =>
+      parseEnv({
+        ...REQUIRED,
+        NAP_FREE_MODEL: "anthropic/claude-opus-5",
+      }),
+    ).toThrow(/NAP_FREE_MODEL/);
+  });
+
+  it("refuses a free-tier model that is not on the allowlist", () => {
+    expect(() => parseEnv({ ...REQUIRED, NAP_FREE_MODEL: "vendor/absent:free" })).toThrow(
+      /NAP_FREE_MODEL/,
+    );
+  });
+
+  it("defaults the free tier tighter than the paying one", () => {
+    // Not a coincidence to be preserved by luck: these are the ceilings on what a stranger can
+    // spend of *this* deployment's money, and they exist to be lower.
+    const env = parseEnv(REQUIRED);
+
+    expect(env.NAP_FREE_TURNS_PER_HOUR).toBeLessThan(env.NAP_TURNS_PER_HOUR);
+    expect(env.NAP_FREE_MAX_SANDBOXES_PER_USER).toBeLessThanOrEqual(env.NAP_MAX_SANDBOXES_PER_USER);
+    expect(env.NAP_FREE_MODEL.endsWith(":free")).toBe(true);
+  });
+
+  it("refuses a free-tier sandbox cap above the machine-wide one", () => {
+    expect(() => parseEnv({ ...REQUIRED, NAP_FREE_MAX_SANDBOXES_PER_USER: "99" })).toThrow(
+      /NAP_FREE_MAX_SANDBOXES_PER_USER/,
+    );
   });
 
   it("defaults the model to the cheap one", () => {
@@ -335,18 +410,24 @@ describe("NAP_ALLOWED_MODELS", () => {
     const env = parseEnv({
       ...VALID,
       NAP_MODEL: "a/one",
-      NAP_ALLOWED_MODELS: "a/one, b/two ,c/three",
+      NAP_FREE_MODEL: "c/three:free",
+      NAP_ALLOWED_MODELS: "a/one, b/two ,c/three:free",
     });
 
-    expect(env.NAP_ALLOWED_MODELS).toEqual(["a/one", "b/two", "c/three"]);
+    expect(env.NAP_ALLOWED_MODELS).toEqual(["a/one", "b/two", "c/three:free"]);
   });
 
   it("refuses to boot when the default is not one of the allowed models", () => {
     // Otherwise every turn that names no model — which is all of them, by default — is refused
     // by the allowlist meant to protect it: a server that starts cleanly and answers nothing.
-    expect(() => parseEnv({ ...VALID, NAP_MODEL: "a/one", NAP_ALLOWED_MODELS: "b/two" })).toThrow(
-      /NAP_ALLOWED_MODELS/,
-    );
+    expect(() =>
+      parseEnv({
+        ...VALID,
+        NAP_MODEL: "a/one",
+        NAP_FREE_MODEL: "b/two:free",
+        NAP_ALLOWED_MODELS: "b/two:free",
+      }),
+    ).toThrow(/NAP_ALLOWED_MODELS/);
   });
 
   it("refuses an empty list rather than allowing everything", () => {

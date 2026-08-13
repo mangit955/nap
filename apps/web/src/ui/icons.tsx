@@ -192,6 +192,34 @@ export function GithubIcon({ className = "size-4" }: IconProps) {
   );
 }
 
+/**
+ * Google's G, in Google's four colours.
+ *
+ * The one icon here that ignores `currentColor` on purpose. The rest of this set is the app's
+ * own vocabulary and should tint with whatever it sits in; this is somebody else's mark, and a
+ * monochrome G reads as a generic letter rather than as the button people are looking for.
+ * Google's brand terms ask for the four-colour version or their flat grey one, not a recolour.
+ */
+export function GoogleIcon({ className = "size-4" }: IconProps) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 16 16" className={className}>
+      <path
+        fill="#4285F4"
+        d="M15.68 8.18c0-.57-.05-1.11-.15-1.64H8v3.1h4.3a3.68 3.68 0 0 1-1.6 2.42v2h2.59c1.51-1.39 2.39-3.44 2.39-5.88"
+      />
+      <path
+        fill="#34A853"
+        d="M8 16c2.16 0 3.97-.72 5.29-1.94l-2.59-2c-.71.48-1.63.77-2.7.77-2.08 0-3.84-1.4-4.47-3.29H.86v2.07A8 8 0 0 0 8 16"
+      />
+      <path fill="#FBBC05" d="M3.53 9.54a4.8 4.8 0 0 1 0-3.07V4.4H.86a8 8 0 0 0 0 7.2z" />
+      <path
+        fill="#EA4335"
+        d="M8 3.18c1.18 0 2.23.4 3.06 1.2l2.29-2.29C11.97.79 10.16 0 8 0A8 8 0 0 0 .86 4.4l2.67 2.07C4.16 4.58 5.92 3.18 8 3.18"
+      />
+    </svg>
+  );
+}
+
 export function CloseIcon({ className = "size-4" }: IconProps) {
   return (
     <svg aria-hidden="true" {...STROKE} className={className}>

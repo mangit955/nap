@@ -21,19 +21,52 @@
  * changes only visually is one a screen reader never mentions.
  */
 
+import type { ReactElement } from "react";
 import { useState } from "react";
 import { NapMark } from "../brand/nap-mark.tsx";
+import { GithubIcon, GoogleIcon, type IconProps, SpinnerIcon } from "../ui/icons.tsx";
 import { DoodleWall } from "./doodle-wall.tsx";
 
 export type SignInMode = "sign-in" | "sign-up";
+
+/** The identity providers this page can offer. Which are *offered* is the API's answer. */
+export type SocialProvider = "google" | "github";
+
+/**
+ * What each social button says, in the order they are drawn.
+ *
+ * Google first because it is the one most people have and the one fewest people have to think
+ * about. The order is fixed here rather than following whatever order the API listed them in:
+ * a menu that reorders itself between deployments is one nobody builds muscle memory for.
+ */
+const SOCIAL: readonly {
+  provider: SocialProvider;
+  label: string;
+  Icon: (props: IconProps) => ReactElement;
+}[] = [
+  { provider: "google", label: "Continue with Google", Icon: GoogleIcon },
+  { provider: "github", label: "Continue with GitHub", Icon: GithubIcon },
+];
 
 export type SignInFormProps = {
   mode: SignInMode;
   onModeChange: (mode: SignInMode) => void;
   onSubmit: (credentials: { email: string; password: string; name: string }) => void;
-  onGithub: () => void;
-  /** Offered only when the API has a GitHub app; see `/auth/providers`. */
-  githubEnabled: boolean;
+  /** Pressing one of the social buttons, named by which. */
+  onSocial: (provider: SocialProvider) => void;
+  /**
+   * Going in without an account at all.
+   *
+   * Still a different kind of act from the three above it — nothing is being proved about who
+   * you are — but it sits in the same row as the providers, because a person weighing "how do I
+   * get in" is weighing all three at once and one of them being elsewhere on the page hides it.
+   * It stays distinguishable by shape: words where the others are marks.
+   */
+  onDemo: () => void;
+  /** Only the providers the API actually has credentials for; see `/auth/providers`. */
+  socialProviders: readonly SocialProvider[];
+  /** Whether this deployment lets anybody in without an account at all. */
+  demoEnabled: boolean;
   /** In words, for the person who just tried. Undefined when nothing has gone wrong. */
   error?: string | undefined;
   /**
@@ -79,12 +112,28 @@ const PILL =
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--s-text-primary)] " +
   "disabled:opacity-50";
 
+/**
+ * A provider button with no words in it.
+ *
+ * Square-ish and fixed at 44px, which is the smallest target iOS and Android both call reliably
+ * tappable — an icon-only control is the one shape where that floor is easy to fall through.
+ * The name lives in `aria-label`, so a screen reader still hears the full sentence; `title`
+ * gives a pointer the same sentence on hover.
+ */
+const ICON_BUTTON =
+  "flex size-11 shrink-0 items-center justify-center rounded-full border " +
+  "border-[var(--s-border-1)] bg-[var(--s-surface-1)] text-[var(--s-text-body)] transition-colors " +
+  "hover:border-[var(--s-text-subtle)] focus-visible:outline focus-visible:outline-2 " +
+  "focus-visible:outline-offset-2 focus-visible:outline-[var(--s-text-primary)] disabled:opacity-50";
+
 export function SignInForm({
   mode,
   onModeChange,
   onSubmit,
-  onGithub,
-  githubEnabled,
+  onSocial,
+  onDemo,
+  socialProviders,
+  demoEnabled,
   error,
   notice,
   submitting = false,
@@ -96,6 +145,9 @@ export function SignInForm({
   const signingUp = mode === "sign-up";
   const verb = signingUp ? "Create account" : "Sign in";
   const copy = COPY[mode];
+  // This page's order, filtered by what the API has credentials for — rather than the API's
+  // order, which is an implementation detail of how boot happens to check them.
+  const offered = SOCIAL.filter(({ provider }) => socialProviders.includes(provider));
 
   return (
     <div className="ai-stage relative flex min-h-dvh flex-col items-center justify-center px-6 py-20">
@@ -200,20 +252,39 @@ export function SignInForm({
               </p>
             )}
 
+            {/*
+              In flight, the words gain a turning ring beside them.
+
+              The sentence says what is happening and the ring says it is still happening —
+              "One moment…" on its own stops being believable the instant it sits still, because
+              a stalled request and a slow one read identically. The ring trails the words rather
+              than leading them, so the thing that changes is the last thing on the line and the
+              text starts where the label it replaced started.
+
+              The ring is 20px to match the line height beside it, so the button does not change
+              height at the moment it is pressed.
+            */}
             <button
               type="submit"
               disabled={submitting}
-              className={`${PILL} mt-1 bg-[var(--s-text-primary)] text-[var(--s-text-inverse)] hover:opacity-90`}
+              className={`${PILL} mt-1 flex items-center justify-center gap-2 bg-[var(--s-text-primary)] text-[var(--s-text-inverse)] hover:opacity-90`}
             >
-              {submitting ? "One moment…" : verb}
+              {submitting ? (
+                <>
+                  One moment…
+                  <SpinnerIcon className="size-5" />
+                </>
+              ) : (
+                verb
+              )}
             </button>
           </form>
 
-          {githubEnabled && (
+          {(offered.length > 0 || demoEnabled) && (
             <>
               {/*
-                A divider rather than a second button in the stack: these two are alternatives,
-                and stacked identically they read as steps.
+                A divider rather than more buttons in the stack: these are alternatives to the
+                form above, and stacked identically they read as steps.
               */}
               <div aria-hidden="true" className="my-4 flex items-center gap-3">
                 <span className="h-px flex-1 bg-[var(--s-border-1)]" />
@@ -221,14 +292,50 @@ export function SignInForm({
                 <span className="h-px flex-1 bg-[var(--s-border-1)]" />
               </div>
 
-              <button
-                type="button"
-                onClick={onGithub}
-                disabled={submitting}
-                className={`${PILL} w-full border border-[var(--s-border-1)] text-[var(--s-text-body)] hover:border-[var(--s-text-subtle)]`}
-              >
-                Continue with GitHub
-              </button>
+              {/*
+                One row for every way in that is not an email address. The providers are marks
+                rather than sentences because "Continue with Google" is a label nobody reads
+                twice — the logo is what people scan for — and two full-width pills saying almost
+                the same words were the loudest thing on a page whose actual subject is the form
+                above them. Centred, so two marks alone still look placed rather than orphaned.
+              */}
+              <div className="flex items-center justify-center gap-2">
+                {offered.map(({ provider, label, Icon }) => (
+                  <button
+                    key={provider}
+                    type="button"
+                    aria-label={label}
+                    title={label}
+                    onClick={() => onSocial(provider)}
+                    disabled={submitting}
+                    className={ICON_BUTTON}
+                  >
+                    <Icon className="size-[18px]" />
+                  </button>
+                ))}
+
+                {demoEnabled && (
+                  <button
+                    type="button"
+                    onClick={onDemo}
+                    disabled={submitting}
+                    className={`${PILL} flex-1 border border-[var(--s-border-1)] text-[var(--s-text-body)] transition-colors hover:border-[var(--s-text-subtle)]`}
+                  >
+                    Try for free
+                  </button>
+                )}
+              </div>
+
+              {/*
+                What the free door costs, said before it is opened rather than at the model
+                picker, where the good models being greyed out with no explanation reads as a
+                fault. Kept out of the button so the button stays one short phrase.
+              */}
+              {demoEnabled && (
+                <p className="mt-3 text-center text-[var(--s-text-subtle)] text-xs">
+                  No account, free models, nothing to set up.
+                </p>
+              )}
             </>
           )}
         </div>

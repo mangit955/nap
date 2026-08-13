@@ -353,6 +353,9 @@ export class SingleAgentRuntime implements Runtime {
         finalize: () => this.#commit(sandboxId.value.id, request.message),
         ...(request.signal === undefined ? {} : { signal: request.signal }),
         ...(request.model === undefined ? {} : { model: request.model }),
+        // Passed straight through and read nowhere here: the runtime decides *when* a turn
+        // runs, never who pays for it.
+        ...(request.credentials === undefined ? {} : { credentials: request.credentials }),
       });
 
       await sink.drain();

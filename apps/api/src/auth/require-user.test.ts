@@ -12,7 +12,7 @@ import { describe, expect, it } from "vitest";
 import type { Authenticate } from "./auth.ts";
 import { type AuthVariables, isPublicPath, requireUser } from "./require-user.ts";
 
-const signedIn: Authenticate = async () => ({ userId: "user-a" });
+const signedIn: Authenticate = async () => ({ userId: "user-a", isAnonymous: false });
 const signedOut: Authenticate = async () => null;
 
 /** Two routes: one public by path, one not. Enough to see the middleware decide. */
@@ -20,7 +20,11 @@ function appWith(authenticate: Authenticate | undefined): Hono<{ Variables: Auth
   const app = new Hono<{ Variables: AuthVariables }>();
   app.use("*", requireUser(authenticate));
   app.get("/health", (c) => c.json({ status: "ok" }));
-  app.get("/projects", (c) => c.json({ userId: c.get("userId") }));
+  // Both, because both are set here and nowhere else: a handler that read `isAnonymous` and
+  // found it undefined would treat a demo visitor as a full account.
+  app.get("/projects", (c) =>
+    c.json({ userId: c.get("userId"), isAnonymous: c.get("isAnonymous") }),
+  );
   return app;
 }
 
@@ -60,7 +64,7 @@ describe("requireUser", () => {
     const response = await appWith(signedIn).request("/projects");
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ userId: "user-a" });
+    await expect(response.json()).resolves.toEqual({ userId: "user-a", isAnonymous: false });
   });
 
   it("leaves the public paths alone whether or not anyone is signed in", async () => {

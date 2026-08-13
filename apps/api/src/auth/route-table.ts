@@ -17,12 +17,17 @@ import { InMemoryProjectSandboxStore } from "@nap/db/testing/in-memory-project-s
 import { FAKE_OWNER, InMemoryProjectStore } from "@nap/db/testing/in-memory-project-store";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
+import { InMemoryUserKeyStore } from "@nap/db/testing/in-memory-user-key-store";
 import { TEMPLATE_WORKDIR } from "@nap/sandbox/template";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import type { ResumeOutcome, TurnOutcome } from "@nap/shared/ports/runtime";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
+import { encryptionKeyFrom } from "../account/secret-box.ts";
 import type { AppDeps } from "../app.ts";
 import { TurnRegistry } from "../turns/registry.ts";
+
+/** A model that costs nothing, which is what a caller with no key of their own may run. */
+const FREE_MODEL = "openai/gpt-oss-20b:free";
 
 /** The signed-in user everything below belongs to. */
 export const OWNER = FAKE_OWNER;
@@ -59,6 +64,16 @@ export type GuardedRoute = RouteEntry & {
 export const GUARDED_ROUTES: GuardedRoute[] = [
   { method: "GET", path: "/ws", examplePath: `/ws?sessionId=${SESSION}` },
   { method: "GET", path: "/models", examplePath: "/models" },
+  // Somebody else's API key is the single most sensitive thing this app stores, so these are
+  // the three entries in this table it would be worst to be missing.
+  { method: "GET", path: "/account/api-key", examplePath: "/account/api-key" },
+  {
+    method: "PUT",
+    path: "/account/api-key",
+    examplePath: "/account/api-key",
+    body: { apiKey: "sk-or-v1-0123456789abcdef0123" },
+  },
+  { method: "DELETE", path: "/account/api-key", examplePath: "/account/api-key" },
   { method: "GET", path: "/projects", examplePath: "/projects" },
   { method: "POST", path: "/projects", examplePath: "/projects", body: { name: "New" } },
   { method: "GET", path: "/projects/:projectId", examplePath: `/projects/${PROJECT}` },
@@ -165,7 +180,16 @@ export function fullyWiredDeps(seeded?: SeededSandbox): Omit<AppDeps, "logger"> 
       upgradeWebSocket: async () => new Response(null),
     },
     files: { sessions, sandbox },
-    models: { allowed: ["openai/gpt-5.6-luna"], fallback: "openai/gpt-5.6-luna" },
+    account: {
+      keys: new InMemoryUserKeyStore(),
+      encryptionKey: encryptionKeyFrom(Buffer.alloc(32).toString("base64")),
+      verify: async () => ({ ok: true }),
+    },
+    models: {
+      allowed: ["openai/gpt-5.6-luna", FREE_MODEL],
+      fallback: "openai/gpt-5.6-luna",
+      freeModel: FREE_MODEL,
+    },
     turns: {
       // Never actually reached by an authorization test: a turn that got as far as running
       // would mean the route let somebody through, which is the thing being tested.
@@ -178,6 +202,8 @@ export function fullyWiredDeps(seeded?: SeededSandbox): Omit<AppDeps, "logger"> 
         }),
       },
       registry: new TurnRegistry(),
+      freeModel: FREE_MODEL,
+      defaultModel: "openai/gpt-5.6-luna",
       allowedModels: ["openai/gpt-5.6-luna"],
       sessions,
       projects,
@@ -207,6 +233,7 @@ export function fullyWiredDeps(seeded?: SeededSandbox): Omit<AppDeps, "logger"> 
       handler: async () => new Response(null),
       getUser: async () => null,
       socialProviders: [],
+      demo: false,
     },
   };
 }

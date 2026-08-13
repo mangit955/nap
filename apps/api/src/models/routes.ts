@@ -12,33 +12,55 @@
  */
 
 import { ModelListSchema } from "@nap/shared/models-protocol";
+import type { StoredKeyRecord } from "@nap/shared/ports/user-key-store";
 import type { Hono } from "hono";
 import type { AuthVariables } from "../auth/require-user.ts";
+import { availableModels, isFree } from "../turns/model-access.ts";
 
 export type ModelRouteDeps = {
   allowed: readonly string[];
-  /** What a turn runs on when it names nothing, which is the normal case. */
+  /** What a turn runs on when the asker has a key and names nothing. */
   fallback: string;
+  /** What a turn runs on when the asker has no key. Always free. */
+  freeModel: string;
+  /**
+   * The key this caller brought, if any. Absent means nobody has one — which is what an app
+   * assembled without a key store means, and is the answer that offers least.
+   */
+  keys?: (userId: string) => Promise<StoredKeyRecord | null>;
 };
 
 export function registerModelRoutes(
   app: Hono<{ Variables: AuthVariables }>,
   deps: ModelRouteDeps,
 ): void {
-  app.get("/models", (c) =>
-    c.json(
+  app.get("/models", async (c) => {
+    const stored = (await deps.keys?.(c.get("userId"))) ?? null;
+    // Only the platform matters here; the key itself is never opened for this, because
+    // nothing on this route needs to spend it.
+    const key = stored === null ? null : { platform: stored.platform, apiKey: "" };
+    const available = new Set(availableModels(deps.allowed, key));
+
+    return c.json(
       ModelListSchema.parse({
         models: deps.allowed.map((id) => ({
           id,
           label: modelLabel(id),
           // OpenRouter's convention. Worth saying in the menu, because it is the difference
           // between a turn that costs money and one that does not.
-          free: id.endsWith(":free"),
+          free: isFree(id),
+          available: available.has(id),
         })),
-        fallback: deps.fallback,
+        // Whichever default this caller's turns would actually take, so the tick in the menu
+        // is on the model a message would really run on.
+        fallback: stored === null ? deps.freeModel : deps.fallback,
+        key:
+          stored === null
+            ? { configured: false }
+            : { configured: true, platform: stored.platform, hint: stored.hint },
       }),
-    ),
-  );
+    );
+  });
 }
 
 /**

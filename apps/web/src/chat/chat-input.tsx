@@ -42,6 +42,7 @@ export function ChatInput({
   models = [],
   model,
   onModelChange,
+  onAddKey,
 }: {
   running: boolean;
   error: string | undefined;
@@ -55,6 +56,8 @@ export function ChatInput({
   /** The chosen model. Absent means the server's default, which is what most turns run on. */
   model?: string | undefined;
   onModelChange?: ((model: string) => void) | undefined;
+  /** Opening the key form, for a model this caller cannot reach. */
+  onAddKey?: (() => void) | undefined;
   /**
    * The project's files, for `@`. Defaulted so the many render tests need not supply them —
    * and an empty list is the honest state before a sandbox exists, not a broken menu.
@@ -258,6 +261,7 @@ export function ChatInput({
                 model={model}
                 disabled={running}
                 onChange={(choice) => onModelChange?.(choice)}
+                onAddKey={onAddKey}
                 onPick={() => box.current?.focus()}
                 closeWhen={text}
               />

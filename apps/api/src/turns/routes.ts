@@ -18,6 +18,7 @@
  */
 
 import { getLogger } from "@nap/shared/logging";
+import type { ModelCredentials } from "@nap/shared/ports/llm-provider";
 import type { ProjectStore } from "@nap/shared/ports/project-store";
 import type { Runtime } from "@nap/shared/ports/runtime";
 import type { SessionRecord, SessionStore } from "@nap/shared/ports/session-store";
@@ -26,6 +27,7 @@ import type { Context, Hono } from "hono";
 import { z } from "zod";
 import { findOwnedSession } from "../auth/owned-session.ts";
 import type { AuthVariables } from "../auth/require-user.ts";
+import { resolveTurnAccess } from "./model-access.ts";
 import type { TurnRateLimiter } from "./rate-limiter.ts";
 import type { TurnRegistry } from "./registry.ts";
 import { checkSandboxQuota, type SandboxLimits } from "./sandbox-quota.ts";
@@ -51,15 +53,45 @@ export type TurnRouteDeps = {
    * refusing every turn because a limiter was not wired up would be a worse default than
    * running unlimited in a test.
    */
-  /** Every model a turn may name. The route refuses anything else. */
+  /** Every model a turn may name. Which of them *this* caller may name is narrower. */
   allowedModels: readonly string[];
+  /**
+   * Whose account pays, and therefore which models are reachable.
+   *
+   * Absent means nobody has a key and every turn runs on the deployment's own account under
+   * the free rules — which is what an app assembled without a key store should do, rather
+   * than fail every turn for want of a table.
+   */
+  keys?: CallerKeys;
+  /** What a turn runs on when the asker has no key. Always free; the env check proves it. */
+  freeModel: string;
+  /** What a turn runs on when the asker has a key and names nothing. */
+  defaultModel: string;
   limits?: {
     rate: TurnRateLimiter;
+    /**
+     * The tighter limiter, for turns this deployment is paying for.
+     *
+     * A second limiter rather than a second limit on one: the window is per-user *and*
+     * per-limiter, so sharing one would let somebody's paid turns eat their free allowance and
+     * make "5 free turns an hour" mean something different depending on what else they did.
+     */
+    freeRate: TurnRateLimiter;
     /** Counting live sandboxes; the same store the project routes use. */
     projects: ProjectStore;
     sandboxes: SandboxLimits;
+    /** The tighter sandbox ceiling, applied to the same turns `freeRate` is. */
+    freeSandboxes: SandboxLimits;
   };
 };
+
+/**
+ * Reading the caller's stored key back into something a turn can be billed to.
+ *
+ * A narrow function rather than the store plus the encryption key, so the turn route never
+ * touches ciphertext and a test can say "this person has an Anthropic key" in one line.
+ */
+export type CallerKeys = (userId: string) => Promise<ModelCredentials | null>;
 
 const TurnBodySchema = z.object({
   /** Trimmed before the check: a message of spaces is an accident, not a prompt. */
@@ -90,22 +122,34 @@ export function registerTurnRoutes(
       return c.json({ error: body.error.issues.map((issue) => issue.message).join("; ") }, 400);
     }
 
-    // Before the ceilings, because an unknown model is a malformed request rather than a
+    // Whose account this turn is billed to, which is also what decides which models they may
+    // name. One lookup answers both, and both are needed before anything is spent.
+    const key = (await deps.keys?.(c.get("userId"))) ?? null;
+
+    // Before the ceilings, because an unreachable model is a malformed request rather than a
     // limit: refusing it must not consume the asker's rate-limit allowance.
-    const model = body.data.model;
-    if (model !== undefined && !deps.allowedModels.includes(model)) {
+    const access = resolveTurnAccess({
+      requested: body.data.model,
+      key,
+      allowed: deps.allowedModels,
+      freeModel: deps.freeModel,
+      defaultModel: deps.defaultModel,
+    });
+    if (!access.ok) {
+      // 403 for `byok_required` and 400 for the rest: naming a model you are not allowed to
+      // *pay for* is a permission answer with something to do about it, while naming one that
+      // does not exist here is a bad request with nothing a key would fix. The browser reads
+      // the code and offers the key form on the first but not the second.
       return c.json(
-        {
-          error: `model must be one of: ${deps.allowedModels.join(", ")}`,
-          code: "model_not_allowed",
-        },
-        400,
+        { error: access.message, code: access.code },
+        access.code === "byok_required" ? 403 : 400,
       );
     }
 
     // Both ceilings are checked after the body, so a malformed request never costs somebody a
     // slot, and before the registry, so a refused turn leaves no trace of having been started.
-    const refusal = await refuse(deps, found.value, c.get("userId"));
+    // Which ceilings apply depends on who is paying — see `refuse`.
+    const refusal = await refuse(deps, found.value, c.get("userId"), key !== null);
     if (refusal !== undefined) return refusal(c);
 
     const { sessionId } = found.value;
@@ -125,7 +169,11 @@ export function registerTurnRoutes(
         sessionId,
         message: body.data.message,
         signal,
-        ...(model === undefined ? {} : { model }),
+        // Both concrete by now. The resolver always returns a model rather than leaving a
+        // default to be applied here, because the default that would be applied is a *paid*
+        // one and forgetting it is this deployment buying tokens for a stranger.
+        model: access.model,
+        ...(access.credentials === undefined ? {} : { credentials: access.credentials }),
       })
       .then((outcome) => {
         // `turnId` hoisted out of the outcome rather than left nested inside it: this line is
@@ -177,11 +225,19 @@ async function refuse(
   deps: TurnRouteDeps,
   session: SessionRecord,
   userId: string,
+  /** Whether this turn is billed to the asker. False means the deployment is paying. */
+  paysTheirOwnWay: boolean,
 ): Promise<((c: Context) => Response) | undefined> {
   const { limits } = deps;
   if (limits === undefined) return undefined;
 
-  const rate = limits.rate.check(userId, Date.now());
+  // The tighter pair when this deployment is paying. Somebody spending their own money is
+  // limited to stop a runaway loop; somebody spending ours is limited because that is the
+  // whole reason the door can be open to strangers at all.
+  const rateLimiter = paysTheirOwnWay ? limits.rate : limits.freeRate;
+  const sandboxLimits = paysTheirOwnWay ? limits.sandboxes : limits.freeSandboxes;
+
+  const rate = rateLimiter.check(userId, Date.now());
   if (!rate.allowed) {
     const seconds = rate.retryAfterSeconds;
     return (c) =>
@@ -201,7 +257,7 @@ async function refuse(
     projects: limits.projects,
     userId,
     sessionSandboxId: session.sandboxId,
-    limits: limits.sandboxes,
+    limits: sandboxLimits,
   });
   if (!quota.allowed) {
     return (c) => c.json({ error: quota.message, code: "sandbox_quota_exceeded" }, 409);

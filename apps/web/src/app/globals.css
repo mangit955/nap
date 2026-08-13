@@ -1418,6 +1418,81 @@ body {
 }
 
 /*
+ * The same ramp again, this time in the dark.
+ *
+ * `ApiKeyForm` is written once and shown in two places: on `/welcome`, which is a light stage,
+ * and in a dialog over the workspace, which is not. Because the ramp above is scoped to
+ * `.ai-stage`, that second placement resolved every `--s-*` to nothing — a dialog with no
+ * surface, no border and inherited text, which is to say a transparent one with the page
+ * legible straight through it. The failure is silent: an undefined custom property is not an
+ * error, it just paints nothing.
+ *
+ * So rather than fork the form or hard-code a light card into a dark frame, this maps the same
+ * variable names onto the workspace palette. The form keeps naming surfaces and text weights;
+ * which ramp it gets is a fact about where it is mounted. Every value here is a `--color-*`
+ * token, so the two palettes cannot drift apart into two different dark greys.
+ */
+.ai-stage-dark {
+  /* Inputs and inset rows. A step above the panel they sit on, so a field reads as a well. */
+  --s-surface-1: var(--color-field);
+  --s-surface-2: var(--color-bubble);
+  --s-surface-3: var(--color-edge);
+  --s-border-1: var(--color-edge);
+  --s-text-primary: var(--color-ink);
+  --s-text-body: var(--color-ink-2);
+  --s-text-muted: var(--color-muted);
+  --s-text-subtle: var(--color-gutter);
+  /*
+   * What sits *on* `--s-text-primary`, which the shared pill uses as a fill. Near-black on the
+   * near-white pill: the light ramp's white would be white on white, an invisible button.
+   */
+  --s-text-inverse: var(--color-surface);
+
+  color: var(--color-ink-2);
+}
+
+/*
+ * A dialog arriving, and the room dimming behind it.
+ *
+ * Modals that appear instantly read as a page navigation — the eye has nothing to follow and
+ * has to re-find where it was. 140ms and a 2% rise is under the threshold where an animation
+ * starts to feel like a wait, which is the only budget a control surface gets.
+ *
+ * An animation rather than a transition, because a `<dialog>` enters the top layer straight from
+ * `display: none`: there is no previous computed style to transition *from*, so a transition on
+ * `[open]` runs on nothing at all. Only the way in is animated — the way out would need the
+ * element kept alive past `close()`, which is state this component would have to hold for the
+ * sake of 140ms. Reduced motion keeps the fade and drops the movement, rather than turning the
+ * whole thing off: a modal that blinks into existence is the harsher of the two results.
+ */
+@keyframes nap-dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+}
+
+@keyframes nap-backdrop-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.nap-dialog[open] {
+  animation: nap-dialog-in 140ms cubic-bezier(0.2, 0, 0.2, 1);
+}
+
+.nap-dialog[open]::backdrop {
+  animation: nap-backdrop-in 140ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nap-dialog[open] {
+    animation-name: nap-backdrop-in;
+  }
+}
+
+/*
  * The clearing in the middle of the sign-in page's doodle sheet.
  *
  * The drawings run right across the page — that density is what makes it read as a filled sheet
@@ -1658,6 +1733,192 @@ body {
   .nap-reveal[data-reveal="pending"] {
     opacity: 1;
     transform: none;
+  }
+}
+
+/*
+ * A fixed design space, scaled to whatever width its container has.
+ *
+ * Two things on this page — the poured bento and the live demo — place their contents in plain
+ * pixels, because the shape behind them is traced from those same numbers and a percentage layout
+ * would put the tiles somewhere the skin was not drawn for. This is what makes that affordable:
+ * the space keeps its own coordinates and the whole thing is scaled down to fit.
+ *
+ * **It is written here, in CSS, and not as Tailwind arbitrary properties.** `[scale:calc(100cqw/
+ * 880)]`, `[container-type:inline-size]` and `aspect-[880/492]` all compile to nothing — the
+ * generated stylesheet simply has no such rule, and the page renders at 1:1 and overflows its
+ * column on any screen narrower than the design space. Nothing warns; the class is in the markup
+ * and the property is absent from the computed style, which is only visible if you go and read it.
+ *
+ * The ratio itself is measured — `useSpaceScale` writes `--space-k`. It cannot be computed here:
+ * `scale` takes a number, a container unit is a length, and `calc(100cqw / 460)` is therefore a
+ * length and the declaration is dropped whole. `--space-w` and `--space-h` stay unitless so they
+ * can be an `aspect-ratio` and be multiplied into a width.
+ */
+.nap-space-host {
+  aspect-ratio: var(--space-w) / var(--space-h);
+}
+
+.nap-space {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: calc(var(--space-w) * 1px);
+  height: calc(var(--space-h) * 1px);
+  transform-origin: top left;
+  scale: var(--space-k, 1);
+}
+
+/*
+ * The same, from `md` up only. The bento stacks into ordinary cards on a phone, where a fixed
+ * aspect box around a column of text would be a hole with content spilling out of it.
+ */
+@media (min-width: 48rem) {
+  .nap-space-host-md {
+    aspect-ratio: var(--space-w) / var(--space-h);
+  }
+
+  .nap-space-md {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: calc(var(--space-w) * 1px);
+    height: calc(var(--space-h) * 1px);
+    transform-origin: top left;
+    scale: var(--space-k, 1);
+  }
+}
+
+/*
+ * The live demo on the landing page.
+ *
+ * Everything the loop can express as a *state* lives here rather than in the frame writes: a tool
+ * call is pending, running or done, and the stylesheet knows what each of those looks like. That
+ * keeps the per-frame work to one dataset write when a step actually changes, instead of setting
+ * two opacities on every row sixty times a second — and it is what lets reduced motion switch the
+ * whole thing off through the cascade rather than through a second copy of the rules in TypeScript.
+ */
+.nap-demo-step {
+  transition:
+    opacity 260ms ease,
+    transform 260ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+/* A call that has not happened yet is not dimmed, it is absent — it has not been decided on. */
+.nap-demo-step[data-state="pending"] {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
+.nap-demo-step[data-state="running"] .nap-demo-done,
+.nap-demo-step[data-state="done"] .nap-demo-running,
+.nap-demo-step[data-state="pending"] .nap-demo-done {
+  display: none;
+}
+
+/*
+ * The caret. It is written on and off by the frame — this is only the blink, which has to keep
+ * its own beat while the sentence is being typed rather than restarting per character.
+ */
+.nap-caret {
+  animation: nap-blink 1s steps(2, jump-none) infinite;
+}
+
+@keyframes nap-blink {
+  to {
+    opacity: 0.15;
+  }
+}
+
+/* The click: a ring leaving the pointer's tip. Centred on the tip, not on the glyph's box. */
+.nap-demo-press {
+  left: -9px;
+  top: -9px;
+  opacity: 0;
+}
+
+.nap-demo-cursor[data-press="true"] .nap-demo-press {
+  animation: nap-press 320ms ease-out;
+}
+
+@keyframes nap-press {
+  from {
+    opacity: 0.55;
+    transform: scale(0.35);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.5);
+  }
+}
+
+/*
+ * The preview assembling. Each block arrives on its own beat once the frame writes `--preview`
+ * past nothing — a stagger written as delays rather than as five more numbers in the script,
+ * because the order they arrive in is a property of the picture and not of the turn.
+ */
+.nap-demo-preview > * {
+  opacity: calc(var(--preview, 0) * 3 - 0.2);
+  transition: opacity 200ms ease;
+}
+
+/*
+ * The copy beside the stage. One `data-beat` on the section says which act is playing, and the
+ * beats read it — no beat attribute at all (no script, or reduced motion) leaves every one of
+ * them at full strength, which is the same rule the scroll reveal follows.
+ */
+[data-beat] .nap-beat {
+  color: var(--s-text-subtle);
+  transition:
+    color 320ms ease,
+    opacity 320ms ease;
+}
+
+[data-beat] .nap-beat .nap-beat-title {
+  color: var(--s-text-subtle);
+  transition: color 320ms ease;
+}
+
+[data-beat="1"] .nap-beat[data-beat-index="1"],
+[data-beat="2"] .nap-beat[data-beat-index="2"],
+[data-beat="3"] .nap-beat[data-beat-index="3"] {
+  color: var(--s-text-muted);
+}
+
+[data-beat="1"] .nap-beat[data-beat-index="1"] .nap-beat-title,
+[data-beat="2"] .nap-beat[data-beat-index="2"] .nap-beat-title,
+[data-beat="3"] .nap-beat[data-beat-index="3"] .nap-beat-title {
+  color: var(--s-text-primary);
+}
+
+/* The rule beside a beat fills while its act plays: a progress bar the length of the paragraph. */
+.nap-beat-rule::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  background: var(--s-text-primary);
+  transition: width 320ms ease;
+}
+
+[data-beat="1"] .nap-beat[data-beat-index="1"] .nap-beat-rule::after,
+[data-beat="2"] .nap-beat[data-beat-index="2"] .nap-beat-rule::after,
+[data-beat="3"] .nap-beat[data-beat-index="3"] .nap-beat-rule::after {
+  width: 100%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nap-demo-step,
+  .nap-demo-preview > *,
+  [data-beat] .nap-beat,
+  [data-beat] .nap-beat .nap-beat-title,
+  .nap-beat-rule::after {
+    transition: none;
+  }
+
+  .nap-caret,
+  .nap-demo-cursor[data-press="true"] .nap-demo-press {
+    animation: none;
   }
 }
 

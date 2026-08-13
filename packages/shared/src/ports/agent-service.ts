@@ -11,6 +11,7 @@
 
 import type { BuiltContext } from "./context-engine.ts";
 import type { PendingEvent } from "./event-store.ts";
+import type { ModelCredentials } from "./llm-provider.ts";
 import type { SandboxManager } from "./sandbox-manager.ts";
 
 export type AgentTurnRequest = {
@@ -30,6 +31,15 @@ export type AgentTurnRequest = {
    * an unchecked model id from a request body is somebody else spending your money.
    */
   model?: string | undefined;
+  /**
+   * Whose account pays for this turn. Absent is the deployment's own.
+   *
+   * Passed straight through to `LLMProvider.startTurn` and read nowhere else in this
+   * component — it must not reach an event, a log line or a tool. See the rule in
+   * `docs/GOTCHAS.md`: everything a turn emits is durable and readable, and a credential that
+   * lands in the `events` table is a secret with the retention of a chat transcript.
+   */
+  credentials?: ModelCredentials | undefined;
   /**
    * Run after the model stops, before the turn is reported complete.
    *

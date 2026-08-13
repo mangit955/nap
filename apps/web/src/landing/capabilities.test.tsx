@@ -30,17 +30,16 @@ describe("what you get", () => {
     expect(skin).toHaveAttribute("aria-hidden", "true");
   });
 
-  it("scales the same box the skin was traced for", () => {
-    // The wide layout's box is a Tailwind class, which has to be a literal in the source — so the
-    // design space is written down twice and nothing but this stops the two drifting. When they
-    // do, every tile sits slightly off the shape drawn behind it, at some widths only.
+  it("hands the stylesheet the same space the skin was traced from", () => {
+    // The tiles are placed in plain pixels and the shape behind them is traced from those same
+    // numbers, so the box that scales them has to be *these* numbers and not a second copy. It is
+    // a custom property rather than a class for a blunt reason: the Tailwind arbitrary properties
+    // this used to be — `[scale:calc(100cqw/880)]`, `aspect-[880/492]` — compile to nothing at
+    // all, and the section rendered at 1:1 and overflowed its column for a whole session.
     const { container } = render(<Capabilities />);
-    const markup = container.innerHTML;
+    const host = container.querySelector(".nap-space-host-md");
 
-    expect(markup).toContain(`md:aspect-[${SPACE.w}/${SPACE.h}]`);
-    expect(markup).toContain(`md:h-[${SPACE.h}px]`);
-    expect(markup).toContain(`md:w-[${SPACE.w}px]`);
-    expect(markup).toContain(`calc(100cqw/${SPACE.w})`);
+    expect(host).toHaveStyle({ "--space-w": `${SPACE.w}`, "--space-h": `${SPACE.h}` });
   });
 
   it("draws its five tiles as a single fused surface", () => {
