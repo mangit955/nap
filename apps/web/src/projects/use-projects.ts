@@ -24,7 +24,7 @@ import {
   ProjectSummarySchema,
   projectState,
 } from "@nap/shared/projects-protocol";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { credentialedFetch } from "../api/credentialed-fetch.ts";
 import type { FetchJson } from "../files/use-project-files.ts";
 
@@ -42,6 +42,15 @@ export type Projects = {
 };
 
 const DEFAULT_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
+
+/**
+ * How long a restore may go unannounced before the panes stop claiming it is under way.
+ *
+ * Generous: a restore unbundles a project and starts a dev server, which is tens of seconds on
+ * a cold sandbox. This is not a deadline for the server — nothing is cancelled when it passes
+ * — only for how long the client is willing to say something is happening with no evidence.
+ */
+const RESTORE_CEILING_MS = 3 * 60 * 1000;
 
 export function useProjects(options: { baseUrl?: string; fetchJson?: FetchJson } = {}): Projects {
   const { baseUrl = DEFAULT_BASE_URL } = options;
@@ -189,7 +198,13 @@ export type OpenProject = {
   putAwayAt: string | undefined;
   /** Asks the server to start it back up. What the user then sees arrives as events. */
   resume: () => Promise<void>;
-  /** True from the request until the restore announces itself on the session's stream. */
+  /**
+   * True from the request until the restore announces itself on the session's stream.
+   *
+   * Ending that wait needs a fact this hook cannot see — it holds a project record, not an
+   * event log — so the newest `preview.ready` arrives as `previewSeq` from whoever does hold
+   * the subscription. See the note on that option.
+   */
   resuming: boolean;
   /** Set when the last resume was refused, in the server's own words. */
   resumeError: string | undefined;
@@ -213,17 +228,68 @@ export type OpenProject = {
  */
 export function useProject(
   projectId: string,
-  options: { baseUrl?: string; fetchJson?: FetchJson } = {},
+  options: {
+    baseUrl?: string;
+    fetchJson?: FetchJson;
+    /**
+     * The `seq` of the newest `preview.ready` anybody watching this project's stream has seen.
+     *
+     * **This is what ends a restore**, and it is a sequence number rather than a boolean for
+     * the same reason `putAwayAt` is an instant: the log still holds the announcement from
+     * before the project was closed, so "there is a ready preview" is true the whole time and
+     * would end the wait immediately — pointing an iframe at a sandbox that no longer exists.
+     * Only an announcement newer than the one standing when the restore was asked for means
+     * *this* restore came up.
+     */
+    previewSeq?: number | undefined;
+  } = {},
 ): OpenProject {
-  const { baseUrl = DEFAULT_BASE_URL } = options;
+  const { baseUrl = DEFAULT_BASE_URL, previewSeq } = options;
   const fetchJson = options.fetchJson ?? credentialedFetch;
 
   const [project, setProject] = useState<ProjectSummaryPayload | undefined>(undefined);
   const [status, setStatus] = useState<OpenProject["status"]>("loading");
-  const [resuming, setResuming] = useState(false);
+  /** True between the click and the server's answer, before there is anything to wait for. */
+  const [requesting, setRequesting] = useState(false);
+  /**
+   * The announcement that was standing when the restore was asked for, or `undefined` when no
+   * restore is outstanding. Anything newer than this is the sandbox that was just made.
+   */
+  const [awaitingSince, setAwaitingSince] = useState<number | undefined>(undefined);
   const [resumeError, setResumeError] = useState<string | undefined>(undefined);
   /** Set once this pane has asked for the project, after which the record is out of date. */
   const [started, setStarted] = useState(false);
+
+  // Read inside `resume` without making it a dependency: a callback rebuilt on every event
+  // would change identity on every frame of a running turn, for a value it only reads once.
+  const seqNow = useRef(previewSeq);
+  seqNow.current = previewSeq;
+
+  const announced = previewSeq ?? -1;
+  const waiting = awaitingSince !== undefined && announced <= awaitingSince;
+  const resuming = requesting || waiting;
+
+  /**
+   * A restore that never announces itself must not spin forever.
+   *
+   * It can happen: a resume that fails server-side reports itself as a `system.notice` in the
+   * chat and emits no `preview.ready` at all, and a pane claiming to be starting a dev server
+   * that nothing is starting is the exact bug this whole mechanism exists to fix. Past the
+   * ceiling the panes fall back to what the log says — and if the preview does turn up later,
+   * it renders, because nothing here can hide an announcement that arrived.
+   */
+  useEffect(() => {
+    if (!waiting) return;
+
+    const timer = setTimeout(() => {
+      setAwaitingSince(undefined);
+      setResumeError(
+        "Starting this project back up is taking longer than usual. It may still come up — or try again.",
+      );
+    }, RESTORE_CEILING_MS);
+
+    return () => clearTimeout(timer);
+  }, [waiting]);
 
   // `fetchJson` is deliberately not a dependency; see the note in `useProjectFiles`.
   // biome-ignore lint/correctness/useExhaustiveDependencies: see above
@@ -256,14 +322,13 @@ export function useProject(
   // biome-ignore lint/correctness/useExhaustiveDependencies: see the note in useProjectFiles
   const resume = useCallback(async (): Promise<void> => {
     setResumeError(undefined);
-    setResuming(true);
+    setRequesting(true);
 
     try {
       const response = await fetchJson(`${baseUrl}/projects/${projectId}/open`, { method: "POST" });
 
       if (!response.ok) {
         setResumeError(await reasonFrom(response, "Could not open the project"));
-        setResuming(false);
         return;
       }
 
@@ -271,12 +336,14 @@ export function useProject(
       // project — whether the restore is under way or somebody else finished one already.
       setStarted(true);
 
-      // 202 means a restore is running and `preview.ready` is what ends the wait. Anything
-      // else means it was already up, so there is nothing to wait for.
-      if (response.status !== 202) setResuming(false);
+      // 202 means a restore is running and the next `preview.ready` is what ends the wait —
+      // recorded here as "everything after whatever is standing now". Anything else means it
+      // was already up, so there is nothing to wait for.
+      if (response.status === 202) setAwaitingSince(seqNow.current ?? -1);
     } catch {
       setResumeError("Could not open the project — could not reach the server.");
-      setResuming(false);
+    } finally {
+      setRequesting(false);
     }
   }, [baseUrl, projectId]);
 

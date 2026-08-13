@@ -257,7 +257,7 @@ export function LivePreviewPane({
   sessionId,
   putAwayAt,
   onResume,
-  onPreviewUrl,
+  onPreviewReady,
   resuming,
   resumeError,
   route,
@@ -265,24 +265,30 @@ export function LivePreviewPane({
 }: {
   sessionId: string | undefined;
   /**
-   * Reports the address of whatever is serving the project, so the bar above can offer to open
-   * it. It is reported from here rather than read again up there because this pane already holds
-   * the subscription — and every `useEventStream` is a socket of its own, so asking the same
-   * question twice costs a second connection to say the same thing.
+   * Reports whatever is serving the project — its address, and the `seq` of the announcement
+   * that named it. Reported from here rather than read again above because this pane already
+   * holds the subscription, and every `useEventStream` is a socket of its own, so asking the
+   * same question twice costs a second connection to say the same thing.
+   *
+   * **The `seq` is not decoration.** It is how the shell tells this restore's preview from the
+   * one that was standing before the project was put away — an address alone cannot, and a
+   * shell that took the older one would end the wait by pointing an iframe at a dead sandbox.
    */
-  onPreviewUrl?: ((url: string | undefined) => void) | undefined;
+  onPreviewReady?: ((ready: { url: string; seq: number } | undefined) => void) | undefined;
 } & Omit<PreviewPaneProps, "events">) {
   const { events } = useEventStream({ sessionId });
   const state = previewState(events);
   const url = state.status === "ready" ? state.url : undefined;
+  const seq = state.status === "ready" ? state.seq : undefined;
 
   // In an effect rather than during render: this reports *upward*, and a parent setting state
-  // while its child renders is the loop React warns about.
-  const report = useRef(onPreviewUrl);
-  report.current = onPreviewUrl;
+  // while its child renders is the loop React warns about. Keyed on the two primitives rather
+  // than on an object built here, which would be a new identity every frame.
+  const report = useRef(onPreviewReady);
+  report.current = onPreviewReady;
   useEffect(() => {
-    report.current?.(url);
-  }, [url]);
+    report.current?.(url === undefined || seq === undefined ? undefined : { url, seq });
+  }, [url, seq]);
 
   return (
     <PreviewPane

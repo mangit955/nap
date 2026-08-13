@@ -30,8 +30,17 @@ import { LivePreviewPane } from "./preview-pane.tsx";
  * stale as soon as the project grew another.
  */
 export function AppShell({ projectId }: { projectId: string }) {
-  const { project, status, putAwayAt, resume, resuming, resumeError, rename } =
-    useProject(projectId);
+  /**
+   * The preview announcement the panes are currently looking at, reported up by the pane that
+   * holds the subscription. Two things read it: the bar, which offers to open the address in a
+   * tab, and the project hook, which uses the `seq` to know that a restore it asked for has
+   * actually come up.
+   */
+  const [ready, setReady] = useState<{ url: string; seq: number } | undefined>(undefined);
+  const { project, status, putAwayAt, resume, resuming, resumeError, rename } = useProject(
+    projectId,
+    { previewSeq: ready?.seq },
+  );
   const sessionId = project?.sessionIds[0];
 
   const [tab, setTab] = useState<WorkbenchTab>("preview");
@@ -43,8 +52,6 @@ export function AppShell({ projectId }: { projectId: string }) {
    */
   const [reloads, setReloads] = useState(0);
   const [route, setRoute] = useState("/");
-  /** Reported by the preview pane, which is the one component already watching for it. */
-  const [previewUrl, setPreviewUrl] = useState<string | undefined>(undefined);
   const { width, containerRef, onGrab, onKeyDown } = usePaneWidth(CHAT_SPLIT, DEFAULT_CHAT_WIDTH);
 
   return (
@@ -57,7 +64,7 @@ export function AppShell({ projectId }: { projectId: string }) {
         tab={tab}
         chatOpen={chatOpen}
         route={route}
-        previewUrl={previewUrl}
+        previewUrl={ready?.url}
         onTabChange={setTab}
         onReload={() => setReloads((count) => count + 1)}
         onRouteChange={setRoute}
@@ -84,7 +91,7 @@ export function AppShell({ projectId }: { projectId: string }) {
               sessionId={sessionId}
               route={route}
               reloads={reloads}
-              onPreviewUrl={setPreviewUrl}
+              onPreviewReady={setReady}
               onResume={() => void resume()}
               resuming={resuming}
               {...(putAwayAt === undefined ? {} : { putAwayAt })}

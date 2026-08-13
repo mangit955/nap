@@ -1,6 +1,6 @@
 import type { ProjectSummaryPayload } from "@nap/shared/projects-protocol";
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { useProject, useProjects } from "./use-projects.ts";
 
 /**
@@ -359,5 +359,79 @@ describe("starting a put-away project back up", () => {
 
     expect(result.current.resumeError).toMatch(/could not reach the server/i);
     expect(result.current.resuming).toBe(false);
+  });
+});
+
+describe("knowing when the restore has actually come up", () => {
+  const putAway = () => summary({ sandboxId: null, status: "idle" });
+
+  /** A hook whose `previewSeq` a test can move, the way the pane's socket moves it. */
+  function watching(seq: number | undefined) {
+    const { fetchJson } = server({
+      [`GET /projects/${PROJECT}`]: () => json(putAway()),
+      [`POST /projects/${PROJECT}/open`]: () => json({ opened: true }, 202),
+    });
+
+    return renderHook(
+      ({ previewSeq }: { previewSeq: number | undefined }) =>
+        useProject(PROJECT, { baseUrl: BASE, fetchJson, previewSeq }),
+      { initialProps: { previewSeq: seq } },
+    );
+  }
+
+  it("stops waiting once a newer preview is announced", async () => {
+    // The bug this exists for: nothing else ever ended the wait, so the pane sat on "Starting
+    // the dev server…" until the page was reloaded — which was exactly when the flag was lost.
+    const { result, rerender } = watching(4);
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    await act(async () => {
+      await result.current.resume();
+    });
+    expect(result.current.resuming).toBe(true);
+
+    rerender({ previewSeq: 9 });
+
+    expect(result.current.resuming).toBe(false);
+  });
+
+  it("keeps waiting while the only announcement is the one from before the close", async () => {
+    // The log still holds the `preview.ready` from the last time this project ran. Ending the
+    // wait on that would point the frame at a sandbox that has since been destroyed — which is
+    // the reason this is a sequence number rather than "is there a preview".
+    const { result, rerender } = watching(4);
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    await act(async () => {
+      await result.current.resume();
+    });
+
+    rerender({ previewSeq: 4 });
+
+    expect(result.current.resuming).toBe(true);
+  });
+
+  it("stops claiming to be starting something if nothing is ever announced", async () => {
+    // A resume can fail on the server with only a `system.notice` to show for it, and a pane
+    // that spins forever is the whole class of bug being fixed here.
+    vi.useFakeTimers();
+    try {
+      const { result } = watching(undefined);
+      await vi.waitFor(() => expect(result.current.status).toBe("ready"));
+
+      await act(async () => {
+        await result.current.resume();
+      });
+      expect(result.current.resuming).toBe(true);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3 * 60 * 1000 + 1000);
+      });
+
+      expect(result.current.resuming).toBe(false);
+      expect(result.current.resumeError).toMatch(/taking longer/i);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
