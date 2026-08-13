@@ -7,6 +7,7 @@ import { NapMark } from "../brand/nap-mark.tsx";
 import { ChatInput } from "../chat/chat-input.tsx";
 import { ChatTranscript } from "../chat/chat-transcript.tsx";
 import { buildTranscript } from "../chat/transcript.ts";
+import { TranscriptSkeleton } from "../chat/transcript-skeleton.tsx";
 import { useFirstPrompt } from "../chat/use-first-prompt.ts";
 import { useModels } from "../chat/use-models.ts";
 import { useStickToBottom } from "../chat/use-stick-to-bottom.ts";
@@ -31,6 +32,7 @@ import { Pane } from "./pane.tsx";
  */
 export function ChatPane({
   events,
+  loading = false,
   pending,
   running = false,
   error,
@@ -43,6 +45,14 @@ export function ChatPane({
   onModelChange,
 }: {
   events: readonly StoredEvent[];
+  /**
+   * The log has not arrived yet, which is *not* the same as there being none.
+   *
+   * Without it this pane greets a project with forty turns in it by inviting the user to
+   * describe an app — the empty state is the honest answer to "no events" and the wrong answer
+   * to "no events yet", and nothing in a list of events distinguishes the two.
+   */
+  loading?: boolean;
   pending?: string | undefined;
   running?: boolean;
   error?: string | undefined;
@@ -71,7 +81,9 @@ export function ChatPane({
           // conversation sideways.
           className="nap-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden"
         >
-          {empty ? (
+          {empty && loading ? (
+            <TranscriptSkeleton />
+          ) : empty ? (
             <EmptyState onPick={onSubmit} />
           ) : (
             <>
@@ -181,7 +193,7 @@ export function LiveChatPane({
   /** Only so a prompt typed on the front page can be claimed by the project it was meant for. */
   projectId?: string | undefined;
 }) {
-  const { events } = useEventStream({ sessionId });
+  const { events, replayed } = useEventStream({ sessionId });
   const { submit, cancel, pending, running, error } = useTurnSubmission({ sessionId, events });
   // Fed this pane's own events rather than a second subscription: the listing goes stale when
   // a turn writes a file, and this component is already told about that.
@@ -198,6 +210,9 @@ export function LiveChatPane({
   return (
     <ChatPane
       events={events}
+      // Nothing has been asked for yet when there is no session: the project record is still on
+      // its way, so the log this pane will show has not even been subscribed to.
+      loading={sessionId === undefined || (!replayed && events.length === 0)}
       pending={pending}
       running={running}
       error={error}

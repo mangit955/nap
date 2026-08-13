@@ -139,6 +139,16 @@ async function main(): Promise<void> {
   await waitFor(received, () => events().length >= 5, "the replay");
   check("replayed", JSON.stringify(events()) === "[6,7,8,9,10]", `seq ${events().join(" ")}`);
 
+  // The frame that says the log is complete, and *where* it lands: after the last replayed
+  // event. A client uses it to tell a conversation still arriving from one that never existed,
+  // so one sent early would have panes calling half-delivered logs empty.
+  await waitFor(received, () => received.some((f) => f.type === "ready"), "the ready frame");
+  check(
+    "announced the end of the replay",
+    received.findIndex((f) => f.type === "ready") === 5,
+    `at index ${received.findIndex((f) => f.type === "ready")}`,
+  );
+
   await emit("live one");
   await emit("live two");
   await waitFor(received, () => events().length >= 7, "the live tail");
@@ -177,7 +187,8 @@ async function main(): Promise<void> {
     silentClose = event.code;
   });
 
-  await waitFor(silentFrames, () => silentFrames.length >= 13, "the replay on the second socket");
+  // Thirteen events plus the frame that closes the replay.
+  await waitFor(silentFrames, () => silentFrames.length >= 14, "the replay on the second socket");
   check("second connection replayed the whole log", true, `${silentFrames.length} frames`);
 
   await waitFor(silentFrames, () => silentClose !== undefined, "the heartbeat to give up", 5000);

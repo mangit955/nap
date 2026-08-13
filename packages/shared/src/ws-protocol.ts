@@ -23,6 +23,19 @@ export const ServerFrameSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("event"), event: NapEventSchema }),
   z.strictObject({ type: z.literal("ping") }),
   /**
+   * Everything the log held at the moment of connecting has now been sent.
+   *
+   * Without it "connected, and no events have arrived" is two situations wearing one face: a
+   * project whose conversation is still on its way, and a project that has never been typed
+   * into. They want opposite things on screen — a placeholder, and an invitation to start —
+   * and a client that cannot tell them apart shows the wrong one to somebody every time.
+   *
+   * Sent **after** the replay and after the buffer of anything that arrived mid-connect, so it
+   * means "up to now", not "up to when I started reading". Exactly once per connection: a
+   * reconnect is a new connection and gets its own.
+   */
+  z.strictObject({ type: z.literal("ready") }),
+  /**
    * Something the client sent could not be understood. Advisory: the connection stays open,
    * because a client bug should not cost someone their transcript.
    */

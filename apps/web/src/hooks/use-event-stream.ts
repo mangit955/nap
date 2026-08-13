@@ -53,6 +53,14 @@ export type EventStream = {
   status: StreamStatus;
   /** The highest sequence number received, and where a reconnect resumes from. */
   lastSeq: number;
+  /**
+   * Whether the server has said it sent everything it had.
+   *
+   * The distinction a caller needs and cannot otherwise make: an empty `events` is either a
+   * conversation still in flight or a project nobody has typed into, and those want opposite
+   * things on screen. False again from the moment a new connection is opened.
+   */
+  replayed: boolean;
 };
 
 const DEFAULT_BASE_URL = process.env.NEXT_PUBLIC_API_WS_URL ?? "ws://localhost:3001";
@@ -66,6 +74,7 @@ export function useEventStream(options: EventStreamOptions): EventStream {
     sessionId === undefined ? "idle" : "connecting",
   );
   const [lastSeq, setLastSeq] = useState(0);
+  const [replayed, setReplayed] = useState(false);
 
   // Read inside callbacks that were created on an earlier render: the reconnect needs the
   // sequence number as it is *now*, not as it was when the effect ran.
@@ -83,6 +92,7 @@ export function useEventStream(options: EventStreamOptions): EventStream {
     lastSeqRef.current = 0;
     setEvents([]);
     setLastSeq(0);
+    setReplayed(false);
 
     let socket: StreamSocket | undefined;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
@@ -111,6 +121,14 @@ export function useEventStream(options: EventStreamOptions): EventStream {
 
         if (frame.type === "ping") {
           current.send(JSON.stringify({ type: "pong" }));
+          return;
+        }
+        // The log has been delivered in full — everything the server had when this connection
+        // opened. It is the only way to tell a conversation that is still arriving from one
+        // that does not exist, which is the difference between a placeholder and an invitation
+        // to type the first message.
+        if (frame.type === "ready") {
+          setReplayed(true);
           return;
         }
         // An `error` frame is the server rejecting something this client sent. Nothing here
@@ -151,7 +169,7 @@ export function useEventStream(options: EventStreamOptions): EventStream {
     };
   }, [sessionId, baseUrl]);
 
-  return { events, status, lastSeq };
+  return { events, status, lastSeq, replayed };
 }
 
 /** Whatever arrived, or `undefined` if it was not a frame this client understands. */

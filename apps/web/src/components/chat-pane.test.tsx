@@ -41,6 +41,25 @@ describe("ChatPane", () => {
     expect(screen.queryByRole("log")).not.toBeInTheDocument();
   });
 
+  it("waits with a skeleton rather than inviting a first prompt", () => {
+    // The bug this exists for: a project with forty turns in it was greeted by "Describe the
+    // app you want" and four examples for the second before its log arrived. The invitation is
+    // the honest answer to "there are no events" and a lie about "the events are still coming".
+    render(<ChatPane events={[]} loading />);
+
+    expect(screen.getByRole("status", { name: /loading this conversation/i })).toBeInTheDocument();
+    expect(screen.queryByText(/describe the app you want/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: /example prompts/i })).not.toBeInTheDocument();
+  });
+
+  it("never covers a conversation it already has", () => {
+    // A reconnect mid-session must not replace what is on screen with a placeholder.
+    render(<ChatPane events={[message]} loading />);
+
+    expect(screen.getByRole("log", { name: /transcript/i })).toHaveTextContent("Added App.tsx.");
+    expect(screen.queryByRole("status", { name: /loading this conversation/i })).toBeNull();
+  });
+
   it("shows the transcript once there are events", () => {
     render(<ChatPane events={[message]} />);
 

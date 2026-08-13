@@ -127,6 +127,12 @@ export function openEventStream(options: EventStreamOptions): EventStream {
     for (const event of buffered) sendEvent(event);
     buffered.length = 0;
     replaying = false;
+
+    // Only now, because "ready" means the client has everything up to this moment — including
+    // whatever was appended while the history query was in flight. Announced at all because
+    // "connected and nothing has arrived" is otherwise two different situations wearing one
+    // face: a conversation still on its way, and a project nobody has typed into yet.
+    send({ type: "ready" });
   })();
 
   return {

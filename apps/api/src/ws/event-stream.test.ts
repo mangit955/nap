@@ -49,6 +49,17 @@ class FakeSocket {
   frameTypes(): ServerFrame["type"][] {
     return this.frames.map((frame) => frame.type);
   }
+
+  /**
+   * Forgets everything sent so far.
+   *
+   * For the tests whose subject is what happens *after* the connection has opened: every
+   * connection now ends its replay with a `ready` frame, and "nothing was sent" in those tests
+   * has always meant "nothing was sent from here on".
+   */
+  clear(): void {
+    this.sent.length = 0;
+  }
 }
 
 function message(sessionId: string, text: string): PendingEvent {
@@ -160,7 +171,9 @@ describe("replay then tail", () => {
     await emit(store, bus, SESSION, "live");
 
     expect(socket.seqs).toEqual([6, 7, 8, 9, 10, 11]);
-    expect(socket.frameTypes()).toEqual(Array(6).fill("event"));
+    // `ready` sits exactly on the seam: everything the log held, then the announcement, then
+    // the live tail. A client that trusted it earlier would call a half-delivered log complete.
+    expect(socket.frameTypes()).toEqual([...Array(5).fill("event"), "ready", "event"]);
   });
 
   it("replays everything from seq 0", async () => {
@@ -183,7 +196,9 @@ describe("replay then tail", () => {
 
     const stream = openEventStream({ store, bus, sessionId: SESSION, afterSeq: 99, socket });
     await stream.ready;
-    expect(socket.sent).toEqual([]);
+    // Nothing to replay — but a client that is already up to date still has to be told so, or
+    // it waits for a log that has already been fully delivered.
+    expect(socket.frameTypes()).toEqual(["ready"]);
 
     await emit(store, bus, SESSION, "live");
     expect(socket.seqs).toEqual([4]);
@@ -200,7 +215,54 @@ describe("replay then tail", () => {
 
     await emit(store, bus, OTHER_SESSION, "not yours");
 
-    expect(socket.sent).toEqual([]);
+    expect(socket.events).toEqual([]);
+  });
+});
+
+describe("saying the log has been delivered", () => {
+  it("announces it even when there is nothing to replay", async () => {
+    // The case the whole frame exists for: without it, a project nobody has typed into and one
+    // whose conversation is still arriving look identical to a client, and it has to guess
+    // which of two opposite things to draw.
+    const store = new InMemoryEventStore();
+    const bus = new InMemoryEventBus();
+    const socket = new FakeSocket();
+
+    const stream = openEventStream({ store, bus, sessionId: SESSION, afterSeq: 0, socket });
+    await stream.ready;
+
+    expect(socket.frameTypes()).toEqual(["ready"]);
+  });
+
+  it("announces it after the events that arrived mid-connect, not before them", async () => {
+    // The buffered remainder is part of "everything up to now". Announcing before the flush
+    // would tell a client the log was complete while two of its events were still in a queue.
+    const inner = new InMemoryEventStore();
+    const store = new SlowStore(inner);
+    const bus = new InMemoryEventBus();
+    await seed(inner, SESSION, 1);
+    const socket = new FakeSocket();
+
+    const stream = openEventStream({ store, bus, sessionId: SESSION, afterSeq: 0, socket });
+    await emit(inner, bus, SESSION, "mid-connect");
+    store.release();
+    await stream.ready;
+
+    expect(socket.frameTypes()).toEqual(["event", "event", "ready"]);
+  });
+
+  it("says it once, however long the connection lives", async () => {
+    const store = new InMemoryEventStore();
+    const bus = new InMemoryEventBus();
+    const socket = new FakeSocket();
+
+    const stream = openEventStream({ store, bus, sessionId: SESSION, afterSeq: 0, socket });
+    await stream.ready;
+
+    await emit(store, bus, SESSION, "live");
+    await emit(store, bus, SESSION, "live again");
+
+    expect(socket.frameTypes().filter((type) => type === "ready")).toHaveLength(1);
   });
 });
 
@@ -266,6 +328,7 @@ describe("heartbeat", () => {
       heartbeat: HEARTBEAT,
     });
     await stream.ready;
+    socket.clear();
 
     vi.advanceTimersByTime(HEARTBEAT.intervalMs * 2);
 
@@ -333,6 +396,7 @@ describe("heartbeat", () => {
       heartbeat: HEARTBEAT,
     });
     await stream.ready;
+    socket.clear();
     stream.onClose();
 
     // A timer surviving its connection is one leak per reconnect, and `send` on a closed
@@ -350,6 +414,7 @@ describe("frames from the client", () => {
 
     const stream = openEventStream({ store, bus, sessionId: SESSION, afterSeq: 0, socket });
     await stream.ready;
+    socket.clear();
 
     stream.onMessage("not json");
     stream.onMessage('{"type":"subscribe","sessionId":"x"}');
@@ -370,6 +435,7 @@ describe("frames from the client", () => {
 
     const stream = openEventStream({ store, bus, sessionId: SESSION, afterSeq: 0, socket });
     await stream.ready;
+    socket.clear();
 
     stream.onMessage('{"type":"pong"}');
 
@@ -385,6 +451,7 @@ describe("close", () => {
 
     const stream = openEventStream({ store, bus, sessionId: SESSION, afterSeq: 0, socket });
     await stream.ready;
+    socket.clear();
     stream.onClose();
 
     // One leaked subscriber per reconnect, and the fake throws on send-after-close, so a
@@ -426,6 +493,7 @@ describe("close", () => {
     });
     await stream.ready;
     expect(vi.getTimerCount()).toBe(1);
+    socket.clear();
 
     stream.onClose();
 

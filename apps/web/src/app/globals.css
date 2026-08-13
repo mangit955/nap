@@ -452,6 +452,55 @@ body {
  * the image and its box, so with the image at twice the width they run backwards: animating
  * 0% → 100% would slide the light the wrong way. Checked by eye, not by reasoning.
  */
+/*
+ * A block waiting to be content: a soft fill with a band travelling across it.
+ *
+ * Separate from `.nap-shimmer` below rather than shared with it, because that one is
+ * `background-clip: text` — it lights up glyphs and paints nothing at all on an empty element,
+ * which is exactly what a skeleton is.
+ *
+ * The fill is barely there on purpose. A placeholder with real contrast reads as content that
+ * arrived broken; one this quiet reads as a space something is about to occupy. The band is the
+ * only part with any brightness, and it is what says *loading* rather than *empty*.
+ */
+.nap-skeleton {
+  display: block;
+  background-color: color-mix(in oklab, var(--color-ink) 7%, transparent);
+  background-image: linear-gradient(
+    90deg,
+    transparent 20%,
+    color-mix(in oklab, var(--color-ink) 9%, transparent) 50%,
+    transparent 80%
+  );
+  background-size: 200% 100%;
+  background-repeat: no-repeat;
+  animation: nap-skeleton-sweep 1.6s linear infinite;
+}
+
+/*
+ * Right to left in source terms, left to right on screen: percentage background positions are
+ * resolved against the difference between the image and its box, so with the image at twice the
+ * width they run backwards — the same trap documented on `.nap-shimmer` below.
+ */
+@keyframes nap-skeleton-sweep {
+  from {
+    background-position: 150% 0;
+  }
+  to {
+    background-position: -50% 0;
+  }
+}
+
+/*
+ * Still a placeholder, just not a moving one. The fill alone still says "something goes here",
+ * which is the whole job; it simply stops saying it over and over.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .nap-skeleton {
+    animation: none;
+  }
+}
+
 .nap-shimmer {
   background-image: linear-gradient(
     90deg,
