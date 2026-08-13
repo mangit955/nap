@@ -90,10 +90,11 @@ const objects = new R2ObjectStore(
 /**
  * The browser that photographs projects for the dashboard's cards, if this machine has one.
  *
- * One instance, shared by everything that can catch a project while it is running: the end of
- * a turn, a project coming back up, and the last moment before one is put away by hand or by
- * the reaper. Undefined is an ordinary state — every one of those call sites skips the picture
- * and the cards fall back to a colour.
+ * One instance, shared by everything that can catch a project while it is running: the end of a
+ * turn, and a project coming back up. Closing is deliberately not one of them — the picture it
+ * would take is the one the last turn already took, and waiting for a page load would hold the
+ * close request open before teardown even started. Undefined is an ordinary state — both call
+ * sites skip the picture and the cards fall back to a colour.
  */
 const capture =
   env.NAP_CHROME_PATH === undefined
