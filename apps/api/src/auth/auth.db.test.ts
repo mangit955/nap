@@ -249,7 +249,7 @@ describe("the session cookie's site policy", () => {
     return header;
   }
 
-  it("is None, Secure and Partitioned when the app is on another host", async () => {
+  it("is None and Secure when the app is on another host", async () => {
     const header = await setCookieHeaderFrom(
       "https://nap-api.up.railway.app",
       "https://nap.vercel.app",
@@ -257,8 +257,21 @@ describe("the session cookie's site policy", () => {
 
     expect(header).toContain("SameSite=None");
     expect(header).toContain("Secure");
-    // Without this, the cookie is the kind browsers are in the process of blocking outright.
-    expect(header).toContain("Partitioned");
+  });
+
+  it("is never Partitioned, which would break the OAuth callback", async () => {
+    // A partitioned cookie is keyed to the top-level site that was open when it was set, so
+    // the `state` cookie written while the app's page was open is not sent to the provider's
+    // callback — a top-level navigation to *this* site, and therefore a different partition.
+    // The library reads that as a state cookie that never came back and refuses the sign-in
+    // with `?error=state_mismatch`. Found in production, so it is pinned here rather than
+    // left to a comment.
+    const header = await setCookieHeaderFrom(
+      "https://nap-api.up.railway.app",
+      "https://nap.vercel.app",
+    );
+
+    expect(header).not.toContain("Partitioned");
   });
 
   it("stays Lax in development, where both are localhost", async () => {

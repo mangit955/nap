@@ -126,6 +126,12 @@ export function createAuth(db: Db, config: AuthConfig): AuthInstance {
     // The browser is on another origin in development, and the sign-in POST comes from there.
     trustedOrigins: [config.webOrigin],
 
+    // Where a sign-in that fails on this side of the redirect sends the browser. The default
+    // is this API's own origin, which serves JSON and guards everything behind a session —
+    // so a failed OAuth round trip ends on `{"error":"not signed in"}` at an address the
+    // person never typed. The app's sign-in page can at least say what happened.
+    onAPIError: { errorURL: `${config.webOrigin}/sign-in` },
+
     database: drizzleAdapter(db, {
       provider: "pg",
       // Passed explicitly rather than read off the connection, so the four tables the library
@@ -137,15 +143,22 @@ export function createAuth(db: Db, config: AuthConfig): AuthInstance {
       // Ids stay uuids, which is what every foreign key in this schema already expects.
       database: { generateId: "uuid" },
       // When the app and this API are on different hosts, the default `SameSite=Lax` means
-      // the browser never sends this cookie back: sign-in looks like it worked and every
-      // request after it is a 401. `Partitioned` rides along because a third-party cookie
-      // without it is the one browsers are in the middle of taking away.
+      // the browser never sends these cookies back: sign-in looks like it worked and every
+      // request after it is a 401.
+      //
+      // **Deliberately not `Partitioned`**, which is the obvious thing to add here and breaks
+      // OAuth outright. A partitioned cookie is keyed to the top-level site that was open
+      // when it was set, so the `state` cookie written during the authorize POST is filed
+      // under the *app's* site — and the provider's callback is a top-level navigation to
+      // *this* API's site, a different partition, where it is not sent. The library reads
+      // that as a state cookie that never came back and refuses the sign-in with
+      // `state_security_mismatch`, which reaches the browser as `?error=state_mismatch`.
       //
       // Left alone in development, where both are localhost — see `isCrossSite`. Nothing
       // here rescues a browser that blocks third-party cookies outright (Safari, Brave):
       // the fix for those is one site rather than two.
       ...(isCrossSite(config.baseUrl, config.webOrigin)
-        ? { defaultCookieAttributes: { sameSite: "none", secure: true, partitioned: true } }
+        ? { defaultCookieAttributes: { sameSite: "none", secure: true } }
         : {}),
     },
 
