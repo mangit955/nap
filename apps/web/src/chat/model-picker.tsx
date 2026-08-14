@@ -13,6 +13,7 @@ export function ModelPicker({
   models,
   model,
   disabled = false,
+  loading = false,
   onChange,
   onPick,
   onAddKey,
@@ -22,6 +23,8 @@ export function ModelPicker({
   /** The server fallback is supplied by the caller when no explicit choice has been made. */
   model: string | undefined;
   disabled?: boolean;
+  /** True while the model list is still being fetched from the server. */
+  loading?: boolean;
   onChange: (model: string) => void;
   /** Returns focus to the composer after a choice, where one was supplied. */
   onPick?: (() => void) | undefined;
@@ -70,7 +73,22 @@ export function ModelPicker({
     if (closeWhen !== undefined) setOpen(false);
   }, [closeWhen]);
 
-  if (selected === undefined) return null;
+  // While models are loading, show a placeholder button that reserves the space the real
+  // picker will occupy. Without this, the picker pops in after the fetch completes, which
+  // reads as a delay — the layout shifts and a control appears from nowhere.
+  if (selected === undefined) {
+    if (loading) {
+      return (
+        <div
+          aria-hidden="true"
+          className="flex h-7 shrink-0 items-center gap-1 rounded-[8px] px-1.5"
+        >
+          <span className="inline-block h-3 w-16 animate-pulse rounded bg-hover" />
+        </div>
+      );
+    }
+    return null;
+  }
 
   return (
     <div ref={root} className="relative">

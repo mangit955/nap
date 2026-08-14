@@ -21,7 +21,7 @@ function app(allowed: string[], fallback: string, key: StoredKeyRecord | null = 
   registerModelRoutes(instance, {
     allowed,
     fallback,
-    freeModel: "openai/gpt-oss-20b:free",
+    freeModel: "openai/gpt-5.6-luna",
     keys: async () => key,
   });
   return instance;
@@ -87,15 +87,18 @@ describe("GET /models, for somebody with no key of their own", () => {
     const body = await listFor(null);
 
     expect(body.models.map((model) => model.id)).toEqual(ALLOWED);
+    // Luna is the deployment's freeModel, and gpt-oss-20b is :free-suffixed — both are
+    // available without a key.
     expect(body.models.filter((model) => model.available).map((model) => model.id)).toEqual([
+      "openai/gpt-5.6-luna",
       "openai/gpt-oss-20b:free",
     ]);
   });
 
-  it("falls back to a free model rather than the deployment's paid default", async () => {
+  it("falls back to the deployment's free model for somebody with no key", async () => {
     // The tick in the picker has to be on the model a message would really run on, and for
-    // somebody with no key that is never `NAP_MODEL`.
-    expect((await listFor(null)).fallback).toBe("openai/gpt-oss-20b:free");
+    // somebody with no key that is the deployment's chosen freeModel.
+    expect((await listFor(null)).fallback).toBe("openai/gpt-5.6-luna");
   });
 
   it("says no key is configured", async () => {

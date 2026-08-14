@@ -6,8 +6,10 @@
  * may reach, and the difference is money. Before it existed, every signed-in person could name
  * `anthropic/claude-opus-5` and the deployment paid for it.
  *
- * The rule in one sentence: **the deployment's own key buys nothing but the free models.**
- * Anything with a price attached needs a key belonging to whoever is asking.
+ * The rule in one sentence: **the deployment's own key buys nothing but the freeModel and
+ * any :free-suffixed models.** The freeModel is the deployment's explicit demo offering —
+ * it may be a paid model the deployment covers intentionally. Anything else needs a key
+ * belonging to whoever is asking.
  *
  * A pure function taking everything it needs, so the whole policy is a table in a test rather
  * than a set of branches spread across a route handler. That matters here more than usual —
@@ -29,7 +31,7 @@ export type TurnAccess =
       ok: true;
       /** The id to run on, always concrete — never left for a caller to default. */
       model: string;
-      /** Absent means this deployment pays, which is only ever true for a free model. */
+      /** Absent means this deployment pays — true for freeModel and :free-suffixed models. */
       credentials?: ModelCredentials;
     }
   | { ok: false; code: "byok_required" | "model_not_allowed"; message: string };
@@ -40,7 +42,7 @@ export type TurnAccessRequest = {
   key: CallerKey;
   /** The deployment's allowlist — every model that exists here, free and paid. */
   allowed: readonly string[];
-  /** What somebody with no key of their own runs on. Always free; the env check proves it. */
+  /** What somebody with no key of their own runs on. The deployment pays for these turns. */
   freeModel: string;
   /** What somebody with a key runs on when they name nothing. */
   defaultModel: string;
@@ -62,9 +64,19 @@ function reachableWith(model: string, platform: ModelCredentials["platform"]): b
   return platform === "openrouter" || model.startsWith("anthropic/");
 }
 
-/** Every model this caller may name, in the allowlist's order. */
-export function availableModels(allowed: readonly string[], key: CallerKey): string[] {
-  if (key === null) return allowed.filter(isFree);
+/**
+ * Every model this caller may name, in the allowlist's order.
+ *
+ * For a keyless caller, this includes the deployment's `freeModel` (always, regardless of
+ * suffix) and any model that carries the `:free` suffix.
+ */
+export function availableModels(
+  allowed: readonly string[],
+  key: CallerKey,
+  freeModel?: string,
+): string[] {
+  if (key === null)
+    return allowed.filter((model) => model === freeModel || isFree(model));
   return allowed.filter((model) => reachableWith(model, key.platform));
 }
 
@@ -84,9 +96,13 @@ export function resolveTurnAccess(request: TurnAccessRequest): TurnAccess {
   }
 
   if (key === null) {
-    // No key: free models, on the deployment's account, and nothing else.
+    // No key: only the deployment's chosen free model, on the deployment's account.
+    // `freeModel` is the deployment's explicit choice and is always reachable, regardless of
+    // whether it carries the `:free` suffix — the suffix is OpenRouter's convention, but the
+    // deployment may intentionally pay for a non-free model as its demo offering.
     if (requested === undefined) return { ok: true, model: request.freeModel };
-    if (isFree(requested)) return { ok: true, model: requested };
+    if (requested === request.freeModel || isFree(requested))
+      return { ok: true, model: requested };
 
     return {
       ok: false,

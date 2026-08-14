@@ -80,7 +80,7 @@ function SignedInDashboard({ user }: { user: { name?: string | null; email?: str
   const router = useRouter();
   const { projects, status, actionError, create, close, remove, rename } = useProjects();
   const { busy, error, start } = useStartProject();
-  const { models } = useModels();
+  const { models, loading: modelsLoading } = useModels();
   // The same hook the welcome step uses, so the rail's label and that page cannot disagree
   // about whether a key is saved.
   const key = useApiKey();
@@ -153,6 +153,7 @@ function SignedInDashboard({ user }: { user: { name?: string | null; email?: str
             busy={busy}
             error={error}
             models={models?.models ?? []}
+            modelsLoading={modelsLoading}
             model={model ?? models?.fallback}
             onModelChange={setModel}
             onAddKey={() => setKeyPanelOpen(true)}

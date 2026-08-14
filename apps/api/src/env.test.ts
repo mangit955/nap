@@ -192,19 +192,8 @@ describe("parseEnv", () => {
     );
   });
 
-  it("refuses a free-tier model that is not free", () => {
-    // The check that stops the demo door being an open tab on this deployment's account: a
-    // paid `NAP_FREE_MODEL` bills every stranger's turns here, visibly only on an invoice.
-    expect(() =>
-      parseEnv({
-        ...REQUIRED,
-        NAP_FREE_MODEL: "anthropic/claude-opus-5",
-      }),
-    ).toThrow(/NAP_FREE_MODEL/);
-  });
-
   it("refuses a free-tier model that is not on the allowlist", () => {
-    expect(() => parseEnv({ ...REQUIRED, NAP_FREE_MODEL: "vendor/absent:free" })).toThrow(
+    expect(() => parseEnv({ ...REQUIRED, NAP_FREE_MODEL: "vendor/absent-model" })).toThrow(
       /NAP_FREE_MODEL/,
     );
   });
@@ -216,7 +205,9 @@ describe("parseEnv", () => {
 
     expect(env.NAP_FREE_TURNS_PER_HOUR).toBeLessThan(env.NAP_TURNS_PER_HOUR);
     expect(env.NAP_FREE_MAX_SANDBOXES_PER_USER).toBeLessThanOrEqual(env.NAP_MAX_SANDBOXES_PER_USER);
-    expect(env.NAP_FREE_MODEL.endsWith(":free")).toBe(true);
+    // The free model is Luna — the same as the paid default. The deployment intentionally pays
+    // for demo turns so the demo experience matches the real product.
+    expect(env.NAP_FREE_MODEL).toBe("openai/gpt-5.6-luna");
   });
 
   it("refuses a free-tier sandbox cap above the machine-wide one", () => {
@@ -378,16 +369,15 @@ describe("what one person may spend", () => {
 });
 
 describe("NAP_ALLOWED_MODELS", () => {
-  it("defaults to the two supported free demo-trial models before paid choices", () => {
-    // The picker exists to choose between them, and the choice that matters is what a turn
-    // costs — so the default has to reach all three tiers. A default of one model would make
-    // it a menu with a single row, with everything else reachable only by editing `.env`.
+  it("puts Luna first, since that is what demo visitors and keyed users both run on", () => {
+    // The picker's fallback is the first model, and the first model is the one the product is
+    // built around. Free alternatives follow for visitors who prefer them.
     expect(parseEnv(VALID).NAP_ALLOWED_MODELS).toEqual([
-      "poolside/laguna-s-2.1:free",
-      "nvidia/nemotron-3-ultra-550b-a55b:free",
       "openai/gpt-5.6-luna",
       "openai/gpt-5.6-terra",
       "openai/gpt-5.6-sol",
+      "poolside/laguna-s-2.1:free",
+      "nvidia/nemotron-3-ultra-550b-a55b:free",
       "anthropic/claude-sonnet-5",
       "anthropic/claude-opus-5",
     ]);
@@ -395,7 +385,7 @@ describe("NAP_ALLOWED_MODELS", () => {
 
   it("starts the default the model every turn falls back to", () => {
     // The boot check below refuses a default that is not allowed, so this is not about
-    // reachability — it is that the first demo-trial model should be the one a fresh checkout runs on.
+    // reachability — it is that the first model in the list should be the one a fresh checkout runs on.
     const allowed = parseEnv(VALID).NAP_ALLOWED_MODELS;
 
     expect(allowed[0]).toBe(parseEnv(VALID).NAP_MODEL);

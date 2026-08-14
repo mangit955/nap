@@ -54,6 +54,7 @@ export function DashboardHero({
   error,
   prompts = EXAMPLE_PROMPTS,
   models = [],
+  modelsLoading = false,
   model,
   onModelChange,
   onAddKey,
@@ -68,6 +69,8 @@ export function DashboardHero({
   prompts?: readonly string[];
   /** The deployment-backed choices; a single model leaves the control out. */
   models?: readonly ModelChoice[];
+  /** True while the model list is still being fetched from the server. */
+  modelsLoading?: boolean;
   /** The selected model or the server fallback shown before a selection is made. */
   model?: string | undefined;
   onModelChange?: ((model: string) => void) | undefined;
@@ -185,6 +188,7 @@ export function DashboardHero({
                 models={models}
                 model={model}
                 disabled={busy}
+                loading={modelsLoading}
                 onChange={(choice) => onModelChange?.(choice)}
                 onAddKey={onAddKey}
                 onPick={() => box.current?.focus()}

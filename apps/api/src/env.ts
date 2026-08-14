@@ -99,18 +99,16 @@ const BaseSchema = z.object({
   /**
    * What a turn is allowed to spend, and on what.
    *
-   * Every message typed into the chat box is a real model call and a real sandbox, so the
-   * default is the free Laguna model, and it is the model this project runs everywhere — the harness,
-   * the API and the provider's own fallback all name it. Raising the ceiling for something
-   * people will watch is `NAP_MODEL` and `NAP_EFFORT` on that run, which is one line rather
-   * than a code change.
+   * Every message typed into the chat box is a real model call and a real sandbox. The default
+   * is GPT-5.6 Luna — the model this project runs everywhere, including for demo visitors.
+   * Raising the ceiling for something people will watch is `NAP_MODEL` and `NAP_EFFORT` on
+   * that run, which is one line rather than a code change.
    *
-   * It is free and supports tool calls, which makes it suitable for both the demo trial and
-   * everyday agent-loop development. It is a *fully namespaced* OpenRouter id — a bare name is
-   * assumed to be Anthropic's, which is how this codebase has always spelled a model, so a
-   * namespace is what keeps the default pointed where it says.
+   * It supports tool calls and reasoning, and is a *fully namespaced* OpenRouter id — a bare
+   * name is assumed to be Anthropic's, which is how this codebase has always spelled a model,
+   * so a namespace is what keeps the default pointed where it says.
    */
-  NAP_MODEL: z.string().min(1).default("poolside/laguna-s-2.1:free"),
+  NAP_MODEL: z.string().min(1).default("openai/gpt-5.6-luna"),
   /**
    * `medium` because it was measured, not guessed — fifteen turns over five prompts at three
    * levels found it cheapest, fastest, and no worse in what the agent produced. It matches
@@ -126,8 +124,8 @@ const BaseSchema = z.object({
    * allowlist is the whole defence: anything not named here is refused before a sandbox is
    * touched or a single token is spent.
    *
-   * The default includes paid models for people using their own keys, followed by the two free
-   * models available to demo-trial visitors.
+   * The default includes the demo default (Luna) up front, free models for visitors who
+   * prefer them, and paid choices for people using their own keys.
    *
    * **Every id here was read from OpenRouter's live catalogue and every one supports tool
    * calling.** That second filter is not a nicety — this agent *is* a tool loop, so a model
@@ -137,13 +135,14 @@ const BaseSchema = z.object({
     .string()
     .default(
       [
-        // Demo-trial default, followed by its free reasoning/orchestration fallback.
-        "poolside/laguna-s-2.1:free",
-        "nvidia/nemotron-3-ultra-550b-a55b:free",
-        // Paid choices remain available to people who bring their own keys.
+        // The default for everyone — demo visitors and keyed users alike.
         "openai/gpt-5.6-luna",
         "openai/gpt-5.6-terra",
         "openai/gpt-5.6-sol",
+        // Free alternatives that cost the deployment nothing.
+        "poolside/laguna-s-2.1:free",
+        "nvidia/nemotron-3-ultra-550b-a55b:free",
+        // Paid choices for people who bring their own keys.
         "anthropic/claude-sonnet-5",
         "anthropic/claude-opus-5",
       ].join(","),
@@ -189,13 +188,13 @@ const BaseSchema = z.object({
   NAP_FREE_TURNS_PER_HOUR: z.coerce.number().int().positive().default(5),
   NAP_FREE_MAX_SANDBOXES_PER_USER: z.coerce.number().int().positive().default(1),
   /**
-   * What a turn runs on when nobody is paying for it.
+   * What a turn runs on when the caller has no key of their own.
    *
-   * Separate from `NAP_MODEL` and checked below to be genuinely free: `NAP_MODEL` is a *paid*
-   * model, so a free-tier turn falling through to it would be this deployment buying tokens
-   * for a stranger — silently, and only visible on an invoice.
+   * Defaults to the same model keyed users get, so the demo experience matches the real one.
+   * The deployment pays for these turns, bounded by the free-tier rate and sandbox ceilings
+   * above.
    */
-  NAP_FREE_MODEL: z.string().min(1).default("poolside/laguna-s-2.1:free"),
+  NAP_FREE_MODEL: z.string().min(1).default("openai/gpt-5.6-luna"),
 
   /**
    * Where a project's bytes live while no sandbox is holding them.
@@ -306,16 +305,10 @@ export const EnvSchema = BaseSchema.superRefine((env, ctx) => {
     });
   }
 
-  // And it has to actually be free. This is the check that stops the demo door from being an
-  // open tab on this deployment's account: a `NAP_FREE_MODEL` with a price is a stranger's
-  // turns billed here, and nothing else in the system would notice.
-  if (!env.NAP_FREE_MODEL.endsWith(":free")) {
-    ctx.addIssue({
-      code: "custom",
-      path: ["NAP_FREE_MODEL"],
-      message: "must be a free model — the id has to end in :free, or the demo spends real money",
-    });
-  }
+  // No `:free` suffix requirement: the deployment intentionally pays for demo turns on Luna,
+  // bounded by the free-tier rate and sandbox ceilings. The cost is real but small and
+  // deliberate — a demo that runs on the same model the product actually uses is worth more
+  // than the tokens it saves by running on a weaker one.
 
   // A per-user cap above the machine-wide one is unreachable: the global check would refuse
   // first, and the message would talk about the server being busy when the projects filling it

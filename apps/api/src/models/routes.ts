@@ -39,7 +39,7 @@ export function registerModelRoutes(
     // Only the platform matters here; the key itself is never opened for this, because
     // nothing on this route needs to spend it.
     const key = stored === null ? null : { platform: stored.platform, apiKey: "" };
-    const available = new Set(availableModels(deps.allowed, key));
+    const available = new Set(availableModels(deps.allowed, key, deps.freeModel));
 
     return c.json(
       ModelListSchema.parse({

@@ -23,7 +23,7 @@ function ask(overrides: Partial<TurnAccessRequest> = {}): TurnAccessRequest {
     requested: undefined,
     key: null,
     allowed: ALLOWED,
-    freeModel: "openai/gpt-oss-20b:free",
+    freeModel: "openai/gpt-5.6-luna",
     defaultModel: "openai/gpt-5.6-luna",
     ...overrides,
   };
@@ -40,7 +40,7 @@ describe("isFree", () => {
 
 describe("with no key of their own", () => {
   it("runs the free model when nothing is named", () => {
-    expect(resolveTurnAccess(ask())).toEqual({ ok: true, model: "openai/gpt-oss-20b:free" });
+    expect(resolveTurnAccess(ask())).toEqual({ ok: true, model: "openai/gpt-5.6-luna" });
   });
 
   it("never attaches credentials, so the deployment's own account pays", () => {
@@ -56,10 +56,19 @@ describe("with no key of their own", () => {
     });
   });
 
-  it("refuses every paid model in the allowlist", () => {
+  it("allows the deployment's free model even though it is not :free-suffixed", () => {
+    // The freeModel is what the deployment chose to give demo visitors. That choice is not
+    // always a :free-suffixed model — here it is Luna, which the deployment pays for.
+    expect(resolveTurnAccess(ask({ requested: "openai/gpt-5.6-luna" }))).toEqual({
+      ok: true,
+      model: "openai/gpt-5.6-luna",
+    });
+  });
+
+  it("refuses a paid model that is not the deployment's chosen free model", () => {
     // The rule this whole module exists for. Each of these is on the allowlist, so nothing
     // else in the request pipeline would stop it.
-    for (const model of ["openai/gpt-5.6-luna", "anthropic/claude-opus-5"]) {
+    for (const model of ["anthropic/claude-opus-5"]) {
       expect(resolveTurnAccess(ask({ requested: model }))).toMatchObject({
         ok: false,
         code: "byok_required",
@@ -137,8 +146,15 @@ describe("with an Anthropic key", () => {
 });
 
 describe("availableModels", () => {
-  it("offers only the free ones to somebody with no key", () => {
-    expect(availableModels(ALLOWED, null)).toEqual(["openai/gpt-oss-20b:free"]);
+  const FREE_MODEL = "openai/gpt-5.6-luna";
+
+  it("offers the freeModel and any :free-suffixed models to somebody with no key", () => {
+    // The freeModel is always offered, regardless of suffix. Any additional :free-suffixed
+    // models are offered too, since those cost the deployment nothing.
+    expect(availableModels(ALLOWED, null, FREE_MODEL)).toEqual([
+      "openai/gpt-5.6-luna",
+      "openai/gpt-oss-20b:free",
+    ]);
   });
 
   it("offers everything to an OpenRouter key", () => {
@@ -158,7 +174,7 @@ describe("availableModels", () => {
     // is the exact failure the models route's own comment warns about.
     for (const key of [null, OPENROUTER, ANTHROPIC]) {
       for (const model of ALLOWED) {
-        const offered = availableModels(ALLOWED, key).includes(model);
+        const offered = availableModels(ALLOWED, key, FREE_MODEL).includes(model);
         const allowed = resolveTurnAccess(ask({ key, requested: model })).ok;
         expect(offered).toBe(allowed);
       }

@@ -25,10 +25,12 @@ const DEFAULT_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:30
 
 export function useModels(options: { baseUrl?: string; fetchJson?: FetchJson } = {}): {
   models: ModelList | undefined;
+  loading: boolean;
 } {
   const { baseUrl = DEFAULT_BASE_URL } = options;
   const fetchJson = options.fetchJson ?? credentialedFetch;
   const [models, setModels] = useState<ModelList | undefined>(undefined);
+  const [loading, setLoading] = useState(true);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: see the note in useProjectFiles
   useEffect(() => {
@@ -37,6 +39,7 @@ export function useModels(options: { baseUrl?: string; fetchJson?: FetchJson } =
     // not an unmount guard: React has not warned about that since 18, and nothing here could
     // observe the difference. Kept because it is the idiom the sibling hook uses, and cheap.
     let live = true;
+    setLoading(true);
 
     void (async () => {
       try {
@@ -49,6 +52,8 @@ export function useModels(options: { baseUrl?: string; fetchJson?: FetchJson } =
         if (live && parsed.success) setModels(parsed.data);
       } catch {
         // The picker stays hidden and turns run on the default. Nothing to say.
+      } finally {
+        if (live) setLoading(false);
       }
     })();
 
@@ -59,5 +64,5 @@ export function useModels(options: { baseUrl?: string; fetchJson?: FetchJson } =
     // arrow is a new function every render, and depending on it would refetch forever.
   }, [baseUrl]);
 
-  return { models };
+  return { models, loading };
 }
