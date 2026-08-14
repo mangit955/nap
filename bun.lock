@@ -91,6 +91,11 @@
       "version": "0.0.0",
       "dependencies": {
         "@nap/shared": "workspace:*",
+        "zod": "4.4.3",
+      },
+      "devDependencies": {
+        "@nap/db": "workspace:*",
+        "@nap/sandbox": "workspace:*",
       },
     },
     "packages/capture": {

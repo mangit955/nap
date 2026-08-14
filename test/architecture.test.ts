@@ -32,13 +32,17 @@ describe("dependency direction", () => {
     expect(checkDependencyDirection(readWorkspaceManifests())).toEqual([]);
   });
 
-  it("keeps @nap/bench's runtime dependencies to @nap/shared alone", () => {
+  it("keeps @nap/bench's internal runtime dependencies to @nap/shared alone", () => {
     // docs/adr/0001 permits @nap/bench to carry sibling packages as devDependencies, for
     // their published in-memory fakes — and the checker above reads `dependencies` only,
     // so that arrangement passes partly by not being looked at. This asserts the half that
     // matters directly: what a consumer of the pure core pulls in at runtime.
+    //
+    // Third-party dependencies are not the subject. The pure core validates every task and
+    // report it parses, so it depends on zod exactly as @nap/shared does; what would break
+    // the ADR is a *workspace* package other than shared.
     const bench = readWorkspaceManifests().find((m) => m.name === "@nap/bench");
-    expect(bench?.dependencies).toEqual(["@nap/shared"]);
+    expect(bench?.dependencies.filter((dep) => dep.startsWith("@nap/"))).toEqual(["@nap/shared"]);
   });
 
   it("covers every workspace package", () => {
