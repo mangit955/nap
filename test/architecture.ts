@@ -11,6 +11,14 @@
 export type Manifest = {
   name: string;
   dependencies: string[];
+  /**
+   * Optional, and only the exclusive-externals rule reads it. The two rules want different
+   * answers: a sibling package may sit here (docs/adr/0001 — @nap/bench carries them for
+   * their published fakes), while a third-party library that is supposed to have exactly
+   * one owner may not, because the production image is built by one workspace-wide install
+   * with no --production and therefore ships devDependencies too.
+   */
+  devDependencies?: string[];
 };
 
 export type Violation = {
@@ -93,8 +101,15 @@ const EXCLUSIVE_EXTERNALS: Record<string, { owner: string; reason: string }> = {
 export function checkDependencyDirection(manifests: Manifest[]): Violation[] {
   const violations: Violation[] = [];
 
-  for (const { name, dependencies } of manifests) {
+  for (const { name, dependencies, devDependencies = [] } of manifests) {
     const allowed = ALLOWED[name];
+
+    for (const dep of devDependencies) {
+      const exclusive = EXCLUSIVE_EXTERNALS[dep];
+      if (exclusive !== undefined && name !== exclusive.owner) {
+        violations.push({ from: name, to: dep, reason: exclusive.reason });
+      }
+    }
 
     if (allowed === undefined) {
       violations.push({

@@ -15,6 +15,10 @@ describe("the results directory", () => {
     // The constant and .gitignore are two statements of the same fact, and nothing at
     // runtime notices when they drift — the first benchmark run would simply leave the
     // tree dirty. This is the only thing keeping them together.
+    //
+    // A repo-wide agreement like this would normally live in test/, beside the one about
+    // the project root. It cannot: a test there may only import a workspace package the
+    // *root* package.json depends on, and the root does not depend on this one.
     const patterns = readFileSync(join(repoRoot, ".gitignore"), "utf8")
       .split("\n")
       .map((line) => line.trim().replace(/\/$/, ""));

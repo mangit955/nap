@@ -11,10 +11,15 @@ function readWorkspaceManifests(): Manifest[] {
       .filter((entry) => entry.isDirectory())
       .map((entry) => {
         const raw = readFileSync(join(repoRoot, group, entry.name, "package.json"), "utf8");
-        const parsed = JSON.parse(raw) as { name: string; dependencies?: Record<string, string> };
+        const parsed = JSON.parse(raw) as {
+          name: string;
+          dependencies?: Record<string, string>;
+          devDependencies?: Record<string, string>;
+        };
         return {
           name: parsed.name,
           dependencies: Object.keys(parsed.dependencies ?? {}),
+          devDependencies: Object.keys(parsed.devDependencies ?? {}),
         };
       }),
   );
@@ -107,6 +112,28 @@ describe("dependency direction — the checker actually catches violations", () 
     ]);
     expect(violations).toHaveLength(1);
     expect(violations[0]?.reason).toContain("BrowserSession");
+  });
+
+  it("rejects an exclusive external hidden in devDependencies", () => {
+    // The image is built by one workspace-wide `bun install` with no --production, so a
+    // devDependency ships too. Reading `dependencies` alone would have let the browser
+    // driver into production through the back door — which is the exact thing
+    // docs/adr/0001 justifies the rule by.
+    const violations = checkDependencyDirection([
+      { name: "@nap/capture", dependencies: [], devDependencies: ["playwright-core"] },
+    ]);
+    expect(violations).toHaveLength(1);
+    expect(violations[0]?.reason).toContain("BrowserSession");
+  });
+
+  it("allows a sibling package in devDependencies", () => {
+    // docs/adr/0001: @nap/bench carries siblings as devDependencies for their published
+    // fakes, which is what makes the runner unit-testable. Only the *externals* rule
+    // widens to devDependencies; the direction rule stays on runtime dependencies.
+    const violations = checkDependencyDirection([
+      { name: "@nap/bench", dependencies: ["@nap/shared"], devDependencies: ["@nap/sandbox"] },
+    ]);
+    expect(violations).toEqual([]);
   });
 
   it("allows the benchmark app to depend on Playwright", () => {
