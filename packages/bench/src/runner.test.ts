@@ -19,7 +19,11 @@ const RUN_ID = "3f2a1c4e-0000-4000-8000-000000000001";
 // wants a check to run has to create one and seed the session with *that* id.
 
 function task(
-  checks: { id: string; command: string }[] = [{ id: "build", command: "bun run build" }],
+  checks: {
+    id: string;
+    command: string;
+    category?: "functional" | "browser" | "visual" | "code";
+  }[] = [{ id: "build", command: "bun run build" }],
 ) {
   const parsed = parseBenchTask({
     id: "landing-page",
@@ -129,6 +133,41 @@ describe("runBenchTask", () => {
 
     expect(report.checks.map((check) => check.checkId)).toEqual(["build", "lint"]);
     expect(report.score).toBe(50);
+  });
+
+  it("scores under the weights it was given and records them", async () => {
+    // The runner's own wiring of a configured vector, as distinct from scoreRun's.
+    const sandbox = new InMemorySandboxManager()
+      .script(/build/, { exitCode: 0 })
+      .script(/lint/, { exitCode: 1 });
+
+    const weights = { functional: 10, browser: 25, visual: 15, code: 90 } as const;
+    const report = await runBenchTask(
+      task([
+        { id: "build", command: "bun run build" },
+        { id: "lint", command: "bun run lint", category: "code" },
+      ]),
+      { ...(await deps(scriptedRuntime(completed), sandbox)), weights },
+    );
+
+    // Code was made to matter nine times more than functional, and the failing lint check
+    // sinks the run accordingly: 100 * (10/100) = 10.
+    expect(report.weights).toEqual(weights);
+    expect(report.score).toBe(10);
+  });
+
+  it("errors when a completed turn left nothing that could be scored", async () => {
+    // Distinct from the checks failing: nothing was measured at all, so "passed with zero"
+    // would be a result claiming an observation that never happened.
+    const sandbox = new InMemorySandboxManager({
+      defaultExec: () => ({ exitCode: 0, stdout: "" }),
+    });
+    const withSandbox = await deps(scriptedRuntime(completed), sandbox);
+
+    const report = await runBenchTask({ ...task(), checks: [] }, withSandbox);
+
+    expect(report.status).toBe("errored");
+    expect(report.score).toBeNull();
   });
 
   it("records the run, session and turn ids as three separate things", async () => {

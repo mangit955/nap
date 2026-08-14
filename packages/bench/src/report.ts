@@ -47,7 +47,13 @@ export const CheckResultSchema = z.strictObject({
 export const CategoryScoreSchema = z.strictObject({
   category: CategorySchema,
   score: z.number().int().min(0).max(100),
-  /** This category's share after absent ones were dropped and the rest rescaled. */
+  /**
+   * This category's share after absent ones were dropped and the rest rescaled.
+   *
+   * These sum to exactly 100 across a report's categories, which is what lets a reader
+   * recompute the overall from the figures in front of them — and what lets two runs'
+   * vectors be compared for equality without comparing rounding artefacts.
+   */
   effectiveWeight: z.number().min(0).max(100),
   checks: z.number().int().nonnegative(),
 });
@@ -103,7 +109,7 @@ export const BenchReportSchema = z
   });
 
 export type CheckResult = z.infer<typeof CheckResultSchema>;
-export type CategoryScoreEntry = z.infer<typeof CategoryScoreSchema>;
+export type CategoryScore = z.infer<typeof CategoryScoreSchema>;
 export type BenchReport = z.infer<typeof BenchReportSchema>;
 
 /** Indented, because a committed report is read and diffed by people. */

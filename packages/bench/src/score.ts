@@ -15,21 +15,9 @@
  */
 
 import { CATEGORIES, type Category, type CategoryWeights } from "./category.ts";
-import type { CheckResult } from "./report.ts";
-
-export type CategoryScore = {
-  category: Category;
-  /** 0–100: the weighted proportion of this category's checks that passed. */
-  score: number;
-  /**
-   * This category's share of the overall score, after dropping absent categories and
-   * rescaling. Rounded to one decimal for reading; the overall is computed from the
-   * configured vector exactly.
-   */
-  effectiveWeight: number;
-  /** How many checks produced a result here — absent ones are not counted. */
-  checks: number;
-};
+// Inferred from the schema that persists it rather than restated here, so the shape this
+// produces and the shape a report is validated against cannot drift apart.
+import type { CategoryScore, CheckResult } from "./report.ts";
 
 export type RunScore = {
   /** Null when nothing produced a result, which is not the same as scoring zero. */
@@ -63,16 +51,61 @@ export function scoreRun(results: readonly CheckResult[], weights: CategoryWeigh
   const share = (category: Category): number =>
     totalWeight === 0 ? 1 / present.length : weights[category] / totalWeight;
 
-  const categories: CategoryScore[] = present.map((entry) => ({
+  // Apportioned so the recorded weights sum to exactly 100 — see `apportion`. The overall is
+  // then computed from those recorded numbers rather than from the exact shares, which is
+  // what makes a report internally consistent: anybody can recompute the score from the
+  // figures printed in front of them and get the same answer.
+  const effectiveWeights = apportion(
+    present.map((entry) => share(entry.category)),
+    1,
+  );
+
+  const categories: CategoryScore[] = present.map((entry, index) => ({
     category: entry.category,
     score: scoreCategory(entry.checks),
-    effectiveWeight: round(share(entry.category) * 100, 1),
+    effectiveWeight: effectiveWeights[index] ?? 0,
     checks: entry.checks.length,
   }));
 
-  const overall = categories.reduce((sum, entry) => sum + entry.score * share(entry.category), 0);
+  const overall = categories.reduce(
+    (sum, entry) => sum + (entry.score * entry.effectiveWeight) / 100,
+    0,
+  );
 
   return { overall: Math.round(overall), categories };
+}
+
+/**
+ * Rounds shares to percentages that still sum to exactly 100.
+ *
+ * Rounding each share independently does not: three equal categories give 33.3 three times
+ * and lose 0.1, while 55.6 + 27.8 + 16.7 gains one. That matters twice over — a reader
+ * recomputing the overall from the report would disagree with it, and docs/adr/0002 has
+ * `compare` refuse two runs whose effective vectors differ, which would otherwise turn into a
+ * comparison of rounding artefacts.
+ *
+ * Largest remainder: floor everything, then hand the shortfall out to whichever entries were
+ * cut by most. Ties go to the earlier entry, so the result depends only on the input.
+ */
+function apportion(shares: readonly number[], places: number): number[] {
+  const factor = 10 ** places;
+  const target = 100 * factor;
+
+  const exact = shares.map((share) => share * target);
+  const floors = exact.map(Math.floor);
+  const shortfall = target - floors.reduce((sum, value) => sum + value, 0);
+
+  const order = exact
+    .map((value, index) => ({ index, remainder: value - Math.floor(value) }))
+    .sort((a, b) => b.remainder - a.remainder || a.index - b.index);
+
+  const result = [...floors];
+  for (let given = 0; given < shortfall; given++) {
+    const entry = order[given % order.length];
+    if (entry !== undefined) result[entry.index] = (result[entry.index] ?? 0) + 1;
+  }
+
+  return result.map((value) => value / factor);
 }
 
 /** The weighted proportion of a category's checks that passed, as a whole number. */
@@ -89,9 +122,4 @@ function scoreCategory(checks: readonly CheckResult[]): number {
     .reduce((sum, check) => sum + check.weight, 0);
 
   return Math.round((passed / total) * 100);
-}
-
-function round(value: number, places: number): number {
-  const factor = 10 ** places;
-  return Math.round(value * factor) / factor;
 }

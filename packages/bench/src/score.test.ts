@@ -122,6 +122,83 @@ describe("scoreRun — renormalisation, per docs/adr/0002", () => {
   });
 });
 
+/** Effective weights summed in tenths, where the apportionment is exact. */
+function totalTenths(categories: { effectiveWeight: number }[]): number {
+  return categories.reduce((sum, entry) => sum + Math.round(entry.effectiveWeight * 10), 0);
+}
+
+describe("scoreRun — the recorded weights are the ones the score was made of", () => {
+  it("sums the effective weights to exactly 100, whatever the rounding", () => {
+    // Three equal categories round to 33.3 each and lose 0.1 if each is rounded alone.
+    const scored = scoreRun(
+      [check("functional", "passed"), check("browser", "passed"), check("code", "failed")],
+      { functional: 1, browser: 1, visual: 1, code: 1 },
+    );
+
+    // Summed in tenths: the apportionment is exact there, while adding decimal tenths in
+    // binary floating point is not — 33.3 + 33.4 + 33.3 lands on 99.99999999999999.
+    expect(totalTenths(scored.categories)).toBe(1000);
+  });
+
+  it("sums to exactly 100 when independent rounding would overshoot", () => {
+    // 55.6 + 27.8 + 16.7 = 100.1 if each is rounded on its own.
+    const scored = scoreRun(
+      [check("functional", "passed"), check("browser", "passed"), check("visual", "passed")],
+      DEFAULT_CATEGORY_WEIGHTS,
+    );
+
+    expect(totalTenths(scored.categories)).toBe(1000);
+  });
+
+  it("agrees with the overall recomputed from the numbers it recorded", () => {
+    // The property the whole apportionment exists for: a reader with only the report can
+    // reproduce its headline number exactly, rather than to within a rounding error.
+    const scored = scoreRun(
+      [
+        check("functional", "failed"),
+        check("browser", "passed"),
+        check("browser", "failed"),
+        check("code", "passed"),
+      ],
+      DEFAULT_CATEGORY_WEIGHTS,
+    );
+
+    const byHand = Math.round(
+      scored.categories.reduce(
+        (sum, entry) => sum + (entry.score * entry.effectiveWeight) / 100,
+        0,
+      ),
+    );
+    expect(scored.overall).toBe(byHand);
+  });
+});
+
+describe("scoreRun — weights that are all zero", () => {
+  it("splits the run equally when no present category is worth anything", () => {
+    // A configured vector may legitimately zero out whatever turned up, and dividing by that
+    // total would be NaN. Equal shares is the only reading of "none of these matter" that
+    // still yields a number.
+    const scored = scoreRun([check("functional", "passed"), check("code", "failed")], {
+      functional: 0,
+      browser: 25,
+      visual: 15,
+      code: 0,
+    });
+
+    expect(scored.categories.map((entry) => entry.effectiveWeight)).toEqual([50, 50]);
+    expect(scored.overall).toBe(50);
+  });
+
+  it("splits a category equally when every check in it is weightless", () => {
+    // weight: 0 on every check is a task saying "record these, score them evenly".
+    const scored = scoreRun(
+      [check("functional", "passed", 0), check("functional", "failed", 0)],
+      DEFAULT_CATEGORY_WEIGHTS,
+    );
+    expect(scored.categories[0]?.score).toBe(50);
+  });
+});
+
 describe("scoreRun — absent is not failed, which is the sharp edge", () => {
   it("drops a category whose every check was absent", () => {
     // Absent means the task never got to ask — a property of the run's circumstances.

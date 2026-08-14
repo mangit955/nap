@@ -80,6 +80,12 @@ export async function runBenchTask(task: BenchTask, deps: BenchRunnerDeps): Prom
   }
 
   const scored = scoreRun(checks, weights);
+
+  // Nothing produced a result, so there is nothing to score and nothing to call a pass. A
+  // completed turn whose every check was unaskable is an absence of observation, which is
+  // the same finding as a turn that never ran — not a run that scored zero.
+  if (scored.overall === null) return errored();
+
   return {
     runId,
     taskId: task.id,
@@ -88,9 +94,7 @@ export async function runBenchTask(task: BenchTask, deps: BenchRunnerDeps): Prom
     // Every check that produced a result had to pass. An absent one is not a failure — the
     // gate ladder decides what an unaskable check means for a run.
     status: checks.every((check) => check.outcome !== "failed") ? "passed" : "failed",
-    // A completed turn whose checks all came back absent has nothing to score, and the
-    // schema requires a result-carrying status to have one.
-    score: scored.overall ?? 0,
+    score: scored.overall,
     categories: scored.categories,
     weights,
     checks,
