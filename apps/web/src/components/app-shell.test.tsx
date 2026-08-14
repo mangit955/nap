@@ -1,5 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
+import { PROJECT_ID, SESSION_ID } from "../testing/events.ts";
+import { sockets } from "../testing/fake-socket.ts";
 import { AppShell } from "./app-shell.tsx";
 
 /**
@@ -11,19 +13,40 @@ import { AppShell } from "./app-shell.tsx";
  * these assertions are the only thing keeping those names alive.
  */
 
-const PROJECT = "3e0fbc41-6f5d-4a8e-ab9c-4d5e6f708192";
-
 /**
- * The shell asks the server which project it is showing, so every case here needs an answer to
- * that question. A pending fetch is the honest default: it is what the first frame really is.
+ * The shell asks the server which project it is showing, and subscribes to its log. Both come in
+ * as arguments, so this file supplies a server that answers and a socket that opens — rather
+ * than stubbing the global `fetch` with a promise that never settles, which pinned every
+ * assertion here to the first frame.
  */
-beforeEach(() => {
-  vi.stubGlobal("fetch", () => new Promise<Response>(() => {}));
-});
+const fetchJson = async (url: string): Promise<Response> => {
+  const body = url.includes("/files")
+    ? { files: ["src/App.tsx"], ready: true }
+    : {
+        projectId: PROJECT_ID,
+        name: "Todo app",
+        status: "running",
+        sandboxId: "sbx_1",
+        updatedAt: "2026-08-09T12:30:00.000Z",
+        sessionIds: [SESSION_ID],
+      };
+
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+};
+
+/** The shell under test, wired to a server that answers and a socket that can be pushed to. */
+function shell() {
+  return (
+    <AppShell projectId={PROJECT_ID} fetchJson={fetchJson} createSocket={sockets().createSocket} />
+  );
+}
 
 describe("AppShell", () => {
   it("mounts the chat beside the workbench", () => {
-    render(<AppShell projectId={PROJECT} />);
+    render(shell());
 
     expect(screen.getByRole("region", { name: "Chat" })).toBeInTheDocument();
     expect(screen.getByRole("tabpanel", { name: "Preview" })).toBeInTheDocument();
@@ -31,14 +54,14 @@ describe("AppShell", () => {
 
   it("offers both halves of the workbench, with the preview showing first", () => {
     // The preview is what somebody came to watch; the code is what they go looking for.
-    render(<AppShell projectId={PROJECT} />);
+    render(shell());
 
     expect(screen.getByRole("tab", { name: "Preview" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tab", { name: "Code" })).toHaveAttribute("aria-selected", "false");
   });
 
   it("shows the code when its tab is pressed", () => {
-    render(<AppShell projectId={PROJECT} />);
+    render(shell());
 
     fireEvent.click(screen.getByRole("tab", { name: "Code" }));
 
@@ -47,7 +70,7 @@ describe("AppShell", () => {
   });
 
   it("gives the whole window to the workbench when the chat is hidden", () => {
-    render(<AppShell projectId={PROJECT} />);
+    render(shell());
 
     fireEvent.click(screen.getByRole("button", { name: /hide chat/i }));
 
@@ -58,7 +81,7 @@ describe("AppShell", () => {
   it("lets the divider be moved without a mouse", () => {
     // A drag handle that only answers a pointer is unreachable for anybody who does not use
     // one, and this one decides how much of the screen the transcript gets.
-    render(<AppShell projectId={PROJECT} />);
+    render(shell());
 
     const divider = screen.getByRole("separator", { name: /chat width/i });
     const before = Number(divider.getAttribute("aria-valuenow"));
@@ -69,7 +92,7 @@ describe("AppShell", () => {
   });
 
   it("renders exactly one main landmark", () => {
-    render(<AppShell projectId={PROJECT} />);
+    render(shell());
 
     expect(screen.getAllByRole("main")).toHaveLength(1);
   });
@@ -87,14 +110,14 @@ describe("AppShell", () => {
      * clamp has not been dropped by a refactor. The measurement that proves it needs a browser:
      * `documentElement.scrollHeight === documentElement.clientHeight`.
      */
-    const { container } = render(<AppShell projectId={PROJECT} />);
+    const { container } = render(shell());
 
     expect(screen.getByRole("main")).toHaveClass("overflow-hidden");
     expect(container.firstElementChild).toHaveClass("overflow-hidden");
   });
 
   it("renders a banner identifying the product", () => {
-    render(<AppShell projectId={PROJECT} />);
+    render(shell());
 
     expect(screen.getByRole("banner")).toHaveTextContent(/nap/i);
   });
@@ -102,7 +125,7 @@ describe("AppShell", () => {
   it("offers a way back to the dashboard", () => {
     // Without it the workspace is a dead end: the URL is the only route out, and nobody types
     // one to leave a page.
-    render(<AppShell projectId={PROJECT} />);
+    render(shell());
 
     expect(screen.getByRole("link", { name: /nap/i })).toHaveAttribute("href", "/dashboard");
   });

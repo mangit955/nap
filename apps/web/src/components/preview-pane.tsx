@@ -1,12 +1,11 @@
 "use client";
 
 import type { StoredEvent } from "@nap/shared/ports/event-store";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { NapLoader } from "../brand/nap-loader.tsx";
 import { NapMark } from "../brand/nap-mark.tsx";
 import { pickDifferent } from "../brand/nap-tricks.ts";
 import { turnFailureCopy } from "../errors/failure-copy.ts";
-import { useEventStream } from "../hooks/use-event-stream.ts";
 import { isPutAway, type PreviewState, previewState } from "../preview/preview-state.ts";
 import { AlertIcon } from "../ui/icons.tsx";
 import { useElapsed } from "../ui/use-elapsed.ts";
@@ -319,60 +318,5 @@ function PreviewFailure({ message }: { message: string }) {
       <p className="font-mono text-[11px] text-muted">{copy.detail}</p>
       <p className="text-[12px] text-muted leading-relaxed">{copy.action}</p>
     </div>
-  );
-}
-
-/**
- * `resume` and the two flags beside it come from the shell rather than from a hook of this
- * pane's own: the file tree needs the same answer, and two hooks asking the same question would
- * be two requests and two chances to disagree about whether the project is running.
- */
-export function LivePreviewPane({
-  sessionId,
-  putAwayAt,
-  onResume,
-  onPreviewReady,
-  resuming,
-  resumeError,
-  route,
-  reloads,
-}: {
-  sessionId: string | undefined;
-  /**
-   * Reports whatever is serving the project — its address, and the `seq` of the announcement
-   * that named it. Reported from here rather than read again above because this pane already
-   * holds the subscription, and every `useEventStream` is a socket of its own, so asking the
-   * same question twice costs a second connection to say the same thing.
-   *
-   * **The `seq` is not decoration.** It is how the shell tells this restore's preview from the
-   * one that was standing before the project was put away — an address alone cannot, and a
-   * shell that took the older one would end the wait by pointing an iframe at a dead sandbox.
-   */
-  onPreviewReady?: ((ready: { url: string; seq: number } | undefined) => void) | undefined;
-} & Omit<PreviewPaneProps, "events">) {
-  const { events } = useEventStream({ sessionId });
-  const state = previewState(events);
-  const url = state.status === "ready" ? state.url : undefined;
-  const seq = state.status === "ready" ? state.seq : undefined;
-
-  // In an effect rather than during render: this reports *upward*, and a parent setting state
-  // while its child renders is the loop React warns about. Keyed on the two primitives rather
-  // than on an object built here, which would be a new identity every frame.
-  const report = useRef(onPreviewReady);
-  report.current = onPreviewReady;
-  useEffect(() => {
-    report.current?.(url === undefined || seq === undefined ? undefined : { url, seq });
-  }, [url, seq]);
-
-  return (
-    <PreviewPane
-      events={events}
-      {...(putAwayAt === undefined ? {} : { putAwayAt })}
-      {...(onResume === undefined ? {} : { onResume })}
-      {...(resuming === undefined ? {} : { resuming })}
-      {...(resumeError === undefined ? {} : { resumeError })}
-      {...(route === undefined ? {} : { route })}
-      {...(reloads === undefined ? {} : { reloads })}
-    />
   );
 }

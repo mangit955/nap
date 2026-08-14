@@ -3,7 +3,9 @@ import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { ChatTranscript } from "./chat-transcript.tsx";
+import { groupSteps } from "./step-group.ts";
 import { REVEAL_CLASS } from "./streaming-text.tsx";
+import { buildTranscript } from "./transcript.ts";
 
 const SESSION = "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f";
 const TURN = "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f";
@@ -21,9 +23,14 @@ function ev<T extends NapEventType>(type: T, payload: Extract<NapEvent, { type: 
   } as StoredEvent;
 }
 
+/**
+ * The fold is applied here rather than inside the component, which is where the pane above
+ * applies it too — it reads the same items for its working indicator, and two components folding
+ * one log is two walks of it per frame of a streaming turn.
+ */
 function show(...events: StoredEvent[]) {
   nextSeq = 1;
-  return render(<ChatTranscript events={events} />);
+  return render(<ChatTranscript items={groupSteps(buildTranscript(events))} />);
 }
 
 /**

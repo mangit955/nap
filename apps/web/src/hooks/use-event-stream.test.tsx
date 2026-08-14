@@ -1,8 +1,8 @@
 import type { NapEvent } from "@nap/shared/events";
-import type { ClientFrame, ServerFrame } from "@nap/shared/ws-protocol";
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { BACKOFF, type StreamSocket, useEventStream } from "./use-event-stream.ts";
+import { sockets } from "../testing/fake-socket.ts";
+import { BACKOFF, useEventStream } from "./use-event-stream.ts";
 
 /**
  * A `.tsx` file with no JSX in it, deliberately: the `web` vitest project globs `*.test.tsx`,
@@ -26,70 +26,6 @@ function event(seq: number, text: string, sessionId = SESSION): NapEvent {
     seq,
     createdAt: "2026-08-09T12:00:00.000Z",
     payload: { text },
-  };
-}
-
-/**
- * Stands in for a real `WebSocket`. Extends `EventTarget` and dispatches real events, so the
- * hook's listener wiring is exercised rather than replaced by a bespoke callback protocol.
- */
-class FakeSocket extends EventTarget implements StreamSocket {
-  readonly sent: string[] = [];
-  closed = false;
-
-  constructor(readonly url: string) {
-    super();
-  }
-
-  send(data: string): void {
-    this.sent.push(data);
-  }
-
-  close(): void {
-    this.closed = true;
-  }
-
-  open(): void {
-    this.dispatchEvent(new Event("open"));
-  }
-
-  deliver(frame: ServerFrame | string): void {
-    const data = typeof frame === "string" ? frame : JSON.stringify(frame);
-    this.dispatchEvent(new MessageEvent("message", { data }));
-  }
-
-  /** What the browser does when the connection drops. */
-  drop(code = 1006): void {
-    this.closed = true;
-    this.dispatchEvent(new CloseEvent("close", { code }));
-  }
-
-  get frames(): ClientFrame[] {
-    return this.sent.map((raw) => JSON.parse(raw) as ClientFrame);
-  }
-}
-
-/** Records every socket the hook opens, in order. */
-function sockets() {
-  const opened: FakeSocket[] = [];
-  const createSocket = (url: string): StreamSocket => {
-    const socket = new FakeSocket(url);
-    opened.push(socket);
-    return socket;
-  };
-  return {
-    opened,
-    createSocket,
-    get latest(): FakeSocket {
-      const last = opened[opened.length - 1];
-      if (last === undefined) throw new Error("no socket was opened");
-      return last;
-    },
-    seqOf(index: number): string | null {
-      const socket = opened[index];
-      if (socket === undefined) throw new Error(`no socket at index ${index}`);
-      return new URL(socket.url).searchParams.get("seq");
-    },
   };
 }
 
