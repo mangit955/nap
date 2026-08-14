@@ -127,9 +127,18 @@ better-auth builds redirect URIs from `NAP_API_URL`, so each provider's app need
 
 The app and the API are on two different sites (`vercel.app` and `railway.app`), which
 makes the session cookie third-party. `apps/api/src/auth/cross-site.ts` detects that from
-the two URLs and switches the cookie to `SameSite=None; Secure; Partitioned`, without
-which the browser would keep the cookie and never send it back — sign-in answering 200 and
-everything after it answering 401.
+the two URLs and switches the cookie to `SameSite=None; Secure`, without which the browser
+would keep the cookie and never send it back — sign-in answering 200 and everything after
+it answering 401.
+
+**Not `Partitioned`, and that is not an oversight.** It looks like the right companion to
+`SameSite=None` and it breaks OAuth completely. A partitioned cookie is keyed to the
+top-level site that was open when it was set, so the `state` cookie written during the
+authorize POST is filed under the *app's* site; the provider's callback is a top-level
+navigation to the *API's* site, a different partition, where the browser does not send it.
+better-auth sees a state cookie that never came back and refuses with
+`state_security_mismatch`, which arrives as `…/?error=state_mismatch`. It was shipped that
+way once and found by trying to sign in with GitHub.
 
 **Safari and Brave block third-party cookies outright, so sign-in does not work there.**
 Chrome and Firefox are fine. This is a known, accepted limitation of running the two halves
