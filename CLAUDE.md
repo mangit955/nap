@@ -11,6 +11,8 @@ Nap is a Lovable-style AI app builder: the user describes an app in chat, an age
 | `docs/GOTCHAS.md` | *Why* the code is shaped this way — hard-won constraints, per area | The section for whatever you are about to touch |
 | `PROGRESS.md` | *Where* we are — status and deps per task | Every session |
 | `docs/DEPLOY.md` | *How it is deployed* — the two services, the one-replica rule, the env list | Before touching anything that runs in production |
+| `CONTEXT.md` | *What things are called* — one concept, one name | Before naming a concept in code, a test or an issue |
+| `docs/adr/` | *What was decided and why* — choices expensive to reverse | The ADRs touching whatever you are about to change |
 
 Keep each fact in exactly one of these. This file must never restate a task spec — link to `docs/PLAN.md` §4 instead.
 
@@ -159,4 +161,4 @@ The five canonical roles, each label string equal to its name. See `docs/agents/
 
 ### Domain docs
 
-Single-context — one root `CONTEXT.md` plus `docs/adr/`, neither of which exists yet. See `docs/agents/domain.md`.
+Single-context — one root `CONTEXT.md` (the glossary) plus `docs/adr/` (decisions that would be expensive to reverse). Read the glossary before naming a concept, and the ADRs that touch whatever you are about to change. See `docs/agents/domain.md`.
