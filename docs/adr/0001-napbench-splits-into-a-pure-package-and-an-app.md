@@ -34,7 +34,8 @@ adapter announces itself.
 
 Two units.
 
-**`packages/bench` (`@nap/bench`)** — the pure core, depending on `@nap/shared` and nothing else.
+**`packages/bench` (`@nap/bench`)** — the pure core, depending on no workspace package but
+`@nap/shared`.
 The task schema, the check-result model, the `BrowserSession` port, scoring, the gate ladder,
 metric derivation from an event stream, report serialisation, comparison, and the benchmark task
 definitions themselves.
@@ -90,8 +91,14 @@ the fakes in `packages/*/src/testing/` production-quality code that every downst
 depend on. The boundary that matters — what `@nap/bench` needs at runtime, and therefore what a
 consumer of it pulls in — is unchanged.
 
-The line to hold: a *runtime* dependency on anything but `@nap/shared` would break this ADR. A
-devDependency on a sibling's published fake does not.
+The line to hold: a *runtime* dependency on a **workspace package** other than `@nap/shared` would
+break this ADR. A devDependency on a sibling's published fake does not.
+
+Third-party dependencies were never the subject, and the first one arrived immediately: the pure
+core validates every task it loads and every report it reads back, so it depends on `zod` exactly
+as `@nap/shared` does, and `CLAUDE.md` requires it at each of those boundaries. The guarding test
+filters to `@nap/`-prefixed dependencies for that reason. What "pure" means here is *no
+infrastructure* — no sandbox, no browser, no filesystem, no model — rather than no dependencies.
 
 ## Alternatives considered
 

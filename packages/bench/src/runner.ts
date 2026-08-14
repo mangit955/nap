@@ -11,7 +11,7 @@
  * tinguishable from an agent that built something broken, and since the runtime's failure
  * reasons already span both agent causes and infrastructure ones, a zero would silently
  * charge an E2B outage to the model. So a failed turn errors with no score. Which *kind* of
- * error, and the rest of the gate ladder, belong to the ticket that owns them.
+ * error it was, and the rest of the gate ladder CONTEXT.md describes, do not exist yet.
  */
 
 import type { Runtime } from "@nap/shared/ports/runtime";
@@ -43,34 +43,25 @@ export async function runBenchTask(task: BenchTask, deps: BenchRunnerDeps): Prom
 
   const outcome = await runtime.runTurn({ sessionId, message: task.prompt });
 
-  if (!outcome.ok) {
-    return {
-      runId,
-      taskId: task.id,
-      sessionId,
-      turnId: outcome.turnId,
-      status: "errored",
-      score: null,
-      // Not one check ran, and an empty list says exactly that. Recording them as failed
-      // would claim the agent's output was measured and found wanting.
-      checks: [],
-    };
-  }
+  // No check ran, and an empty list says exactly that. Recording them as failed would claim
+  // the agent's output was measured and found wanting, which is the confusion this whole
+  // status exists to prevent.
+  const errored = (): BenchReport => ({
+    runId,
+    taskId: task.id,
+    sessionId,
+    turnId: outcome.turnId,
+    status: "errored",
+    score: null,
+    checks: [],
+  });
+
+  if (!outcome.ok) return errored();
 
   const session = await sessions.get(sessionId);
-  if (session?.sandboxId == null) {
-    // A completed turn always leaves a sandbox behind, so this is the workspace having gone
-    // away underneath the run rather than anything the agent did.
-    return {
-      runId,
-      taskId: task.id,
-      sessionId,
-      turnId: outcome.turnId,
-      status: "errored",
-      score: null,
-      checks: [],
-    };
-  }
+  // A completed turn always leaves a sandbox behind, so this is the workspace having gone
+  // away underneath the run rather than anything the agent did.
+  if (session?.sandboxId == null) return errored();
 
   const checks: CheckResult[] = [];
   for (const check of task.checks) {

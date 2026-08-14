@@ -31,11 +31,17 @@ export const CheckResultSchema = z.strictObject({
  *
  * *Passed* and *failed* are results and carry a score. *Errored* means no result was obtained,
  * so there is nothing to score — an agent that crashed and an agent that built something
- * broken are different findings, and a zero would merge them. *Cancelled* belongs to the
- * ticket that introduces cancellation; it is deliberately not accepted yet.
+ * broken are different findings, and a zero would merge them.
+ *
+ * CONTEXT.md names a fourth, *cancelled*, which is not accepted yet because nothing can
+ * cancel a run. It will join *errored* on the unscored side rather than the scored one: a
+ * run somebody stopped is not an observation either.
  */
 export const RunStatusSchema = z.enum(["passed", "failed", "errored"]);
 export type RunStatus = z.infer<typeof RunStatusSchema>;
+
+/** The statuses that are results, and therefore the ones that carry a score. */
+const SCORED_STATUSES: readonly RunStatus[] = ["passed", "failed"];
 
 export const BenchReportSchema = z
   .strictObject({
@@ -51,10 +57,12 @@ export const BenchReportSchema = z
     score: z.number().int().min(0).max(100).nullable(),
     checks: z.array(CheckResultSchema),
   })
-  .refine((report) => (report.status === "errored") === (report.score === null), {
+  .refine((report) => SCORED_STATUSES.includes(report.status) === (report.score !== null), {
     // The two must agree in both directions. A scored error is a fabricated number, and an
-    // unscored pass is a result nobody can read.
-    message: "a score is present exactly when the run did not error",
+    // unscored pass is a result nobody can read. Written against the set of statuses that
+    // carry a result rather than against "errored", so that adding cancellation is one entry
+    // here rather than an inverted condition.
+    message: "a score is present exactly when the run produced a result",
     path: ["score"],
   });
 

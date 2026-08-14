@@ -59,6 +59,8 @@ describe("a report", () => {
   });
 
   it("refuses an unknown status", () => {
-    expect(parseBenchReport({ ...report, status: "cancelled" }).ok).toBe(false);
+    // Deliberately not "cancelled": that is a real status in the design and will be accepted
+    // one day, so asserting its rejection here would pin a decision that has to change.
+    expect(parseBenchReport({ ...report, status: "exploded" }).ok).toBe(false);
   });
 });

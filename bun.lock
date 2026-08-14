@@ -49,6 +49,12 @@
         "@nap/shared": "workspace:*",
         "playwright-core": "1.57.0",
       },
+      "devDependencies": {
+        "@nap/agent": "workspace:*",
+        "@nap/context": "workspace:*",
+        "@nap/db": "workspace:*",
+        "@nap/runtime": "workspace:*",
+      },
     },
     "apps/web": {
       "name": "@nap/web",

@@ -12,10 +12,10 @@
  * hence `parseBenchTask` returning a typed failure rather than throwing — the caller is a CLI
  * that must print the problem, not a stack trace.
  *
- * Deliberately narrow for now: one prompt, and command checks only. The specification's
- * weights, categories, required flags, seeded files and browser checks arrive in the tickets
- * that implement them, and the strict schema is what stops a task file claiming any of them
- * before they exist.
+ * Deliberately narrow for now: one prompt, and command checks only. Weights, categories,
+ * required flags, seeded files and browser checks are all part of the design — see the
+ * vocabulary in CONTEXT.md and the weighting rule in docs/adr/0002 — and none of them exist
+ * yet. The strict schema is what stops a task file claiming any of them before they do.
  */
 
 import type { Result } from "@nap/shared/result";
