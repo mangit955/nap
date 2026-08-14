@@ -1,12 +1,12 @@
+import { ScriptedAgent } from "@nap/agent/testing/scripted-agent";
 import { NoopMemoryProvider } from "@nap/context/noop-memory-provider";
+import { StubContextEngine } from "@nap/context/testing/stub-context-engine";
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
+import { scriptGit } from "@nap/sandbox/testing/script-git";
 import { type Logger, setRootLogger, withLogContext } from "@nap/shared/logging";
-import type { AgentService, AgentTurnRequest } from "@nap/shared/ports/agent-service";
-import type { ContextEngine, ContextRequest } from "@nap/shared/ports/context-engine";
-import type { PendingEvent } from "@nap/shared/ports/event-store";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { SingleAgentRuntime } from "./single-agent-runtime.ts";
 
@@ -46,36 +46,7 @@ function recorder(bindings: Record<string, unknown> = {}, lines: Line[] = []) {
 }
 
 /** Every command `commitAll` issues, answered so a turn can commit without a real git. */
-function scriptGit(manager: InMemorySandboxManager): InMemorySandboxManager {
-  return manager
-    .script(/git add -A/, { exitCode: 0 })
-    .script(/git diff --cached --quiet/, { exitCode: 1 })
-    .script(/git .*commit -m/, { exitCode: 0 })
-    .script(/git rev-parse HEAD/, { exitCode: 0, stdout: `${COMMIT_SHA}\n` });
-}
-
-class StubContextEngine implements ContextEngine {
-  async build(_request: ContextRequest) {
-    return { systemPrompt: "", messages: [], estimatedTokens: 0 };
-  }
-}
-
 /** Emits a scripted turn, including a failing tool call, so a whole shape can be asserted. */
-class ScriptedAgent implements AgentService {
-  constructor(private readonly script: () => { type: string; payload: unknown }[]) {}
-
-  async runTurn(request: AgentTurnRequest): Promise<void> {
-    for (const event of this.script()) {
-      request.onEvent({
-        ...event,
-        sessionId: request.sessionId,
-        turnId: request.turnId,
-        createdAt: "2026-01-01T00:00:00.000Z",
-      } as PendingEvent);
-    }
-  }
-}
-
 const A_WHOLE_TURN = () => [
   { type: "turn.started", payload: {} },
   {

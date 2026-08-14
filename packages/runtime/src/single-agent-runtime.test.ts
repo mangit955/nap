@@ -21,6 +21,7 @@ import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
+import { scriptGit } from "@nap/sandbox/testing/script-git";
 import { NapEventSchema, type NapEventType } from "@nap/shared/events";
 import type { AgentService, AgentTurnRequest } from "@nap/shared/ports/agent-service";
 import type { ContextEngine, ContextRequest } from "@nap/shared/ports/context-engine";
@@ -37,17 +38,6 @@ const PROJECT_ID = "4d5e6f70-1a2b-4c3d-8e9f-0a1b2c3d4e5f";
 const COMMIT_SHA = "9e107d9d372bb6826bd81d3542a419d6c2b0f5a1";
 
 /** Every command `commitAll` issues, answered so a turn can commit without a real git. */
-function scriptGit(manager: InMemorySandboxManager, dirty = true): InMemorySandboxManager {
-  return (
-    manager
-      .script(/git add -A/, { exitCode: 0 })
-      // Non-zero means the index differs from HEAD, which is what makes a commit happen.
-      .script(/git diff --cached --quiet/, { exitCode: dirty ? 1 : 0 })
-      .script(/git .*commit -m/, { exitCode: 0 })
-      .script(/git rev-parse HEAD/, { exitCode: 0, stdout: `${COMMIT_SHA}\n` })
-  );
-}
-
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -363,7 +353,7 @@ describe("SingleAgentRuntime", () => {
   });
 
   it("reports no commit when the turn changed no files", async () => {
-    sandbox = scriptGit(new InMemorySandboxManager(), false);
+    sandbox = scriptGit(new InMemorySandboxManager(), { dirty: false });
 
     const outcome = await runtime(new ScriptedAgent(HAPPY_SCRIPT, true), { sandbox }).runTurn({
       sessionId: SESSION_ID,

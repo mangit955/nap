@@ -1,12 +1,12 @@
+import { ScriptedAgent } from "@nap/agent/testing/scripted-agent";
 import { NoopMemoryProvider } from "@nap/context/noop-memory-provider";
+import { StubContextEngine } from "@nap/context/testing/stub-context-engine";
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
-import type { AgentService, AgentTurnRequest } from "@nap/shared/ports/agent-service";
-import type { ContextEngine, ContextRequest } from "@nap/shared/ports/context-engine";
-import type { PendingEvent } from "@nap/shared/ports/event-store";
+import { scriptGit } from "@nap/sandbox/testing/script-git";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import { beforeEach, describe, expect, it } from "vitest";
 import { SingleAgentRuntime } from "./single-agent-runtime.ts";
@@ -26,41 +26,10 @@ import { SingleAgentRuntime } from "./single-agent-runtime.ts";
 const SESSION_ID = "2a3f8a24-6c1b-4e0e-9b6f-3a5c0a1d9e77";
 const PROJECT_ID = "4d5e6f70-1a2b-4c3d-8e9f-0a1b2c3d4e5f";
 const COMMIT_SHA = "9e107d9d372bb6826bd81d3542a419d6c2b0f5a1";
-const BUNDLE_B64 = Buffer.from("PACK-bundle-bytes").toString("base64");
 
 /** Everything a turn and a snapshot run against git, answered as a real project would. */
-function scriptGit(manager: InMemorySandboxManager): InMemorySandboxManager {
-  return manager
-    .script(/git add -A/, { exitCode: 0 })
-    .script(/git diff --cached --quiet/, { exitCode: 1 })
-    .script(/git .*commit -m/, { exitCode: 0 })
-    .script(/git rev-parse HEAD/, { exitCode: 0, stdout: `${COMMIT_SHA}\n` })
-    .script(/git bundle create/, { exitCode: 0, stdout: BUNDLE_B64 });
-}
-
-class StubContextEngine implements ContextEngine {
-  async build(_request: ContextRequest) {
-    return { systemPrompt: "", messages: [], estimatedTokens: 0 };
-  }
-}
-
 /** A turn as a list of events to emit. Widened so the happy and failing scripts share a type. */
 type Script = () => { type: string; payload: unknown }[];
-
-class ScriptedAgent implements AgentService {
-  constructor(private readonly script: Script) {}
-
-  async runTurn(request: AgentTurnRequest): Promise<void> {
-    for (const event of this.script()) {
-      request.onEvent({
-        ...event,
-        sessionId: request.sessionId,
-        turnId: request.turnId,
-        createdAt: "2026-01-01T00:00:00.000Z",
-      } as PendingEvent);
-    }
-  }
-}
 
 const completed =
   (commitSha: string | null): Script =>
