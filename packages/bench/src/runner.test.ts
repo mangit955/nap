@@ -5,6 +5,7 @@
  * package is that the composition it performs can be driven from a test this cheap.
  */
 
+import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import type { Runtime, TurnOutcome } from "@nap/shared/ports/runtime";
@@ -18,6 +19,7 @@ import { parseBenchTask } from "./task.ts";
 const SESSION_ID = "3f2a1c4e-0000-4000-8000-000000000002";
 const TURN_ID = "3f2a1c4e-0000-4000-8000-000000000003";
 const RUN_ID = "3f2a1c4e-0000-4000-8000-000000000001";
+const NOW = "2026-08-14T00:00:00.000Z";
 // The in-memory sandbox only answers for sandboxes it created itself, so every test that
 // wants a check to run has to create one and seed the session with *that* id.
 
@@ -68,10 +70,21 @@ async function deps(runtime: Runtime, sandbox: InMemorySandboxManager) {
     sessions: new InMemorySessionStore([
       { sessionId: SESSION_ID, projectId: crypto.randomUUID(), sandboxId: created.value.id },
     ]),
+    events: new InMemoryEventStore(),
     sessionId: SESSION_ID,
     runId: RUN_ID,
     sandboxId: created.value.id,
   };
+}
+
+/**
+ * The report half of a run.
+ *
+ * Most of these tests are about what a run concluded rather than what it recorded, and the
+ * scripted Runtime writes no events at all — the trajectory has its own cases at the end.
+ */
+async function reportOf(...args: Parameters<typeof runBenchTask>) {
+  return (await runBenchTask(...args)).report;
 }
 
 const completed: TurnOutcome = { ok: true, turnId: TURN_ID, commitSha: "a".repeat(40) };
@@ -83,7 +96,7 @@ describe("runBenchTask", () => {
       defaultExec: () => ({ exitCode: 0, stdout: "" }),
     });
 
-    await runBenchTask(task(), await deps(runtime, sandbox));
+    await reportOf(task(), await deps(runtime, sandbox));
 
     expect(runtime.messages).toEqual(["Build a landing page."]);
   });
@@ -94,7 +107,7 @@ describe("runBenchTask", () => {
       stdout: "built",
     });
 
-    const report = await runBenchTask(task(), await deps(scriptedRuntime(completed), sandbox));
+    const report = await reportOf(task(), await deps(scriptedRuntime(completed), sandbox));
 
     expect(report.status).toBe("passed");
     expect(report.score).toBe(100);
@@ -118,7 +131,7 @@ describe("runBenchTask", () => {
       stderr: "type error",
     });
 
-    const report = await runBenchTask(task(), await deps(scriptedRuntime(completed), sandbox));
+    const report = await reportOf(task(), await deps(scriptedRuntime(completed), sandbox));
 
     expect(report.status).toBe("failed");
     expect(report.score).toBe(0);
@@ -132,7 +145,7 @@ describe("runBenchTask", () => {
       .script(/build/, { exitCode: 1 })
       .script(/lint/, { exitCode: 0 });
 
-    const report = await runBenchTask(
+    const report = await reportOf(
       task([
         { id: "build", command: "bun run build" },
         { id: "lint", command: "bun run lint" },
@@ -151,7 +164,7 @@ describe("runBenchTask", () => {
       .script(/lint/, { exitCode: 1 });
 
     const weights = { functional: 10, browser: 25, visual: 15, code: 90 } as const;
-    const report = await runBenchTask(
+    const report = await reportOf(
       task([
         { id: "build", command: "bun run build" },
         { id: "lint", command: "bun run lint", category: "code" },
@@ -173,7 +186,7 @@ describe("runBenchTask", () => {
     });
     const withSandbox = await deps(scriptedRuntime(completed), sandbox);
 
-    const report = await runBenchTask({ ...task(), checks: [] }, withSandbox);
+    const report = await reportOf({ ...task(), checks: [] }, withSandbox);
 
     expect(report.status).toBe("errored");
     expect(report.score).toBeNull();
@@ -184,7 +197,7 @@ describe("runBenchTask", () => {
       defaultExec: () => ({ exitCode: 0, stdout: "" }),
     });
 
-    const report = await runBenchTask(task(), await deps(scriptedRuntime(completed), sandbox));
+    const report = await reportOf(task(), await deps(scriptedRuntime(completed), sandbox));
 
     expect(report.runId).toBe(RUN_ID);
     expect(report.sessionId).toBe(SESSION_ID);
@@ -206,7 +219,7 @@ describe("runBenchTask", () => {
       defaultExec: () => ({ exitCode: 0, stdout: "" }),
     });
 
-    const report = await runBenchTask(task(), await deps(runtime, sandbox));
+    const report = await reportOf(task(), await deps(runtime, sandbox));
 
     expect(report.status).toBe("errored");
     expect(report.score).toBeNull();
@@ -226,7 +239,7 @@ describe("runBenchTask", () => {
     });
     const sandbox = new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0 }) });
 
-    const report = await runBenchTask(task(), await deps(runtime, sandbox));
+    const report = await reportOf(task(), await deps(runtime, sandbox));
 
     expect(report.errorKind).toBe("model");
   });
@@ -240,7 +253,7 @@ describe("runBenchTask", () => {
     });
     const sandbox = new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0 }) });
 
-    const report = await runBenchTask(task(), await deps(runtime, sandbox));
+    const report = await reportOf(task(), await deps(runtime, sandbox));
 
     expect(report.status).toBe("cancelled");
     expect(report.score).toBeNull();
@@ -258,7 +271,7 @@ describe("runBenchTask", () => {
       },
     });
 
-    await runBenchTask(
+    await reportOf(
       task(),
       await deps(
         scriptedRuntime({ ok: false, turnId: TURN_ID, reason: "internal", message: "boom" }),
@@ -280,7 +293,7 @@ describe("runBenchTask", () => {
       ]),
     };
 
-    const report = await runBenchTask(task(), withoutSandbox);
+    const report = await reportOf(task(), withoutSandbox);
 
     expect(report.status).toBe("errored");
     expect(report.score).toBeNull();
@@ -297,7 +310,7 @@ describe("runBenchTask", () => {
       sessions: new InMemorySessionStore([]),
     };
 
-    const report = await runBenchTask(task(), withoutSession);
+    const report = await reportOf(task(), withoutSession);
 
     expect(report.status).toBe("errored");
     expect(report.errorKind).toBe("configuration");
@@ -315,11 +328,143 @@ describe("runBenchTask", () => {
     const withSandbox = await deps(scriptedRuntime(completed), sandbox);
     await sandbox.destroy(withSandbox.sandboxId);
 
-    const report = await runBenchTask(task(), withSandbox);
+    const report = await reportOf(task(), withSandbox);
 
     expect(report.checks).toHaveLength(1);
     expect(report.checks[0]?.outcome).toBe("failed");
     expect(report.status).toBe("failed");
+  });
+});
+
+describe("runBenchTask — the trajectory it kept", () => {
+  /** A Runtime that writes a plausible turn into the log, as the real one does. */
+  function loggingRuntime(events: InMemoryEventStore, outcome: TurnOutcome): Runtime {
+    return {
+      async runTurn() {
+        const envelope = { sessionId: SESSION_ID, turnId: TURN_ID, createdAt: NOW };
+        await events.append({ ...envelope, type: "turn.started", payload: {} });
+        await events.append({
+          ...envelope,
+          type: "tool.call",
+          payload: { toolCallId: "call_1", toolName: "write_file", input: {} },
+        });
+        await events.append({
+          ...envelope,
+          type: "file.changed",
+          payload: { path: "/home/user/app/src/App.tsx", changeType: "modified", diff: "" },
+        });
+        if (outcome.ok) {
+          await events.append({
+            ...envelope,
+            type: "turn.completed",
+            payload: {
+              usage: { inputTokens: 1_000, outputTokens: 200 },
+              durationMs: 4_000,
+              commitSha: "a".repeat(40),
+            },
+          });
+        } else {
+          await events.append({
+            ...envelope,
+            type: "turn.failed",
+            payload: { reason: outcome.reason, message: outcome.message },
+          });
+        }
+        return outcome;
+      },
+      async resumeSession() {
+        throw new Error("the runner must not resume a session");
+      },
+    };
+  }
+
+  async function runLogged(outcome: TurnOutcome, model?: string) {
+    const sandbox = new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0 }) });
+    const withSandbox = await deps(scriptedRuntime(completed), sandbox);
+    const events = withSandbox.events;
+
+    return runBenchTask(task(), {
+      ...withSandbox,
+      runtime: loggingRuntime(events, outcome),
+      ...(model === undefined ? {} : { model }),
+    });
+  }
+
+  it("derives the report's metrics from the events the turn recorded", async () => {
+    const { report } = await runLogged(completed);
+
+    expect(report.metrics.toolCalls).toBe(1);
+    expect(report.metrics.filesChanged).toBe(1);
+    expect(report.metrics.turns).toEqual({ started: 1, completed: 1, failed: 0, cancelled: 0 });
+    expect(report.metrics.tokens).toEqual({ inputTokens: 1_000, outputTokens: 200 });
+  });
+
+  it("keeps the whole stream beside the report, tied to it by the same ids", async () => {
+    const { report, trajectory } = await runLogged(completed);
+
+    expect(trajectory.runId).toBe(report.runId);
+    expect(trajectory.taskId).toBe(report.taskId);
+    expect(trajectory.sessionId).toBe(report.sessionId);
+    expect(trajectory.events.map((event) => event.type)).toEqual([
+      "turn.started",
+      "tool.call",
+      "file.changed",
+      "turn.completed",
+    ]);
+  });
+
+  it("keeps the trajectory of a run that errored, which is when it matters most", async () => {
+    const { report, trajectory } = await runLogged({
+      ok: false,
+      turnId: TURN_ID,
+      reason: "budget_exceeded",
+      message: "out of steps",
+    });
+
+    expect(report.status).toBe("errored");
+    expect(trajectory.events).toHaveLength(4);
+    // What it did before it stopped is still counted; what the log cannot supply is not.
+    expect(report.metrics.toolCalls).toBe(1);
+    expect(report.metrics.turns.failed).toBe(1);
+    expect("tokens" in report.metrics).toBe(false);
+    expect("estimatedCost" in report.metrics).toBe(false);
+  });
+
+  it("prices the run against the model it was told to run", async () => {
+    const { report } = await runLogged(completed, "openai/gpt-5.6-luna");
+
+    expect(report.metrics.estimatedCost?.model).toBe("openai/gpt-5.6-luna");
+    expect(report.metrics.estimatedCost?.usd).toBeGreaterThan(0);
+  });
+
+  it("leaves cost absent when the run named no model", async () => {
+    // The deployment's default ran it, and NapBench does not know what that was. A price
+    // for a model nobody named is a number about nothing.
+    const { report } = await runLogged(completed);
+
+    expect("estimatedCost" in report.metrics).toBe(false);
+  });
+
+  it("asks the Runtime to use the model it was given", async () => {
+    const runtime = scriptedRuntime(completed);
+    const sandbox = new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0 }) });
+    const models: (string | undefined)[] = [];
+    const recording: Runtime = {
+      async runTurn(request) {
+        models.push(request.model);
+        return runtime.runTurn(request);
+      },
+      resumeSession: runtime.resumeSession,
+    };
+
+    await runBenchTask(task(), {
+      ...(await deps(recording, sandbox)),
+      model: "anthropic/claude-opus-5",
+    });
+
+    // The same value prices the run and runs it, so a report cannot price one model's
+    // tokens at another's rate.
+    expect(models).toEqual(["anthropic/claude-opus-5"]);
   });
 });
 
@@ -338,7 +483,7 @@ describe("runBenchTask — the preview a task asked for", () => {
   }
 
   async function run(sandbox: InMemorySandboxManager) {
-    return runBenchTask(servingTask(), await deps(scriptedRuntime(completed), sandbox));
+    return reportOf(servingTask(), await deps(scriptedRuntime(completed), sandbox));
   }
 
   it("passes a run whose application serves", async () => {
@@ -423,7 +568,7 @@ describe("runBenchTask — the preview a task asked for", () => {
       }),
     });
 
-    const report = await runBenchTask(
+    const report = await reportOf(
       task(
         [
           { id: "build", command: "bun run build", build: true },
@@ -452,7 +597,7 @@ describe("runBenchTask — the preview a task asked for", () => {
       serves: [PORT],
     });
 
-    const report = await runBenchTask(
+    const report = await reportOf(
       // The build is worth a hundredth of the lint, so the weighted mean is high and the run
       // is still not allowed to look good: the thing it built does not compile.
       task(
@@ -486,7 +631,7 @@ describe("runBenchTask — the preview a task asked for", () => {
       serves: [PORT],
     });
 
-    const report = await runBenchTask(
+    const report = await reportOf(
       task(
         [
           { id: "renders", command: "test renders", required: true, weight: 0.01 },
@@ -508,7 +653,7 @@ describe("runBenchTask — the preview a task asked for", () => {
     const sandbox = new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0 }) });
     const withSandbox = await deps(scriptedRuntime(completed), sandbox);
 
-    await runBenchTask(task(), withSandbox);
+    await reportOf(task(), withSandbox);
 
     expect(sandbox.commands(withSandbox.sandboxId).some((c) => c.startsWith("curl"))).toBe(false);
   });

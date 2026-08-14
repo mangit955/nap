@@ -22,6 +22,7 @@ import { DEFAULT_CATEGORY_WEIGHTS } from "@nap/bench/category";
 import { parseBenchReport } from "@nap/bench/report";
 import { runBenchTask } from "@nap/bench/runner";
 import { TRACER_TASK } from "@nap/bench/tasks/tracer";
+import { parseBenchTrajectory } from "@nap/bench/trajectory";
 import { NapContextEngine } from "@nap/context/context-engine";
 import { NoopMemoryProvider } from "@nap/context/noop-memory-provider";
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
@@ -32,7 +33,7 @@ import { TEMPLATE_DEV_PORT } from "@nap/sandbox/template";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { writeBenchReport } from "./write-report.ts";
+import { writeBenchReport, writeBenchTrajectory } from "./write-report.ts";
 
 let resultsDir: string;
 
@@ -87,26 +88,36 @@ function sandboxWhereBuildSucceeds(buildExitCode: number) {
 
 function composeRuntime(sandbox: InMemorySandboxManager, sessionId: string) {
   const sessions = new InMemorySessionStore([{ sessionId, projectId: crypto.randomUUID() }]);
+  // The same store the runtime writes its events to is the one the run reads its trajectory
+  // back out of. That is the whole claim of docs/adr/0003 in one line: there is one log.
+  const events = new InMemoryEventStore();
   const runtime = new SingleAgentRuntime({
     sessions,
     sandbox,
     context: new NapContextEngine({ budgetTokens: 40_000 }),
     agent: new NapAgentService({ provider: scriptedModel(), budget: { maxSteps: 8 } }),
-    events: new InMemoryEventStore(),
+    events,
     bus: new InMemoryEventBus(),
     memory: new NoopMemoryProvider(),
   });
-  return { runtime, sessions };
+  return { runtime, sessions, events };
 }
 
 describe("a task run end to end", () => {
   it("goes from a task to a scored report file", async () => {
     const sessionId = crypto.randomUUID();
     const sandbox = sandboxWhereBuildSucceeds(0);
-    const { runtime, sessions } = composeRuntime(sandbox, sessionId);
+    const { runtime, sessions, events } = composeRuntime(sandbox, sessionId);
 
-    const report = await runBenchTask(TRACER_TASK, { runtime, sandbox, sessions, sessionId });
+    const { report, trajectory } = await runBenchTask(TRACER_TASK, {
+      runtime,
+      sandbox,
+      sessions,
+      events,
+      sessionId,
+    });
     const path = await writeBenchReport(resultsDir, report);
+    const trajectoryFile = await writeBenchTrajectory(resultsDir, trajectory);
 
     expect(report.status).toBe("passed");
     expect(report.score).toBe(100);
@@ -116,10 +127,25 @@ describe("a task run end to end", () => {
     expect(report.weights).toEqual(DEFAULT_CATEGORY_WEIGHTS);
     expect(report.categories.map((entry) => entry.effectiveWeight)).toEqual([83.3, 16.7]);
 
-    // The file on disk is the deliverable, and it has to survive being read back.
+    // Derived from the events the real runtime wrote, not from a second instrumentation
+    // path: one tool call to write the file, one turn, and the tokens the model reported.
+    expect(report.metrics.toolCalls).toBe(1);
+    expect(report.metrics.filesChanged).toBe(1);
+    expect(report.metrics.turns).toEqual({ started: 1, completed: 1, failed: 0, cancelled: 0 });
+    expect(report.metrics.tokens).toEqual({ inputTokens: 1_900, outputTokens: 60 });
+
+    // Both files on disk are the deliverable, and both have to survive being read back.
     const readBack = parseBenchReport(JSON.parse(readFileSync(path, "utf8")));
     expect(readBack.ok).toBe(true);
     if (readBack.ok) expect(readBack.value).toEqual(report);
+
+    const readBackTrajectory = parseBenchTrajectory(
+      JSON.parse(readFileSync(trajectoryFile, "utf8")),
+    );
+    expect(readBackTrajectory.ok).toBe(true);
+    if (readBackTrajectory.ok) {
+      expect(readBackTrajectory.value.events).toEqual(await events.readFrom(sessionId, 0));
+    }
   });
 
   it("writes the agent's file into the sandbox the checks then run in", async () => {
@@ -127,9 +153,9 @@ describe("a task run end to end", () => {
     // turn just wrote to, not a fresh one.
     const sessionId = crypto.randomUUID();
     const sandbox = sandboxWhereBuildSucceeds(0);
-    const { runtime, sessions } = composeRuntime(sandbox, sessionId);
+    const { runtime, sessions, events } = composeRuntime(sandbox, sessionId);
 
-    await runBenchTask(TRACER_TASK, { runtime, sandbox, sessions, sessionId });
+    await runBenchTask(TRACER_TASK, { runtime, sandbox, sessions, events, sessionId });
 
     const sandboxId = (await sessions.get(sessionId))?.sandboxId;
     if (sandboxId == null) throw new Error("the turn left no sandbox behind");
@@ -141,9 +167,15 @@ describe("a task run end to end", () => {
   it("fails the run when the build the task checks does not pass", async () => {
     const sessionId = crypto.randomUUID();
     const sandbox = sandboxWhereBuildSucceeds(1);
-    const { runtime, sessions } = composeRuntime(sandbox, sessionId);
+    const { runtime, sessions, events } = composeRuntime(sandbox, sessionId);
 
-    const report = await runBenchTask(TRACER_TASK, { runtime, sandbox, sessions, sessionId });
+    const { report } = await runBenchTask(TRACER_TASK, {
+      runtime,
+      sandbox,
+      sessions,
+      events,
+      sessionId,
+    });
 
     expect(report.status).toBe("failed");
     // Failed, not errored: the turn ran fine and the application it produced is broken,

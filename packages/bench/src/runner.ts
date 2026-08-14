@@ -19,20 +19,31 @@
  * `async` function that also creates sandboxes is a rule nobody can check.
  */
 
+import type { EventStore } from "@nap/shared/ports/event-store";
 import type { Runtime } from "@nap/shared/ports/runtime";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SessionStore } from "@nap/shared/ports/session-store";
 import { type CategoryWeights, DEFAULT_CATEGORY_WEIGHTS } from "./category.ts";
 import { applyGates, type GateInput } from "./gates.ts";
+import { deriveRunMetrics } from "./metrics.ts";
 import { diagnosePreview } from "./preview.ts";
 import type { BenchReport, CheckResult } from "./report.ts";
 import { scoreRun } from "./score.ts";
 import { type BenchTask, type CommandCheck, categoryOf, flagsOf, weightOf } from "./task.ts";
+import type { BenchTrajectory } from "./trajectory.ts";
 
 export type BenchRunnerDeps = {
   runtime: Runtime;
   sandbox: SandboxManager;
   sessions: SessionStore;
+  /**
+   * The log the run's trajectory is read back out of.
+   *
+   * Read rather than written: NapBench adds nothing to the stream and derives every metric
+   * from what a turn already recorded, which is what keeps evaluation out of the production
+   * event contract entirely. See docs/adr/0003.
+   */
+  events: EventStore;
   /**
    * The session this run drives, already created by whoever composed the run.
    *
@@ -50,14 +61,38 @@ export type BenchRunnerDeps = {
    * and recorded in every report, because the vector is what a score means.
    */
   weights?: CategoryWeights;
+  /**
+   * Which model to run on, and the model the cost estimate is priced against.
+   *
+   * One value for both on purpose: pricing a run against a model other than the one that ran
+   * it is the sort of mistake that produces a plausible number nobody can catch. Absent runs
+   * the deployment's default, and leaves the estimate absent — the price table cannot price
+   * a model nobody named.
+   */
+  model?: string | undefined;
 };
 
-export async function runBenchTask(task: BenchTask, deps: BenchRunnerDeps): Promise<BenchReport> {
+/**
+ * What one run produces: the artefact people read, and the record it was derived from.
+ *
+ * Two values rather than one object with the events inside the report, because they are
+ * written to different files and read by different things — a comparison loads reports and
+ * only reaches for a trajectory when the scores agree and the question becomes *how*.
+ */
+export type BenchRunResult = {
+  report: BenchReport;
+  trajectory: BenchTrajectory;
+};
+
+export async function runBenchTask(
+  task: BenchTask,
+  deps: BenchRunnerDeps,
+): Promise<BenchRunResult> {
   const { runtime, sandbox, sessions, sessionId } = deps;
   const runId = deps.runId ?? crypto.randomUUID();
   const weights = deps.weights ?? DEFAULT_CATEGORY_WEIGHTS;
 
-  const outcome = await runtime.runTurn({ sessionId, message: task.prompt });
+  const outcome = await runtime.runTurn({ sessionId, message: task.prompt, model: deps.model });
 
   // Everything the ladder is entitled to know, filled in as far as the run got. A stage that
   // never happened leaves its field saying so rather than pretending it went well.
@@ -70,25 +105,34 @@ export async function runBenchTask(task: BenchTask, deps: BenchRunnerDeps): Prom
     score: null,
   };
 
-  const finish = (): BenchReport => {
+  const finish = async (): Promise<BenchRunResult> => {
     const verdict = applyGates(observations);
     // Only a run that still carries a score has categories to explain it. An errored run's
     // check list is whatever it managed before it stopped, which is worth keeping.
     const scored = verdict.score === null ? { categories: [] } : scoreRun(checks, weights);
 
+    // Read at the end rather than during, so the trajectory covers everything the run
+    // produced however far it got — an errored run's stream is the most informative thing
+    // about it. `seq` starts at 1, so nothing is skipped by asking for everything after 0.
+    const events = await deps.events.readFrom(sessionId, 0);
+
     return {
-      runId,
-      taskId: task.id,
-      sessionId,
-      turnId: outcome.turnId,
-      status: verdict.status,
-      errorKind: verdict.errorKind,
-      gates: verdict.gates,
-      scoreCap: verdict.scoreCap,
-      score: verdict.score,
-      categories: scored.categories,
-      weights,
-      checks,
+      report: {
+        runId,
+        taskId: task.id,
+        sessionId,
+        turnId: outcome.turnId,
+        status: verdict.status,
+        errorKind: verdict.errorKind,
+        gates: verdict.gates,
+        scoreCap: verdict.scoreCap,
+        score: verdict.score,
+        categories: scored.categories,
+        weights,
+        checks,
+        metrics: deriveRunMetrics(events, { model: deps.model }),
+      },
+      trajectory: { runId, taskId: task.id, sessionId, events },
     };
   };
 

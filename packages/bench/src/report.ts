@@ -20,6 +20,7 @@ import { z } from "zod";
 import { CategorySchema, CategoryWeightsSchema } from "./category.ts";
 import { ErrorKindSchema } from "./error-kind.ts";
 import { GateIdSchema } from "./gates.ts";
+import { RunMetricsSchema } from "./metrics.ts";
 import { carriesScore, RunStatusSchema } from "./status.ts";
 
 /**
@@ -110,6 +111,14 @@ export const BenchReportSchema = z
     /** The configured vector, so the effective one above can be recomputed and checked. */
     weights: CategoryWeightsSchema,
     checks: z.array(CheckResultSchema),
+    /**
+     * How the agent got there, derived from the run's event stream.
+     *
+     * Present on every report, including errored ones — a run that failed still did things,
+     * and what it did before it stopped is often the most informative thing about it. Some
+     * of its fields are absent rather than zero; `metrics.ts` says which and why.
+     */
+    metrics: RunMetricsSchema,
   })
   .refine((report) => carriesScore(report.status) === (report.score !== null), {
     // The two must agree in both directions. A scored error is a fabricated number, and an

@@ -95,7 +95,9 @@ run is strictly the outer thing, and a task with two prompts is one run of two t
 metrics derived from them — tool calls, tool failures, commands, files touched, turn lifecycle,
 token usage. Preserved whole, because the interesting question about two models with the same score
 is what they did differently. Derived entirely from the existing event stream; anything the stream
-cannot supply is absent rather than inferred.
+cannot supply is absent rather than inferred. **Stored as two files, not one:** the events go in a
+trajectory file and the metrics in the report beside it, because the metrics are what everything
+reads and a second copy next to the events could disagree with the first.
 
 **Suite** — a named set of tasks run together, and the level at which a model is characterised
 rather than a single result observed. Reports a mean over completed runs beside an explicit error

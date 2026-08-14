@@ -14,6 +14,15 @@ const report: BenchReport = {
   score: 100,
   categories: [{ category: "functional", score: 100, effectiveWeight: 100, checks: 1 }],
   weights: DEFAULT_CATEGORY_WEIGHTS,
+  metrics: {
+    toolCalls: 3,
+    toolFailures: 0,
+    commands: 1,
+    filesChanged: 2,
+    turns: { started: 1, completed: 1, failed: 0, cancelled: 0 },
+    tokens: { inputTokens: 1_000, outputTokens: 200 },
+    turnDurationMs: 4_000,
+  },
   checks: [
     {
       checkId: "build",
