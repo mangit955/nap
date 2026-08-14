@@ -91,6 +91,11 @@ const EXCLUSIVE_EXTERNALS: Record<string, { owner: string; reason: string }> = {
     reason:
       "Playwright belongs to apps/napbench, which drives a browser against a generated app to judge it. Nothing that ships to production may depend on it — the deployed image is built from one workspace-wide install, so an evaluation tool's browser driver would otherwise become the API's problem. Depend on the BrowserSession interface from @nap/bench instead. See docs/adr/0001.",
   },
+  "axe-core": {
+    owner: "@nap/napbench",
+    reason:
+      "The accessibility scanner belongs to apps/napbench for the same reason Playwright does: it is an evaluation tool, it runs inside a browser nothing that ships has, and the deployed image is built from one workspace-wide install. Depend on BrowserSession.scanAccessibility from @nap/bench instead — what counts as a violation is axe's answer, and nothing above the port needs to know whose. See docs/adr/0001.",
+  },
   "@anthropic-ai/bedrock-sdk": {
     owner: "@nap/agent",
     reason:

@@ -236,6 +236,47 @@ describe("measurement and lifecycle", () => {
     expect(page.calls.map((call) => call.method)).toEqual(["setViewport", "click"]);
   });
 
+  it("photographs at whatever size the viewport currently is", async () => {
+    // The contract the real adapter has to keep: nobody passes a size, so a check that ran at
+    // mobile is photographed at mobile without anything having to remember to say so.
+    const page = session({ screenshotBytes: new Uint8Array([1, 2, 3]) });
+    await page.setViewport(VIEWPORT_SIZES.mobile);
+
+    expect(await value(await page.screenshot())).toEqual({
+      bytes: new Uint8Array([1, 2, 3]),
+      viewport: VIEWPORT_SIZES.mobile,
+    });
+  });
+
+  it("reports the violations declared for the page it is on", async () => {
+    const violation = {
+      id: "image-alt",
+      impact: "critical" as const,
+      help: "Images must have alternate text",
+      helpUrl: "https://example.invalid/image-alt",
+      nodes: 2,
+    };
+    const page = new ScriptedBrowserSession({
+      pages: { "/": {}, "/about": { violations: [violation] } },
+    });
+
+    expect(await value(await page.scanAccessibility())).toEqual({ violations: [] });
+    await page.goto("https://preview.example/about");
+    expect(await value(await page.scanAccessibility())).toEqual({ violations: [violation] });
+  });
+
+  it("hands back the console errors and failed requests it was scripted with", async () => {
+    const page = session({
+      consoleErrors: ["TypeError: undefined is not a function"],
+      failedRequests: [{ url: "https://preview.example/data.json", failure: "404" }],
+    });
+
+    expect(await value(await page.diagnostics())).toEqual({
+      consoleErrors: ["TypeError: undefined is not a function"],
+      failedRequests: [{ url: "https://preview.example/data.json", failure: "404" }],
+    });
+  });
+
   it("refuses everything once it is closed", async () => {
     const page = session();
     await page.close();

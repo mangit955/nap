@@ -23,11 +23,16 @@
 
 import type { Result, VoidResult } from "@nap/shared/result";
 import type {
+  AccessibilityScan,
+  AccessibilityViolation,
   BrowserCallOptions,
   BrowserError,
   BrowserErrorCode,
   BrowserSession,
   DocumentWidth,
+  FailedRequest,
+  Screenshot,
+  SessionDiagnostics,
 } from "../browser-session.ts";
 import { describeSelector, type Selector } from "../selector.ts";
 import type { ViewportName, ViewportSize } from "../viewport.ts";
@@ -58,6 +63,8 @@ export type ScriptedPage = {
    * Absent means the content fits whatever the viewport currently is.
    */
   scrollWidth?: number | Partial<Record<ViewportName, number>>;
+  /** What an accessibility audit of this page finds. Absent means a clean page. */
+  violations?: readonly AccessibilityViolation[];
 };
 
 /** What a handler may do to the page: everything an application could have done itself. */
@@ -121,6 +128,9 @@ export type BrowserCall = {
     | "attribute"
     | "inputValue"
     | "documentWidth"
+    | "screenshot"
+    | "scanAccessibility"
+    | "diagnostics"
     | "close";
   url?: string;
   selector?: Selector;
@@ -146,6 +156,21 @@ export type ScriptedBrowserSessionOptions = {
    * testable at every method rather than only where a selector happens to miss.
    */
   fail?: (call: BrowserCall) => BrowserError | undefined;
+  /**
+   * What the page logged and what failed to load while the session was open.
+   *
+   * Session-wide rather than per page, because that is what the port promises: everything that
+   * went wrong between opening the browser and closing it.
+   */
+  consoleErrors?: readonly string[];
+  failedRequests?: readonly FailedRequest[];
+  /**
+   * The bytes a photograph comes back as.
+   *
+   * A short recognisable default rather than a real PNG: nothing above this decodes an image,
+   * and a test that asserts on the bytes it supplied is clearer than one asserting on a header.
+   */
+  screenshotBytes?: Uint8Array;
 };
 
 type LiveElement = ScriptedElement & { persists: boolean };
@@ -155,6 +180,9 @@ export class ScriptedBrowserSession implements BrowserSession {
   private readonly origin: string;
   private readonly handlers: NonNullable<ScriptedBrowserSessionOptions["on"]>;
   private readonly failWith: ScriptedBrowserSessionOptions["fail"];
+  private readonly consoleErrors: readonly string[];
+  private readonly failedRequests: readonly FailedRequest[];
+  private readonly screenshotBytes: Uint8Array;
   /** Elements a handler saved, by path, re-applied whenever that path is loaded again. */
   private readonly saved = new Map<string, LiveElement[]>();
 
@@ -170,6 +198,9 @@ export class ScriptedBrowserSession implements BrowserSession {
     this.origin = options.origin ?? "https://preview.example";
     this.handlers = options.on ?? {};
     this.failWith = options.fail;
+    this.consoleErrors = options.consoleErrors ?? [];
+    this.failedRequests = options.failedRequests ?? [];
+    this.screenshotBytes = options.screenshotBytes ?? new Uint8Array([0x50, 0x4e, 0x47]);
     this.load(this.path);
   }
 
@@ -331,6 +362,35 @@ export class ScriptedBrowserSession implements BrowserSession {
     return {
       ok: true,
       value: { scrollWidth: this.scrollWidth(), clientWidth: this.viewport.width },
+    };
+  }
+
+  async screenshot(): Promise<Result<Screenshot, BrowserError>> {
+    const refused = this.record({ method: "screenshot" });
+    if (refused) return refused;
+
+    // The viewport as it stands, which is the whole contract: whoever photographs a check
+    // afterwards gets the size that check ran at without having to say so.
+    return { ok: true, value: { bytes: this.screenshotBytes, viewport: { ...this.viewport } } };
+  }
+
+  async scanAccessibility(): Promise<Result<AccessibilityScan, BrowserError>> {
+    const refused = this.record({ method: "scanAccessibility" });
+    if (refused) return refused;
+
+    return { ok: true, value: { violations: [...(this.pageAt(this.path)?.violations ?? [])] } };
+  }
+
+  async diagnostics(): Promise<Result<SessionDiagnostics, BrowserError>> {
+    const refused = this.record({ method: "diagnostics" });
+    if (refused) return refused;
+
+    return {
+      ok: true,
+      value: {
+        consoleErrors: [...this.consoleErrors],
+        failedRequests: [...this.failedRequests],
+      },
     };
   }
 

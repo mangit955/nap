@@ -130,9 +130,93 @@ export interface BrowserSession {
    */
   documentWidth(): Promise<Result<DocumentWidth, BrowserError>>;
 
+  /**
+   * Photographs the page as it stands, at whatever size the viewport currently is.
+   *
+   * Takes no arguments on purpose. "At the viewport the check ran at" is not a parameter — it
+   * is a consequence of the check having set the viewport and this being called afterwards, and
+   * a `width` here would be a second place for the two to disagree.
+   */
+  screenshot(): Promise<Result<Screenshot, BrowserError>>;
+
+  /**
+   * Runs an accessibility audit against the rendered page.
+   *
+   * A port method rather than a set of assertions, because accessibility is measured by an
+   * established tool rather than by our judgement — what counts as a violation is axe's answer,
+   * and the benchmark's job is to record it.
+   */
+  scanAccessibility(): Promise<Result<AccessibilityScan, BrowserError>>;
+
+  /**
+   * What went wrong in the page while the session was open, as opposed to what a check asked.
+   *
+   * Collected continuously and read at the end: an application that renders correctly while
+   * throwing on every keystroke is not a working application, and nothing a check asserts would
+   * notice. Implementations must have *settled* before answering — a browser requests some
+   * things after load, so reading immediately catches them in some runs and not others, which
+   * is an intermittent difference between two runs of the same task.
+   */
+  diagnostics(): Promise<Result<SessionDiagnostics, BrowserError>>;
+
   /** Releases whatever the session was holding. Safe to call twice. */
   close(): Promise<void>;
 }
+
+export type Screenshot = {
+  /** PNG bytes. The format is fixed because a report that mixed two would be unreadable. */
+  bytes: Uint8Array;
+  /** The size it was taken at, carried with it so a stored image is interpretable later. */
+  viewport: ViewportSize;
+};
+
+/**
+ * One thing an accessibility audit objected to, flattened.
+ *
+ * Deliberately not axe's own result shape: that is a large, versioned object with a node tree
+ * inside it, and a report is archived and diffed for months. What survives is the rule that
+ * fired, how bad it is, how many elements it hit, and where to read about it.
+ */
+export type AccessibilityViolation = {
+  /** The rule's id — `image-alt`, `color-contrast`. Stable across versions of the tool. */
+  id: string;
+  impact: AccessibilityImpact;
+  /** One line saying what is wrong, as the tool phrases it. */
+  help: string;
+  helpUrl: string;
+  /** How many elements on the page broke this rule. */
+  nodes: number;
+};
+
+/**
+ * How serious a violation is, as the tool grades it, plus `unknown`.
+ *
+ * `unknown` exists because the field is optional in the tool's own output, and inventing
+ * `minor` for an ungraded violation would understate it in a report nobody can re-derive.
+ */
+export const ACCESSIBILITY_IMPACTS = [
+  "critical",
+  "serious",
+  "moderate",
+  "minor",
+  "unknown",
+] as const;
+
+export type AccessibilityImpact = (typeof ACCESSIBILITY_IMPACTS)[number];
+
+export type AccessibilityScan = { violations: AccessibilityViolation[] };
+
+export type FailedRequest = {
+  url: string;
+  /** What the browser said went wrong — a refused connection, a DNS failure, a 404. */
+  failure: string;
+};
+
+export type SessionDiagnostics = {
+  /** Console messages at error level, in the order they were logged. */
+  consoleErrors: string[];
+  failedRequests: FailedRequest[];
+};
 
 export type DocumentWidth = {
   /** How wide the content is, including anything spilling past the right-hand edge. */
