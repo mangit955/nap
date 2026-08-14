@@ -75,8 +75,7 @@ export function availableModels(
   key: CallerKey,
   freeModel?: string,
 ): string[] {
-  if (key === null)
-    return allowed.filter((model) => model === freeModel || isFree(model));
+  if (key === null) return allowed.filter((model) => model === freeModel || isFree(model));
   return allowed.filter((model) => reachableWith(model, key.platform));
 }
 
@@ -101,8 +100,7 @@ export function resolveTurnAccess(request: TurnAccessRequest): TurnAccess {
     // whether it carries the `:free` suffix — the suffix is OpenRouter's convention, but the
     // deployment may intentionally pay for a non-free model as its demo offering.
     if (requested === undefined) return { ok: true, model: request.freeModel };
-    if (requested === request.freeModel || isFree(requested))
-      return { ok: true, model: requested };
+    if (requested === request.freeModel || isFree(requested)) return { ok: true, model: requested };
 
     return {
       ok: false,

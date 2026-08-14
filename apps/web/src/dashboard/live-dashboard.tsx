@@ -25,10 +25,10 @@ import { useEffect, useRef, useState } from "react";
 import { ApiKeyPanel } from "../account/api-key-panel.tsx";
 import { useApiKey } from "../account/use-api-key.ts";
 import { authClient } from "../auth/client.ts";
+import { NapLoader } from "../brand/nap-loader.tsx";
 import { useModels } from "../chat/use-models.ts";
 import { useProjects } from "../projects/use-projects.ts";
 import { useStartProject } from "../projects/use-start-project.ts";
-import { NapLoader } from "../brand/nap-loader.tsx";
 import { Dashboard } from "./dashboard.tsx";
 import { DashboardHero } from "./dashboard-hero.tsx";
 import {

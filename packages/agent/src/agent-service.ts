@@ -272,7 +272,10 @@ class Turn {
 }
 
 /** Resolves promptly on abort even if an upstream streaming request is slow to settle. */
-function stopAware<T>(work: Promise<T>, signal: AbortSignal | undefined): Promise<T | typeof CANCELLED> {
+function stopAware<T>(
+  work: Promise<T>,
+  signal: AbortSignal | undefined,
+): Promise<T | typeof CANCELLED> {
   if (signal === undefined) return work;
   if (signal.aborted) return Promise.resolve(CANCELLED);
 

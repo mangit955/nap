@@ -82,6 +82,11 @@ export function ChatInput({
     inFlight.current = "";
   }, [error]);
 
+  // `model` is not read below and is not removable either: it changes the picker's label, which
+  // changes the width of the row this measures. Dropping it leaves the field sized for the
+  // previous model's name — the same stale measurement the comment below is about, arrived at
+  // from the other direction.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: see above
   useLayoutEffect(() => {
     const field = box.current;
     const row = controls.current;
