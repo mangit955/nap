@@ -32,6 +32,12 @@ const ALLOWED: Record<string, readonly string[]> = {
   // A browser, behind the PageCapture port. Beside storage and the sandbox for the same reason:
   // it photographs an address it is handed and knows nothing about projects or turns.
   "@nap/capture": ["@nap/shared"],
+  // The pure half of NapBench: task specifications, scoring, gates, metric derivation,
+  // report serialisation. None of it may reach for a sandbox, a model or a browser — those
+  // arrive through ports, which is what keeps the part that has to be trustworthy testable
+  // with no network. Its sibling packages appear under devDependencies for their published
+  // fakes, which this check deliberately does not read. See docs/adr/0001.
+  "@nap/bench": ["@nap/shared"],
   "@nap/runtime": [
     "@nap/context",
     "@nap/agent",
@@ -44,6 +50,7 @@ const ALLOWED: Record<string, readonly string[]> = {
   // Apps compose everything; they are the top of the graph.
   "@nap/web": ["*"],
   "@nap/api": ["*"],
+  "@nap/napbench": ["*"],
 };
 
 /**
@@ -70,6 +77,11 @@ const EXCLUSIVE_EXTERNALS: Record<string, { owner: string; reason: string }> = {
     owner: "@nap/capture",
     reason:
       "The browser belongs to @nap/capture, which is the only place that knows a thumbnail is made by rendering a page. Depend on the PageCapture interface from @nap/shared instead — everything above it is written against one method and must keep working when the browser is a fake handing back four bytes.",
+  },
+  "playwright-core": {
+    owner: "@nap/napbench",
+    reason:
+      "Playwright belongs to apps/napbench, which drives a browser against a generated app to judge it. Nothing that ships to production may depend on it — the deployed image is built from one workspace-wide install, so an evaluation tool's browser driver would otherwise become the API's problem. Depend on the BrowserSession interface from @nap/bench instead. See docs/adr/0001.",
   },
   "@anthropic-ai/bedrock-sdk": {
     owner: "@nap/agent",

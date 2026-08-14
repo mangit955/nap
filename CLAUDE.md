@@ -72,12 +72,17 @@ A lefthook pre-commit hook runs `biome check` + `typecheck` + `vitest --changed`
 ## Layout
 
 ```
-packages/  shared  db  sandbox  storage  capture  agent  context  runtime
-apps/      web (Next.js)   api (Hono, runs on Bun)
+packages/  shared  db  sandbox  storage  capture  agent  context  runtime  bench
+apps/      web (Next.js)   api (Hono, runs on Bun)   napbench (the benchmark CLI)
 ```
 
 **Dependency direction, enforced:** `runtime` → {`context`, `agent`, `sandbox`, `storage`, `capture`, `db`} → `shared`.
 `agent` imports the `SandboxManager` *interface*, never the E2B adapter.
+
+`bench` sits beside `shared` rather than above `runtime`: it is NapBench's pure half — tasks,
+scoring, gates, reports — written against ports, and `apps/napbench` is the shell that composes
+real infrastructure behind them. Playwright belongs to that app alone and to nothing that ships.
+See `docs/adr/0001`.
 
 This is enforced by `test/architecture.ts`, not by vigilance — adding a dependency that
 violates it fails `bun run test`. Adding a new workspace package also fails the test until

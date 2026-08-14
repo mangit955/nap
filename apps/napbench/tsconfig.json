@@ -1,0 +1,6 @@
+{
+  "extends": "../../tsconfig.base.json",
+  // `scripts` will hold the CLI entry point, and is included from the start so that it
+  // cannot arrive outside the gates the way test/ once did.
+  "include": ["src", "scripts"]
+}

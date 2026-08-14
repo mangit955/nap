@@ -40,6 +40,13 @@
         "drizzle-orm": "0.45.2",
       },
     },
+    "apps/napbench": {
+      "name": "@nap/napbench",
+      "version": "0.0.0",
+      "dependencies": {
+        "@nap/bench": "workspace:*",
+      },
+    },
     "apps/web": {
       "name": "@nap/web",
       "version": "0.0.0",
@@ -74,6 +81,13 @@
       },
       "devDependencies": {
         "@nap/sandbox": "workspace:*",
+      },
+    },
+    "packages/bench": {
+      "name": "@nap/bench",
+      "version": "0.0.0",
+      "dependencies": {
+        "@nap/shared": "workspace:*",
       },
     },
     "packages/capture": {
@@ -418,11 +432,15 @@
 
     "@nap/api": ["@nap/api@workspace:apps/api"],
 
+    "@nap/bench": ["@nap/bench@workspace:packages/bench"],
+
     "@nap/capture": ["@nap/capture@workspace:packages/capture"],
 
     "@nap/context": ["@nap/context@workspace:packages/context"],
 
     "@nap/db": ["@nap/db@workspace:packages/db"],
+
+    "@nap/napbench": ["@nap/napbench@workspace:apps/napbench"],
 
     "@nap/runtime": ["@nap/runtime@workspace:packages/runtime"],
 

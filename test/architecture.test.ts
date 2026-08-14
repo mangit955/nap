@@ -27,6 +27,15 @@ describe("dependency direction", () => {
     expect(checkDependencyDirection(readWorkspaceManifests())).toEqual([]);
   });
 
+  it("keeps @nap/bench's runtime dependencies to @nap/shared alone", () => {
+    // docs/adr/0001 permits @nap/bench to carry sibling packages as devDependencies, for
+    // their published in-memory fakes — and the checker above reads `dependencies` only,
+    // so that arrangement passes partly by not being looked at. This asserts the half that
+    // matters directly: what a consumer of the pure core pulls in at runtime.
+    const bench = readWorkspaceManifests().find((m) => m.name === "@nap/bench");
+    expect(bench?.dependencies).toEqual(["@nap/shared"]);
+  });
+
   it("covers every workspace package", () => {
     // Guards against the check silently going quiet because a package was
     // renamed or added and the rule table never learned about it.
@@ -34,9 +43,11 @@ describe("dependency direction", () => {
     expect(names.toSorted()).toEqual([
       "@nap/agent",
       "@nap/api",
+      "@nap/bench",
       "@nap/capture",
       "@nap/context",
       "@nap/db",
+      "@nap/napbench",
       "@nap/runtime",
       "@nap/sandbox",
       "@nap/shared",
@@ -86,6 +97,30 @@ describe("dependency direction — the checker actually catches violations", () 
       },
     ]);
     expect(violations).toEqual([]);
+  });
+
+  it("rejects Playwright anywhere but the benchmark app", () => {
+    // docs/adr/0001: the deployed image is one workspace-wide install, so a browser driver
+    // added to any package is a browser driver the production API carries.
+    const violations = checkDependencyDirection([
+      { name: "@nap/capture", dependencies: ["playwright-core"] },
+    ]);
+    expect(violations).toHaveLength(1);
+    expect(violations[0]?.reason).toContain("BrowserSession");
+  });
+
+  it("allows the benchmark app to depend on Playwright", () => {
+    expect(
+      checkDependencyDirection([{ name: "@nap/napbench", dependencies: ["playwright-core"] }]),
+    ).toEqual([]);
+  });
+
+  it("rejects the benchmark core reaching past @nap/shared", () => {
+    const violations = checkDependencyDirection([
+      { name: "@nap/bench", dependencies: ["@nap/runtime"] },
+    ]);
+    expect(violations).toHaveLength(1);
+    expect(violations[0]?.reason).toContain("may only depend on");
   });
 
   it("allows apps to depend on any package", () => {
