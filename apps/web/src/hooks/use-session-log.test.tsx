@@ -18,20 +18,15 @@ import { useSessionLog } from "./use-session-log.ts";
 
 const URL_BASE = "ws://api.test";
 
-function open(
-  net: ReturnType<typeof sockets>,
-  props: { sessionId?: string | undefined; putAwayAt?: string; resuming?: boolean } = {},
-) {
+function open(net: ReturnType<typeof sockets>, props: { sessionId?: string | undefined } = {}) {
   net.countGlobalToo(vi.stubGlobal);
 
   return renderHook(
-    (current: { sessionId?: string | undefined; putAwayAt?: string; resuming?: boolean }) =>
+    (current: { sessionId?: string | undefined }) =>
       useSessionLog({
         sessionId: "sessionId" in current ? current.sessionId : SESSION_ID,
         baseUrl: URL_BASE,
         createSocket: net.createSocket,
-        ...(current.putAwayAt === undefined ? {} : { putAwayAt: current.putAwayAt }),
-        ...(current.resuming === undefined ? {} : { resuming: current.resuming }),
       }),
     { initialProps: props },
   );
@@ -132,25 +127,5 @@ describe("what the log is asked", () => {
 
     // The deleted one is absent: there is no node left in the tree to mark.
     expect([...result.current.changed]).toEqual(["src/App.tsx"]);
-  });
-
-  it("calls a project put away when the record says so and nothing is coming up", () => {
-    const net = sockets();
-    const { result } = open(net, { putAwayAt: "2026-08-09T13:00:00.000Z" });
-
-    deliver(net, ev("preview.ready", { url: "https://5173-sbx.e2b.app", port: 5173 }, 7));
-
-    expect(result.current.putAway).toBe(true);
-  });
-
-  it("does not call it put away while a restore is under way", () => {
-    // A restore is under way from the moment it is asked for, which is minutes before the event
-    // saying so arrives. Both panes read this one answer, so they cannot disagree about it.
-    const net = sockets();
-    const { result } = open(net, { putAwayAt: "2026-08-09T13:00:00.000Z", resuming: true });
-
-    deliver(net, ev("preview.ready", { url: "https://5173-sbx.e2b.app", port: 5173 }, 7));
-
-    expect(result.current.putAway).toBe(false);
   });
 });

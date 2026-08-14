@@ -63,7 +63,6 @@ function failedTurn(): SessionLog {
     replayed: true,
     preview: { status: "idle" },
     changed: new Set(),
-    putAway: false,
   };
 }
 

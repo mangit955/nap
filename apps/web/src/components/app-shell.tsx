@@ -4,11 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import { type FetchJson, useProjectFiles } from "../files/use-project-files.ts";
 import type { CreateSocket } from "../hooks/use-event-stream.ts";
 import { useSessionLog } from "../hooks/use-session-log.ts";
+import { phaseOf, recordState } from "../projects/project-phase.ts";
 import { type OpenProject, useProject } from "../projects/use-projects.ts";
 import { Splitter } from "../ui/splitter.tsx";
 import { LiveCodePane } from "../workspace/code-pane.tsx";
 import { CHAT_SPLIT, DEFAULT_CHAT_WIDTH } from "../workspace/split.ts";
-import { isStartingUp } from "../workspace/starting-up.ts";
 import type { WorkbenchTab } from "../workspace/tabs.ts";
 import { usePaneWidth } from "../workspace/use-pane-width.ts";
 import { Workbench } from "../workspace/workbench.tsx";
@@ -97,13 +97,24 @@ export function AppShell({
     void resume();
   }, [status, putAwayAt, projectId, resume]);
 
-  const startingUp = isStartingUp({ status, resuming, putAwayAt, resumeError });
-
   const log = useSessionLog({
     sessionId,
-    resuming: startingUp,
-    ...(putAwayAt === undefined ? {} : { putAwayAt }),
     ...(createSocket === undefined ? {} : { createSocket }),
+  });
+
+  /**
+   * What this project is doing — one answer, read by both halves of the workbench and by nothing
+   * else. Five modules used to derive it independently, which is how the preview and the file tree
+   * came to disagree about whether a project was running.
+   */
+  const phase = phaseOf({
+    status,
+    record: recordState(project),
+    putAwayAt,
+    preview: log.preview,
+    replayed: log.replayed,
+    resuming,
+    resumeError,
   });
 
   // The restore's own end condition, reported to the hook that is waiting for it. In an effect
@@ -113,7 +124,7 @@ export function AppShell({
     setPreviewSeq(announced);
   }, [announced]);
 
-  const previewUrl = log.preview.status === "ready" ? log.preview.url : undefined;
+  const previewUrl = phase.kind === "running" ? phase.url : undefined;
 
   const files = useProjectFiles({
     sessionId,
@@ -176,12 +187,10 @@ export function AppShell({
           tab={tab}
           preview={
             <PreviewPane
-              events={log.events}
+              phase={phase}
               route={route}
               reloads={reloads}
               onResume={() => void resume()}
-              resuming={startingUp}
-              {...(putAwayAt === undefined ? {} : { putAwayAt })}
               {...(resumeError === undefined ? {} : { resumeError })}
             />
           }
@@ -190,6 +199,7 @@ export function AppShell({
               sessionId={sessionId}
               active={tab === "code"}
               log={log}
+              phase={phase}
               files={files}
               {...(fetchJson === undefined ? {} : { fetchJson })}
             />

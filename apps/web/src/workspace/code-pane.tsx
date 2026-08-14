@@ -17,6 +17,7 @@ import { FileTreePane } from "../components/file-tree-pane.tsx";
 import { FileViewer } from "../files/file-viewer.tsx";
 import { type FetchJson, type ProjectFiles, useFileContent } from "../files/use-project-files.ts";
 import type { SessionLog } from "../hooks/use-session-log.ts";
+import type { ProjectPhase } from "../projects/project-phase.ts";
 import { FileIcon } from "../ui/icons.tsx";
 import { Splitter } from "../ui/splitter.tsx";
 import { TREE_SPLIT } from "./split.ts";
@@ -33,6 +34,7 @@ const PREFETCH_LIMIT = 40;
 export function LiveCodePane({
   sessionId,
   log,
+  phase,
   files,
   fetchJson,
   active = true,
@@ -43,17 +45,18 @@ export function LiveCodePane({
    * so without this every workspace load would read forty files nobody is going to look at.
    */
   active?: boolean | undefined;
-  /**
-   * The workspace's one subscription, resolved above — which is also where `putAway` and the
-   * set of changed paths are decided, so this pane and the preview cannot disagree about
-   * whether a project is running.
-   */
+  /** The workspace's one subscription, resolved above. */
   log: SessionLog;
+  /**
+   * What the project is doing, decided above by `phaseOf` — the same answer the preview pane
+   * draws, so the two cannot disagree about whether anything is serving this project.
+   */
+  phase: ProjectPhase;
   /** The project's listing, fetched once for the workspace. */
   files: ProjectFiles;
   fetchJson?: FetchJson | undefined;
 }) {
-  const { events, putAway, changed } = log;
+  const { events, changed } = log;
   const { listing, status } = files;
   const [selected, setSelected] = useState<string | undefined>(undefined);
   const {
@@ -82,7 +85,7 @@ export function LiveCodePane({
         <FileTreePane
           listing={listing}
           status={status}
-          putAway={putAway}
+          putAway={phase.kind === "put-away"}
           changed={changed}
           selected={selected}
           onSelect={setSelected}

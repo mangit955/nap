@@ -1,12 +1,11 @@
 "use client";
 
-import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { useEffect, useState } from "react";
 import { NapLoader } from "../brand/nap-loader.tsx";
 import { NapMark } from "../brand/nap-mark.tsx";
 import { pickDifferent } from "../brand/nap-tricks.ts";
 import { turnFailureCopy } from "../errors/failure-copy.ts";
-import { isPutAway, type PreviewState, previewState } from "../preview/preview-state.ts";
+import type { ProjectPhase } from "../projects/project-phase.ts";
 import { AlertIcon } from "../ui/icons.tsx";
 import { useElapsed } from "../ui/use-elapsed.ts";
 import { previewUrlFor } from "../workspace/route-path.ts";
@@ -53,22 +52,13 @@ const WAITING_WORDS = [
 const WORD_MS = 2800;
 
 export type PreviewPaneProps = {
-  events: readonly StoredEvent[];
   /**
-   * When the record the page was opened with last said this project had no sandbox.
-   *
-   * The log is the better source and usually says so itself — every close and every sweep
-   * appends `preview.stopped`. This is for the gap in that: a sandbox the provider reclaimed
-   * on its own timer is announced by nobody until something notices, so the newest event can
-   * still be a `preview.ready` for a host that stopped answering an hour ago.
-   *
-   * A timestamp rather than a flag, because the record is read once and the world moves: see
-   * `isPutAway`.
+   * What the project is doing, decided in one place. See `projects/project-phase.ts` — this pane
+   * used to fold the log itself and then apply two overrides of its own on top, which is how it
+   * came to disagree with the file tree about whether a project was running.
    */
-  putAwayAt?: string | undefined;
+  phase: ProjectPhase;
   onResume?: (() => void) | undefined;
-  /** From the request until the restore announces itself, which can be tens of seconds. */
-  resuming?: boolean | undefined;
   resumeError?: string | undefined;
   /** The page the frame is being sent to. Owned above, since the bar that sets it is up there. */
   route?: string | undefined;
@@ -77,25 +67,21 @@ export type PreviewPaneProps = {
 };
 
 export function PreviewPane({
-  events,
-  putAwayAt,
+  phase,
   onResume,
-  resuming,
   resumeError,
   route = "/",
   reloads = 0,
 }: PreviewPaneProps) {
-  const state = displayState(previewState(events), { events, putAwayAt, resuming });
-
   return (
     // No title bar: the workbench's tabs say which half this is, and the controls that used to
     // sit here — the host, Reload, Open — are in the one bar across the top, where they stay
     // reachable while somebody is looking at the code.
     <Pane id="preview" title="Preview" chrome="none">
-      {/* Narrowed on `state` itself rather than on `ready`, so the waiting half is typed. */}
-      {state.status !== "ready" ? (
+      {/* Narrowed on the phase itself rather than on a flag, so the waiting half is typed. */}
+      {phase.kind !== "running" ? (
         <Waiting
-          state={state}
+          phase={phase}
           {...(onResume === undefined ? {} : { onResume })}
           {...(resumeError === undefined ? {} : { resumeError })}
         />
@@ -105,8 +91,8 @@ export function PreviewPane({
           // button, and being sent to another page. **The tab is deliberately absent** — the
           // panel is hidden rather than unmounted, so glancing at the code cannot reload
           // somebody's app.
-          key={`${state.seq}:${reloads}:${route}`}
-          src={previewUrlFor(state.url, route)}
+          key={`${phase.seq}:${reloads}:${route}`}
+          src={previewUrlFor(phase.url, route)}
           title={PREVIEW_TITLE}
           sandbox={SANDBOX}
           className="h-full w-full border-0 bg-white"
@@ -116,41 +102,13 @@ export function PreviewPane({
   );
 }
 
-/**
- * What the pane shows, which is not always what the log last said.
- *
- * Two overrides, both about the log being behind rather than wrong. A project whose record says
- * it has no sandbox has none, whatever address an *older* `preview.ready` carries — nothing
- * announces a sandbox the provider reclaimed on its own timer. And a restore that has been
- * asked for is under way from the moment it is asked for, which is minutes before the event
- * saying so arrives.
- *
- * **Only a `ready` state is overridden.** A project with no sandbox and nothing asked for yet is
- * a new project, and inviting a first prompt is the right thing to say to that; offering to
- * restore it would imply there was something to restore.
- */
-function displayState(
-  state: PreviewState,
-  overrides: {
-    events: readonly StoredEvent[];
-    putAwayAt?: string | undefined;
-    resuming?: boolean | undefined;
-  },
-): PreviewState {
-  if (overrides.resuming === true) return { status: "starting" };
-  if (state.status === "ready" && isPutAway(overrides.events, overrides.putAwayAt)) {
-    return { status: "stopped" };
-  }
-  return state;
-}
-
 /** Everything that is not the app: nothing asked for yet, coming up, put away, or broken. */
 function Waiting({
-  state,
+  phase,
   onResume,
   resumeError,
 }: {
-  state: Exclude<PreviewState, { status: "ready" }>;
+  phase: Exclude<ProjectPhase, { kind: "running" }>;
   onResume?: (() => void) | undefined;
   resumeError?: string | undefined;
 }) {
@@ -160,7 +118,7 @@ function Waiting({
     // waiting for content rather than as a state the project is in.
     <div className="flex h-full items-center justify-center p-8">
       <div className="flex max-w-sm flex-col items-center gap-3 text-center">
-        {state.status === "idle" && (
+        {phase.kind === "idle" && (
           <>
             {/*
               Deliberately no mark here. The chat pane's empty state is showing one a few
@@ -173,11 +131,11 @@ function Waiting({
           </>
         )}
 
-        {state.status === "starting" && <StartingUp />}
+        {(phase.kind === "starting" || phase.kind === "opening") && <StartingUp />}
 
-        {state.status === "stopped" && <PutAway onResume={onResume} error={resumeError} />}
+        {phase.kind === "put-away" && <PutAway onResume={onResume} error={resumeError} />}
 
-        {state.status === "error" && <PreviewFailure message={state.message} />}
+        {phase.kind === "failed" && <PreviewFailure message={phase.message} />}
       </div>
     </div>
   );

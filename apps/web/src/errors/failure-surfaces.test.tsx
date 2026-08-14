@@ -103,14 +103,10 @@ describe("2 · agent failure", () => {
 describe("3 · preview failure", () => {
   it("says the same thing the transcript says about the same event", () => {
     // Two panes, one `turn.failed`. Before the copy was shared these disagreed, and a single
-    // failure read as two separate problems.
-    nextSeq = 1;
-    const events = [
-      ev("user.message", { text: "build me a todo list" }),
-      ev("turn.failed", { reason: "sandbox_unavailable", message: "no capacity" }),
-    ];
-
-    render(<PreviewPane events={events} />);
+    // failure read as two separate problems. The pane is handed the phase that event produces —
+    // `project-phase.test.ts` holds the mapping — and the assertion is that both reach for the
+    // same words.
+    render(<PreviewPane phase={{ kind: "failed", message: "no capacity" }} />);
 
     expect(screen.getByText(/workspace couldn't start/i)).toBeVisible();
     expect(screen.getByText(/no capacity/)).toBeVisible();

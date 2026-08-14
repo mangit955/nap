@@ -32,6 +32,12 @@ any time, by the reaper or by the provider's own timer, which is why no view may
 snapshot. Not an error and not an empty project: its files are safe, and starting it back up takes
 seconds. The state a project spends most of its life in.
 
+**Phase** — what a project is doing right now, as one named answer: *opening*, *idle*, *starting*,
+*running*, *put away* or *failed*. Reconciles three sources that each know something the others
+cannot — the record, the log, and a request in flight — in a fixed precedence. One function decides
+it (`projects/project-phase.ts`); every pane draws it. Not to be confused with the record's own
+`status` column, which is one of its inputs.
+
 **Snapshot** — the archived filesystem of a put-away project; what a restore rebuilds from.
 
 **Preview** — the user's app, running in a sandbox and reachable at a URL announced by
