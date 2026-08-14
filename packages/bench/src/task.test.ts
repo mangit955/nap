@@ -12,7 +12,8 @@ describe("parseBenchTask", () => {
   it("accepts a well-formed task", () => {
     const parsed = parseBenchTask(valid);
     expect(parsed.ok).toBe(true);
-    if (parsed.ok) expect(parsed.value.checks[0]?.command).toBe("bun run build");
+    const check = parsed.ok ? parsed.value.checks[0] : undefined;
+    if (check?.kind === "command") expect(check.command).toBe("bun run build");
   });
 
   it("rejects a task with no checks, which could never produce a score", () => {
@@ -157,5 +158,74 @@ describe("check defaults", () => {
     const parsed = parseBenchTask({ ...valid, prompt: 42 });
     expect(parsed.ok).toBe(false);
     if (!parsed.ok) expect(parsed.error).toContain("prompt");
+  });
+});
+
+describe("parseBenchTask — a task with browser checks", () => {
+  const browserCheck = {
+    id: "shows-the-list",
+    kind: "browser",
+    viewport: "mobile",
+    steps: [{ step: "expectText", text: "Todos" }],
+  };
+
+  const withPreview = {
+    id: "todo",
+    name: "A todo list",
+    prompt: "Build a todo list.",
+    preview: { port: 5173 },
+    checks: [browserCheck],
+  };
+
+  it("accepts a browser check beside a command one", () => {
+    const parsed = parseBenchTask({
+      ...withPreview,
+      checks: [{ id: "build", kind: "command", command: "bun run build" }, browserCheck],
+    });
+
+    expect(parsed.ok).toBe(true);
+  });
+
+  it("scores a browser check into the browser category by default", () => {
+    const parsed = parseBenchTask(withPreview);
+    if (!parsed.ok) throw new Error(parsed.error);
+    const check = parsed.value.checks[0];
+    if (check === undefined) throw new Error("the check vanished");
+
+    expect(categoryOf(check)).toBe("browser");
+    expect(flagsOf(check)).toEqual({ required: false, build: false });
+  });
+
+  it("lets a browser check score somewhere else, which is the ordinary case", () => {
+    // "The to-do appears when the button is pressed" is functional; "nothing overflows at
+    // 375px" is not. Both are browser checks.
+    const parsed = parseBenchTask({
+      ...withPreview,
+      checks: [{ ...browserCheck, category: "functional" }],
+    });
+    if (!parsed.ok) throw new Error(parsed.error);
+    const check = parsed.value.checks[0];
+    if (check === undefined) throw new Error("the check vanished");
+
+    expect(categoryOf(check)).toBe("functional");
+  });
+
+  it("rejects a browser check on a task with no preview to drive", () => {
+    // The check could never be answered, and discovering that after a paid run would mean a
+    // pile of failures that say nothing about the agent.
+    const { preview, ...withoutPreview } = withPreview;
+    const parsed = parseBenchTask(withoutPreview);
+
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) expect(parsed.error).toContain("preview");
+  });
+
+  it("rejects two checks of different kinds sharing an id", () => {
+    const parsed = parseBenchTask({
+      ...withPreview,
+      checks: [{ id: "shows-the-list", kind: "command", command: "bun run build" }, browserCheck],
+    });
+
+    expect(parsed.ok).toBe(false);
   });
 });

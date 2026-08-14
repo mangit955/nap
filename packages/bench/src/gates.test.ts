@@ -31,6 +31,7 @@ function clean(overrides: Partial<GateInput> = {}): GateInput {
     turn: { ok: true },
     workspace: { ok: true },
     preview: null,
+    browser: { ok: true },
     checks: [check()],
     score: 100,
     ...overrides,
@@ -146,6 +147,53 @@ describe("the preview gate", () => {
     );
     expect(verdict.status).toBe("passed");
     expect(verdict.gates).toEqual([]);
+  });
+});
+
+describe("the browser gate", () => {
+  it("errors with kind browser when the driver would not run", () => {
+    // Not a failed check: an evaluator that cannot see is not evidence about the application,
+    // and recording it as one would be a permanent accusation with nothing behind it.
+    const verdict = applyGates(
+      clean({ browser: { ok: false, reason: "unavailable", detail: "no Chrome at that path" } }),
+    );
+
+    expect(verdict).toEqual({
+      status: "errored",
+      score: null,
+      errorKind: "browser",
+      gates: ["browser_unavailable"],
+      scoreCap: null,
+    });
+  });
+
+  it("blames the configuration when nobody supplied a browser at all", () => {
+    // The same missing browser, a different fault: one is the host, one is the run being set
+    // up to measure something it was never given the means to measure.
+    const verdict = applyGates(
+      clean({ browser: { ok: false, reason: "not_configured", detail: "no factory" } }),
+    );
+
+    expect(verdict.errorKind).toBe("configuration");
+    expect(verdict.gates).toEqual(["browser_unavailable"]);
+  });
+
+  it("says nothing when the run had a browser, or never needed one", () => {
+    expect(applyGates(clean()).gates).toEqual([]);
+  });
+
+  it("is not reached by a run whose preview could not be reached", () => {
+    // Order: an unreachable sandbox explains a run better than the browser it never got to
+    // use, and only one of the two may be reported.
+    const verdict = applyGates(
+      clean({
+        preview: { state: "unreachable", detail: "no answer" },
+        browser: { ok: false, reason: "unavailable", detail: "no Chrome" },
+      }),
+    );
+
+    expect(verdict.gates).toEqual(["preview_unreachable"]);
+    expect(verdict.errorKind).toBe("sandbox");
   });
 });
 

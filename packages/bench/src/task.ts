@@ -20,6 +20,7 @@
 
 import type { Result } from "@nap/shared/result";
 import { z } from "zod";
+import { BrowserCheckSchema } from "./browser-check.ts";
 import { type Category, CategorySchema, DEFAULT_CATEGORY_FOR_KIND } from "./category.ts";
 
 /**
@@ -53,6 +54,18 @@ export const CommandCheckSchema = z.strictObject({
   build: z.boolean().optional(),
 });
 
+/**
+ * Either kind of check a task may declare.
+ *
+ * Discriminated on `kind`, which is why every check carried one even when the schema here had
+ * a single possible value: a task file written before browser checks existed reads identically
+ * after them.
+ */
+export const BenchCheckSchema = z.discriminatedUnion("kind", [
+  CommandCheckSchema,
+  BrowserCheckSchema,
+]);
+
 export const BenchTaskSchema = z
   .strictObject({
     id: z.string().min(1),
@@ -75,23 +88,35 @@ export const BenchTaskSchema = z
       })
       .optional(),
     /** At least one: a task with nothing to check could never produce a score. */
-    checks: z.array(CommandCheckSchema).min(1),
+    checks: z.array(BenchCheckSchema).min(1),
   })
-  // `superRefine` rather than `refine`, because the message has to name the offending id and
-  // only this form is handed the parsed value to build it from.
+  // `superRefine` rather than `refine`, because the messages have to name what is wrong and
+  // only this form is handed the parsed value to build them from.
   .superRefine((task, ctx) => {
     const duplicates = duplicateIds(task.checks.map((check) => check.id));
-    if (duplicates.length === 0) return;
+    if (duplicates.length > 0) {
+      ctx.addIssue({
+        code: "custom",
+        // Named rather than counted: the point of the message is to find the duplicate.
+        message: `checks must have unique ids — duplicated: ${duplicates.join(", ")}`,
+        path: ["checks"],
+      });
+    }
 
-    ctx.addIssue({
-      code: "custom",
-      // Named rather than counted: the point of the message is to find the duplicate.
-      message: `checks must have unique ids — duplicated: ${duplicates.join(", ")}`,
-      path: ["checks"],
-    });
+    // A browser check drives the running application, so a task with one and no preview
+    // declares checks that could never be answered. Caught here, as the module loads, rather
+    // than as an unexplained pile of failures after a paid run.
+    if (task.preview === undefined && task.checks.some((check) => check.kind === "browser")) {
+      ctx.addIssue({
+        code: "custom",
+        message: "a task with browser checks must declare a preview for them to be run against",
+        path: ["preview"],
+      });
+    }
   });
 
 export type CommandCheck = z.infer<typeof CommandCheckSchema>;
+export type BenchCheck = z.infer<typeof BenchCheckSchema>;
 export type BenchTask = z.infer<typeof BenchTaskSchema>;
 
 function duplicateIds(ids: string[]): string[] {
@@ -107,18 +132,26 @@ function duplicateIds(ids: string[]): string[] {
 }
 
 /** The category a check scores into: what it asked for, or the default for its kind. */
-export function categoryOf(check: CommandCheck): Category {
+export function categoryOf(check: BenchCheck): Category {
   return check.category ?? DEFAULT_CATEGORY_FOR_KIND[check.kind];
 }
 
 /** A check's weight, defaulted. Zero is a legitimate choice and is left alone. */
-export function weightOf(check: CommandCheck): number {
+export function weightOf(check: BenchCheck): number {
   return check.weight ?? 1;
 }
 
-/** The two gate flags, defaulted, so nothing downstream has to remember that absent is false. */
-export function flagsOf(check: CommandCheck): { required: boolean; build: boolean } {
-  return { required: check.required ?? false, build: check.build ?? false };
+/**
+ * The two gate flags, defaulted, so nothing downstream has to remember that absent is false.
+ *
+ * Only a command can be the build: the build gate is about whether the application compiles,
+ * and a browser check needs it to have compiled before it can run at all.
+ */
+export function flagsOf(check: BenchCheck): { required: boolean; build: boolean } {
+  return {
+    required: check.required ?? false,
+    build: check.kind === "command" ? (check.build ?? false) : false,
+  };
 }
 
 /**

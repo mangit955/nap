@@ -54,4 +54,10 @@ export const DEFAULT_CATEGORY_WEIGHTS: CategoryWeights = {
  */
 export const DEFAULT_CATEGORY_FOR_KIND = {
   command: "functional",
-} as const satisfies Record<"command", Category>;
+  /**
+   * A browser check defaults to the axis of the same name, and overriding it is again the
+   * ordinary case rather than the exception: "the to-do appears after the button is pressed"
+   * is functional, and "nothing overflows at 375px" is not.
+   */
+  browser: "browser",
+} as const satisfies Record<"command" | "browser", Category>;

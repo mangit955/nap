@@ -63,6 +63,21 @@ benchmark; everything else is a variable.
 it scores into, a weight, and whether it is required. A check produces exactly one of *passed*,
 *failed* or *absent* — and the difference between the last two is load-bearing, see **Gate**.
 
+**Step** — one line of a browser check: an *action* that does something to the running application
+(navigate, click, fill, press, reload, select, resize) or an *assertion* that must hold at that
+point. Actions and assertions are one ordered list rather than two, because almost everything worth
+asserting is a change — the item that appears after the button, the list that shortens under a
+filter, the thing still there after a reload.
+
+**Selector** — how a step names an element, as a value rather than a CSS string: by *role* (with an
+accessible name), by *label*, by *text* or by *test id*. Nobody wrote the markup of a generated
+application, so nobody can write a selector against it; these four are what a page *means* rather
+than how it is built, and they are answerable by a fake.
+
+**Viewport** — the size a browser check runs at, as one of three names — *mobile*, *tablet*,
+*desktop* — defaulting to desktop. A field on the check rather than a kind of its own, so the same
+sequence can be asserted at two sizes without being written twice.
+
 **Category** — which axis of quality a check speaks to: *functional*, *browser*, *visual* or *code*.
 Weighted into the overall score, and the weighting renormalises over the categories that actually
 produced results. A check's category defaults from its kind and can be overridden by the task,
@@ -70,7 +85,8 @@ because `npm run build` and `npm run lint` are both commands and are not both fu
 
 **Gate** — a rule that constrains the outcome regardless of what the checks summed to: a failed turn
 is an error with no score, a preview that never serves fails the run, a failed required check fails
-the run, a build failure fails it and caps the overall score. Gates exist so a broken application
+the run, a browser that could not be started errors it without blaming the agent, a build failure
+fails it and caps the overall score. Gates exist so a broken application
 cannot score well by being good at everything except working. They are an ordered list of pure
 functions, each individually tested.
 

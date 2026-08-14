@@ -36,7 +36,8 @@ export type CheckOutcome = z.infer<typeof CheckOutcomeSchema>;
 
 export const CheckResultSchema = z.strictObject({
   checkId: z.string().min(1),
-  kind: z.literal("command"),
+  /** Which kind of check produced this, so a report can be read without its task beside it. */
+  kind: z.enum(["command", "browser"]),
   /** Which axis this check scored into, after any override the task declared. */
   category: CategorySchema,
   /** Its worth relative to the other checks in the same category. */

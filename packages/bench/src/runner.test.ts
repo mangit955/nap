@@ -10,11 +10,16 @@ import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import type { Runtime, TurnOutcome } from "@nap/shared/ports/runtime";
 import { describe, expect, it } from "vitest";
+import type { BrowserStep } from "./browser-check.ts";
 import { DEFAULT_CATEGORY_WEIGHTS } from "./category.ts";
 import { BUILD_FAILURE_SCORE_CAP } from "./gates.ts";
 import { runBenchTask } from "./runner.ts";
 import { scoreRun } from "./score.ts";
 import { parseBenchTask } from "./task.ts";
+import {
+  ScriptedBrowserSession,
+  type ScriptedBrowserSessionOptions,
+} from "./testing/scripted-browser-session.ts";
 
 const SESSION_ID = "3f2a1c4e-0000-4000-8000-000000000002";
 const TURN_ID = "3f2a1c4e-0000-4000-8000-000000000003";
@@ -656,5 +661,169 @@ describe("runBenchTask — the preview a task asked for", () => {
     await reportOf(task(), withSandbox);
 
     expect(sandbox.commands(withSandbox.sandboxId).some((c) => c.startsWith("curl"))).toBe(false);
+  });
+});
+
+/**
+ * The browser half of a run, composed rather than executed: the executor has its own tests
+ * against the fake, so what matters here is that the runner opens a session per check, points
+ * it at the address the preview probe found, and never quietly drops a check it could not run.
+ */
+describe("runBenchTask — browser checks", () => {
+  const PORT = 5173;
+
+  function browserTask(steps: BrowserStep[] = [{ step: "expectText", text: "Todos" }]) {
+    const parsed = parseBenchTask({
+      id: "todo",
+      name: "A todo list",
+      prompt: "Build a todo list.",
+      preview: { port: PORT },
+      checks: [
+        { id: "build", kind: "command", command: "bun run build" },
+        { id: "shows-the-list", kind: "browser", steps },
+      ],
+    });
+    if (!parsed.ok) throw new Error(parsed.error);
+    return parsed.value;
+  }
+
+  /** A factory that hands out scripted sessions and keeps them, so a test can inspect them. */
+  function browserFactory(options: ScriptedBrowserSessionOptions = {}) {
+    const sessions: ScriptedBrowserSession[] = [];
+    const factory = async () => {
+      const session = new ScriptedBrowserSession(options);
+      sessions.push(session);
+      return { ok: true as const, value: session };
+    };
+    return { factory, sessions };
+  }
+
+  const serving = () =>
+    new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0 }), serves: [PORT] });
+
+  it("drives the check against the address the preview is actually served at", async () => {
+    const sandbox = serving();
+    const withSandbox = await deps(scriptedRuntime(completed), sandbox);
+    const { factory, sessions } = browserFactory({
+      pages: { "/": { elements: [{ text: "Todos" }] } },
+    });
+
+    const report = await reportOf(browserTask(), { ...withSandbox, browser: factory });
+
+    expect(report.status).toBe("passed");
+    expect(report.checks.map((check) => [check.checkId, check.kind, check.outcome])).toEqual([
+      ["build", "command", "passed"],
+      ["shows-the-list", "browser", "passed"],
+    ]);
+
+    const previewUrl = await sandbox.getPreviewUrl(withSandbox.sandboxId, PORT);
+    expect(previewUrl.ok).toBe(true);
+    if (previewUrl.ok) {
+      expect(sessions[0]?.calls.find((call) => call.method === "goto")?.url).toBe(previewUrl.value);
+    }
+  });
+
+  it("opens one session per check and closes it afterwards", async () => {
+    // Isolation is structural here too: a check that passed because of what the previous one
+    // left in local storage is a check measuring the wrong thing.
+    const sandbox = serving();
+    const { factory, sessions } = browserFactory({
+      pages: { "/": { elements: [{ text: "Todos" }] } },
+    });
+
+    const parsed = parseBenchTask({
+      ...browserTask(),
+      checks: [
+        { id: "one", kind: "browser", steps: [{ step: "expectText", text: "Todos" }] },
+        { id: "two", kind: "browser", steps: [{ step: "expectText", text: "Todos" }] },
+      ],
+    });
+    if (!parsed.ok) throw new Error(parsed.error);
+
+    await reportOf(parsed.value, {
+      ...(await deps(scriptedRuntime(completed), sandbox)),
+      browser: factory,
+    });
+
+    expect(sessions).toHaveLength(2);
+    for (const session of sessions) {
+      expect(session.calls.at(-1)?.method).toBe("close");
+    }
+  });
+
+  it("records a browser check as failed, not absent, when the application never started", async () => {
+    // Absent would drop the browser category out of the weighting entirely, so failing to
+    // start would *raise* the score. See docs/adr/0002.
+    const sandbox = new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 7 }) });
+    const { factory, sessions } = browserFactory();
+
+    const report = await reportOf(browserTask(), {
+      ...(await deps(scriptedRuntime(completed), sandbox)),
+      browser: factory,
+    });
+
+    expect(report.status).toBe("failed");
+    expect(report.checks.find((check) => check.kind === "browser")?.outcome).toBe("failed");
+    // And no browser was opened at all: there was nothing at the other end to drive.
+    expect(sessions).toHaveLength(0);
+  });
+
+  it("errors as configuration when a task needs a browser the run was not given", async () => {
+    // Not a failed check: nobody looked at the application, so nothing was observed about it.
+    const report = await reportOf(browserTask(), await deps(scriptedRuntime(completed), serving()));
+
+    expect(report.status).toBe("errored");
+    expect(report.errorKind).toBe("configuration");
+    expect(report.gates).toEqual(["browser_unavailable"]);
+    expect(report.score).toBeNull();
+  });
+
+  it("errors with kind browser when no browser could be started", async () => {
+    const report = await reportOf(browserTask(), {
+      ...(await deps(scriptedRuntime(completed), serving())),
+      browser: async () => ({
+        ok: false as const,
+        error: { code: "unavailable" as const, message: "no Chrome at NAP_CHROME_PATH" },
+      }),
+    });
+
+    expect(report.status).toBe("errored");
+    expect(report.errorKind).toBe("browser");
+    expect(report.gates).toEqual(["browser_unavailable"]);
+  });
+
+  it("errors with kind browser when the driver dies part-way through a check", async () => {
+    const { factory } = browserFactory({
+      fail: (call) =>
+        call.method === "isVisible"
+          ? { code: "unavailable", message: "the page crashed" }
+          : undefined,
+    });
+
+    const report = await reportOf(browserTask(), {
+      ...(await deps(scriptedRuntime(completed), serving())),
+      browser: factory,
+    });
+
+    expect(report.errorKind).toBe("browser");
+    expect(report.gates).toEqual(["browser_unavailable"]);
+  });
+
+  it("fails the check, and not the run, when the application is simply wrong", async () => {
+    // The other side of the line above: the browser worked perfectly and the page was not
+    // what the task asked for, which is the agent's.
+    const { factory } = browserFactory({
+      pages: { "/": { elements: [{ text: "Something else" }] } },
+    });
+
+    const report = await reportOf(browserTask(), {
+      ...(await deps(scriptedRuntime(completed), serving())),
+      browser: factory,
+    });
+
+    expect(report.status).toBe("failed");
+    expect(report.errorKind).toBeNull();
+    expect(report.gates).toEqual([]);
+    expect(report.checks.find((check) => check.kind === "browser")?.detail).toContain("step 1");
   });
 });

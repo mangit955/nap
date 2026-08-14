@@ -37,6 +37,7 @@ export const GATE_IDS = [
   "workspace_missing",
   "preview_unreachable",
   "preview_not_started",
+  "browser_unavailable",
   "nothing_measurable",
   "required_check_failed",
   "build_failed",
@@ -54,6 +55,15 @@ export type GateId = z.infer<typeof GateIdSchema>;
  */
 export const BUILD_FAILURE_SCORE_CAP = 40;
 
+/**
+ * The two ways a run can have no browser, kept apart because they are different people's
+ * problem: nobody supplied one, which is how the run was set up, and one was supplied and
+ * would not drive, which is the host it ran on.
+ */
+export type BrowserAvailability =
+  | { ok: true }
+  | { ok: false; reason: "not_configured" | "unavailable"; detail: string };
+
 export type GateInput = {
   /** How the run's turn ended. */
   turn: { ok: true } | { ok: false; reason: TurnFailureReason };
@@ -61,6 +71,13 @@ export type GateInput = {
   workspace: { ok: true } | { ok: false; missing: "session" | "sandbox" };
   /** The preview verdict, or null when the task never asked for one. */
   preview: PreviewDiagnosis | null;
+  /**
+   * Whether the evaluator had a browser, when the task needed one.
+   *
+   * `ok` covers both "it did" and "no browser check ever asked for one" — the gate below only
+   * has something to say when a check went looking for a browser and did not find one.
+   */
+  browser: BrowserAvailability;
   checks: readonly CheckResult[];
   /** The weighted mean from `scoreRun`, null when nothing produced a result. */
   score: number | null;
@@ -163,6 +180,31 @@ const previewGate: Gate = ({ preview }) => {
 };
 
 /**
+ * A browser check that never got a browser.
+ *
+ * Terminal, and never the agent's: the run reached a point where it was about to measure the
+ * application and could not, which is no different from the sandbox going away. Recording those
+ * checks as failed instead would be the same mistake as scoring a failed turn zero — an
+ * evaluator that cannot see is not evidence of an application that does not work.
+ *
+ * It sits below the preview gate because an application that never started needs no browser to
+ * be judged by: the runner does not ask for one, so this cannot fire on top of it and claim the
+ * more flattering explanation.
+ */
+const browserGate: Gate = ({ browser }) => {
+  if (browser.ok) return null;
+
+  return {
+    gate: "browser_unavailable",
+    status: "errored",
+    // Nobody supplied a browser is a run set up wrong; one that would not start is the host.
+    errorKind: browser.reason === "not_configured" ? "configuration" : "browser",
+    terminal: true,
+    scoreCap: null,
+  };
+};
+
+/**
  * A run where nothing produced a result at all.
  *
  * Not a zero: zero means every check was asked and none passed, and this means none were
@@ -213,6 +255,7 @@ const GATE_LADDER: readonly Gate[] = [
   turnGate,
   workspaceGate,
   previewGate,
+  browserGate,
   measurableGate,
   requiredGate,
   buildGate,

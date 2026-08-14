@@ -23,8 +23,12 @@ import type { EventStore } from "@nap/shared/ports/event-store";
 import type { Runtime } from "@nap/shared/ports/runtime";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SessionStore } from "@nap/shared/ports/session-store";
+import type { Result } from "@nap/shared/result";
+import type { BrowserCheck } from "./browser-check.ts";
+import { runBrowserCheck } from "./browser-executor.ts";
+import type { BrowserSessionFactory } from "./browser-session.ts";
 import { type CategoryWeights, DEFAULT_CATEGORY_WEIGHTS } from "./category.ts";
-import { applyGates, type GateInput } from "./gates.ts";
+import { applyGates, type BrowserAvailability, type GateInput } from "./gates.ts";
 import { deriveRunMetrics } from "./metrics.ts";
 import { diagnosePreview } from "./preview.ts";
 import type { BenchReport, CheckResult } from "./report.ts";
@@ -44,6 +48,16 @@ export type BenchRunnerDeps = {
    * event contract entirely. See docs/adr/0003.
    */
   events: EventStore;
+  /**
+   * Where a browser comes from, when the task's checks need one.
+   *
+   * A factory rather than a session, because isolation between checks is structural here too:
+   * one session per check, closed after it, so nothing a check leaves behind can be what makes
+   * the next one pass. Optional, because most tasks never open a browser — and a task that does
+   * need one and was given no factory errors as a run configured wrong, rather than recording
+   * checks nobody could run as the agent's failures.
+   */
+  browser?: BrowserSessionFactory;
   /**
    * The session this run drives, already created by whoever composed the run.
    *
@@ -101,6 +115,7 @@ export async function runBenchTask(
     turn: outcome.ok ? { ok: true } : { ok: false, reason: outcome.reason },
     workspace: { ok: true },
     preview: null,
+    browser: { ok: true },
     checks,
     score: null,
   };
@@ -169,16 +184,97 @@ export async function runBenchTask(
     if (observations.preview.state === "unreachable") return finish();
   }
 
+  // The address browser checks are driven against. Absent whenever nothing is serving, which
+  // is the case those checks are recorded as failed for rather than run.
+  const previewUrl =
+    observations.preview?.state === "serving" ? observations.preview.url : undefined;
+
   // Every declared check is run and recorded, including when the application did not start:
   // an app that never came up is exactly the run whose checks must not go missing, since a
   // missing check drops its category out of the weighting and *raises* the score.
   for (const check of task.checks) {
-    checks.push(await runCommandCheck(sandbox, sandboxId, check));
+    if (check.kind === "command") {
+      checks.push(await runCommandCheck(sandbox, sandboxId, check));
+      continue;
+    }
+
+    // The application never came up. Its browser checks *failed* — they asked and did not get
+    // what they wanted — and calling them absent would drop the browser category out of the
+    // weighting, which is how failing to start could otherwise raise a run's score. See
+    // docs/adr/0002.
+    if (previewUrl === undefined) {
+      checks.push({
+        checkId: check.id,
+        kind: "browser",
+        category: categoryOf(check),
+        weight: weightOf(check),
+        ...flagsOf(check),
+        outcome: "failed",
+        detail: "the application was not serving, so it could not be driven",
+      });
+      continue;
+    }
+
+    const attempted = await runBrowserCheckWith(deps.browser, check, previewUrl);
+    if (!attempted.ok) {
+      // No browser is the evaluator's problem, not the agent's, and it is terminal: every
+      // remaining browser check would fail for the same reason, and none of them would be
+      // saying anything about the application.
+      observations.browser = attempted.error;
+      return finish();
+    }
+
+    checks.push(attempted.value);
   }
 
   observations.score = scoreRun(checks, weights).overall;
 
   return finish();
+}
+
+/**
+ * Drives one browser check in a session of its own, and closes it afterwards.
+ *
+ * The session is closed on every path, including the one where the check failed: a browser
+ * left open holds a process, and a suite is dozens of checks long. Failing to *obtain* a
+ * session and failing to *drive* one are both returned rather than thrown, because the gate
+ * ladder is the only thing entitled to decide what a run without a browser means.
+ */
+async function runBrowserCheckWith(
+  factory: BrowserSessionFactory | undefined,
+  check: BrowserCheck,
+  baseUrl: string,
+): Promise<Result<CheckResult, BrowserAvailability & { ok: false }>> {
+  if (factory === undefined) {
+    return {
+      ok: false,
+      error: {
+        ok: false,
+        reason: "not_configured",
+        detail: `the task declares browser check "${check.id}" and the run was given no browser`,
+      },
+    };
+  }
+
+  const opened = await factory();
+  if (!opened.ok) {
+    return {
+      ok: false,
+      error: { ok: false, reason: "unavailable", detail: opened.error.message },
+    };
+  }
+
+  try {
+    const result = await runBrowserCheck(opened.value, check, { baseUrl });
+    if (result.ok) return result;
+
+    return {
+      ok: false,
+      error: { ok: false, reason: "unavailable", detail: result.error.message },
+    };
+  } finally {
+    await opened.value.close();
+  }
 }
 
 /**

@@ -14,7 +14,8 @@ describe("the tracer task", () => {
     // `bun run build` in the wrong directory fails on a missing package.json, which would
     // look exactly like an agent that broke the build.
     for (const check of TRACER_TASK.checks) {
-      expect(check.command).toContain(PROJECT_ROOT_PATH);
+      expect(check.kind).toBe("command");
+      if (check.kind === "command") expect(check.command).toContain(PROJECT_ROOT_PATH);
     }
   });
 
