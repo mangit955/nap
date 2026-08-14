@@ -256,6 +256,24 @@ describe("the model picker", () => {
     expect(onModelChange).toHaveBeenCalledWith("anthropic/claude-opus-5");
   });
 
+  it("can change model while the composer has a long message", () => {
+    const { rerender } = show({ models, model: "openai/gpt-oss-20b:free" });
+    type("Build a complete to-do application with saved tasks and a polished mobile layout.");
+
+    expect(() =>
+      rerender(
+        <ChatInput
+          running={false}
+          error={undefined}
+          onSubmit={() => {}}
+          onCancel={() => {}}
+          models={models}
+          model="anthropic/claude-opus-5"
+        />,
+      ),
+    ).not.toThrow();
+  });
+
   it("highlights model choices on hover", () => {
     show({ models, model: "openai/gpt-5.6-luna" });
 

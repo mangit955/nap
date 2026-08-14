@@ -100,19 +100,17 @@ const BaseSchema = z.object({
    * What a turn is allowed to spend, and on what.
    *
    * Every message typed into the chat box is a real model call and a real sandbox, so the
-   * default is the cheap one, and it is the model this project runs everywhere — the harness,
+   * default is the free Laguna model, and it is the model this project runs everywhere — the harness,
    * the API and the provider's own fallback all name it. Raising the ceiling for something
    * people will watch is `NAP_MODEL` and `NAP_EFFORT` on that run, which is one line rather
    * than a code change.
    *
-   * It is priced at roughly a twentieth of a frontier model per token, which is what makes it
-   * the one to debug the agent loop against: most turns during development are spent proving
-   * event ordering and tool sequencing, and that does not need a good model, only one that
-   * returns well-formed tool calls. It is a *fully namespaced* OpenRouter id — a bare name is
+   * It is free and supports tool calls, which makes it suitable for both the demo trial and
+   * everyday agent-loop development. It is a *fully namespaced* OpenRouter id — a bare name is
    * assumed to be Anthropic's, which is how this codebase has always spelled a model, so a
    * namespace is what keeps the default pointed where it says.
    */
-  NAP_MODEL: z.string().min(1).default("openai/gpt-5.6-luna"),
+  NAP_MODEL: z.string().min(1).default("poolside/laguna-s-2.1:free"),
   /**
    * `medium` because it was measured, not guessed — fifteen turns over five prompts at three
    * levels found it cheapest, fastest, and no worse in what the agent produced. It matches
@@ -128,31 +126,26 @@ const BaseSchema = z.object({
    * allowlist is the whole defence: anything not named here is refused before a sandbox is
    * touched or a single token is spent.
    *
-   * The default spans the three prices a turn can have: the cheap OpenAI models the loop is
-   * debugged against, the Claude models worth recording a demo on, and free ones for trying the
-   * thing at no cost at all.
+   * The default includes paid models for people using their own keys, followed by the two free
+   * models available to demo-trial visitors.
    *
    * **Every id here was read from OpenRouter's live catalogue and every one supports tool
    * calling.** That second filter is not a nicety — this agent *is* a tool loop, so a model
-   * without tools cannot take a single step and every turn on it fails identically. Two thirds
-   * of OpenRouter's free models are in that category, which is why the free entries here are a
-   * chosen three rather than everything that costs nothing.
+   * without tools cannot take a single step and every turn on it fails identically.
    */
   NAP_ALLOWED_MODELS: z
     .string()
     .default(
       [
-        // Cheap first, because it is the default and the one most turns should run on.
+        // Demo-trial default, followed by its free reasoning/orchestration fallback.
+        "poolside/laguna-s-2.1:free",
+        "nvidia/nemotron-3-ultra-550b-a55b:free",
+        // Paid choices remain available to people who bring their own keys.
         "openai/gpt-5.6-luna",
         "openai/gpt-5.6-terra",
         "openai/gpt-5.6-sol",
         "anthropic/claude-sonnet-5",
         "anthropic/claude-opus-5",
-        // Free, and therefore the ones to reach for when the point is to try the thing rather
-        // than to get a good answer.
-        "openai/gpt-oss-20b:free",
-        "nvidia/nemotron-3-super-120b-a12b:free",
-        "google/gemma-4-31b-it:free",
       ].join(","),
     )
     .transform((list) =>
@@ -202,7 +195,7 @@ const BaseSchema = z.object({
    * model, so a free-tier turn falling through to it would be this deployment buying tokens
    * for a stranger — silently, and only visible on an invoice.
    */
-  NAP_FREE_MODEL: z.string().min(1).default("openai/gpt-oss-20b:free"),
+  NAP_FREE_MODEL: z.string().min(1).default("poolside/laguna-s-2.1:free"),
 
   /**
    * Where a project's bytes live while no sandbox is holding them.

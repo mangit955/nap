@@ -27,7 +27,7 @@ import type { AppDeps } from "../app.ts";
 import { TurnRegistry } from "../turns/registry.ts";
 
 /** A model that costs nothing, which is what a caller with no key of their own may run. */
-const FREE_MODEL = "openai/gpt-oss-20b:free";
+const FREE_MODEL = "poolside/laguna-s-2.1:free";
 
 /** The signed-in user everything below belongs to. */
 export const OWNER = FAKE_OWNER;

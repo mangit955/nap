@@ -88,10 +88,15 @@ export function ChatInput({
     const measure = ruler.current;
     if (field === null || row === null || measure === null) return;
 
-    // What the controls beside the field take up, measured rather than counted — adding a
-    // control would otherwise move the wrap point silently and leave the field under it.
-    const beside = row.clientWidth - field.clientWidth;
-    const wraps = text.includes("\n") || measure.offsetWidth + 8 > row.clientWidth - beside;
+    // Measure the controls themselves, rather than deriving their width from the field. In the
+    // expanded layout the field spans the whole row, so `row - field` becomes zero; using that
+    // number made a long prompt alternate forever between expanded and collapsed whenever a
+    // model choice changed the picker width.
+    const actions = Array.from(row.children).filter((child) => child !== field);
+    const actionWidth = actions.reduce((total, action) => total + action.clientWidth, 0);
+    const columnGap = Number.parseFloat(getComputedStyle(row).columnGap) || 0;
+    const collapsedWidth = Math.max(0, row.clientWidth - actionWidth - columnGap * actions.length);
+    const wraps = text.includes("\n") || measure.offsetWidth + 8 > collapsedWidth;
     if (wraps !== expanded) setExpanded(wraps);
 
     // Collapsed before measuring, or `scrollHeight` only ever reports the tallest it has been
@@ -100,7 +105,7 @@ export function ChatInput({
     const content = field.scrollHeight;
     field.style.height = `${Math.min(Math.max(content, MIN_HEIGHT), MAX_HEIGHT)}px`;
     field.style.overflowY = content > MAX_HEIGHT ? "auto" : "hidden";
-  }, [text, expanded]);
+  }, [text, expanded, model]);
 
   // Derived, never stored. A menu held in state would survive the text that opened it — so
   // deleting the `@` would leave the list up over a sentence that no longer has a token in it.

@@ -38,6 +38,7 @@ import { TOOL_DEFINITIONS } from "./tools/definitions.ts";
 import { executeTool, type ToolContext } from "./tools/execute.ts";
 
 type Payload<T extends NapEvent["type"]> = NapEventOf<T>["payload"];
+const CANCELLED = Symbol("cancelled");
 
 export type AgentServiceOptions = {
   provider: LLMProvider;
@@ -116,27 +117,39 @@ class Turn {
       // call returns and before any branch below can leave the loop, so the last thought of
       // a turn survives whichever way that turn ended — a refusal and an upstream failure
       // are the two cases where the reasoning is the only account of what happened.
-      const thinking = new DeltaStream((text) =>
-        this.#emit({ type: "agent.thinking", payload: { text } }),
-      );
+      const thinking = new DeltaStream((text) => {
+        if (!this.#cancelled()) this.#emit({ type: "agent.thinking", payload: { text } });
+      });
 
       // The answer's prose, on its own stream. `wrote` is what decides whether the assembled
       // text is emitted afterwards: a model or a route that sends no text deltas would
       // otherwise say nothing at all, and one that sends them would say everything twice.
       let wrote = false;
       const prose = new DeltaStream((text) => {
+        if (this.#cancelled()) return;
         wrote = true;
         this.#emit({ type: "agent.message", payload: { text } });
       });
 
-      const result = await this.#turn.complete({
-        systemPrompt: this.#request.context.systemPrompt,
-        messages: this.#messages,
-        tools: TOOL_DEFINITIONS,
-        onThinkingDelta: (delta) => thinking.push(delta),
-        onTextDelta: (delta) => prose.push(delta),
-        ...(this.#request.signal === undefined ? {} : { signal: this.#request.signal }),
-      });
+      // The provider receives the signal too, but a proxy or upstream stream can take a while
+      // to honour it. Racing here ends our turn immediately, preventing further tool calls or
+      // streamed output while the transport tears itself down in the background.
+      const completed = await stopAware(
+        this.#turn.complete({
+          systemPrompt: this.#request.context.systemPrompt,
+          messages: this.#messages,
+          tools: TOOL_DEFINITIONS,
+          onThinkingDelta: (delta) => thinking.push(delta),
+          onTextDelta: (delta) => prose.push(delta),
+          ...(this.#request.signal === undefined ? {} : { signal: this.#request.signal }),
+        }),
+        this.#request.signal,
+      );
+
+      if (completed === CANCELLED || this.#cancelled()) {
+        return this.#fail("cancelled", "The turn was cancelled.");
+      }
+      const result = completed;
 
       thinking.flush();
       prose.flush();
@@ -256,4 +269,16 @@ class Turn {
       createdAt: this.#now(),
     } as PendingEvent);
   }
+}
+
+/** Resolves promptly on abort even if an upstream streaming request is slow to settle. */
+function stopAware<T>(work: Promise<T>, signal: AbortSignal | undefined): Promise<T | typeof CANCELLED> {
+  if (signal === undefined) return work;
+  if (signal.aborted) return Promise.resolve(CANCELLED);
+
+  return new Promise((resolve, reject) => {
+    const stopped = () => resolve(CANCELLED);
+    signal.addEventListener("abort", stopped, { once: true });
+    void work.then(resolve, reject).finally(() => signal.removeEventListener("abort", stopped));
+  });
 }
