@@ -16,7 +16,6 @@ let objects: InMemoryObjectStore;
 let snapshots: InMemorySnapshotStore;
 let sandboxId: string;
 
-/** Every command teardown runs, answered the way a real project would answer it. */
 beforeEach(async () => {
   sandbox = scriptGit(new InMemorySandboxManager(), { sha: SHA });
   objects = new InMemoryObjectStore();

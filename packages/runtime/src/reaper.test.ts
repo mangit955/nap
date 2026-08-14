@@ -26,7 +26,6 @@ let projects: InMemoryProjectSandboxStore;
 let events: InMemoryEventStore;
 let sandboxId: string;
 
-/** Every command a teardown runs, answered the way a real project would answer it. */
 beforeEach(async () => {
   sandbox = scriptGit(new InMemorySandboxManager(), { sha: SHA });
   objects = new InMemoryObjectStore();

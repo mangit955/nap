@@ -16,6 +16,11 @@ import { SessionQueue } from "./session-queue.ts";
 const SESSION = "2a3f8a24-6c1b-4e0e-9b6f-3a5c0a1d9e77";
 const OTHER = "9b6f3a5c-0a1d-4e77-8a24-6c1b4e0e2a3f";
 
+/** Lets every already-scheduled continuation run, which a microtask tick alone does not. */
+function flush(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 /** A piece of work whose completion the test controls. */
 function deferred() {
   let release!: () => void;
@@ -115,22 +120,39 @@ describe("what the queue keeps", () => {
 
     held.release();
     await running;
-    await Promise.resolve();
+    await flush();
 
     expect(queue.size).toBe(0);
   });
 
   it("keeps the entry while work is still queued behind", async () => {
+    // The half the previous test cannot see: the first piece of work finishing must not drop the
+    // entry while a second is still waiting on it, or the next caller starts beside work that is
+    // still running — which is the double sandbox this queue exists to prevent.
     const queue = new SessionQueue();
-    const held = deferred();
+    const first = deferred();
+    const second = deferred();
+    const started: string[] = [];
 
-    const first = queue.run(SESSION, () => held.done);
-    const second = queue.run(SESSION, async () => {});
+    const one = queue.run(SESSION, async () => {
+      started.push("one");
+      await first.done;
+    });
+    const two = queue.run(SESSION, async () => {
+      started.push("two");
+      await second.done;
+    });
 
-    held.release();
-    await Promise.all([first, second]);
-    await Promise.resolve();
+    first.release();
+    await flush();
 
+    // The first has finished and the second is running: still exactly one entry, still held.
+    expect(started).toEqual(["one", "two"]);
+    expect(queue.size).toBe(1);
+
+    second.release();
+    await Promise.all([one, two]);
+    await flush();
     expect(queue.size).toBe(0);
   });
 });

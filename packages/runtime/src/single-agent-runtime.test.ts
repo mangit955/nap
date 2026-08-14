@@ -1,3 +1,6 @@
+import { ScriptedAgent } from "@nap/agent/testing/scripted-agent";
+import { StubContextEngine } from "@nap/context/testing/stub-context-engine";
+import type { AgentService } from "@nap/shared/ports/agent-service";
 /**
  * What a turn did to the world, asserted through the log it left and the commands it ran.
  *
@@ -23,8 +26,6 @@ import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store"
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { scriptGit } from "@nap/sandbox/testing/script-git";
 import { NapEventSchema, type NapEventType } from "@nap/shared/events";
-import type { AgentService, AgentTurnRequest } from "@nap/shared/ports/agent-service";
-import type { ContextEngine, ContextRequest } from "@nap/shared/ports/context-engine";
 import type { EventStore, PendingEvent, StoredEvent } from "@nap/shared/ports/event-store";
 import type { ObjectStore } from "@nap/shared/ports/object-store";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
@@ -37,65 +38,12 @@ const SESSION_ID = "2a3f8a24-6c1b-4e0e-9b6f-3a5c0a1d9e77";
 const PROJECT_ID = "4d5e6f70-1a2b-4c3d-8e9f-0a1b2c3d4e5f";
 const COMMIT_SHA = "9e107d9d372bb6826bd81d3542a419d6c2b0f5a1";
 
-/** Every command `commitAll` issues, answered so a turn can commit without a real git. */
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function commitCommands(manager: InMemorySandboxManager, sandboxId: string): string[] {
   return manager.commands(sandboxId).filter((command) => /git .*commit -m/.test(command));
-}
-
-/**
- * An `AgentService` that emits a scripted list of events instead of driving a model.
- *
- * The runtime's job is what happens *around* the agent — acquiring a sandbox, persisting,
- * publishing, committing — so the agent is scripted here for the same reason the model is
- * scripted a layer below: a test that also has to make a model behave is asserting on two
- * things at once.
- */
-class ScriptedAgent implements AgentService {
-  calls = 0;
-  requests: AgentTurnRequest[] = [];
-  /** Runs before the scripted events, so a test can drive concurrency or throw. */
-  before?: (request: AgentTurnRequest) => Promise<void>;
-
-  constructor(
-    private readonly script: (
-      request: AgentTurnRequest,
-    ) => { type: NapEventType; payload: unknown }[] = () => [{ type: "turn.started", payload: {} }],
-    private readonly finalizes = false,
-  ) {}
-
-  async runTurn(request: AgentTurnRequest): Promise<void> {
-    this.calls += 1;
-    this.requests.push(request);
-    await this.before?.(request);
-
-    for (const event of this.script(request)) {
-      if (event.type === "turn.completed" && this.finalizes) {
-        const finalized = await request.finalize?.();
-        request.onEvent({
-          type: "turn.completed",
-          sessionId: request.sessionId,
-          turnId: request.turnId,
-          createdAt: "2026-01-01T00:00:00.000Z",
-          payload: {
-            usage: { inputTokens: 1, outputTokens: 2 },
-            durationMs: 5,
-            commitSha: finalized?.commitSha ?? null,
-          },
-        });
-        continue;
-      }
-      request.onEvent({
-        ...event,
-        sessionId: request.sessionId,
-        turnId: request.turnId,
-        createdAt: "2026-01-01T00:00:00.000Z",
-      } as PendingEvent);
-    }
-  }
 }
 
 /** A sandbox manager that cannot hand out sandboxes, for the acquisition-failure path. */
@@ -131,19 +79,6 @@ const HAPPY_SCRIPT = () => [
     },
   },
 ];
-
-class StubContextEngine implements ContextEngine {
-  requests: ContextRequest[] = [];
-
-  async build(request: ContextRequest) {
-    this.requests.push(request);
-    return {
-      systemPrompt: "system",
-      messages: [{ role: "user" as const, content: request.userMessage }],
-      estimatedTokens: 3,
-    };
-  }
-}
 
 /** Records `("append"|"publish", type)` as it happens, because order is invisible after. */
 class OrderRecorder {

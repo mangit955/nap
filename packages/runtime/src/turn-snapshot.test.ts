@@ -1,4 +1,4 @@
-import { ScriptedAgent } from "@nap/agent/testing/scripted-agent";
+import { type AgentScript, completedTurn, ScriptedAgent } from "@nap/agent/testing/scripted-agent";
 import { NoopMemoryProvider } from "@nap/context/noop-memory-provider";
 import { StubContextEngine } from "@nap/context/testing/stub-context-engine";
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
@@ -27,21 +27,8 @@ const SESSION_ID = "2a3f8a24-6c1b-4e0e-9b6f-3a5c0a1d9e77";
 const PROJECT_ID = "4d5e6f70-1a2b-4c3d-8e9f-0a1b2c3d4e5f";
 const COMMIT_SHA = "9e107d9d372bb6826bd81d3542a419d6c2b0f5a1";
 
-/** Everything a turn and a snapshot run against git, answered as a real project would. */
-/** A turn as a list of events to emit. Widened so the happy and failing scripts share a type. */
-type Script = () => { type: string; payload: unknown }[];
-
-const completed =
-  (commitSha: string | null): Script =>
-  () => [
-    { type: "turn.started", payload: {} },
-    {
-      type: "turn.completed",
-      payload: { usage: { inputTokens: 10, outputTokens: 2 }, durationMs: 5, commitSha },
-    },
-  ];
-
-const failed: Script = () => [
+/** A turn that ends badly, which is what must leave the snapshot store untouched. */
+const failed: AgentScript = () => [
   { type: "turn.started", payload: {} },
   { type: "turn.failed", payload: { reason: "internal", message: "the model fell over" } },
 ];
@@ -60,7 +47,7 @@ beforeEach(() => {
   sessions = new InMemorySessionStore([{ sessionId: SESSION_ID, projectId: PROJECT_ID }]);
 });
 
-function runtime(script: Script, durable = true) {
+function runtime(script: AgentScript, durable = true) {
   return new SingleAgentRuntime({
     sessions,
     sandbox,
@@ -73,7 +60,7 @@ function runtime(script: Script, durable = true) {
   });
 }
 
-const run = (script: Script = completed(COMMIT_SHA), durable = true) =>
+const run = (script: AgentScript = () => completedTurn(COMMIT_SHA), durable = true) =>
   runtime(script, durable).runTurn({ sessionId: SESSION_ID, message: "add a delete button" });
 
 describe("a turn that changed something", () => {
@@ -114,7 +101,7 @@ describe("a turn with nothing to store", () => {
   it("writes no snapshot when the turn changed no files", async () => {
     // `commitSha: null` means there was no commit. Bundling again would upload a byte-identical
     // copy of the last one and give the project a second row pointing at the same tree.
-    await run(completed(null));
+    await run(() => completedTurn(null));
 
     expect(snapshots.all()).toEqual([]);
     expect(objects.puts).toBe(0);
@@ -133,7 +120,7 @@ describe("a turn with nothing to store", () => {
   it("attempts nothing when the runtime was built without somewhere to put it", async () => {
     // `objects`/`snapshots` are optional, and half of the pair is refused at construction. A
     // runtime with neither must still run turns — it just cannot make them durable.
-    const outcome = await run(completed(COMMIT_SHA), false);
+    const outcome = await run(() => completedTurn(COMMIT_SHA), false);
 
     expect(outcome.ok).toBe(true);
     expect(objects.puts).toBe(0);

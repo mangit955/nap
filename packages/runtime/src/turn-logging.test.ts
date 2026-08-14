@@ -1,4 +1,4 @@
-import { ScriptedAgent } from "@nap/agent/testing/scripted-agent";
+import { type AgentScript, ScriptedAgent } from "@nap/agent/testing/scripted-agent";
 import { NoopMemoryProvider } from "@nap/context/noop-memory-provider";
 import { StubContextEngine } from "@nap/context/testing/stub-context-engine";
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
@@ -45,9 +45,8 @@ function recorder(bindings: Record<string, unknown> = {}, lines: Line[] = []) {
   return { logger, lines };
 }
 
-/** Every command `commitAll` issues, answered so a turn can commit without a real git. */
 /** Emits a scripted turn, including a failing tool call, so a whole shape can be asserted. */
-const A_WHOLE_TURN = () => [
+const A_WHOLE_TURN: AgentScript = () => [
   { type: "turn.started", payload: {} },
   {
     type: "tool.call",

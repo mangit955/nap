@@ -51,6 +51,13 @@ import { captureThumbnail } from "./turn-thumbnail.ts";
 
 type Payload<T extends NapEvent["type"]> = NapEventOf<T>["payload"];
 
+/** What a turn or a resume works within: whose project it is, and where its events go. */
+type TurnScope = {
+  session: SessionRecord;
+  sink: EventSink;
+  emit: <T extends NapEvent["type"]>(type: T, payload: Payload<T>) => void;
+};
+
 /** Git's own convention for a subject line, and what every log viewer is laid out for. */
 const COMMIT_SUBJECT_LIMIT = 72;
 
@@ -132,7 +139,6 @@ export class SingleAgentRuntime implements Runtime {
   readonly #previewTimeoutMs: number;
   readonly #sandboxTtlMs: number;
   readonly #restore: RestoreDeps | null;
-  /** The tail of each session's queue. Absent means nothing is running for that session. */
   /** One turn at a time per session; see `session-queue.ts`. */
   readonly #queue = new SessionQueue();
 
@@ -187,20 +193,40 @@ export class SingleAgentRuntime implements Runtime {
     );
   }
 
-  async #resumeLogged(sessionId: string, turnId: string): Promise<ResumeOutcome> {
+  /**
+   * What a turn and a resume both start with: the session, the log context, and somewhere to put
+   * events.
+   *
+   * `null` when there is no such session — the caller turns that into its own kind of failure,
+   * because a turn reports one and a resume reports the other. **Neither emits an event for it:**
+   * an event needs a session to belong to, and there is nobody subscribed to one that was never
+   * opened.
+   */
+  async #open(sessionId: string, turnId: string): Promise<TurnScope | null> {
     const session = await this.#options.sessions.get(sessionId);
+    if (session === null) return null;
 
-    if (session === null) {
-      getLogger().warn("resume refused: no such session");
-      return { ok: false, reason: "internal", message: `unknown session ${sessionId}` };
-    }
-
+    // Known only now, and worth having on every line below: a project is what an operator is
+    // asked about, and a session is an implementation detail of one.
     addLogContext({ projectId: session.projectId });
 
     const sink = new EventSink(this.#options.events, this.#options.bus);
     const emit = <T extends NapEvent["type"]>(type: T, payload: Payload<T>): void => {
       sink.emit({ type, payload, sessionId, turnId, createdAt: this.#now() } as PendingEvent);
     };
+
+    return { session, sink, emit };
+  }
+
+  async #resumeLogged(sessionId: string, turnId: string): Promise<ResumeOutcome> {
+    const scope = await this.#open(sessionId, turnId);
+
+    if (scope === null) {
+      getLogger().warn("resume refused: no such session");
+      return { ok: false, reason: "internal", message: `unknown session ${sessionId}` };
+    }
+
+    const { session, sink, emit } = scope;
 
     try {
       const acquired = await this.#acquire(session);
@@ -244,12 +270,10 @@ export class SingleAgentRuntime implements Runtime {
   }
 
   async #runTurnLogged(request: TurnRequest, turnId: string): Promise<TurnOutcome> {
-    const session = await this.#options.sessions.get(request.sessionId);
+    const scope = await this.#open(request.sessionId, turnId);
 
-    if (session === null) {
+    if (scope === null) {
       getLogger().warn("turn refused: no such session");
-      // No event, deliberately. An event needs a session to belong to — the log's rows point
-      // at one — and there is nobody subscribed to a session that was never opened.
       return {
         ok: false,
         turnId,
@@ -258,21 +282,8 @@ export class SingleAgentRuntime implements Runtime {
       };
     }
 
-    // Known only now, and worth having on every line below: a project is what an operator is
-    // asked about, and a session is an implementation detail of one.
-    addLogContext({ projectId: session.projectId });
+    const { session, sink, emit } = scope;
     getLogger().info({ chars: request.message.length }, "turn started");
-
-    const sink = new EventSink(this.#options.events, this.#options.bus);
-    const emit = <T extends NapEvent["type"]>(type: T, payload: Payload<T>): void => {
-      sink.emit({
-        type,
-        payload,
-        sessionId: request.sessionId,
-        turnId,
-        createdAt: this.#now(),
-      } as PendingEvent);
-    };
 
     try {
       const sandboxId = await this.#acquire(session);

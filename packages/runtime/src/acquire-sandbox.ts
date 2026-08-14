@@ -122,9 +122,7 @@ export function restoreDepsOf(options: {
   const { objects, snapshots } = options;
   if (objects === undefined && snapshots === undefined) return null;
   if (objects === undefined || snapshots === undefined) {
-    throw new Error(
-      "SingleAgentRuntime needs both `objects` and `snapshots` to restore a project, or neither.",
-    );
+    throw new Error("Restoring a project needs both `objects` and `snapshots`, or neither.");
   }
   return { objects, snapshots };
 }

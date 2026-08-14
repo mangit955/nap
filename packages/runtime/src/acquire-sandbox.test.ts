@@ -38,23 +38,27 @@ function deps(sandbox: SandboxManager, options: { restore?: boolean } = {}) {
 /**
  * A manager with one method watched or replaced.
  *
- * Spread rather than `Object.create`: the fake keeps its state in private fields, and a delegate
- * whose prototype is the instance fails on the first access with "Receiver must be an instance of".
- * Every method is bound to the original, so the copy shares its sandboxes.
+ * Bound method by method rather than `Object.create`: the fake keeps its state in private fields,
+ * and a delegate whose prototype is the instance fails on the first access with "Receiver must be
+ * an instance of". Every method is bound to the original, so the copy shares its sandboxes.
+ *
+ * **No cast.** An earlier version asserted the shape with `as unknown as SandboxManager`, which
+ * would have let the port grow an eleventh method and leave this fake handing back `undefined` at
+ * runtime. Written this way, that fails to compile here instead.
  */
 function wrap(manager: InMemorySandboxManager, over: Partial<SandboxManager>): SandboxManager {
-  const bound = {
-    create: manager.create.bind(manager),
-    resume: manager.resume.bind(manager),
-    destroy: manager.destroy.bind(manager),
-    extendTimeout: manager.extendTimeout.bind(manager),
-    writeFile: manager.writeFile.bind(manager),
-    readFile: manager.readFile.bind(manager),
-    listFiles: manager.listFiles.bind(manager),
-    exec: manager.exec.bind(manager),
-    getPreviewUrl: manager.getPreviewUrl.bind(manager),
-    waitForPreview: manager.waitForPreview.bind(manager),
-  } as unknown as SandboxManager;
+  const bound: SandboxManager = {
+    create: (projectId) => manager.create(projectId),
+    resume: (sandboxId) => manager.resume(sandboxId),
+    destroy: (sandboxId) => manager.destroy(sandboxId),
+    extendTimeout: (sandboxId, ms) => manager.extendTimeout(sandboxId, ms),
+    writeFile: (sandboxId, path, contents) => manager.writeFile(sandboxId, path, contents),
+    readFile: (sandboxId, path) => manager.readFile(sandboxId, path),
+    listFiles: (sandboxId, options) => manager.listFiles(sandboxId, options),
+    exec: (sandboxId, command, options) => manager.exec(sandboxId, command, options),
+    getPreviewUrl: (sandboxId, port) => manager.getPreviewUrl(sandboxId, port),
+    waitForPreview: (sandboxId, port, options) => manager.waitForPreview(sandboxId, port, options),
+  };
 
   return { ...bound, ...over };
 }
