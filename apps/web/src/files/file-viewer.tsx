@@ -115,7 +115,7 @@ export function FileViewer({
         </div>
       </div>
 
-      <div className="nap-scroll min-h-0 flex-1 overflow-auto">
+      <div className="nap-scroll relative min-h-0 flex-1 overflow-auto">
         {file === undefined ? (
           <p className="p-4 text-muted text-sm">
             {status === "loading" ? "Loading…" : "Couldn't read this file."}

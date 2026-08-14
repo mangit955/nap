@@ -16,6 +16,10 @@ import type { ReactNode } from "react";
  * The title bar is a plain `<div>` on purpose. `<header>` here would be legal HTML, but it
  * maps to the `banner` role in enough implementations that the page ends up advertising
  * several banners, and the one that matters — the app's own — stops being findable.
+ *
+ * Both boxes below are `relative` because both of them clip, and a `static` box clips only the
+ * descendants it is the containing block for — which excludes every absolutely positioned one,
+ * `sr-only` labels included. See `useDocumentScrollLock`.
  */
 export function Pane({
   id,
@@ -36,7 +40,7 @@ export function Pane({
   return (
     <section
       aria-labelledby={headingId}
-      className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-panel"
+      className="relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-panel"
     >
       {chrome === "bar" ? (
         <div className="flex h-11 shrink-0 items-center justify-between border-edge border-b px-4">
@@ -50,7 +54,7 @@ export function Pane({
           {title}
         </h2>
       )}
-      <div className="min-h-0 flex-1 overflow-auto">{children}</div>
+      <div className="relative min-h-0 flex-1 overflow-auto">{children}</div>
     </section>
   );
 }

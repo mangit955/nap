@@ -111,7 +111,7 @@ export function FileTreePane({
           )}
         </div>
 
-        <div className="nap-scroll min-h-0 flex-1 overflow-auto py-1.5">
+        <div className="nap-scroll relative min-h-0 flex-1 overflow-auto py-1.5">
           {listing === undefined || listing.files.length === 0 ? (
             <Empty listing={listing} status={status} putAway={putAway} />
           ) : tree.length === 0 ? (

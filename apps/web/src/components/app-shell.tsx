@@ -7,6 +7,7 @@ import { useSessionLog } from "../hooks/use-session-log.ts";
 import { phaseOf, recordState } from "../projects/project-phase.ts";
 import { type OpenProject, useProject } from "../projects/use-projects.ts";
 import { Splitter } from "../ui/splitter.tsx";
+import { useDocumentScrollLock } from "../ui/use-document-scroll-lock.ts";
 import { LiveCodePane } from "../workspace/code-pane.tsx";
 import { CHAT_SPLIT, DEFAULT_CHAT_WIDTH } from "../workspace/split.ts";
 import type { WorkbenchTab } from "../workspace/tabs.ts";
@@ -30,6 +31,14 @@ import { PreviewPane } from "./preview-pane.tsx";
  * transcript used to scroll the entire page, top bar and all, out of the window. The two
  * `overflow-hidden`s below are what make that impossible rather than unlikely: scrolling belongs to
  * the iframe, the file viewer, the tree and the transcript, and nowhere else.
+ *
+ * **And a clamp only clips what it is the containing block for**, which is the half that was
+ * missing. Both boxes were `static`, so every absolutely positioned descendant — which is every
+ * `sr-only` label in the transcript, and each pane's own heading — resolved against the initial
+ * containing block and sailed straight through both. One of them below the fold is enough to
+ * lengthen the document, and then the window scrolls and takes the header with it. `relative` is
+ * what makes the clamps mean what the paragraph above claims; `useDocumentScrollLock` catches
+ * whatever a later pane invents.
  *
  * **The project, its log and its file listing are resolved once, here.** Each pane used to
  * subscribe for itself, which was three sockets carrying identical frames and two panes free to
@@ -143,10 +152,12 @@ export function AppShell({
   const [route, setRoute] = useState("/");
   const { width, containerRef, onGrab, onKeyDown } = usePaneWidth(CHAT_SPLIT, DEFAULT_CHAT_WIDTH);
 
+  useDocumentScrollLock();
+
   return (
     // Scoped here rather than as `body { overflow: hidden }`: the landing page and the welcome
     // step are full-length scrolling documents, and a global rule would break both.
-    <div className="flex h-dvh flex-col overflow-hidden bg-surface">
+    <div className="relative flex h-dvh flex-col overflow-hidden bg-surface">
       <WorkspaceHeader
         projectName={headerNote(status, project?.name)}
         // Only once there is a real record. While the bar is showing "opening…" or "this project
@@ -166,7 +177,7 @@ export function AppShell({
         ref={containerRef}
         // The second clamp, and not a redundant one: this catches whatever a pane leaks, the root
         // above catches the header and anything drawn outside this grid.
-        className="grid min-h-0 flex-1 overflow-hidden"
+        className="relative grid min-h-0 flex-1 overflow-hidden"
         style={{ gridTemplateColumns: chatOpen ? `${width}px auto 1fr` : "1fr" }}
       >
         {chatOpen && (

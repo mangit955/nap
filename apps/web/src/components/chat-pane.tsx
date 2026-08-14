@@ -90,7 +90,7 @@ export function ChatPane({
           ref={scroller} // `overflow-x-hidden`, not `auto`: tool output is arbitrary text, and a long line
           // belongs scrolling inside its own `OutputBlock` rather than dragging the whole
           // conversation sideways.
-          className="nap-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden"
+          className="nap-scroll relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden"
         >
           {empty && loading ? (
             <TranscriptSkeleton />
