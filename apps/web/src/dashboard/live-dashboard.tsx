@@ -28,6 +28,7 @@ import { authClient } from "../auth/client.ts";
 import { useModels } from "../chat/use-models.ts";
 import { useProjects } from "../projects/use-projects.ts";
 import { useStartProject } from "../projects/use-start-project.ts";
+import { NapLoader } from "../brand/nap-loader.tsx";
 import { Dashboard } from "./dashboard.tsx";
 import { DashboardHero } from "./dashboard-hero.tsx";
 import {
@@ -47,6 +48,22 @@ export function LiveDashboard() {
   useEffect(() => {
     if (!isPending && session == null) router.replace("/sign-in");
   }, [isPending, session, router]);
+
+  // The session is the gate in front of the whole dashboard. Keeping the awake mark on screen
+  // while it resolves prevents the post-sign-in route from looking like a failed navigation.
+  if (isPending) {
+    return (
+      <main
+        aria-label="Loading dashboard"
+        aria-live="polite"
+        className="flex min-h-dvh flex-col items-center justify-center gap-4 bg-surface text-ink-2"
+        role="status"
+      >
+        <NapLoader className="size-20" />
+        <p className="text-sm">Getting your workspace ready…</p>
+      </main>
+    );
+  }
 
   // **The page below is mounted only once there is somebody to draw it for**, and that is about
   // requests rather than about looks: `useProjects` asks on mount, the list endpoint answers 401

@@ -10,6 +10,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  */
 
 const push = vi.fn();
+const replace = vi.fn();
+const useSession = vi.fn();
 const signInEmail = vi.fn();
 const signUpEmail = vi.fn();
 const signInSocial = vi.fn();
@@ -18,7 +20,7 @@ const signInAnonymous = vi.fn();
 const ways = { socialProviders: [] as string[], demo: false };
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push, refresh: vi.fn() }),
+  useRouter: () => ({ push, replace, refresh: vi.fn() }),
 }));
 
 vi.mock("./client.ts", () => ({
@@ -26,6 +28,7 @@ vi.mock("./client.ts", () => ({
   AFTER_DEMO_SIGN_IN: "/dashboard",
   returnTo: (path: string) => new URL(path, window.location.origin).toString(),
   authClient: {
+    useSession: () => useSession(),
     signIn: {
       email: (...args: unknown[]) => signInEmail(...args),
       social: (...args: unknown[]) => signInSocial(...args),
@@ -51,6 +54,7 @@ function submit(email = "ada@example.com", password = "a good password") {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  useSession.mockReturnValue({ data: null, isPending: false });
   ways.socialProviders = [];
   ways.demo = false;
   window.history.replaceState(null, "", "/sign-in");
@@ -150,6 +154,25 @@ describe("the way in with no account", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Try for free" }));
 
     await vi.waitFor(() => expect(push).toHaveBeenCalledWith("/dashboard"));
+  });
+
+  it("holds the free-trial button until the current session is known", async () => {
+    ways.demo = true;
+    useSession.mockReturnValue({ data: undefined, isPending: true });
+    render(<LiveSignIn />);
+
+    expect(await screen.findByRole("button", { name: "Try for free" })).toBeDisabled();
+    expect(signInAnonymous).not.toHaveBeenCalled();
+  });
+
+  it("continues an existing free trial instead of attempting a second anonymous sign-in", async () => {
+    ways.demo = true;
+    useSession.mockReturnValue({ data: { user: { isAnonymous: true } }, isPending: false });
+    render(<LiveSignIn />);
+
+    await vi.waitFor(() => expect(replace).toHaveBeenCalledWith("/dashboard"));
+
+    expect(signInAnonymous).not.toHaveBeenCalled();
   });
 
   it("says so and frees the button when the demo cannot be reached", async () => {

@@ -76,6 +76,8 @@ export type SignInFormProps = {
    */
   notice?: string | undefined;
   submitting?: boolean;
+  /** Keep the guest door closed until we know whether this browser already has a guest session. */
+  demoPending?: boolean;
 };
 
 /**
@@ -137,6 +139,7 @@ export function SignInForm({
   error,
   notice,
   submitting = false,
+  demoPending = false,
 }: SignInFormProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -318,7 +321,7 @@ export function SignInForm({
                   <button
                     type="button"
                     onClick={onDemo}
-                    disabled={submitting}
+                    disabled={submitting || demoPending}
                     className={`${PILL} flex-1 border border-[var(--s-border-1)] text-[var(--s-text-body)] transition-colors hover:border-[var(--s-text-subtle)]`}
                   >
                     Try for free

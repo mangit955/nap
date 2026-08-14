@@ -46,6 +46,7 @@ export function LiveSignIn({
   initialMode?: SignInMode;
 } = {}) {
   const router = useRouter();
+  const { data: session, isPending: sessionPending } = authClient.useSession();
   // Which half the form opens on, not which half it stays on: the link between the two is still
   // there, so arriving on the wrong one costs a click rather than a navigation.
   const [mode, setMode] = useState<SignInMode>(initialMode);
@@ -55,6 +56,13 @@ export function LiveSignIn({
     social: [],
     demo: false,
   });
+
+  // A guest session is still a session. Better Auth correctly refuses to mint a second anonymous
+  // identity for the same browser, so a person returning to this page should continue their
+  // existing free trial instead of being left with the provider's raw error.
+  useEffect(() => {
+    if (session != null) router.replace(AFTER_DEMO_SIGN_IN);
+  }, [session, router]);
 
   useEffect(() => {
     let cancelled = false;
@@ -128,6 +136,13 @@ export function LiveSignIn({
    * putting it in front of them anyway would make "try it" mean "fill in a form".
    */
   const startDemo = async () => {
+    // The effect above normally moves an existing guest away before this can be pressed. This
+    // check also covers the click that lands in the small gap before the effect gets to run.
+    if (session != null) {
+      router.replace(AFTER_DEMO_SIGN_IN);
+      return;
+    }
+
     setSubmitting(true);
     setError(undefined);
 
@@ -179,6 +194,7 @@ export function LiveSignIn({
       onDemo={() => void startDemo()}
       socialProviders={ways.social}
       demoEnabled={ways.demo}
+      demoPending={sessionPending}
       error={error}
       submitting={submitting}
     />
