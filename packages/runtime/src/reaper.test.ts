@@ -3,6 +3,7 @@ import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { InMemoryProjectSandboxStore } from "@nap/db/testing/in-memory-project-sandbox-store";
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
+import { scriptGit } from "@nap/sandbox/testing/script-git";
 import type { IdleProject } from "@nap/shared/ports/project-sandbox-store";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -25,18 +26,8 @@ let projects: InMemoryProjectSandboxStore;
 let events: InMemoryEventStore;
 let sandboxId: string;
 
-/** Every command a teardown runs, answered the way a real project would answer it. */
-function scriptGit(manager: InMemorySandboxManager): InMemorySandboxManager {
-  return manager
-    .script(/git rev-parse HEAD/, { exitCode: 0, stdout: `${SHA}\n` })
-    .script(/git bundle create/, {
-      exitCode: 0,
-      stdout: Buffer.from("PACK-bundle-bytes").toString("base64"),
-    });
-}
-
 beforeEach(async () => {
-  sandbox = scriptGit(new InMemorySandboxManager());
+  sandbox = scriptGit(new InMemorySandboxManager(), { sha: SHA });
   objects = new InMemoryObjectStore();
   snapshots = new InMemorySnapshotStore();
   events = new InMemoryEventStore();

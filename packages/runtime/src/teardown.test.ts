@@ -1,6 +1,7 @@
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
 import { TEMPLATE_WORKDIR } from "@nap/sandbox/template";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
+import { scriptGit } from "@nap/sandbox/testing/script-git";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
@@ -10,23 +11,13 @@ import { captureSnapshot, snapshotKey, tearDownProject } from "./teardown.ts";
 const PROJECT = "3e0fbc41-6f5d-4a8e-ab9c-4d5e6f708192";
 const SHA = "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f80912";
 
-/** A bundle, as base64 — what `git bundle create … && base64` prints. */
-const BUNDLE_B64 = Buffer.from("PACK-bundle-bytes").toString("base64");
-
 let sandbox: InMemorySandboxManager;
 let objects: InMemoryObjectStore;
 let snapshots: InMemorySnapshotStore;
 let sandboxId: string;
 
-/** Every command teardown runs, answered the way a real project would answer it. */
-function scriptGit(manager: InMemorySandboxManager): InMemorySandboxManager {
-  return manager
-    .script(/git rev-parse HEAD/, { exitCode: 0, stdout: `${SHA}\n` })
-    .script(/git bundle create/, { exitCode: 0, stdout: BUNDLE_B64 });
-}
-
 beforeEach(async () => {
-  sandbox = scriptGit(new InMemorySandboxManager());
+  sandbox = scriptGit(new InMemorySandboxManager(), { sha: SHA });
   objects = new InMemoryObjectStore();
   snapshots = new InMemorySnapshotStore();
 

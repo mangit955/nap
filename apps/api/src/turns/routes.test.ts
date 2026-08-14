@@ -2,7 +2,8 @@ import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { FAKE_OWNER, InMemoryProjectStore } from "@nap/db/testing/in-memory-project-store";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
-import type { ResumeOutcome, Runtime, TurnOutcome, TurnRequest } from "@nap/shared/ports/runtime";
+import { ControllableRuntime } from "@nap/runtime/testing/controllable-runtime";
+import type { Runtime } from "@nap/shared/ports/runtime";
 import { UNTITLED_PROJECT } from "@nap/shared/project-title";
 import type { Hono } from "hono";
 import { describe, expect, it } from "vitest";
@@ -14,50 +15,6 @@ import { TurnRegistry } from "./registry.ts";
 const SESSION = "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f";
 const UNKNOWN = "2d9fab30-5e4c-4f7d-9a8b-3c4d5e6f7081";
 const silent = () => createLogger({ level: "silent" }, { write: () => {} });
-
-/**
- * A runtime that does not finish until a test says so.
- *
- * That is the whole point of the fake: the route must answer while the turn is still running,
- * and a runtime that resolves immediately would make a route that awaits it look identical to
- * one that does not.
- */
-class SlowRuntime implements Runtime {
-  readonly requests: TurnRequest[] = [];
-  #finish: ((outcome: TurnOutcome) => void) | undefined;
-
-  runTurn(request: TurnRequest): Promise<TurnOutcome> {
-    this.requests.push(request);
-    return new Promise<TurnOutcome>((resolve) => {
-      this.#finish = resolve;
-    });
-  }
-
-  /** Never reached: these tests are about turns, and a resume takes a different route. */
-  async resumeSession(): Promise<ResumeOutcome> {
-    throw new Error("not part of this test");
-  }
-
-  /** Ends the turn the way a completed one ends. */
-  complete(): void {
-    this.#finish?.({ ok: true, turnId: "t1", commitSha: null });
-  }
-
-  get signal(): AbortSignal | undefined {
-    return this.requests.at(-1)?.signal;
-  }
-}
-
-/** A runtime whose turn rejects, which is what makes the background promise dangerous. */
-class ThrowingRuntime implements Runtime {
-  async runTurn(): Promise<TurnOutcome> {
-    throw new Error("the runtime fell over");
-  }
-
-  async resumeSession(): Promise<ResumeOutcome> {
-    throw new Error("not part of this test");
-  }
-}
 
 /** A project carrying the default name, which is what the auto-namer looks for. */
 function unnamedProject(name = UNTITLED_PROJECT) {
@@ -126,7 +83,7 @@ describe("POST /sessions/:sessionId/turns", () => {
     // A turn is a minute of model calls and sandbox commands. The client already has the
     // whole story over the socket, so holding the request open buys nothing and loses to the
     // first proxy with an idle timeout.
-    const runtime = new SlowRuntime();
+    const runtime = new ControllableRuntime();
     const { app: hono } = app(runtime);
 
     const res = await post(hono, `/sessions/${SESSION}/turns`, { message: "build a todo list" });
@@ -137,7 +94,7 @@ describe("POST /sessions/:sessionId/turns", () => {
   });
 
   it("hands the turn a signal that cancel can abort", async () => {
-    const runtime = new SlowRuntime();
+    const runtime = new ControllableRuntime();
     const { app: hono } = app(runtime);
 
     await post(hono, `/sessions/${SESSION}/turns`, { message: "hello" });
@@ -150,7 +107,7 @@ describe("POST /sessions/:sessionId/turns", () => {
   it("404s for a session that does not exist", async () => {
     // Checked here as well as in the runtime: the runtime's own answer is a failed turn with
     // no event, which a client would wait for over a socket that will never say anything.
-    const runtime = new SlowRuntime();
+    const runtime = new ControllableRuntime();
     const { app: hono } = app(runtime);
 
     const res = await post(hono, `/sessions/${UNKNOWN}/turns`, { message: "hello" });
@@ -165,7 +122,7 @@ describe("POST /sessions/:sessionId/turns", () => {
     ["an empty message", { message: "   " }],
     ["a message that is not a string", { message: 42 }],
   ])("400s for %s, and starts nothing", async (_name, body) => {
-    const runtime = new SlowRuntime();
+    const runtime = new ControllableRuntime();
     const { app: hono } = app(runtime);
 
     const res = await post(hono, `/sessions/${SESSION}/turns`, body);
@@ -175,7 +132,7 @@ describe("POST /sessions/:sessionId/turns", () => {
   });
 
   it("400s for a session id that is not a uuid", async () => {
-    const { app: hono } = app(new SlowRuntime());
+    const { app: hono } = app(new ControllableRuntime());
 
     expect((await post(hono, "/sessions/nope/turns", { message: "hi" })).status).toBe(400);
   });
@@ -187,7 +144,7 @@ describe("POST /sessions/:sessionId/turns", () => {
     const onRejection = (reason: unknown) => rejections.push(reason);
     process.on("unhandledRejection", onRejection);
 
-    const { app: hono } = app(new ThrowingRuntime());
+    const { app: hono } = app(ControllableRuntime.throwing());
     const res = await post(hono, `/sessions/${SESSION}/turns`, { message: "hello" });
     await new Promise((resolve) => setTimeout(resolve, 10));
     process.off("unhandledRejection", onRejection);
@@ -197,7 +154,7 @@ describe("POST /sessions/:sessionId/turns", () => {
   });
 
   it("forgets the turn once it settles, so a late cancel is a no-op", async () => {
-    const runtime = new SlowRuntime();
+    const runtime = new ControllableRuntime();
     const { app: hono, registry } = app(runtime);
 
     await post(hono, `/sessions/${SESSION}/turns`, { message: "hello" });
@@ -212,7 +169,7 @@ describe("POST /sessions/:sessionId/turns", () => {
 
 describe("POST /sessions/:sessionId/turns/cancel", () => {
   it("aborts the running turn", async () => {
-    const runtime = new SlowRuntime();
+    const runtime = new ControllableRuntime();
     const { app: hono } = app(runtime);
     await post(hono, `/sessions/${SESSION}/turns`, { message: "hello" });
 
@@ -226,7 +183,7 @@ describe("POST /sessions/:sessionId/turns/cancel", () => {
   it("409s when the turn already ended", async () => {
     // The click and the last event crossed. Not a server error, and not something to show as
     // a failure — the input is about to re-enable itself anyway.
-    const { app: hono } = app(new SlowRuntime());
+    const { app: hono } = app(new ControllableRuntime());
 
     const res = await post(hono, `/sessions/${SESSION}/turns/cancel`);
 
@@ -323,7 +280,7 @@ describe("limits", () => {
   it("refuses a model that is not on the allowlist", async () => {
     // A model id taken from a request body and handed to the provider is a stranger choosing
     // what each turn costs — and the expensive one is the one they would choose.
-    const runtime = new SlowRuntime();
+    const runtime = new ControllableRuntime();
     const hono = limited({ runtime });
 
     const refused = await post(hono, `/sessions/${SESSION}/turns`, {
@@ -338,7 +295,7 @@ describe("limits", () => {
   });
 
   it("passes an allowed model down to the runtime", async () => {
-    const runtime = new SlowRuntime();
+    const runtime = new ControllableRuntime();
     const hono = limited({ runtime });
 
     const accepted = await post(hono, `/sessions/${SESSION}/turns`, {
@@ -357,7 +314,7 @@ describe("limits", () => {
     // spending their own money, a free one for everybody else — and that is a fact only this
     // layer has. Leaving it unset would mean a key-less turn silently falling through to
     // `NAP_MODEL`, which this deployment pays for.
-    const runtime = new SlowRuntime();
+    const runtime = new ControllableRuntime();
     const hono = limited({ runtime });
 
     await post(hono, `/sessions/${SESSION}/turns`, { message: "hello" });
@@ -369,7 +326,7 @@ describe("limits", () => {
   it("bills a turn to the caller's own key", async () => {
     // Without this the credential never leaves the route and every turn is charged to the
     // deployment — the feature would look complete and change nothing about who pays.
-    const runtime = new SlowRuntime();
+    const runtime = new ControllableRuntime();
     const hono = limited({ runtime });
 
     await post(hono, `/sessions/${SESSION}/turns`, { message: "hello" });
@@ -381,7 +338,7 @@ describe("limits", () => {
   it("sends no credentials at all for somebody with no key", async () => {
     // Which is what makes the deployment's own account pay — and is only safe because the
     // model resolved alongside it is a free one, asserted next.
-    const runtime = new SlowRuntime();
+    const runtime = new ControllableRuntime();
     const hono = limited({ runtime, noKey: true });
 
     await post(hono, `/sessions/${SESSION}/turns`, { message: "hello" });
@@ -394,7 +351,7 @@ describe("limits", () => {
   it("refuses a paid model to somebody with no key, and says a key is what is missing", async () => {
     // The rule the whole free tier rests on. The status is 403 rather than 400 because there
     // is something the asker can do about it, and the browser offers the key form on this code.
-    const runtime = new SlowRuntime();
+    const runtime = new ControllableRuntime();
     const hono = limited({ runtime, noKey: true });
 
     const refused = await post(hono, `/sessions/${SESSION}/turns`, {
@@ -411,7 +368,7 @@ describe("limits", () => {
     // Two limiters rather than two numbers on one: a free turn must not consume the allowance
     // somebody's paid turns are counted against, or "5 free turns an hour" would mean
     // something different depending on what else they did that hour.
-    const runtime = new SlowRuntime();
+    const runtime = new ControllableRuntime();
     const hono = limited({ runtime, noKey: true, turns: 100, freeTurns: 1 });
 
     await post(hono, `/sessions/${SESSION}/turns`, { message: "one" });
@@ -425,7 +382,7 @@ describe("limits", () => {
   it("leaves a caller with a key on the ordinary turn limit", async () => {
     // The mirror of the test above, and the one that proves the two limiters are really
     // separate: the same tight free ceiling must not apply to somebody paying their own way.
-    const runtime = new SlowRuntime();
+    const runtime = new ControllableRuntime();
     const hono = limited({ runtime, turns: 100, freeTurns: 1 });
 
     await post(hono, `/sessions/${SESSION}/turns`, { message: "one" });
@@ -439,7 +396,7 @@ describe("limits", () => {
   it("does not spend the caller's allowance on a model it refused", async () => {
     // A refused attempt that consumed a slot pushes recovery away from anyone retrying, and
     // the advertised wait never arrives. Same rule the rate limiter already follows.
-    const runtime = new SlowRuntime();
+    const runtime = new ControllableRuntime();
     const hono = limited({ runtime, turns: 1 });
 
     await post(hono, `/sessions/${SESSION}/turns`, { message: "one", model: "nope/nope" });
@@ -450,7 +407,7 @@ describe("limits", () => {
   });
 
   it("answers 429 with a Retry-After once the rate limit is spent", async () => {
-    const runtime = new SlowRuntime();
+    const runtime = new ControllableRuntime();
     const hono = limited({ runtime, turns: 1 });
 
     expect((await post(hono, `/sessions/${SESSION}/turns`, { message: "one" })).status).toBe(202);
@@ -467,7 +424,7 @@ describe("limits", () => {
   it("starts no turn when it refuses one", async () => {
     // Asserted on the runtime, not on the status. A route that answered 429 *after* handing the
     // turn to the runtime would look identical from the outside and cost exactly as much.
-    const runtime = new SlowRuntime();
+    const runtime = new ControllableRuntime();
     const hono = limited({ runtime, turns: 0 });
 
     await post(hono, `/sessions/${SESSION}/turns`, { message: "hello" });
@@ -478,7 +435,7 @@ describe("limits", () => {
   it("does not spend the allowance on a request that was never going to run", async () => {
     // A malformed body is refused before the limiter, so a client with a bug does not also lock
     // itself out of the turns it could have made correctly.
-    const runtime = new SlowRuntime();
+    const runtime = new ControllableRuntime();
     const hono = limited({ runtime, turns: 1 });
 
     expect((await post(hono, `/sessions/${SESSION}/turns`, { message: "  " })).status).toBe(400);
@@ -488,7 +445,7 @@ describe("limits", () => {
   });
 
   it("answers 409 when the caller is at their sandbox cap", async () => {
-    const runtime = new SlowRuntime();
+    const runtime = new ControllableRuntime();
     const hono = limited({
       runtime,
       perUser: 1,
@@ -507,7 +464,7 @@ describe("limits", () => {
   it("still accepts a turn in a project that already has a sandbox", async () => {
     // At the cap, but this turn resumes rather than creates. Refusing it would freeze the
     // conversation the user is already in the middle of.
-    const runtime = new SlowRuntime();
+    const runtime = new ControllableRuntime();
     const hono = limited({
       runtime,
       perUser: 1,
@@ -522,7 +479,7 @@ describe("limits", () => {
   });
 
   it("refuses when the process is full even though the caller is under their own cap", async () => {
-    const runtime = new SlowRuntime();
+    const runtime = new ControllableRuntime();
     const hono = limited({
       runtime,
       perUser: 5,
@@ -552,7 +509,7 @@ describe("what a detached turn leaves in the log", () => {
     // only one saying how the turn ended from the request's side — has to lift it out of the
     // outcome. Left nested, the turn's own key does not reach it.
     const sink = capturing();
-    const runtime = new SlowRuntime();
+    const runtime = new ControllableRuntime();
     const { app: hono } = app(runtime, new TurnRegistry(), sink.logger);
 
     await post(hono, `/sessions/${SESSION}/turns`, { message: "add a button" });
@@ -567,7 +524,7 @@ describe("what a detached turn leaves in the log", () => {
     // A throwing runtime is a bug rather than a failed turn, and it produces no event at all —
     // so this line is the only trace. Losing the session id would make it unattributable.
     const sink = capturing();
-    const { app: hono } = app(new ThrowingRuntime(), new TurnRegistry(), sink.logger);
+    const { app: hono } = app(ControllableRuntime.throwing(), new TurnRegistry(), sink.logger);
 
     await post(hono, `/sessions/${SESSION}/turns`, { message: "add a button" });
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -581,7 +538,7 @@ describe("naming a project after its first prompt", () => {
   it("names a project that is still untitled", async () => {
     // The whole point: a dashboard of identical "Untitled project" tiles tells nobody which of
     // them is the thing they were working on.
-    const { app: hono, projects } = app(new SlowRuntime());
+    const { app: hono, projects } = app(new ControllableRuntime());
 
     const response = await post(hono, `/sessions/${SESSION}/turns`, {
       message: "Build a small to-do app for me.",
@@ -595,7 +552,7 @@ describe("naming a project after its first prompt", () => {
     // A name somebody chose must survive every turn after it. This is the assertion that makes
     // the feature safe rather than merely present.
     const { app: hono, projects } = app(
-      new SlowRuntime(),
+      new ControllableRuntime(),
       new TurnRegistry(),
       silent(),
       unnamedProject("My Careful Name"),
@@ -609,7 +566,7 @@ describe("naming a project after its first prompt", () => {
   it("still starts the turn when the rename fails", async () => {
     // A name is a convenience. Costing somebody their turn because an UPDATE failed would trade
     // the whole feature for a cosmetic one.
-    const runtime = new SlowRuntime();
+    const runtime = new ControllableRuntime();
     const { app: hono } = app(
       runtime,
       new TurnRegistry(),
@@ -626,7 +583,7 @@ describe("naming a project after its first prompt", () => {
   it("does not name a project when the turn was refused", async () => {
     // A malformed request is not a first prompt, and naming a project after one would leave a
     // title nobody asked for on a turn that never ran.
-    const { app: hono, projects } = app(new SlowRuntime());
+    const { app: hono, projects } = app(new ControllableRuntime());
 
     await post(hono, `/sessions/${SESSION}/turns`, { message: "   " });
 

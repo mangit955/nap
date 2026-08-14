@@ -38,12 +38,25 @@ import type { SandboxError, SandboxManager } from "@nap/shared/ports/sandbox-man
 import type { SessionRecord, SessionStore } from "@nap/shared/ports/session-store";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
 import type { Result } from "@nap/shared/result";
+import {
+  type AcquiredSandbox,
+  acquireSandbox,
+  type RestoreDeps,
+  restoreDepsOf,
+} from "./acquire-sandbox.ts";
 import { EventSink } from "./event-sink.ts";
-import { openProject } from "./restore.ts";
+import { SessionQueue } from "./session-queue.ts";
 import { captureSnapshot } from "./teardown.ts";
 import { captureThumbnail } from "./turn-thumbnail.ts";
 
 type Payload<T extends NapEvent["type"]> = NapEventOf<T>["payload"];
+
+/** What a turn or a resume works within: whose project it is, and where its events go. */
+type TurnScope = {
+  session: SessionRecord;
+  sink: EventSink;
+  emit: <T extends NapEvent["type"]>(type: T, payload: Payload<T>) => void;
+};
 
 /** Git's own convention for a subject line, and what every log viewer is laid out for. */
 const COMMIT_SUBJECT_LIMIT = 72;
@@ -64,19 +77,6 @@ const PREVIEW_TIMEOUT_MS = 20_000;
  */
 const DEFAULT_SANDBOX_TTL_MS = 30 * 60 * 1000;
 
-/** A sandbox to work in, whether this turn created it, and anything the user should be told. */
-type AcquiredSandbox = {
-  id: string;
-  created: boolean;
-  notices: { level: "info" | "warning"; text: string }[];
-};
-
-/**
- * What a project is restored from. Both halves or neither: the bytes live in one and the
- * record of which bytes in the other, and one without the other cannot open anything.
- */
-type RestoreDeps = { objects: ObjectStore; snapshots: SnapshotStore };
-
 /**
  * What to say when a project could not be started back up.
  *
@@ -90,10 +90,6 @@ function resumeFailureNotice(error: SandboxError): string {
     "Nothing has been lost — its files are still saved. Try again in a moment."
   );
 }
-
-const LOST_SANDBOX_WARNING =
-  "This project's sandbox was no longer available, so it was restored from its last " +
-  "snapshot. Anything changed since then is not in it.";
 
 export type SingleAgentRuntimeOptions = {
   sessions: SessionStore;
@@ -143,8 +139,8 @@ export class SingleAgentRuntime implements Runtime {
   readonly #previewTimeoutMs: number;
   readonly #sandboxTtlMs: number;
   readonly #restore: RestoreDeps | null;
-  /** The tail of each session's queue. Absent means nothing is running for that session. */
-  readonly #queues = new Map<string, Promise<unknown>>();
+  /** One turn at a time per session; see `session-queue.ts`. */
+  readonly #queue = new SessionQueue();
 
   constructor(options: SingleAgentRuntimeOptions) {
     this.#options = options;
@@ -157,7 +153,7 @@ export class SingleAgentRuntime implements Runtime {
   }
 
   runTurn(request: TurnRequest): Promise<TurnOutcome> {
-    return this.#queued(request.sessionId, () => this.#runTurn(request));
+    return this.#queue.run(request.sessionId, () => this.#runTurn(request));
   }
 
   /**
@@ -170,31 +166,7 @@ export class SingleAgentRuntime implements Runtime {
    * with two, one of which nobody can find and nobody stops paying for.
    */
   resumeSession(sessionId: string): Promise<ResumeOutcome> {
-    return this.#queued(sessionId, () => this.#resume(sessionId));
-  }
-
-  /**
-   * One thing at a time per session — a turn, or bringing the project back up.
-   *
-   * Different sessions are unaffected: the lock is per session, not per process.
-   */
-  #queued<T>(sessionId: string, work: () => Promise<T>): Promise<T> {
-    const previous = this.#queues.get(sessionId) ?? Promise.resolve();
-    const outcome = previous.then(work);
-
-    // The queue tail swallows failures: one turn that rejected must not reject the turn
-    // queued behind it, which is a different session's worth of surprise.
-    const tail = outcome.then(
-      () => {},
-      () => {},
-    );
-    this.#queues.set(sessionId, tail);
-    void tail.then(() => {
-      // Only if nothing else has queued behind us; otherwise this is now someone else's tail.
-      if (this.#queues.get(sessionId) === tail) this.#queues.delete(sessionId);
-    });
-
-    return outcome;
+    return this.#queue.run(sessionId, () => this.#resume(sessionId));
   }
 
   /**
@@ -221,20 +193,40 @@ export class SingleAgentRuntime implements Runtime {
     );
   }
 
-  async #resumeLogged(sessionId: string, turnId: string): Promise<ResumeOutcome> {
+  /**
+   * What a turn and a resume both start with: the session, the log context, and somewhere to put
+   * events.
+   *
+   * `null` when there is no such session — the caller turns that into its own kind of failure,
+   * because a turn reports one and a resume reports the other. **Neither emits an event for it:**
+   * an event needs a session to belong to, and there is nobody subscribed to one that was never
+   * opened.
+   */
+  async #open(sessionId: string, turnId: string): Promise<TurnScope | null> {
     const session = await this.#options.sessions.get(sessionId);
+    if (session === null) return null;
 
-    if (session === null) {
-      getLogger().warn("resume refused: no such session");
-      return { ok: false, reason: "internal", message: `unknown session ${sessionId}` };
-    }
-
+    // Known only now, and worth having on every line below: a project is what an operator is
+    // asked about, and a session is an implementation detail of one.
     addLogContext({ projectId: session.projectId });
 
     const sink = new EventSink(this.#options.events, this.#options.bus);
     const emit = <T extends NapEvent["type"]>(type: T, payload: Payload<T>): void => {
       sink.emit({ type, payload, sessionId, turnId, createdAt: this.#now() } as PendingEvent);
     };
+
+    return { session, sink, emit };
+  }
+
+  async #resumeLogged(sessionId: string, turnId: string): Promise<ResumeOutcome> {
+    const scope = await this.#open(sessionId, turnId);
+
+    if (scope === null) {
+      getLogger().warn("resume refused: no such session");
+      return { ok: false, reason: "internal", message: `unknown session ${sessionId}` };
+    }
+
+    const { session, sink, emit } = scope;
 
     try {
       const acquired = await this.#acquire(session);
@@ -278,12 +270,10 @@ export class SingleAgentRuntime implements Runtime {
   }
 
   async #runTurnLogged(request: TurnRequest, turnId: string): Promise<TurnOutcome> {
-    const session = await this.#options.sessions.get(request.sessionId);
+    const scope = await this.#open(request.sessionId, turnId);
 
-    if (session === null) {
+    if (scope === null) {
       getLogger().warn("turn refused: no such session");
-      // No event, deliberately. An event needs a session to belong to — the log's rows point
-      // at one — and there is nobody subscribed to a session that was never opened.
       return {
         ok: false,
         turnId,
@@ -292,21 +282,8 @@ export class SingleAgentRuntime implements Runtime {
       };
     }
 
-    // Known only now, and worth having on every line below: a project is what an operator is
-    // asked about, and a session is an implementation detail of one.
-    addLogContext({ projectId: session.projectId });
+    const { session, sink, emit } = scope;
     getLogger().info({ chars: request.message.length }, "turn started");
-
-    const sink = new EventSink(this.#options.events, this.#options.bus);
-    const emit = <T extends NapEvent["type"]>(type: T, payload: Payload<T>): void => {
-      sink.emit({
-        type,
-        payload,
-        sessionId: request.sessionId,
-        turnId,
-        createdAt: this.#now(),
-      } as PendingEvent);
-    };
 
     try {
       const sandboxId = await this.#acquire(session);
@@ -497,71 +474,17 @@ export class SingleAgentRuntime implements Runtime {
     if (ready.ok) emit("preview.ready", { url: ready.value, port });
   }
 
-  /**
-   * The sandbox this session's project is served from, resumed if there is one already.
-   *
-   * A recorded sandbox that cannot be resumed is only survivable because a snapshot can be
-   * restored into a new one — and the user is told, because the snapshot is from the last
-   * time the project was put away and anything after that is genuinely gone. Without
-   * somewhere to restore *from*, this still fails the turn: a fresh sandbox would be an empty
-   * template, and the user would be told their turn succeeded and shown a project with their
-   * work missing.
-   */
+  /** See `acquire-sandbox.ts`, which owns the four paths and their ordering. */
   async #acquire(session: SessionRecord): Promise<Result<AcquiredSandbox, SandboxError>> {
-    if (session.sandboxId !== null) {
-      const resumed = await this.#options.sandbox.resume(session.sandboxId);
-      if (resumed.ok) {
-        // Every provider kills a sandbox on a timer that starts when it was created, not when
-        // it was last used, so a conversation that goes on longer than the budget would lose
-        // its workspace mid-sentence. A turn is exactly the signal that someone is still here.
-        // The result is deliberately not checked: the sandbox has just answered a resume, and
-        // failing a turn over a keepalive would trade a small risk for a certain outage.
-        await this.#options.sandbox.extendTimeout(resumed.value.id, this.#sandboxTtlMs);
-        return { ok: true, value: { id: resumed.value.id, created: false, notices: [] } };
-      }
-      if (this.#restore === null) return resumed;
-
-      const reopened = await this.#open(session);
-      if (!reopened.ok) return reopened;
-      reopened.value.notices.unshift({ level: "warning", text: LOST_SANDBOX_WARNING });
-      return reopened;
-    }
-
-    return this.#open(session);
-  }
-
-  /** A new sandbox for this session's project, holding whatever could be restored into it. */
-  async #open(session: SessionRecord): Promise<Result<AcquiredSandbox, SandboxError>> {
-    if (this.#restore === null) {
-      const created = await this.#options.sandbox.create(session.projectId);
-      if (!created.ok) return created;
-
-      await this.#options.sessions.setSandboxId(session.sessionId, created.value.id);
-      return { ok: true, value: { id: created.value.id, created: true, notices: [] } };
-    }
-
-    const opened = await openProject({
-      sandbox: this.#options.sandbox,
-      objects: this.#restore.objects,
-      snapshots: this.#restore.snapshots,
-      projectId: session.projectId,
-    });
-    if (!opened.ok) {
-      // Flattened to the one code a turn can report. The distinction between "no sandbox" and
-      // "no snapshot" matters to whoever reads the message, not to the failure itself.
-      return { ok: false, error: { code: "unavailable", message: opened.error.message } };
-    }
-
-    await this.#options.sessions.setSandboxId(session.sessionId, opened.value.sandboxId);
-    return {
-      ok: true,
-      value: {
-        id: opened.value.sandboxId,
-        created: true,
-        notices:
-          opened.value.warning === null ? [] : [{ level: "warning", text: opened.value.warning }],
+    return await acquireSandbox(
+      {
+        sandbox: this.#options.sandbox,
+        sessions: this.#options.sessions,
+        restore: this.#restore,
+        ttlMs: this.#sandboxTtlMs,
       },
-    };
+      session,
+    );
   }
 
   /**
@@ -578,22 +501,6 @@ export class SingleAgentRuntime implements Runtime {
     }
     return { commitSha: committed.value.sha };
   }
-}
-
-/**
- * Half a restore is not a smaller restore, it is a bug — a store of bytes nothing can name,
- * or names with nothing behind them. Thrown rather than returned: this is a wiring mistake at
- * construction, not something a turn could recover from.
- */
-function restoreDepsOf(options: SingleAgentRuntimeOptions): RestoreDeps | null {
-  const { objects, snapshots } = options;
-  if (objects === undefined && snapshots === undefined) return null;
-  if (objects === undefined || snapshots === undefined) {
-    throw new Error(
-      "SingleAgentRuntime needs both `objects` and `snapshots` to restore a project, or neither.",
-    );
-  }
-  return { objects, snapshots };
 }
 
 /**
