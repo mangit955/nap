@@ -145,3 +145,17 @@ because somebody already lost a session to it.
 > **Never end a session with uncommitted work.** A future session cannot recover context that exists only in a dirty working tree.
 
 Branch per milestone (`feat/m0-scaffold`, `feat/m1-execution-plane`, …), one commit per completed task.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live as GitHub issues in `mangit955/nap`, via the `gh` CLI; the v1 task list stays in `docs/PLAN.md` §4 and `PROGRESS.md`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical roles, each label string equal to its name. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context — one root `CONTEXT.md` plus `docs/adr/`, neither of which exists yet. See `docs/agents/domain.md`.

@@ -324,7 +324,10 @@ describe("ClaudeProvider", () => {
 
       const body = client.calls[0]?.body as Anthropic.MessageStreamParams;
       expect(body.model).toBe("openai/gpt-5.6-luna");
-      expect(body.output_config).toEqual({ effort: "xhigh" });
+      // `medium` is the measured default — fifteen turns over five prompts at three levels, and
+      // the cheapest was not the worst. It was `xhigh` here while the API's own default was
+      // `medium`, so this assertion was pinning a setting nothing in production ran at.
+      expect(body.output_config).toEqual({ effort: "medium" });
       expect(body.thinking).toEqual({ type: "adaptive", display: "summarized" });
       // A block array rather than a string, because the prompt carries a cache breakpoint —
       // the text itself is asserted under "prompt caching" below.
