@@ -8,5 +8,9 @@ pre-commit:
     - name: typecheck
       run: bun run typecheck
 
+    # Both projects, because they are chosen by filename rather than by directory: a commit that
+    # only touches `apps/web` has no `*.test.ts` in it, so `--project unit` alone ran nothing at
+    # all and the hook reported success. `db` and `integration` stay out — one needs Docker, the
+    # other needs money.
     - name: test
-      run: bunx vitest run --project unit --changed
+      run: bunx vitest run --project unit --project web --changed

@@ -16,12 +16,8 @@
 
 import type { FileListing } from "@nap/shared/files-protocol";
 import { useEffect, useMemo, useState } from "react";
-import { changedPaths } from "../files/changed-paths.ts";
-import { FileViewer } from "../files/file-viewer.tsx";
 import { ancestorsOf, buildTree, filterTree, type TreeNode } from "../files/tree.ts";
-import { type LoadStatus, useFileContent, useProjectFiles } from "../files/use-project-files.ts";
-import { useEventStream } from "../hooks/use-event-stream.ts";
-import { isPutAway } from "../preview/preview-state.ts";
+import type { LoadStatus } from "../files/use-project-files.ts";
 import { ChevronRight, CloseIcon, FileIcon, FolderIcon, SearchIcon } from "../ui/icons.tsx";
 import { Pane } from "./pane.tsx";
 
@@ -289,48 +285,4 @@ function Empty({
           : "The files the agent writes appear here.";
 
   return <p className="p-4 text-muted text-sm leading-relaxed">{message}</p>;
-}
-
-export function LiveFileTreePane({
-  sessionId,
-  putAwayAt,
-  resuming,
-}: {
-  sessionId: string | undefined;
-  /** When the record last said no sandbox was serving this project; see `isPutAway`. */
-  putAwayAt?: string | undefined;
-  resuming?: boolean | undefined;
-}) {
-  const { events } = useEventStream({ sessionId });
-  // The same question the preview pane asks, answered by the same function rather than by a
-  // second rule here — two panes disagreeing about whether a project is running is precisely
-  // the confusion this pane's copy is trying to resolve.
-  const putAway = isPutAway(events, putAwayAt) && resuming !== true;
-  const { listing, status } = useProjectFiles({ sessionId, events });
-  const [selected, setSelected] = useState<string | undefined>(undefined);
-  const { file, status: fileStatus } = useFileContent({ sessionId, path: selected });
-
-  return (
-    // A grid rather than a flex column: one child, stretched to fill, which is what lets the
-    // viewer be positioned against this pane's own box instead of the window's.
-    <div className="relative grid min-h-0 min-w-0 overflow-hidden">
-      <FileTreePane
-        listing={listing}
-        status={status}
-        putAway={putAway}
-        changed={changedPaths(events)}
-        selected={selected}
-        onSelect={setSelected}
-      />
-
-      {selected !== undefined && (
-        <FileViewer
-          path={selected}
-          file={file}
-          status={fileStatus}
-          onClose={() => setSelected(undefined)}
-        />
-      )}
-    </div>
-  );
 }

@@ -18,23 +18,27 @@
  * unusable for the person who most needs to know the agent is still working.
  */
 
-import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { NapMark } from "../brand/nap-mark.tsx";
 import { turnFailureCopy } from "../errors/failure-copy.ts";
-import { type DisplayItem, groupSteps } from "./step-group.ts";
+import type { DisplayItem } from "./step-group.ts";
 import { StepGroupCard } from "./step-group-card.tsx";
 import { StreamingText } from "./streaming-text.tsx";
-import { buildTranscript } from "./transcript.ts";
 
 export function ChatTranscript({
-  events,
+  items,
   onRetry,
 }: {
-  events: readonly StoredEvent[];
+  /**
+   * The log, already folded and grouped.
+   *
+   * Passed in rather than folded here because the pane above reads the same fold for its working
+   * indicator, and two components folding one log is two walks of it per frame of a streaming
+   * turn. `groupSteps(buildTranscript(events))` is the whole derivation; see `transcript.ts`.
+   */
+  items: readonly DisplayItem[];
   /** Re-sends a failed turn's message. Absent means no retry is offered, not a broken button. */
   onRetry?: ((message: string) => void) | undefined;
 }) {
-  const items = groupSteps(buildTranscript(events));
   // The only item that can still be added to is the last one — everything above it has been
   // overtaken by something newer. That alone is the whole rule, and it needs no check for
   // whether a turn is open: a turn that ended ends *with* its `turn.completed` or

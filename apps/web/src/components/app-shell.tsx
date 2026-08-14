@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { type FetchJson, useProjectFiles } from "../files/use-project-files.ts";
+import type { CreateSocket } from "../hooks/use-event-stream.ts";
+import { useSessionLog } from "../hooks/use-session-log.ts";
 import { type OpenProject, useProject } from "../projects/use-projects.ts";
 import { Splitter } from "../ui/splitter.tsx";
 import { LiveCodePane } from "../workspace/code-pane.tsx";
@@ -11,7 +14,7 @@ import { usePaneWidth } from "../workspace/use-pane-width.ts";
 import { Workbench } from "../workspace/workbench.tsx";
 import { WorkspaceHeader } from "../workspace/workspace-header.tsx";
 import { LiveChatPane } from "./chat-pane.tsx";
-import { LivePreviewPane } from "./preview-pane.tsx";
+import { PreviewPane } from "./preview-pane.tsx";
 
 /**
  * The workspace: a conversation on the left, and what it produced on the right.
@@ -28,23 +31,43 @@ import { LivePreviewPane } from "./preview-pane.tsx";
  * `overflow-hidden`s below are what make that impossible rather than unlikely: scrolling belongs to
  * the iframe, the file viewer, the tree and the transcript, and nowhere else.
  *
- * **The project is resolved once, here, and its session passed down.** Each pane subscribes to
- * that session independently, and several panes resolving it themselves would be several
- * requests for one answer. The session comes from the server rather than from the URL: which
- * conversation you land in is the project's newest one, and a link that named a session would go
- * stale as soon as the project grew another.
+ * **The project, its log and its file listing are resolved once, here.** Each pane used to
+ * subscribe for itself, which was three sockets carrying identical frames and two panes free to
+ * disagree about what the newest event was; the listing was fetched twice for the same reason.
+ * The session comes from the server rather than from the URL: which conversation you land in is
+ * the project's newest one, and a link that named a session would go stale as soon as the project
+ * grew another.
  */
-export function AppShell({ projectId }: { projectId: string }) {
+export function AppShell({
+  projectId,
+  fetchJson,
+  createSocket,
+}: {
+  projectId: string;
   /**
-   * The preview announcement the panes are currently looking at, reported up by the pane that
-   * holds the subscription. Two things read it: the bar, which offers to open the address in a
-   * tab, and the project hook, which uses the `seq` to know that a restore it asked for has
-   * actually come up.
+   * The two ways out of this page — HTTP and a socket — as arguments rather than as imports.
+   *
+   * Every hook underneath already takes them; taking them here is what lets a test drive the
+   * whole workspace, including the wiring between the panes, without mocking the modules it is
+   * trying to test. Production passes neither.
    */
-  const [ready, setReady] = useState<{ url: string; seq: number } | undefined>(undefined);
+  fetchJson?: FetchJson | undefined;
+  createSocket?: CreateSocket | undefined;
+}) {
+  /**
+   * The `seq` of the newest preview announcement the workspace has seen.
+   *
+   * It is a sequence number rather than a flag because a project put away and started again has
+   * two `preview.ready` events in its log: only an announcement newer than the one standing when
+   * the restore was asked for means *this* restore came up. Held in state and fed from an effect
+   * because the log cannot be read before the project it belongs to has been fetched — the
+   * session id comes from the record — so the answer is always one frame behind the fetch.
+   */
+  const [previewSeq, setPreviewSeq] = useState<number | undefined>(undefined);
+
   const { project, status, putAwayAt, resume, resuming, resumeError, rename } = useProject(
     projectId,
-    { previewSeq: ready?.seq },
+    { previewSeq, ...(fetchJson === undefined ? {} : { fetchJson }) },
   );
   const sessionId = project?.sessionIds[0];
 
@@ -76,6 +99,28 @@ export function AppShell({ projectId }: { projectId: string }) {
 
   const startingUp = isStartingUp({ status, resuming, putAwayAt, resumeError });
 
+  const log = useSessionLog({
+    sessionId,
+    resuming: startingUp,
+    ...(putAwayAt === undefined ? {} : { putAwayAt }),
+    ...(createSocket === undefined ? {} : { createSocket }),
+  });
+
+  // The restore's own end condition, reported to the hook that is waiting for it. In an effect
+  // rather than during render because it feeds a hook that has already run this frame.
+  const announced = log.preview.status === "ready" ? log.preview.seq : undefined;
+  useEffect(() => {
+    setPreviewSeq(announced);
+  }, [announced]);
+
+  const previewUrl = log.preview.status === "ready" ? log.preview.url : undefined;
+
+  const files = useProjectFiles({
+    sessionId,
+    events: log.events,
+    ...(fetchJson === undefined ? {} : { fetchJson }),
+  });
+
   const [tab, setTab] = useState<WorkbenchTab>("preview");
   const [chatOpen, setChatOpen] = useState(true);
   /**
@@ -99,7 +144,7 @@ export function AppShell({ projectId }: { projectId: string }) {
         tab={tab}
         chatOpen={chatOpen}
         route={route}
-        previewUrl={ready?.url}
+        previewUrl={previewUrl}
         onTabChange={setTab}
         onReload={() => setReloads((count) => count + 1)}
         onRouteChange={setRoute}
@@ -115,7 +160,13 @@ export function AppShell({ projectId }: { projectId: string }) {
       >
         {chatOpen && (
           <>
-            <LiveChatPane sessionId={sessionId} projectId={projectId} />
+            <LiveChatPane
+              sessionId={sessionId}
+              projectId={projectId}
+              log={log}
+              files={files.listing?.files}
+              {...(fetchJson === undefined ? {} : { fetchJson })}
+            />
 
             <Splitter label="Chat width" value={width} onGrab={onGrab} onKeyDown={onKeyDown} />
           </>
@@ -124,11 +175,10 @@ export function AppShell({ projectId }: { projectId: string }) {
         <Workbench
           tab={tab}
           preview={
-            <LivePreviewPane
-              sessionId={sessionId}
+            <PreviewPane
+              events={log.events}
               route={route}
               reloads={reloads}
-              onPreviewReady={setReady}
               onResume={() => void resume()}
               resuming={startingUp}
               {...(putAwayAt === undefined ? {} : { putAwayAt })}
@@ -139,8 +189,9 @@ export function AppShell({ projectId }: { projectId: string }) {
             <LiveCodePane
               sessionId={sessionId}
               active={tab === "code"}
-              resuming={startingUp}
-              {...(putAwayAt === undefined ? {} : { putAwayAt })}
+              log={log}
+              files={files}
+              {...(fetchJson === undefined ? {} : { fetchJson })}
             />
           }
         />

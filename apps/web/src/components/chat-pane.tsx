@@ -2,13 +2,14 @@
 
 import type { ModelChoice } from "@nap/shared/models-protocol";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ApiKeyPanel } from "../account/api-key-panel.tsx";
 import { useApiKey } from "../account/use-api-key.ts";
 import { NapMark } from "../brand/nap-mark.tsx";
 import { ChatInput } from "../chat/chat-input.tsx";
 import { ChatTranscript } from "../chat/chat-transcript.tsx";
-import { buildTranscript } from "../chat/transcript.ts";
+import { groupSteps } from "../chat/step-group.ts";
+import { buildTranscript, type TranscriptItem } from "../chat/transcript.ts";
 import { TranscriptSkeleton } from "../chat/transcript-skeleton.tsx";
 import { useFirstPrompt } from "../chat/use-first-prompt.ts";
 import { useModels } from "../chat/use-models.ts";
@@ -17,8 +18,8 @@ import { useTurnSubmission } from "../chat/use-turn-submission.ts";
 import { WorkingIndicator } from "../chat/working-indicator.tsx";
 import { turnStartedAt, workingLabel } from "../chat/working-state.ts";
 import { EXAMPLE_PROMPTS } from "../dashboard/example-prompts.ts";
-import { useProjectFiles } from "../files/use-project-files.ts";
-import { useEventStream } from "../hooks/use-event-stream.ts";
+import type { FetchJson } from "../files/use-project-files.ts";
+import type { SessionLog } from "../hooks/use-session-log.ts";
 import { Pane } from "./pane.tsx";
 
 /**
@@ -73,6 +74,11 @@ export function ChatPane({
   onAddKey?: (() => void) | undefined;
 }) {
   const empty = events.length === 0 && pending === undefined;
+  // Folded once, read twice: the transcript renders it and the working indicator reads the last
+  // step out of it. Both used to fold the log for themselves, so every frame of a streaming turn
+  // walked it twice to answer one question.
+  const transcript = useMemo(() => buildTranscript(events), [events]);
+  const items = useMemo(() => groupSteps(transcript), [transcript]);
   // What "there is something new to see" means here. The event count alone would miss a turn
   // ending, and the running flag alone would miss every event inside it.
   const scroller = useStickToBottom<HTMLDivElement>(`${events.length}:${pending}:${running}`);
@@ -92,12 +98,12 @@ export function ChatPane({
             <EmptyState onPick={onSubmit} />
           ) : (
             <>
-              {events.length > 0 && <ChatTranscript events={events} onRetry={onRetry} />}
+              {events.length > 0 && <ChatTranscript items={items} onRetry={onRetry} />}
               {pending !== undefined && <PendingMessage text={pending} />}
             </>
           )}
 
-          {running && <Working events={events} />}
+          {running && <Working events={events} transcript={transcript} />}
         </div>
 
         <ChatInput
@@ -141,13 +147,19 @@ function PendingMessage({ text }: { text: string }) {
  * events and this is not one of them — it is the *absence* of the next event, which is precisely
  * what nothing in the log can express.
  */
-function Working({ events }: { events: readonly StoredEvent[] }) {
+function Working({
+  events,
+  transcript,
+}: {
+  events: readonly StoredEvent[];
+  transcript: readonly TranscriptItem[];
+}) {
   const startedAt = turnStartedAt(events);
 
   return (
     <div className="px-4 pb-3">
       <WorkingIndicator
-        label={workingLabel(buildTranscript(events))}
+        label={workingLabel(transcript)}
         {...(startedAt === undefined ? {} : { startedAt })}
       />
     </div>
@@ -194,20 +206,30 @@ function EmptyState({ onPick }: { onPick: (message: string) => void }) {
 export function LiveChatPane({
   sessionId,
   projectId,
+  log,
+  files,
+  fetchJson,
 }: {
   sessionId: string | undefined;
   /** Only so a prompt typed on the front page can be claimed by the project it was meant for. */
   projectId?: string | undefined;
+  /** The workspace's one subscription, resolved above. See `useSessionLog`. */
+  log: SessionLog;
+  /** The project's files, for the composer's `@` menu; listed once for the whole workspace. */
+  files?: readonly string[] | undefined;
+  fetchJson?: FetchJson | undefined;
 }) {
-  const { events, replayed } = useEventStream({ sessionId });
-  const { submit, cancel, pending, running, error } = useTurnSubmission({ sessionId, events });
-  // Fed this pane's own events rather than a second subscription: the listing goes stale when
-  // a turn writes a file, and this component is already told about that.
-  const { listing } = useProjectFiles({ sessionId, events });
-  const { models } = useModels();
+  const { events, replayed } = log;
+  const injected = fetchJson === undefined ? {} : { fetchJson };
+  const { submit, cancel, pending, running, error } = useTurnSubmission({
+    sessionId,
+    events,
+    ...injected,
+  });
+  const { models } = useModels(injected);
   // Somebody who meets a locked model, or a turn refused for want of a key, should be able to
   // fix it here rather than being sent to the dashboard and back.
-  const key = useApiKey();
+  const key = useApiKey(injected);
   const [keyPanelOpen, setKeyPanelOpen] = useState(false);
   // Held here rather than in the composer: the choice has to outlive the box being cleared on
   // send, and a retry has to go out on the same model the user picked.
@@ -243,7 +265,7 @@ export function LiveChatPane({
         // The same submission path as the input: a retry is an ordinary turn, and routing it
         // anywhere else would give it different rate-limit and optimistic-message behaviour.
         onRetry={(message) => void submit(message, model)}
-        files={listing?.files ?? []}
+        files={files ?? []}
         models={models?.models ?? []}
         model={model ?? models?.fallback}
         onModelChange={setModel}

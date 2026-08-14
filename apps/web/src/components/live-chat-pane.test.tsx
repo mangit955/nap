@@ -8,97 +8,102 @@
  * that once shipped a server with its rate limits unwired, and found the same way — by deleting
  * the line to see what failed.
  *
- * The two hooks are mocked because one opens a WebSocket and the other posts over the network;
- * nothing in the `web` project can do either. What is left is exactly the wiring.
+ * Nothing is mocked. The pane takes its log and its `fetchJson` as arguments, so the real
+ * submission hook runs against a fake server and the real fold turns the fake server's events
+ * into the transcript the button is drawn from.
  */
 
-import type { NapEvent, NapEventType } from "@nap/shared/events";
-import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { stashFirstPrompt } from "../chat/first-prompt.ts";
+import type { SessionLog } from "../hooks/use-session-log.ts";
+import { ev, PROJECT_ID, SESSION_ID } from "../testing/events.ts";
+import { LiveChatPane } from "./chat-pane.tsx";
 
-const submit = vi.fn();
-const events: StoredEvent[] = [];
+const MODELS = {
+  models: [
+    { id: "openai/gpt-5.6-luna", label: "Gpt 5 6 Luna", free: false, available: true },
+    { id: "anthropic/claude-opus-5", label: "Claude Opus 5", free: false, available: true },
+  ],
+  key: { configured: false },
+  fallback: "openai/gpt-5.6-luna",
+};
 
-vi.mock("../hooks/use-event-stream.ts", () => ({
-  useEventStream: () => ({ events, status: "open" }),
-}));
+/** Every turn the pane asked for, so "the retry went through `submit`" is a countable thing. */
+let turns: { message: string; model?: string }[] = [];
 
-vi.mock("../chat/use-turn-submission.ts", () => ({
-  useTurnSubmission: () => ({
-    submit,
-    cancel: vi.fn(),
-    pending: undefined,
-    running: false,
-    error: undefined,
-  }),
-}));
+/** A server that answers the three requests this pane makes on mount, and accepts a turn. */
+const fetchJson = async (url: string, init?: RequestInit): Promise<Response> => {
+  const json = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
-vi.mock("../chat/use-models.ts", () => ({
-  useModels: () => ({
-    models: {
-      models: [
-        { id: "openai/gpt-5.6-luna", label: "Gpt 5 6 Luna", free: false, available: true },
-        { id: "anthropic/claude-opus-5", label: "Claude Opus 5", free: false, available: true },
-      ],
-      fallback: "openai/gpt-5.6-luna",
-    },
-  }),
-}));
+  if (url.endsWith("/models")) return json(MODELS);
+  if (url.includes("/account/api-key")) return json({ present: false });
+  if (url.includes("/turns")) {
+    const body = JSON.parse(String(init?.body ?? "{}")) as { message: string; model?: string };
+    turns.push(body);
+    return json({ turnId: "e7a1c2d3-4b5a-4c6d-8e9f-0a1b2c3d4e5f" }, 202);
+  }
 
-const { stashFirstPrompt } = await import("../chat/first-prompt.ts");
-const { LiveChatPane } = await import("./chat-pane.tsx");
+  return json({ files: [], ready: true });
+};
 
-const SESSION = "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f";
-const TURN = "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f";
-const PROJECT = "3e0fbc41-6f5d-4a8e-ab9c-4d5e6f708192";
-
-function ev<T extends NapEventType>(
-  type: T,
-  payload: Extract<NapEvent, { type: T }>["payload"],
-  seq: number,
-) {
-  return {
-    type,
-    sessionId: SESSION,
-    turnId: TURN,
-    seq,
-    createdAt: "2026-08-09T12:00:00.000Z",
-    payload,
-  } as StoredEvent;
-}
-
-beforeEach(() => {
-  submit.mockClear();
-  window.sessionStorage.clear();
-  events.length = 0;
-  events.push(
+/** A log holding one failed turn — which is what puts a retry button on screen. */
+function failedTurn(): SessionLog {
+  const events = [
     ev("user.message", { text: "build me a todo list" }, 1),
     ev("turn.started", {}, 2),
     ev("turn.failed", { reason: "sandbox_unavailable", message: "no capacity" }, 3),
-  );
+  ];
+
+  return {
+    events,
+    status: "open",
+    lastSeq: 3,
+    replayed: true,
+    preview: { status: "idle" },
+    changed: new Set(),
+    putAway: false,
+  };
+}
+
+beforeEach(() => {
+  turns = [];
+  window.sessionStorage.clear();
 });
 
 describe("LiveChatPane", () => {
-  it("sends a failed turn's message again when the retry is pressed", () => {
-    render(<LiveChatPane sessionId={SESSION} />);
+  it("sends a failed turn's message again when the retry is pressed", async () => {
+    render(<LiveChatPane sessionId={SESSION_ID} log={failedTurn()} fetchJson={fetchJson} />);
 
     fireEvent.click(screen.getByRole("button", { name: /try again/i }));
 
-    // Through `submit`, not some second path: a retry is an ordinary turn and has to be subject
-    // to the same rate limit and the same optimistic message as anything typed into the box.
-    // It carries the chosen model too — retrying on a different one silently is the worst
-    // version of this control, since the turn that failed and the turn that replaces it would
-    // cost different amounts for no stated reason.
-    expect(submit).toHaveBeenCalledWith("build me a todo list", undefined);
+    // Through the submission hook, not some second path: a retry is an ordinary turn and has to
+    // be subject to the same rate limit and the same optimistic message as anything typed into
+    // the box. It carries the chosen model too — retrying on a different one silently is the
+    // worst version of this control, since the turn that failed and the turn that replaces it
+    // would cost different amounts for no stated reason.
+    await vi.waitFor(() => expect(turns).toHaveLength(1));
+    expect(turns[0]?.message).toBe("build me a todo list");
   });
 
-  it("keeps the dashboard model selected after sending its first prompt", () => {
-    stashFirstPrompt(PROJECT, { text: "build me a todo list", model: "anthropic/claude-opus-5" });
+  it("keeps the dashboard model selected after sending its first prompt", async () => {
+    stashFirstPrompt(PROJECT_ID, {
+      text: "build me a todo list",
+      model: "anthropic/claude-opus-5",
+    });
 
-    render(<LiveChatPane projectId={PROJECT} sessionId={SESSION} />);
+    render(
+      <LiveChatPane
+        projectId={PROJECT_ID}
+        sessionId={SESSION_ID}
+        log={failedTurn()}
+        fetchJson={fetchJson}
+      />,
+    );
 
-    expect(submit).toHaveBeenCalledWith("build me a todo list", "anthropic/claude-opus-5");
-    expect(screen.getByRole("button", { name: "Model" })).toHaveTextContent("Claude Opus 5");
+    await vi.waitFor(() => expect(turns).toHaveLength(1));
+    expect(turns[0]?.model).toBe("anthropic/claude-opus-5");
+    expect(await screen.findByRole("button", { name: "Model" })).toHaveTextContent("Claude Opus 5");
   });
 });

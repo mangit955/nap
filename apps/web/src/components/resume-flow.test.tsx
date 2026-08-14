@@ -8,135 +8,107 @@
  *
  * It goes through `AppShell` rather than through either half alone on purpose. Both halves were
  * individually correct: the hook did not know about events, the pane did not know about the
- * request, and the fault lived exactly in the gap between them. The other tests here mock the
- * pane's props; this one mocks only the two things a jsdom test genuinely cannot do — open a
- * socket, and reach the network.
+ * request, and the fault lived exactly in the gap between them.
+ *
+ * Nothing is mocked. The shell takes its socket factory and its `fetchJson` as arguments, so the
+ * real subscription runs against a fake socket — which means this test also holds the rule that
+ * a workspace opens *one* connection, since the socket is a countable thing here.
  */
 
-import type { NapEvent, NapEventType } from "@nap/shared/events";
-import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
-/**
- * A stand-in socket the test can push to.
- *
- * It has to be a real subscription rather than a mutable array: an event arriving is the whole
- * subject here, and a hook that returns a module-level array re-renders nobody when it changes
- * — the test would pass or fail on React's scheduling rather than on the component.
- *
- * Built inside the factory because `vi.mock` is hoisted above every import in this file, so
- * anything it closed over from module scope would be in its temporal dead zone.
- */
-vi.mock("../hooks/use-event-stream.ts", async () => {
-  const { useSyncExternalStore } = await import("react");
-
-  // One object, replaced on every push: `useSyncExternalStore` compares snapshots by identity
-  // and loops forever on a getter that builds a new one each call.
-  let snapshot: { events: readonly StoredEvent[]; status: string } = { events: [], status: "open" };
-  const listeners = new Set<() => void>();
-
-  return {
-    useEventStream: () =>
-      useSyncExternalStore(
-        (onChange: () => void) => {
-          listeners.add(onChange);
-          return () => listeners.delete(onChange);
-        },
-        () => snapshot,
-      ),
-    /** The test's end of the socket. */
-    __push: (...arriving: StoredEvent[]) => {
-      snapshot = { ...snapshot, events: [...snapshot.events, ...arriving] };
-      for (const listener of listeners) listener();
-    },
-    __reset: () => {
-      snapshot = { events: [], status: "open" };
-    },
-  };
-});
-
-const stream = (await import("../hooks/use-event-stream.ts")) as unknown as {
-  __push: (...events: StoredEvent[]) => void;
-  __reset: () => void;
-};
-
-const { AppShell } = await import("./app-shell.tsx");
-const { PREVIEW_TITLE } = await import("./preview-pane.tsx");
-
-const PROJECT = "3e0fbc41-6f5d-4a8e-ab9c-4d5e6f708192";
-const SESSION = "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f";
-const TURN = "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f";
-
-function ev<T extends NapEventType>(
-  type: T,
-  payload: Extract<NapEvent, { type: T }>["payload"],
-  seq: number,
-) {
-  return {
-    type,
-    sessionId: SESSION,
-    turnId: TURN,
-    seq,
-    createdAt: "2026-08-09T12:00:00.000Z",
-    payload,
-  } as StoredEvent;
-}
+import { ev, PROJECT_ID, SESSION_ID } from "../testing/events.ts";
+import { sockets } from "../testing/fake-socket.ts";
+import { AppShell } from "./app-shell.tsx";
+import { PREVIEW_TITLE } from "./preview-pane.tsx";
 
 /** Every open request the page made, so "exactly once" is a countable thing. */
 let opens: number;
 /** What the server says to an open request. A 202 unless a test wants a refusal. */
 let openWith: () => Response;
+let net: ReturnType<typeof sockets>;
 
 /** A project the server says is put away, and whatever `openWith` answers to an open. */
-function serve() {
-  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = String(input);
-    if (init?.method === "POST" && url.endsWith("/open")) {
-      opens += 1;
-      return openWith();
-    }
+const fetchJson = async (url: string, init?: RequestInit): Promise<Response> => {
+  if (init?.method === "POST" && url.endsWith("/open")) {
+    opens += 1;
+    return openWith();
+  }
 
-    return new Response(
-      JSON.stringify({
-        projectId: PROJECT,
-        name: "Todo app",
-        status: "idle",
-        sandboxId: null,
-        updatedAt: "2026-08-09T12:30:00.000Z",
-        sessionIds: [SESSION],
-      }),
-      { status: 200, headers: { "content-type": "application/json" } },
-    );
+  if (url.includes("/files")) {
+    return new Response(JSON.stringify({ files: [], ready: true }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }
+
+  return new Response(
+    JSON.stringify({
+      projectId: PROJECT_ID,
+      name: "Todo app",
+      status: "idle",
+      sandboxId: null,
+      updatedAt: "2026-08-09T12:30:00.000Z",
+      sessionIds: [SESSION_ID],
+    }),
+    { status: 200, headers: { "content-type": "application/json" } },
+  );
+};
+
+function open() {
+  return render(
+    <AppShell projectId={PROJECT_ID} fetchJson={fetchJson} createSocket={net.createSocket} />,
+  );
+}
+
+/**
+ * The log of a project that ran, then was put away — which is what makes this the hard case:
+ * there is already a `preview.ready` in it, belonging to a sandbox that no longer exists.
+ */
+async function replayPutAway() {
+  await act(async () => {
+    net.latest.open();
+    net.latest.deliver({
+      type: "event",
+      event: ev("preview.ready", { url: "https://5173-old.e2b.app", port: 5173 }, 7),
+    });
+    net.latest.deliver({ type: "event", event: ev("preview.stopped", {}, 8) });
+    net.latest.deliver({ type: "ready" });
   });
 }
 
 beforeEach(() => {
-  // The log of a project that ran, then was put away — which is what makes this the hard case:
-  // there is already a `preview.ready` in it, belonging to a sandbox that no longer exists.
-  stream.__reset();
-  stream.__push(
-    ev("preview.ready", { url: "https://5173-old.e2b.app", port: 5173 }, 7),
-    ev("preview.stopped", {}, 8),
-  );
   opens = 0;
+  net = sockets();
+  net.countGlobalToo(vi.stubGlobal);
   openWith = () =>
     new Response(JSON.stringify({ opened: true }), {
       status: 202,
       headers: { "content-type": "application/json" },
     });
-  serve();
 });
 
 describe("opening a put-away project", () => {
   it("starts it without anybody pressing anything", async () => {
     // Nobody navigates to their own app to be asked whether they meant it.
-    render(<AppShell projectId={PROJECT} />);
+    open();
 
     await waitFor(() => expect(opens).toBe(1));
+    await replayPutAway();
+
     expect(screen.getByText(/starting the dev server/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^resume$/i })).not.toBeInTheDocument();
+  });
+
+  it("subscribes once for the whole workspace", async () => {
+    // Three panes used to call the subscription hook for themselves, which was three connections
+    // carrying identical frames — and two panes free to sit at different sequence numbers in the
+    // same frame, one offering the address of a sandbox the other had watched stop.
+    open();
+    await waitFor(() => expect(opens).toBe(1));
+
+    expect(net.opened).toHaveLength(1);
   });
 
   it("never flashes the put-away screen on the way in", async () => {
@@ -144,23 +116,28 @@ describe("opening a put-away project", () => {
     // the panes first draw in — and in that frame the log already says `preview.stopped`, so
     // the pane drew the whole "This project is put away" screen and its button. An offer to do
     // something that was already happening, for one frame, every single time.
-    render(<AppShell projectId={PROJECT} />);
+    open();
 
     // The first paint, before anything has settled.
     expect(screen.queryByRole("button", { name: /^resume$/i })).not.toBeInTheDocument();
 
     // And every frame after it, up to the request going out.
     await waitFor(() => expect(opens).toBe(1));
+    await replayPutAway();
     expect(screen.queryByRole("button", { name: /^resume$/i })).not.toBeInTheDocument();
     expect(screen.getByText(/starting the dev server/i)).toBeInTheDocument();
   });
 
   it("shows the app as soon as the restore announces itself, with no reload", async () => {
-    render(<AppShell projectId={PROJECT} />);
+    open();
     await waitFor(() => expect(opens).toBe(1));
+    await replayPutAway();
 
     await act(async () => {
-      stream.__push(ev("preview.ready", { url: "https://5173-new.e2b.app", port: 5173 }, 9));
+      net.latest.deliver({
+        type: "event",
+        event: ev("preview.ready", { url: "https://5173-new.e2b.app", port: 5173 }, 9),
+      });
     });
 
     await waitFor(() => expect(screen.getByTitle(PREVIEW_TITLE)).toBeInTheDocument());
@@ -186,9 +163,12 @@ describe("opening a put-away project", () => {
 
     render(
       <StrictMode>
-        <AppShell projectId={PROJECT} />
+        <AppShell projectId={PROJECT_ID} fetchJson={fetchJson} createSocket={net.createSocket} />
       </StrictMode>,
     );
+
+    await waitFor(() => expect(net.opened.length).toBeGreaterThan(0));
+    await replayPutAway();
 
     // The refusal, its reason, and the button that is now the way through.
     expect(await screen.findByRole("alert")).toHaveTextContent(/2 projects running/);
@@ -200,10 +180,16 @@ describe("opening a put-away project", () => {
     // The guard is keyed to *which* project was started, not to "have I ever started one". A
     // plain boolean would mean the second project you opened in a session never came up — and
     // that failure looks exactly like a server that ignored the request.
-    const { rerender } = render(<AppShell projectId={PROJECT} />);
+    const { rerender } = open();
     await waitFor(() => expect(opens).toBe(1));
 
-    rerender(<AppShell projectId="9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d" />);
+    rerender(
+      <AppShell
+        projectId="9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"
+        fetchJson={fetchJson}
+        createSocket={net.createSocket}
+      />,
+    );
 
     await waitFor(() => expect(opens).toBe(2));
   });
@@ -215,7 +201,10 @@ describe("opening a put-away project", () => {
         headers: { "content-type": "application/json" },
       });
 
-    render(<AppShell projectId={PROJECT} />);
+    open();
+    await waitFor(() => expect(net.opened.length).toBeGreaterThan(0));
+    await replayPutAway();
+
     const resume = await screen.findByRole("button", { name: /^resume$/i });
 
     await act(async () => {
