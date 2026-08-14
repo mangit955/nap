@@ -1,5 +1,8 @@
 # Deploying Nap
 
+**Live:** the app is at <https://nap-tawny.vercel.app> and the API at
+<https://nap-api-production.up.railway.app>.
+
 Two services and four accounts. The web app is on Vercel, the API on Railway, and the
 API is the one that holds all the state, spends all the money, and must not be scaled.
 
@@ -80,8 +83,33 @@ take its domain to Vercel, then come back and set `NAP_WEB_ORIGIN` and redeploy.
 
 ### 3. The web app on Vercel
 
-Root directory `apps/web`; install `bun install`, build `bun run build`. Two variables,
-both inlined at build time — changing either needs a redeploy, not just a restart:
+**The project's Root Directory must be `apps/web`.** It is a project setting rather than
+anything a file in the repo can say, so `vercel link` alone does not set it — the CLI
+answers *"No Next.js version detected"*, because it is looking at the workspace root, whose
+`package.json` has no `next` in it. Set it in the dashboard, or:
+
+```bash
+curl -X PATCH "https://api.vercel.com/v9/projects/<projectId>?teamId=<teamId>" \
+  -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
+  -d '{"rootDirectory":"apps/web","framework":"nextjs"}'
+```
+
+Two more things that only show up on a first deployment:
+
+- **A `vercel.json` writes itself into the project's saved settings**, and those outrank a
+  later file. A `buildCommand` that was right for one layout and wrong for the next will
+  keep being used after you delete it; clear it with the same PATCH, setting
+  `buildCommand`, `installCommand` and `outputDirectory` to `null`.
+- **`.vercelignore` is not optional here.** The CLI uploads the whole workspace — which is
+  correct, since `apps/web` imports `@nap/shared` by source and would not build alone — and
+  without that file it also uploads a gigabyte of `node_modules` and any local `.next`,
+  which fails on Vercel's 100MB limit.
+
+`apps/web/vercel.json` runs the install from the workspace root with `--ignore-scripts`,
+for the same reason the Dockerfile does: the root `prepare` script wants a git repository.
+
+Two variables, both inlined at build time — changing either needs a redeploy, not just a
+restart:
 
 ```
 NEXT_PUBLIC_API_URL     https://<the railway domain>

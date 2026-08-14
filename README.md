@@ -16,8 +16,11 @@ from a half-built app is only reasonable if the work survives your absence, the 
 costing money while you're gone, and the story of what happened is still there when you return.
 Most of the engineering below exists to make those three things true.
 
-> **Status:** v1, one task from complete. It runs end to end locally. Not yet deployed, so seeing it
-> needs the credentials in [Running it](#running-it) — or the free path, which needs none.
+> **Status:** v1, complete and deployed — **[nap-tawny.vercel.app](https://nap-tawny.vercel.app)**.
+> No account needed: there is a demo door, and turns run on a free-tier model under tight
+> ceilings. **Use Chrome or Firefox** — the app and its API are on two different sites, so the
+> session cookie is third-party, and Safari and Brave block those outright. Running it yourself
+> is [below](#running-it); deploying your own is [docs/DEPLOY.md](docs/DEPLOY.md).
 
 <!--
   DEMO GOES HERE. Record ~20s at 1280×800: type "a todo list with add, complete and delete"
