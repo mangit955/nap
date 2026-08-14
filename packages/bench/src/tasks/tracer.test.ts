@@ -1,6 +1,6 @@
 import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
 import { describe, expect, it } from "vitest";
-import { parseBenchTask } from "../task.ts";
+import { categoryOf, parseBenchTask } from "../task.ts";
 import { TRACER_TASK } from "./tracer.ts";
 
 describe("the tracer task", () => {
@@ -10,10 +10,22 @@ describe("the tracer task", () => {
     expect(parseBenchTask(TRACER_TASK).ok).toBe(true);
   });
 
-  it("runs its check inside the project, not in the home directory", () => {
+  it("runs its checks inside the project, not in the home directory", () => {
     // `bun run build` in the wrong directory fails on a missing package.json, which would
     // look exactly like an agent that broke the build.
-    expect(TRACER_TASK.checks[0]?.command).toContain(PROJECT_ROOT_PATH);
+    for (const check of TRACER_TASK.checks) {
+      expect(check.command).toContain(PROJECT_ROOT_PATH);
+    }
+  });
+
+  it("scores its build and its lint into different categories", () => {
+    // Two checks of the same kind on different axes — the case that makes the category
+    // override necessary rather than decorative. Build takes the default for a command;
+    // lint says where it belongs.
+    const byId = new Map(TRACER_TASK.checks.map((check) => [check.id, categoryOf(check)]));
+
+    expect(byId.get("build")).toBe("functional");
+    expect(byId.get("lint")).toBe("code");
   });
 });
 

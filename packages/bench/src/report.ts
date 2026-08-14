@@ -17,13 +17,39 @@
 
 import type { Result } from "@nap/shared/result";
 import { z } from "zod";
+import { CategorySchema, CategoryWeightsSchema } from "./category.ts";
+
+/**
+ * What a check produced.
+ *
+ * Three values, not a boolean, and the third is the one that matters: *absent* means the run
+ * never got to ask, which is a property of its circumstances, while *failed* means it asked
+ * and did not get what it wanted, which is a property of the agent. Only absent renormalises
+ * a category away — see the reasoning in score.ts and docs/adr/0002.
+ */
+export const CheckOutcomeSchema = z.enum(["passed", "failed", "absent"]);
+export type CheckOutcome = z.infer<typeof CheckOutcomeSchema>;
 
 export const CheckResultSchema = z.strictObject({
   checkId: z.string().min(1),
   kind: z.literal("command"),
-  passed: z.boolean(),
+  /** Which axis this check scored into, after any override the task declared. */
+  category: CategorySchema,
+  /** Its worth relative to the other checks in the same category. */
+  weight: z.number().nonnegative(),
+  /** Whether failing it fails the run outright. Declared here; acted on by the gate ladder. */
+  required: z.boolean(),
+  outcome: CheckOutcomeSchema,
   /** Why, in a few words — the exit code, or what stopped it running at all. */
   detail: z.string(),
+});
+
+export const CategoryScoreSchema = z.strictObject({
+  category: CategorySchema,
+  score: z.number().int().min(0).max(100),
+  /** This category's share after absent ones were dropped and the rest rescaled. */
+  effectiveWeight: z.number().min(0).max(100),
+  checks: z.number().int().nonnegative(),
 });
 
 /**
@@ -55,6 +81,16 @@ export const BenchReportSchema = z
     status: RunStatusSchema,
     /** 0–100, or null when the run errored and produced no observation. */
     score: z.number().int().min(0).max(100).nullable(),
+    /**
+     * Per-category scores with the weight each actually carried.
+     *
+     * Recorded because a score is not interpretable without knowing what it was a weighted
+     * mean of — a run scored without the visual category and one scored with it are not on
+     * the same scale, and only this makes that visible months later.
+     */
+    categories: z.array(CategoryScoreSchema),
+    /** The configured vector, so the effective one above can be recomputed and checked. */
+    weights: CategoryWeightsSchema,
     checks: z.array(CheckResultSchema),
   })
   .refine((report) => SCORED_STATUSES.includes(report.status) === (report.score !== null), {
@@ -67,6 +103,7 @@ export const BenchReportSchema = z
   });
 
 export type CheckResult = z.infer<typeof CheckResultSchema>;
+export type CategoryScoreEntry = z.infer<typeof CategoryScoreSchema>;
 export type BenchReport = z.infer<typeof BenchReportSchema>;
 
 /** Indented, because a committed report is read and diffed by people. */

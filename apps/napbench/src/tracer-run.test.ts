@@ -18,6 +18,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NapAgentService } from "@nap/agent/agent-service";
 import { ScriptedLLMProvider } from "@nap/agent/testing/scripted-llm-provider";
+import { DEFAULT_CATEGORY_WEIGHTS } from "@nap/bench/category";
 import { parseBenchReport } from "@nap/bench/report";
 import { runBenchTask } from "@nap/bench/runner";
 import { TRACER_TASK } from "@nap/bench/tasks/tracer";
@@ -110,6 +111,10 @@ describe("a task run end to end", () => {
     expect(report.status).toBe("passed");
     expect(report.score).toBe(100);
     expect(report.taskId).toBe("tracer");
+    // The effective vector is recorded, and it is not the configured one: with nothing
+    // scoring into browser or visual, functional and code carry the whole run between them.
+    expect(report.weights).toEqual(DEFAULT_CATEGORY_WEIGHTS);
+    expect(report.categories.map((entry) => entry.effectiveWeight)).toEqual([83.3, 16.7]);
 
     // The file on disk is the deliverable, and it has to survive being read back.
     const readBack = parseBenchReport(JSON.parse(readFileSync(path, "utf8")));
@@ -141,9 +146,17 @@ describe("a task run end to end", () => {
     const report = await runBenchTask(TRACER_TASK, { runtime, sandbox, sessions, sessionId });
 
     expect(report.status).toBe("failed");
-    expect(report.score).toBe(0);
     // Failed, not errored: the turn ran fine and the application it produced is broken,
     // which is a measurement rather than an absence of one.
     expect(report.checks[0]?.detail).toBe("exit 1");
+
+    // Not zero, and the arithmetic is the point: functional scored 0 and code scored 100,
+    // weighted 50 and 10, renormalised over the two categories present → 100 * (10/60) = 17.
+    // A broken build still sinks the run without pretending the lint result did not happen.
+    expect(report.score).toBe(17);
+    expect(report.categories).toEqual([
+      { category: "functional", score: 0, effectiveWeight: 83.3, checks: 1 },
+      { category: "code", score: 100, effectiveWeight: 16.7, checks: 1 },
+    ]);
   });
 });

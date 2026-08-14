@@ -17,9 +17,10 @@
 import type { Runtime } from "@nap/shared/ports/runtime";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SessionStore } from "@nap/shared/ports/session-store";
+import { type CategoryWeights, DEFAULT_CATEGORY_WEIGHTS } from "./category.ts";
 import type { BenchReport, CheckResult } from "./report.ts";
-import { scoreChecks } from "./score.ts";
-import type { BenchTask, CommandCheck } from "./task.ts";
+import { scoreRun } from "./score.ts";
+import { type BenchTask, type CommandCheck, categoryOf, weightOf } from "./task.ts";
 
 export type BenchRunnerDeps = {
   runtime: Runtime;
@@ -35,11 +36,19 @@ export type BenchRunnerDeps = {
   sessionId: string;
   /** Injectable so a test can assert on a report whole, rather than around a random field. */
   runId?: string;
+  /**
+   * What each category is worth. Defaults to 50/25/15/10.
+   *
+   * Configurable so the benchmark's priorities can change without rewriting a single task —
+   * and recorded in every report, because the vector is what a score means.
+   */
+  weights?: CategoryWeights;
 };
 
 export async function runBenchTask(task: BenchTask, deps: BenchRunnerDeps): Promise<BenchReport> {
   const { runtime, sandbox, sessions, sessionId } = deps;
   const runId = deps.runId ?? crypto.randomUUID();
+  const weights = deps.weights ?? DEFAULT_CATEGORY_WEIGHTS;
 
   const outcome = await runtime.runTurn({ sessionId, message: task.prompt });
 
@@ -53,6 +62,8 @@ export async function runBenchTask(task: BenchTask, deps: BenchRunnerDeps): Prom
     turnId: outcome.turnId,
     status: "errored",
     score: null,
+    categories: [],
+    weights,
     checks: [],
   });
 
@@ -68,14 +79,20 @@ export async function runBenchTask(task: BenchTask, deps: BenchRunnerDeps): Prom
     checks.push(await runCommandCheck(sandbox, session.sandboxId, check));
   }
 
-  const score = scoreChecks(checks);
+  const scored = scoreRun(checks, weights);
   return {
     runId,
     taskId: task.id,
     sessionId,
     turnId: outcome.turnId,
-    status: checks.every((check) => check.passed) ? "passed" : "failed",
-    score,
+    // Every check that produced a result had to pass. An absent one is not a failure — the
+    // gate ladder decides what an unaskable check means for a run.
+    status: checks.every((check) => check.outcome !== "failed") ? "passed" : "failed",
+    // A completed turn whose checks all came back absent has nothing to score, and the
+    // schema requires a result-carrying status to have one.
+    score: scored.overall ?? 0,
+    categories: scored.categories,
+    weights,
     checks,
   };
 }
@@ -94,19 +111,28 @@ async function runCommandCheck(
 ): Promise<CheckResult> {
   const result = await sandbox.exec(sandboxId, check.command);
 
+  const declared = {
+    checkId: check.id,
+    kind: "command",
+    category: categoryOf(check),
+    weight: weightOf(check),
+    required: check.required ?? false,
+  } as const;
+
   if (!result.ok) {
     return {
-      checkId: check.id,
-      kind: "command",
-      passed: false,
+      ...declared,
+      // Failed rather than absent: the task asked for this and did not get it. Absent would
+      // drop the whole category out of the weighting, which is how failing to run a check
+      // could otherwise *raise* a run's score.
+      outcome: "failed",
       detail: `could not run: ${result.error.code} — ${result.error.message}`,
     };
   }
 
   return {
-    checkId: check.id,
-    kind: "command",
-    passed: result.value.exitCode === 0,
+    ...declared,
+    outcome: result.value.exitCode === 0 ? "passed" : "failed",
     detail: `exit ${result.value.exitCode}`,
   };
 }

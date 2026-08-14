@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseBenchTask } from "./task.ts";
+import { categoryOf, parseBenchTask, weightOf } from "./task.ts";
 
 const valid = {
   id: "landing-page",
@@ -35,10 +35,86 @@ describe("parseBenchTask", () => {
   });
 
   it("rejects an unknown field, so a mistyped key is not silently ignored", () => {
-    // `weight` and `required` are real fields in the specification but do not exist yet.
-    // Accepting them now would mean a task file that reads as weighted, and is not.
+    // `weight` belongs on a check, not on the task. Accepted here it would read as a task
+    // that is weighted against other tasks, which is not a thing.
     const parsed = parseBenchTask({ ...valid, weight: 3 });
     expect(parsed.ok).toBe(false);
+  });
+
+  it("accepts a check declaring its category, weight and whether it is required", () => {
+    const parsed = parseBenchTask({
+      ...valid,
+      checks: [
+        {
+          id: "lint",
+          kind: "command",
+          command: "bun run lint",
+          category: "code",
+          weight: 2,
+          required: true,
+        },
+      ],
+    });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+
+    const check = parsed.value.checks[0];
+    if (check === undefined) throw new Error("the check vanished");
+    expect(categoryOf(check)).toBe("code");
+    expect(weightOf(check)).toBe(2);
+    expect(check.required).toBe(true);
+  });
+
+  it("rejects a category that is not one of the four", () => {
+    const parsed = parseBenchTask({
+      ...valid,
+      checks: [{ id: "a", kind: "command", command: "x", category: "performance" }],
+    });
+    expect(parsed.ok).toBe(false);
+  });
+
+  it("rejects a negative weight, which would subtract from a category's score", () => {
+    const parsed = parseBenchTask({
+      ...valid,
+      checks: [{ id: "a", kind: "command", command: "x", weight: -1 }],
+    });
+    expect(parsed.ok).toBe(false);
+  });
+});
+
+describe("check defaults", () => {
+  it("defaults a command to the functional category", () => {
+    const parsed = parseBenchTask(valid);
+    if (!parsed.ok) throw new Error(parsed.error);
+    const check = parsed.value.checks[0];
+    if (check === undefined) throw new Error("the check vanished");
+
+    expect(check.category).toBeUndefined();
+    expect(categoryOf(check)).toBe("functional");
+  });
+
+  it("defaults a weight to 1 and required to false", () => {
+    const parsed = parseBenchTask(valid);
+    if (!parsed.ok) throw new Error(parsed.error);
+    const check = parsed.value.checks[0];
+    if (check === undefined) throw new Error("the check vanished");
+
+    expect(weightOf(check)).toBe(1);
+    expect(check.required ?? false).toBe(false);
+  });
+
+  it("leaves a deliberate zero weight alone rather than defaulting it", () => {
+    // Zero is a real choice — a check somebody wants recorded but not scored — and `??`
+    // rather than `||` is what keeps it from silently becoming 1.
+    const parsed = parseBenchTask({
+      ...valid,
+      checks: [{ id: "a", kind: "command", command: "x", weight: 0 }],
+    });
+    if (!parsed.ok) throw new Error(parsed.error);
+    const check = parsed.value.checks[0];
+    if (check === undefined) throw new Error("the check vanished");
+
+    expect(weightOf(check)).toBe(0);
   });
 
   it("rejects two checks sharing an id, which would make a result ambiguous", () => {

@@ -20,6 +20,7 @@
 
 import type { Result } from "@nap/shared/result";
 import { z } from "zod";
+import { type Category, CategorySchema, DEFAULT_CATEGORY_FOR_KIND } from "./category.ts";
 
 /**
  * A command run inside the sandbox, judged on its exit code.
@@ -31,6 +32,16 @@ export const CommandCheckSchema = z.strictObject({
   id: z.string().min(1),
   kind: z.literal("command"),
   command: z.string().min(1),
+  /**
+   * Which axis this scores into. Absent means the default for the kind — and overriding it is
+   * the ordinary case rather than the exception, because `bun run build` and `bun run lint`
+   * are both commands and only the first is functional.
+   */
+  category: CategorySchema.optional(),
+  /** Worth relative to the other checks in the same category. Defaults to 1. */
+  weight: z.number().nonnegative().optional(),
+  /** Whether failing it fails the run outright, whatever the score came to. Defaults to false. */
+  required: z.boolean().optional(),
 });
 
 export const BenchTaskSchema = z
@@ -68,6 +79,16 @@ function duplicateIds(ids: string[]): string[] {
   }
 
   return [...duplicates];
+}
+
+/** The category a check scores into: what it asked for, or the default for its kind. */
+export function categoryOf(check: CommandCheck): Category {
+  return check.category ?? DEFAULT_CATEGORY_FOR_KIND[check.kind];
+}
+
+/** A check's weight, defaulted. Zero is a legitimate choice and is left alone. */
+export function weightOf(check: CommandCheck): number {
+  return check.weight ?? 1;
 }
 
 /**

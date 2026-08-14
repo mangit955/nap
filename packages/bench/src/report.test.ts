@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { DEFAULT_CATEGORY_WEIGHTS } from "./category.ts";
 import { type BenchReport, parseBenchReport, serialiseBenchReport } from "./report.ts";
 
 const report: BenchReport = {
@@ -8,7 +9,19 @@ const report: BenchReport = {
   turnId: "3f2a1c4e-0000-4000-8000-000000000003",
   status: "passed",
   score: 100,
-  checks: [{ checkId: "build", kind: "command", passed: true, detail: "exit 0" }],
+  categories: [{ category: "functional", score: 100, effectiveWeight: 100, checks: 1 }],
+  weights: DEFAULT_CATEGORY_WEIGHTS,
+  checks: [
+    {
+      checkId: "build",
+      kind: "command",
+      category: "functional",
+      weight: 1,
+      required: false,
+      outcome: "passed",
+      detail: "exit 0",
+    },
+  ],
 };
 
 describe("a report", () => {
@@ -37,6 +50,7 @@ describe("a report", () => {
       status: "errored",
       score: null,
       turnId: null,
+      categories: [],
       checks: [],
     };
     const parsed = parseBenchReport(JSON.parse(serialiseBenchReport(errored)));

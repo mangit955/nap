@@ -87,7 +87,15 @@ describe("runBenchTask", () => {
     expect(report.status).toBe("passed");
     expect(report.score).toBe(100);
     expect(report.checks).toEqual([
-      { checkId: "build", kind: "command", passed: true, detail: "exit 0" },
+      {
+        checkId: "build",
+        kind: "command",
+        category: "functional",
+        weight: 1,
+        required: false,
+        outcome: "passed",
+        detail: "exit 0",
+      },
     ]);
   });
 
@@ -101,7 +109,7 @@ describe("runBenchTask", () => {
 
     expect(report.status).toBe("failed");
     expect(report.score).toBe(0);
-    expect(report.checks[0]?.passed).toBe(false);
+    expect(report.checks[0]?.outcome).toBe("failed");
   });
 
   it("runs every check, not just up to the first failure", async () => {
@@ -209,7 +217,7 @@ describe("runBenchTask", () => {
     const report = await runBenchTask(task(), withSandbox);
 
     expect(report.checks).toHaveLength(1);
-    expect(report.checks[0]?.passed).toBe(false);
+    expect(report.checks[0]?.outcome).toBe("failed");
     expect(report.status).toBe("failed");
   });
 });

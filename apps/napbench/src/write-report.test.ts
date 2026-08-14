@@ -1,6 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DEFAULT_CATEGORY_WEIGHTS } from "@nap/bench/category";
 import { type BenchReport, parseBenchReport } from "@nap/bench/report";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { reportPath, writeBenchReport } from "./write-report.ts";
@@ -12,7 +13,19 @@ const report: BenchReport = {
   turnId: "3f2a1c4e-0000-4000-8000-000000000003",
   status: "passed",
   score: 100,
-  checks: [{ checkId: "build", kind: "command", passed: true, detail: "exit 0" }],
+  categories: [{ category: "functional", score: 100, effectiveWeight: 100, checks: 1 }],
+  weights: DEFAULT_CATEGORY_WEIGHTS,
+  checks: [
+    {
+      checkId: "build",
+      kind: "command",
+      category: "functional",
+      weight: 1,
+      required: false,
+      outcome: "passed",
+      detail: "exit 0",
+    },
+  ],
 };
 
 let dir: string;
