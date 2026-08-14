@@ -1,0 +1,28 @@
+# Anything reinstalled, rebuilt, or actively harmful inside the image.
+
+# Reinstalled by `bun install`, and a host build of a native module is the wrong architecture.
+node_modules
+**/node_modules
+
+# Built by Vercel, from `apps/web`. This image serves the API only.
+.next
+**/.next
+.turbo
+**/.turbo
+
+.git
+.github
+
+# The one that would do real damage: a dev `.env` copied in outranks the platform's own
+# variables, so the deployment would quietly run against the development database.
+.env
+**/.env
+!**/.env.example
+
+# Nothing in the image runs the suite, and the fixtures are the bulk of it.
+test
+**/*.test.ts
+**/*.test-d.ts
+**/*.test.tsx
+docs
+*.md

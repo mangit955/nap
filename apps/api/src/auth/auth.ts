@@ -29,6 +29,7 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { anonymous } from "better-auth/plugins/anonymous";
 import { z } from "zod";
+import { isCrossSite } from "./cross-site.ts";
 
 /**
  * The connection, as `createDatabase` hands it over. Taken from there rather than imported
@@ -135,6 +136,17 @@ export function createAuth(db: Db, config: AuthConfig): AuthInstance {
     advanced: {
       // Ids stay uuids, which is what every foreign key in this schema already expects.
       database: { generateId: "uuid" },
+      // When the app and this API are on different hosts, the default `SameSite=Lax` means
+      // the browser never sends this cookie back: sign-in looks like it worked and every
+      // request after it is a 401. `Partitioned` rides along because a third-party cookie
+      // without it is the one browsers are in the middle of taking away.
+      //
+      // Left alone in development, where both are localhost — see `isCrossSite`. Nothing
+      // here rescues a browser that blocks third-party cookies outright (Safari, Brave):
+      // the fix for those is one site rather than two.
+      ...(isCrossSite(config.baseUrl, config.webOrigin)
+        ? { defaultCookieAttributes: { sameSite: "none", secure: true, partitioned: true } }
+        : {}),
     },
 
     user: { modelName: "users" },

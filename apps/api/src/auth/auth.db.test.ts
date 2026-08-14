@@ -201,6 +201,76 @@ describe("the demo door", () => {
   });
 });
 
+/**
+ * The attributes the browser is told to store the session cookie under.
+ *
+ * Deployed, the app and this API are on two different hosts, which makes the session cookie
+ * third-party: under the library's `SameSite=Lax` default the browser keeps it and never
+ * sends it back, so sign-in answers 200 and every request after it is a 401. That failure is
+ * invisible to every other test here, because `app.request` is not a browser and sends back
+ * whatever it was given.
+ *
+ * Asserted against a real sign-up rather than by inspecting the config, since what matters is
+ * the header that actually reaches the browser.
+ */
+describe("the session cookie's site policy", () => {
+  /** Signs somebody up through an app built on the given origins, and returns the raw header. */
+  async function setCookieHeaderFrom(apiOrigin: string, webOrigin: string): Promise<string> {
+    const deployed = createAuth(db.db, {
+      secret: "a-test-secret-that-is-long-enough-to-be-a-secret",
+      baseUrl: apiOrigin,
+      webOrigin,
+      allowAnonymous: true,
+    });
+    const app = createApp({
+      logger: createLogger({ level: "silent" }, { write: () => {} }),
+      webOrigin,
+      auth: deployed,
+      stream: {
+        store: new InMemoryEventStore(),
+        bus: new InMemoryEventBus(),
+        upgradeWebSocket: () => Promise.resolve(new Response(null)),
+      },
+    });
+
+    const response = await app.request(`${apiOrigin}/api/auth/sign-up/email`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: webOrigin },
+      body: JSON.stringify({
+        email: anEmail(),
+        password: "correct horse battery staple",
+        name: "Ada",
+      }),
+    });
+    expect(response.status).toBe(200);
+
+    const header = response.headers.getSetCookie().join(", ");
+    if (header === "") throw new Error("the sign-up set no cookie at all");
+    return header;
+  }
+
+  it("is None, Secure and Partitioned when the app is on another host", async () => {
+    const header = await setCookieHeaderFrom(
+      "https://nap-api.up.railway.app",
+      "https://nap.vercel.app",
+    );
+
+    expect(header).toContain("SameSite=None");
+    expect(header).toContain("Secure");
+    // Without this, the cookie is the kind browsers are in the process of blocking outright.
+    expect(header).toContain("Partitioned");
+  });
+
+  it("stays Lax in development, where both are localhost", async () => {
+    // The inner loop runs over plain http, where a `Secure` cookie is not stored at all —
+    // widening the deployed case must not narrow this one.
+    const header = await setCookieHeaderFrom(API_ORIGIN, WEB_ORIGIN);
+
+    expect(header).toContain("SameSite=Lax");
+    expect(header).not.toContain("SameSite=None");
+  });
+});
+
 describe("an expired session", () => {
   it("is rejected once its row has passed its expiry", async () => {
     const email = anEmail();
