@@ -7,6 +7,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@nap/bench": "workspace:*"
+    "@nap/bench": "workspace:*",
+    "@nap/sandbox": "workspace:*",
+    "@nap/shared": "workspace:*",
+    "playwright-core": "1.57.0"
   }
 }
