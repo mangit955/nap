@@ -1505,7 +1505,7 @@ body {
  *   - **Not a lower opacity on the whole layer.** Fading everything to clear the centre dulls
  *     the edges too, and a uniformly grey wall of line art reads as a printing fault.
  *
- * The stop is soft and long — clear until 52%, full only at the very edge of the ellipse —
+ * The stop is soft and long — clear until 56%, full only at the very edge of the ellipse —
  * because a hard edge draws a visible oval on the page, which is a worse artefact than the
  * doodles it was hiding.
  */
@@ -1520,11 +1520,11 @@ body {
  */
 .nap-doodle-wall {
   -webkit-mask-image:
-    radial-gradient(ellipse 44% 40% at 50% 47%, transparent 52%, #000 100%),
+    radial-gradient(ellipse 44% 48% at 50% 50%, transparent 56%, #000 100%),
     radial-gradient(150px 96px at 52px 34px, transparent 42%, #000 100%);
   -webkit-mask-composite: source-in;
   mask-image:
-    radial-gradient(ellipse 44% 40% at 50% 47%, transparent 52%, #000 100%),
+    radial-gradient(ellipse 44% 48% at 50% 50%, transparent 56%, #000 100%),
     radial-gradient(150px 96px at 52px 34px, transparent 42%, #000 100%);
   mask-composite: intersect;
 }

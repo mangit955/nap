@@ -54,7 +54,8 @@ export function Doodles() {
   return (
     <div
       aria-hidden="true"
-      className="pointer-events-none absolute inset-0 hidden text-[var(--s-doodle)] md:block"
+      className="pointer-events-none absolute inset-0 z-0 hidden text-[var(--s-doodle)] md:block"
+      data-testid="landing-doodles"
     >
       {/*
         A window, roughed in. Four separate strokes, each running a little past the corner it

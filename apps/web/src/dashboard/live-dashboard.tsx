@@ -107,6 +107,7 @@ function SignedInDashboard({ user }: { user: { name?: string | null; email?: str
       <ApiKeyPanel open={keyPanelOpen} onClose={() => setKeyPanelOpen(false)} keyState={key} />
 
       <Dashboard
+        fading={signingOut}
         sidebar={
           <Sidebar
             name={greetingName(user)}

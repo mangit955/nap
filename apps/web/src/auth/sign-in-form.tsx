@@ -170,13 +170,13 @@ export function SignInForm({
       <a
         href="/"
         aria-label="nap, back to the front page"
-        className="absolute top-4 left-6 flex items-center gap-0.5 font-semibold text-[var(--s-text-primary)] text-sm tracking-tight focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--s-text-primary)]"
+        className="absolute top-4 left-6 z-10 flex items-center gap-0.5 font-semibold text-[var(--s-text-primary)] text-sm tracking-tight focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--s-text-primary)]"
       >
         <NapMark className="size-10" />
         nap
       </a>
 
-      <main className="flex w-full max-w-sm flex-col">
+      <main className="relative z-10 flex w-full max-w-sm flex-col">
         <h1 className="text-center font-display font-extralight text-[var(--s-text-body)] text-3xl tracking-[-0.03em]">
           {copy.lead}{" "}
           <span className="font-semibold text-[var(--s-text-primary)]">{copy.emphasis}</span>

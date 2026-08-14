@@ -10,9 +10,10 @@ import { Dashboard } from "./dashboard.tsx";
  * split `landing.tsx` and every pane in the workspace use.
  */
 
-function show() {
+function show(fading = false) {
   render(
     <Dashboard
+      fading={fading}
       sidebar={<nav aria-label="Dashboard">rail</nav>}
       hero={<p>greeting</p>}
       grid={<p>projects</p>}
@@ -45,5 +46,14 @@ describe("the dashboard frame", () => {
     expect(screen.getByRole("main")).toHaveClass("overflow-y-auto");
     expect(screen.getByRole("main")).toHaveClass("nap-scroll-hidden");
     expect(screen.getByRole("main").parentElement).toHaveClass("overflow-hidden");
+  });
+
+  it("fades the frame while signing out", () => {
+    show(true);
+
+    const frame = screen.getByRole("main").parentElement;
+    expect(frame).toHaveAttribute("data-signing-out", "true");
+    expect(frame).toHaveClass("opacity-60");
+    expect(frame).toHaveAttribute("aria-busy", "true");
   });
 });

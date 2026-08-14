@@ -234,6 +234,12 @@ describe("the paper it is written on", () => {
     // hundred unlabelled drawings in the accessibility tree is a page nobody can navigate.
     expect(wall).toHaveAttribute("aria-hidden", "true");
     expect(wall.className).toContain("pointer-events-none");
+    expect(wall).toHaveClass("z-0");
+
+    // The wall is decoration, never foreground content: the logo and every piece of the form
+    // sit in the layer above it so even the text below the card stays clean and legible.
+    expect(screen.getByRole("main")).toHaveClass("z-10");
+    expect(screen.getByRole("link", { name: /back to the front page/i })).toHaveClass("z-10");
 
     // A wall rather than a few marks: if the layout ever collapses to a handful of drawings the
     // page still looks intentional, which is why this is worth pinning to a number.

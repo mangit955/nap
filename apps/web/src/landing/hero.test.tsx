@@ -39,6 +39,13 @@ describe("the front page's hero", () => {
     expect(container.querySelectorAll(".ai-lights")).toHaveLength(1);
   });
 
+  it("keeps the lit card above the decorative doodles", () => {
+    const { container } = show();
+
+    expect(screen.getByTestId("landing-doodles")).toHaveClass("z-0");
+    expect(container.querySelector("[data-no-trail]")).toHaveClass("z-10");
+  });
+
   it("shows a picture of software working, not a control", () => {
     // The card changes what it is every few seconds. A label never re-announces, so any name it
     // carried would be wrong seconds after being read — and the only controls on this page are

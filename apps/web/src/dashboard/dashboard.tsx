@@ -27,15 +27,24 @@ export function Dashboard({
   sidebar,
   hero,
   grid,
+  fading = false,
 }: {
   sidebar: ReactNode;
   hero: ReactNode;
   grid: ReactNode;
+  /** A session-ending request is still in flight; dim the frame until navigation takes over. */
+  fading?: boolean;
 }) {
   useDocumentScrollLock();
 
   return (
-    <div className="relative grid h-dvh overflow-hidden bg-surface grid-cols-1 md:grid-cols-[248px_1fr]">
+    <div
+      aria-busy={fading}
+      className={`relative grid h-dvh overflow-hidden bg-surface transition-opacity duration-200 ease-out grid-cols-1 md:grid-cols-[248px_1fr] ${
+        fading ? "opacity-60" : "opacity-100"
+      }`}
+      data-signing-out={fading}
+    >
       {/* Below the breakpoint the rail would take a third of a phone; the grid and the composer
           are the page, and both work without it. */}
       <div className="hidden md:block">{sidebar}</div>

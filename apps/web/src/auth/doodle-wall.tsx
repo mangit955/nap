@@ -387,7 +387,7 @@ const COLUMNS = 13;
 const ROWS = 13;
 
 /** The form's clearing, as fractions of the page — kept in step with `.nap-doodle-wall`. */
-const CLEARING = { x: 0.5, y: 0.49, rx: 0.26, ry: 0.3 };
+const CLEARING = { x: 0.5, y: 0.5, rx: 0.25, ry: 0.36 };
 /** And the wordmark's, in the top-left corner where it sits. */
 const LOGO = { x: 0.045, y: 0.045, rx: 0.13, ry: 0.09 };
 
@@ -455,7 +455,7 @@ export function DoodleWall() {
     <div
       aria-hidden="true"
       data-testid="doodle-wall"
-      className="nap-doodle-wall pointer-events-none absolute inset-0 hidden overflow-hidden text-[var(--s-doodle)] sm:block"
+      className="nap-doodle-wall pointer-events-none absolute inset-0 z-0 hidden overflow-hidden text-[var(--s-doodle)] sm:block"
     >
       {WALL.map(({ seed, x, y, rotate, size, doodle }) => {
         const Drawing = DOODLES[doodle];
