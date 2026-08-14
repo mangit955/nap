@@ -13,6 +13,12 @@
  * to-do appearing, a filter shortening a list, a route changing — is the thing under test, so
  * it is supplied per test as a handler that mutates the page.
  *
+ * **What it does not model is waiting.** A real page renders after it loads, so the adapter's
+ * queries wait for what they are looking for; here every answer is already true or already
+ * false, because nothing in a scripted page arrives late. That divergence is safe in the one
+ * direction that matters — a check that passes against the fake can still fail against a slow
+ * application, never the reverse — and modelling it would mean inventing timings no test wants.
+ *
  * The reload rule is the one worth spelling out, because "state survives a reload" is a check
  * the benchmark has to be able to express and get wrong. An element added by a handler is gone
  * after a reload unless the handler said it `persists`, which is the fake's stand-in for the

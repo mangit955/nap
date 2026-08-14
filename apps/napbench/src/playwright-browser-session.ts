@@ -28,24 +28,24 @@
  * preview additionally needs an E2B sandbox and credentials.
  */
 
-import type {
-  AccessibilityImpact,
-  AccessibilityScan,
-  AccessibilityViolation,
-  BrowserCallOptions,
-  BrowserError,
-  BrowserErrorCode,
-  BrowserSession,
-  BrowserSessionFactory,
-  DocumentWidth,
-  FailedRequest,
-  Screenshot,
-  SessionDiagnostics,
+import {
+  ACCESSIBILITY_IMPACTS,
+  type AccessibilityImpact,
+  type AccessibilityScan,
+  type AccessibilityViolation,
+  type BrowserCallOptions,
+  type BrowserError,
+  type BrowserErrorCode,
+  type BrowserSession,
+  type BrowserSessionFactory,
+  type DocumentWidth,
+  type FailedRequest,
+  type Screenshot,
+  type SessionDiagnostics,
 } from "@nap/bench/browser-session";
 import type { Selector } from "@nap/bench/selector";
 import { VIEWPORT_SIZES, type ViewportSize } from "@nap/bench/viewport";
 import type { Result, VoidResult } from "@nap/shared/result";
-import type { AxeResults } from "axe-core";
 import { source as AXE_SOURCE } from "axe-core";
 import {
   type Browser,
@@ -64,16 +64,15 @@ import {
  */
 const DEFAULT_TIMEOUT_MS = 15_000;
 
+/** How long a count is watched for before it is taken to have settled. */
+const COUNT_SETTLE_MS = 100;
+
 /** How long `diagnostics` waits for the page to go quiet before reading what went wrong. */
 const SETTLE_TIMEOUT_MS = 2_000;
 
 export type PlaywrightBrowserOptions = {
   /** Path to a Chrome or Chromium binary. Nothing here looks for one. */
   executablePath: string;
-  /** Off only when somebody is watching a check run. */
-  headless?: boolean;
-  /** Overrides the per-call default; a call's own `timeoutMs` still wins over both. */
-  defaultTimeoutMs?: number;
 };
 
 /**
@@ -83,7 +82,7 @@ export type PlaywrightBrowserOptions = {
  * started it, and a factory that closed the browser with the last session would make the
  * lifetime depend on how many checks a task happened to declare.
  */
-export type PlaywrightBrowserDriver = {
+export type PlaywrightBrowser = {
   session: BrowserSessionFactory;
   close(): Promise<void>;
 };
@@ -97,12 +96,12 @@ export type PlaywrightBrowserDriver = {
  */
 export async function launchPlaywrightBrowser(
   options: PlaywrightBrowserOptions,
-): Promise<Result<PlaywrightBrowserDriver, BrowserError>> {
+): Promise<Result<PlaywrightBrowser, BrowserError>> {
   let browser: Browser;
   try {
     browser = await chromium.launch({
       executablePath: options.executablePath,
-      headless: options.headless ?? true,
+      headless: true,
       // Chrome's own sandbox needs privileges a container process usually lacks, and this
       // browser only ever loads an application we are already running ourselves.
       args: ["--no-sandbox", "--disable-dev-shm-usage"],
@@ -117,15 +116,16 @@ export async function launchPlaywrightBrowser(
     };
   }
 
-  const timeout = options.defaultTimeoutMs ?? DEFAULT_TIMEOUT_MS;
-
   return {
     ok: true,
     value: {
       session: async () => {
         try {
           const context = await browser.newContext({ viewport: { ...VIEWPORT_SIZES.desktop } });
-          return { ok: true, value: await PlaywrightBrowserSession.open(context, timeout) };
+          return {
+            ok: true,
+            value: await PlaywrightBrowserSession.open(context, DEFAULT_TIMEOUT_MS),
+          };
         } catch (error) {
           return {
             ok: false,
@@ -187,10 +187,11 @@ export class PlaywrightBrowserSession implements BrowserSession {
 
     this.#page.on("requestfailed", (request) => {
       if (isBrowserNoise(request.url())) return;
-      this.#failedRequests.push({
-        url: request.url(),
-        failure: request.failure()?.errorText ?? "the request failed",
-      });
+      this.#recordFailure(
+        request.url(),
+        request.failure()?.errorText ?? "the request failed",
+        false,
+      );
     });
 
     // A 404 on a data fetch is not a failed *request* to the browser, and it is exactly the
@@ -198,8 +199,24 @@ export class PlaywrightBrowserSession implements BrowserSession {
     this.#page.on("response", (response) => {
       if (response.status() < 400) return;
       if (isBrowserNoise(response.url())) return;
-      this.#failedRequests.push({ url: response.url(), failure: `HTTP ${response.status()}` });
+      this.#recordFailure(response.url(), `HTTP ${response.status()}`, true);
     });
+  }
+
+  /**
+   * One entry per address, and the status wins.
+   *
+   * A single broken fetch arrives twice: the server answers 404, and Chrome then aborts the
+   * request nobody read the body of. Recording both would report two broken things where there
+   * is one, and `net::ERR_ABORTED` is the less useful of the two descriptions.
+   */
+  #recordFailure(url: string, failure: string, authoritative: boolean): void {
+    const existing = this.#failedRequests.findIndex((request) => request.url === url);
+    if (existing === -1) {
+      this.#failedRequests.push({ url, failure });
+      return;
+    }
+    if (authoritative) this.#failedRequests[existing] = { url, failure };
   }
 
   async goto(url: string, opts?: BrowserCallOptions): Promise<VoidResult<BrowserError>> {
@@ -247,6 +264,8 @@ export class PlaywrightBrowserSession implements BrowserSession {
   ): Promise<VoidResult<BrowserError>> {
     return this.#attempt(selector === undefined ? "page" : "element", async () => {
       if (selector === undefined) {
+        // No deadline on this branch, and none is possible: a keypress with no element to find
+        // waits for nothing, and Playwright's keyboard takes no timeout to give it.
         await this.#page.keyboard.press(key);
         return;
       }
@@ -281,7 +300,11 @@ export class PlaywrightBrowserSession implements BrowserSession {
   ): Promise<Result<boolean, BrowserError>> {
     return this.#ask("element", async () => {
       try {
-        await this.#locate(selector)
+        // Filtered to the visible matches *before* taking the first, because the question is
+        // whether any match is visible. Taking the first match and asking whether that one is
+        // visible answers a different question, and answers it wrongly on exactly the page
+        // that produces duplicates — a layout rendering one copy for mobile and hiding another.
+        await this.#visible(selector)
           .first()
           .waitFor({
             state: "visible",
@@ -302,13 +325,38 @@ export class PlaywrightBrowserSession implements BrowserSession {
     opts?: BrowserCallOptions,
   ): Promise<Result<number, BrowserError>> {
     return this.#ask("element", async () => {
-      const matches = await this.#locate(selector).all();
-      const visible = await Promise.all(
-        matches.map((match) => match.isVisible({ timeout: this.#deadline(opts) })),
-      );
+      // Counted after waiting, not sampled once. Every other query here auto-waits; a bare
+      // count does not, and `Locator.isVisible`'s own timeout is documented as ignored — so a
+      // count taken straight after a click reads whatever had rendered by then, which for any
+      // application that fetches before it paints is zero.
+      //
+      // Waiting happens in two parts because "nothing yet" and "nothing at all" look
+      // identical, and a settling rule alone cannot tell them apart: an empty page is
+      // perfectly stable right up until it renders. So first wait for *something* to appear —
+      // and if nothing ever does, zero is the answer, at the same price `isVisible` pays for
+      // proving any other negative. Then let the number settle, because the first item to
+      // arrive is rarely the last.
+      const deadline = Date.now() + this.#deadline(opts);
       // Visible ones only, as the port says: markup left in the document with `display: none`
       // is not something a user can count.
-      return visible.filter(Boolean).length;
+      const visible = this.#visible(selector);
+
+      try {
+        await visible.first().waitFor({ state: "visible", timeout: this.#deadline(opts) });
+      } catch (error) {
+        if (!isTimeout(error)) throw error;
+        return 0;
+      }
+
+      let previous = await visible.count();
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, COUNT_SETTLE_MS));
+        const current = await visible.count();
+        if (current === previous) return current;
+        previous = current;
+      }
+
+      return previous;
     });
   }
 
@@ -367,10 +415,13 @@ export class PlaywrightBrowserSession implements BrowserSession {
   async scanAccessibility(): Promise<Result<AccessibilityScan, BrowserError>> {
     return this.#ask("page", async () => {
       await this.#page.evaluate(AXE_SOURCE);
-      const results = (await this.#page.evaluate(
-        // Serialised into the page, so it cannot close over anything out here.
-        "window.axe.run(document, { resultTypes: ['violations'] })",
-      )) as AxeResults;
+      // A callback rather than a string of script: `apps/napbench/tsconfig.json` pulls in the
+      // DOM lib precisely so that what runs in the page is still checked. The declaration is
+      // how the compiler is told about the global the line above just installed.
+      const results = await this.#page.evaluate(() => {
+        const axe = (globalThis as unknown as { axe: AxeGlobal }).axe;
+        return axe.run(document, { resultTypes: ["violations"] });
+      });
 
       return { violations: summariseViolations(results) };
     });
@@ -429,9 +480,14 @@ export class PlaywrightBrowserSession implements BrowserSession {
     }
   }
 
+  /** The matches a user could actually see, which is what both counting queries mean. */
+  #visible(selector: Selector): Locator {
+    return this.#locate(selector).filter({ visible: true });
+  }
+
   /** An action: it worked, or it produced a typed failure. */
   async #attempt(
-    where: FailureContext,
+    where: BrowserOperation,
     act: () => Promise<void>,
   ): Promise<VoidResult<BrowserError>> {
     const asked = await this.#ask(where, act);
@@ -445,7 +501,7 @@ export class PlaywrightBrowserSession implements BrowserSession {
    * page produces an ordinary-looking failure that would otherwise be recorded as the
    * application's — which is the one direction this must never round.
    */
-  async #ask<T>(where: FailureContext, ask: () => Promise<T>): Promise<Result<T, BrowserError>> {
+  async #ask<T>(where: BrowserOperation, ask: () => Promise<T>): Promise<Result<T, BrowserError>> {
     try {
       return { ok: true, value: await ask() };
     } catch (error) {
@@ -460,8 +516,22 @@ export class PlaywrightBrowserSession implements BrowserSession {
   }
 }
 
-/** Which kind of operation failed, which is what decides how a timeout should be read. */
-export type FailureContext = "navigation" | "element" | "page";
+/** Which kind of operation was being performed, which is what decides how a timeout reads. */
+export type BrowserOperation = "navigation" | "element" | "page";
+
+/**
+ * The part of an axe violation this reads.
+ *
+ * Narrower than axe's own `Result`, so that a test can build one without casting its way past
+ * the compiler — which is the checking such a test exists to do.
+ */
+export type AxeViolation = {
+  id: string;
+  impact?: string | null | undefined;
+  help: string;
+  helpUrl: string;
+  nodes: readonly unknown[];
+};
 
 /**
  * Classifies a thrown value into the port's four codes.
@@ -471,7 +541,7 @@ export type FailureContext = "navigation" | "element" | "page";
  * application, while a page that would not load is `navigation_failed`. Anything that is not a
  * timeout is the browser refusing to do as it was told.
  */
-export function browserErrorFor(error: unknown, where: FailureContext): BrowserError {
+export function browserErrorFor(error: unknown, where: BrowserOperation): BrowserError {
   const message = messageOf(error);
   if (where === "navigation") return { code: "navigation_failed", message };
 
@@ -508,7 +578,7 @@ export function isBrowserNoise(url: string): boolean {
  * page produces rarely enough to never be noticed.
  */
 export function summariseViolations(results: {
-  violations?: AxeResults["violations"];
+  violations?: readonly AxeViolation[];
 }): AccessibilityViolation[] {
   return (results.violations ?? []).map((violation) => ({
     id: violation.id,
@@ -520,22 +590,25 @@ export function summariseViolations(results: {
 }
 
 function impactOf(impact: string | null | undefined): AccessibilityImpact {
-  switch (impact) {
-    case "critical":
-    case "serious":
-    case "moderate":
-    case "minor":
-      return impact;
-    default:
-      // Ungraded rather than mild: guessing `minor` would understate a violation in a report
-      // nobody can re-derive.
-      return "unknown";
-  }
+  // Read off the list that defines the type, rather than a second copy of it here that a new
+  // grade would have to be added to twice.
+  const known = ACCESSIBILITY_IMPACTS.find((candidate) => candidate === impact);
+  // Ungraded rather than mild: guessing `minor` would understate a violation in a report
+  // nobody can re-derive.
+  return known ?? "unknown";
 }
 
 function isTimeout(error: unknown): boolean {
   return error instanceof Error && error.name === "TimeoutError";
 }
+
+/** Just enough of axe's browser global for the call this makes into it. */
+type AxeGlobal = {
+  run(
+    context: Document,
+    options: { resultTypes: string[] },
+  ): Promise<{ violations: AxeViolation[] }>;
+};
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);

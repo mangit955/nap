@@ -96,7 +96,7 @@ describe("summariseViolations", () => {
   it("keeps the rule, its impact, where to read about it and how many elements broke it", () => {
     // Not axe's own shape: a report is archived and diffed for months, and its result object is
     // a large versioned thing with a node tree inside it.
-    expect(summariseViolations({ violations: [violation] as never })).toEqual([
+    expect(summariseViolations({ violations: [violation] })).toEqual([
       {
         id: "image-alt",
         impact: "critical",
@@ -110,9 +110,7 @@ describe("summariseViolations", () => {
   it("records an ungraded violation as unknown rather than as mild", () => {
     // The field is optional in axe's output. Defaulting to `minor` would understate a
     // violation in a report nobody can re-derive.
-    const summarised = summariseViolations({
-      violations: [{ ...violation, impact: undefined }] as never,
-    });
+    const summarised = summariseViolations({ violations: [{ ...violation, impact: undefined }] });
 
     expect(summarised[0]?.impact).toBe("unknown");
   });

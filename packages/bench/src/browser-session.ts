@@ -109,7 +109,14 @@ export interface BrowserSession {
    */
   isVisible(selector: Selector, opts?: BrowserCallOptions): Promise<Result<boolean, BrowserError>>;
 
-  /** How many visible elements match. Zero is an answer, not a failure. */
+  /**
+   * How many visible elements match. Zero is an answer, not a failure.
+   *
+   * Waits, like `isVisible` — a count taken the instant a page loads reads zero for any
+   * application that fetches before it paints. Which means an *expected* zero costs the whole
+   * deadline before it can be believed, exactly as proving any other negative does, so a check
+   * asserting an empty list should say `timeoutMs` rather than pay the default for it.
+   */
   count(selector: Selector, opts?: BrowserCallOptions): Promise<Result<number, BrowserError>>;
 
   /** An attribute of the first match, or null when the element has no such attribute. */

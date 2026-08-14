@@ -10,7 +10,7 @@
     "@nap/bench": "workspace:*",
     "@nap/sandbox": "workspace:*",
     "@nap/shared": "workspace:*",
-    "axe-core": "^4.13.0",
+    "axe-core": "4.13.0",
     "playwright-core": "1.57.0"
   },
   "devDependencies": {

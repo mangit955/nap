@@ -25,10 +25,7 @@ import { runBrowserCheck } from "@nap/bench/browser-executor";
 import type { BrowserSession } from "@nap/bench/browser-session";
 import { VIEWPORT_SIZES } from "@nap/bench/viewport";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import {
-  launchPlaywrightBrowser,
-  type PlaywrightBrowserDriver,
-} from "./playwright-browser-session.ts";
+import { launchPlaywrightBrowser, type PlaywrightBrowser } from "./playwright-browser-session.ts";
 
 const CHROME = process.env.NAP_CHROME_PATH;
 
@@ -87,6 +84,25 @@ const APP = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>T
   render();
 </script></body></html>`;
 
+/**
+ * The two shapes that catch a query answering the wrong question.
+ *
+ * A hidden copy of a phrase *before* the visible one, which is what a layout rendering one
+ * version for mobile and another for desktop produces — and which a query that takes the first
+ * match and asks whether it is visible reports as absent. And a list that arrives 300ms late,
+ * which is every application that fetches before it paints, and which a count that samples
+ * once reports as empty.
+ */
+const LATE = `<!doctype html><html><head><title>Late</title></head><body>
+<span style="display:none">Buy milk</span>
+<ul id="list"><li style="display:none">Ghost</li></ul>
+<script>
+  setTimeout(() => {
+    document.getElementById("list").insertAdjacentHTML(
+      "beforeend", "<li>Buy milk</li><li>Walk dog</li>");
+  }, 300);
+</script></body></html>`;
+
 /** A page that spills past a phone's width, so overflow is measured rather than asserted. */
 const WIDE = `<!doctype html><html><head><title>Wide</title></head>
 <body style="margin:0"><div style="width:900px;height:40px">wide</div></body></html>`;
@@ -97,7 +113,12 @@ const BROKEN = `<!doctype html><html><head><title>Broken</title></head><body>
 <script>fetch("/data.json"); throw new TypeError("cannot read properties of undefined");</script>
 </body></html>`;
 
-const PAGES: Record<string, string> = { "/": APP, "/wide": WIDE, "/broken": BROKEN };
+const PAGES: Record<string, string> = {
+  "/": APP,
+  "/wide": WIDE,
+  "/broken": BROKEN,
+  "/late": LATE,
+};
 
 let server: Server;
 let origin: string;
@@ -106,7 +127,7 @@ let origin: string;
  * event and the test below has to prove Chrome asked before it can prove we filtered it.
  */
 const pathsRequested: string[] = [];
-let driver: PlaywrightBrowserDriver;
+let driver: PlaywrightBrowser;
 
 /** A session per test, so nothing one test stored can explain another one passing. */
 async function openSession(): Promise<BrowserSession> {
@@ -197,7 +218,9 @@ describe.skipIf(CHROME === undefined)("the Playwright adapter against a real Chr
       expect(unwrap(await session.count({ by: "role", role: "listitem" }))).toBe(1);
       // The empty-state paragraph is still in the document with `display: none`. Visible ones
       // only, as the port says — markup a user cannot see is not something they can count.
-      expect(unwrap(await session.count({ by: "text", text: "Nothing to do yet" }))).toBe(0);
+      expect(
+        unwrap(await session.count({ by: "text", text: "Nothing to do yet" }, { timeoutMs: 500 })),
+      ).toBe(0);
       expect(
         unwrap(
           await session.isVisible({ by: "text", text: "Nothing to do yet" }, { timeoutMs: 500 }),
@@ -218,7 +241,9 @@ describe.skipIf(CHROME === undefined)("the Playwright adapter against a real Chr
 
       unwrap(await session.selectOption({ by: "label", text: "Filter" }, "done"));
       expect(unwrap(await session.url())).toContain("filter=done");
-      expect(unwrap(await session.count({ by: "role", role: "listitem" }))).toBe(0);
+      expect(
+        unwrap(await session.count({ by: "role", role: "listitem" }, { timeoutMs: 500 })),
+      ).toBe(0);
     } finally {
       await session.close();
     }
@@ -242,6 +267,32 @@ describe.skipIf(CHROME === undefined)("the Playwright adapter against a real Chr
       });
       expect(missing.ok).toBe(false);
       if (!missing.ok) expect(missing.error.code).toBe("not_found");
+    } finally {
+      await session.close();
+    }
+  });
+
+  it("sees an element the first match was hiding, and waits for a list that arrives late", async () => {
+    // Both halves of this were wrong and green: `isVisible` asked whether the *first* match was
+    // visible rather than whether any was, and `count` sampled the DOM once with a deadline
+    // Playwright documents as ignored.
+    const session = await openSession();
+    try {
+      unwrap(await session.goto(`${origin}/late`));
+
+      // Counted *first*, before anything else has had a chance to wait on this page's behalf.
+      // Two, not three: the list starts with a hidden item that no user can count, and not
+      // zero, which is what sampling the DOM the instant it loads would have said.
+      expect(unwrap(await session.count({ by: "role", role: "listitem" }))).toBe(2);
+
+      // And the hidden copy of this phrase comes first in the document, so a query that takes
+      // the first match and asks whether *it* is visible reports the page as not having it.
+      expect(unwrap(await session.isVisible({ by: "text", text: "Buy milk" }))).toBe(true);
+
+      // One, not two, and this needs a text selector to say anything: the role engine reads the
+      // accessibility tree, which a `display: none` element is not in, so counting `listitem`
+      // could never have noticed a hidden match.
+      expect(unwrap(await session.count({ by: "text", text: "Buy milk" }))).toBe(1);
     } finally {
       await session.close();
     }
@@ -363,7 +414,8 @@ describe.skipIf(CHROME === undefined)("the Playwright adapter against a real Chr
     // So the noise this filter exists for lands on whichever check runs first in a suite and
     // never again, and a test sharing the suite's browser could only ever assert the filter on
     // a page that was never going to produce the thing being filtered.
-    const own = await launchPlaywrightBrowser({ executablePath: CHROME ?? "" });
+    if (CHROME === undefined) throw new Error("unreachable: guarded by describe.skipIf");
+    const own = await launchPlaywrightBrowser({ executablePath: CHROME });
     if (!own.ok) throw new Error(`no browser: ${own.error.message}`);
     const opened = await own.value.session();
     if (!opened.ok) throw new Error(`no session: ${opened.error.message}`);
@@ -385,10 +437,12 @@ describe.skipIf(CHROME === undefined)("the Playwright adapter against a real Chr
       // request once nothing reads the body, so it arrives twice by two routes — asserting on
       // the status is what pins the one that means "this application asked for something that
       // is not there" rather than "the browser gave up".
-      expect(diagnostics.failedRequests).toContainEqual({
-        url: `${origin}/data.json`,
-        failure: "HTTP 404",
-      });
+      // Once, and as the status rather than the abort. One broken fetch arrives twice — the
+      // server answers 404, then Chrome abandons a body nobody read — and recording both would
+      // report two broken things where there is one.
+      expect(
+        diagnostics.failedRequests.filter((request) => request.url === `${origin}/data.json`),
+      ).toEqual([{ url: `${origin}/data.json`, failure: "HTTP 404" }]);
 
       // The scenario is real before it is filtered: Chrome asked for the favicon and this
       // server 404d it, exactly as the sandbox template does. Asserting the filter without
@@ -434,7 +488,9 @@ describe.skipIf(CHROME === undefined)("the Playwright adapter against a real Chr
       unwrap(await second.goto(origin));
       // The same `localStorage` key, and none of it: a check that passed on what the last one
       // saved would be measuring the wrong thing.
-      expect(unwrap(await second.count({ by: "role", role: "listitem" }))).toBe(0);
+      expect(unwrap(await second.count({ by: "role", role: "listitem" }, { timeoutMs: 500 }))).toBe(
+        0,
+      );
     } finally {
       await second.close();
     }
