@@ -21,7 +21,10 @@ Keep each fact in exactly one of these. This file must never restate a task spec
 ```bash
 bun run test              # unit + type + db suites — deterministic and free; db needs Docker
 bun run test:fast         # unit + type only — the Docker-free inner loop
-bun run test:integration  # real E2B + real model calls; run at milestone boundaries only
+bun run test:integration  # needs something external; run at milestone boundaries only
+                          # most of it is real E2B + real model calls and costs money — but not
+                          # all: the browser suites need only a Chrome at NAP_CHROME_PATH and
+                          # skip without one. Each file's doc comment says what it requires.
 bun run harness "<prompt>"        # one turn, printing the event stream — fakes, free, no network
 bun run harness --real "<prompt>" # the same turn against real E2B + a real model; this spends money
 bun run harness --real --model=anthropic/claude-opus-5 "<prompt>"  # the demo model, ~20x the cost

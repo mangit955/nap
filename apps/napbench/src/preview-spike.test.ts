@@ -59,9 +59,10 @@ const drivable: BrowserFindings = {
   appRenderedMs: 1_100,
   title: "Nap app",
   scripted: true,
+  clickTested: true,
   consoleErrors: [],
   failedRequests: [],
-  hmrConnected: true,
+  hmrSocket: "opened",
 };
 
 const served: PreviewSpikeObservations = {
@@ -133,17 +134,52 @@ describe("summarisePreviewSpike", () => {
     expect(verdict.reachable).toBe(true);
   });
 
-  it("notes a dead HMR socket without treating it as a failure", () => {
+  it("notes an errored HMR socket without treating it as a failure", () => {
     const verdict = summarisePreviewSpike({
       ...served,
-      browser: { ...drivable, hmrConnected: false },
+      browser: { ...drivable, hmrSocket: "errored" },
     });
     expect(verdict.reachable).toBe(true);
     expect(verdict.adapterNotes.join(" ")).toContain("WebSocket");
   });
+
+  it("keeps an app that never rendered apart from a proxy that never worked", () => {
+    // The whole point of the spike: reachability is a fact about the proxy. An app that
+    // renders nothing while the browser drives it fine is the benchmark's subject, not an
+    // infrastructure fault, and scoring it as one would blame E2B for every broken app.
+    const verdict = summarisePreviewSpike({
+      ...served,
+      browser: { ...drivable, appRenderedMs: undefined },
+    });
+    expect(verdict.reachable).toBe(true);
+    expect(verdict.adapterNotes.join(" ")).toContain("application's problem");
+  });
+
+  it("tells the adapter to filter the favicon 404 it will see on every single run", () => {
+    // Measured, not guessed: the template declares no icon and has no public/ directory, so
+    // Chrome's automatic request 404s against every app the benchmark will ever run.
+    const verdict = summarisePreviewSpike({
+      ...served,
+      browser: { ...drivable, consoleErrors: ["Failed to load resource: ... 404 ()"] },
+    });
+    expect(verdict.adapterNotes.join(" ")).toContain("favicon");
+  });
 });
 
 describe("formatSpikeReport", () => {
+  it("does not report a click that was never attempted", () => {
+    const observations = { ...served, browser: { ...drivable, clickTested: false } };
+    const report = formatSpikeReport(observations, summarisePreviewSpike(observations));
+    expect(report).toContain("not tested");
+  });
+
+  it("states the render cost relative to load, not as an independent number", () => {
+    // Both are timed from the same start, so reading them as independent inverts the
+    // conclusion about what the slow part is.
+    const report = formatSpikeReport(served, summarisePreviewSpike(served));
+    expect(report).toContain("300ms after DOMContentLoaded");
+  });
+
   it("states the verdict, the timings and every probe", () => {
     const report = formatSpikeReport(served, summarisePreviewSpike(served));
     expect(report).toContain("reachable");

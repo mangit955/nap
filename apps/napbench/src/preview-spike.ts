@@ -55,18 +55,41 @@ export type PreviewProbe = {
   detail: string;
 };
 
+/**
+ * What a WebSocket from the page did, as far as the browser will say.
+ *
+ * Deliberately three states rather than a boolean, because Playwright's `websocket` event
+ * fires when the *request is sent*, not when a handshake succeeds — so "opened" means only
+ * that the browser tried and nothing reported an error afterwards. Calling that "connected"
+ * claims more than was measured.
+ */
+export type SocketOutcome = "none" | "opened" | "errored";
+
 /** What a real browser managed to do with the page, once something answered at the URL. */
 export type BrowserFindings = {
   gotoMs: number;
-  /** Time until the app rendered content, or undefined if it never did. */
+  /**
+   * Time until the app put content in `#root`, or undefined if it never did.
+   *
+   * A property of the *application*, not of the proxy — which is why it is reported beside
+   * reachability rather than counted into it.
+   */
   appRenderedMs: number | undefined;
   title: string;
-  /** Whether the page could be driven — evaluated, queried, interacted with. */
+  /**
+   * Whether the browser could drive the page through the proxy: evaluate script in it,
+   * query it, and photograph it. This is the reachability question.
+   */
   scripted: boolean;
+  /**
+   * Whether a click was actually performed. False when the page offered nothing to click —
+   * which is not a failure, but must not be reported as a successful interaction either.
+   */
+  clickTested: boolean;
   consoleErrors: string[];
   failedRequests: string[];
   /** Vite's HMR socket. Informative only: a benchmark never edits a running app. */
-  hmrConnected: boolean;
+  hmrSocket: SocketOutcome;
 };
 
 export type PreviewSpikeObservations = {
@@ -137,12 +160,16 @@ export function summarisePreviewSpike(observations: PreviewSpikeObservations): P
   const servedAt = probes.find((probe) => probe.outcome === "ok");
   const notes: string[] = [];
 
+  // One definition of "needed retries", used by both exits: the attempt that served was not
+  // the first, or nothing served at all after more than one try.
+  const neededRetries = (servedAt?.attempt ?? probes.length) > 1;
+
   if (servedAt === undefined) {
     return {
       reachable: false,
       firstServeMs: undefined,
       attempts: probes.length,
-      neededRetries: probes.length > 1,
+      neededRetries,
       adapterNotes: [
         "Nothing ever answered at the preview URL, so the browser half of NapBench is blocked: " +
           "every browser and accessibility check depends on reaching a preview from the host. " +
@@ -151,7 +178,6 @@ export function summarisePreviewSpike(observations: PreviewSpikeObservations): P
     };
   }
 
-  const neededRetries = servedAt.attempt > 1;
   if (neededRetries) {
     notes.push(
       `The preview did not answer on the first probe — it took ${servedAt.attempt} attempts over ` +
@@ -184,11 +210,28 @@ export function summarisePreviewSpike(observations: PreviewSpikeObservations): P
     );
   }
 
-  if (!browser.hmrConnected) {
+  if (browser.appRenderedMs === undefined) {
     notes.push(
-      "Vite's HMR WebSocket did not connect through the proxy. Harmless for the benchmark — " +
-        "nothing edits a running app mid-check — but it appears as a console error, so the " +
-        "adapter must not count it against the application under test.",
+      "The browser drove the page but the app never rendered into #root. That is the " +
+        "application's problem rather than the proxy's, and it is exactly the case the " +
+        "benchmark exists to score — the adapter must keep the two apart.",
+    );
+  }
+
+  if (browser.hmrSocket === "errored") {
+    notes.push(
+      "Vite's HMR WebSocket errored through the proxy. Harmless for the benchmark — nothing " +
+        "edits a running app mid-check — but it surfaces as a console error, so the adapter " +
+        "must not count it against the application under test.",
+    );
+  }
+
+  if (browser.consoleErrors.length > 0) {
+    notes.push(
+      "The page logged console errors. At least one of these is expected on every application " +
+        "the benchmark ever runs: the template declares no favicon, so Chrome's automatic " +
+        "/favicon.ico request 404s. The adapter must filter that out, or it becomes a " +
+        "permanent meaningless error in every trajectory that penalises every task equally.",
     );
   }
 
@@ -208,6 +251,11 @@ export function summarisePreviewSpike(observations: PreviewSpikeObservations): P
   };
 }
 
+/** One probe as a line. Shared, so the live output and the report cannot describe it differently. */
+export function formatProbe(probe: PreviewProbe): string {
+  return `  ${probe.attempt}. +${probe.elapsedMs}ms ${probe.outcome} — ${probe.detail}`;
+}
+
 export function formatSpikeReport(
   observations: PreviewSpikeObservations,
   verdict: PreviewSpikeVerdict,
@@ -223,9 +271,7 @@ export function formatSpikeReport(
       : `First serve: ${verdict.firstServeMs}ms from cold, after ${verdict.attempts} probe(s)`,
     "",
     "Probes:",
-    ...observations.probes.map(
-      (probe) => `  ${probe.attempt}. +${probe.elapsedMs}ms ${probe.outcome} — ${probe.detail}`,
-    ),
+    ...observations.probes.map(formatProbe),
     "",
   ];
 
@@ -234,11 +280,16 @@ export function formatSpikeReport(
   } else {
     lines.push(
       "Browser:",
-      `  navigated in ${browser.gotoMs}ms`,
-      `  app rendered: ${browser.appRenderedMs === undefined ? "never" : `${browser.appRenderedMs}ms`}`,
+      `  navigated in ${browser.gotoMs}ms (to DOMContentLoaded)`,
+      // Both are measured from the same start, so the app's own render cost is the gap —
+      // stated here because reading the two numbers as independent inverts the conclusion.
+      browser.appRenderedMs === undefined
+        ? "  app rendered: never"
+        : `  app rendered: ${browser.appRenderedMs}ms (${browser.appRenderedMs - browser.gotoMs}ms after DOMContentLoaded)`,
       `  title: ${browser.title}`,
       `  scripted the page: ${browser.scripted ? "yes" : "no"}`,
-      `  HMR WebSocket: ${browser.hmrConnected ? "connected" : "did not connect"}`,
+      `  click: ${browser.clickTested ? "performed" : "not tested — the page offered nothing to click"}`,
+      `  HMR WebSocket: ${browser.hmrSocket === "none" ? "none opened" : browser.hmrSocket === "opened" ? "request sent, no error reported" : "errored"}`,
       `  console errors: ${browser.consoleErrors.length === 0 ? "none" : browser.consoleErrors.join("; ")}`,
       `  failed requests: ${browser.failedRequests.length === 0 ? "none" : browser.failedRequests.join("; ")}`,
     );

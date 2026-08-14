@@ -24,13 +24,18 @@ import { loadEnvFile } from "@nap/shared/env-file";
 import { chromium, type Page } from "playwright-core";
 import {
   type BrowserFindings,
+  formatProbe,
   formatSpikeReport,
   PREVIEW_SPIKE_USAGE,
   type PreviewProbe,
   type PreviewSpikeObservations,
   parsePreviewSpikeArgs,
+  type SocketOutcome,
   summarisePreviewSpike,
 } from "../src/preview-spike.ts";
+
+/** Set once the run has an answer; a spike that could not answer must not exit 0. */
+let reachable = false;
 
 /** Credentials live here by convention; Bun only auto-loads a `.env` from the working directory. */
 const ENV_FILE = join(import.meta.dirname, "..", "..", "..", "apps", "api", ".env");
@@ -93,14 +98,14 @@ console.log(`Sandbox ${sandboxId} created in ${createMs}ms.`);
 
 try {
   const url = await sandbox.getPreviewUrl(sandboxId, TEMPLATE_DEV_PORT);
+  // Thrown rather than exited, deliberately: `process.exit` here would skip the `finally`
+  // below, and the sandbox would keep billing with nobody left to destroy it.
   if (!url.ok) throw new Error(`no preview URL: ${url.error.message}`);
   console.log(`Preview URL: ${url.value}\nProbing…`);
 
   const probes = await probeUntilItServes(url.value);
   const served = probes.some((probe) => probe.outcome === "ok");
-  for (const probe of probes) {
-    console.log(`  ${probe.attempt}. +${probe.elapsedMs}ms ${probe.outcome} — ${probe.detail}`);
-  }
+  for (const probe of probes) console.log(formatProbe(probe));
 
   const observations: PreviewSpikeObservations = {
     sandboxId,
@@ -110,7 +115,10 @@ try {
     browser: served ? await driveTheBrowser(url.value) : undefined,
   };
 
-  console.log(`\n${formatSpikeReport(observations, summarisePreviewSpike(observations))}`);
+  const verdict = summarisePreviewSpike(observations);
+  console.log(`\n${formatSpikeReport(observations, verdict)}`);
+  // A negative answer is the outcome this spike exists to catch, so it must not exit 0.
+  reachable = verdict.reachable;
 } finally {
   if (options.keep) {
     console.log(`\nSandbox ${sandboxId} left running — it is billed until it is destroyed.`);
@@ -123,6 +131,8 @@ try {
     );
   }
 }
+
+process.exit(reachable ? 0 : 1);
 
 /** Polls the preview URL until something answers or the deadline passes, recording each try. */
 async function probeUntilItServes(url: string): Promise<PreviewProbe[]> {
@@ -172,7 +182,7 @@ async function driveTheBrowser(url: string): Promise<BrowserFindings> {
   const browser = await chromium.launch({ executablePath: chromePath, headless: true });
   const consoleErrors: string[] = [];
   const failedRequests: string[] = [];
-  let hmrConnected = false;
+  let hmrSocket: SocketOutcome = "none";
 
   try {
     const page = await browser.newPage();
@@ -184,13 +194,18 @@ async function driveTheBrowser(url: string): Promise<BrowserFindings> {
     page.on("requestfailed", (request) => {
       failedRequests.push(`${request.url()} (${request.failure()?.errorText ?? "unknown"})`);
     });
-    // Vite's HMR client opens one. Whether it survives the proxy is worth knowing: it is
-    // the difference between a real console error and one the adapter must ignore.
+    // Vite's HMR client opens one. Whether it survives the proxy is worth knowing: it is the
+    // difference between a real console error and one the adapter must ignore.
+    //
+    // This event fires when the WebSocket *request is sent*, not when a handshake succeeds,
+    // so the most that can honestly be concluded from it alone is "tried, and nothing
+    // reported an error afterwards". An error once seen is never un-seen, which is why this
+    // does not simply assign.
     page.on("websocket", (socket) => {
       socket.on("socketerror", () => {
-        hmrConnected = false;
+        hmrSocket = "errored";
       });
-      hmrConnected = true;
+      if (hmrSocket === "none") hmrSocket = "opened";
     });
 
     const gotoStartedAt = Date.now();
@@ -214,41 +229,57 @@ async function driveTheBrowser(url: string): Promise<BrowserFindings> {
 
     await new Promise((resolve) => setTimeout(resolve, SETTLE_MS));
 
+    // Deliberately *not* gated on the app having rendered. Whether the browser can drive the
+    // page is a fact about the proxy; whether the app put anything on screen is a fact about
+    // the app, and the benchmark exists to score the second. Conflating them would report an
+    // infrastructure fault every time an agent wrote a blank page.
+    const driving = await canDriveThePage(page);
+
     return {
       gotoMs,
       appRenderedMs,
       title: await page.title(),
-      scripted: appRenderedMs !== undefined && (await canDriveThePage(page)),
+      scripted: driving.scripted,
+      clickTested: driving.clickTested,
       consoleErrors,
       failedRequests,
-      hmrConnected,
+      hmrSocket,
     };
   } finally {
     await browser.close();
   }
 }
 
-/** The things every browser check does, tried once against whatever the template renders. */
-async function canDriveThePage(page: Page): Promise<boolean> {
+/**
+ * The things every browser check does, tried once against whatever the page renders.
+ *
+ * `clickTested` is reported separately because the starter template renders no button at
+ * all — an `<h1>` and a `<p>`. A run against it therefore proves evaluation, querying and
+ * screenshotting through the proxy, and says nothing whatsoever about clicking. Returning
+ * that fact rather than folding it into one boolean is what stops the write-up claiming an
+ * interaction that was never attempted.
+ */
+async function canDriveThePage(page: Page): Promise<{ scripted: boolean; clickTested: boolean }> {
+  let clicked = false;
   try {
     // Evaluate arbitrary script in the page, which is what every assertion rests on.
     const roundTrip = await page.evaluate(() => document.querySelectorAll("*").length);
-    if (roundTrip <= 0) return false;
+    if (roundTrip <= 0) return { scripted: false, clickTested: false };
 
     // Query by role, the way NapBench's selectors will.
     const buttons = page.getByRole("button");
-    const count = await buttons.count();
-    if (count > 0) {
+    if ((await buttons.count()) > 0) {
       await buttons.first().click({ timeout: options.browserTimeoutMs });
       // A click that lands proves the page is interactive, not merely painted.
       await page.evaluate(() => document.body.innerText.length);
+      clicked = true;
     }
 
     // A screenshot is an artefact every scored run captures.
     const shot = await page.screenshot({ type: "png" });
-    return shot.byteLength > 0;
+    return { scripted: shot.byteLength > 0, clickTested: clicked };
   } catch (cause) {
     console.error(`  could not drive the page: ${cause instanceof Error ? cause.message : cause}`);
-    return false;
+    return { scripted: false, clickTested: clicked };
   }
 }
