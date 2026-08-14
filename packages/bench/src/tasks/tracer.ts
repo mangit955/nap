@@ -26,6 +26,9 @@ export const TRACER_TASK = defineTask({
       // The path comes from the shared constant that already has to agree with the template
       // and the system prompt, rather than being a fourth copy of the same string.
       command: `cd ${PROJECT_ROOT_PATH} && bun run build`,
+      // The gate, not just a check: a project that does not compile cannot be most of the
+      // way to good, so this failing caps the run as well as failing it.
+      build: true,
     },
     {
       id: "lint",

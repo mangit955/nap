@@ -9,7 +9,10 @@ import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import type { Runtime, TurnOutcome } from "@nap/shared/ports/runtime";
 import { describe, expect, it } from "vitest";
+import { DEFAULT_CATEGORY_WEIGHTS } from "./category.ts";
+import { BUILD_FAILURE_SCORE_CAP } from "./gates.ts";
 import { runBenchTask } from "./runner.ts";
+import { scoreRun } from "./score.ts";
 import { parseBenchTask } from "./task.ts";
 
 const SESSION_ID = "3f2a1c4e-0000-4000-8000-000000000002";
@@ -23,12 +26,17 @@ function task(
     id: string;
     command: string;
     category?: "functional" | "browser" | "visual" | "code";
+    required?: boolean;
+    build?: boolean;
+    weight?: number;
   }[] = [{ id: "build", command: "bun run build" }],
+  extras: { preview?: { port: number } } = {},
 ) {
   const parsed = parseBenchTask({
     id: "landing-page",
     name: "A landing page",
     prompt: "Build a landing page.",
+    ...extras,
     checks: checks.map((check) => ({ ...check, kind: "command" })),
   });
   if (!parsed.ok) throw new Error(parsed.error);
@@ -97,6 +105,7 @@ describe("runBenchTask", () => {
         category: "functional",
         weight: 1,
         required: false,
+        build: false,
         outcome: "passed",
         detail: "exit 0",
       },
@@ -202,6 +211,40 @@ describe("runBenchTask", () => {
     expect(report.status).toBe("errored");
     expect(report.score).toBeNull();
     expect(report.checks).toEqual([]);
+    // And it says whose fault: a sandbox that would not start is the execution plane's, and
+    // an aggregate that could not tell it from a refusal would rank models by their luck.
+    expect(report.errorKind).toBe("sandbox");
+    expect(report.gates).toEqual(["turn_failed"]);
+  });
+
+  it("attributes a provider outage to the model rather than to the agent", async () => {
+    const runtime = scriptedRuntime({
+      ok: false,
+      turnId: TURN_ID,
+      reason: "model_unavailable",
+      message: "upstream is overloaded",
+    });
+    const sandbox = new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0 }) });
+
+    const report = await runBenchTask(task(), await deps(runtime, sandbox));
+
+    expect(report.errorKind).toBe("model");
+  });
+
+  it("records a cancelled turn as a cancelled run, which is not an error", async () => {
+    const runtime = scriptedRuntime({
+      ok: false,
+      turnId: TURN_ID,
+      reason: "cancelled",
+      message: "stopped",
+    });
+    const sandbox = new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0 }) });
+
+    const report = await runBenchTask(task(), await deps(runtime, sandbox));
+
+    expect(report.status).toBe("cancelled");
+    expect(report.score).toBeNull();
+    expect(report.errorKind).toBeNull();
   });
 
   it("does not execute a single check once the turn has failed", async () => {
@@ -241,12 +284,31 @@ describe("runBenchTask", () => {
 
     expect(report.status).toBe("errored");
     expect(report.score).toBeNull();
+    expect(report.errorKind).toBe("sandbox");
+  });
+
+  it("blames configuration, not the plane, when the session does not exist", async () => {
+    // A run pointed at a session nobody created is a mistake in how the run was set up, and
+    // it must not land in the same bucket as a sandbox that failed to start — one of those
+    // is somebody's typo and the other is a provider having a bad afternoon.
+    const sandbox = new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0 }) });
+    const withoutSession = {
+      ...(await deps(scriptedRuntime(completed), sandbox)),
+      sessions: new InMemorySessionStore([]),
+    };
+
+    const report = await runBenchTask(task(), withoutSession);
+
+    expect(report.status).toBe("errored");
+    expect(report.errorKind).toBe("configuration");
+    expect(report.gates).toEqual(["workspace_missing"]);
   });
 
   it("records a check the sandbox refused to run as failed, not as absent", async () => {
-    // An unreachable sandbox mid-run is an infrastructure fault, and classifying it as one
-    // is what the gate ladder will do. Until then it must at least be visible: dropping the
-    // check would raise the score of a run that could not be measured.
+    // Dropping the check would raise the score of a run that could not be measured. The
+    // ladder deliberately does not promote this to an infrastructure error: telling "the
+    // sandbox refused" apart from "the command failed" at the gate would mean changing what
+    // a check result records, which is a change to the check contract rather than a rung.
     const sandbox = new InMemorySandboxManager({
       defaultExec: () => ({ exitCode: 0, stdout: "" }),
     });
@@ -258,5 +320,196 @@ describe("runBenchTask", () => {
     expect(report.checks).toHaveLength(1);
     expect(report.checks[0]?.outcome).toBe("failed");
     expect(report.status).toBe("failed");
+  });
+});
+
+describe("runBenchTask — the preview a task asked for", () => {
+  const PORT = 5173;
+
+  /** A task that expects an application to be serving, plus a build and a lint check. */
+  function servingTask() {
+    return task(
+      [
+        { id: "build", command: "bun run build", build: true },
+        { id: "lint", command: "bun run lint", category: "code" },
+      ],
+      { preview: { port: PORT } },
+    );
+  }
+
+  async function run(sandbox: InMemorySandboxManager) {
+    return runBenchTask(servingTask(), await deps(scriptedRuntime(completed), sandbox));
+  }
+
+  it("passes a run whose application serves", async () => {
+    const sandbox = new InMemorySandboxManager({
+      defaultExec: () => ({ exitCode: 0 }),
+      serves: [PORT],
+    });
+
+    const report = await run(sandbox);
+
+    expect(report.status).toBe("passed");
+    expect(report.gates).toEqual([]);
+  });
+
+  it("fails the run when the port is not listening inside the sandbox", async () => {
+    // The application did not start. That is a measurement of the agent's work, so the run
+    // fails with a score rather than erroring.
+    const sandbox = new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 7 }) });
+
+    const report = await run(sandbox);
+
+    expect(report.status).toBe("failed");
+    expect(report.errorKind).toBeNull();
+    expect(report.gates).toContain("preview_not_started");
+    expect(report.score).not.toBeNull();
+  });
+
+  it("errors with kind sandbox when the port is listening but the preview is not reachable", async () => {
+    // Same symptom, opposite cause, and the reason this pair exists: without the probe the
+    // most likely infrastructure fault in the system would be recorded as the line above.
+    const sandbox = new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0 }) });
+
+    const report = await run(sandbox);
+
+    expect(report.status).toBe("errored");
+    expect(report.errorKind).toBe("sandbox");
+    expect(report.score).toBeNull();
+    expect(report.gates).toEqual(["preview_unreachable"]);
+  });
+
+  it("runs no check once the preview is known to be unreachable", async () => {
+    // Their failures would be the proxy's, recorded against the agent.
+    let builds = 0;
+    const sandbox = new InMemorySandboxManager({
+      defaultExec: (command) => {
+        if (command.includes("bun run")) builds++;
+        return { exitCode: 0 };
+      },
+    });
+
+    await run(sandbox);
+
+    expect(builds).toBe(0);
+  });
+
+  it("still records every check when the application did not start", async () => {
+    // The criterion that stops the sharp edge in docs/adr/0002 from cutting the wrong way:
+    // a check that could not be run is *failed*, never omitted. An omitted check drops its
+    // category out of the weighting, so an application that never came up would have the
+    // categories it could not answer redistributed to the ones it could.
+    const sandbox = new InMemorySandboxManager({
+      defaultExec: (command) => ({ exitCode: command.startsWith("curl") ? 7 : 1 }),
+    });
+
+    const report = await run(sandbox);
+
+    expect(report.checks.map((check) => check.checkId)).toEqual(["build", "lint"]);
+    expect(report.checks.every((check) => check.outcome === "failed")).toBe(true);
+  });
+
+  it("cannot be scored higher by failing to start than by dropping the checks it broke", async () => {
+    // ADR-0002's sharp edge, stated as the comparison that matters. The task has a check in
+    // the browser category, which only an application that came up can pass. The app does
+    // not come up, so it fails — and the assertion is that recording it as failed scores
+    // *lower* than leaving it out would, because leaving it out drops the browser category
+    // and hands its share to the categories that did answer.
+    const sandbox = new InMemorySandboxManager({
+      defaultExec: (command) => ({
+        // curl refuses: nothing is listening, so the application never started. The smoke
+        // check needs the app; the build and the lint do not.
+        exitCode: command.startsWith("curl") || command.includes("smoke") ? 7 : 0,
+      }),
+    });
+
+    const report = await runBenchTask(
+      task(
+        [
+          { id: "build", command: "bun run build", build: true },
+          { id: "lint", command: "bun run lint", category: "code" },
+          { id: "smoke", command: "smoke the page", category: "browser" },
+        ],
+        { preview: { port: PORT } },
+      ),
+      await deps(scriptedRuntime(completed), sandbox),
+    );
+
+    const dropped = scoreRun(
+      report.checks.filter((entry) => entry.checkId !== "smoke"),
+      DEFAULT_CATEGORY_WEIGHTS,
+    );
+
+    expect(report.checks.map((entry) => entry.outcome)).toEqual(["passed", "passed", "failed"]);
+    expect(report.score).toBeLessThan(dropped.overall ?? 0);
+    expect(report.status).toBe("failed");
+    expect(report.gates).toContain("preview_not_started");
+  });
+
+  it("caps a run whose build failed, however well everything else went", async () => {
+    const sandbox = new InMemorySandboxManager({
+      defaultExec: (command) => ({ exitCode: command.includes("build") ? 1 : 0 }),
+      serves: [PORT],
+    });
+
+    const report = await runBenchTask(
+      // The build is worth a hundredth of the lint, so the weighted mean is high and the run
+      // is still not allowed to look good: the thing it built does not compile.
+      task(
+        [
+          { id: "build", command: "bun run build", build: true, weight: 0.01 },
+          { id: "lint", command: "bun run lint", weight: 1 },
+        ],
+        { preview: { port: PORT } },
+      ),
+      await deps(scriptedRuntime(completed), sandbox),
+    );
+
+    expect(report.status).toBe("failed");
+    expect(report.gates).toContain("build_failed");
+    expect(report.score).toBe(BUILD_FAILURE_SCORE_CAP);
+
+    // And the report still adds up. A capped headline that could not be derived from the
+    // figures printed beside it would undo the property the scoring engine was built for:
+    // somebody recomputing the mean would find 99 where the report says 40 and have no way
+    // to tell which was wrong.
+    const mean = report.categories.reduce(
+      (sum, entry) => sum + (entry.score * entry.effectiveWeight) / 100,
+      0,
+    );
+    expect(report.score).toBe(Math.min(Math.round(mean), report.scoreCap ?? 100));
+  });
+
+  it("fails a run whose required check failed, however high the score", async () => {
+    const sandbox = new InMemorySandboxManager({
+      defaultExec: (command) => ({ exitCode: command.includes("renders") ? 1 : 0 }),
+      serves: [PORT],
+    });
+
+    const report = await runBenchTask(
+      task(
+        [
+          { id: "renders", command: "test renders", required: true, weight: 0.01 },
+          { id: "lint", command: "bun run lint", weight: 1 },
+        ],
+        { preview: { port: PORT } },
+      ),
+      await deps(scriptedRuntime(completed), sandbox),
+    );
+
+    expect(report.status).toBe("failed");
+    expect(report.gates).toEqual(["required_check_failed"]);
+    // Not capped — required is not the build gate — so the report still shows a run that
+    // did nearly everything right and is a failure anyway.
+    expect(report.score).toBe(99);
+  });
+
+  it("does not probe a preview for a task that never asked for one", async () => {
+    const sandbox = new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0 }) });
+    const withSandbox = await deps(scriptedRuntime(completed), sandbox);
+
+    await runBenchTask(task(), withSandbox);
+
+    expect(sandbox.commands(withSandbox.sandboxId).some((c) => c.startsWith("curl"))).toBe(false);
   });
 });

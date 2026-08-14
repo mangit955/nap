@@ -10,17 +10,24 @@
  * checks": a turn that failed produced *no observation*. Scoring it zero would be indis-
  * tinguishable from an agent that built something broken, and since the runtime's failure
  * reasons already span both agent causes and infrastructure ones, a zero would silently
- * charge an E2B outage to the model. So a failed turn errors with no score. Which *kind* of
- * error it was, and the rest of the gate ladder CONTEXT.md describes, do not exist yet.
+ * charge an E2B outage to the model. So a failed turn errors with no score, carrying the kind
+ * its reason maps to.
+ *
+ * This file gathers observations and hands them to the gate ladder; it decides nothing about
+ * the outcome itself. Every rule that constrains a verdict lives in `gates.ts`, where each
+ * rung is a pure function with a test of its own — because a rule buried in the middle of an
+ * `async` function that also creates sandboxes is a rule nobody can check.
  */
 
 import type { Runtime } from "@nap/shared/ports/runtime";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SessionStore } from "@nap/shared/ports/session-store";
 import { type CategoryWeights, DEFAULT_CATEGORY_WEIGHTS } from "./category.ts";
+import { applyGates, type GateInput } from "./gates.ts";
+import { diagnosePreview } from "./preview.ts";
 import type { BenchReport, CheckResult } from "./report.ts";
 import { scoreRun } from "./score.ts";
-import { type BenchTask, type CommandCheck, categoryOf, weightOf } from "./task.ts";
+import { type BenchTask, type CommandCheck, categoryOf, flagsOf, weightOf } from "./task.ts";
 
 export type BenchRunnerDeps = {
   runtime: Runtime;
@@ -52,53 +59,82 @@ export async function runBenchTask(task: BenchTask, deps: BenchRunnerDeps): Prom
 
   const outcome = await runtime.runTurn({ sessionId, message: task.prompt });
 
-  // No check ran, and an empty list says exactly that. Recording them as failed would claim
-  // the agent's output was measured and found wanting, which is the confusion this whole
-  // status exists to prevent.
-  const errored = (): BenchReport => ({
-    runId,
-    taskId: task.id,
-    sessionId,
-    turnId: outcome.turnId,
-    status: "errored",
+  // Everything the ladder is entitled to know, filled in as far as the run got. A stage that
+  // never happened leaves its field saying so rather than pretending it went well.
+  const checks: CheckResult[] = [];
+  const observations: GateInput = {
+    turn: outcome.ok ? { ok: true } : { ok: false, reason: outcome.reason },
+    workspace: { ok: true },
+    preview: null,
+    checks,
     score: null,
-    categories: [],
-    weights,
-    checks: [],
-  });
+  };
 
-  if (!outcome.ok) return errored();
+  const finish = (): BenchReport => {
+    const verdict = applyGates(observations);
+    // Only a run that still carries a score has categories to explain it. An errored run's
+    // check list is whatever it managed before it stopped, which is worth keeping.
+    const scored = verdict.score === null ? { categories: [] } : scoreRun(checks, weights);
+
+    return {
+      runId,
+      taskId: task.id,
+      sessionId,
+      turnId: outcome.turnId,
+      status: verdict.status,
+      errorKind: verdict.errorKind,
+      gates: verdict.gates,
+      scoreCap: verdict.scoreCap,
+      score: verdict.score,
+      categories: scored.categories,
+      weights,
+      checks,
+    };
+  };
+
+  // Running checks against a sandbox the turn never reached would score whatever the
+  // template already contained, which is not the agent's work.
+  if (!outcome.ok) return finish();
 
   const session = await sessions.get(sessionId);
+  // No such session at all: the run was pointed at something that does not exist, which is
+  // whoever composed it rather than anything that happened during it.
+  if (session == null) {
+    observations.workspace = { ok: false, missing: "session" };
+    return finish();
+  }
   // A completed turn always leaves a sandbox behind, so this is the workspace having gone
   // away underneath the run rather than anything the agent did.
-  if (session?.sandboxId == null) return errored();
-
-  const checks: CheckResult[] = [];
-  for (const check of task.checks) {
-    checks.push(await runCommandCheck(sandbox, session.sandboxId, check));
+  if (session.sandboxId == null) {
+    observations.workspace = { ok: false, missing: "sandbox" };
+    return finish();
   }
 
-  const scored = scoreRun(checks, weights);
+  const sandboxId = session.sandboxId;
 
-  // Nothing produced a result, so there is nothing to score and nothing to call a pass. A
-  // completed turn whose every check was unaskable is an absence of observation, which is
-  // the same finding as a turn that never ran — not a run that scored zero.
-  if (scored.overall === null) return errored();
+  if (task.preview !== undefined) {
+    observations.preview = await diagnosePreview(
+      sandbox,
+      sandboxId,
+      task.preview.port,
+      task.preview.timeoutMs === undefined ? {} : { timeoutMs: task.preview.timeoutMs },
+    );
 
-  return {
-    runId,
-    taskId: task.id,
-    sessionId,
-    turnId: outcome.turnId,
-    // Every check that produced a result had to pass. An absent one is not a failure — the
-    // gate ladder decides what an unaskable check means for a run.
-    status: checks.every((check) => check.outcome !== "failed") ? "passed" : "failed",
-    score: scored.overall,
-    categories: scored.categories,
-    weights,
-    checks,
-  };
+    // Nothing downstream can be measured through a sandbox nobody can reach, and running the
+    // checks anyway would record their failures as the agent's.
+    if (observations.preview.state === "unreachable") return finish();
+  }
+
+  // Every declared check is run and recorded, including when the application did not start:
+  // an app that never came up is exactly the run whose checks must not go missing, since a
+  // missing check drops its category out of the weighting and *raises* the score.
+  for (const check of task.checks) {
+    checks.push(await runCommandCheck(sandbox, sandboxId, check));
+  }
+
+  observations.score = scoreRun(checks, weights).overall;
+
+  return finish();
 }
 
 /**
@@ -120,7 +156,7 @@ async function runCommandCheck(
     kind: "command",
     category: categoryOf(check),
     weight: weightOf(check),
-    required: check.required ?? false,
+    ...flagsOf(check),
   } as const;
 
   if (!result.ok) {

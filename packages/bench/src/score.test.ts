@@ -14,6 +14,7 @@ function check(
     category,
     weight,
     required: false,
+    build: false,
     outcome,
     detail: outcome,
   };

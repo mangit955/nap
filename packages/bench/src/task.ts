@@ -42,6 +42,15 @@ export const CommandCheckSchema = z.strictObject({
   weight: z.number().nonnegative().optional(),
   /** Whether failing it fails the run outright, whatever the score came to. Defaults to false. */
   required: z.boolean().optional(),
+  /**
+   * Whether this is the check that decides the application compiles at all.
+   *
+   * Separate from `required` because it does something extra: a failing build fails the run
+   * *and* caps the overall score, since an application that does not compile cannot be
+   * three-quarters good however well it lints. Declared by the task rather than sniffed out
+   * of the command string, which would make the gate depend on somebody writing "build".
+   */
+  build: z.boolean().optional(),
 });
 
 export const BenchTaskSchema = z
@@ -49,6 +58,22 @@ export const BenchTaskSchema = z
     id: z.string().min(1),
     name: z.string().min(1),
     prompt: z.string().min(1),
+    /**
+     * The application this task expects to be running, when it expects one.
+     *
+     * Declared rather than assumed: a task that only asks for a build has no dev server to
+     * wait for, and waiting anyway would turn every one of them into a several-minute run
+     * that fails on a preview nobody asked about. The port is stated here rather than taken
+     * from the sandbox template because the pure package may not depend on it — see
+     * docs/adr/0001.
+     */
+    preview: z
+      .strictObject({
+        port: z.number().int().positive(),
+        /** How long to give the dev server to come up. Absent leaves it to the adapter. */
+        timeoutMs: z.number().int().positive().optional(),
+      })
+      .optional(),
     /** At least one: a task with nothing to check could never produce a score. */
     checks: z.array(CommandCheckSchema).min(1),
   })
@@ -89,6 +114,11 @@ export function categoryOf(check: CommandCheck): Category {
 /** A check's weight, defaulted. Zero is a legitimate choice and is left alone. */
 export function weightOf(check: CommandCheck): number {
   return check.weight ?? 1;
+}
+
+/** The two gate flags, defaulted, so nothing downstream has to remember that absent is false. */
+export function flagsOf(check: CommandCheck): { required: boolean; build: boolean } {
+  return { required: check.required ?? false, build: check.build ?? false };
 }
 
 /**

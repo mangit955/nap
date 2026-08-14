@@ -8,6 +8,9 @@ const report: BenchReport = {
   sessionId: "3f2a1c4e-0000-4000-8000-000000000002",
   turnId: "3f2a1c4e-0000-4000-8000-000000000003",
   status: "passed",
+  errorKind: null,
+  gates: [],
+  scoreCap: null,
   score: 100,
   categories: [{ category: "functional", score: 100, effectiveWeight: 100, checks: 1 }],
   weights: DEFAULT_CATEGORY_WEIGHTS,
@@ -18,6 +21,7 @@ const report: BenchReport = {
       category: "functional",
       weight: 1,
       required: false,
+      build: false,
       outcome: "passed",
       detail: "exit 0",
     },
@@ -49,6 +53,8 @@ describe("a report", () => {
       ...report,
       status: "errored",
       score: null,
+      errorKind: "sandbox",
+      gates: ["turn_failed"],
       turnId: null,
       categories: [],
       checks: [],
@@ -73,8 +79,48 @@ describe("a report", () => {
   });
 
   it("refuses an unknown status", () => {
-    // Deliberately not "cancelled": that is a real status in the design and will be accepted
-    // one day, so asserting its rejection here would pin a decision that has to change.
     expect(parseBenchReport({ ...report, status: "exploded" }).ok).toBe(false);
+  });
+
+  it("accepts a cancelled run, which has no score and no error kind", () => {
+    // Somebody stopped it. Not a result, so no score; not a fault, so no kind.
+    const cancelled = {
+      ...report,
+      status: "cancelled",
+      score: null,
+      errorKind: null,
+      gates: ["turn_cancelled"],
+      categories: [],
+      checks: [],
+    };
+    expect(parseBenchReport(cancelled).ok).toBe(true);
+  });
+
+  it("refuses a scored cancellation", () => {
+    expect(parseBenchReport({ ...report, status: "cancelled" }).ok).toBe(false);
+  });
+
+  it("refuses an errored run with no error kind", () => {
+    // An error nobody can attribute is an error that cannot be aggregated, which is the only
+    // thing an unscored run had left to offer.
+    const errored = { ...report, status: "errored", score: null, categories: [], checks: [] };
+    expect(parseBenchReport({ ...errored, errorKind: null }).ok).toBe(false);
+    expect(parseBenchReport({ ...errored, errorKind: "sandbox" }).ok).toBe(true);
+  });
+
+  it("refuses an error kind on a run that produced a result", () => {
+    expect(parseBenchReport({ ...report, errorKind: "agent" }).ok).toBe(false);
+  });
+
+  it("refuses a score above the cap recorded beside it", () => {
+    // The report has to be arithmetically closed: a cap that was recorded and not applied
+    // would make the report explain itself incorrectly, which is worse than not explaining.
+    expect(parseBenchReport({ ...report, score: 100, scoreCap: 40 }).ok).toBe(false);
+    expect(parseBenchReport({ ...report, score: 40, scoreCap: 40 }).ok).toBe(true);
+  });
+
+  it("refuses a gate it does not know", () => {
+    // Gates are grouped and diffed across months of reports, so the set is closed.
+    expect(parseBenchReport({ ...report, gates: ["vibes"] }).ok).toBe(false);
   });
 });

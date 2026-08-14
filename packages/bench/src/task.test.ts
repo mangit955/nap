@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { categoryOf, parseBenchTask, weightOf } from "./task.ts";
+import { categoryOf, flagsOf, parseBenchTask, weightOf } from "./task.ts";
 
 const valid = {
   id: "landing-page",
@@ -73,6 +73,30 @@ describe("parseBenchTask", () => {
     expect(parsed.ok).toBe(false);
   });
 
+  it("accepts a task declaring the application it expects to be serving", () => {
+    const parsed = parseBenchTask({ ...valid, preview: { port: 5173, timeoutMs: 90_000 } });
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) expect(parsed.value.preview?.port).toBe(5173);
+  });
+
+  it("rejects a preview with no port, since there is nothing to probe without one", () => {
+    expect(parseBenchTask({ ...valid, preview: {} }).ok).toBe(false);
+    expect(parseBenchTask({ ...valid, preview: { port: 0 } }).ok).toBe(false);
+    expect(parseBenchTask({ ...valid, preview: { url: "http://x" } }).ok).toBe(false);
+  });
+
+  it("accepts a check declaring itself the build", () => {
+    const parsed = parseBenchTask({
+      ...valid,
+      checks: [{ id: "build", kind: "command", command: "bun run build", build: true }],
+    });
+    if (!parsed.ok) throw new Error(parsed.error);
+    const check = parsed.value.checks[0];
+    if (check === undefined) throw new Error("the check vanished");
+
+    expect(flagsOf(check)).toEqual({ required: false, build: true });
+  });
+
   it("rejects a negative weight, which would subtract from a category's score", () => {
     const parsed = parseBenchTask({
       ...valid,
@@ -100,7 +124,7 @@ describe("check defaults", () => {
     if (check === undefined) throw new Error("the check vanished");
 
     expect(weightOf(check)).toBe(1);
-    expect(check.required ?? false).toBe(false);
+    expect(flagsOf(check)).toEqual({ required: false, build: false });
   });
 
   it("leaves a deliberate zero weight alone rather than defaulting it", () => {
