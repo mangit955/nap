@@ -142,6 +142,58 @@ describe("navigation and reload", () => {
     expect(await value(await page.isVisible({ by: "text", text: "Saved" }))).toBe(true);
   });
 
+  it("keeps saved state under one key, whatever the address's query says", async () => {
+    // A to-do deleted while a filter is applied is still deleted when it is not. Keying saved
+    // state on the full address made a removal come back after a reload.
+    const page = new ScriptedBrowserSession({
+      pages: { "/": {}, "/todos": { elements: [{ testId: "add", role: "button" }] } },
+      on: {
+        click: ({ page: live }) =>
+          live.add({ text: "Buy milk", testId: "todo" }, { persists: true }),
+        press: ({ page: live }) => live.remove({ by: "testId", id: "todo" }),
+      },
+    });
+
+    await page.goto("https://preview.example/todos");
+    await page.click({ by: "testId", id: "add" });
+    // The filter moves into the query, and the same saved to-do is deleted from there.
+    await page.goto("https://preview.example/todos?filter=all");
+    expect(await value(await page.isVisible({ by: "text", text: "Buy milk" }))).toBe(true);
+    await page.press("Delete");
+    await page.reload();
+
+    expect(await value(await page.isVisible({ by: "text", text: "Buy milk" }))).toBe(false);
+  });
+
+  it("does not save a change to a saved element unless it is told to", async () => {
+    const page = session({
+      pages: { "/": { elements: ELEMENTS } },
+      on: {
+        click: ({ page: live }) =>
+          live.add({ text: "Buy milk", testId: "todo" }, { persists: true }),
+        press: ({ page: live, key }) =>
+          live.update(
+            { by: "testId", id: "todo" },
+            { text: "Buy oat milk" },
+            {
+              persists: key === "s",
+            },
+          ),
+      },
+    });
+
+    await page.click({ by: "testId", id: "add" });
+    await page.press("x");
+    expect(await value(await page.isVisible({ by: "text", text: "Buy oat milk" }))).toBe(true);
+
+    await page.reload();
+    expect(await value(await page.isVisible({ by: "text", text: "Buy oat milk" }))).toBe(false);
+
+    await page.press("s");
+    await page.reload();
+    expect(await value(await page.isVisible({ by: "text", text: "Buy oat milk" }))).toBe(true);
+  });
+
   it("forgets a saved element that was later removed", async () => {
     const page = session({
       pages: { "/": { elements: ELEMENTS } },

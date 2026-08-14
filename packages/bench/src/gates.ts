@@ -60,9 +60,12 @@ export const BUILD_FAILURE_SCORE_CAP = 40;
  * problem: nobody supplied one, which is how the run was set up, and one was supplied and
  * would not drive, which is the host it ran on.
  */
-export type BrowserAvailability =
-  | { ok: true }
-  | { ok: false; reason: "not_configured" | "unavailable"; detail: string };
+export type BrowserUnavailable = {
+  reason: "not_configured" | "unavailable";
+  detail: string;
+};
+
+export type BrowserAvailability = { ok: true } | ({ ok: false } & BrowserUnavailable);
 
 export type GateInput = {
   /** How the run's turn ended. */

@@ -24,11 +24,12 @@ import {
   type BrowserCheck,
   type BrowserStep,
   DEFAULT_OVERFLOW_TOLERANCE_PX,
+  isAssertion,
 } from "./browser-check.ts";
 import type { BrowserError, BrowserSession } from "./browser-session.ts";
-import { DEFAULT_CATEGORY_FOR_KIND } from "./category.ts";
 import type { CheckResult } from "./report.ts";
 import { describeSelector, type Selector } from "./selector.ts";
+import { categoryOf, flagsOf, weightOf } from "./task.ts";
 import { DEFAULT_VIEWPORT_NAME, viewportSize } from "./viewport.ts";
 
 export type BrowserCheckContext = {
@@ -49,14 +50,14 @@ export async function runBrowserCheck(
   context: BrowserCheckContext,
 ): Promise<Result<CheckResult, BrowserError>> {
   const viewport = check.viewport ?? DEFAULT_VIEWPORT_NAME;
+  // Through the same helpers the runner uses for a command check, so a default cannot be
+  // changed in one place and quietly not the other.
   const declared = {
     checkId: check.id,
     kind: "browser",
-    category: check.category ?? DEFAULT_CATEGORY_FOR_KIND.browser,
-    weight: check.weight ?? 1,
-    required: check.required ?? false,
-    // A browser check is never the build gate: it needs an application that already compiled.
-    build: false,
+    category: categoryOf(check),
+    weight: weightOf(check),
+    ...flagsOf(check),
   } as const;
 
   const failed = (detail: string): Result<CheckResult, BrowserError> => ({
@@ -90,7 +91,8 @@ export async function runBrowserCheck(
     if (outcome.driver !== undefined) return { ok: false, error: outcome.driver };
     if (outcome.failure !== undefined) {
       // One-based, because it is read against a numbered list a human wrote.
-      return failed(`step ${index + 1} (${step.step}): ${outcome.failure}`);
+      const did = isAssertion(step) ? "assertion" : "action";
+      return failed(`step ${index + 1}, ${did} ${step.step}: ${outcome.failure}`);
     }
   }
 

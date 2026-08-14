@@ -29,7 +29,7 @@ import type {
   BrowserSession,
   DocumentWidth,
 } from "../browser-session.ts";
-import type { Selector } from "../selector.ts";
+import { describeSelector, type Selector } from "../selector.ts";
 import type { ViewportName, ViewportSize } from "../viewport.ts";
 import { VIEWPORT_SIZES } from "../viewport.ts";
 
@@ -71,8 +71,18 @@ export interface ScriptedPageController {
   add(element: ScriptedElement, opts?: { persists?: boolean }): void;
   /** Removes every element matching the selector, saved or not. */
   remove(selector: Selector): void;
-  /** Changes the matching elements — hiding them, renaming them, setting an attribute. */
-  update(selector: Selector, changes: Partial<ScriptedElement>): void;
+  /**
+   * Changes the matching elements — hiding them, renaming them, setting an attribute.
+   *
+   * Unsaved unless it says otherwise, exactly as `add` is: an application that renames a to-do
+   * on screen and one that stores the new name are different applications, and a check about
+   * persistence has to be able to tell them apart.
+   */
+  update(
+    selector: Selector,
+    changes: Partial<ScriptedElement>,
+    opts?: { persists?: boolean },
+  ): void;
   /** Client-side navigation, as a router would do it. */
   navigate(path: string): void;
 }
@@ -381,18 +391,24 @@ export class ScriptedBrowserSession implements BrowserSession {
         const persists = opts?.persists === true;
         const live: LiveElement = { ...element, persists };
         session.live.push(live);
-        if (persists) session.savedAt(session.path).push(live);
+        // A copy, not the same object: saved state that changed whenever the live page did
+        // would make every edit survive a reload, which is the one thing this must not decide
+        // on the application's behalf.
+        if (persists) session.savedAt(session.path).push({ ...live });
       },
       remove(selector) {
         session.live = session.live.filter((element) => !matches(element, selector));
-        const saved = session.savedAt(session.path);
-        session.saved.set(
-          session.path,
-          saved.filter((element) => !matches(element, selector)),
+        session.replaceSaved(
+          session.savedAt(session.path).filter((element) => !matches(element, selector)),
         );
       },
-      update(selector, changes) {
+      update(selector, changes, opts) {
         for (const element of session.live) {
+          if (matches(element, selector)) Object.assign(element, changes);
+        }
+        if (opts?.persists !== true) return;
+
+        for (const element of session.savedAt(session.path)) {
           if (matches(element, selector)) Object.assign(element, changes);
         }
       },
@@ -418,21 +434,28 @@ export class ScriptedBrowserSession implements BrowserSession {
    * what a query-string filter in a generated application actually does.
    */
   private pageAt(path: string): ScriptedPage | undefined {
-    const declared = this.pages[path];
-    if (declared !== undefined) return declared;
-
-    const withoutQuery = path.replace(/[?#].*$/, "");
-    return this.pages[withoutQuery];
+    return this.pages[path] ?? this.pages[withoutQuery(path)];
   }
 
+  /**
+   * What the application saved at a path, keyed without its query.
+   *
+   * One page, whatever the filter in the address says — so a to-do deleted while a filter is
+   * applied is still deleted when it is not. Every read and write of saved state goes through
+   * here and `replaceSaved` for that reason: keying it two ways once made a removal come back
+   * after a reload.
+   */
   private savedAt(path: string): LiveElement[] {
-    const withoutQuery = path.replace(/[?#].*$/, "");
-    const existing = this.saved.get(withoutQuery);
+    const existing = this.saved.get(withoutQuery(path));
     if (existing !== undefined) return existing;
 
     const created: LiveElement[] = [];
-    this.saved.set(withoutQuery, created);
+    this.saved.set(withoutQuery(path), created);
     return created;
+  }
+
+  private replaceSaved(elements: LiveElement[]): void {
+    this.saved.set(withoutQuery(this.path), elements);
   }
 
   private visibleMatches(selector: Selector): LiveElement[] {
@@ -447,7 +470,14 @@ export class ScriptedBrowserSession implements BrowserSession {
     const name = (Object.keys(VIEWPORT_SIZES) as ViewportName[]).find(
       (candidate) => VIEWPORT_SIZES[candidate].width === this.viewport.width,
     );
-    return (name === undefined ? undefined : declared[name]) ?? this.viewport.width;
+    // A width belonging to no named viewport cannot be looked up in a per-viewport map, and
+    // answering "it fits" would pass an overflow check for a reason nobody intended.
+    if (name === undefined) {
+      throw new Error(
+        `no named viewport is ${this.viewport.width}px wide, so ${JSON.stringify(declared)} cannot be read`,
+      );
+    }
+    return declared[name] ?? this.viewport.width;
   }
 }
 
@@ -472,5 +502,10 @@ function err(code: BrowserErrorCode, message: string): { ok: false; error: Brows
 }
 
 function notFound(selector: Selector): { ok: false; error: BrowserError } {
-  return err("not_found", `no visible element matched ${JSON.stringify(selector)}`);
+  return err("not_found", `no visible element with ${describeSelector(selector)}`);
+}
+
+/** A path without its query or fragment, which is what saved state and pages are keyed by. */
+function withoutQuery(path: string): string {
+  return path.replace(/[?#].*$/, "");
 }

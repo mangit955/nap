@@ -167,9 +167,10 @@ export type BrowserCheck = z.infer<typeof BrowserCheckSchema>;
 /**
  * Whether a step asserts something, as opposed to doing something.
  *
- * Used to report *what* a check was in the middle of when it failed. The distinction is worth
- * making in a report: a failed assertion is the application being wrong, while a failed action
- * is usually the application missing the thing the next assertion was about to look at.
+ * The executor puts this in the sentence a failed check leaves behind, because the two mean
+ * different things to whoever reads the report: a failed assertion is the application being
+ * wrong, while a failed action is usually the application missing the thing the next assertion
+ * was about to look at — and the second is often a broken page rather than a wrong one.
  */
 export function isAssertion(step: BrowserStep): boolean {
   return step.step.startsWith("expect");

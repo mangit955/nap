@@ -28,7 +28,7 @@ import type { BrowserCheck } from "./browser-check.ts";
 import { runBrowserCheck } from "./browser-executor.ts";
 import type { BrowserSessionFactory } from "./browser-session.ts";
 import { type CategoryWeights, DEFAULT_CATEGORY_WEIGHTS } from "./category.ts";
-import { applyGates, type BrowserAvailability, type GateInput } from "./gates.ts";
+import { applyGates, type BrowserUnavailable, type GateInput } from "./gates.ts";
 import { deriveRunMetrics } from "./metrics.ts";
 import { diagnosePreview } from "./preview.ts";
 import type { BenchReport, CheckResult } from "./report.ts";
@@ -220,7 +220,7 @@ export async function runBenchTask(
       // No browser is the evaluator's problem, not the agent's, and it is terminal: every
       // remaining browser check would fail for the same reason, and none of them would be
       // saying anything about the application.
-      observations.browser = attempted.error;
+      observations.browser = { ok: false, ...attempted.error };
       return finish();
     }
 
@@ -244,12 +244,11 @@ async function runBrowserCheckWith(
   factory: BrowserSessionFactory | undefined,
   check: BrowserCheck,
   baseUrl: string,
-): Promise<Result<CheckResult, BrowserAvailability & { ok: false }>> {
+): Promise<Result<CheckResult, BrowserUnavailable>> {
   if (factory === undefined) {
     return {
       ok: false,
       error: {
-        ok: false,
         reason: "not_configured",
         detail: `the task declares browser check "${check.id}" and the run was given no browser`,
       },
@@ -258,20 +257,14 @@ async function runBrowserCheckWith(
 
   const opened = await factory();
   if (!opened.ok) {
-    return {
-      ok: false,
-      error: { ok: false, reason: "unavailable", detail: opened.error.message },
-    };
+    return { ok: false, error: { reason: "unavailable", detail: opened.error.message } };
   }
 
   try {
     const result = await runBrowserCheck(opened.value, check, { baseUrl });
     if (result.ok) return result;
 
-    return {
-      ok: false,
-      error: { ok: false, reason: "unavailable", detail: result.error.message },
-    };
+    return { ok: false, error: { reason: "unavailable", detail: result.error.message } };
   } finally {
     await opened.value.close();
   }

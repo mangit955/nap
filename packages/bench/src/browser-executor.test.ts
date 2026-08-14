@@ -89,7 +89,9 @@ describe("runBrowserCheck", () => {
 
       expect(result.outcome).toBe("failed");
       expect(result.detail).toContain("step 2");
-      expect(result.detail).toContain("expectText");
+      // Which kind of step, because the two mean different things: a wrong page and a page
+      // missing the thing the next assertion was about to look at.
+      expect(result.detail).toContain("assertion expectText");
       // The step after the failure must not have run: a sequence continued past a broken
       // assertion is measuring a page that is already not the one the check described.
       expect(session.calls.some((call) => call.method === "click")).toBe(false);
@@ -209,10 +211,16 @@ describe("runBrowserCheck", () => {
       expect(outcome).toBe("passed");
     });
 
-    it("fails the check when there is nothing to click", async () => {
-      expect(
-        await outcomeOf([{ step: "click", selector: { by: "testId", id: "nope" } }], heading),
-      ).toBe("failed");
+    it("fails the check when there is nothing to click, and says it was an action", async () => {
+      const { result } = await run(
+        [{ step: "click", selector: { by: "testId", id: "nope" } }],
+        heading,
+      );
+
+      expect(result.outcome).toBe("failed");
+      expect(result.detail).toContain("action click");
+      // And it says what was looked for, in the same words every other message uses.
+      expect(result.detail).toContain('test id "nope"');
     });
 
     it("fills an input, which changes its value", async () => {
