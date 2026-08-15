@@ -28,6 +28,7 @@ function check(overrides: Partial<CheckResult> = {}): CheckResult {
 /** A run that went perfectly, so any verdict other than a pass came from the gate under test. */
 function clean(overrides: Partial<GateInput> = {}): GateInput {
   return {
+    seed: { ok: true },
     turn: { ok: true },
     workspace: { ok: true },
     preview: null,
@@ -318,5 +319,44 @@ describe("the order between gates", () => {
 
     expect(verdict.gates).toEqual(["preview_not_started", "required_check_failed", "build_failed"]);
     expect(verdict.score).toBe(BUILD_FAILURE_SCORE_CAP);
+  });
+});
+
+describe("the seed gate", () => {
+  it("errors a run whose declared starting state never landed", () => {
+    const verdict = applyGates(clean({ seed: { ok: false, detail: "the sandbox went away" } }));
+
+    expect(verdict.status).toBe("errored");
+    expect(verdict.gates).toEqual(["seed_failed"]);
+    expect(verdict.score).toBeNull();
+  });
+
+  it("blames the execution plane rather than the agent", () => {
+    // The task validated at import, so the paths and contents were well-formed; what is left
+    // is the sandbox refusing the write. Charging that to the model is the error that quietly
+    // corrupts a benchmark.
+    const verdict = applyGates(clean({ seed: { ok: false, detail: "no space" } }));
+
+    expect(verdict.errorKind).toBe("sandbox");
+  });
+
+  it("outranks everything else, because nothing after it is evidence about the agent", () => {
+    // Both true at once: the seeding failed *and* the checks did badly. Only the first is a
+    // fact about the run, since the agent was never shown the state the task describes.
+    const verdict = applyGates(
+      clean({
+        seed: { ok: false, detail: "no space" },
+        turn: { ok: false, reason: "refusal" },
+        checks: [check({ outcome: "failed", required: true })],
+        score: 0,
+      }),
+    );
+
+    expect(verdict.gates).toEqual(["seed_failed"]);
+    expect(verdict.errorKind).toBe("sandbox");
+  });
+
+  it("says nothing about a run that seeded nothing", () => {
+    expect(applyGates(clean()).gates).toEqual([]);
   });
 });

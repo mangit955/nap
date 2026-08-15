@@ -67,11 +67,64 @@ export const BenchCheckSchema = z.discriminatedUnion("kind", [
   BrowserCheckSchema,
 ]);
 
+/**
+ * One file put into the project before the agent sees it.
+ *
+ * The path is relative to the project root and constrained to stay there. A task file is source
+ * code rather than untrusted input, so this is a typo guard rather than a security boundary — but
+ * a seeded path of `/etc/hosts` or `../../elsewhere` would write somewhere that is not the
+ * application, and the run would then measure an agent against a starting state nobody declared.
+ */
+export const SeededFileSchema = z.strictObject({
+  path: z
+    .string()
+    .min(1)
+    .refine((path) => !path.startsWith("/"), {
+      message: "must be relative to the project root, not absolute",
+    })
+    .refine((path) => !path.split("/").includes(".."), {
+      message: "must not climb out of the project root",
+    }),
+  /** Empty is legitimate: a blank file is a starting state a task may want. */
+  contents: z.string(),
+});
+
+export type SeededFile = z.infer<typeof SeededFileSchema>;
+
 export const BenchTaskSchema = z
   .strictObject({
     id: z.string().min(1),
     name: z.string().min(1),
-    prompt: z.string().min(1),
+    /**
+     * What is put to the agent, in order — one turn each.
+     *
+     * A list rather than a string because a follow-up is the only way to ask the question this
+     * benchmark most wants answered: does the agent break what it already built? A task whose
+     * second prompt adds a filter, and whose checks still assert the original CRUD behaviour,
+     * catches a regression that no single-prompt task could express.
+     *
+     * Every prompt is one turn, sent only if the one before it completed — see `runner.ts`.
+     */
+    prompts: z.array(z.string().trim().min(1)).min(1),
+    /**
+     * The state the sandbox is put into before the agent is asked anything.
+     *
+     * Absent for the ordinary task, which starts from the template like any new project. Present
+     * for "debug this" and "modify this", where the thing being measured is what the agent does
+     * to code it did not write — and where the starting state has to be identical every run or
+     * the task is not reproducible.
+     */
+    environment: z
+      .strictObject({
+        /**
+         * Files written into the project before the first prompt.
+         *
+         * Paths are **relative to the project root** and the runner joins them, so a task never
+         * has to know where in a sandbox the project lives — and cannot write outside it.
+         */
+        files: z.array(SeededFileSchema).min(1),
+      })
+      .optional(),
     /**
      * The application this task expects to be running, when it expects one.
      *
@@ -101,6 +154,18 @@ export const BenchTaskSchema = z
         // Named rather than counted: the point of the message is to find the duplicate.
         message: `checks must have unique ids — duplicated: ${duplicates.join(", ")}`,
         path: ["checks"],
+      });
+    }
+
+    // Two files claiming one path is a task whose starting state depends on the order the
+    // runner happens to write them in, which is the opposite of the reproducibility seeding
+    // exists for. Only one of them could ever survive, and nobody could say which.
+    const collisions = duplicateIds((task.environment?.files ?? []).map((file) => file.path));
+    if (collisions.length > 0) {
+      ctx.addIssue({
+        code: "custom",
+        message: `seeded files must have unique paths — duplicated: ${collisions.join(", ")}`,
+        path: ["environment", "files"],
       });
     }
 

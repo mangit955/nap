@@ -32,6 +32,7 @@ import type { RunStatus } from "./status.ts";
  * fail" is exactly the field somebody will want to group by.
  */
 export const GATE_IDS = [
+  "seed_failed",
   "turn_failed",
   "turn_cancelled",
   "workspace_missing",
@@ -68,6 +69,14 @@ export type BrowserUnavailable = {
 export type BrowserAvailability = { ok: true } | ({ ok: false } & BrowserUnavailable);
 
 export type GateInput = {
+  /**
+   * Whether the starting state the task declared was actually put in place.
+   *
+   * First in the ladder because it happens before anything else does: a run whose seeded files
+   * never landed asked the agent about a workspace that is not the one the task describes, so
+   * nothing after it is evidence about the agent.
+   */
+  seed: { ok: true } | { ok: false; detail: string };
   /** How the run's turn ended. */
   turn: { ok: true } | { ok: false; reason: TurnFailureReason };
   /** What was left to run checks in, once the turn was over. */
@@ -119,6 +128,26 @@ type GateEffect = {
 };
 
 type Gate = (input: GateInput) => GateEffect | null;
+
+/**
+ * A starting state that could not be put in place.
+ *
+ * Infrastructure rather than configuration, and deliberately so: the task validated at import,
+ * so the paths and contents were well-formed, which leaves the sandbox refusing the write. That
+ * is the same reading `diagnosePreview` takes — doubt about who is at fault resolves towards the
+ * execution plane, because charging an outage to the model is the error that quietly corrupts a
+ * benchmark while charging the reverse merely annoys whoever is on call.
+ */
+const seedGate: Gate = ({ seed }) =>
+  seed.ok
+    ? null
+    : {
+        gate: "seed_failed",
+        status: "errored",
+        errorKind: "sandbox",
+        terminal: true,
+        scoreCap: null,
+      };
 
 /** A turn that did not complete produced no observation, whoever's fault it was. */
 const turnGate: Gate = ({ turn }) => {
@@ -255,6 +284,7 @@ const buildGate: Gate = ({ checks }) =>
  * pins it with cases where two rungs are true at once and only one may be reported.
  */
 const GATE_LADDER: readonly Gate[] = [
+  seedGate,
   turnGate,
   workspaceGate,
   previewGate,

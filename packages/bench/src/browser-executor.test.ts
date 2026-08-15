@@ -552,3 +552,71 @@ describe("runBrowserCheck", () => {
     });
   });
 });
+
+describe("expectNoConsoleErrors", () => {
+  const check = (steps: BrowserStep[]) => ({
+    id: "clean",
+    kind: "browser" as const,
+    steps,
+  });
+
+  it("passes on a page that logged nothing", async () => {
+    const session = new ScriptedBrowserSession({ pages: { "/": { elements: [] } } });
+
+    const result = await runBrowserCheck(session, check([{ step: "expectNoConsoleErrors" }]), {
+      baseUrl: BASE_URL,
+    });
+
+    expect(result.ok && result.value.outcome).toBe("passed");
+  });
+
+  it("fails on a page that threw, and says what it said", async () => {
+    // The assertion the landing-page task rests on: an application that renders correctly while
+    // throwing on load is not a working application, and no other assertion would notice.
+    const session = new ScriptedBrowserSession({
+      pages: { "/": { elements: [] } },
+      consoleErrors: ["uncaught TypeError: t.map is not a function"],
+    });
+
+    const result = await runBrowserCheck(session, check([{ step: "expectNoConsoleErrors" }]), {
+      baseUrl: BASE_URL,
+    });
+
+    expect(result.ok && result.value.outcome).toBe("failed");
+    if (result.ok) expect(result.value.detail).toContain("t.map is not a function");
+  });
+
+  it("reports how many there were when several landed", async () => {
+    const session = new ScriptedBrowserSession({
+      pages: { "/": { elements: [] } },
+      consoleErrors: ["first", "second", "third"],
+    });
+
+    const result = await runBrowserCheck(session, check([{ step: "expectNoConsoleErrors" }]), {
+      baseUrl: BASE_URL,
+    });
+
+    if (result.ok) expect(result.value.detail).toContain("3");
+  });
+
+  it("is asked after the steps before it, so an error a click caused is caught", async () => {
+    // Diagnostics accumulate over the session, so where the step sits in the sequence decides
+    // what it can see — asserting before the interaction would only ever cover page load.
+    const session = new ScriptedBrowserSession({
+      pages: { "/": { elements: [{ role: "button", name: "Add" }] } },
+      consoleErrors: ["boom"],
+    });
+
+    const result = await runBrowserCheck(
+      session,
+      check([
+        { step: "click", selector: { by: "role", role: "button", name: "Add" } },
+        { step: "expectNoConsoleErrors" },
+      ]),
+      { baseUrl: BASE_URL },
+    );
+
+    expect(result.ok && result.value.outcome).toBe("failed");
+    expect(session.calls.map((call) => call.method)).toContain("diagnostics");
+  });
+});

@@ -8,6 +8,7 @@
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
+import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
 import type { Runtime, TurnOutcome } from "@nap/shared/ports/runtime";
 import { describe, expect, it } from "vitest";
 import type { BrowserStep } from "./browser-check.ts";
@@ -44,7 +45,7 @@ function task(
   const parsed = parseBenchTask({
     id: "landing-page",
     name: "A landing page",
-    prompt: "Build a landing page.",
+    prompts: ["Build a landing page."],
     ...extras,
     checks: checks.map((check) => ({ ...check, kind: "command" })),
   });
@@ -678,7 +679,7 @@ describe("runBenchTask — browser checks", () => {
     const parsed = parseBenchTask({
       id: "todo",
       name: "A todo list",
-      prompt: "Build a todo list.",
+      prompts: ["Build a todo list."],
       preview: { port: PORT },
       checks: [
         { id: "build", kind: "command", command: "bun run build" },
@@ -843,7 +844,7 @@ describe("runBenchTask — screenshots and visual evaluation", () => {
     const parsed = parseBenchTask({
       id: "todo",
       name: "A todo list",
-      prompt: "Build a todo list.",
+      prompts: ["Build a todo list."],
       preview: { port: PORT },
       checks: [
         { id: "build", kind: "command", command: "bun run build" },
@@ -1064,7 +1065,7 @@ describe("runBenchTask — a screenshot at a size that is none of ours", () => {
     const parsed = parseBenchTask({
       id: "todo",
       name: "A todo list",
-      prompt: "Build a todo list.",
+      prompts: ["Build a todo list."],
       preview: { port: PORT },
       checks: [
         {
@@ -1100,5 +1101,235 @@ describe("runBenchTask — a screenshot at a size that is none of ours", () => {
     });
 
     expect(saved[0]?.metadata.viewport).toEqual({ name: null, width: 800, height: 900 });
+  });
+});
+
+/**
+ * Prompt sequences and seeded starting state — the two things a task needs before the agent
+ * runs, and the only two places the runner touches the sandbox on the agent's behalf.
+ */
+describe("runBenchTask — prompts in sequence", () => {
+  function twoPrompts(prompts: string[]) {
+    const parsed = parseBenchTask({
+      id: "todo",
+      name: "A todo list",
+      prompts,
+      checks: [{ id: "build", kind: "command", command: "bun run build" }],
+    });
+    if (!parsed.ok) throw new Error(parsed.error);
+    return parsed.value;
+  }
+
+  it("sends each prompt as its own turn, in order", async () => {
+    const runtime = scriptedRuntime(completed);
+    const sandbox = new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0 }) });
+
+    await reportOf(twoPrompts(["Build it.", "Now filter it."]), await deps(runtime, sandbox));
+
+    expect(runtime.messages).toEqual(["Build it.", "Now filter it."]);
+  });
+
+  it("stops at the first turn that fails, rather than talking past a broken run", async () => {
+    // The follow-up is written against what the first prompt was supposed to produce. Sending
+    // it after a failure would measure the agent against a workspace that is not the one the
+    // prompt describes, and pay for the turn to do it.
+    const messages: string[] = [];
+    const runtime: Runtime = {
+      async runTurn(request) {
+        messages.push(request.message);
+        return messages.length === 1
+          ? { ok: false, turnId: TURN_ID, reason: "model_unavailable", message: "down" }
+          : completed;
+      },
+      async resumeSession() {
+        throw new Error("the runner must not resume a session");
+      },
+    };
+    const sandbox = new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0 }) });
+
+    const report = await reportOf(twoPrompts(["Build it.", "Now filter it."]), {
+      ...(await deps(runtime, sandbox)),
+    });
+
+    expect(messages).toEqual(["Build it."]);
+    expect(report.status).toBe("errored");
+  });
+
+  it("records the last turn attempted, which is the one the verdict is about", async () => {
+    const secondTurn = "3f2a1c4e-0000-4000-8000-00000000dead";
+    const seen: string[] = [];
+    const runtime: Runtime = {
+      async runTurn(request) {
+        seen.push(request.message);
+        return { ok: true, turnId: seen.length === 1 ? TURN_ID : secondTurn, commitSha: null };
+      },
+      async resumeSession() {
+        throw new Error("the runner must not resume a session");
+      },
+    };
+    const sandbox = new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0 }) });
+
+    const report = await reportOf(
+      twoPrompts(["Build it.", "Now filter it."]),
+      await deps(runtime, sandbox),
+    );
+
+    expect(report.turnId).toBe(secondTurn);
+  });
+});
+
+describe("runBenchTask — seeded files", () => {
+  function seededTask(files: { path: string; contents: string }[]) {
+    const parsed = parseBenchTask({
+      id: "debug",
+      name: "Fix it",
+      prompts: ["The list does not render. Fix it."],
+      environment: { files },
+      checks: [{ id: "build", kind: "command", command: "bun run build" }],
+    });
+    if (!parsed.ok) throw new Error(parsed.error);
+    return parsed.value;
+  }
+
+  it("writes the files into the project before the agent is asked anything", async () => {
+    // The ordering is the whole claim, so it is read from *inside* the turn: what the agent
+    // could see at the moment it was asked. Reading the file after the run instead would pass
+    // just as happily if the files had landed second, which is the thing being ruled out.
+    let visibleToTheAgent: string | null = null;
+    const sandbox = new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0 }) });
+    let sandboxId = "";
+    const runtime: Runtime = {
+      async runTurn() {
+        const seen = await sandbox.readFile(sandboxId, `${PROJECT_ROOT_PATH}/src/App.tsx`);
+        visibleToTheAgent = seen.ok ? seen.value : null;
+        return completed;
+      },
+      async resumeSession() {
+        throw new Error("the runner must not resume a session");
+      },
+    };
+    const withSandbox = await deps(runtime, sandbox);
+    sandboxId = withSandbox.sandboxId;
+
+    await reportOf(seededTask([{ path: "src/App.tsx", contents: "broken" }]), withSandbox);
+
+    expect(visibleToTheAgent).toBe("broken");
+  });
+
+  it("creates a sandbox to seed into when the session has none, and records it", async () => {
+    // The ordinary case, and the one the whole arrangement exists for: the runtime opens a
+    // sandbox on the first turn, which is too late for files the agent is supposed to *read*.
+    // Seeding opens one first and writes it down, so the turn resumes that one rather than
+    // opening a second and leaving the seeded files in an orphan nobody looks at.
+    const sandbox = new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0 }) });
+    const sessions = new InMemorySessionStore([
+      { sessionId: SESSION_ID, projectId: crypto.randomUUID() },
+    ]);
+
+    const report = await reportOf(seededTask([{ path: "src/App.tsx", contents: "broken" }]), {
+      runtime: scriptedRuntime(completed),
+      sandbox,
+      sessions,
+      events: new InMemoryEventStore(),
+      sessionId: SESSION_ID,
+      runId: RUN_ID,
+    });
+
+    const recorded = (await sessions.get(SESSION_ID))?.sandboxId;
+    expect(recorded).toBeDefined();
+    expect(report.gates).not.toContain("seed_failed");
+
+    if (recorded != null) {
+      const seeded = await sandbox.readFile(recorded, `${PROJECT_ROOT_PATH}/src/App.tsx`);
+      expect(seeded.ok && seeded.value).toBe("broken");
+    }
+  });
+
+  it("errors when no sandbox could be created to seed into", async () => {
+    const sandbox = new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0 }) });
+    sandbox.create = async () => ({
+      ok: false,
+      error: { code: "unavailable", message: "no capacity" },
+    });
+    const runtime = scriptedRuntime(completed);
+
+    const report = await reportOf(seededTask([{ path: "src/App.tsx", contents: "broken" }]), {
+      runtime,
+      sandbox,
+      sessions: new InMemorySessionStore([
+        { sessionId: SESSION_ID, projectId: crypto.randomUUID() },
+      ]),
+      events: new InMemoryEventStore(),
+      sessionId: SESSION_ID,
+      runId: RUN_ID,
+    });
+
+    expect(report.gates).toContain("seed_failed");
+    expect(report.errorKind).toBe("sandbox");
+    expect(runtime.messages).toEqual([]);
+  });
+
+  it("blames configuration, not the sandbox, when the session does not exist", async () => {
+    // The same fact the workspace gate reports after a turn. It would be absurd for "no such
+    // session" to be a configuration error on a task that seeds nothing and an infrastructure
+    // one on a task that seeds.
+    const report = await reportOf(seededTask([{ path: "src/App.tsx", contents: "broken" }]), {
+      runtime: scriptedRuntime(completed),
+      sandbox: new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0 }) }),
+      sessions: new InMemorySessionStore([]),
+      events: new InMemoryEventStore(),
+      sessionId: SESSION_ID,
+      runId: RUN_ID,
+    });
+
+    expect(report.gates).toEqual(["workspace_missing"]);
+    expect(report.errorKind).toBe("configuration");
+  });
+
+  it("joins the path against the project root, so a task never names the sandbox layout", async () => {
+    const sandbox = new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0 }) });
+    const withSandbox = await deps(scriptedRuntime(completed), sandbox);
+
+    await reportOf(seededTask([{ path: "src/lib/todo.ts", contents: "x" }]), withSandbox);
+
+    const seeded = await sandbox.readFile(
+      withSandbox.sandboxId,
+      `${PROJECT_ROOT_PATH}/src/lib/todo.ts`,
+    );
+    expect(seeded.ok).toBe(true);
+  });
+
+  it("errors the run when a file could not be seeded, blaming the sandbox and not the agent", async () => {
+    // The agent never saw the starting state the task declared, so whatever it did next is not
+    // evidence about it. Infrastructure, per the rule that doubt resolves that way.
+    const runtime = scriptedRuntime(completed);
+    const sandbox = new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0 }) });
+    const withSandbox = await deps(runtime, sandbox);
+    sandbox.writeFile = async () => ({
+      ok: false,
+      error: { code: "unavailable", message: "the sandbox went away" },
+    });
+
+    const report = await reportOf(
+      seededTask([{ path: "src/App.tsx", contents: "broken" }]),
+      withSandbox,
+    );
+
+    expect(report.status).toBe("errored");
+    expect(report.errorKind).toBe("sandbox");
+    expect(report.gates).toContain("seed_failed");
+    expect(report.score).toBeNull();
+    // And nothing was asked of the agent, because there was nothing to ask it about.
+    expect(runtime.messages).toEqual([]);
+  });
+
+  it("seeds nothing and creates nothing when the task declares no environment", async () => {
+    const sandbox = new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0 }) });
+    const withSandbox = await deps(scriptedRuntime(completed), sandbox);
+
+    const report = await reportOf(task(), withSandbox);
+
+    expect(report.status).toBe("passed");
+    expect(report.gates).not.toContain("seed_failed");
   });
 });

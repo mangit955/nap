@@ -83,7 +83,8 @@ Weighted into the overall score, and the weighting renormalises over the categor
 produced results. A check's category defaults from its kind and can be overridden by the task,
 because `npm run build` and `npm run lint` are both commands and are not both functional.
 
-**Gate** — a rule that constrains the outcome regardless of what the checks summed to: a failed turn
+**Gate** — a rule that constrains the outcome regardless of what the checks summed to: a declared
+starting state that could not be seeded errors the run before a prompt is ever sent, a failed turn
 is an error with no score, a preview that never serves fails the run, a failed required check fails
 the run, a browser that could not be started errors it without blaming the agent, a build failure
 fails it and caps the overall score. Gates exist so a broken application

@@ -213,6 +213,20 @@ async function runStep(
           };
     }
 
+    case "expectNoConsoleErrors": {
+      const diagnostics = await session.diagnostics();
+      if (!diagnostics.ok) return asked(diagnostics.error);
+
+      const errors = diagnostics.value.consoleErrors;
+      if (errors.length === 0) return PASSED;
+
+      // The count *and* the first one: the count is what makes two runs comparable, and the
+      // text is the only thing that makes the failure actionable without opening the trajectory.
+      return {
+        failure: `the page logged ${errors.length} error${errors.length === 1 ? "" : "s"}, the first being: ${errors[0]}`,
+      };
+    }
+
     case "expectNoHorizontalOverflow": {
       const width = await session.documentWidth();
       if (!width.ok) return asked(width.error);

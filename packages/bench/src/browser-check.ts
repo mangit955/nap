@@ -135,6 +135,17 @@ export const BrowserStepSchema = z.discriminatedUnion("step", [
     step: z.literal("expectNoHorizontalOverflow"),
     tolerancePx: z.number().int().nonnegative().optional(),
   }),
+
+  /**
+   * Nothing was logged at error level, and nothing threw.
+   *
+   * The one assertion that is not about what the page *shows*: an application can render exactly
+   * what was asked while throwing on every keystroke, and no visibility or count assertion would
+   * notice. Diagnostics accumulate over the whole session, so where this sits in the sequence
+   * decides what it covers — put it last to include what the interactions caused, and note that
+   * asserting it first only ever covers page load.
+   */
+  z.strictObject({ step: z.literal("expectNoConsoleErrors") }),
 ]);
 
 export type BrowserStep = z.infer<typeof BrowserStepSchema>;

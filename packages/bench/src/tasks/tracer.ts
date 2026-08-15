@@ -16,7 +16,7 @@ import { defineTask } from "../task.ts";
 export const TRACER_TASK = defineTask({
   id: "tracer",
   name: "Change the heading",
-  prompt: "Change the main heading on the page to say 'Hello from NapBench'.",
+  prompts: ["Change the main heading on the page to say 'Hello from NapBench'."],
   checks: [
     {
       id: "build",

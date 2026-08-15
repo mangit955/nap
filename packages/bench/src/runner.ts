@@ -19,11 +19,12 @@
  * `async` function that also creates sandboxes is a rule nobody can check.
  */
 
+import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
 import type { EventStore } from "@nap/shared/ports/event-store";
 import type { Runtime } from "@nap/shared/ports/runtime";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
-import type { SessionStore } from "@nap/shared/ports/session-store";
-import type { Result } from "@nap/shared/result";
+import type { SessionRecord, SessionStore } from "@nap/shared/ports/session-store";
+import type { Result, VoidResult } from "@nap/shared/result";
 import type { BrowserCheck } from "./browser-check.ts";
 import { runBrowserCheck } from "./browser-executor.ts";
 import type { BrowserSession, BrowserSessionFactory } from "./browser-session.ts";
@@ -39,7 +40,14 @@ import {
   type ScreenshotRef,
   type ScreenshotStore,
 } from "./screenshot.ts";
-import { type BenchTask, type CommandCheck, categoryOf, flagsOf, weightOf } from "./task.ts";
+import {
+  type BenchTask,
+  type CommandCheck,
+  categoryOf,
+  flagsOf,
+  type SeededFile,
+  weightOf,
+} from "./task.ts";
 import type { BenchTrajectory } from "./trajectory.ts";
 import { viewportNameForSize } from "./viewport.ts";
 import {
@@ -142,19 +150,25 @@ export async function runBenchTask(
   const weights = deps.weights ?? DEFAULT_CATEGORY_WEIGHTS;
   const now = deps.now ?? (() => new Date());
 
-  const outcome = await runtime.runTurn({ sessionId, message: task.prompt, model: deps.model });
-
-  // Everything the ladder is entitled to know, filled in as far as the run got. A stage that
-  // never happened leaves its field saying so rather than pretending it went well.
+  // Everything the ladder is entitled to know, filled in as far as the run got. Each field
+  // starts at its optimistic value and is written down as the run discovers otherwise; a stage
+  // that never happened leaves the field the *earlier* stage set, which is why the ladder is
+  // ordered and why a terminal gate stops it — an unreached stage must never be read.
   const checks: CheckResult[] = [];
   const observations: GateInput = {
-    turn: outcome.ok ? { ok: true } : { ok: false, reason: outcome.reason },
+    seed: { ok: true },
+    turn: { ok: true },
     workspace: { ok: true },
     preview: null,
     browser: { ok: true },
     checks,
     score: null,
   };
+
+  // The turn the verdict is about, which for a sequence is the last one attempted: a run that
+  // failed halfway is explained by the prompt it failed on, and one that finished is explained
+  // by the prompt that finished it. Null until a turn has actually been started.
+  let turnId: string | null = null;
 
   // What the run photographed, in the order it did. Empty on every path that never opened a
   // browser, which includes every path that ended before the checks ran.
@@ -182,7 +196,7 @@ export async function runBenchTask(
         runId,
         taskId: task.id,
         sessionId,
-        turnId: outcome.turnId,
+        turnId,
         status: verdict.status,
         errorKind: verdict.errorKind,
         gates: verdict.gates,
@@ -199,9 +213,43 @@ export async function runBenchTask(
     };
   };
 
-  // Running checks against a sandbox the turn never reached would score whatever the
-  // template already contained, which is not the agent's work.
-  if (!outcome.ok) return finish();
+  if (task.environment !== undefined) {
+    // Looked up here rather than inside the seeding, so that "there is no such session" has one
+    // classification instead of two. It is the same fact the workspace gate reports after the
+    // turn — somebody pointed the run at a session that does not exist — and it would be absurd
+    // for that to be a configuration error on a task that seeds nothing and an infrastructure
+    // one on a task that seeds.
+    const session = await sessions.get(sessionId);
+    if (session == null) {
+      observations.workspace = { ok: false, missing: "session" };
+      return finish();
+    }
+
+    const seeded = await seedEnvironment(sandbox, sessions, session, task.environment.files);
+    if (!seeded.ok) {
+      observations.seed = { ok: false, detail: seeded.error };
+      // Returned before any prompt is sent. The agent was never shown the starting state the
+      // task describes, so asking it anything now would spend money on a turn whose result
+      // could not be attributed to it.
+      return finish();
+    }
+  }
+
+  // One turn per prompt, in order, stopping at the first that does not complete. A follow-up is
+  // written against what the prompt before it was supposed to produce, so sending it after a
+  // failure would measure the agent against a workspace the prompt does not describe — and pay
+  // for the turn to do it.
+  for (const prompt of task.prompts) {
+    const outcome = await runtime.runTurn({ sessionId, message: prompt, model: deps.model });
+    turnId = outcome.turnId;
+
+    if (!outcome.ok) {
+      observations.turn = { ok: false, reason: outcome.reason };
+      // Running checks against a sandbox the turn never reached would score whatever the
+      // template already contained, which is not the agent's work.
+      return finish();
+    }
+  }
 
   const session = await sessions.get(sessionId);
   // No such session at all: the run was pointed at something that does not exist, which is
@@ -304,6 +352,49 @@ export async function runBenchTask(
   observations.score = scoreRun(checks, weights, visualScoreOf(visual)).overall;
 
   return finish();
+}
+
+/**
+ * Puts the task's declared starting state into the project, before the agent is asked anything.
+ *
+ * **A sandbox has to exist first, and normally none does.** The runtime creates one on the first
+ * turn, which is too late — the whole point of seeding is that the agent sees the files rather
+ * than writes them. So this creates one and records it on the session, which is exactly what
+ * `acquireSandbox` looks for: the first turn then *resumes* the seeded sandbox instead of opening
+ * an empty one. A session that already has a sandbox is seeded in place rather than replaced,
+ * because whoever composed the run may have arranged one deliberately.
+ *
+ * Paths are joined against the project root here, so a task declares `src/App.tsx` and never has
+ * to know where in a sandbox a project lives — which is also what makes the schema's
+ * "no absolute, no climbing out" rule mean something.
+ */
+async function seedEnvironment(
+  sandbox: SandboxManager,
+  sessions: SessionStore,
+  session: SessionRecord,
+  files: readonly SeededFile[],
+): Promise<VoidResult<string>> {
+  let sandboxId = session.sandboxId;
+  if (sandboxId === null) {
+    const created = await sandbox.create(session.projectId);
+    if (!created.ok) {
+      return { ok: false, error: `could not create a sandbox to seed: ${created.error.message}` };
+    }
+    sandboxId = created.value.id;
+    // Recorded before anything is written, so the first turn resumes this sandbox rather than
+    // opening a second one and leaving the seeded files in an orphan nobody looks at.
+    await sessions.setSandboxId(session.sessionId, sandboxId);
+  }
+
+  for (const file of files) {
+    const path = `${PROJECT_ROOT_PATH}/${file.path}`;
+    const written = await sandbox.writeFile(sandboxId, path, file.contents);
+    if (!written.ok) {
+      return { ok: false, error: `could not seed ${file.path}: ${written.error.message}` };
+    }
+  }
+
+  return { ok: true, value: undefined };
 }
 
 /**

@@ -4,7 +4,7 @@ import { categoryOf, flagsOf, parseBenchTask, weightOf } from "./task.ts";
 const valid = {
   id: "landing-page",
   name: "A landing page",
-  prompt: "Build a landing page with a headline and a call to action.",
+  prompts: ["Build a landing page with a headline and a call to action."],
   checks: [{ id: "build", kind: "command", command: "bun run build" }],
 };
 
@@ -22,7 +22,7 @@ describe("parseBenchTask", () => {
   });
 
   it("rejects an empty prompt", () => {
-    expect(parseBenchTask({ ...valid, prompt: "" }).ok).toBe(false);
+    expect(parseBenchTask({ ...valid, prompts: [""] }).ok).toBe(false);
   });
 
   it("rejects an unknown check kind rather than skipping it", () => {
@@ -155,7 +155,7 @@ describe("check defaults", () => {
   });
 
   it("explains what was wrong rather than failing bare", () => {
-    const parsed = parseBenchTask({ ...valid, prompt: 42 });
+    const parsed = parseBenchTask({ ...valid, prompts: 42 });
     expect(parsed.ok).toBe(false);
     if (!parsed.ok) expect(parsed.error).toContain("prompt");
   });
@@ -172,7 +172,7 @@ describe("parseBenchTask — a task with browser checks", () => {
   const withPreview = {
     id: "todo",
     name: "A todo list",
-    prompt: "Build a todo list.",
+    prompts: ["Build a todo list."],
     preview: { port: 5173 },
     checks: [browserCheck],
   };
@@ -227,5 +227,71 @@ describe("parseBenchTask — a task with browser checks", () => {
     });
 
     expect(parsed.ok).toBe(false);
+  });
+});
+
+describe("parseBenchTask — a sequence of prompts", () => {
+  it("accepts several, in the order the task wrote them", () => {
+    const parsed = parseBenchTask({
+      ...valid,
+      prompts: ["Build a todo list.", "Now add a filter for completed items."],
+    });
+
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      expect(parsed.value.prompts).toEqual([
+        "Build a todo list.",
+        "Now add a filter for completed items.",
+      ]);
+    }
+  });
+
+  it("rejects a task with no prompts, which would ask the agent for nothing", () => {
+    expect(parseBenchTask({ ...valid, prompts: [] }).ok).toBe(false);
+  });
+
+  it("rejects a blank prompt among good ones, rather than sending whitespace as a turn", () => {
+    expect(parseBenchTask({ ...valid, prompts: ["Build it.", "   "] }).ok).toBe(false);
+  });
+});
+
+describe("parseBenchTask — seeded files", () => {
+  const seeded = (files: unknown) => parseBenchTask({ ...valid, environment: { files } });
+
+  it("accepts files to put in the sandbox before the agent runs", () => {
+    const parsed = seeded([{ path: "src/App.tsx", contents: "export default function App() {}" }]);
+
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) expect(parsed.value.environment?.files).toHaveLength(1);
+  });
+
+  it("accepts an empty file, because a blank file is a legitimate starting state", () => {
+    expect(seeded([{ path: "src/empty.ts", contents: "" }]).ok).toBe(true);
+  });
+
+  it("rejects an absolute path, which would write outside the project", () => {
+    // Paths are relative to the project root and the runner joins them. An absolute one
+    // would land wherever it said, which for `/etc/...` is not the application at all.
+    expect(seeded([{ path: "/etc/passwd", contents: "x" }]).ok).toBe(false);
+  });
+
+  it("rejects a path that climbs out of the project", () => {
+    expect(seeded([{ path: "../outside.ts", contents: "x" }]).ok).toBe(false);
+    expect(seeded([{ path: "src/../../outside.ts", contents: "x" }]).ok).toBe(false);
+  });
+
+  it("rejects two files claiming the same path, where only one could survive", () => {
+    expect(
+      seeded([
+        { path: "src/App.tsx", contents: "first" },
+        { path: "src/App.tsx", contents: "second" },
+      ]).ok,
+    ).toBe(false);
+  });
+
+  it("rejects an environment declaring no files at all", () => {
+    // Absent means "nothing to seed". An empty list means the same thing said a second way,
+    // and two spellings of one state is a distinction somebody will eventually read into.
+    expect(seeded([]).ok).toBe(false);
   });
 });

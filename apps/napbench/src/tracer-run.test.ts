@@ -211,7 +211,7 @@ describe("screenshots, from a run to a file the report can be read against", () 
   const shotTask = defineTask({
     id: "shot",
     name: "A page worth photographing",
-    prompt: "Build a landing page.",
+    prompts: ["Build a landing page."],
     preview: { port: TEMPLATE_DEV_PORT },
     checks: [
       {
