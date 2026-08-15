@@ -123,9 +123,12 @@ export const MY_TASK = defineTask({
       required: true,
     },
     {
-      id: "lint",
+      id: "typecheck",
       kind: "command",
-      command: `cd ${PROJECT_ROOT_PATH} && bun run lint`,
+      // The binary, not a package script: the template has no `lint` or `typecheck` script,
+      // and a check that cannot pass on an untouched template measures the harness rather
+      // than the agent. See docs/napbench-first-real-run.md — this cost a funded run to learn.
+      command: `cd ${PROJECT_ROOT_PATH} && bunx tsc --noEmit`,
       category: "code",
     },
     {
@@ -157,7 +160,11 @@ ignored, because silently ignoring it produces a run that looks complete and mea
 Things worth knowing when writing one:
 
 - **A check's category defaults from its kind and is overridable.** `bun run build` and
-  `bun run lint` are both commands and only the first is functional.
+  `bunx tsc --noEmit` are both commands and only the first is functional.
+- **Run your command against an untouched template before trusting it.** The template's scripts
+  are `dev`, `build` and `preview` — there is no `lint` and no `typecheck`, so `bun run lint`
+  fails on every run for every model while looking like a code-quality measurement. The guard is
+  `apps/napbench/src/task-commands.integration.test.ts`.
 - **`required: true`** fails the run outright regardless of the score. **`build: true`** does that
   *and* caps the overall score at 40, because an application that does not compile cannot be
   three-quarters good.
@@ -273,6 +280,7 @@ Filename decides which suite a test belongs to; see `CLAUDE.md`. For NapBench sp
 | Unit — every task, gate, score, metric, aggregation, comparison, the whole browser executor against the scripted fake | `bun run test` | Nothing. No network, no browser, no credentials. | Free |
 | `apps/napbench/src/playwright-browser-session.integration.test.ts` — the adapter against real Chrome, serving its own page on loopback | `bun run test:integration` | **A Chrome or Chromium at `NAP_CHROME_PATH`.** Skips without one. | Free |
 | `apps/napbench/src/browser-driving.integration.test.ts` — the browser steps a task uses, driven against a local application | `bun run test:integration` | **A Chrome at `NAP_CHROME_PATH`.** Skips without one. | Free |
+| `apps/napbench/src/task-commands.integration.test.ts` — every command every task declares, run against an untouched template | `bun run test:integration` | **`E2B_API_KEY` and the network.** Unlike the browser suites it **throws rather than skips** without them. | One sandbox, seconds. No model calls |
 | `apps/napbench/scripts/preview-reachability.ts` — can a host-side browser reach an E2B preview? | `bun run napbench:preview-spike` | `E2B_API_KEY`, network, a Chrome | One sandbox |
 | A dry benchmark run | `bun run napbench --suite=all` | Nothing | Free |
 | A real benchmark run | `bun run napbench --real --suite=all` | `E2B_API_KEY`, a model credential for the chosen platform, `NAP_CHROME_PATH`, network | Sandboxes + model calls |

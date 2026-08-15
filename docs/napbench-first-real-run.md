@@ -80,6 +80,12 @@ not exist.
 
 Mean 97.0 over four completed runs, 0% agent errors, 0% infrastructure errors.
 
+Only the to-do report is committed, as [`napbench-example-report.json`](napbench-example-report.json).
+The other rows in both tables come from the suite's console summary: `napbench-results/` is
+gitignored, so the seven other reports and the sixteen screenshots stayed on the machine that ran
+them. One worked example is what the ticket asked for, and committing eight would make the
+repository the results database that v1 explicitly does not have.
+
 **The check now discriminates**, which is the whole test of whether it belongs: three tasks earn
 it and one does not. The one that does not is the two-prompt task — the most code written, the
 most opportunity to be wrong — and the failure is a real one:
@@ -108,8 +114,9 @@ discriminating signal in run 2 came from one strict-TypeScript failure, not from
 
 **Preview reachability held, and quickly.** Re-confirmed before spending: the preview served on
 the **first** probe, 3,074ms from cold, and the page rendered through the public proxy 2.4s after
-navigation. Across nine real sandboxes there was not one `preview_unreachable` or
-`preview_not_started` gate, and the infrastructure error rate was 0% in both suites — the risk
+navigation. Across the nine sandboxes that served a preview — eight benchmark runs and the spike —
+there was not one `preview_unreachable` or `preview_not_started` gate, and the infrastructure error
+rate was 0% in both suites — the risk
 [issue #19](https://github.com/mangit955/nap/issues/19) was opened to retire stayed retired.
 
 **Turns are fast and cheap; the wall clock is elsewhere.** Turn time ran 8–43 seconds, but a whole
@@ -127,10 +134,16 @@ filter, `expectNoConsoleErrors` would fail on every task equally and penalise no
 
 | | |
 |---|---|
-| Run 1, model | $0.0116 (estimated, from the versioned price table) |
+| Run 1, model | $0.0116 |
 | Run 2, model | $0.0092 |
 | **Total model spend** | **$0.0208** |
-| Sandboxes | 12 in total — 8 benchmark runs, 1 reachability spike, 2 command guards, 1 typecheck reproduction. Seconds to a few minutes each. |
+| Sandboxes | 13 in total — 8 benchmark runs, 1 reachability spike, 2 command-guard runs (one of them the deliberate failure), 1 template probe, 1 typecheck reproduction. Seconds to a few minutes each. |
+
+**Every money figure here is NapBench's own estimate**, summed from the reports' `estimatedCost`,
+which prices the model that was *asked for* against `packages/bench/src/pricing.ts` at its published
+rate. No provider invoice was read, OpenRouter's margin is not modelled, and the E2B side is not
+priced at all — sandbox time is recorded as a count and a duration because that is what was
+measured. The number is the right order of magnitude for a decision and is not an accounting fact.
 
 Both runs together cost about two cents of model spend. The estimate comes from
 `packages/bench/src/pricing.ts` and is labelled an estimate everywhere it appears: it prices the

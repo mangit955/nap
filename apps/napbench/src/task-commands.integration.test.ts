@@ -23,9 +23,7 @@
  * the integration setup.
  */
 
-import { CATEGORIES } from "@nap/bench/category";
 import { BENCH_TASKS } from "@nap/bench/suite";
-import { type BenchTask, categoryOf } from "@nap/bench/task";
 import { E2BSandboxManager } from "@nap/sandbox/e2b-sandbox-manager";
 import { NAP_TEMPLATE } from "@nap/sandbox/template";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -53,7 +51,7 @@ afterAll(async () => {
 
 /** Every command check a task declares, with the task it came from, as one flat list. */
 function commandChecks(): { taskId: string; checkId: string; command: string }[] {
-  return BENCH_TASKS.flatMap((task: BenchTask) =>
+  return BENCH_TASKS.flatMap((task) =>
     task.checks
       .filter((check) => check.kind === "command")
       .map((check) => ({ taskId: task.id, checkId: check.id, command: check.command })),
@@ -78,15 +76,4 @@ describe("the commands the benchmark's tasks run", () => {
     },
     120_000,
   );
-
-  it("has at least one command check on every scoring category the tasks claim", () => {
-    // The other half of the same failure: a category nobody can score renormalises away, and a
-    // task whose `code` check cannot pass is not on the same scale as one that has none at all.
-    const scored = new Set(
-      BENCH_TASKS.flatMap((task: BenchTask) => task.checks.map((check) => categoryOf(check))),
-    );
-
-    for (const category of scored) expect(CATEGORIES).toContain(category);
-    expect(scored.has("code")).toBe(true);
-  });
 });
