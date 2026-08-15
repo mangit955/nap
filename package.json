@@ -20,6 +20,7 @@
     "lint": "biome check .",
     "format": "biome check --write .",
     "prepare": "lefthook install",
+    "napbench": "bun run apps/napbench/scripts/napbench.ts",
     "napbench:preview-spike": "bun run apps/napbench/scripts/preview-reachability.ts"
   },
   "devDependencies": {

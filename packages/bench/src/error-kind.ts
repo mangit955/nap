@@ -39,6 +39,36 @@ export const ErrorKindSchema = z.enum(ERROR_KINDS);
 export type ErrorKind = z.infer<typeof ErrorKindSchema>;
 
 /**
+ * The two sides of the ledger a suite reports separately.
+ *
+ * *Agent* is evidence about what is being measured. *Infrastructure* is everything else that
+ * stopped a run producing a number — a provider outage, an execution plane having a bad
+ * afternoon, a browser that would not start, a bug in the benchmark, a run set up wrong. None
+ * of it says anything about a model, and a suite carrying much of it is not comparable data.
+ */
+export type ErrorAttribution = "agent" | "infrastructure";
+
+/**
+ * Whose column an error kind counts in.
+ *
+ * A total record rather than a predicate, so a seventh error kind fails this file's typecheck
+ * and has to be attributed deliberately — the alternative is a new kind defaulting into
+ * "infrastructure" and quietly making every suite look cleaner than it is.
+ */
+export const ERROR_ATTRIBUTION: Record<ErrorKind, ErrorAttribution> = {
+  agent: "agent",
+  model: "infrastructure",
+  sandbox: "infrastructure",
+  browser: "infrastructure",
+  evaluator: "infrastructure",
+  configuration: "infrastructure",
+};
+
+export function attributionOf(kind: ErrorKind): ErrorAttribution {
+  return ERROR_ATTRIBUTION[kind];
+}
+
+/**
  * How a run ended, given that its turn did not complete.
  *
  * Not every failed turn is an error: a cancelled one is a *cancelled* run, which is not an

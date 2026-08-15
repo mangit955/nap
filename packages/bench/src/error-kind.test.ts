@@ -8,7 +8,12 @@
 import type { TurnFailureReason } from "@nap/shared/events";
 import { TurnFailureReasonSchema } from "@nap/shared/events";
 import { describe, expect, it } from "vitest";
-import { dispositionForTurnFailure, ERROR_KINDS, ErrorKindSchema } from "./error-kind.ts";
+import {
+  attributionOf,
+  dispositionForTurnFailure,
+  ERROR_KINDS,
+  ErrorKindSchema,
+} from "./error-kind.ts";
 
 describe("error kinds", () => {
   it("are the six the vocabulary names", () => {
@@ -79,6 +84,26 @@ describe("dispositionForTurnFailure", () => {
     for (const reason of TurnFailureReasonSchema.options as TurnFailureReason[]) {
       const disposition = dispositionForTurnFailure(reason);
       expect(disposition.status === "errored" ? disposition.errorKind : null).not.toBe(undefined);
+    }
+  });
+});
+
+describe("attributionOf", () => {
+  it("counts only the agent's own failures against the agent", () => {
+    // A refusal and an exhausted budget are the two things the agent does wrong on its own.
+    expect(attributionOf("agent")).toBe("agent");
+  });
+
+  it("counts a provider outage as infrastructure, not as the model being bad", () => {
+    // The distinction the whole error-kind model exists for: a throttled provider must not
+    // depress the measured quality of the model it was throttling.
+    expect(attributionOf("model")).toBe("infrastructure");
+  });
+
+  it("counts everything that is not the agent as infrastructure", () => {
+    for (const kind of ERROR_KINDS) {
+      if (kind === "agent") continue;
+      expect(attributionOf(kind)).toBe("infrastructure");
     }
   });
 });

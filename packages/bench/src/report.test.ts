@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CATEGORY_WEIGHTS } from "./category.ts";
-import { type BenchReport, parseBenchReport, serialiseBenchReport } from "./report.ts";
+import {
+  type BenchReport,
+  evaluatorErrorReport,
+  parseBenchReport,
+  serialiseBenchReport,
+} from "./report.ts";
 import { VISUAL_NOT_RUN } from "./visual.ts";
 
 const report: BenchReport = {
@@ -134,5 +139,37 @@ describe("a report", () => {
   it("refuses a gate it does not know", () => {
     // Gates are grouped and diffed across months of reports, so the set is closed.
     expect(parseBenchReport({ ...report, gates: ["vibes"] }).ok).toBe(false);
+  });
+});
+
+describe("a report for a crash in the benchmark itself", () => {
+  const crashed = evaluatorErrorReport({
+    runId: "3f2a1c4e-0000-4000-8000-000000000004",
+    taskId: "todo-crud",
+    sessionId: "3f2a1c4e-0000-4000-8000-000000000005",
+    weights: DEFAULT_CATEGORY_WEIGHTS,
+    metrics: {
+      toolCalls: 2,
+      toolFailures: 0,
+      commands: 0,
+      filesChanged: 1,
+      turns: { started: 1, completed: 1, failed: 0, cancelled: 0 },
+    },
+  });
+
+  it("errors with no score, blaming the instrument rather than what it measures", () => {
+    expect(crashed.status).toBe("errored");
+    expect(crashed.errorKind).toBe("evaluator");
+    expect(crashed.score).toBeNull();
+  });
+
+  it("keeps whatever the run had already done, rather than reporting zeroes", () => {
+    // The metrics come from the events the turn really wrote, so a crash after the work
+    // still records the work.
+    expect(crashed.metrics.toolCalls).toBe(2);
+  });
+
+  it("is a valid report, so a crashed run is still archived like any other", () => {
+    expect(parseBenchReport(JSON.parse(serialiseBenchReport(crashed))).ok).toBe(true);
   });
 });

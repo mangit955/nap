@@ -29,6 +29,11 @@ bun run harness "<prompt>"        # one turn, printing the event stream — fake
 bun run harness --real "<prompt>" # the same turn against real E2B + a real model; this spends money
 bun run harness --real --model=anthropic/claude-opus-5 "<prompt>"  # the demo model, ~20x the cost
 bun run ws:smoke          # drives /ws over a real Bun socket — fakes, free, no database
+bun run napbench <task-id>        # one benchmark run — fakes, free; scores mean nothing
+bun run napbench --suite=all      # the four tasks, serially, same fakes
+bun run napbench --real --suite=all  # real E2B + a real model + real Chrome; this spends money
+                          # --real needs NAP_CHROME_PATH as well as the usual credentials.
+                          # Results (reports, trajectories, screenshots) land in napbench-results/
 bun run typecheck         # turbo: tsc --noEmit per workspace, then a root pass for test/ + configs
 bun run lint              # biome check
 bun run format            # biome check --write — Biome owns formatting, don't hand-format

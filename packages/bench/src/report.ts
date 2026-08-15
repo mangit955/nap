@@ -17,14 +17,14 @@
 
 import type { Result } from "@nap/shared/result";
 import { z } from "zod";
-import { CategorySchema, CategoryWeightsSchema } from "./category.ts";
+import { CategorySchema, type CategoryWeights, CategoryWeightsSchema } from "./category.ts";
 import { ErrorKindSchema } from "./error-kind.ts";
 import { GateIdSchema } from "./gates.ts";
-import { RunMetricsSchema } from "./metrics.ts";
+import { type RunMetrics, RunMetricsSchema } from "./metrics.ts";
 import { describeParseFailure } from "./parse-failure.ts";
 import { ScreenshotRefSchema } from "./screenshot.ts";
 import { carriesScore, RunStatusSchema } from "./status.ts";
-import { VisualEvaluationSchema } from "./visual.ts";
+import { VISUAL_NOT_RUN, VisualEvaluationSchema } from "./visual.ts";
 
 /**
  * What a check produced.
@@ -172,6 +172,46 @@ export const BenchReportSchema = z
 export type CheckResult = z.infer<typeof CheckResultSchema>;
 export type CategoryScore = z.infer<typeof CategoryScoreSchema>;
 export type BenchReport = z.infer<typeof BenchReportSchema>;
+
+/**
+ * The report for a run the benchmark itself broke on.
+ *
+ * `evaluator` is the kind reserved for NapBench's own crashes, and this is what raises it: an
+ * exception escaping the runner is a bug in the instrument, and recording it as anything else
+ * would file it against the model it was measuring. Written as a report rather than left as a
+ * stack trace so that a suite keeps going, the crash lands in the infrastructure column where
+ * it belongs, and the tool says the suite is not comparable — which it is not.
+ *
+ * The metrics are passed in rather than zeroed, because the run's events are still in the
+ * store the caller holds: a crash after the agent worked should record the work.
+ */
+export function evaluatorErrorReport(input: {
+  runId: string;
+  taskId: string;
+  sessionId: string;
+  weights: CategoryWeights;
+  metrics: RunMetrics;
+}): BenchReport {
+  return {
+    runId: input.runId,
+    taskId: input.taskId,
+    sessionId: input.sessionId,
+    // A crash says nothing about which turn was running, and guessing would put a real turn
+    // id on a report whose failure had nothing to do with that turn.
+    turnId: null,
+    status: "errored",
+    errorKind: "evaluator",
+    gates: [],
+    scoreCap: null,
+    score: null,
+    categories: [],
+    weights: input.weights,
+    checks: [],
+    metrics: input.metrics,
+    screenshots: [],
+    visual: VISUAL_NOT_RUN,
+  };
+}
 
 /** Indented, because a committed report is read and diffed by people. */
 export function serialiseBenchReport(report: BenchReport): string {
