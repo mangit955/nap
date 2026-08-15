@@ -3,9 +3,10 @@
 What the benchmark did the first time it was pointed at real infrastructure, and what that
 revealed which no amount of dry running could have.
 
-Two suites were run, a day's work apart in effort and about two cents apart in money. The second
-is the one committed as [`napbench-example-report.json`](napbench-example-report.json); the first
-is the one worth reading about.
+Three suites have now been run. The first is the one worth reading about — it found a check no
+model could ever have passed. The third is the one committed as
+[`napbench-example-report.json`](napbench-example-report.json), because it is the first to include
+an accessibility audit, and the audit found something.
 
 **Configuration.** Four tasks, five turns, `openai/gpt-5.6-luna` via OpenRouter at medium effort,
 40 steps and 120k context tokens per turn, against real E2B sandboxes with browser checks driven
@@ -80,11 +81,11 @@ not exist.
 
 Mean 97.0 over four completed runs, 0% agent errors, 0% infrastructure errors.
 
-Only the to-do report is committed, as [`napbench-example-report.json`](napbench-example-report.json).
-The other rows in both tables come from the suite's console summary: `napbench-results/` is
-gitignored, so the seven other reports and the sixteen screenshots stayed on the machine that ran
-them. One worked example is what the ticket asked for, and committing eight would make the
-repository the results database that v1 explicitly does not have.
+Only one report is committed, and it is now run 3's landing page. The other rows in every table
+come from each suite's console summary: `napbench-results/` is gitignored, so the other eleven
+reports and their screenshots stayed on the machine that ran them. One worked example is what was
+asked for, and committing twelve would make the repository the results database that v1 explicitly
+does not have.
 
 **The check now discriminates**, which is the whole test of whether it belongs: three tasks earn
 it and one does not. The one that does not is the two-prompt task — the most code written, the
@@ -104,7 +105,43 @@ cannot.
 
 ---
 
-## What else the real run showed that the fakes could not
+## Run 3 — the accessibility audit, against applications a model really wrote
+
+The third check kind landed after run 2: `accessibility`, auditing one rendered page with axe and
+failing on findings at or above a declared grade. Until this suite it had only ever been run
+against a scripted page, and the adapter only ever against a fixture of our own making.
+
+| Task | Status | Score | functional | browser | code | notes |
+|---|---|---|---|---|---|---|
+| landing-page | failed | 94 | 100 | 100 | **50** | the audit found `color-contrast`, serious, on 6 elements |
+| todo-crud | failed | 74 | **75** | 100 | **0** | typecheck again, **and** deletion left a row behind |
+| debug-broken | **passed** | 100 | 100 | 100 | 100 | |
+| responsive-layout | **passed** | 100 | 100 | 100 | 100 | the mobile audit passed |
+
+Mean 92.0 over four completed runs, 0% agent errors, 0% infrastructure errors.
+
+**The audit works, and it discriminates.** It failed the landing page on a real finding — six
+elements whose text does not have enough contrast against their background, which is the single
+most common thing a generated page gets wrong — and passed the responsive layout's collapsed
+navigation at 375px, where an unnamed menu control would have been the obvious failure. A check
+that fired on both, or neither, would have told us nothing. This one separated them.
+
+It is also worth being precise about what it cost the landing page: the audit did not fail the run
+on its own. `code` was two checks, the typecheck passed and the audit failed, so the category
+scored 50 and the overall came to 94 rather than 100. That is the weighting working as designed —
+an accessibility finding is a quality defect, not a broken application.
+
+**And the same task scored differently than it did in run 2.** `todo-crud` failed `deletes-a-todo`
+this time — `expected 0 matching role=listitem, found 1` — having passed it in both earlier suites,
+on the same model at the same effort with the same prompt. Nothing about the benchmark changed for
+that check. That is generation variance, and it is the most important caveat on every number in
+this document: **one suite is one sample.** Ranking two configurations on single runs would be
+reading noise. Repeats per task are the obvious next piece of work, and they are the reason the
+report carries a run id distinct from everything else.
+
+---
+
+## What else the real runs showed that the fakes could not
 
 **The agent is better than the harness assumed.** Every functional and browser check passed on
 every task in both runs, first time, on the *cheap* model at medium effort. The benchmark was
@@ -136,8 +173,9 @@ filter, `expectNoConsoleErrors` would fail on every task equally and penalise no
 |---|---|
 | Run 1, model | $0.0116 |
 | Run 2, model | $0.0092 |
-| **Total model spend** | **$0.0208** |
-| Sandboxes | 13 in total — 8 benchmark runs, 1 reachability spike, 2 command-guard runs (one of them the deliberate failure), 1 template probe, 1 typecheck reproduction. Seconds to a few minutes each. |
+| Run 3, model | $0.0117 |
+| **Total model spend** | **$0.0325** |
+| Sandboxes | 17 in total — 12 benchmark runs, 1 reachability spike, 2 command-guard runs (one of them the deliberate failure), 1 template probe, 1 typecheck reproduction. Seconds to a few minutes each. |
 
 **Every money figure here is NapBench's own estimate**, summed from the reports' `estimatedCost`,
 which prices the model that was *asked for* against `packages/bench/src/pricing.ts` at its published
@@ -159,5 +197,8 @@ model that was *asked for* at a published rate, and OpenRouter's own margin is n
 - **Harder tasks.** Three of four at 100 is not a benchmark that can rank anything. The six tasks
   cut from v1 — kanban, form validation, dashboard filtering, localStorage persistence,
   modify-an-existing-app, a longer multi-step application — are the obvious next spend.
+- **Repeats per task.** Run 3 scored a check differently from run 2 with nothing changed but the
+  day, so a single suite cannot separate two configurations. This is now the most valuable next
+  thing, ahead of more tasks.
 - **A second model.** Everything here characterises one model on one day. The comparison tooling
   exists and has never been pointed at two real runs of different models.
