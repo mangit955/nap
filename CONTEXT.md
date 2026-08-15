@@ -164,3 +164,12 @@ tool failures, commands run and files touched. The distinction is load-bearing f
 "same score, different route", which is about two runs doing different things. Duration and token
 counts are reported beside it and deliberately excluded from deciding it, since both vary between
 two runs that did identical work.
+
+**Accessibility check** — a check kind that audits one rendered page with axe and fails on findings
+at or above a grade the task declares, defaulting to *serious*. The bar is the design: failing on
+every finding would fail essentially every generated application, which is a check that has stopped
+separating them. An **ungraded** finding always counts — the tool reports only violations, so one it
+declined to grade is still one, and guessing a severity for it would understate it. Scores into
+*code* rather than *browser*, because a category is a property of what a check measures rather than
+of how it measures it: the audit drives nothing and asserts no behaviour, and what it reports is the
+quality of the markup.

@@ -65,6 +65,18 @@ export const RESPONSIVE_LAYOUT_TASK = defineTask({
       category: "code",
     },
     {
+      id: "is-accessible-on-a-phone",
+      kind: "accessibility",
+      /**
+       * Audited at 375px, and that is the whole reason this task carries one: the collapsed
+       * navigation is a *different document* from the desktop one, and the control it hangs
+       * the links behind is exactly the sort of thing that ships without an accessible name.
+       * The desktop page having passed says nothing about this one.
+       */
+      viewport: "mobile",
+      failOn: "serious",
+    },
+    {
       id: "desktop-shows-the-links",
       kind: "browser",
       viewport: "desktop",

@@ -13,8 +13,9 @@
  */
 
 import { describe, expect, it } from "vitest";
+import type { AccessibilityCheck } from "../accessibility-check.ts";
 import type { BrowserCheck } from "../browser-check.ts";
-import { runBrowserCheck } from "../browser-executor.ts";
+import { runAccessibilityCheck, runBrowserCheck } from "../browser-executor.ts";
 import type { CheckOutcome } from "../report.ts";
 import type { BenchTask } from "../task.ts";
 import {
@@ -35,6 +36,29 @@ function checkNamed(task: BenchTask, id: string): BrowserCheck {
   );
   if (found === undefined) throw new Error(`no browser check called ${id}`);
   return found;
+}
+
+function auditNamed(task: BenchTask, id: string): AccessibilityCheck {
+  const found = task.checks.find(
+    (check): check is AccessibilityCheck => check.kind === "accessibility" && check.id === id,
+  );
+  if (found === undefined) throw new Error(`no accessibility check called ${id}`);
+  return found;
+}
+
+/** The same, for the kind that runs an audit rather than a sequence of steps. */
+async function auditOutcomeOf(
+  task: BenchTask,
+  checkId: string,
+  app: ScriptedBrowserSessionOptions,
+): Promise<CheckOutcome> {
+  const result = await runAccessibilityCheck(
+    new ScriptedBrowserSession(app),
+    auditNamed(task, checkId),
+    { baseUrl: BASE_URL },
+  );
+  if (!result.ok) throw new Error(`the fake reported no browser: ${result.error.message}`);
+  return result.value.outcome;
 }
 
 /** Runs one of a task's checks against a scripted application and reports what it concluded. */
@@ -96,6 +120,54 @@ describe("landing-page", () => {
     };
 
     expect(await outcomeOf(LANDING_PAGE_TASK, "renders-the-page", noButton)).toBe("failed");
+  });
+
+  it("passes a page the audit is happy with and fails one it is not", async () => {
+    // The check has to be able to go both ways or it is decorative. The violation is the one
+    // a generated landing page really does ship: a control with no accessible name.
+    expect(await auditOutcomeOf(LANDING_PAGE_TASK, "is-accessible", working)).toBe("passed");
+
+    const inaccessible: ScriptedBrowserSessionOptions = {
+      pages: {
+        "/": {
+          ...working.pages?.["/"],
+          violations: [
+            {
+              id: "button-name",
+              impact: "serious",
+              help: "Buttons must have discernible text",
+              helpUrl: "https://dequeuniversity.com/rules/axe/4.10/button-name",
+              nodes: 1,
+            },
+          ],
+        },
+      },
+    };
+
+    expect(await auditOutcomeOf(LANDING_PAGE_TASK, "is-accessible", inaccessible)).toBe("failed");
+  });
+
+  it("does not fail the audit on a finding below the bar it set", async () => {
+    // A benchmark check that fails every application ranks nothing. `serious` is the bar, so
+    // a moderate finding is recorded in the trajectory and does not cost the run a category.
+    const minorProblem: ScriptedBrowserSessionOptions = {
+      pages: {
+        "/": {
+          ...working.pages?.["/"],
+          violations: [
+            {
+              id: "region",
+              impact: "moderate",
+              help: "All page content should be contained by landmarks",
+              helpUrl: "https://dequeuniversity.com/rules/axe/4.10/region",
+              nodes: 2,
+            },
+          ],
+        },
+      },
+    };
+
+    expect(await auditOutcomeOf(LANDING_PAGE_TASK, "is-accessible", minorProblem)).toBe("passed");
   });
 
   it("passes a quiet page and fails one that threw, which nothing else here would notice", async () => {
@@ -432,5 +504,41 @@ describe("responsive-layout", () => {
     expect(await outcomeOf(RESPONSIVE_LAYOUT_TASK, "mobile-collapses-the-links", overflowing)).toBe(
       "failed",
     );
+  });
+});
+
+describe("responsive-layout, audited at the size that differs", () => {
+  it("passes a phone layout the audit is happy with, and fails an unnamed menu control", async () => {
+    // The collapsed navigation is where this goes wrong in practice: a button holding the
+    // links behind it, shipped with an icon and no accessible name. The desktop page passing
+    // says nothing about this one, which is why the check declares a viewport.
+    const clean: ScriptedBrowserSessionOptions = {
+      pages: { "/": { elements: [{ role: "button", name: "Menu" }] } },
+    };
+
+    expect(await auditOutcomeOf(RESPONSIVE_LAYOUT_TASK, "is-accessible-on-a-phone", clean)).toBe(
+      "passed",
+    );
+
+    const unnamedControl: ScriptedBrowserSessionOptions = {
+      pages: {
+        "/": {
+          elements: [{ role: "button" }],
+          violations: [
+            {
+              id: "button-name",
+              impact: "critical",
+              help: "Buttons must have discernible text",
+              helpUrl: "https://dequeuniversity.com/rules/axe/4.10/button-name",
+              nodes: 1,
+            },
+          ],
+        },
+      },
+    };
+
+    expect(
+      await auditOutcomeOf(RESPONSIVE_LAYOUT_TASK, "is-accessible-on-a-phone", unnamedControl),
+    ).toBe("failed");
   });
 });

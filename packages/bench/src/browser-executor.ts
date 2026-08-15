@@ -21,6 +21,12 @@
 
 import type { Result } from "@nap/shared/result";
 import {
+  type AccessibilityCheck,
+  DEFAULT_FAIL_ON_IMPACT,
+  describeViolations,
+  disqualifying,
+} from "./accessibility-check.ts";
+import {
   type BrowserCheck,
   type BrowserStep,
   DEFAULT_OVERFLOW_TOLERANCE_PX,
@@ -304,4 +310,72 @@ function relativeUrl(url: string): string {
 
 function quote(value: string | null): string {
   return value === null ? "absent" : `"${value}"`;
+}
+
+/**
+ * Audits one page with the established tool, and decides whether what it found fails the check.
+ *
+ * Beside `runBrowserCheck` rather than in a module of its own because the two are the same
+ * shape of thing: a check that needs a live browser session, driven to a page and turned into a
+ * `CheckResult`, with `unavailable` handed back so the gate ladder can decide what a missing
+ * browser means. What differs is only what happens once the page is open — steps there, one
+ * audit here — and the opening moves are identical, which is why they are written once.
+ *
+ * The judgement about *which* findings matter is not made here: it is in
+ * `accessibility-check.ts`, where it is a pure function with tests of its own.
+ */
+export async function runAccessibilityCheck(
+  session: BrowserSession,
+  check: AccessibilityCheck,
+  context: BrowserCheckContext,
+): Promise<Result<CheckResult, BrowserError>> {
+  const viewport = check.viewport ?? DEFAULT_VIEWPORT_NAME;
+  const failOn = check.failOn ?? DEFAULT_FAIL_ON_IMPACT;
+  const declared = {
+    checkId: check.id,
+    kind: "accessibility",
+    category: categoryOf(check),
+    weight: weightOf(check),
+    ...flagsOf(check),
+  } as const;
+
+  const failed = (detail: string): Result<CheckResult, BrowserError> => ({
+    ok: true,
+    value: { ...declared, outcome: "failed", detail },
+  });
+
+  const sized = await session.setViewport(viewportSize(viewport));
+  if (!sized.ok) {
+    if (sized.error.code === "unavailable") return { ok: false, error: sized.error };
+    return failed(`could not size the viewport to ${viewport}: ${sized.error.message}`);
+  }
+
+  // The audit is of a page, so the path is part of what the check declares — a task that only
+  // ever audits the front door says nothing and gets it.
+  const url = `${context.baseUrl}${check.path ?? "/"}`;
+  const opened = await session.goto(url, { timeoutMs: check.timeoutMs });
+  if (!opened.ok) {
+    if (opened.error.code === "unavailable") return { ok: false, error: opened.error };
+    return failed(`could not open ${check.path ?? "/"}: ${opened.error.message}`);
+  }
+
+  const scan = await session.scanAccessibility();
+  if (!scan.ok) {
+    if (scan.error.code === "unavailable") return { ok: false, error: scan.error };
+    // The tool could not run, which is not the application being inaccessible. Recorded as a
+    // failure rather than dropped, because an absent check would renormalise its category away
+    // and *raise* the score of a run nobody could audit. See docs/adr/0002.
+    return failed(`could not audit the page: ${scan.error.message}`);
+  }
+
+  const disqualified = disqualifying(scan.value.violations, failOn);
+
+  return {
+    ok: true,
+    value: {
+      ...declared,
+      outcome: disqualified.length === 0 ? "passed" : "failed",
+      detail: describeViolations(disqualified, failOn),
+    },
+  };
 }

@@ -25,8 +25,9 @@ import type { Runtime } from "@nap/shared/ports/runtime";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SessionRecord, SessionStore } from "@nap/shared/ports/session-store";
 import type { Result, VoidResult } from "@nap/shared/result";
+import type { AccessibilityCheck } from "./accessibility-check.ts";
 import type { BrowserCheck } from "./browser-check.ts";
-import { runBrowserCheck } from "./browser-executor.ts";
+import { runAccessibilityCheck, runBrowserCheck } from "./browser-executor.ts";
 import type { BrowserSession, BrowserSessionFactory } from "./browser-session.ts";
 import { type CategoryWeights, DEFAULT_CATEGORY_WEIGHTS } from "./category.ts";
 import { applyGates, type BrowserUnavailable, type GateInput } from "./gates.ts";
@@ -301,12 +302,17 @@ export async function runBenchTask(
     if (previewUrl === undefined) {
       checks.push({
         checkId: check.id,
-        kind: "browser",
+        // Its own kind, not "browser" for everything that needs one: a report is read without
+        // the task beside it, and an audit recorded as a browser check would be uncountable.
+        kind: check.kind,
         category: categoryOf(check),
         weight: weightOf(check),
         ...flagsOf(check),
         outcome: "failed",
-        detail: "the application was not serving, so it could not be driven",
+        detail:
+          check.kind === "accessibility"
+            ? "the application was not serving, so it could not be audited"
+            : "the application was not serving, so it could not be driven",
       });
       continue;
     }
@@ -409,7 +415,13 @@ async function seedEnvironment(
 async function capture(
   session: BrowserSession,
   store: ScreenshotStore | undefined,
-  run: { taskId: string; runId: string; check: BrowserCheck; now: () => Date },
+  run: {
+    taskId: string;
+    runId: string;
+    /** Only the two fields a capture records — which is why an audit can be photographed too. */
+    check: { id: string; referenceScreenshot?: string | undefined };
+    now: () => Date;
+  },
 ): Promise<ScreenshotRef | undefined> {
   if (store === undefined) return undefined;
 
@@ -449,7 +461,7 @@ async function capture(
  */
 async function runBrowserCheckWith(
   factory: BrowserSessionFactory | undefined,
-  check: BrowserCheck,
+  check: BrowserCheck | AccessibilityCheck,
   baseUrl: string,
   /**
    * Run against the live session after the check and before it closes — the only window in
@@ -462,7 +474,9 @@ async function runBrowserCheckWith(
       ok: false,
       error: {
         reason: "not_configured",
-        detail: `the task declares browser check "${check.id}" and the run was given no browser`,
+        detail:
+          `the task declares ${check.kind} check "${check.id}" ` +
+          "and the run was given no browser",
       },
     };
   }
@@ -473,7 +487,13 @@ async function runBrowserCheckWith(
   }
 
   try {
-    const result = await runBrowserCheck(opened.value, check, { baseUrl });
+    // The two kinds that need a browser, each driven by its own executor. Dispatched here
+    // rather than inside one executor with a branch, because what they do once the page is
+    // open has nothing in common: one runs a sequence of steps, the other runs an audit.
+    const result =
+      check.kind === "accessibility"
+        ? await runAccessibilityCheck(opened.value, check, { baseUrl })
+        : await runBrowserCheck(opened.value, check, { baseUrl });
     // Photographed whatever the check concluded: a *failed* check is the one whose picture is
     // most worth having, since it is the one somebody will want to look at.
     await afterCheck(opened.value);

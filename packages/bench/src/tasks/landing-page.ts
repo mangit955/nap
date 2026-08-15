@@ -57,6 +57,20 @@ export const LANDING_PAGE_TASK = defineTask({
       category: "code",
     },
     {
+      id: "is-accessible",
+      kind: "accessibility",
+      /**
+       * The page the prompt describes has a heading, a paragraph and a button — the smallest
+       * thing that can be got wrong in the ways an audit catches: an unnamed control, a
+       * heading order that skips, text nobody can read against its background.
+       *
+       * Left at the default bar rather than tightened, because the point is to separate
+       * applications rather than to fail them all: at `serious` a generated page that names
+       * its button and picks legible colours passes, and one that does neither does not.
+       */
+      failOn: "serious",
+    },
+    {
       id: "renders-the-page",
       kind: "browser",
       steps: [

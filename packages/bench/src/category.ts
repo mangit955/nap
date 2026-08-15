@@ -60,4 +60,15 @@ export const DEFAULT_CATEGORY_FOR_KIND = {
    * is functional, and "nothing overflows at 375px" is not.
    */
   browser: "browser",
-} as const satisfies Record<"command" | "browser", Category>;
+  /**
+   * An accessibility audit scores into `code`, not `browser`, and the pull is towards the
+   * wrong answer here because the audit *needs* a browser to run.
+   *
+   * But a category is a property of what a check measures rather than of how it measures it.
+   * `browser` is "does the application behave correctly when driven"; an audit drives nothing
+   * and asserts no behaviour. What it reports is the quality of the markup that was written —
+   * missing labels, unnamed controls, contrast — judged by an established tool rather than by
+   * our opinion, which is the same shape of claim as the typecheck sitting beside it.
+   */
+  accessibility: "code",
+} as const satisfies Record<"command" | "browser" | "accessibility", Category>;

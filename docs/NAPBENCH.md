@@ -141,9 +141,23 @@ export const MY_TASK = defineTask({
         { step: "expectNoConsoleErrors" },
       ],
     },
+    {
+      id: "is-accessible",
+      kind: "accessibility",
+      // Audited by axe against the rendered page. Findings at this grade or worse fail the
+      // check; `serious` is the default and is the bar that separates applications rather
+      // than failing all of them.
+      failOn: "serious",
+    },
   ],
 });
 ```
+
+**Three kinds of check.** `command` runs inside the sandbox and is judged on its exit code.
+`browser` drives the running application through a sequence of steps. `accessibility` audits one
+rendered page with axe and fails on findings at or above the grade the task sets — measured by an
+established tool rather than by our judgement, which is why it is a kind of its own rather than an
+assertion somebody writes by hand.
 
 The steps are `navigate`, `click`, `fill`, `press`, `reload`, `select` and `viewport`, and the
 assertions are `expectText`, `expectNoText`, `expectVisible`, `expectCount`, `expectUrl`,
@@ -160,7 +174,9 @@ ignored, because silently ignoring it produces a run that looks complete and mea
 Things worth knowing when writing one:
 
 - **A check's category defaults from its kind and is overridable.** `bun run build` and
-  `bunx tsc --noEmit` are both commands and only the first is functional.
+  `bunx tsc --noEmit` are both commands and only the first is functional. An accessibility audit
+  defaults to `code` rather than `browser`: it needs a browser to run, but what it measures is
+  the quality of the markup that was written, not whether the application behaves when driven.
 - **Run your command against an untouched template before trusting it.** The template's scripts
   are `dev`, `build` and `preview` — there is no `lint` and no `typecheck`, so `bun run lint`
   fails on every run for every model while looking like a code-quality measurement. The guard is
@@ -192,7 +208,7 @@ Four categories, weighted by default 50 / 25 / 15 / 10:
 | `functional` | It does what was asked. Commands default here. | 50 |
 | `browser` | It behaves correctly when driven. Browser checks default here. | 25 |
 | `visual` | How it looks. Judged by a visual evaluator, which today reports "not run". | 15 |
-| `code` | Build, lint, typecheck — the quality of what was written. | 10 |
+| `code` | Typecheck and the accessibility audit — the quality of what was written. | 10 |
 
 A category's score is the weighted proportion of its checks that passed. The overall score is the
 weighted mean over **the categories that actually produced results**, renormalised — so a run with

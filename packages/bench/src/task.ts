@@ -20,6 +20,7 @@
 
 import type { Result } from "@nap/shared/result";
 import { z } from "zod";
+import { AccessibilityCheckSchema } from "./accessibility-check.ts";
 import { BrowserCheckSchema } from "./browser-check.ts";
 import { type Category, CategorySchema, DEFAULT_CATEGORY_FOR_KIND } from "./category.ts";
 import { describeParseFailure } from "./parse-failure.ts";
@@ -65,6 +66,7 @@ export const CommandCheckSchema = z.strictObject({
 export const BenchCheckSchema = z.discriminatedUnion("kind", [
   CommandCheckSchema,
   BrowserCheckSchema,
+  AccessibilityCheckSchema,
 ]);
 
 /**

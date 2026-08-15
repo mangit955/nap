@@ -1333,3 +1333,114 @@ describe("runBenchTask — seeded files", () => {
     expect(report.gates).not.toContain("seed_failed");
   });
 });
+
+/**
+ * The accessibility half. It needs a browser exactly as a browser check does, so what is
+ * proved here is that the runner treats it that way — including in the two places where
+ * treating it as anything else would quietly change a score.
+ */
+describe("runBenchTask — accessibility checks", () => {
+  const PORT = 5173;
+
+  function auditTask() {
+    const parsed = parseBenchTask({
+      id: "landing",
+      name: "A landing page",
+      prompts: ["Build a landing page."],
+      preview: { port: PORT },
+      checks: [
+        { id: "build", kind: "command", command: "bun run build" },
+        { id: "is-accessible", kind: "accessibility" },
+      ],
+    });
+    if (!parsed.ok) throw new Error(parsed.error);
+    return parsed.value;
+  }
+
+  const serving = () =>
+    new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0 }), serves: [PORT] });
+
+  function browserFactory(options: ScriptedBrowserSessionOptions = {}) {
+    const sessions: ScriptedBrowserSession[] = [];
+    const factory = async () => {
+      const session = new ScriptedBrowserSession(options);
+      sessions.push(session);
+      return { ok: true as const, value: session };
+    };
+    return { factory, sessions };
+  }
+
+  it("audits the running application and records what the tool said", async () => {
+    const withSandbox = await deps(scriptedRuntime(completed), serving());
+    const { factory, sessions } = browserFactory({
+      pages: {
+        "/": {
+          violations: [
+            {
+              id: "image-alt",
+              impact: "critical",
+              help: "Images must have alternate text",
+              helpUrl: "https://example.test/image-alt",
+              nodes: 2,
+            },
+          ],
+        },
+      },
+    });
+
+    const report = await reportOf(auditTask(), { ...withSandbox, browser: factory });
+
+    expect(report.checks.map((check) => [check.checkId, check.kind, check.outcome])).toEqual([
+      ["build", "command", "passed"],
+      ["is-accessible", "accessibility", "failed"],
+    ]);
+    expect(report.checks[1]?.detail).toMatch(/image-alt/);
+    // A session of its own, closed after it, exactly as a browser check gets.
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]?.calls.map((call) => call.method)).toContain("scanAccessibility");
+  });
+
+  it("scores a clean audit into the code category, so it is not free browser marks", async () => {
+    const withSandbox = await deps(scriptedRuntime(completed), serving());
+    const { factory } = browserFactory({ pages: { "/": {} } });
+
+    const report = await reportOf(auditTask(), { ...withSandbox, browser: factory });
+
+    expect(report.status).toBe("passed");
+    expect(report.checks[1]?.category).toBe("code");
+  });
+
+  it("records the audit as failed, not absent, when the application never served", async () => {
+    // The rule ADR-0002 calls the sharp edge: absent renormalises the category away, so an
+    // application that does not start would have its accessibility weight handed to the
+    // categories that did run — and failing to start would raise the score.
+    const withSandbox = await deps(
+      scriptedRuntime(completed),
+      new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 7 }) }),
+    );
+    const { factory, sessions } = browserFactory();
+
+    const report = await reportOf(auditTask(), { ...withSandbox, browser: factory });
+
+    const audit = report.checks.find((check) => check.checkId === "is-accessible");
+    expect(audit?.outcome).toBe("failed");
+    // Recorded as what it is. A report is read without its task beside it, and an audit
+    // filed as a browser check could not be counted as an audit later.
+    expect(audit?.kind).toBe("accessibility");
+    expect(sessions).toHaveLength(0);
+  });
+
+  it("errors the run rather than blaming the agent when no browser was configured", async () => {
+    // `configuration`, not `browser`: the task declares an audit and whoever composed the run
+    // gave it nothing to audit with. That is a run set up wrong, and it is a different finding
+    // from a browser that would not start — which is the one `browser` is reserved for.
+    const withSandbox = await deps(scriptedRuntime(completed), serving());
+
+    const report = await reportOf(auditTask(), withSandbox);
+
+    expect(report.status).toBe("errored");
+    expect(report.errorKind).toBe("configuration");
+    expect(report.score).toBeNull();
+    expect(report.gates).toContain("browser_unavailable");
+  });
+});

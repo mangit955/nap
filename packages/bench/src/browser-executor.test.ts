@@ -8,8 +8,10 @@
  */
 
 import { describe, expect, it } from "vitest";
+import type { AccessibilityCheck } from "./accessibility-check.ts";
 import type { BrowserCheck, BrowserStep } from "./browser-check.ts";
-import { runBrowserCheck } from "./browser-executor.ts";
+import { runAccessibilityCheck, runBrowserCheck } from "./browser-executor.ts";
+import type { AccessibilityViolation } from "./browser-session.ts";
 import type { CheckResult } from "./report.ts";
 import {
   ScriptedBrowserSession,
@@ -618,5 +620,130 @@ describe("expectNoConsoleErrors", () => {
 
     expect(result.ok && result.value.outcome).toBe("failed");
     expect(session.calls.map((call) => call.method)).toContain("diagnostics");
+  });
+});
+
+describe("runAccessibilityCheck", () => {
+  const check = (overrides: Partial<AccessibilityCheck> = {}): AccessibilityCheck => ({
+    id: "is-accessible",
+    kind: "accessibility",
+    ...overrides,
+  });
+
+  const violation = (overrides: Partial<AccessibilityViolation> = {}): AccessibilityViolation => ({
+    id: "image-alt",
+    impact: "critical",
+    help: "Images must have alternate text",
+    helpUrl: "https://example.test/image-alt",
+    nodes: 2,
+    ...overrides,
+  });
+
+  it("passes a page the tool has nothing to say about", async () => {
+    const session = new ScriptedBrowserSession({ pages: { "/": {} } });
+
+    const result = await runAccessibilityCheck(session, check(), { baseUrl: BASE_URL });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.outcome).toBe("passed");
+    expect(result.value.kind).toBe("accessibility");
+  });
+
+  it("fails on a finding at the bar, and names the rule in the detail", async () => {
+    const session = new ScriptedBrowserSession({
+      pages: { "/": { violations: [violation({ id: "color-contrast", impact: "serious" })] } },
+    });
+
+    const result = await runAccessibilityCheck(session, check(), { baseUrl: BASE_URL });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.outcome).toBe("failed");
+    expect(result.value.detail).toMatch(/color-contrast/);
+  });
+
+  it("passes a finding below the bar the task set", async () => {
+    const session = new ScriptedBrowserSession({
+      pages: { "/": { violations: [violation({ id: "region", impact: "moderate" })] } },
+    });
+
+    const result = await runAccessibilityCheck(session, check({ failOn: "serious" }), {
+      baseUrl: BASE_URL,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.outcome).toBe("passed");
+  });
+
+  it("audits the page and the size the task asked for", async () => {
+    const session = new ScriptedBrowserSession({
+      pages: { "/": {}, "/pricing": { violations: [violation()] } },
+    });
+
+    const result = await runAccessibilityCheck(
+      session,
+      check({ path: "/pricing", viewport: "mobile" }),
+      { baseUrl: BASE_URL },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // The finding is on /pricing only, so failing is the proof it went there.
+    expect(result.value.outcome).toBe("failed");
+    expect(session.calls.map((call) => call.method)).toContain("setViewport");
+    expect(session.calls.find((call) => call.method === "setViewport")?.viewport).toEqual(
+      VIEWPORT_SIZES.mobile,
+    );
+  });
+
+  it("hands a browser that cannot be driven back to the gate rather than blaming the agent", async () => {
+    // The same contract the browser executor has: `unavailable` is the evaluator's problem,
+    // and recording it as a failed check would charge a broken browser to the model.
+    const session = new ScriptedBrowserSession({
+      fail: (call) =>
+        call.method === "scanAccessibility"
+          ? { code: "unavailable", message: "the browser went away" }
+          : undefined,
+    });
+
+    const result = await runAccessibilityCheck(session, check(), { baseUrl: BASE_URL });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe("unavailable");
+  });
+
+  it("fails rather than skips when the audit itself could not run", async () => {
+    // Absent would renormalise the category away and *raise* the score of a run nobody could
+    // audit — the same sharp edge ADR-0002 describes for a preview that never served. The
+    // tool failing is not the application being accessible.
+    const session = new ScriptedBrowserSession({
+      pages: { "/": {} },
+      fail: (call) =>
+        call.method === "scanAccessibility"
+          ? { code: "action_failed", message: "axe would not run" }
+          : undefined,
+    });
+
+    const result = await runAccessibilityCheck(session, check(), { baseUrl: BASE_URL });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.outcome).toBe("failed");
+    expect(result.value.detail).toMatch(/axe would not run/);
+  });
+
+  it("takes the category the kind defaults to, and the one the task overrides it with", async () => {
+    const session = new ScriptedBrowserSession({ pages: { "/": {} } });
+
+    const byDefault = await runAccessibilityCheck(session, check(), { baseUrl: BASE_URL });
+    const overridden = await runAccessibilityCheck(session, check({ category: "browser" }), {
+      baseUrl: BASE_URL,
+    });
+
+    expect(byDefault.ok && byDefault.value.category).toBe("code");
+    expect(overridden.ok && overridden.value.category).toBe("browser");
   });
 });
