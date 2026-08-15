@@ -31,13 +31,17 @@ export const TRACER_TASK = defineTask({
       build: true,
     },
     {
-      id: "lint",
+      id: "typecheck",
       kind: "command",
       // The override, and the reason it has to exist: this is the same *kind* of check as the
-      // build above and belongs on a different axis. A project that lints badly is worse
+      // build above and belongs on a different axis. A project that does not typecheck is worse
       // written; a project that does not build does not work, and the two must not average.
+      //
+      // `bunx tsc --noEmit` rather than a script in the template, because the template has no
+      // lint or typecheck script — the first funded run discovered that the hard way. See
+      // docs/napbench-first-real-run.md.
       category: "code",
-      command: `cd ${PROJECT_ROOT_PATH} && bun run lint`,
+      command: `cd ${PROJECT_ROOT_PATH} && bunx tsc --noEmit`,
     },
   ],
 });

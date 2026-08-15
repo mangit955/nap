@@ -93,9 +93,9 @@ export const DEBUG_BROKEN_TASK = defineTask({
       build: true,
     },
     {
-      id: "lint",
+      id: "typecheck",
       kind: "command",
-      command: `cd ${PROJECT_ROOT_PATH} && bun run lint`,
+      command: `cd ${PROJECT_ROOT_PATH} && bunx tsc --noEmit`,
       // Present on every task in the benchmark, and that is the reason rather than an interest
       // in this one's tidiness: a task with no `code` check renormalises its categories over a
       // different set, and its score would not be on the same scale as the other three.

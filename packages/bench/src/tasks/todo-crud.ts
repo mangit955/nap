@@ -58,9 +58,9 @@ export const TODO_CRUD_TASK = defineTask({
       build: true,
     },
     {
-      id: "lint",
+      id: "typecheck",
       kind: "command",
-      command: `cd ${PROJECT_ROOT_PATH} && bun run lint`,
+      command: `cd ${PROJECT_ROOT_PATH} && bunx tsc --noEmit`,
       category: "code",
     },
     {

@@ -42,9 +42,18 @@ export const LANDING_PAGE_TASK = defineTask({
       build: true,
     },
     {
-      id: "lint",
+      id: "typecheck",
       kind: "command",
-      command: `cd ${PROJECT_ROOT_PATH} && bun run lint`,
+      /**
+       * The binary rather than a package script, because the template has neither a `lint` nor
+       * a `typecheck` script — and the first funded run is how that was found out. Every task
+       * ran `bun run lint`, every task got `exit 1: Script not found`, and the whole `code`
+       * category scored zero on all four for a reason no model could have influenced. The fakes
+       * could not catch it: an unscripted command on the in-memory sandbox succeeds, so it
+       * passed in every dry run. `apps/napbench/src/task-commands.integration.test.ts` is the
+       * guard, and `docs/napbench-first-real-run.md` is the write-up.
+       */
+      command: `cd ${PROJECT_ROOT_PATH} && bunx tsc --noEmit`,
       category: "code",
     },
     {

@@ -1,0 +1,167 @@
+{
+  "runId": "70ef3f59-74d2-40c1-8301-5bd5988f1bb0",
+  "taskId": "todo-crud",
+  "sessionId": "6f677837-06ec-4bb4-9f4d-c5a825085f43",
+  "turnId": "7368127b-f384-4ebf-bb46-d6b8c394892b",
+  "status": "failed",
+  "errorKind": null,
+  "gates": [],
+  "scoreCap": null,
+  "score": 88,
+  "categories": [
+    {
+      "category": "functional",
+      "score": 100,
+      "effectiveWeight": 58.8,
+      "checks": 4
+    },
+    {
+      "category": "browser",
+      "score": 100,
+      "effectiveWeight": 29.4,
+      "checks": 1
+    },
+    {
+      "category": "code",
+      "score": 0,
+      "effectiveWeight": 11.8,
+      "checks": 1
+    }
+  ],
+  "weights": {
+    "functional": 50,
+    "browser": 25,
+    "visual": 15,
+    "code": 10
+  },
+  "checks": [
+    {
+      "checkId": "build",
+      "kind": "command",
+      "category": "functional",
+      "weight": 1,
+      "required": false,
+      "build": true,
+      "outcome": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "checkId": "typecheck",
+      "kind": "command",
+      "category": "code",
+      "weight": 1,
+      "required": false,
+      "build": false,
+      "outcome": "failed",
+      "detail": "exit 1"
+    },
+    {
+      "checkId": "adds-a-todo",
+      "kind": "browser",
+      "category": "functional",
+      "weight": 1,
+      "required": false,
+      "build": false,
+      "outcome": "passed",
+      "detail": "5 steps passed at desktop"
+    },
+    {
+      "checkId": "deletes-a-todo",
+      "kind": "browser",
+      "category": "functional",
+      "weight": 1,
+      "required": false,
+      "build": false,
+      "outcome": "passed",
+      "detail": "5 steps passed at desktop"
+    },
+    {
+      "checkId": "survives-a-reload",
+      "kind": "browser",
+      "category": "functional",
+      "weight": 1,
+      "required": false,
+      "build": false,
+      "outcome": "passed",
+      "detail": "5 steps passed at desktop"
+    },
+    {
+      "checkId": "filters-by-completion",
+      "kind": "browser",
+      "category": "browser",
+      "weight": 1,
+      "required": false,
+      "build": false,
+      "outcome": "passed",
+      "detail": "16 steps passed at desktop"
+    }
+  ],
+  "metrics": {
+    "toolCalls": 10,
+    "toolFailures": 0,
+    "commands": 2,
+    "filesChanged": 1,
+    "turns": {
+      "started": 2,
+      "completed": 2,
+      "failed": 0,
+      "cancelled": 0
+    },
+    "tokens": {
+      "inputTokens": 36315,
+      "outputTokens": 3518
+    },
+    "turnDurationMs": 43432,
+    "estimatedCost": {
+      "usd": 0.00574,
+      "model": "openai/gpt-5.6-luna",
+      "priceTableVersion": "2026-08-14"
+    }
+  },
+  "screenshots": [
+    {
+      "checkId": "adds-a-todo",
+      "viewport": {
+        "name": "desktop",
+        "width": 1280,
+        "height": 800
+      },
+      "path": "todo-crud-70ef3f59-74d2-40c1-8301-5bd5988f1bb0-adds-a-todo.png",
+      "capturedAt": "2026-08-15T15:07:27.336Z"
+    },
+    {
+      "checkId": "deletes-a-todo",
+      "viewport": {
+        "name": "desktop",
+        "width": 1280,
+        "height": 800
+      },
+      "path": "todo-crud-70ef3f59-74d2-40c1-8301-5bd5988f1bb0-deletes-a-todo.png",
+      "capturedAt": "2026-08-15T15:07:32.363Z"
+    },
+    {
+      "checkId": "survives-a-reload",
+      "viewport": {
+        "name": "desktop",
+        "width": 1280,
+        "height": 800
+      },
+      "path": "todo-crud-70ef3f59-74d2-40c1-8301-5bd5988f1bb0-survives-a-reload.png",
+      "capturedAt": "2026-08-15T15:07:36.205Z"
+    },
+    {
+      "checkId": "filters-by-completion",
+      "viewport": {
+        "name": "desktop",
+        "width": 1280,
+        "height": 800
+      },
+      "path": "todo-crud-70ef3f59-74d2-40c1-8301-5bd5988f1bb0-filters-by-completion.png",
+      "capturedAt": "2026-08-15T15:07:43.160Z"
+    }
+  ],
+  "visual": {
+    "status": "not_run",
+    "reason": "no visual judge is configured"
+  }
+}

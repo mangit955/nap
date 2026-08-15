@@ -19,14 +19,14 @@ describe("the tracer task", () => {
     }
   });
 
-  it("scores its build and its lint into different categories", () => {
+  it("scores its build and its typecheck into different categories", () => {
     // Two checks of the same kind on different axes — the case that makes the category
     // override necessary rather than decorative. Build takes the default for a command;
-    // lint says where it belongs.
+    // the typecheck says where it belongs.
     const byId = new Map(TRACER_TASK.checks.map((check) => [check.id, categoryOf(check)]));
 
     expect(byId.get("build")).toBe("functional");
-    expect(byId.get("lint")).toBe("code");
+    expect(byId.get("typecheck")).toBe("code");
   });
 });
 
