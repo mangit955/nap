@@ -37,8 +37,8 @@ import type {
   BrowserSession,
   DocumentWidth,
   FailedRequest,
+  PageDiagnostics,
   Screenshot,
-  SessionDiagnostics,
 } from "../browser-session.ts";
 import { describeSelector, type Selector } from "../selector.ts";
 import type { ViewportName, ViewportSize } from "../viewport.ts";
@@ -377,7 +377,14 @@ export class ScriptedBrowserSession implements BrowserSession {
 
     // The viewport as it stands, which is the whole contract: whoever photographs a check
     // afterwards gets the size that check ran at without having to say so.
-    return { ok: true, value: { bytes: this.screenshotBytes, viewport: { ...this.viewport } } };
+    //
+    // Copied, like every other array this fake hands out: a caller that mutated these bytes
+    // would be editing what the *next* screenshot returns, and a fake that can be corrupted by
+    // the test using it takes every assertion resting on it down with it.
+    return {
+      ok: true,
+      value: { bytes: Uint8Array.from(this.screenshotBytes), viewport: { ...this.viewport } },
+    };
   }
 
   async scanAccessibility(): Promise<Result<AccessibilityScan, BrowserError>> {
@@ -387,7 +394,7 @@ export class ScriptedBrowserSession implements BrowserSession {
     return { ok: true, value: { violations: [...(this.pageAt(this.path)?.violations ?? [])] } };
   }
 
-  async diagnostics(): Promise<Result<SessionDiagnostics, BrowserError>> {
+  async diagnostics(): Promise<Result<PageDiagnostics, BrowserError>> {
     const refused = this.record({ method: "diagnostics" });
     if (refused) return refused;
 

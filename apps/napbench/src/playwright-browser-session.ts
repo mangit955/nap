@@ -40,13 +40,13 @@ import {
   type BrowserSessionFactory,
   type DocumentWidth,
   type FailedRequest,
+  type PageDiagnostics,
   type Screenshot,
-  type SessionDiagnostics,
 } from "@nap/bench/browser-session";
 import type { Selector } from "@nap/bench/selector";
 import { VIEWPORT_SIZES, type ViewportSize } from "@nap/bench/viewport";
 import type { Result, VoidResult } from "@nap/shared/result";
-import { source as AXE_SOURCE } from "axe-core";
+import { source as AXE_SOURCE, type RunOptions } from "axe-core";
 import {
   type Browser,
   type BrowserContext,
@@ -190,7 +190,7 @@ export class PlaywrightBrowserSession implements BrowserSession {
       this.#recordFailure(
         request.url(),
         request.failure()?.errorText ?? "the request failed",
-        false,
+        "transport",
       );
     });
 
@@ -199,24 +199,27 @@ export class PlaywrightBrowserSession implements BrowserSession {
     this.#page.on("response", (response) => {
       if (response.status() < 400) return;
       if (isBrowserNoise(response.url())) return;
-      this.#recordFailure(response.url(), `HTTP ${response.status()}`, true);
+      this.#recordFailure(response.url(), `HTTP ${response.status()}`, "response");
     });
   }
 
   /**
-   * One entry per address, and the status wins.
+   * One entry per address, and the response wins.
    *
    * A single broken fetch arrives twice: the server answers 404, and Chrome then aborts the
    * request nobody read the body of. Recording both would report two broken things where there
    * is one, and `net::ERR_ABORTED` is the less useful of the two descriptions.
+   *
+   * The source is named rather than passed as a boolean, because the precedence rule *is* which
+   * source spoke — a `true` at the call site says nothing about why it outranks the other.
    */
-  #recordFailure(url: string, failure: string, authoritative: boolean): void {
+  #recordFailure(url: string, failure: string, source: FailureSource): void {
     const existing = this.#failedRequests.findIndex((request) => request.url === url);
     if (existing === -1) {
       this.#failedRequests.push({ url, failure });
       return;
     }
-    if (authoritative) this.#failedRequests[existing] = { url, failure };
+    if (source === "response") this.#failedRequests[existing] = { url, failure };
   }
 
   async goto(url: string, opts?: BrowserCallOptions): Promise<VoidResult<BrowserError>> {
@@ -298,26 +301,7 @@ export class PlaywrightBrowserSession implements BrowserSession {
     selector: Selector,
     opts?: BrowserCallOptions,
   ): Promise<Result<boolean, BrowserError>> {
-    return this.#ask("element", async () => {
-      try {
-        // Filtered to the visible matches *before* taking the first, because the question is
-        // whether any match is visible. Taking the first match and asking whether that one is
-        // visible answers a different question, and answers it wrongly on exactly the page
-        // that produces duplicates — a layout rendering one copy for mobile and hiding another.
-        await this.#visible(selector)
-          .first()
-          .waitFor({
-            state: "visible",
-            timeout: this.#deadline(opts),
-          });
-        return true;
-      } catch (error) {
-        // Only a timeout means "it is not there". Anything else is the browser failing, and
-        // `#ask` must see it rather than have it reported as a confident absence.
-        if (!isTimeout(error)) throw error;
-        return false;
-      }
-    });
+    return this.#ask("element", async () => this.#waitForAny(selector, this.#deadline(opts)));
   }
 
   async count(
@@ -336,18 +320,15 @@ export class PlaywrightBrowserSession implements BrowserSession {
       // and if nothing ever does, zero is the answer, at the same price `isVisible` pays for
       // proving any other negative. Then let the number settle, because the first item to
       // arrive is rarely the last.
+      // One absolute deadline, shared by both parts, so the whole call is bounded by the
+      // timeout the caller asked for rather than by each half spending it in turn.
       const deadline = Date.now() + this.#deadline(opts);
+
+      if (!(await this.#waitForAny(selector, this.#deadline(opts)))) return 0;
+
       // Visible ones only, as the port says: markup left in the document with `display: none`
       // is not something a user can count.
       const visible = this.#visible(selector);
-
-      try {
-        await visible.first().waitFor({ state: "visible", timeout: this.#deadline(opts) });
-      } catch (error) {
-        if (!isTimeout(error)) throw error;
-        return 0;
-      }
-
       let previous = await visible.count();
       while (Date.now() < deadline) {
         await new Promise((resolve) => setTimeout(resolve, COUNT_SETTLE_MS));
@@ -396,12 +377,15 @@ export class PlaywrightBrowserSession implements BrowserSession {
     return this.#ask("page", async () => {
       const bytes = await this.#page.screenshot({ type: "png" });
       const size = this.#page.viewportSize();
-      return {
-        bytes: new Uint8Array(bytes),
-        // A context is always created with a viewport, so this is only null if somebody
-        // disabled it; desktop is the size such a page was laid out at anyway.
-        viewport: size === null ? { ...VIEWPORT_SIZES.desktop } : size,
-      };
+      if (size === null) {
+        // Every context here is created with a viewport, so this is unreachable short of
+        // somebody disabling it — but reporting `desktop` anyway would write a size nobody
+        // measured into an artefact that is read months later, and a fabricated number is
+        // indistinguishable from a real one to whoever reads it. Failing is recoverable;
+        // a plausible lie in an archive is not.
+        throw new Error("the page has no viewport, so there is no size to record");
+      }
+      return { bytes: new Uint8Array(bytes), viewport: size };
     });
   }
 
@@ -427,7 +411,7 @@ export class PlaywrightBrowserSession implements BrowserSession {
     });
   }
 
-  async diagnostics(): Promise<Result<SessionDiagnostics, BrowserError>> {
+  async diagnostics(): Promise<Result<PageDiagnostics, BrowserError>> {
     return this.#ask("page", async () => {
       // Settle first, and this is load-bearing rather than defensive: `goto` resolves at
       // `domcontentloaded`, and both a failed data fetch and Chrome's own favicon request
@@ -485,6 +469,27 @@ export class PlaywrightBrowserSession implements BrowserSession {
     return this.#locate(selector).filter({ visible: true });
   }
 
+  /**
+   * Whether any match became visible within the deadline. Both queries that can answer "no" go
+   * through here, because the rule that makes "no" trustworthy is the one worst to get wrong
+   * twice: *only* a timeout means absence, and anything else is the browser failing and must
+   * reach `#ask` rather than be rounded into a confident negative.
+   *
+   * Filtered to the visible matches *before* taking the first, because the question is whether
+   * any match is visible. Taking the first match and asking whether that one is visible answers
+   * a different question, and answers it wrongly on exactly the page that produces duplicates —
+   * a layout rendering one copy for mobile and hiding the other.
+   */
+  async #waitForAny(selector: Selector, timeout: number): Promise<boolean> {
+    try {
+      await this.#visible(selector).first().waitFor({ state: "visible", timeout });
+      return true;
+    } catch (error) {
+      if (!isTimeout(error)) throw error;
+      return false;
+    }
+  }
+
   /** An action: it worked, or it produced a typed failure. */
   async #attempt(
     where: BrowserOperation,
@@ -518,6 +523,14 @@ export class PlaywrightBrowserSession implements BrowserSession {
 
 /** Which kind of operation was being performed, which is what decides how a timeout reads. */
 export type BrowserOperation = "navigation" | "element" | "page";
+
+/**
+ * Which of the two events reporting one broken address spoke.
+ *
+ * `response` is the server's own answer and outranks `transport`, which is whatever Chrome made
+ * of the aftermath.
+ */
+export type FailureSource = "response" | "transport";
 
 /**
  * The part of an axe violation this reads.
@@ -602,12 +615,16 @@ function isTimeout(error: unknown): boolean {
   return error instanceof Error && error.name === "TimeoutError";
 }
 
-/** Just enough of axe's browser global for the call this makes into it. */
+/**
+ * Just enough of axe's browser global for the call this makes into it.
+ *
+ * The *options* are axe's own `RunOptions` rather than a hand-written shape, because that is the
+ * half where being wrong is silent: `resultTypes` is a closed union of four group names in the
+ * installed types, so a `string[]` here would let `"violation"` compile and quietly ask for
+ * every result axe can produce. The *return* stays narrow on purpose — see `AxeViolation`.
+ */
 type AxeGlobal = {
-  run(
-    context: Document,
-    options: { resultTypes: string[] },
-  ): Promise<{ violations: AxeViolation[] }>;
+  run(context: Document, options: RunOptions): Promise<{ violations: AxeViolation[] }>;
 };
 
 function messageOf(error: unknown): string {

@@ -83,6 +83,11 @@ export interface BrowserSession {
    * The optional selector is what makes "type into the box and press Enter" expressible
    * without a separate focus call — which would be a second way to say the same thing, and a
    * piece of state for the fake to model.
+   *
+   * `timeoutMs` applies to *finding the element* and so means nothing when no selector is
+   * given: a keypress aimed at the page waits for nothing. Adapters may ignore it on that
+   * branch, and the option stays on the signature because a caller passing one blindly to
+   * every step should not have to special-case this.
    */
   press(
     key: string,
@@ -143,6 +148,10 @@ export interface BrowserSession {
    * Takes no arguments on purpose. "At the viewport the check ran at" is not a parameter — it
    * is a consequence of the check having set the viewport and this being called afterwards, and
    * a `width` here would be a second place for the two to disagree.
+   *
+   * An adapter that cannot say what size it photographed at must fail rather than guess. The
+   * size is carried into an archived artefact that outlives the run, and a plausible-looking
+   * fabricated number there is worse than a missing image: nobody reading it later can tell.
    */
   screenshot(): Promise<Result<Screenshot, BrowserError>>;
 
@@ -164,7 +173,7 @@ export interface BrowserSession {
    * things after load, so reading immediately catches them in some runs and not others, which
    * is an intermittent difference between two runs of the same task.
    */
-  diagnostics(): Promise<Result<SessionDiagnostics, BrowserError>>;
+  diagnostics(): Promise<Result<PageDiagnostics, BrowserError>>;
 
   /** Releases whatever the session was holding. Safe to call twice. */
   close(): Promise<void>;
@@ -219,7 +228,14 @@ export type FailedRequest = {
   failure: string;
 };
 
-export type SessionDiagnostics = {
+/**
+ * Named for the page rather than the session, because "session" is the word that collides.
+ *
+ * `CONTEXT.md` has a NapBench run containing Nap sessions containing turns, so a bare
+ * `SessionDiagnostics` in an archived report reads as the *Nap* session's — which is a different
+ * thing at a different scale. These are one page's complaints.
+ */
+export type PageDiagnostics = {
   /** Console messages at error level, in the order they were logged. */
   consoleErrors: string[];
   failedRequests: FailedRequest[];

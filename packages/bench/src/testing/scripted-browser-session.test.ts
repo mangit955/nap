@@ -248,6 +248,17 @@ describe("measurement and lifecycle", () => {
     });
   });
 
+  it("hands out a copy of the bytes, so a test cannot corrupt the fake it is using", async () => {
+    const page = session({ screenshotBytes: new Uint8Array([1, 2, 3]) });
+
+    const first = await value(await page.screenshot());
+    first.bytes[0] = 0xff;
+
+    // Every browser assertion in the benchmark rests on this fake, so a caller that can reach
+    // in and edit its state takes an unbounded number of green tests with it.
+    expect((await value(await page.screenshot())).bytes).toEqual(new Uint8Array([1, 2, 3]));
+  });
+
   it("reports the violations declared for the page it is on", async () => {
     const violation = {
       id: "image-alt",
