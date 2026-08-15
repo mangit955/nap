@@ -171,17 +171,34 @@ export const BenchTaskSchema = z
       });
     }
 
-    // A browser check drives the running application, so a task with one and no preview
-    // declares checks that could never be answered. Caught here, as the module loads, rather
-    // than as an unexplained pile of failures after a paid run.
-    if (task.preview === undefined && task.checks.some((check) => check.kind === "browser")) {
+    // Some checks need an address to point at: a browser check drives the running application
+    // and an audit reads one of its pages. A task that declares either and no preview declares
+    // checks that could never be answered — and, worse, the run would record them as *failed*,
+    // which reads as the agent having built something that does not serve when it is really the
+    // task author having left a field out. Caught here, as the module loads, rather than as an
+    // unexplained pile of failures after a paid run.
+    if (task.preview === undefined && task.checks.some(needsPreview)) {
       ctx.addIssue({
         code: "custom",
-        message: "a task with browser checks must declare a preview for them to be run against",
+        message:
+          "a task with browser or accessibility checks must declare a preview " +
+          "for them to be run against",
         path: ["preview"],
       });
     }
   });
+
+/**
+ * Whether this check can only be answered against a running application.
+ *
+ * One predicate rather than a `kind` test repeated at each site, because the two places that
+ * ask — the schema, when it refuses a task with no preview, and the runner, when it decides
+ * what a preview that never served did to a check — must never disagree. They did when the
+ * third kind arrived: the runner handled it and the schema did not.
+ */
+export function needsPreview(check: BenchCheck): boolean {
+  return check.kind !== "command";
+}
 
 export type CommandCheck = z.infer<typeof CommandCheckSchema>;
 export type BenchCheck = z.infer<typeof BenchCheckSchema>;

@@ -3,7 +3,7 @@ import {
   AccessibilityCheckSchema,
   DEFAULT_FAIL_ON_IMPACT,
   describeViolations,
-  disqualifying,
+  disqualifyingViolations,
 } from "./accessibility-check.ts";
 import type { AccessibilityViolation } from "./browser-session.ts";
 
@@ -51,7 +51,7 @@ describe("the accessibility check schema", () => {
   });
 });
 
-describe("disqualifying", () => {
+describe("disqualifyingViolations", () => {
   it("keeps violations at the threshold and above it", () => {
     const found = [
       violation({ id: "color-contrast", impact: "serious" }),
@@ -59,7 +59,7 @@ describe("disqualifying", () => {
       violation({ id: "region", impact: "moderate" }),
     ];
 
-    expect(disqualifying(found, "serious").map((entry) => entry.id)).toEqual([
+    expect(disqualifyingViolations(found, "serious").map((entry) => entry.id)).toEqual([
       "color-contrast",
       "image-alt",
     ]);
@@ -68,8 +68,8 @@ describe("disqualifying", () => {
   it("lets a stricter threshold ignore what a looser one would fail on", () => {
     const found = [violation({ id: "region", impact: "moderate" })];
 
-    expect(disqualifying(found, "moderate")).toHaveLength(1);
-    expect(disqualifying(found, "serious")).toHaveLength(0);
+    expect(disqualifyingViolations(found, "moderate")).toHaveLength(1);
+    expect(disqualifyingViolations(found, "serious")).toHaveLength(0);
   });
 
   it("counts an ungraded violation whatever the threshold", () => {
@@ -78,7 +78,7 @@ describe("disqualifying", () => {
     // guessing `minor` for it would understate it — the type says so, and so does this.
     const found = [violation({ id: "mystery", impact: "unknown" })];
 
-    expect(disqualifying(found, "critical")).toHaveLength(1);
+    expect(disqualifyingViolations(found, "critical")).toHaveLength(1);
   });
 
   it("defaults to a threshold that is not the strictest available", () => {
@@ -104,10 +104,13 @@ describe("describeViolations", () => {
     expect(detail).toMatch(/color-contrast/);
   });
 
-  it("says what it found rather than only that it found something", () => {
+  it("says how many it found, so a detail is readable without the violations beside it", () => {
     // `exit 1` with no reason is what let a dead check survive a whole funded run; a check
     // that fails has to say enough that somebody can act without re-running it.
-    expect(describeViolations([violation()], "serious")).not.toBe("failed");
+    const two = describeViolations([violation(), violation({ id: "label" })], "serious");
+
+    expect(two).toMatch(/^2 violations/);
+    expect(describeViolations([violation()], "serious")).toMatch(/^1 violation at or above/);
   });
 
   it("reports a clean page as clean, and says at what bar", () => {

@@ -57,9 +57,14 @@ it worked. Declarative and independent of how Nap is built, so the same task can
 different model, prompt or context engine without being edited. Tasks are the fixed thing in the
 benchmark; everything else is a variable.
 
-**Check** — one acceptance criterion, and the only thing a score is ever made of. Four kinds:
-*command* (run something in the sandbox), *browser* (drive the preview and assert), *accessibility*
-(axe against a rendered page), and *custom* (the extension point). Every check carries the category
+**Check** — one acceptance criterion, and the only thing a score is ever made of. Three kinds:
+*command* (run something in the sandbox), *browser* (drive the preview and assert) and
+*accessibility* (axe against a rendered page). A fourth, *custom*, was specified and deliberately
+not built: a task is **data**, validated by a schema as its module loads, and a custom check would
+be code — which no schema can validate and no sandbox can be handed. The extension point the fourth
+kind was meant to provide is the discriminated union itself: a new kind is a schema, a branch in the
+executor's dispatch and a default category, which is exactly what adding *accessibility* turned out
+to cost. Every check carries the category
 it scores into, a weight, and whether it is required. A check produces exactly one of *passed*,
 *failed* or *absent* — and the difference between the last two is load-bearing, see **Gate**.
 

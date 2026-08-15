@@ -295,3 +295,41 @@ describe("parseBenchTask — seeded files", () => {
     expect(seeded([]).ok).toBe(false);
   });
 });
+
+describe("a task whose checks need the application to be serving", () => {
+  const withoutPreview = (check: Record<string, unknown>) =>
+    parseBenchTask({
+      id: "landing-page",
+      name: "A landing page",
+      prompts: ["Build a landing page."],
+      checks: [check],
+    });
+
+  it("is refused when it declares a browser check and no preview", () => {
+    const parsed = withoutPreview({
+      id: "shows-the-heading",
+      kind: "browser",
+      steps: [{ step: "expectText", text: "Hello" }],
+    });
+
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) expect(parsed.error).toMatch(/preview/);
+  });
+
+  it("is refused when it declares an accessibility check and no preview", () => {
+    // The same rule, and the reason it has to cover this kind too: an audit needs an address
+    // to audit. Without this the task loads, the run records the audit as *failed* — "the
+    // application was not serving" — and a permanent accusation against the agent is really
+    // the task author having left a field out. Caught as the module loads, before a sandbox.
+    const parsed = withoutPreview({ id: "is-accessible", kind: "accessibility" });
+
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) expect(parsed.error).toMatch(/preview/);
+  });
+
+  it("accepts a task whose only checks run inside the sandbox", () => {
+    const parsed = withoutPreview({ id: "build", kind: "command", command: "bun run build" });
+
+    expect(parsed.ok).toBe(true);
+  });
+});

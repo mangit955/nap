@@ -24,7 +24,7 @@ import {
   type AccessibilityCheck,
   DEFAULT_FAIL_ON_IMPACT,
   describeViolations,
-  disqualifying,
+  disqualifyingViolations,
 } from "./accessibility-check.ts";
 import {
   type BrowserCheck,
@@ -36,12 +36,70 @@ import type { BrowserError, BrowserSession } from "./browser-session.ts";
 import type { CheckResult } from "./report.ts";
 import { describeSelector, type Selector } from "./selector.ts";
 import { categoryOf, flagsOf, weightOf } from "./task.ts";
-import { DEFAULT_VIEWPORT_NAME, viewportSize } from "./viewport.ts";
+import { DEFAULT_VIEWPORT_NAME, type ViewportName, viewportSize } from "./viewport.ts";
 
 export type BrowserCheckContext = {
   /** Where the application is actually being served, this run. */
   baseUrl: string;
 };
+
+/**
+ * What both kinds record about themselves before they have run.
+ *
+ * Through the same helpers the runner uses for a command check, so a default cannot be changed
+ * in one place and quietly not the other — and shared between the two kinds here for the same
+ * reason, one level down.
+ */
+function declaredFor(
+  check: BrowserCheck | AccessibilityCheck,
+): Pick<CheckResult, "checkId" | "kind" | "category" | "weight" | "required" | "build"> {
+  return {
+    checkId: check.id,
+    kind: check.kind,
+    category: categoryOf(check),
+    weight: weightOf(check),
+    ...flagsOf(check),
+  };
+}
+
+/**
+ * Sizes the viewport and opens the page — the moves both kinds make before they differ.
+ *
+ * They belong to the executor rather than to the task: every check runs at a size and starts
+ * somewhere, and making tasks say so would be two lines of ceremony per check that could be
+ * forgotten in exactly one of them. Written once because it was written twice: the audit
+ * arrived as a copy of these fifteen lines, and a copy is a place for the two to disagree
+ * about what a browser that will not size means.
+ *
+ * `unavailable` is handed back as an error; anything else is described for the caller to
+ * record as the check failing.
+ */
+async function openPage(
+  session: BrowserSession,
+  page: { viewport: ViewportName; url: string; timeoutMs?: number | undefined; what: string },
+): Promise<Result<undefined, BrowserError | { detail: string }>> {
+  const sized = await session.setViewport(viewportSize(page.viewport));
+  if (!sized.ok) {
+    if (sized.error.code === "unavailable") return { ok: false, error: sized.error };
+    return {
+      ok: false,
+      error: { detail: `could not size the viewport to ${page.viewport}: ${sized.error.message}` },
+    };
+  }
+
+  const opened = await session.goto(page.url, { timeoutMs: page.timeoutMs });
+  if (!opened.ok) {
+    if (opened.error.code === "unavailable") return { ok: false, error: opened.error };
+    return { ok: false, error: { detail: `could not open ${page.what}: ${opened.error.message}` } };
+  }
+
+  return { ok: true, value: undefined };
+}
+
+/** Whether what came back from `openPage` is a browser to blame rather than a check to fail. */
+function isBrowserError(error: BrowserError | { detail: string }): error is BrowserError {
+  return "code" in error;
+}
 
 /**
  * Runs one check to its end or to its first failure.
@@ -56,34 +114,22 @@ export async function runBrowserCheck(
   context: BrowserCheckContext,
 ): Promise<Result<CheckResult, BrowserError>> {
   const viewport = check.viewport ?? DEFAULT_VIEWPORT_NAME;
-  // Through the same helpers the runner uses for a command check, so a default cannot be
-  // changed in one place and quietly not the other.
-  const declared = {
-    checkId: check.id,
-    kind: "browser",
-    category: categoryOf(check),
-    weight: weightOf(check),
-    ...flagsOf(check),
-  } as const;
+  const declared = declaredFor(check);
 
   const failed = (detail: string): Result<CheckResult, BrowserError> => ({
     ok: true,
     value: { ...declared, outcome: "failed", detail },
   });
 
-  // The opening moves belong to the executor rather than to the task: every check runs at a
-  // size and starts at the application's front door, and making tasks say so would be two
-  // lines of ceremony per check that could be forgotten in exactly one of them.
-  const sized = await session.setViewport(viewportSize(viewport));
-  if (!sized.ok) {
-    if (sized.error.code === "unavailable") return { ok: false, error: sized.error };
-    return failed(`could not size the viewport to ${viewport}: ${sized.error.message}`);
-  }
-
-  const opened = await session.goto(context.baseUrl, { timeoutMs: check.timeoutMs });
-  if (!opened.ok) {
-    if (opened.error.code === "unavailable") return { ok: false, error: opened.error };
-    return failed(`could not open the application: ${opened.error.message}`);
+  const open = await openPage(session, {
+    viewport,
+    url: context.baseUrl,
+    timeoutMs: check.timeoutMs,
+    what: "the application",
+  });
+  if (!open.ok) {
+    if (isBrowserError(open.error)) return { ok: false, error: open.error };
+    return failed(open.error.detail);
   }
 
   for (const [index, step] of check.steps.entries()) {
@@ -319,7 +365,7 @@ function quote(value: string | null): string {
  * shape of thing: a check that needs a live browser session, driven to a page and turned into a
  * `CheckResult`, with `unavailable` handed back so the gate ladder can decide what a missing
  * browser means. What differs is only what happens once the page is open — steps there, one
- * audit here — and the opening moves are identical, which is why they are written once.
+ * audit here — which is why the opening moves are `openPage`, shared with the other kind.
  *
  * The judgement about *which* findings matter is not made here: it is in
  * `accessibility-check.ts`, where it is a pure function with tests of its own.
@@ -329,34 +375,26 @@ export async function runAccessibilityCheck(
   check: AccessibilityCheck,
   context: BrowserCheckContext,
 ): Promise<Result<CheckResult, BrowserError>> {
-  const viewport = check.viewport ?? DEFAULT_VIEWPORT_NAME;
   const failOn = check.failOn ?? DEFAULT_FAIL_ON_IMPACT;
-  const declared = {
-    checkId: check.id,
-    kind: "accessibility",
-    category: categoryOf(check),
-    weight: weightOf(check),
-    ...flagsOf(check),
-  } as const;
+  const declared = declaredFor(check);
 
   const failed = (detail: string): Result<CheckResult, BrowserError> => ({
     ok: true,
     value: { ...declared, outcome: "failed", detail },
   });
 
-  const sized = await session.setViewport(viewportSize(viewport));
-  if (!sized.ok) {
-    if (sized.error.code === "unavailable") return { ok: false, error: sized.error };
-    return failed(`could not size the viewport to ${viewport}: ${sized.error.message}`);
-  }
-
   // The audit is of a page, so the path is part of what the check declares — a task that only
   // ever audits the front door says nothing and gets it.
-  const url = `${context.baseUrl}${check.path ?? "/"}`;
-  const opened = await session.goto(url, { timeoutMs: check.timeoutMs });
-  if (!opened.ok) {
-    if (opened.error.code === "unavailable") return { ok: false, error: opened.error };
-    return failed(`could not open ${check.path ?? "/"}: ${opened.error.message}`);
+  const path = check.path ?? "/";
+  const open = await openPage(session, {
+    viewport: check.viewport ?? DEFAULT_VIEWPORT_NAME,
+    url: `${context.baseUrl}${path}`,
+    timeoutMs: check.timeoutMs,
+    what: path,
+  });
+  if (!open.ok) {
+    if (isBrowserError(open.error)) return { ok: false, error: open.error };
+    return failed(open.error.detail);
   }
 
   const scan = await session.scanAccessibility();
@@ -368,7 +406,7 @@ export async function runAccessibilityCheck(
     return failed(`could not audit the page: ${scan.error.message}`);
   }
 
-  const disqualified = disqualifying(scan.value.violations, failOn);
+  const disqualified = disqualifyingViolations(scan.value.violations, failOn);
 
   return {
     ok: true,

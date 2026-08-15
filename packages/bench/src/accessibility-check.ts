@@ -28,12 +28,16 @@ import { ViewportNameSchema } from "./viewport.ts";
 /**
  * The grades a task may set as its bar, worst first.
  *
- * `unknown` is deliberately not among them: it is not a severity, it is the absence of one, so
- * it cannot be a threshold. What happens to ungraded findings is decided below.
+ * Derived from the tool's own list rather than restated, so a grade added upstream cannot leave
+ * this one short and silently bar at the wrong level. `unknown` is filtered out because it is
+ * not a severity — it is the absence of one, so it cannot be a threshold. What happens to
+ * ungraded findings is decided below.
  */
-export const FAIL_ON_IMPACTS = ["critical", "serious", "moderate", "minor"] as const;
+export const FAIL_ON_IMPACTS = ACCESSIBILITY_IMPACTS.filter(
+  (impact): impact is Exclude<AccessibilityImpact, "unknown"> => impact !== "unknown",
+);
 
-export type FailOnImpact = (typeof FAIL_ON_IMPACTS)[number];
+export type FailOnImpact = Exclude<AccessibilityImpact, "unknown">;
 
 /**
  * Where the bar sits when a task does not say.
@@ -71,9 +75,6 @@ export const AccessibilityCheckSchema = z.strictObject({
 
 export type AccessibilityCheck = z.infer<typeof AccessibilityCheckSchema>;
 
-/** Worst to least bad, which is the order `ACCESSIBILITY_IMPACTS` is already declared in. */
-const SEVERITY_ORDER: readonly AccessibilityImpact[] = ACCESSIBILITY_IMPACTS;
-
 /**
  * The findings that fail a check at this bar.
  *
@@ -83,15 +84,17 @@ const SEVERITY_ORDER: readonly AccessibilityImpact[] = ACCESSIBILITY_IMPACTS;
  * re-derive. Counting it is the one choice that cannot silently lose a real finding — and the
  * detail names it, so a reader can see that is what happened.
  */
-export function disqualifying(
+export function disqualifyingViolations(
   violations: readonly AccessibilityViolation[],
   failOn: FailOnImpact,
 ): AccessibilityViolation[] {
-  const bar = SEVERITY_ORDER.indexOf(failOn);
+  // Worst first, which is the order the tool's own list is declared in, so a lower index is
+  // a worse finding and "at or above the bar" is an index no greater than the bar's.
+  const bar = ACCESSIBILITY_IMPACTS.indexOf(failOn);
 
   return violations.filter((violation) => {
     if (violation.impact === "unknown") return true;
-    return SEVERITY_ORDER.indexOf(violation.impact) <= bar;
+    return ACCESSIBILITY_IMPACTS.indexOf(violation.impact) <= bar;
   });
 }
 

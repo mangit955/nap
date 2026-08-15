@@ -86,7 +86,7 @@ No event exists to serve evaluation, and none may.
 4. Confirm the preview actually serves, and disambiguate when it does not (below).
 5. Run the task's checks: commands inside the sandbox, browser checks against the preview from the
    host, each in a browser session of its own.
-6. Photograph the page each browser check left behind.
+6. Photograph the page each browser check and each audit left behind.
 7. Ask the visual evaluator, which today always answers "not run".
 8. Apply the gate ladder, score what is left, read the trajectory back out of the event store, and
    write the report and the trajectory beside each other.
@@ -158,6 +158,16 @@ export const MY_TASK = defineTask({
 rendered page with axe and fails on findings at or above the grade the task sets — measured by an
 established tool rather than by our judgement, which is why it is a kind of its own rather than an
 assertion somebody writes by hand.
+
+A fourth kind, `custom`, appears in the specification and was deliberately not built: a task is
+data, validated as its module loads, and a custom check would be code that no schema can validate
+and no sandbox can be handed. Adding a kind is a schema, a branch in the executor's dispatch and a
+default category — which is what `accessibility` cost — so the union is the extension point.
+
+**A task declaring a browser or accessibility check must declare a `preview`.** Both need an
+address to point at, and the schema refuses a task without one: left to runtime, the checks would
+be recorded as *failed* — "the application was not serving" — which reads as the agent having built
+something that does not start when it is really a missing field.
 
 The steps are `navigate`, `click`, `fill`, `press`, `reload`, `select` and `viewport`, and the
 assertions are `expectText`, `expectNoText`, `expectVisible`, `expectCount`, `expectUrl`,
