@@ -13,16 +13,20 @@
  * event store is in memory, and the only real resource is a temporary directory.
  */
 
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { NapAgentService } from "@nap/agent/agent-service";
 import { ScriptedLLMProvider } from "@nap/agent/testing/scripted-llm-provider";
 import { DEFAULT_CATEGORY_WEIGHTS } from "@nap/bench/category";
 import { parseBenchReport } from "@nap/bench/report";
 import { runBenchTask } from "@nap/bench/runner";
+import { parseScreenshotMetadata } from "@nap/bench/screenshot";
+import { defineTask } from "@nap/bench/task";
 import { TRACER_TASK } from "@nap/bench/tasks/tracer";
+import { ScriptedBrowserSession } from "@nap/bench/testing/scripted-browser-session";
 import { parseBenchTrajectory } from "@nap/bench/trajectory";
+import { manualVisualEvaluation, VISUAL_NOT_RUN } from "@nap/bench/visual";
 import { NapContextEngine } from "@nap/context/context-engine";
 import { NoopMemoryProvider } from "@nap/context/noop-memory-provider";
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
@@ -34,6 +38,7 @@ import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-m
 import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { writeBenchReport, writeBenchTrajectory } from "./write-report.ts";
+import { fileScreenshotStore } from "./write-screenshot.ts";
 
 let resultsDir: string;
 
@@ -190,5 +195,152 @@ describe("a task run end to end", () => {
       { category: "functional", score: 0, effectiveWeight: 83.3, checks: 1 },
       { category: "code", score: 100, effectiveWeight: 16.7, checks: 1 },
     ]);
+  });
+});
+
+/**
+ * The screenshot half, joined the same way: a real run, a real file on disk, and a report whose
+ * path actually resolves.
+ *
+ * Separate from the tracer task because that one declares no preview and opens no browser. The
+ * browser is the scripted fake rather than Chrome — what is being proved here is the *wiring*
+ * between the runner, the store and the report, and `PlaywrightBrowserSession` has its own
+ * integration test against real Chrome for the part a fake cannot stand in for.
+ */
+describe("screenshots, from a run to a file the report can be read against", () => {
+  const shotTask = defineTask({
+    id: "shot",
+    name: "A page worth photographing",
+    prompt: "Build a landing page.",
+    preview: { port: TEMPLATE_DEV_PORT },
+    checks: [
+      {
+        id: "shows-the-heading",
+        kind: "browser",
+        viewport: "mobile",
+        steps: [{ step: "expectText", text: "Hello" }],
+        referenceScreenshot: "refs/shot-mobile.png",
+      },
+    ],
+  });
+
+  const browser = async () => ({
+    ok: true as const,
+    value: new ScriptedBrowserSession({
+      pages: { "/": { elements: [{ text: "Hello from NapBench" }] } },
+      screenshotBytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+    }),
+  });
+
+  it("writes the image and its metadata where the report says they are", async () => {
+    const sessionId = crypto.randomUUID();
+    const sandbox = sandboxWhereBuildSucceeds(0);
+    const { runtime, sessions, events } = composeRuntime(sandbox, sessionId);
+
+    const { report } = await runBenchTask(shotTask, {
+      runtime,
+      sandbox,
+      sessions,
+      events,
+      sessionId,
+      browser,
+      screenshots: fileScreenshotStore(resultsDir),
+    });
+    const reportFile = await writeBenchReport(resultsDir, report);
+
+    expect(report.status).toBe("passed");
+    expect(report.screenshots).toHaveLength(1);
+
+    const ref = report.screenshots[0];
+    if (ref === undefined) throw new Error("the run recorded no screenshot");
+    expect(ref.checkId).toBe("shows-the-heading");
+    expect(ref.viewport).toEqual({ name: "mobile", width: 375, height: 667 });
+
+    // The claim the whole ticket rests on: the path in the report resolves, against the
+    // directory the report itself was written to.
+    const resolved = join(dirname(reportFile), ref.path);
+    expect(new Uint8Array(readFileSync(resolved))).toEqual(
+      new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+    );
+
+    // And the sidecar beside it says what the image is, without the report in hand.
+    const sidecar = parseScreenshotMetadata(JSON.parse(readFileSync(`${resolved}.json`, "utf8")));
+    expect(sidecar.ok).toBe(true);
+    if (sidecar.ok) {
+      expect(sidecar.value.taskId).toBe("shot");
+      expect(sidecar.value.runId).toBe(report.runId);
+      expect(sidecar.value.reference).toBe("refs/shot-mobile.png");
+    }
+  });
+
+  it("leaves visual not run, and the category renormalised out of the score", async () => {
+    const sessionId = crypto.randomUUID();
+    const sandbox = sandboxWhereBuildSucceeds(0);
+    const { runtime, sessions, events } = composeRuntime(sandbox, sessionId);
+
+    const { report } = await runBenchTask(shotTask, {
+      runtime,
+      sandbox,
+      sessions,
+      events,
+      sessionId,
+      browser,
+      screenshots: fileScreenshotStore(resultsDir),
+    });
+
+    expect(report.visual).toEqual(VISUAL_NOT_RUN);
+    expect(report.categories.map((entry) => entry.category)).toEqual(["browser"]);
+    // Not 85. A run nobody judged visually is scored over what was measured.
+    expect(report.score).toBe(100);
+  });
+
+  it("scores the visual category from a hand-supplied judgement, and still writes the image", async () => {
+    const sessionId = crypto.randomUUID();
+    const sandbox = sandboxWhereBuildSucceeds(0);
+    const { runtime, sessions, events } = composeRuntime(sandbox, sessionId);
+
+    const { report } = await runBenchTask(shotTask, {
+      runtime,
+      sandbox,
+      sessions,
+      events,
+      sessionId,
+      browser,
+      screenshots: fileScreenshotStore(resultsDir),
+      visual: manualVisualEvaluation({ score: 50, source: "manual:mr", notes: "plain" }),
+    });
+
+    expect(report.visual).toMatchObject({ status: "scored", score: 50, source: "manual:mr" });
+    // Browser at 100 weighted 25, visual at 50 weighted 15 → 62.5 / 37.5 renormalised.
+    expect(report.categories).toEqual([
+      { category: "browser", score: 100, effectiveWeight: 62.5, checks: 1 },
+      { category: "visual", score: 50, effectiveWeight: 37.5, checks: 0 },
+    ]);
+    expect(report.score).toBe(81);
+    expect(report.screenshots).toHaveLength(1);
+  });
+
+  it("does not lose the run when the screenshots cannot be written", async () => {
+    const sessionId = crypto.randomUUID();
+    const sandbox = sandboxWhereBuildSucceeds(0);
+    const { runtime, sessions, events } = composeRuntime(sandbox, sessionId);
+
+    // A file where the directory needs to be: every write fails, and the run must not care.
+    const blocked = join(resultsDir, "blocked");
+    writeFileSync(blocked, "not a directory");
+
+    const { report } = await runBenchTask(shotTask, {
+      runtime,
+      sandbox,
+      sessions,
+      events,
+      sessionId,
+      browser,
+      screenshots: fileScreenshotStore(blocked),
+    });
+
+    expect(report.status).toBe("passed");
+    expect(report.score).toBe(100);
+    expect(report.screenshots).toEqual([]);
   });
 });

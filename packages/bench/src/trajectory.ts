@@ -21,6 +21,7 @@
 import { NapEventSchema } from "@nap/shared/events";
 import type { Result } from "@nap/shared/result";
 import { z } from "zod";
+import { describeParseFailure } from "./parse-failure.ts";
 
 export const BenchTrajectorySchema = z.strictObject({
   /** The same three ids the report carries, so a loose file can be matched back to one. */
@@ -52,10 +53,5 @@ export function parseBenchTrajectory(input: unknown): Result<BenchTrajectory, st
   const parsed = BenchTrajectorySchema.safeParse(input);
   if (parsed.success) return { ok: true, value: parsed.data };
 
-  return {
-    ok: false,
-    error: parsed.error.issues
-      .map((issue) => `${issue.path.join(".") || "trajectory"}: ${issue.message}`)
-      .join("; "),
-  };
+  return { ok: false, error: describeParseFailure(parsed.error, "trajectory") };
 }

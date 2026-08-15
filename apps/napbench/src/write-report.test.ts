@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { DEFAULT_CATEGORY_WEIGHTS } from "@nap/bench/category";
 import { type BenchReport, parseBenchReport } from "@nap/bench/report";
 import { type BenchTrajectory, parseBenchTrajectory } from "@nap/bench/trajectory";
+import { VISUAL_NOT_RUN } from "@nap/bench/visual";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   reportPath,
@@ -24,6 +25,8 @@ const report: BenchReport = {
   score: 100,
   categories: [{ category: "functional", score: 100, effectiveWeight: 100, checks: 1 }],
   weights: DEFAULT_CATEGORY_WEIGHTS,
+  screenshots: [],
+  visual: VISUAL_NOT_RUN,
   metrics: {
     toolCalls: 1,
     toolFailures: 0,

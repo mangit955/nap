@@ -21,7 +21,10 @@ import { CategorySchema, CategoryWeightsSchema } from "./category.ts";
 import { ErrorKindSchema } from "./error-kind.ts";
 import { GateIdSchema } from "./gates.ts";
 import { RunMetricsSchema } from "./metrics.ts";
+import { describeParseFailure } from "./parse-failure.ts";
+import { ScreenshotRefSchema } from "./screenshot.ts";
 import { carriesScore, RunStatusSchema } from "./status.ts";
+import { VisualEvaluationSchema } from "./visual.ts";
 
 /**
  * What a check produced.
@@ -120,6 +123,25 @@ export const BenchReportSchema = z
      * of its fields are absent rather than zero; `metrics.ts` says which and why.
      */
     metrics: RunMetricsSchema,
+    /**
+     * What the run photographed, by path relative to the results directory.
+     *
+     * Relative on purpose, and it is the same rule that keeps a report from naming its own
+     * trajectory: an absolute path baked into an archived artefact is wrong the first time
+     * somebody moves the directory. Empty for a run that opened no browser, and also for one
+     * whose screenshots could not be written — an image is evidence about a run rather than an
+     * observation of the application, so losing one degrades the report and changes no score.
+     */
+    screenshots: z.array(ScreenshotRefSchema),
+    /**
+     * What a visual judge made of it, which today is always `not_run`.
+     *
+     * Recorded even so, rather than omitted while nothing produces it: a reader has to be able
+     * to tell "visual was not evaluated" from "this report predates the field", and the whole
+     * scale of the run depends on which — an unevaluated visual category renormalises out and
+     * puts every other category on a different denominator. See docs/adr/0002.
+     */
+    visual: VisualEvaluationSchema,
   })
   .refine((report) => carriesScore(report.status) === (report.score !== null), {
     // The two must agree in both directions. A scored error is a fabricated number, and an
@@ -160,10 +182,5 @@ export function parseBenchReport(input: unknown): Result<BenchReport, string> {
   const parsed = BenchReportSchema.safeParse(input);
   if (parsed.success) return { ok: true, value: parsed.data };
 
-  return {
-    ok: false,
-    error: parsed.error.issues
-      .map((issue) => `${issue.path.join(".") || "report"}: ${issue.message}`)
-      .join("; "),
-  };
+  return { ok: false, error: describeParseFailure(parsed.error, "report") };
 }

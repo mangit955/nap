@@ -22,6 +22,7 @@ import type { Result } from "@nap/shared/result";
 import { z } from "zod";
 import { BrowserCheckSchema } from "./browser-check.ts";
 import { type Category, CategorySchema, DEFAULT_CATEGORY_FOR_KIND } from "./category.ts";
+import { describeParseFailure } from "./parse-failure.ts";
 
 /**
  * A command run inside the sandbox, judged on its exit code.
@@ -173,10 +174,5 @@ export function parseBenchTask(input: unknown): Result<BenchTask, string> {
   const parsed = BenchTaskSchema.safeParse(input);
   if (parsed.success) return { ok: true, value: parsed.data };
 
-  return {
-    ok: false,
-    error: parsed.error.issues
-      .map((issue) => `${issue.path.join(".") || "task"}: ${issue.message}`)
-      .join("; "),
-  };
+  return { ok: false, error: describeParseFailure(parsed.error, "task") };
 }

@@ -160,6 +160,20 @@ export const BrowserCheckSchema = z.strictObject({
   category: CategorySchema.optional(),
   weight: z.number().nonnegative().optional(),
   required: z.boolean().optional(),
+  /**
+   * What this check's screenshot is meant to look like, as a path the task author supplies.
+   *
+   * **Nothing compares against it yet, and that is the point.** Reference-image comparison is
+   * out of scope; the spec asks only that the path be expressible now, so that tasks can carry
+   * references before the judge that reads them exists and no task file has to be revisited on
+   * the day it does. It is recorded with each capture, so a comparison run later knows what the
+   * image was measured against at the time rather than against a task file edited since.
+   *
+   * Declared per check rather than per task because a task routinely photographs several
+   * viewports — the responsive task is the whole reason `viewport` is a field here — and one
+   * reference for a task could never match more than one of them.
+   */
+  referenceScreenshot: z.string().min(1).optional(),
 });
 
 export type BrowserCheck = z.infer<typeof BrowserCheckSchema>;

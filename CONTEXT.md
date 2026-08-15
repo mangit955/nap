@@ -115,6 +115,29 @@ cannot supply is absent rather than inferred. **Stored as two files, not one:** 
 trajectory file and the metrics in the report beside it, because the metrics are what everything
 reads and a second copy next to the events could disagree with the first.
 
+**Screenshot** — a picture of the running application taken at the end of a browser check, at the
+viewport that check *actually finished at* rather than the one it declared, since a check may
+resize partway through. Never stored alone: each image has a sidecar naming the task, run, check,
+size, moment and reference, so an image copied out of the results directory still says what it is.
+Referenced from the report by a path **relative to the results directory** — an absolute one is
+wrong the first time somebody moves the directory. Evidence *about* a run rather than an
+observation *of* the application, which is why a screenshot that could not be taken or stored
+degrades the report and never changes a score.
+
+**Visual evaluation** — what a judge made of how the application looks, as one of two answers:
+*not run*, or a *score* with a `source` naming who produced it. Today it is always not run; the
+interface exists so that a pixel comparison, a VLM judge or a person can be plugged in without
+reshaping the result. **Not run is not zero** — an unevaluated visual category renormalises out of
+the weighting per ADR-0002, so a run nobody judged is scored over what was measured instead of
+being docked fifteen points for a judge that does not exist. And it is never the primary measure:
+visual is 15 against functional's 50, and the build and preview gates cap or fail a run long before
+this is consulted, so a broken application cannot be rescued by something thinking it looks nice.
+
+**Reference screenshot** — what a browser check's screenshot is *meant* to look like, as a path the
+task declares. Nothing compares against it yet; it is expressible now so that tasks can carry
+references before the judge that reads them exists. Declared per check rather than per task,
+because one task routinely photographs several viewports.
+
 **Suite** — a named set of tasks run together, and the level at which a model is characterised
 rather than a single result observed. Reports a mean over completed runs beside an explicit error
 rate, because a run whose turn failed has no score and would otherwise vanish from the average.

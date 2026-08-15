@@ -42,3 +42,19 @@ export const DEFAULT_VIEWPORT_NAME: ViewportName = "desktop";
 export function viewportSize(name: ViewportName): ViewportSize {
   return VIEWPORT_SIZES[name];
 }
+
+/**
+ * Which named size a measured one is, or undefined for a size that is none of them.
+ *
+ * The inverse direction exists because a screenshot comes back from the browser as two numbers:
+ * the page is the only thing that knows what size a check *ended* at, since a check may resize
+ * partway through, and a stored image is compared across runs by name. Undefined rather than a
+ * guess when nothing matches — a capture labelled `mobile` at 800px wide would be worse than one
+ * whose name had to be taken from what the check asked for.
+ */
+export function viewportNameForSize(size: ViewportSize): ViewportName | undefined {
+  return VIEWPORT_NAMES.find(
+    (name) =>
+      VIEWPORT_SIZES[name].width === size.width && VIEWPORT_SIZES[name].height === size.height,
+  );
+}

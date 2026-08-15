@@ -15,11 +15,13 @@ import { DEFAULT_CATEGORY_WEIGHTS } from "./category.ts";
 import { BUILD_FAILURE_SCORE_CAP } from "./gates.ts";
 import { runBenchTask } from "./runner.ts";
 import { scoreRun } from "./score.ts";
+import { type CapturedScreenshot, type ScreenshotStore, screenshotFilename } from "./screenshot.ts";
 import { parseBenchTask } from "./task.ts";
 import {
   ScriptedBrowserSession,
   type ScriptedBrowserSessionOptions,
 } from "./testing/scripted-browser-session.ts";
+import { manualVisualEvaluation, VISUAL_NOT_RUN, type VisualEvaluationInput } from "./visual.ts";
 
 const SESSION_ID = "3f2a1c4e-0000-4000-8000-000000000002";
 const TURN_ID = "3f2a1c4e-0000-4000-8000-000000000003";
@@ -825,5 +827,278 @@ describe("runBenchTask — browser checks", () => {
     expect(report.errorKind).toBeNull();
     expect(report.gates).toEqual([]);
     expect(report.checks.find((check) => check.kind === "browser")?.detail).toContain("step 1");
+  });
+});
+
+/**
+ * Screenshots and the visual seam: what a run keeps, and what it says about how it looked.
+ *
+ * The judge does not exist, so almost all of this is about the artefacts and about `not_run`
+ * being an answer rather than a zero — the distinction the whole scale depends on.
+ */
+describe("runBenchTask — screenshots and visual evaluation", () => {
+  const PORT = 5173;
+
+  function shotTask(extras: Record<string, unknown> = {}) {
+    const parsed = parseBenchTask({
+      id: "todo",
+      name: "A todo list",
+      prompt: "Build a todo list.",
+      preview: { port: PORT },
+      checks: [
+        { id: "build", kind: "command", command: "bun run build" },
+        {
+          id: "shows-the-list",
+          kind: "browser",
+          viewport: "mobile",
+          steps: [{ step: "expectText", text: "Todos" }],
+          ...extras,
+        },
+      ],
+    });
+    if (!parsed.ok) throw new Error(parsed.error);
+    return parsed.value;
+  }
+
+  const CAPTURED_AT = "2026-08-15T04:05:06.000Z";
+
+  const serving = () =>
+    new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0 }), serves: [PORT] });
+
+  const browserFactory = () => async () => ({
+    ok: true as const,
+    value: new ScriptedBrowserSession({ pages: { "/": { elements: [{ text: "Todos" }] } } }),
+  });
+
+  /** A store that keeps what it was handed, so a test can read the metadata that went with it. */
+  function recordingStore() {
+    const saved: CapturedScreenshot[] = [];
+    const store: ScreenshotStore = async (screenshot) => {
+      saved.push(screenshot);
+      return { ok: true, value: screenshotFilename(screenshot.metadata) };
+    };
+    return { store, saved };
+  }
+
+  it("photographs each browser check and references it in the report by relative path", async () => {
+    const withSandbox = await deps(scriptedRuntime(completed), serving());
+    const { store, saved } = recordingStore();
+
+    const report = await reportOf(shotTask(), {
+      ...withSandbox,
+      browser: browserFactory(),
+      screenshots: store,
+      now: () => new Date(CAPTURED_AT),
+    });
+
+    expect(saved).toHaveLength(1);
+    expect(report.screenshots).toEqual([
+      {
+        checkId: "shows-the-list",
+        viewport: { name: "mobile", width: 375, height: 667 },
+        path: `todo-${RUN_ID}-shows-the-list.png`,
+        capturedAt: CAPTURED_AT,
+      },
+    ]);
+  });
+
+  it("records the size the check actually ran at, not the one it declared", async () => {
+    // A check may resize mid-sequence, so the only trustworthy answer comes from the page.
+    const withSandbox = await deps(scriptedRuntime(completed), serving());
+    const { store, saved } = recordingStore();
+
+    await reportOf(shotTask({ steps: [{ step: "viewport", viewport: "tablet" }] }), {
+      ...withSandbox,
+      browser: browserFactory(),
+      screenshots: store,
+    });
+
+    expect(saved[0]?.metadata.viewport).toEqual({ name: "tablet", width: 768, height: 1024 });
+  });
+
+  it("carries the check's reference image into the capture's metadata", async () => {
+    const withSandbox = await deps(scriptedRuntime(completed), serving());
+    const { store, saved } = recordingStore();
+
+    await reportOf(shotTask({ referenceScreenshot: "refs/todo-mobile.png" }), {
+      ...withSandbox,
+      browser: browserFactory(),
+      screenshots: store,
+    });
+
+    expect(saved[0]?.metadata.reference).toBe("refs/todo-mobile.png");
+  });
+
+  it("names the task, run and check in the metadata written beside the image", async () => {
+    const withSandbox = await deps(scriptedRuntime(completed), serving());
+    const { store, saved } = recordingStore();
+
+    await reportOf(shotTask(), {
+      ...withSandbox,
+      browser: browserFactory(),
+      screenshots: store,
+    });
+
+    expect(saved[0]?.metadata).toMatchObject({
+      taskId: "todo",
+      runId: RUN_ID,
+      checkId: "shows-the-list",
+    });
+  });
+
+  it("takes no screenshots when nobody supplied somewhere to put them", async () => {
+    const withSandbox = await deps(scriptedRuntime(completed), serving());
+
+    const report = await reportOf(shotTask(), { ...withSandbox, browser: browserFactory() });
+
+    expect(report.screenshots).toEqual([]);
+    expect(report.status).toBe("passed");
+  });
+
+  it("does not change a score when a screenshot could not be stored", async () => {
+    // An image is evidence about a run, not an observation of the application. A full disk
+    // must degrade the report rather than fail a run that has already paid for a model.
+    const withSandbox = await deps(scriptedRuntime(completed), serving());
+    const failing: ScreenshotStore = async () => ({ ok: false, error: "no space left on device" });
+
+    const report = await reportOf(shotTask(), {
+      ...withSandbox,
+      browser: browserFactory(),
+      screenshots: failing,
+    });
+
+    expect(report.status).toBe("passed");
+    expect(report.score).toBe(100);
+    expect(report.screenshots).toEqual([]);
+  });
+
+  it("reports visual as not_run by default, and leaves the category renormalised away", async () => {
+    const withSandbox = await deps(scriptedRuntime(completed), serving());
+
+    const report = await reportOf(shotTask(), { ...withSandbox, browser: browserFactory() });
+
+    expect(report.visual).toEqual(VISUAL_NOT_RUN);
+    expect(report.categories.map((entry) => entry.category)).not.toContain("visual");
+    // The point of not_run not being zero: a run nobody judged can still be perfect.
+    expect(report.score).toBe(100);
+  });
+
+  it("scores the visual category when a manual judgement was supplied", async () => {
+    const withSandbox = await deps(scriptedRuntime(completed), serving());
+
+    const report = await reportOf(shotTask(), {
+      ...withSandbox,
+      browser: browserFactory(),
+      visual: manualVisualEvaluation({ score: 40, source: "manual:mr" }),
+    });
+
+    expect(report.visual).toEqual({ status: "scored", score: 40, source: "manual:mr" });
+    // The task declares no code check, so three categories renormalise over 50/25/15 rather
+    // than four over the full vector: 55.6 / 27.8 / 16.7.
+    expect(report.categories).toContainEqual({
+      category: "visual",
+      score: 40,
+      effectiveWeight: 16.7,
+      checks: 0,
+    });
+    // Functional and browser at 100 carrying 83.4, visual at 40 carrying 16.7.
+    expect(report.score).toBe(90);
+  });
+
+  it("shows a judge what it photographed", async () => {
+    const withSandbox = await deps(scriptedRuntime(completed), serving());
+    const { store } = recordingStore();
+    const seen: VisualEvaluationInput[] = [];
+
+    await reportOf(shotTask(), {
+      ...withSandbox,
+      browser: browserFactory(),
+      screenshots: store,
+      visual: {
+        evaluate: async (input) => {
+          seen.push(input);
+          return VISUAL_NOT_RUN;
+        },
+      },
+    });
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({ taskId: "todo", runId: RUN_ID });
+    expect(seen[0]?.screenshots.map((shot) => shot.checkId)).toEqual(["shows-the-list"]);
+  });
+
+  it("still reports a visual verdict on a run that never reached a browser", async () => {
+    // Every report has the field, whatever path the run took out — a reader must be able to
+    // tell "not evaluated" from "this report predates the field".
+    const withSandbox = await deps(
+      scriptedRuntime({
+        ok: false,
+        turnId: TURN_ID,
+        reason: "model_unavailable",
+        message: "the provider was unreachable",
+      }),
+      serving(),
+    );
+
+    const report = await reportOf(shotTask(), { ...withSandbox, browser: browserFactory() });
+
+    expect(report.status).toBe("errored");
+    expect(report.visual).toEqual(VISUAL_NOT_RUN);
+    expect(report.screenshots).toEqual([]);
+  });
+});
+
+describe("runBenchTask — a screenshot at a size that is none of ours", () => {
+  const PORT = 5173;
+
+  it("records a null name rather than guessing one from the declaration", async () => {
+    // The one case the nullable name exists for. A check declared `mobile` and resized itself
+    // to something unnamed: filing that image as `mobile` would be a lie shaped like a
+    // measurement, and the declaration is not evidence about the page that was photographed.
+    const sandbox = new InMemorySandboxManager({
+      defaultExec: () => ({ exitCode: 0 }),
+      serves: [PORT],
+    });
+    const withSandbox = await deps(scriptedRuntime(completed), sandbox);
+
+    const parsed = parseBenchTask({
+      id: "todo",
+      name: "A todo list",
+      prompt: "Build a todo list.",
+      preview: { port: PORT },
+      checks: [
+        {
+          id: "odd-size",
+          kind: "browser",
+          viewport: "mobile",
+          steps: [{ step: "expectText", text: "Todos" }],
+        },
+      ],
+    });
+    if (!parsed.ok) throw new Error(parsed.error);
+
+    const saved: CapturedScreenshot[] = [];
+    await reportOf(parsed.value, {
+      ...withSandbox,
+      browser: async () => {
+        const session = new ScriptedBrowserSession({
+          pages: { "/": { elements: [{ text: "Todos" }] } },
+        });
+        // Overridden rather than driven through a step, because the executor can only ever set
+        // a *named* size — an unnamed one is what a page does to itself, which is precisely the
+        // case the nullable name exists for and precisely what the fake cannot reach.
+        session.screenshot = async () => ({
+          ok: true,
+          value: { bytes: new Uint8Array([1]), viewport: { width: 800, height: 900 } },
+        });
+        return { ok: true as const, value: session };
+      },
+      screenshots: async (screenshot) => {
+        saved.push(screenshot);
+        return { ok: true, value: "odd.png" };
+      },
+    });
+
+    expect(saved[0]?.metadata.viewport).toEqual({ name: null, width: 800, height: 900 });
   });
 });

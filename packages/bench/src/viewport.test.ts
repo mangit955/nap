@@ -9,6 +9,7 @@ import {
   VIEWPORT_NAMES,
   VIEWPORT_SIZES,
   ViewportNameSchema,
+  viewportNameForSize,
   viewportSize,
 } from "./viewport.ts";
 
@@ -34,5 +35,30 @@ describe("viewports", () => {
   it("refuses a size nobody named", () => {
     // Pixels in a task file would make two tasks' idea of "a phone" quietly different.
     expect(ViewportNameSchema.safeParse("375px").success).toBe(false);
+  });
+});
+
+describe("viewportNameForSize", () => {
+  it("names a size that is one of ours", () => {
+    expect(viewportNameForSize({ width: 375, height: 667 })).toBe("mobile");
+    expect(viewportNameForSize({ width: 768, height: 1024 })).toBe("tablet");
+    expect(viewportNameForSize({ width: 1280, height: 800 })).toBe("desktop");
+  });
+
+  it("is undefined for a size that is none of them", () => {
+    // The whole reason it exists: a screenshot taken at 800×900 must not be filed as `mobile`.
+    // A caller with no name still has the numbers; one with the wrong name has neither.
+    expect(viewportNameForSize({ width: 800, height: 900 })).toBeUndefined();
+  });
+
+  it("requires both dimensions to match, not just the width", () => {
+    // Width alone is what an overflow assertion cares about, but a screenshot is the whole page.
+    expect(viewportNameForSize({ width: 375, height: 900 })).toBeUndefined();
+  });
+
+  it("round-trips every name through its own size", () => {
+    for (const name of VIEWPORT_NAMES) {
+      expect(viewportNameForSize(viewportSize(name))).toBe(name);
+    }
   });
 });

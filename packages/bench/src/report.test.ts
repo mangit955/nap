@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CATEGORY_WEIGHTS } from "./category.ts";
 import { type BenchReport, parseBenchReport, serialiseBenchReport } from "./report.ts";
+import { VISUAL_NOT_RUN } from "./visual.ts";
 
 const report: BenchReport = {
   runId: "3f2a1c4e-0000-4000-8000-000000000001",
@@ -14,6 +15,8 @@ const report: BenchReport = {
   score: 100,
   categories: [{ category: "functional", score: 100, effectiveWeight: 100, checks: 1 }],
   weights: DEFAULT_CATEGORY_WEIGHTS,
+  screenshots: [],
+  visual: VISUAL_NOT_RUN,
   metrics: {
     toolCalls: 3,
     toolFailures: 0,

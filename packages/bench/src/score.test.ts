@@ -251,3 +251,79 @@ describe("scoreRun — absent is not failed, which is the sharp edge", () => {
     expect(scoreRun([], DEFAULT_CATEGORY_WEIGHTS).overall).toBeNull();
   });
 });
+
+describe("scoreRun — a visual score from an evaluator rather than from checks", () => {
+  const threeCategories = () => [
+    check("functional", "passed"),
+    check("browser", "passed"),
+    check("code", "passed"),
+  ];
+
+  it("renormalises visual away when no judge ran, which is the default", () => {
+    // The whole reason `not_run` is not a zero: with no visual judge built, a perfect run has
+    // to be able to reach 100 rather than cap at 85 for a category nobody evaluated.
+    const scored = scoreRun(threeCategories(), DEFAULT_CATEGORY_WEIGHTS, undefined);
+
+    expect(scored.categories.map((entry) => entry.category)).not.toContain("visual");
+    expect(scored.overall).toBe(100);
+  });
+
+  it("adds the visual category at its configured weight when a score was supplied", () => {
+    const scored = scoreRun(threeCategories(), DEFAULT_CATEGORY_WEIGHTS, 60);
+
+    expect(scored.categories).toContainEqual({
+      category: "visual",
+      score: 60,
+      effectiveWeight: 15,
+      checks: 0,
+    });
+    // 50 + 25 + 10 at 100, plus 15 at 60 — the full four-category vector, no renormalisation.
+    expect(scored.overall).toBe(94);
+  });
+
+  it("puts visual in canonical order, not at the end where it was added", () => {
+    const scored = scoreRun(threeCategories(), DEFAULT_CATEGORY_WEIGHTS, 60);
+
+    expect(scored.categories.map((entry) => entry.category)).toEqual([
+      "functional",
+      "browser",
+      "visual",
+      "code",
+    ]);
+  });
+
+  it("keeps the recorded weights summing to exactly 100 with visual present", () => {
+    expect(totalTenths(scoreRun(threeCategories(), DEFAULT_CATEGORY_WEIGHTS, 60).categories)).toBe(
+      1000,
+    );
+  });
+
+  it("scores a visual-only run rather than refusing it", () => {
+    // Nothing else measurable, but a judged screenshot is still an observation.
+    const scored = scoreRun([], DEFAULT_CATEGORY_WEIGHTS, 40);
+
+    expect(scored.overall).toBe(40);
+    expect(scored.categories).toEqual([
+      { category: "visual", score: 40, effectiveWeight: 100, checks: 0 },
+    ]);
+  });
+
+  it("cannot rescue a run whose functional checks failed", () => {
+    // A broken application must not score well because something thought it looked nice: a
+    // perfect visual score against a wholly failed functional category is still a fail.
+    const scored = scoreRun([check("functional", "failed")], DEFAULT_CATEGORY_WEIGHTS, 100);
+
+    expect(scored.overall).toBeLessThan(50);
+  });
+
+  it("lets an evaluator's judgement stand over checks that scored into visual", () => {
+    // Both sources for one category is a configuration nothing produces today. If it arises,
+    // the judge's number is the category's: it looked at the rendered result, while a check
+    // measured one property of it. The check count records that the checks were there.
+    const scored = scoreRun([check("visual", "failed")], DEFAULT_CATEGORY_WEIGHTS, 80);
+
+    expect(scored.categories).toEqual([
+      { category: "visual", score: 80, effectiveWeight: 100, checks: 1 },
+    ]);
+  });
+});

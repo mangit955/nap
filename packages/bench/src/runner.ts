@@ -26,15 +26,29 @@ import type { SessionStore } from "@nap/shared/ports/session-store";
 import type { Result } from "@nap/shared/result";
 import type { BrowserCheck } from "./browser-check.ts";
 import { runBrowserCheck } from "./browser-executor.ts";
-import type { BrowserSessionFactory } from "./browser-session.ts";
+import type { BrowserSession, BrowserSessionFactory } from "./browser-session.ts";
 import { type CategoryWeights, DEFAULT_CATEGORY_WEIGHTS } from "./category.ts";
 import { applyGates, type BrowserUnavailable, type GateInput } from "./gates.ts";
 import { deriveRunMetrics } from "./metrics.ts";
 import { diagnosePreview } from "./preview.ts";
 import type { BenchReport, CheckResult } from "./report.ts";
 import { scoreRun } from "./score.ts";
+import {
+  type CapturedScreenshot,
+  refFromMetadata,
+  type ScreenshotRef,
+  type ScreenshotStore,
+} from "./screenshot.ts";
 import { type BenchTask, type CommandCheck, categoryOf, flagsOf, weightOf } from "./task.ts";
 import type { BenchTrajectory } from "./trajectory.ts";
+import { viewportNameForSize } from "./viewport.ts";
+import {
+  notRunVisualEvaluation,
+  VISUAL_NOT_RUN,
+  type VisualEvaluation,
+  type VisualEvaluationResult,
+  visualScoreOf,
+} from "./visual.ts";
 
 export type BenchRunnerDeps = {
   runtime: Runtime;
@@ -58,6 +72,19 @@ export type BenchRunnerDeps = {
    * checks nobody could run as the agent's failures.
    */
   browser?: BrowserSessionFactory;
+  /**
+   * Where screenshots go. Absent takes none, which is what every test that is not about them
+   * does — capture is an artefact of a run rather than part of judging one.
+   */
+  screenshots?: ScreenshotStore;
+  /**
+   * Who judges how it looked. Defaults to the one that says nobody did.
+   *
+   * A default rather than an optional call site, because `not_run` is a real answer that every
+   * report has to carry: it is what tells a reader the visual category renormalised out rather
+   * than being forgotten, and those put every other category on a different denominator.
+   */
+  visual?: VisualEvaluation;
   /**
    * The session this run drives, already created by whoever composed the run.
    *
@@ -84,6 +111,14 @@ export type BenchRunnerDeps = {
    * a model nobody named.
    */
   model?: string | undefined;
+  /**
+   * The clock, injectable so a screenshot's timestamp is assertable rather than merely a string.
+   *
+   * The only clock this package reads, and it is read for one field: `capturedAt` is a fact about
+   * a run that has to be reproducible in a test, and `new Date()` in the middle of a composition
+   * makes the assertion `expect.any(String)` — which is not an assertion.
+   */
+  now?: () => Date;
 };
 
 /**
@@ -105,6 +140,7 @@ export async function runBenchTask(
   const { runtime, sandbox, sessions, sessionId } = deps;
   const runId = deps.runId ?? crypto.randomUUID();
   const weights = deps.weights ?? DEFAULT_CATEGORY_WEIGHTS;
+  const now = deps.now ?? (() => new Date());
 
   const outcome = await runtime.runTurn({ sessionId, message: task.prompt, model: deps.model });
 
@@ -120,11 +156,21 @@ export async function runBenchTask(
     score: null,
   };
 
+  // What the run photographed, in the order it did. Empty on every path that never opened a
+  // browser, which includes every path that ended before the checks ran.
+  const screenshots: ScreenshotRef[] = [];
+  // Overwritten once, after the checks, if a judge was configured. It stays `not_run` on the
+  // paths that end early, which is the truthful answer for a run that produced nothing to judge.
+  let visual: VisualEvaluationResult = VISUAL_NOT_RUN;
+
   const finish = async (): Promise<BenchRunResult> => {
     const verdict = applyGates(observations);
     // Only a run that still carries a score has categories to explain it. An errored run's
     // check list is whatever it managed before it stopped, which is worth keeping.
-    const scored = verdict.score === null ? { categories: [] } : scoreRun(checks, weights);
+    const scored =
+      verdict.score === null
+        ? { categories: [] }
+        : scoreRun(checks, weights, visualScoreOf(visual));
 
     // Read at the end rather than during, so the trajectory covers everything the run
     // produced however far it got — an errored run's stream is the most informative thing
@@ -146,6 +192,8 @@ export async function runBenchTask(
         weights,
         checks,
         metrics: deriveRunMetrics(events, { model: deps.model }),
+        screenshots,
+        visual,
       },
       trajectory: { runId, taskId: task.id, sessionId, events },
     };
@@ -215,7 +263,23 @@ export async function runBenchTask(
       continue;
     }
 
-    const attempted = await runBrowserCheckWith(deps.browser, check, previewUrl);
+    const attempted = await runBrowserCheckWith(
+      deps.browser,
+      check,
+      previewUrl,
+      async (session) => {
+        // Photographed *after* the check's last step and before the session closes, which is
+        // what makes the image show what the agent's application actually did rather than its
+        // starting state. A failure here is swallowed on purpose — see `capture`.
+        const ref = await capture(session, deps.screenshots, {
+          taskId: task.id,
+          runId,
+          check,
+          now,
+        });
+        if (ref !== undefined) screenshots.push(ref);
+      },
+    );
     if (!attempted.ok) {
       // No browser is the evaluator's problem, not the agent's, and it is terminal: every
       // remaining browser check would fail for the same reason, and none of them would be
@@ -227,9 +291,61 @@ export async function runBenchTask(
     checks.push(attempted.value);
   }
 
-  observations.score = scoreRun(checks, weights).overall;
+  // Asked once, after every check, because a judge is shown the run's whole set of screenshots
+  // rather than one at a time — "does this application look coherent" is not a per-check
+  // question. Before the gate ladder sees a score, so that the number it judges is the one the
+  // report will carry.
+  visual = await (deps.visual ?? notRunVisualEvaluation()).evaluate({
+    taskId: task.id,
+    runId,
+    screenshots,
+  });
+
+  observations.score = scoreRun(checks, weights, visualScoreOf(visual)).overall;
 
   return finish();
+}
+
+/**
+ * Photographs the page a check left behind, stores it, and describes where it went.
+ *
+ * **Every failure here returns undefined rather than propagating**, and that is the point: a
+ * screenshot is evidence *about* a run, not an observation *of* the application. A browser that
+ * would not photograph, or a disk with no room on it, must leave the run's score untouched —
+ * the alternative is a full disk being recorded as an agent that wrote a broken application,
+ * on a run that has already been paid for.
+ */
+async function capture(
+  session: BrowserSession,
+  store: ScreenshotStore | undefined,
+  run: { taskId: string; runId: string; check: BrowserCheck; now: () => Date },
+): Promise<ScreenshotRef | undefined> {
+  if (store === undefined) return undefined;
+
+  const shot = await session.screenshot();
+  if (!shot.ok) return undefined;
+
+  const captured: CapturedScreenshot = {
+    metadata: {
+      taskId: run.taskId,
+      runId: run.runId,
+      checkId: run.check.id,
+      viewport: {
+        // The measured size decides the name, and nothing else does. A check may resize partway
+        // through, so its declaration is not evidence about the page that was photographed — and
+        // falling back to it for an unrecognised size would produce exactly the mislabelled
+        // capture `viewportNameForSize` returns undefined to avoid. Null is the honest answer.
+        name: viewportNameForSize(shot.value.viewport) ?? null,
+        ...shot.value.viewport,
+      },
+      capturedAt: run.now().toISOString(),
+      reference: run.check.referenceScreenshot ?? null,
+    },
+    bytes: shot.value.bytes,
+  };
+
+  const stored = await store(captured);
+  return stored.ok ? refFromMetadata(captured.metadata, stored.value) : undefined;
 }
 
 /**
@@ -244,6 +360,11 @@ async function runBrowserCheckWith(
   factory: BrowserSessionFactory | undefined,
   check: BrowserCheck,
   baseUrl: string,
+  /**
+   * Run against the live session after the check and before it closes — the only window in
+   * which the page the check left behind still exists.
+   */
+  afterCheck: (session: BrowserSession) => Promise<void>,
 ): Promise<Result<CheckResult, BrowserUnavailable>> {
   if (factory === undefined) {
     return {
@@ -262,6 +383,9 @@ async function runBrowserCheckWith(
 
   try {
     const result = await runBrowserCheck(opened.value, check, { baseUrl });
+    // Photographed whatever the check concluded: a *failed* check is the one whose picture is
+    // most worth having, since it is the one somebody will want to look at.
+    await afterCheck(opened.value);
     if (result.ok) return result;
 
     return { ok: false, error: { reason: "unavailable", detail: result.error.message } };

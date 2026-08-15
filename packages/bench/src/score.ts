@@ -31,13 +31,30 @@ function producedResult(result: CheckResult): boolean {
   return result.outcome === "passed" || result.outcome === "failed";
 }
 
-export function scoreRun(results: readonly CheckResult[], weights: CategoryWeights): RunScore {
+/**
+ * Scores a run's checks, optionally with a visual judgement that came from outside them.
+ *
+ * **`visualScore` is `undefined`, not zero, when nobody judged.** That is the renormalisation:
+ * an unevaluated visual category is dropped and its 15% redistributed, so a run today can still
+ * reach 100 rather than capping at 85 for a judge that does not exist. Scoring it zero was
+ * considered and rejected in docs/adr/0002.
+ *
+ * The visual category is the one that can be present without checks, because it is the one
+ * measured by looking rather than by asserting — which is why `CategoryScore.checks` may be 0
+ * for it alone.
+ */
+export function scoreRun(
+  results: readonly CheckResult[],
+  weights: CategoryWeights,
+  visualScore?: number | undefined,
+): RunScore {
   const scored = results.filter(producedResult);
+  const hasVisual = visualScore !== undefined;
 
   const present = CATEGORIES.map((category) => ({
     category,
     checks: scored.filter((result) => result.category === category),
-  })).filter((entry) => entry.checks.length > 0);
+  })).filter((entry) => entry.checks.length > 0 || (entry.category === "visual" && hasVisual));
 
   if (present.length === 0) return { overall: null, categories: [] };
 
@@ -62,7 +79,11 @@ export function scoreRun(results: readonly CheckResult[], weights: CategoryWeigh
 
   const categories: CategoryScore[] = present.map((entry, index) => ({
     category: entry.category,
-    score: scoreCategory(entry.checks),
+    // A supplied visual score is the visual category's, even where checks also scored into it.
+    // Both at once is a configuration nothing produces today; if it arises, the judge looked at
+    // the rendered result while a check measured one property of it, and `checks` below still
+    // records that the checks were there.
+    score: entry.category === "visual" && hasVisual ? visualScore : scoreCategory(entry.checks),
     effectiveWeight: effectiveWeights[index] ?? 0,
     checks: entry.checks.length,
   }));
