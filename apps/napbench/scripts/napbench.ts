@@ -35,6 +35,7 @@ import {
   NAPBENCH_USAGE,
   parseNapBenchArgs,
 } from "@nap/bench/cli";
+import { compareRuns, formatComparison } from "@nap/bench/compare";
 import { deriveRunMetrics } from "@nap/bench/metrics";
 import { type BenchReport, evaluatorErrorReport } from "@nap/bench/report";
 import { type BenchRunResult, runBenchTask } from "@nap/bench/runner";
@@ -54,6 +55,7 @@ import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-m
 import { loadEnvFile } from "@nap/shared/env-file";
 import type { LLMProvider } from "@nap/shared/ports/llm-provider";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
+import { loadBenchReport } from "../src/load-report.ts";
 import { launchPlaywrightBrowser } from "../src/playwright-browser-session.ts";
 import { resolveResultsDir } from "../src/results-dir.ts";
 import { writeBenchReport, writeBenchTrajectory } from "../src/write-report.ts";
@@ -68,7 +70,16 @@ if (!parsedArgs.ok) {
   console.error(`${parsedArgs.error}\n\n${NAPBENCH_USAGE}`);
   process.exit(1);
 }
-const options = parsedArgs.value;
+const command = parsedArgs.value;
+
+const resultsDir = resolveResultsDir(REPO_ROOT);
+
+// Comparison reads two files and stops. It creates no session, no sandbox and no model call,
+// which is why it is answered here rather than anywhere near the run wiring below.
+if (command.kind === "compare") {
+  process.exit(await compareTwoRuns(command.baseline, command.candidate));
+}
+const options = command;
 
 // Resolved before anything is created, so a mistyped task id costs a sentence rather than a
 // sandbox.
@@ -78,8 +89,6 @@ if (!selected.ok) {
   process.exit(1);
 }
 const { name: selectionName, tasks } = selected.value;
-
-const resultsDir = resolveResultsDir(REPO_ROOT);
 
 /**
  * A model that writes one file and answers, once per prompt the task asks.
@@ -339,4 +348,37 @@ async function releaseSandbox(sessionId: string, sessions: InMemorySessionStore)
 
 function describe(error: unknown): string {
   return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+}
+
+/**
+ * Loads two reports and prints what moved between them.
+ *
+ * Returns an exit code rather than exiting, so the one place that decides how this process ends
+ * stays the one place. Non-zero covers both "a report could not be read" and "these two runs may
+ * not be compared" — a refused comparison is a question that went unanswered, and a script
+ * checking the code should hear about it.
+ */
+async function compareTwoRuns(baselineRef: string, candidateRef: string): Promise<number> {
+  const baseline = await loadBenchReport(resultsDir, baselineRef);
+  if (!baseline.ok) {
+    console.error(baseline.error);
+    return 1;
+  }
+
+  const candidate = await loadBenchReport(resultsDir, candidateRef);
+  if (!candidate.ok) {
+    console.error(candidate.error);
+    return 1;
+  }
+
+  const comparison = compareRuns(baseline.value, candidate.value);
+  if (!comparison.ok) {
+    // Refused rather than computed: two runs on different scales produce a plausible number
+    // that is not about anything. See docs/adr/0002.
+    console.error(`refusing to compare these runs — ${comparison.error}`);
+    return 1;
+  }
+
+  console.log(formatComparison(comparison.value));
+  return 0;
 }

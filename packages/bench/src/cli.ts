@@ -35,6 +35,7 @@ export const NAPBENCH_DEFAULTS = {
 export const NAPBENCH_USAGE = [
   "Usage: bun run napbench [options] <task-id>",
   "       bun run napbench [options] --suite=<name>",
+  "       bun run napbench --baseline=<run-id|path> --candidate=<run-id|path>",
   "",
   `  --suite=<name>          Run a named suite, serially (${SUITE_NAMES.join(" | ")})`,
   "  --real                  Use real E2B, a real model and a real browser. Costs money.",
@@ -44,6 +45,9 @@ export const NAPBENCH_USAGE = [
   `  --max-steps=<n>         Model calls allowed in a turn (default ${NAPBENCH_DEFAULTS.maxSteps})`,
   `  --budget-tokens=<n>     Context budget (default ${NAPBENCH_DEFAULTS.budgetTokens})`,
   "  --keep                  Leave each sandbox running instead of destroying it",
+  "",
+  "  --baseline=<ref>        Compare two finished runs instead of running anything. Each",
+  "  --candidate=<ref>       reference is a run id or a path to a report. Two runs, not three.",
   "",
   "Without --real it runs on a scripted model, an in-memory sandbox and a scripted browser:",
   "free, offline, and the scores mean nothing. It exercises the machinery, not a model.",
@@ -58,7 +62,14 @@ export type BenchEffort = (typeof EFFORT_LEVELS)[number];
 const PLATFORMS = ["openrouter", "anthropic", "bedrock"] as const;
 export type BenchPlatform = (typeof PLATFORMS)[number];
 
-export type NapBenchOptions = {
+/**
+ * A run of one task or one suite, and everything that decides what it costs.
+ *
+ * Every field here is meaningless to a comparison, which is why the two are separate members
+ * of one union rather than one object with half its fields ignored in each mode.
+ */
+export type NapBenchRun = {
+  kind: "run";
   selection: BenchSelection;
   /** False means fakes throughout: no network, no spend, and no meaning in the scores. */
   real: boolean;
@@ -70,7 +81,30 @@ export type NapBenchOptions = {
   keep: boolean;
 };
 
-const KNOWN_FLAGS = new Set([
+/**
+ * Two runs to subtract, named by run id or by path.
+ *
+ * Two, and exactly two: comparing three runs is a table rather than a diff, and v1 says so.
+ * Neither reference is resolved here — turning a run id into a file is the app's job, and this
+ * package touches no filesystem.
+ */
+export type NapBenchCompare = {
+  kind: "compare";
+  baseline: string;
+  candidate: string;
+};
+
+export type NapBenchCommand = NapBenchRun | NapBenchCompare;
+
+/**
+ * The flags that only mean something to a run.
+ *
+ * Named as a set so a comparison can refuse them by name. `--real` is the one that matters —
+ * on a comparison it reads as "spend money on this", and it never would — but the same argument
+ * covers the rest: a `--model` that silently does nothing is the sort of quiet that this parser
+ * refuses everywhere else.
+ */
+const RUN_ONLY_FLAGS = [
   "suite",
   "real",
   "platform",
@@ -79,9 +113,11 @@ const KNOWN_FLAGS = new Set([
   "max-steps",
   "budget-tokens",
   "keep",
-]);
+] as const;
 
-export function parseNapBenchArgs(argv: readonly string[]): Result<NapBenchOptions, string> {
+const KNOWN_FLAGS = new Set<string>([...RUN_ONLY_FLAGS, "baseline", "candidate"]);
+
+export function parseNapBenchArgs(argv: readonly string[]): Result<NapBenchCommand, string> {
   const flags = new Map<string, string>();
   const words: string[] = [];
 
@@ -95,6 +131,10 @@ export function parseNapBenchArgs(argv: readonly string[]): Result<NapBenchOptio
       return { ok: false, error: `unknown flag ${arg}` };
     }
     flags.set(name, value ?? "true");
+  }
+
+  if (flags.has("baseline") || flags.has("candidate")) {
+    return parseComparison(words, flags);
   }
 
   const selection = resolveArguments(words, flags.get("suite"));
@@ -123,6 +163,7 @@ export function parseNapBenchArgs(argv: readonly string[]): Result<NapBenchOptio
   return {
     ok: true,
     value: {
+      kind: "run",
       selection: selection.value,
       real: flags.has("real"),
       platform,
@@ -133,6 +174,53 @@ export function parseNapBenchArgs(argv: readonly string[]): Result<NapBenchOptio
       keep: flags.has("keep"),
     },
   };
+}
+
+/**
+ * Reads the two references, and refuses a comparison mixed with anything else.
+ *
+ * A comparison reads two files that already exist: it starts nothing, creates nothing and
+ * spends nothing. So a command line that asks for both a comparison and a run is asking for two
+ * different things, and picking one would run something half the people who typed it did not
+ * mean.
+ */
+function parseComparison(
+  words: readonly string[],
+  flags: ReadonlyMap<string, string>,
+): Result<NapBenchCompare, string> {
+  for (const name of ["baseline", "candidate"] as const) {
+    if (!flags.has(name)) {
+      return { ok: false, error: `--${name} is missing: a comparison needs both halves` };
+    }
+    // `--baseline` with no `=` parses as "true", which is not a run id and not a path.
+    if (flags.get(name) === "true") {
+      return { ok: false, error: `--${name} needs a run id or a path to a report` };
+    }
+  }
+
+  if (words.length > 0) {
+    return {
+      ok: false,
+      error: `napbench either compares two reports or runs something, not both — drop ${words.join(", ")}`,
+    };
+  }
+
+  const runOnly = RUN_ONLY_FLAGS.filter((name) => flags.has(name)).map((name) => `--${name}`);
+  if (runOnly.length > 0) {
+    return {
+      ok: false,
+      error: `${runOnly.join(", ")} ${runOnly.length === 1 ? "means" : "mean"} nothing to a comparison, which reads two reports and runs nothing`,
+    };
+  }
+
+  const baseline = flags.get("baseline");
+  const candidate = flags.get("candidate");
+  // Both were checked above; this is the narrowing, not a second check.
+  if (baseline === undefined || candidate === undefined) {
+    return { ok: false, error: "a comparison needs both --baseline and --candidate" };
+  }
+
+  return { ok: true, value: { kind: "compare", baseline, candidate } };
 }
 
 /**

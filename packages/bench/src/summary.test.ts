@@ -1,50 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_CATEGORY_WEIGHTS } from "./category.ts";
 import type { ErrorKind } from "./error-kind.ts";
 import type { BenchReport } from "./report.ts";
 import type { RunStatus } from "./status.ts";
 import { formatRunSummary, formatSuiteSummary, summariseSuite } from "./summary.ts";
-import { VISUAL_NOT_RUN } from "./visual.ts";
-
-const SESSION_ID = "2a3f8a24-6c1b-4e0e-9b6f-3a5c0a1d9e77";
-const TURN_ID = "7c9b1a52-8d3e-4f21-a0c4-1b2d3e4f5a6b";
-
-function report(overrides: Partial<BenchReport> = {}): BenchReport {
-  return {
-    runId: crypto.randomUUID(),
-    taskId: "todo-crud",
-    sessionId: SESSION_ID,
-    turnId: TURN_ID,
-    status: "passed",
-    errorKind: null,
-    gates: [],
-    scoreCap: null,
-    score: 100,
-    categories: [],
-    weights: DEFAULT_CATEGORY_WEIGHTS,
-    checks: [],
-    metrics: {
-      toolCalls: 0,
-      toolFailures: 0,
-      commands: 0,
-      filesChanged: 0,
-      turns: { started: 1, completed: 1, failed: 0, cancelled: 0 },
-    },
-    screenshots: [],
-    visual: VISUAL_NOT_RUN,
-    ...overrides,
-  };
-}
+import { benchCheck, benchReport } from "./testing/bench-report.ts";
 
 function scored(status: RunStatus, score: number): BenchReport {
-  return report({ status, score });
+  return benchReport({ status, score });
 }
 
 function errored(errorKind: ErrorKind): BenchReport {
-  return report({ status: "errored", score: null, errorKind });
+  return benchReport({ status: "errored", score: null, errorKind });
 }
 
-const cancelled = (): BenchReport => report({ status: "cancelled", score: null });
+const cancelled = (): BenchReport => benchReport({ status: "cancelled", score: null });
 
 describe("summariseSuite", () => {
   it("means over the runs that produced a score, not over every run", () => {
@@ -154,7 +123,7 @@ describe("formatSuiteSummary", () => {
 describe("formatRunSummary", () => {
   it("shows the status, the category scores, the overall and what the run cost", () => {
     const text = formatRunSummary(
-      report({
+      benchReport({
         taskId: "landing-page",
         status: "failed",
         score: 17,
@@ -163,16 +132,7 @@ describe("formatRunSummary", () => {
           { category: "code", score: 100, effectiveWeight: 16.7, checks: 1 },
         ],
         checks: [
-          {
-            checkId: "builds",
-            kind: "command",
-            category: "functional",
-            weight: 1,
-            required: false,
-            build: true,
-            outcome: "failed",
-            detail: "exit 1",
-          },
+          benchCheck({ checkId: "builds", build: true, outcome: "failed", detail: "exit 1" }),
         ],
         metrics: {
           toolCalls: 7,
@@ -199,28 +159,10 @@ describe("formatRunSummary", () => {
 
   it("counts every check, so a category score can be read against what it was over", () => {
     const text = formatRunSummary(
-      report({
+      benchReport({
         checks: [
-          {
-            checkId: "builds",
-            kind: "command",
-            category: "functional",
-            weight: 1,
-            required: false,
-            build: true,
-            outcome: "passed",
-            detail: "exit 0",
-          },
-          {
-            checkId: "lints",
-            kind: "command",
-            category: "code",
-            weight: 1,
-            required: false,
-            build: false,
-            outcome: "failed",
-            detail: "exit 1",
-          },
+          benchCheck({ checkId: "builds", build: true }),
+          benchCheck({ checkId: "lints", category: "code", outcome: "failed", detail: "exit 1" }),
         ],
       }),
     );

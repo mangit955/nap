@@ -1,10 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { NAPBENCH_DEFAULTS, parseNapBenchArgs } from "./cli.ts";
+import { NAPBENCH_DEFAULTS, type NapBenchRun, parseNapBenchArgs } from "./cli.ts";
 
 function parsed(...argv: string[]) {
   const result = parseNapBenchArgs(argv);
   if (!result.ok) throw new Error(`expected a parse, got: ${result.error}`);
   return result.value;
+}
+
+/** The same, narrowed to a run — the mode nearly every test here is about. */
+function parsedRun(...argv: string[]): NapBenchRun {
+  const command = parsed(...argv);
+  if (command.kind !== "run") throw new Error(`expected a run, got a ${command.kind}`);
+  return command;
 }
 
 function rejected(...argv: string[]): string {
@@ -15,11 +22,11 @@ function rejected(...argv: string[]): string {
 
 describe("parseNapBenchArgs", () => {
   it("takes a bare word as the task to run", () => {
-    expect(parsed("todo-crud").selection).toEqual({ kind: "task", taskId: "todo-crud" });
+    expect(parsedRun("todo-crud").selection).toEqual({ kind: "task", taskId: "todo-crud" });
   });
 
   it("takes --suite as the suite to run", () => {
-    expect(parsed("--suite=all").selection).toEqual({ kind: "suite", suiteName: "all" });
+    expect(parsedRun("--suite=all").selection).toEqual({ kind: "suite", suiteName: "all" });
   });
 
   it("refuses being given both a task and a suite", () => {
@@ -43,12 +50,12 @@ describe("parseNapBenchArgs", () => {
   it("is a dry run unless --real is given", () => {
     // The default is the one that decides whether money is spent, so it is asserted
     // directly rather than implied by the others.
-    expect(parsed("todo-crud").real).toBe(false);
-    expect(parsed("--real", "todo-crud").real).toBe(true);
+    expect(parsedRun("todo-crud").real).toBe(false);
+    expect(parsedRun("--real", "todo-crud").real).toBe(true);
   });
 
   it("defaults a real run to the cheap configuration", () => {
-    const options = parsed("--real", "todo-crud");
+    const options = parsedRun("--real", "todo-crud");
 
     expect(options.model).toBe(NAPBENCH_DEFAULTS.model);
     expect(options.platform).toBe(NAPBENCH_DEFAULTS.platform);
@@ -59,7 +66,7 @@ describe("parseNapBenchArgs", () => {
 
   it("accepts overrides for the model, platform, effort and ceilings", () => {
     expect(
-      parsed(
+      parsedRun(
         "--real",
         "--suite=all",
         "--platform=anthropic",
@@ -70,6 +77,7 @@ describe("parseNapBenchArgs", () => {
         "--keep",
       ),
     ).toStrictEqual({
+      kind: "run",
       selection: { kind: "suite", suiteName: "all" },
       real: true,
       platform: "anthropic",
@@ -95,5 +103,40 @@ describe("parseNapBenchArgs", () => {
   it("refuses an effort level and a platform it does not know", () => {
     expect(rejected("--effort=maximum", "todo-crud")).toMatch(/effort must be one of/);
     expect(rejected("--platform=openai", "todo-crud")).toMatch(/platform must be one of/);
+  });
+});
+
+describe("parseNapBenchArgs, comparing two runs", () => {
+  it("takes a baseline and a candidate, by run id or by path", () => {
+    expect(
+      parsed("--baseline=3f2a1c4e-0000-4000-8000-000000000001", "--candidate=./out/x.json"),
+    ).toStrictEqual({
+      kind: "compare",
+      baseline: "3f2a1c4e-0000-4000-8000-000000000001",
+      candidate: "./out/x.json",
+    });
+  });
+
+  it("refuses half a comparison", () => {
+    // Silently running the baseline as a task, or comparing it with nothing, are both worse
+    // than saying which half is missing.
+    expect(rejected("--baseline=abc")).toMatch(/--candidate/);
+    expect(rejected("--candidate=abc")).toMatch(/--baseline/);
+  });
+
+  it("refuses a comparison that also names something to run", () => {
+    expect(rejected("--baseline=a", "--candidate=b", "todo-crud")).toMatch(/compares|runs/i);
+    expect(rejected("--baseline=a", "--candidate=b", "--suite=all")).toMatch(/compares|runs/i);
+  });
+
+  it("refuses the flags that only mean something to a run, rather than ignoring them", () => {
+    // `--real` on a comparison reads as "spend money on this", and it never would — which is
+    // exactly the kind of silence the parser refuses everywhere else.
+    expect(rejected("--baseline=a", "--candidate=b", "--real")).toMatch(/--real/);
+    expect(rejected("--baseline=a", "--candidate=b", "--model=x")).toMatch(/--model/);
+  });
+
+  it("refuses a baseline or candidate with no value", () => {
+    expect(rejected("--baseline", "--candidate=b")).toMatch(/--baseline needs/);
   });
 });
