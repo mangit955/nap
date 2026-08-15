@@ -142,3 +142,25 @@ because one task routinely photographs several viewports.
 **Suite** — a named set of tasks run together, and the level at which a model is characterised
 rather than a single result observed. Reports a mean over completed runs beside an explicit error
 rate, because a run whose turn failed has no score and would otherwise vanish from the average.
+
+**Comparison** — two runs of the same task, and what moved between them: overall, per category and
+per check. The **baseline** is what was, the **candidate** is what is; a candidate that scores
+worse is a regression against that baseline and nothing else. Two runs, never three — three is a
+table rather than a diff. **Refused** whenever the two effective weight vectors differ, because
+renormalisation means a score is only meaningful relative to the categories that produced it; the
+*configured* vector deliberately does not decide, since reweighting a category neither run scored
+renormalises to the same vector and those runs are comparable. Refusal is skipped when either run
+has no score: there is no number there to reprice, and refusing would make an errored run
+incomparable with everything, which is when its counterpart is most worth reading.
+
+**Check movement** — what happened to one check between the two runs: *fixed*, *broken*, *changed*,
+*unchanged*, *added* or *removed*. `changed` is the one that earns its place: a check that went
+absent is neither a regression nor a repair — the run never asked — but it renormalises its
+category out and moves the score, so calling it unchanged would leave a moved number with nothing
+explaining it.
+
+**Route** — what the agent *did* on the way to a result, as opposed to how long it took: tool calls,
+tool failures, commands run and files touched. The distinction is load-bearing for the claim
+"same score, different route", which is about two runs doing different things. Duration and token
+counts are reported beside it and deliberately excluded from deciding it, since both vary between
+two runs that did identical work.

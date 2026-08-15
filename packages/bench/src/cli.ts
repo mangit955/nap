@@ -188,14 +188,25 @@ function parseComparison(
   words: readonly string[],
   flags: ReadonlyMap<string, string>,
 ): Result<NapBenchCompare, string> {
-  for (const name of ["baseline", "candidate"] as const) {
-    if (!flags.has(name)) {
+  const baseline = flags.get("baseline");
+  const candidate = flags.get("candidate");
+
+  for (const [name, value] of [
+    ["baseline", baseline],
+    ["candidate", candidate],
+  ] as const) {
+    if (value === undefined) {
       return { ok: false, error: `--${name} is missing: a comparison needs both halves` };
     }
     // `--baseline` with no `=` parses as "true", which is not a run id and not a path.
-    if (flags.get(name) === "true") {
+    if (value === "true") {
       return { ok: false, error: `--${name} needs a run id or a path to a report` };
     }
+  }
+  if (baseline === undefined || candidate === undefined) {
+    // Unreachable: the loop above returned for either. Written as a narrowing rather than a
+    // check, because an error string here could never be observed failing.
+    throw new Error("a missing half was not refused");
   }
 
   if (words.length > 0) {
@@ -211,13 +222,6 @@ function parseComparison(
       ok: false,
       error: `${runOnly.join(", ")} ${runOnly.length === 1 ? "means" : "mean"} nothing to a comparison, which reads two reports and runs nothing`,
     };
-  }
-
-  const baseline = flags.get("baseline");
-  const candidate = flags.get("candidate");
-  // Both were checked above; this is the narrowing, not a second check.
-  if (baseline === undefined || candidate === undefined) {
-    return { ok: false, error: "a comparison needs both --baseline and --candidate" };
   }
 
   return { ok: true, value: { kind: "compare", baseline, candidate } };

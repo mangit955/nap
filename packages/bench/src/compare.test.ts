@@ -252,13 +252,30 @@ describe("compareRuns", () => {
 });
 
 describe("compareRuns refuses what cannot honestly be compared", () => {
-  it("refuses two runs scored under different configured weights", () => {
+  it("refuses two runs whose configured weights moved the effective vector", () => {
     const [baseline, candidate] = pair(
       {},
-      { weights: { functional: 40, browser: 25, visual: 15, code: 20 } },
+      {
+        weights: { functional: 40, browser: 25, visual: 15, code: 20 },
+        categories: [
+          { category: "functional", score: 50, effectiveWeight: 66.7, checks: 2 },
+          { category: "code", score: 100, effectiveWeight: 33.3, checks: 1 },
+        ],
+      },
     );
 
     expect(refused(baseline, candidate)).toMatch(/weight/i);
+  });
+
+  it("compares two runs whose configured weights differ where it made no difference", () => {
+    // Reweighting a category that neither run scored changes nothing: both renormalise to the
+    // same vector, and ADR-0002 refuses on the *effective* one for exactly this reason.
+    const [baseline, candidate] = pair(
+      {},
+      { weights: { functional: 50, browser: 25, visual: 40, code: 10 } },
+    );
+
+    expect(compareRuns(baseline, candidate).ok).toBe(true);
   });
 
   it("refuses two runs whose effective vectors differ, even under the same configuration", () => {
@@ -362,5 +379,57 @@ describe("formatComparison", () => {
     );
 
     expect(formatComparison(compared(baseline, candidate))).toMatch(/same score, different route/i);
+  });
+});
+
+describe("compareRuns on the parts a score alone would hide", () => {
+  it("calls a check that stopped being asked a change, not a non-event", () => {
+    // An absent check renormalises its category out and moves the overall score (ADR-0002),
+    // so calling it "unchanged" would hand somebody a moved number with nothing explaining it.
+    const [baseline, candidate] = pair(
+      { checks: [benchCheck({ checkId: "drives-the-app", outcome: "passed" })] },
+      { checks: [benchCheck({ checkId: "drives-the-app", outcome: "absent", detail: "—" })] },
+    );
+
+    const [check] = compared(baseline, candidate).checks;
+    expect(check?.movement).toBe("changed");
+    expect(formatComparison(compared(baseline, candidate))).toMatch(/drives-the-app/);
+  });
+
+  it("keeps a category only one run scored, rather than dropping it", () => {
+    // The case this matters in is an unscored baseline: the candidate's whole breakdown is
+    // what somebody is looking at, and intersecting the two lists erases it.
+    const baseline = benchReport({ status: "errored", score: null, errorKind: "sandbox" });
+    const candidate = benchReport({
+      status: "failed",
+      score: 58,
+      categories: [{ category: "functional", score: 58, effectiveWeight: 100, checks: 2 }],
+    });
+
+    expect(compared(baseline, candidate).categories).toEqual([
+      {
+        category: "functional",
+        baseline: null,
+        candidate: 58,
+        delta: null,
+        effectiveWeight: 100,
+      },
+    ]);
+  });
+
+  it("prints how much longer the same work took", () => {
+    const metrics = {
+      toolCalls: 4,
+      toolFailures: 0,
+      commands: 1,
+      filesChanged: 2,
+      turns: { started: 1, completed: 1, failed: 0, cancelled: 0 },
+    };
+    const [baseline, candidate] = pair(
+      { metrics: { ...metrics, turnDurationMs: 30_000 } },
+      { metrics: { ...metrics, turnDurationMs: 95_000 } },
+    );
+
+    expect(formatComparison(compared(baseline, candidate))).toMatch(/30\.0s → 95\.0s/);
   });
 });

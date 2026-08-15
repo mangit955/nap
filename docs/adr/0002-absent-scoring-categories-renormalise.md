@@ -109,6 +109,20 @@ Scoring cannot be written as a fixed four-term expression. It is a fold over the
 produced results, which is slightly more code and considerably more testable: the renormalisation,
 the absent-versus-failed distinction and each gate are separate pure functions with their own tests.
 
+## Two refinements, from building the comparison
+
+**The refusal is on the effective vector alone, not the configured one.** They answer different
+questions, and only the effective vector is about whether two numbers are on one scale. Reweighting
+a category that neither run scored changes the configuration and renormalises to exactly the same
+effective vector — those two runs are comparable, and refusing them would be strictness bought with
+a false reason. A configured change that genuinely moved the scale is caught anyway, because it
+moved the effective vector.
+
+**The refusal does not apply when either run has no score.** There is nothing to reprice on a run
+that produced no number, and an unscored run has no categories at all — so refusing on a vector
+mismatch would make an errored run incomparable with everything, which is exactly when its
+counterpart is most worth reading.
+
 ## Alternatives considered
 
 **Treat absent as zero.** Visual not run means visual scores 0, so nothing can exceed 85 overall

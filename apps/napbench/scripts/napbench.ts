@@ -274,7 +274,7 @@ for (const task of tasks) {
     // NapBench's own crash. Recorded as an `evaluator` error rather than allowed to abort the
     // suite: the remaining tasks are still worth running, and the aggregate has to show that
     // this one produced nothing rather than quietly containing one run fewer.
-    console.error(`  the benchmark itself failed: ${describe(error)}`);
+    console.error(`  the benchmark itself failed: ${messageOf(error)}`);
     reports.push(
       evaluatorErrorReport({
         runId,
@@ -346,7 +346,7 @@ async function releaseSandbox(sessionId: string, sessions: InMemorySessionStore)
   await sandbox.destroy(sandboxId);
 }
 
-function describe(error: unknown): string {
+function messageOf(error: unknown): string {
   return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
 }
 

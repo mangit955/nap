@@ -19,8 +19,9 @@
  */
 
 import type { Result } from "@nap/shared/result";
-import type { Category, CategoryWeights } from "./category.ts";
+import { CATEGORIES, type Category } from "./category.ts";
 import type { ErrorKind } from "./error-kind.ts";
+import type { RunMetrics } from "./metrics.ts";
 import type { BenchReport, CheckOutcome } from "./report.ts";
 import { carriesScore, type RunStatus } from "./status.ts";
 
@@ -35,10 +36,12 @@ export type RunSide = {
 
 export type CategoryDelta = {
   category: Category;
-  baseline: number;
-  candidate: number;
-  delta: number;
-  /** Shared by both sides — a differing vector is refused before this is built. */
+  /** Null when that side did not score this category at all, which only an unscored run does. */
+  baseline: number | null;
+  candidate: number | null;
+  /** Null whenever either side is, since a delta from nothing is not a delta. */
+  delta: number | null;
+  /** Shared by both sides when both scored it — a differing vector is refused before this. */
   effectiveWeight: number;
 };
 
@@ -49,7 +52,7 @@ export type CategoryDelta = {
  * usually the task having changed underneath the comparison, which is the most important thing
  * a reader can be told and the easiest to hide by quietly intersecting the two lists.
  */
-export type CheckMovement = "fixed" | "broken" | "unchanged" | "added" | "removed";
+export type CheckMovement = "fixed" | "broken" | "changed" | "unchanged" | "added" | "removed";
 
 export type CheckDelta = {
   checkId: string;
@@ -136,10 +139,13 @@ export function compareRuns(
 /**
  * Why these two runs may not be subtracted, or null if they may.
  *
- * Both the configured vector and the effective one, because they answer different questions: a
- * changed configuration means somebody reweighted the benchmark, and a changed effective vector
- * means the runs scored over different sets of categories. Either makes the two numbers scales
- * apart, and only the second is visible in the report's own arithmetic.
+ * The *effective* vector decides, and the configured one deliberately does not. They answer
+ * different questions, and only the first is about whether two numbers are on one scale:
+ * reweighting a category that neither run scored changes the configuration and renormalises to
+ * exactly the same effective vector, so those two runs are comparable and refusing them would
+ * be strictness bought with a false reason. A configured change that *did* move the scale shows
+ * up here anyway, because it moved the effective vector. ADR-0002 names this one for the same
+ * reason.
  *
  * Skipped entirely when either run has no score. There is nothing to reprice on a run that
  * produced no number, and refusing there would make an errored run incomparable with anything —
@@ -147,46 +153,38 @@ export function compareRuns(
  */
 function weightsRefusal(baseline: BenchReport, candidate: BenchReport): string | null {
   if (!carriesScore(baseline.status) || !carriesScore(candidate.status)) return null;
+  if (sameEffectiveVector(baseline, candidate)) return null;
 
-  if (!sameWeights(baseline.weights, candidate.weights)) {
-    return (
-      "these runs were scored under different category weights " +
-      `(${describeWeights(baseline.weights)} and ${describeWeights(candidate.weights)}), ` +
-      "so their scores are not on the same scale and a difference between them means nothing."
-    );
-  }
-
-  const before = effectiveVector(baseline);
-  const after = effectiveVector(candidate);
-  if (before !== after) {
-    return (
-      `these runs have different effective weight vectors — ${before} and ${after}. ` +
-      "An absent category renormalises the rest, so the two scores are on different scales " +
-      "and the difference between them is not a measurement."
-    );
-  }
-
-  return null;
-}
-
-function sameWeights(baseline: CategoryWeights, candidate: CategoryWeights): boolean {
   return (
-    baseline.functional === candidate.functional &&
-    baseline.browser === candidate.browser &&
-    baseline.visual === candidate.visual &&
-    baseline.code === candidate.code
+    `these runs have different effective weight vectors — ${effectiveVector(baseline)} and ` +
+    `${effectiveVector(candidate)}. An absent category renormalises the rest, so the two ` +
+    "scores are on different scales and the difference between them is not a measurement."
   );
 }
 
-/** The effective vector as one comparable string, which is also what a refusal can print. */
+/**
+ * Whether the two runs were scored over the same categories at the same shares.
+ *
+ * Compared structurally rather than by formatting both and matching the strings: rounding to a
+ * decimal place would call two vectors equal that are not, and matching formatted text would
+ * make the *order* the report happened to list its categories in load-bearing for a refusal
+ * this whole module exists to get right.
+ */
+function sameEffectiveVector(baseline: BenchReport, candidate: BenchReport): boolean {
+  if (baseline.categories.length !== candidate.categories.length) return false;
+
+  const after = new Map(
+    candidate.categories.map((entry) => [entry.category, entry.effectiveWeight]),
+  );
+  return baseline.categories.every((entry) => after.get(entry.category) === entry.effectiveWeight);
+}
+
+/** The effective vector as one readable string. For the message only; nothing decides on it. */
 function effectiveVector(report: BenchReport): string {
+  if (report.categories.length === 0) return "none";
   return report.categories
     .map((entry) => `${entry.category} ${entry.effectiveWeight.toFixed(1)}%`)
     .join(", ");
-}
-
-function describeWeights(weights: CategoryWeights): string {
-  return `${weights.functional}/${weights.browser}/${weights.visual}/${weights.code}`;
 }
 
 function sideOf(report: BenchReport): RunSide {
@@ -199,25 +197,30 @@ function sideOf(report: BenchReport): RunSide {
 }
 
 /**
- * Categories in the baseline's order, which is the canonical one every report is built in.
+ * Every category either run scored, in the canonical order reports are built in.
  *
- * Only the categories both runs scored appear, and by this point that is all of them: a
- * differing set was refused above, and an unscored run has none at all.
+ * A union rather than an intersection, and the case that makes the difference is an unscored
+ * run: it has no categories at all, so intersecting would erase the *other* side's whole
+ * breakdown — which is precisely what somebody comparing against an errored run is looking at.
+ * Two scored runs always agree on the set, because a differing one was refused above.
  */
 function compareCategories(baseline: BenchReport, candidate: BenchReport): CategoryDelta[] {
+  const before = new Map(baseline.categories.map((entry) => [entry.category, entry]));
   const after = new Map(candidate.categories.map((entry) => [entry.category, entry]));
 
-  return baseline.categories.flatMap((entry) => {
-    const other = after.get(entry.category);
-    if (other === undefined) return [];
+  return CATEGORIES.flatMap((category) => {
+    const left = before.get(category);
+    const right = after.get(category);
+    if (left === undefined && right === undefined) return [];
 
     return [
       {
-        category: entry.category,
-        baseline: entry.score,
-        candidate: other.score,
-        delta: other.score - entry.score,
-        effectiveWeight: entry.effectiveWeight,
+        category,
+        baseline: left?.score ?? null,
+        candidate: right?.score ?? null,
+        delta: left === undefined || right === undefined ? null : right.score - left.score,
+        // Equal on both sides whenever both are present, and whichever one exists otherwise.
+        effectiveWeight: left?.effectiveWeight ?? right?.effectiveWeight ?? 0,
       },
     ];
   });
@@ -263,9 +266,14 @@ function compareChecks(baseline: BenchReport, candidate: BenchReport): CheckDelt
 /**
  * What one check's pair of outcomes means.
  *
- * `absent` counts as neither fixed nor broken in either direction: it means the run never asked,
- * which is a fact about the circumstances rather than about the agent — the same distinction
- * scoring makes, and it would be undone by calling passed-to-absent a regression.
+ * `absent` is neither fixed nor broken in either direction: it means the run never asked, which
+ * is a fact about the circumstances rather than about the agent, and calling passed-to-absent a
+ * regression would undo the distinction the whole scoring model rests on.
+ *
+ * But it is not *nothing* either, which is the mistake this used to make. An absent check
+ * renormalises its category out of the weighting and moves the overall score (ADR-0002), so
+ * recording it as unchanged hands a reader a number that moved with no check to explain it.
+ * Hence `changed`: something happened here, and it was not the agent getting better or worse.
  */
 function movementOf(baseline: CheckOutcome | null, candidate: CheckOutcome | null): CheckMovement {
   if (candidate === null) return "removed";
@@ -273,60 +281,77 @@ function movementOf(baseline: CheckOutcome | null, candidate: CheckOutcome | nul
   if (baseline === candidate) return "unchanged";
   if (baseline === "failed" && candidate === "passed") return "fixed";
   if (baseline === "passed" && candidate === "failed") return "broken";
-  return "unchanged";
-}
-
-function compareMetrics(baseline: BenchReport, candidate: BenchReport): MetricComparison {
-  const before = baseline.metrics;
-  const after = candidate.metrics;
-
-  return {
-    ...delta("toolCalls", before.toolCalls, after.toolCalls),
-    ...delta("toolFailures", before.toolFailures, after.toolFailures),
-    ...delta("commands", before.commands, after.commands),
-    ...delta("filesChanged", before.filesChanged, after.filesChanged),
-    ...delta("inputTokens", before.tokens?.inputTokens, after.tokens?.inputTokens),
-    ...delta("outputTokens", before.tokens?.outputTokens, after.tokens?.outputTokens),
-    ...delta("turnDurationMs", before.turnDurationMs, after.turnDurationMs),
-  };
+  return "changed";
 }
 
 /**
- * One figure, present only when both runs measured it.
+ * Every figure a comparison carries, described once.
+ *
+ * One table rather than three lists, because they used to be three — the type, the fold that
+ * built it, the set that decided "different route" and the list that printed it — and a figure
+ * added to one and forgotten in another is exactly how `turnDurationMs` came to be computed on
+ * every comparison and displayed on none.
+ */
+type MetricField = {
+  key: keyof MetricComparison;
+  label: string;
+  read: (metrics: RunMetrics) => number | undefined;
+  /**
+   * Whether a difference here means the two runs *did* different things.
+   *
+   * False for time and tokens. Both vary between two runs that did exactly the same work — a
+   * millisecond either way, a few tokens of sampling difference — so a "different route" claim
+   * resting on them would fire on every pair, which is how a signal becomes noise. They are
+   * still reported; they just do not decide.
+   */
+  shape: boolean;
+  format?: (value: number) => string;
+};
+
+const seconds = (value: number): string => `${(value / 1000).toFixed(1)}s`;
+
+const METRIC_FIELDS: readonly MetricField[] = [
+  { key: "toolCalls", label: "tools", read: (m) => m.toolCalls, shape: true },
+  { key: "toolFailures", label: "tool failures", read: (m) => m.toolFailures, shape: true },
+  { key: "commands", label: "commands", read: (m) => m.commands, shape: true },
+  { key: "filesChanged", label: "files", read: (m) => m.filesChanged, shape: true },
+  { key: "inputTokens", label: "in", read: (m) => m.tokens?.inputTokens, shape: false },
+  { key: "outputTokens", label: "out", read: (m) => m.tokens?.outputTokens, shape: false },
+  {
+    key: "turnDurationMs",
+    label: "turn time",
+    read: (m) => m.turnDurationMs,
+    shape: false,
+    format: seconds,
+  },
+];
+
+/**
+ * Each figure, present only when both runs measured it.
  *
  * A figure one side is missing is dropped rather than defaulted to zero: the absent side did
  * not measure nothing, it measured nothing *measurable*, and a delta against a stand-in zero
  * would read as a change the runs never made.
  */
-function delta<K extends keyof MetricComparison>(
-  key: K,
-  baseline: number | undefined,
-  candidate: number | undefined,
-): Partial<Record<K, MetricDelta>> {
-  if (baseline === undefined || candidate === undefined) return {};
-  return { [key]: { baseline, candidate, delta: candidate - baseline } } as Record<K, MetricDelta>;
-}
+function compareMetrics(baseline: BenchReport, candidate: BenchReport): MetricComparison {
+  const comparison: MetricComparison = {};
 
-/**
- * The figures that describe the *shape* of a route rather than its size.
- *
- * Duration and token counts are deliberately not here. They vary between two runs that did
- * exactly the same thing — a millisecond either way, a few tokens of sampling difference — so a
- * flag that watched them would announce "different route" on every pair, which is the fastest
- * way to make a signal worth ignoring. What actually distinguishes two routes is what the agent
- * *did*: how many tools it called, how many of those failed, how many commands it ran and how
- * many files it ended up touching. Both are still printed; only these decide the claim.
- */
-const ROUTE_SHAPE: (keyof MetricComparison)[] = [
-  "toolCalls",
-  "toolFailures",
-  "commands",
-  "filesChanged",
-];
+  for (const field of METRIC_FIELDS) {
+    const before = field.read(baseline.metrics);
+    const after = field.read(candidate.metrics);
+    if (before === undefined || after === undefined) continue;
+
+    comparison[field.key] = { baseline: before, candidate: after, delta: after - before };
+  }
+
+  return comparison;
+}
 
 /** Whether the two runs did different things, as opposed to taking different lengths of time. */
 function routeDiffers(metrics: MetricComparison): boolean {
-  return ROUTE_SHAPE.some((key) => (metrics[key]?.delta ?? 0) !== 0);
+  return METRIC_FIELDS.filter((field) => field.shape).some(
+    (field) => (metrics[field.key]?.delta ?? 0) !== 0,
+  );
 }
 
 /**
@@ -340,12 +365,12 @@ export function formatComparison(comparison: RunComparison): string {
   const lines = [
     "",
     `${comparison.taskId} — ${short(comparison.baseline.runId)} → ${short(comparison.candidate.runId)}`,
-    `  overall      ${movement(comparison.baseline.score, comparison.candidate.score, comparison.scoreDelta)}`,
+    `  overall      ${arrow(comparison.baseline.score, comparison.candidate.score, comparison.scoreDelta)}`,
   ];
 
   for (const category of comparison.categories) {
     lines.push(
-      `  ${category.category.padEnd(12, " ")} ${movement(
+      `  ${category.category.padEnd(12, " ")} ${arrow(
         category.baseline,
         category.candidate,
         category.delta,
@@ -390,13 +415,14 @@ export function formatComparison(comparison: RunComparison): string {
 const MOVEMENT_MARKS: Record<CheckMovement, string> = {
   fixed: "✓",
   broken: "✗",
+  changed: "~",
   unchanged: "·",
   added: "+",
   removed: "−",
 };
 
 /** `50 → 100 (+50)`, with the sign always shown, because an unsigned delta reads as a total. */
-function movement(baseline: number | null, candidate: number | null, delta: number | null): string {
+function arrow(baseline: number | null, candidate: number | null, delta: number | null): string {
   const from = baseline === null ? "—" : String(baseline);
   const to = candidate === null ? "—" : String(candidate);
   return delta === null ? `${from} → ${to}` : `${from} → ${to} (${signed(delta)})`;
@@ -404,26 +430,22 @@ function movement(baseline: number | null, candidate: number | null, delta: numb
 
 function describeRoute(metrics: MetricComparison): string | null {
   const parts: string[] = [];
-  const named: [keyof MetricComparison, string][] = [
-    ["toolCalls", "tools"],
-    ["toolFailures", "tool failures"],
-    ["commands", "commands"],
-    ["filesChanged", "files"],
-    ["inputTokens", "in"],
-    ["outputTokens", "out"],
-  ];
 
-  for (const [key, label] of named) {
-    const figure = metrics[key];
+  for (const field of METRIC_FIELDS) {
+    const figure = metrics[field.key];
     if (figure === undefined || figure.delta === 0) continue;
-    parts.push(`${label} ${figure.baseline} → ${figure.candidate} (${signed(figure.delta)})`);
+
+    const show = field.format ?? String;
+    parts.push(
+      `${field.label} ${show(figure.baseline)} → ${show(figure.candidate)} (${signed(figure.delta, field.format)})`,
+    );
   }
 
   return parts.length === 0 ? null : parts.join(" · ");
 }
 
-function signed(value: number): string {
-  return value > 0 ? `+${value}` : String(value);
+function signed(value: number, format: ((value: number) => string) | undefined = String): string {
+  return value > 0 ? `+${format(value)}` : format(value);
 }
 
 /** Run ids are uuids and a comparison names two of them on one line. */
