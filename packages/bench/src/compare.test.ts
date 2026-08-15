@@ -1,0 +1,435 @@
+import { describe, expect, it } from "vitest";
+import { compareRuns, formatComparison } from "./compare.ts";
+import type { BenchReport } from "./report.ts";
+import { benchCheck, benchReport } from "./testing/bench-report.ts";
+
+function compared(baseline: BenchReport, candidate: BenchReport) {
+  const result = compareRuns(baseline, candidate);
+  if (!result.ok) throw new Error(`expected a comparison, got: ${result.error}`);
+  return result.value;
+}
+
+function refused(baseline: BenchReport, candidate: BenchReport): string {
+  const result = compareRuns(baseline, candidate);
+  if (result.ok) throw new Error("expected the comparison to be refused");
+  return result.error;
+}
+
+/** Two runs of one task, scored over the same categories with the same effective weights. */
+function pair(
+  baseline: Partial<BenchReport>,
+  candidate: Partial<BenchReport>,
+): [BenchReport, BenchReport] {
+  const categories = [
+    { category: "functional" as const, score: 50, effectiveWeight: 83.3, checks: 2 },
+    { category: "code" as const, score: 100, effectiveWeight: 16.7, checks: 1 },
+  ];
+  return [
+    benchReport({ status: "failed", score: 58, categories, ...baseline }),
+    benchReport({ status: "failed", score: 58, categories, ...candidate }),
+  ];
+}
+
+describe("compareRuns", () => {
+  it("reports what the overall score did", () => {
+    const [baseline, candidate] = pair(
+      { score: 58 },
+      {
+        score: 83,
+        categories: [
+          { category: "functional", score: 100, effectiveWeight: 83.3, checks: 2 },
+          { category: "code", score: 100, effectiveWeight: 16.7, checks: 1 },
+        ],
+      },
+    );
+
+    const comparison = compared(baseline, candidate);
+
+    expect(comparison.scoreDelta).toBe(25);
+    expect(comparison.baseline.score).toBe(58);
+    expect(comparison.candidate.score).toBe(83);
+  });
+
+  it("reports what each category did", () => {
+    const [baseline, candidate] = pair(
+      {},
+      {
+        score: 83,
+        categories: [
+          { category: "functional", score: 100, effectiveWeight: 83.3, checks: 2 },
+          { category: "code", score: 100, effectiveWeight: 16.7, checks: 1 },
+        ],
+      },
+    );
+
+    expect(compared(baseline, candidate).categories).toEqual([
+      {
+        category: "functional",
+        baseline: 50,
+        candidate: 100,
+        delta: 50,
+        effectiveWeight: 83.3,
+      },
+      { category: "code", baseline: 100, candidate: 100, delta: 0, effectiveWeight: 16.7 },
+    ]);
+  });
+
+  it("names the individual checks that changed, which is the part that explains a delta", () => {
+    const [baseline, candidate] = pair(
+      {
+        checks: [
+          benchCheck({ checkId: "adds-a-todo", outcome: "passed" }),
+          benchCheck({ checkId: "survives-a-reload", outcome: "passed" }),
+          benchCheck({ checkId: "filters-by-completion", outcome: "failed", detail: "exit 1" }),
+        ],
+      },
+      {
+        checks: [
+          benchCheck({ checkId: "adds-a-todo", outcome: "passed" }),
+          benchCheck({ checkId: "survives-a-reload", outcome: "failed", detail: "exit 1" }),
+          benchCheck({ checkId: "filters-by-completion", outcome: "passed" }),
+        ],
+      },
+    );
+
+    expect(compared(baseline, candidate).checks).toEqual([
+      {
+        checkId: "adds-a-todo",
+        category: "functional",
+        baseline: "passed",
+        candidate: "passed",
+        movement: "unchanged",
+      },
+      {
+        checkId: "survives-a-reload",
+        category: "functional",
+        baseline: "passed",
+        candidate: "failed",
+        movement: "broken",
+      },
+      {
+        checkId: "filters-by-completion",
+        category: "functional",
+        baseline: "failed",
+        candidate: "passed",
+        movement: "fixed",
+      },
+    ]);
+  });
+
+  it("keeps a check that only one of the runs has, rather than dropping it silently", () => {
+    const [baseline, candidate] = pair(
+      { checks: [benchCheck({ checkId: "was-here" })] },
+      { checks: [benchCheck({ checkId: "is-new" })] },
+    );
+
+    expect(compared(baseline, candidate).checks).toEqual([
+      {
+        checkId: "was-here",
+        category: "functional",
+        baseline: "passed",
+        candidate: null,
+        movement: "removed",
+      },
+      {
+        checkId: "is-new",
+        category: "functional",
+        baseline: null,
+        candidate: "passed",
+        movement: "added",
+      },
+    ]);
+  });
+
+  it("shows the route as well as the result, so two equal scores can still differ", () => {
+    const [baseline, candidate] = pair(
+      {
+        metrics: {
+          toolCalls: 8,
+          toolFailures: 0,
+          commands: 2,
+          filesChanged: 3,
+          turns: { started: 1, completed: 1, failed: 0, cancelled: 0 },
+          tokens: { inputTokens: 10_000, outputTokens: 500 },
+          turnDurationMs: 30_000,
+        },
+      },
+      {
+        metrics: {
+          toolCalls: 26,
+          toolFailures: 4,
+          commands: 9,
+          filesChanged: 3,
+          turns: { started: 1, completed: 1, failed: 0, cancelled: 0 },
+          tokens: { inputTokens: 42_000, outputTokens: 1_500 },
+          turnDurationMs: 95_000,
+        },
+      },
+    );
+
+    const comparison = compared(baseline, candidate);
+
+    expect(comparison.scoreDelta).toBe(0);
+    expect(comparison.metrics.toolCalls).toEqual({ baseline: 8, candidate: 26, delta: 18 });
+    expect(comparison.metrics.toolFailures).toEqual({ baseline: 0, candidate: 4, delta: 4 });
+    expect(comparison.metrics.inputTokens).toEqual({
+      baseline: 10_000,
+      candidate: 42_000,
+      delta: 32_000,
+    });
+    // The claim the trajectory exists to support: same result, different journey.
+    expect(comparison.sameScoreDifferentRoute).toBe(true);
+  });
+
+  it("does not call two identical runs a different route", () => {
+    const [baseline, candidate] = pair({}, {});
+
+    expect(compared(baseline, candidate).sameScoreDifferentRoute).toBe(false);
+  });
+
+  it("does not call a run that took a millisecond longer a different route", () => {
+    // Duration and tokens vary between two runs that did exactly the same thing. A flag that
+    // watched them would fire on every pair, which is how a signal becomes noise — this was
+    // observed on two identical dry runs before it was fixed.
+    const metrics = {
+      toolCalls: 4,
+      toolFailures: 0,
+      commands: 1,
+      filesChanged: 2,
+      turns: { started: 1, completed: 1, failed: 0, cancelled: 0 },
+    };
+    const [baseline, candidate] = pair(
+      {
+        metrics: {
+          ...metrics,
+          turnDurationMs: 1_000,
+          tokens: { inputTokens: 900, outputTokens: 40 },
+        },
+      },
+      {
+        metrics: {
+          ...metrics,
+          turnDurationMs: 1_400,
+          tokens: { inputTokens: 950, outputTokens: 44 },
+        },
+      },
+    );
+
+    const comparison = compared(baseline, candidate);
+
+    expect(comparison.sameScoreDifferentRoute).toBe(false);
+    // Still reported, because a run that took 40% longer for the same work is worth seeing.
+    expect(comparison.metrics.turnDurationMs).toEqual({
+      baseline: 1_000,
+      candidate: 1_400,
+      delta: 400,
+    });
+  });
+
+  it("leaves a figure absent on both sides when neither run could supply it", () => {
+    // A failed turn reports no usage at all, and a delta invented from two absences would be
+    // the one number in a comparison nobody could trace back to a measurement.
+    const [baseline, candidate] = pair({}, {});
+
+    expect(compared(baseline, candidate).metrics.inputTokens).toBeUndefined();
+  });
+
+  it("compares an unscored run without pretending it has a number", () => {
+    const baseline = benchReport({ status: "passed", score: 90, categories: [] });
+    const candidate = benchReport({
+      status: "errored",
+      score: null,
+      errorKind: "sandbox",
+      categories: [],
+    });
+
+    const comparison = compared(baseline, candidate);
+
+    expect(comparison.scoreDelta).toBeNull();
+    expect(comparison.candidate.status).toBe("errored");
+    expect(comparison.candidate.errorKind).toBe("sandbox");
+  });
+});
+
+describe("compareRuns refuses what cannot honestly be compared", () => {
+  it("refuses two runs whose configured weights moved the effective vector", () => {
+    const [baseline, candidate] = pair(
+      {},
+      {
+        weights: { functional: 40, browser: 25, visual: 15, code: 20 },
+        categories: [
+          { category: "functional", score: 50, effectiveWeight: 66.7, checks: 2 },
+          { category: "code", score: 100, effectiveWeight: 33.3, checks: 1 },
+        ],
+      },
+    );
+
+    expect(refused(baseline, candidate)).toMatch(/weight/i);
+  });
+
+  it("compares two runs whose configured weights differ where it made no difference", () => {
+    // Reweighting a category that neither run scored changes nothing: both renormalise to the
+    // same vector, and ADR-0002 refuses on the *effective* one for exactly this reason.
+    const [baseline, candidate] = pair(
+      {},
+      { weights: { functional: 50, browser: 25, visual: 40, code: 10 } },
+    );
+
+    expect(compareRuns(baseline, candidate).ok).toBe(true);
+  });
+
+  it("refuses two runs whose effective vectors differ, even under the same configuration", () => {
+    // The case ADR-0002 is written about: the day a visual judge lands, a run scored with it
+    // is on a different scale from every run before it, and subtracting the two is a lie.
+    const [baseline, candidate] = pair(
+      {},
+      {
+        score: 60,
+        categories: [
+          { category: "functional", score: 50, effectiveWeight: 76.9, checks: 2 },
+          { category: "visual", score: 80, effectiveWeight: 7.7, checks: 0 },
+          { category: "code", score: 100, effectiveWeight: 15.4, checks: 1 },
+        ],
+      },
+    );
+
+    const error = refused(baseline, candidate);
+    expect(error).toMatch(/visual/);
+    expect(error).toMatch(/weight/i);
+  });
+
+  it("refuses two runs of different tasks", () => {
+    const [baseline, candidate] = pair({ taskId: "todo-crud" }, { taskId: "landing-page" });
+
+    expect(refused(baseline, candidate)).toMatch(/todo-crud/);
+  });
+
+  it("does not check weights it has no business checking on an unscored run", () => {
+    // An errored run has no categories, so an effective vector comparison would refuse every
+    // pairing with one — and there is no number there to be repriced in the first place.
+    const [baseline] = pair({}, {});
+    const candidate = benchReport({
+      status: "errored",
+      score: null,
+      errorKind: "model",
+      categories: [],
+    });
+
+    expect(compareRuns(baseline, candidate).ok).toBe(true);
+  });
+});
+
+describe("formatComparison", () => {
+  it("leads with the overall movement, signed", () => {
+    const [baseline, candidate] = pair(
+      {},
+      {
+        score: 83,
+        categories: [
+          { category: "functional", score: 100, effectiveWeight: 83.3, checks: 2 },
+          { category: "code", score: 100, effectiveWeight: 16.7, checks: 1 },
+        ],
+      },
+    );
+
+    const text = formatComparison(compared(baseline, candidate));
+
+    expect(text).toMatch(/58 → 83/);
+    expect(text).toMatch(/\+25/);
+  });
+
+  it("names the checks that broke and the checks that were fixed", () => {
+    const [baseline, candidate] = pair(
+      {
+        checks: [
+          benchCheck({ checkId: "survives-a-reload", outcome: "passed" }),
+          benchCheck({ checkId: "filters-by-completion", outcome: "failed" }),
+          benchCheck({ checkId: "adds-a-todo", outcome: "passed" }),
+        ],
+      },
+      {
+        checks: [
+          benchCheck({ checkId: "survives-a-reload", outcome: "failed" }),
+          benchCheck({ checkId: "filters-by-completion", outcome: "passed" }),
+          benchCheck({ checkId: "adds-a-todo", outcome: "passed" }),
+        ],
+      },
+    );
+
+    const text = formatComparison(compared(baseline, candidate));
+
+    expect(text).toMatch(/survives-a-reload/);
+    expect(text).toMatch(/filters-by-completion/);
+    // An unchanged check is not worth a line: it is what the category counts already say.
+    expect(text).not.toMatch(/adds-a-todo/);
+  });
+
+  it("says when the score held still and the route did not", () => {
+    const [baseline, candidate] = pair(
+      {},
+      {
+        metrics: {
+          toolCalls: 40,
+          toolFailures: 0,
+          commands: 0,
+          filesChanged: 0,
+          turns: { started: 1, completed: 1, failed: 0, cancelled: 0 },
+        },
+      },
+    );
+
+    expect(formatComparison(compared(baseline, candidate))).toMatch(/same score, different route/i);
+  });
+});
+
+describe("compareRuns on the parts a score alone would hide", () => {
+  it("calls a check that stopped being asked a change, not a non-event", () => {
+    // An absent check renormalises its category out and moves the overall score (ADR-0002),
+    // so calling it "unchanged" would hand somebody a moved number with nothing explaining it.
+    const [baseline, candidate] = pair(
+      { checks: [benchCheck({ checkId: "drives-the-app", outcome: "passed" })] },
+      { checks: [benchCheck({ checkId: "drives-the-app", outcome: "absent", detail: "—" })] },
+    );
+
+    const [check] = compared(baseline, candidate).checks;
+    expect(check?.movement).toBe("changed");
+    expect(formatComparison(compared(baseline, candidate))).toMatch(/drives-the-app/);
+  });
+
+  it("keeps a category only one run scored, rather than dropping it", () => {
+    // The case this matters in is an unscored baseline: the candidate's whole breakdown is
+    // what somebody is looking at, and intersecting the two lists erases it.
+    const baseline = benchReport({ status: "errored", score: null, errorKind: "sandbox" });
+    const candidate = benchReport({
+      status: "failed",
+      score: 58,
+      categories: [{ category: "functional", score: 58, effectiveWeight: 100, checks: 2 }],
+    });
+
+    expect(compared(baseline, candidate).categories).toEqual([
+      {
+        category: "functional",
+        baseline: null,
+        candidate: 58,
+        delta: null,
+        effectiveWeight: 100,
+      },
+    ]);
+  });
+
+  it("prints how much longer the same work took", () => {
+    const metrics = {
+      toolCalls: 4,
+      toolFailures: 0,
+      commands: 1,
+      filesChanged: 2,
+      turns: { started: 1, completed: 1, failed: 0, cancelled: 0 },
+    };
+    const [baseline, candidate] = pair(
+      { metrics: { ...metrics, turnDurationMs: 30_000 } },
+      { metrics: { ...metrics, turnDurationMs: 95_000 } },
+    );
+
+    expect(formatComparison(compared(baseline, candidate))).toMatch(/30\.0s → 95\.0s/);
+  });
+});

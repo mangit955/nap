@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // The DOM is here for the callbacks passed to `page.evaluate`: those are compiled here
+    // but *run in the browser*, so `document` is genuinely in scope for them and for nothing
+    // else in this app. The cost is that host-side code can now name a browser global it
+    // does not have — a real trade, accepted because the alternative is passing script as
+    // untyped strings, which loses the checking this exists for.
+    "lib": ["es2023", "dom"]
+  },
+  // `scripts` will hold the CLI entry point, and is included from the start so that it
+  // cannot arrive outside the gates the way test/ once did.
+  "include": ["src", "scripts"]
+}

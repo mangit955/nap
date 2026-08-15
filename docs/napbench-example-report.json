@@ -1,0 +1,147 @@
+{
+  "runId": "d9ac22fb-4c53-402a-8e11-f5440ca7596d",
+  "taskId": "landing-page",
+  "sessionId": "513c1eb4-0df3-4945-87b7-d2ddbd9690f0",
+  "turnId": "2872ff23-1db4-4b99-a913-6673126fe852",
+  "status": "failed",
+  "errorKind": null,
+  "gates": [],
+  "scoreCap": null,
+  "score": 94,
+  "categories": [
+    {
+      "category": "functional",
+      "score": 100,
+      "effectiveWeight": 58.8,
+      "checks": 1
+    },
+    {
+      "category": "browser",
+      "score": 100,
+      "effectiveWeight": 29.4,
+      "checks": 2
+    },
+    {
+      "category": "code",
+      "score": 50,
+      "effectiveWeight": 11.8,
+      "checks": 2
+    }
+  ],
+  "weights": {
+    "functional": 50,
+    "browser": 25,
+    "visual": 15,
+    "code": 10
+  },
+  "checks": [
+    {
+      "checkId": "build",
+      "kind": "command",
+      "category": "functional",
+      "weight": 1,
+      "required": false,
+      "build": true,
+      "outcome": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "checkId": "typecheck",
+      "kind": "command",
+      "category": "code",
+      "weight": 1,
+      "required": false,
+      "build": false,
+      "outcome": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "checkId": "is-accessible",
+      "kind": "accessibility",
+      "category": "code",
+      "weight": 1,
+      "required": false,
+      "build": false,
+      "outcome": "failed",
+      "detail": "1 violation at or above serious: color-contrast (serious, 6 elements)"
+    },
+    {
+      "checkId": "renders-the-page",
+      "kind": "browser",
+      "category": "browser",
+      "weight": 1,
+      "required": false,
+      "build": false,
+      "outcome": "passed",
+      "detail": "3 steps passed at desktop"
+    },
+    {
+      "checkId": "throws-nothing",
+      "kind": "browser",
+      "category": "browser",
+      "weight": 1,
+      "required": false,
+      "build": false,
+      "outcome": "passed",
+      "detail": "1 step passed at desktop"
+    }
+  ],
+  "metrics": {
+    "toolCalls": 5,
+    "toolFailures": 0,
+    "commands": 1,
+    "filesChanged": 1,
+    "turns": {
+      "started": 1,
+      "completed": 1,
+      "failed": 0,
+      "cancelled": 0
+    },
+    "tokens": {
+      "inputTokens": 9134,
+      "outputTokens": 2139
+    },
+    "turnDurationMs": 25218,
+    "estimatedCost": {
+      "usd": 0.0022,
+      "model": "openai/gpt-5.6-luna",
+      "priceTableVersion": "2026-08-14"
+    }
+  },
+  "screenshots": [
+    {
+      "checkId": "is-accessible",
+      "viewport": {
+        "name": "desktop",
+        "width": 1280,
+        "height": 800
+      },
+      "path": "landing-page-d9ac22fb-4c53-402a-8e11-f5440ca7596d-is-accessible.png",
+      "capturedAt": "2026-08-15T16:17:39.243Z"
+    },
+    {
+      "checkId": "renders-the-page",
+      "viewport": {
+        "name": "desktop",
+        "width": 1280,
+        "height": 800
+      },
+      "path": "landing-page-d9ac22fb-4c53-402a-8e11-f5440ca7596d-renders-the-page.png",
+      "capturedAt": "2026-08-15T16:17:42.157Z"
+    },
+    {
+      "checkId": "throws-nothing",
+      "viewport": {
+        "name": "desktop",
+        "width": 1280,
+        "height": 800
+      },
+      "path": "landing-page-d9ac22fb-4c53-402a-8e11-f5440ca7596d-throws-nothing.png",
+      "capturedAt": "2026-08-15T16:17:45.592Z"
+    }
+  ],
+  "visual": {
+    "status": "not_run",
+    "reason": "no visual judge is configured"
+  }
+}

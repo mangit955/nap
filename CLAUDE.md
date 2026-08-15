@@ -11,6 +11,9 @@ Nap is a Lovable-style AI app builder: the user describes an app in chat, an age
 | `docs/GOTCHAS.md` | *Why* the code is shaped this way — hard-won constraints, per area | The section for whatever you are about to touch |
 | `PROGRESS.md` | *Where* we are — status and deps per task | Every session |
 | `docs/DEPLOY.md` | *How it is deployed* — the two services, the one-replica rule, the env list | Before touching anything that runs in production |
+| `CONTEXT.md` | *What things are called* — one concept, one name | Before naming a concept in code, a test or an issue |
+| `docs/NAPBENCH.md` | *How the agent is measured* — the benchmark's architecture, scoring, how to add a task, what needs a sandbox or a browser | Before touching `packages/bench` or `apps/napbench`, or quoting a score |
+| `docs/adr/` | *What was decided and why* — choices expensive to reverse | The ADRs touching whatever you are about to change |
 
 Keep each fact in exactly one of these. This file must never restate a task spec — link to `docs/PLAN.md` §4 instead.
 
@@ -19,11 +22,21 @@ Keep each fact in exactly one of these. This file must never restate a task spec
 ```bash
 bun run test              # unit + type + db suites — deterministic and free; db needs Docker
 bun run test:fast         # unit + type only — the Docker-free inner loop
-bun run test:integration  # real E2B + real model calls; run at milestone boundaries only
+bun run test:integration  # needs something external; run at milestone boundaries only
+                          # most of it is real E2B + real model calls and costs money — but not
+                          # all: the browser suites need only a Chrome at NAP_CHROME_PATH and
+                          # skip without one. Each file's doc comment says what it requires.
 bun run harness "<prompt>"        # one turn, printing the event stream — fakes, free, no network
 bun run harness --real "<prompt>" # the same turn against real E2B + a real model; this spends money
 bun run harness --real --model=anthropic/claude-opus-5 "<prompt>"  # the demo model, ~20x the cost
 bun run ws:smoke          # drives /ws over a real Bun socket — fakes, free, no database
+bun run napbench <task-id>        # one benchmark run — fakes, free; scores mean nothing
+bun run napbench --suite=all      # the four tasks, serially, same fakes
+bun run napbench --real --suite=all  # real E2B + a real model + real Chrome; this spends money
+                          # --real needs NAP_CHROME_PATH as well as the usual credentials.
+                          # Results (reports, trajectories, screenshots) land in napbench-results/
+bun run napbench --baseline=<run-id|path> --candidate=<run-id|path>
+                          # what moved between two finished runs — reads reports, runs nothing
 bun run typecheck         # turbo: tsc --noEmit per workspace, then a root pass for test/ + configs
 bun run lint              # biome check
 bun run format            # biome check --write — Biome owns formatting, don't hand-format
@@ -70,12 +83,17 @@ A lefthook pre-commit hook runs `biome check` + `typecheck` + `vitest --changed`
 ## Layout
 
 ```
-packages/  shared  db  sandbox  storage  capture  agent  context  runtime
-apps/      web (Next.js)   api (Hono, runs on Bun)
+packages/  shared  db  sandbox  storage  capture  agent  context  runtime  bench
+apps/      web (Next.js)   api (Hono, runs on Bun)   napbench (the benchmark CLI)
 ```
 
 **Dependency direction, enforced:** `runtime` → {`context`, `agent`, `sandbox`, `storage`, `capture`, `db`} → `shared`.
 `agent` imports the `SandboxManager` *interface*, never the E2B adapter.
+
+`bench` sits beside `shared` rather than above `runtime`: it is NapBench's pure half — tasks,
+scoring, gates, reports — written against ports, and `apps/napbench` is the shell that composes
+real infrastructure behind them. Playwright belongs to that app alone and to nothing that ships.
+See `docs/adr/0001`.
 
 This is enforced by `test/architecture.ts`, not by vigilance — adding a dependency that
 violates it fails `bun run test`. Adding a new workspace package also fails the test until
@@ -159,4 +177,4 @@ The five canonical roles, each label string equal to its name. See `docs/agents/
 
 ### Domain docs
 
-Single-context — one root `CONTEXT.md` plus `docs/adr/`, neither of which exists yet. See `docs/agents/domain.md`.
+Single-context — one root `CONTEXT.md` (the glossary) plus `docs/adr/` (decisions that would be expensive to reverse). Read the glossary before naming a concept, and the ADRs that touch whatever you are about to change. See `docs/agents/domain.md`.

@@ -1,0 +1,22 @@
+{
+  "name": "@nap/napbench",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@nap/bench": "workspace:*",
+    "@nap/sandbox": "workspace:*",
+    "@nap/shared": "workspace:*",
+    "axe-core": "4.13.0",
+    "playwright-core": "1.57.0"
+  },
+  "devDependencies": {
+    "@nap/agent": "workspace:*",
+    "@nap/context": "workspace:*",
+    "@nap/db": "workspace:*",
+    "@nap/runtime": "workspace:*"
+  }
+}
