@@ -24,12 +24,17 @@
 import { join } from "node:path";
 import { NapAgentService } from "@nap/agent/agent-service";
 import { createBedrockClient, toBedrockModel } from "@nap/agent/bedrock";
-import { ClaudeProvider } from "@nap/agent/claude-provider";
+import { type AnthropicClient, ClaudeProvider } from "@nap/agent/claude-provider";
 import { createOpenRouterClient, toOpenRouterModel } from "@nap/agent/openrouter";
 import { ScriptedLLMProvider } from "@nap/agent/testing/scripted-llm-provider";
 import type { BrowserSessionFactory } from "@nap/bench/browser-session";
 import { DEFAULT_CATEGORY_WEIGHTS } from "@nap/bench/category";
-import { NAPBENCH_DEFAULTS, NAPBENCH_USAGE, parseNapBenchArgs } from "@nap/bench/cli";
+import {
+  type BenchPlatform,
+  NAPBENCH_DEFAULTS,
+  NAPBENCH_USAGE,
+  parseNapBenchArgs,
+} from "@nap/bench/cli";
 import { deriveRunMetrics } from "@nap/bench/metrics";
 import { type BenchReport, evaluatorErrorReport } from "@nap/bench/report";
 import { type BenchRunResult, runBenchTask } from "@nap/bench/runner";
@@ -44,10 +49,9 @@ import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { SingleAgentRuntime } from "@nap/runtime/single-agent-runtime";
 import { E2BSandboxManager } from "@nap/sandbox/e2b-sandbox-manager";
-import { NAP_TEMPLATE, TEMPLATE_DEV_PORT } from "@nap/sandbox/template";
+import { NAP_TEMPLATE, TEMPLATE_DEV_PORT, TEMPLATE_WORKDIR } from "@nap/sandbox/template";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { loadEnvFile } from "@nap/shared/env-file";
-import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
 import type { LLMProvider } from "@nap/shared/ports/llm-provider";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import { launchPlaywrightBrowser } from "../src/playwright-browser-session.ts";
@@ -98,7 +102,7 @@ function scriptedProvider(task: BenchTask): LLMProvider {
             id: "call_1",
             name: "write_file",
             input: {
-              path: `${PROJECT_ROOT_PATH}/src/App.tsx`,
+              path: `${TEMPLATE_WORKDIR}/src/App.tsx`,
               contents: "export default function App() {\n  return <h1>Dry run</h1>;\n}\n",
             },
           },
@@ -126,6 +130,38 @@ const scriptedBrowser: BrowserSessionFactory = async () => ({
   value: new ScriptedBrowserSession(),
 });
 
+/**
+ * The three things a platform decides, in one place per platform.
+ *
+ * A record rather than three parallel ternary chains over `options.platform`: the chains asked
+ * the same question in three places, so adding a fourth route meant finding all three, and a
+ * route that answered two of them was a run that authenticated one way and was billed another.
+ * Every platform speaks the same Messages API — see the notes in `@nap/agent`.
+ */
+const PLATFORMS: Record<
+  BenchPlatform,
+  {
+    /** Beyond `E2B_API_KEY`, which every real run needs. */
+    credentials: readonly string[];
+    /** The model id as this route spells it. */
+    qualify: (model: string) => string;
+    /** Absent for the vendor's own API, which the provider reaches with no client of ours. */
+    client?: () => AnthropicClient;
+  }
+> = {
+  openrouter: {
+    credentials: ["OPENROUTER_API_KEY"],
+    qualify: toOpenRouterModel,
+    client: createOpenRouterClient,
+  },
+  bedrock: {
+    credentials: ["AWS_BEARER_TOKEN_BEDROCK", "AWS_REGION"],
+    qualify: toBedrockModel,
+    client: createBedrockClient,
+  },
+  anthropic: { credentials: ["ANTHROPIC_API_KEY"], qualify: (model) => model },
+};
+
 let sandbox: SandboxManager;
 /**
  * Where a run's model comes from.
@@ -143,14 +179,9 @@ let pricedModel: string | undefined;
 if (options.real) {
   loadEnvFile(ENV_FILE, process.env);
 
-  const required =
-    options.platform === "openrouter"
-      ? ["E2B_API_KEY", "OPENROUTER_API_KEY"]
-      : options.platform === "bedrock"
-        ? ["E2B_API_KEY", "AWS_BEARER_TOKEN_BEDROCK", "AWS_REGION"]
-        : ["E2B_API_KEY", "ANTHROPIC_API_KEY"];
+  const route = PLATFORMS[options.platform];
 
-  for (const key of required) {
+  for (const key of ["E2B_API_KEY", ...route.credentials]) {
     if (process.env[key]) continue;
     console.error(`${key} is not set. Add it to ${ENV_FILE}, or export it, then retry.`);
     process.exit(1);
@@ -176,12 +207,7 @@ if (options.real) {
   browser = launched.value.session;
   closeBrowser = launched.value.close;
 
-  const model =
-    options.platform === "openrouter"
-      ? toOpenRouterModel(options.model)
-      : options.platform === "bedrock"
-        ? toBedrockModel(options.model)
-        : options.model;
+  const model = route.qualify(options.model);
   pricedModel = model;
 
   console.log(
@@ -195,8 +221,7 @@ if (options.real) {
     model,
     effort: options.effort,
     maxTokens: NAPBENCH_DEFAULTS.maxOutputTokens,
-    ...(options.platform === "bedrock" ? { client: createBedrockClient() } : {}),
-    ...(options.platform === "openrouter" ? { client: createOpenRouterClient() } : {}),
+    ...(route.client === undefined ? {} : { client: route.client() }),
   });
   providerFor = () => claude;
 } else {
@@ -267,10 +292,10 @@ await closeBrowser();
 
 console.log(formatSuiteSummary(summariseSuite(selectionName, reports)));
 
-// Non-zero unless every run passed, so this can gate anything without the caller parsing text.
-// A suite with an errored run is a failure of the exercise even when the runs that finished
-// scored well — the number it produced is not comparable data.
-process.exit(reports.every((report) => report.status === "passed") ? 0 : 1);
+// The exit code answers "did the benchmark run", not "did the agent do well". A low score is a
+// measurement and exits 0; a run that produced no measurement at all is a failure of the
+// exercise and exits 1, which is what makes this usable as a gate without parsing the output.
+process.exit(reports.every((report) => report.score !== null) ? 0 : 1);
 
 /** The runtime a run drives, composed fresh so nothing is shared between runs but the ports. */
 function composeRuntime(

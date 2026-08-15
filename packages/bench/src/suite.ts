@@ -37,7 +37,11 @@ export const BENCH_TASKS: readonly BenchTask[] = [
 /** The suite that characterises a model: the four benchmark tasks, in specification order. */
 export const BENCHMARK_SUITE = "all";
 
-export const SUITES: Record<string, readonly string[]> = {
+/**
+ * `satisfies` rather than an annotation, so the literal names survive: widening this to
+ * `Record<string, …>` would make `SUITES[BENCHMARK_SUITE]` possibly-undefined and buy nothing.
+ */
+export const SUITES = {
   [BENCHMARK_SUITE]: ["landing-page", "todo-crud", "debug-broken", "responsive-layout"],
   /**
    * One task that exercises every stage without asserting much about the application.
@@ -46,9 +50,12 @@ export const SUITES: Record<string, readonly string[]> = {
    * kept as a suite so that "check the machinery" is a name rather than a piece of folklore.
    */
   smoke: ["tracer"],
-};
+} satisfies Record<string, readonly string[]>;
 
 export const SUITE_NAMES: readonly string[] = Object.keys(SUITES);
+
+/** A suite name that is known to exist. */
+export type SuiteName = keyof typeof SUITES;
 
 /** What the CLI was asked to run, before it is known to exist. */
 export type BenchSelection =
@@ -69,6 +76,11 @@ export type ResolvedSelection = {
  * problem and the alternatives — a stack trace naming a `Map` lookup helps nobody find out
  * that they wrote `todo-crudd`.
  */
+/** Reads the table with a name nobody has checked yet, which is every name off a command line. */
+function suiteTasks(name: string): readonly string[] | undefined {
+  return Object.hasOwn(SUITES, name) ? SUITES[name as SuiteName] : undefined;
+}
+
 export function resolveSelection(selection: BenchSelection): Result<ResolvedSelection, string> {
   if (selection.kind === "task") {
     const task = BENCH_TASKS.find((candidate) => candidate.id === selection.taskId);
@@ -79,7 +91,7 @@ export function resolveSelection(selection: BenchSelection): Result<ResolvedSele
     return { ok: true, value: { name: task.id, tasks: [task] } };
   }
 
-  const taskIds = SUITES[selection.suiteName];
+  const taskIds: readonly string[] | undefined = suiteTasks(selection.suiteName);
   if (taskIds === undefined) {
     return {
       ok: false,

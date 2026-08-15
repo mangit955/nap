@@ -132,11 +132,15 @@ export function formatSuiteSummary(summary: SuiteSummary): string {
  * which is the only thing a run without a result has to contribute.
  */
 export function formatRunSummary(report: BenchReport): string {
-  const headline =
+  const headline = `${report.taskId} — ${report.status.toUpperCase()}${
+    report.errorKind === null ? "" : ` (${report.errorKind})`
+  } ${
+    // Cancellation carries no kind and is not an error, so it prints neither — per ADR-0002,
+    // a run somebody stopped is not an observation about anything and must not read as one.
     report.score === null
-      ? `${report.taskId} — ${report.status.toUpperCase()} (${report.errorKind}), no score`
-      : `${report.taskId} — ${report.status.toUpperCase()} ${report.score}/100` +
-        (report.scoreCap === null ? "" : ` (capped at ${report.scoreCap})`);
+      ? "no score"
+      : `${report.score}/100${report.scoreCap === null ? "" : ` (capped at ${report.scoreCap})`}`
+  }`;
 
   const lines = [headline];
 
@@ -148,8 +152,18 @@ export function formatRunSummary(report: BenchReport): string {
     );
   }
 
-  // Only the checks that did not pass are listed. A passing check is already accounted for by
-  // the category score above it; a failing one is what somebody is about to go and look at.
+  // The tally first, then the checks that did not pass. Together they close the arithmetic: a
+  // reader can see how many checks each category score was over, and read the name of every one
+  // that did not pass — so no number here is handed over unexplained.
+  if (report.checks.length > 0) {
+    const passed = report.checks.filter((check) => check.outcome === "passed").length;
+    const failed = report.checks.filter((check) => check.outcome === "failed").length;
+    const absent = report.checks.length - passed - failed;
+    lines.push(
+      `  checks: ${passed} passed, ${failed} failed${absent === 0 ? "" : `, ${absent} absent`}`,
+    );
+  }
+
   for (const check of report.checks) {
     if (check.outcome === "passed") continue;
     lines.push(`  ${check.outcome === "failed" ? "✗" : "·"} ${check.checkId} — ${check.detail}`);
@@ -162,7 +176,10 @@ export function formatRunSummary(report: BenchReport): string {
     `  turns ${metrics.turns.completed}/${metrics.turns.started}` +
       ` · tools ${metrics.toolCalls} (${metrics.toolFailures} failed)` +
       ` · commands ${metrics.commands} · files ${metrics.filesChanged}` +
-      ` · duration ${metrics.turnDurationMs === undefined ? "—" : `${(metrics.turnDurationMs / 1000).toFixed(1)}s`}` +
+      // Named for the turns, because that is what it measures: the sandbox's startup, the
+      // preview probe and the checks all happen outside it, and calling it the run's duration
+      // would overstate what the log can actually answer. See `metrics.ts`.
+      ` · turn time ${metrics.turnDurationMs === undefined ? "—" : `${(metrics.turnDurationMs / 1000).toFixed(1)}s`}` +
       ` · tokens ${
         metrics.tokens === undefined
           ? "—"

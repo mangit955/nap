@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BENCH_TASKS, BENCHMARK_SUITE, resolveSelection, SUITE_NAMES, SUITES } from "./suite.ts";
+import { BENCH_TASKS, BENCHMARK_SUITE, resolveSelection, SUITES } from "./suite.ts";
 import { parseBenchTask } from "./task.ts";
 
 function resolved(selection: Parameters<typeof resolveSelection>[0]) {
@@ -39,8 +39,8 @@ describe("the suites", () => {
     // The failure this guards is a suite naming a task that was renamed out from under it,
     // which would otherwise surface as an error partway through a paid run.
     const ids = new Set(BENCH_TASKS.map((task) => task.id));
-    for (const name of SUITE_NAMES) {
-      for (const taskId of SUITES[name] ?? []) expect(ids).toContain(taskId);
+    for (const taskIds of Object.values(SUITES)) {
+      for (const taskId of taskIds) expect(ids).toContain(taskId);
     }
   });
 });

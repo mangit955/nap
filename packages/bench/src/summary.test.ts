@@ -190,11 +190,50 @@ describe("formatRunSummary", () => {
     expect(text).toMatch(/failed/i);
     expect(text).toMatch(/functional/);
     expect(text).toMatch(/17/);
-    expect(text).toMatch(/42\.0s/);
+    expect(text).toMatch(/turn time 42\.0s/);
     expect(text).toMatch(/7/);
     expect(text).toMatch(/12,000 in \/ 900 out/);
     // The failing check is named, so a score is never handed over unexplained.
     expect(text).toMatch(/builds/);
+  });
+
+  it("counts every check, so a category score can be read against what it was over", () => {
+    const text = formatRunSummary(
+      report({
+        checks: [
+          {
+            checkId: "builds",
+            kind: "command",
+            category: "functional",
+            weight: 1,
+            required: false,
+            build: true,
+            outcome: "passed",
+            detail: "exit 0",
+          },
+          {
+            checkId: "lints",
+            kind: "command",
+            category: "code",
+            weight: 1,
+            required: false,
+            build: false,
+            outcome: "failed",
+            detail: "exit 1",
+          },
+        ],
+      }),
+    );
+
+    expect(text).toMatch(/checks: 1 passed, 1 failed/);
+  });
+
+  it("prints no error kind for a cancelled run, because cancellation is not one", () => {
+    // ADR-0002: a run somebody stopped is not an observation. `(null)` would read as a kind.
+    const text = formatRunSummary(cancelled());
+
+    expect(text).toMatch(/CANCELLED no score/);
+    expect(text).not.toMatch(/null/);
   });
 
   it("says why an errored run has no score, rather than printing one", () => {
@@ -210,7 +249,7 @@ describe("formatRunSummary", () => {
     // absences, and a reader has to be able to tell them apart.
     const text = formatRunSummary(errored("agent"));
 
-    expect(text).toMatch(/duration —/);
+    expect(text).toMatch(/turn time —/);
     expect(text).toMatch(/tokens —/);
   });
 });

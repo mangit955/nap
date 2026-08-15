@@ -152,17 +152,15 @@ function resolveArguments(
 
   const taskId = words[0];
 
-  if (suite !== undefined && taskId !== undefined) {
-    return { ok: false, error: "give a task or a suite, not both" };
-  }
-  if (suite === undefined && taskId === undefined) {
-    return { ok: false, error: "a task or a suite is required" };
+  if (taskId !== undefined) {
+    if (suite !== undefined) return { ok: false, error: "give a task or a suite, not both" };
+    return { ok: true, value: { kind: "task", taskId } };
   }
 
-  if (taskId !== undefined) return { ok: true, value: { kind: "task", taskId } };
+  if (suite === undefined) return { ok: false, error: "a task or a suite is required" };
   // `--suite` with no `=` parses as the string "true", which is nobody's suite name and is
   // worth naming as the mistake it is rather than reporting as an unknown suite.
-  if (suite === undefined || suite === "true") {
+  if (suite === "true") {
     return { ok: false, error: `--suite needs a name: ${SUITE_NAMES.join(", ")}` };
   }
 

@@ -9,12 +9,10 @@
  * agent's quality, and a benchmark that counted them as such would rank models by how lucky
  * they were.
  *
- * Six kinds, per `CONTEXT.md`. Three come from a turn's failure reason and one more from the
- * preview probe and the run's own setup. The remaining two — `browser` and `evaluator` — are
- * declared with nothing that raises them yet, on purpose: the first belongs to the browser
- * driver and the second to NapBench crashing on itself, neither of which exists. Naming them
- * now costs nothing and keeps the vocabulary whole; inventing producers for them would mean
- * writing the code that fails before the code that can fail.
+ * Six kinds, per `CONTEXT.md`. Three come from a turn's failure reason, one from the preview
+ * probe and the run's own setup, one from a browser that would not start, and one — `evaluator`
+ * — from NapBench crashing on itself, which the CLI records rather than letting it abort a
+ * suite. Each was named before anything raised it, and each now has a producer.
  */
 
 import type { TurnFailureReason } from "@nap/shared/events";
@@ -55,7 +53,7 @@ export type ErrorAttribution = "agent" | "infrastructure";
  * and has to be attributed deliberately — the alternative is a new kind defaulting into
  * "infrastructure" and quietly making every suite look cleaner than it is.
  */
-export const ERROR_ATTRIBUTION: Record<ErrorKind, ErrorAttribution> = {
+const ERROR_ATTRIBUTION: Record<ErrorKind, ErrorAttribution> = {
   agent: "agent",
   model: "infrastructure",
   sandbox: "infrastructure",
