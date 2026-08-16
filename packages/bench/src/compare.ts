@@ -26,10 +26,11 @@
  */
 
 import type { Result } from "@nap/shared/result";
+import type { CheckOutcome } from "@nap/verify/check-outcome";
 import { CATEGORIES, type Category } from "./category.ts";
 import type { ErrorKind } from "./error-kind.ts";
 import type { RunMetrics } from "./metrics.ts";
-import type { BenchReport, CheckOutcome } from "./report.ts";
+import type { BenchReport } from "./report.ts";
 import { budgetsDiffer, describeTurnBudget } from "./run-configuration.ts";
 import { carriesScore, type RunStatus } from "./status.ts";
 

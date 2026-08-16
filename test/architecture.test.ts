@@ -27,22 +27,29 @@ function readWorkspaceManifests(): Manifest[] {
 
 describe("dependency direction", () => {
   // docs/PLAN.md §0 calls this direction "enforced". This test is what makes
-  // that true: runtime → {context, agent, sandbox, db} → shared.
+  // that true: runtime → {context, agent, sandbox, db, verify} → shared.
   it("holds across the real workspace", () => {
     expect(checkDependencyDirection(readWorkspaceManifests())).toEqual([]);
   });
 
-  it("keeps @nap/bench's internal runtime dependencies to @nap/shared alone", () => {
+  it("keeps @nap/bench's internal runtime dependencies below it", () => {
     // docs/adr/0001 permits @nap/bench to carry sibling packages as devDependencies, for
     // their published in-memory fakes — and the checker above reads `dependencies` only,
     // so that arrangement passes partly by not being looked at. This asserts the half that
     // matters directly: what a consumer of the pure core pulls in at runtime.
     //
+    // @nap/verify joined @nap/shared here at docs/adr/0007, and the list is exhaustive on
+    // purpose: what the ADR forbids is the pure core reaching *sideways or up*, so a third
+    // entry appearing without a decision behind it is the thing worth failing on.
+    //
     // Third-party dependencies are not the subject. The pure core validates every task and
     // report it parses, so it depends on zod exactly as @nap/shared does; what would break
-    // the ADR is a *workspace* package other than shared.
+    // the ADR is an unsanctioned *workspace* package.
     const bench = readWorkspaceManifests().find((m) => m.name === "@nap/bench");
-    expect(bench?.dependencies.filter((dep) => dep.startsWith("@nap/"))).toEqual(["@nap/shared"]);
+    expect(bench?.dependencies.filter((dep) => dep.startsWith("@nap/")).toSorted()).toEqual([
+      "@nap/shared",
+      "@nap/verify",
+    ]);
   });
 
   it("covers every workspace package", () => {
@@ -61,6 +68,7 @@ describe("dependency direction", () => {
       "@nap/sandbox",
       "@nap/shared",
       "@nap/storage",
+      "@nap/verify",
       "@nap/web",
     ]);
   });

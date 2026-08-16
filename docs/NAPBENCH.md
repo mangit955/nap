@@ -62,13 +62,21 @@ Everything a run produces — reports, trajectories, screenshots and their sidec
 
 ## Architecture
 
-Two units, per [ADR-0001](adr/0001-napbench-splits-into-a-pure-package-and-an-app.md).
+Two units, per [ADR-0001](adr/0001-napbench-splits-into-a-pure-package-and-an-app.md), over a
+shared primitive, per [ADR-0007](adr/0007-the-check-primitive-moves-below-both.md).
 
 **`packages/bench`** is the pure half: tasks, checks, gates, scoring, metrics, reports,
-trajectories, the CLI's argument parsing, suite aggregation and comparison. Its only runtime
-workspace dependency is `@nap/shared`. It is written against ports — `Runtime`, `SandboxManager`,
-`SessionStore`, `EventStore`, `BrowserSession` — which is what lets the whole evaluation be driven
-by a unit test with no network, no model and no database.
+trajectories, the CLI's argument parsing, suite aggregation and comparison. Its runtime workspace
+dependencies are `@nap/shared` and `@nap/verify`. It is written against ports — `Runtime`,
+`SandboxManager`, `SessionStore`, `EventStore`, `BrowserSession` — which is what lets the whole
+evaluation be driven by a unit test with no network, no model and no database.
+
+**`packages/verify`** sits below it, and below the runtime too: the preview probe, the captured
+output of a failed command, and the passed/failed/absent answer. NapBench's `Check` is one of these
+plus a category, a weight and a required flag — the scoring metadata was never part of running the
+check. Nap's own verifier uses the same primitive to arbitrate whether a turn's claim of success
+holds. What must never exist is the reverse edge: the runtime importing the benchmark that grades
+it.
 
 **`apps/napbench`** is the composition root: the Playwright adapter, the real sandbox manager, the
 real model provider, everything that touches a filesystem, and the CLI script. `playwright-core` is

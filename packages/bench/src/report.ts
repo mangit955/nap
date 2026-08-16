@@ -22,9 +22,10 @@
  */
 
 import type { Result } from "@nap/shared/result";
+import { CheckOutcomeSchema } from "@nap/verify/check-outcome";
+import { CommandOutputSchema } from "@nap/verify/command-output";
 import { z } from "zod";
 import { CategorySchema, type CategoryWeights, CategoryWeightsSchema } from "./category.ts";
-import { CommandOutputSchema } from "./command-output.ts";
 import { ErrorKindSchema } from "./error-kind.ts";
 import { GateIdSchema } from "./gates.ts";
 import { type RunMetrics, RunMetricsSchema } from "./metrics.ts";
@@ -39,16 +40,16 @@ import { carriesScore, RunStatusSchema } from "./status.ts";
 import { VISUAL_NOT_RUN, VisualEvaluationSchema } from "./visual.ts";
 
 /**
- * What a check produced.
+ * A `@nap/verify` check, plus the scoring metadata that makes it an acceptance criterion.
  *
- * Three values, not a boolean, and the third is the one that matters: *absent* means the run
- * never got to ask, which is a property of its circumstances, while *failed* means it asked
- * and did not get what it wanted, which is a property of the agent. Only absent renormalises
- * a category away — see the reasoning in score.ts and docs/adr/0002.
+ * The split is where the two halves genuinely divide: whether a check passed, failed or was
+ * never asked is a fact about running it, and the category, weight and required flag are facts
+ * about what a score is made of. Only the first is shared with the runtime's verifier — which
+ * scores nothing — so only the first lives below. See docs/adr/0007.
+ *
+ * On the outcome itself: only *absent* renormalises a category away, per score.ts and
+ * docs/adr/0002.
  */
-export const CheckOutcomeSchema = z.enum(["passed", "failed", "absent"]);
-export type CheckOutcome = z.infer<typeof CheckOutcomeSchema>;
-
 export const CheckResultSchema = z.strictObject({
   checkId: z.string().min(1),
   /** Which kind of check produced this, so a report can be read without its task beside it. */

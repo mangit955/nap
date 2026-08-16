@@ -19,9 +19,9 @@
  */
 
 import type { TurnFailureReason } from "@nap/shared/events";
+import type { PreviewDiagnosis } from "@nap/verify/preview";
 import { z } from "zod";
 import { dispositionForTurnFailure, type ErrorKind } from "./error-kind.ts";
-import type { PreviewDiagnosis } from "./preview.ts";
 import type { CheckResult } from "./report.ts";
 import type { RunStatus } from "./status.ts";
 

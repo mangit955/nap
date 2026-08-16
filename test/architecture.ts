@@ -1,7 +1,7 @@
 /**
  * Enforces the dependency direction that docs/PLAN.md §0 declares:
  *
- *   runtime → {context, agent, sandbox, db} → shared
+ *   runtime → {context, agent, sandbox, db, verify} → shared
  *
  * The plan calls this "enforced"; this module is what makes that word true.
  * Kept pure — it takes parsed manifests and returns violations — so it can be
@@ -40,12 +40,19 @@ const ALLOWED: Record<string, readonly string[]> = {
   // A browser, behind the PageCapture port. Beside storage and the sandbox for the same reason:
   // it photographs an address it is handed and knows nothing about projects or turns.
   "@nap/capture": ["@nap/shared"],
+  // Running one check against a sandbox and saying what it produced: the preview probe, the
+  // captured output of a failed command, and the passed/failed/absent answer. It sits below
+  // both of its consumers deliberately. The runtime verifies a turn's claim and the benchmark
+  // scores a run, and the machinery underneath is the same — but a dependency from the runtime
+  // to the benchmark would make the system under test import the thing that grades it, and
+  // every future scoring change a production change. See docs/adr/0007.
+  "@nap/verify": ["@nap/shared"],
   // The pure half of NapBench: task specifications, scoring, gates, metric derivation,
   // report serialisation. None of it may reach for a sandbox, a model or a browser — those
   // arrive through ports, which is what keeps the part that has to be trustworthy testable
   // with no network. Its sibling packages appear under devDependencies for their published
   // fakes, which this check deliberately does not read. See docs/adr/0001.
-  "@nap/bench": ["@nap/shared"],
+  "@nap/bench": ["@nap/shared", "@nap/verify"],
   "@nap/runtime": [
     "@nap/context",
     "@nap/agent",
@@ -53,6 +60,7 @@ const ALLOWED: Record<string, readonly string[]> = {
     "@nap/db",
     "@nap/storage",
     "@nap/capture",
+    "@nap/verify",
     "@nap/shared",
   ],
   // Apps compose everything; they are the top of the graph.

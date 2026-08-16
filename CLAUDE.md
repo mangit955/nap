@@ -84,17 +84,22 @@ A lefthook pre-commit hook runs `biome check` + `typecheck` + `vitest --changed`
 ## Layout
 
 ```
-packages/  shared  db  sandbox  storage  capture  agent  context  runtime  bench
+packages/  shared  db  sandbox  storage  capture  agent  context  runtime  verify  bench
 apps/      web (Next.js)   api (Hono, runs on Bun)   napbench (the benchmark CLI)
 ```
 
-**Dependency direction, enforced:** `runtime` → {`context`, `agent`, `sandbox`, `storage`, `capture`, `db`} → `shared`.
+**Dependency direction, enforced:** `runtime` → {`context`, `agent`, `sandbox`, `storage`, `capture`, `db`, `verify`} → `shared`.
 `agent` imports the `SandboxManager` *interface*, never the E2B adapter.
 
 `bench` sits beside `shared` rather than above `runtime`: it is NapBench's pure half — tasks,
 scoring, gates, reports — written against ports, and `apps/napbench` is the shell that composes
 real infrastructure behind them. Playwright belongs to that app alone and to nothing that ships.
 See `docs/adr/0001`.
+
+`verify` sits *below both* `runtime` and `bench`: running one check against a sandbox and saying
+whether it passed, failed or was never asked. The runtime uses it to arbitrate a turn's claim; the
+benchmark uses it to build a score. The edge that must never exist is `runtime` → `bench` — the
+system under test importing the thing that grades it. See `docs/adr/0007`.
 
 This is enforced by `test/architecture.ts`, not by vigilance — adding a dependency that
 violates it fails `bun run test`. Adding a new workspace package also fails the test until
