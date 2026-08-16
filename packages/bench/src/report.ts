@@ -18,6 +18,7 @@
 import type { Result } from "@nap/shared/result";
 import { z } from "zod";
 import { CategorySchema, type CategoryWeights, CategoryWeightsSchema } from "./category.ts";
+import { CommandOutputSchema } from "./command-output.ts";
 import { ErrorKindSchema } from "./error-kind.ts";
 import { GateIdSchema } from "./gates.ts";
 import { type RunMetrics, RunMetricsSchema } from "./metrics.ts";
@@ -57,6 +58,21 @@ export const CheckResultSchema = z.strictObject({
   outcome: CheckOutcomeSchema,
   /** Why, in a few words — the exit code, or what stopped it running at all. */
   detail: z.string(),
+  /**
+   * What the command actually said, on a command check that failed and said something.
+   *
+   * `detail` gives the exit code; this gives the reason. The distinction was learned from a
+   * paid run whose report said `exit 1` while the sentence that explained it — a missing
+   * script — sat on a stderr nobody had kept.
+   *
+   * **Absent rather than null**, unlike the score and the turn id above. Those are fields that
+   * always exist and may have no value, so `null` distinguishes "no score" from "old shape".
+   * This one genuinely does not exist on most checks: a passing check, a browser check and a
+   * silent command all have nothing to record, and writing empty streams on each of them would
+   * put noise into every line of a diffed artefact. Same reasoning as the absent metrics in
+   * docs/adr/0003.
+   */
+  output: CommandOutputSchema.optional(),
 });
 
 export const CategoryScoreSchema = z.strictObject({

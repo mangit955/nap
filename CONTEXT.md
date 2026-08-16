@@ -68,6 +68,13 @@ to cost. Every check carries the category
 it scores into, a weight, and whether it is required. A check produces exactly one of *passed*,
 *failed* or *absent* — and the difference between the last two is load-bearing, see **Gate**.
 
+**Check output** — what a failed command actually said, kept on the check beside the exit code it
+does not explain. Recorded only on failure and only when there was something to record, because a
+passing build's output is churn in an artefact people diff. Each stream is budgeted on its own and
+keeps its **tail** — a failing command prints its banner first and its reason last, and a shared
+budget would let a chatty stdout push out the stderr that explains the failure. A stream says
+whether it was truncated, so a fragment is never read as the whole.
+
 **Step** — one line of a browser check: an *action* that does something to the running application
 (navigate, click, fill, press, reload, select, resize) or an *assertion* that must hold at that
 point. Actions and assertions are one ordered list rather than two, because almost everything worth

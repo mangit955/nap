@@ -30,6 +30,7 @@ import type { BrowserCheck } from "./browser-check.ts";
 import { runAccessibilityCheck, runBrowserCheck } from "./browser-executor.ts";
 import type { BrowserSession, BrowserSessionFactory } from "./browser-session.ts";
 import { type CategoryWeights, DEFAULT_CATEGORY_WEIGHTS } from "./category.ts";
+import { captureCommandOutput } from "./command-output.ts";
 import { applyGates, type BrowserUnavailable, type GateInput } from "./gates.ts";
 import { deriveRunMetrics } from "./metrics.ts";
 import { diagnosePreview } from "./preview.ts";
@@ -553,9 +554,15 @@ async function runCommandCheck(
     };
   }
 
+  const passed = result.value.exitCode === 0;
+
   return {
     ...declared,
-    outcome: result.value.exitCode === 0 ? "passed" : "failed",
+    outcome: passed ? "passed" : "failed",
     detail: `exit ${result.value.exitCode}`,
+    // Only on a failure, and only when there was something to keep. A passing build's output
+    // is hundreds of lines nobody reads, landing in an artefact that people diff — churn that
+    // moves run to run for reasons unrelated to any score.
+    ...(passed ? {} : { output: captureCommandOutput(result.value) }),
   };
 }

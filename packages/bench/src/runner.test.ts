@@ -491,6 +491,49 @@ describe("runBenchTask — the trajectory it kept", () => {
     });
   });
 
+  it("keeps what a failed command said, which is the part `exit 1` leaves out", async () => {
+    // The case this exists for, taken from a real funded run: the report said `exit 1` and the
+    // sentence explaining it was on a stderr nobody kept, so diagnosing it meant paying twice.
+    const runtime = scriptedRuntime(completed);
+    const sandbox = new InMemorySandboxManager({
+      defaultExec: () => ({ exitCode: 1, stdout: "", stderr: 'Script not found "lint"' }),
+    });
+
+    const report = await reportOf(task(), await deps(runtime, sandbox));
+
+    expect(report.checks[0]?.output?.stderr.text).toBe('Script not found "lint"');
+    expect(report.checks[0]?.output?.stderr.truncated).toBe(false);
+  });
+
+  it("keeps nothing from a command that passed", async () => {
+    // A green build's output is hundreds of lines nobody reads, in an artefact people diff.
+    const runtime = scriptedRuntime(completed);
+    const sandbox = new InMemorySandboxManager({
+      defaultExec: () => ({ exitCode: 0, stdout: "built in 1.2s", stderr: "" }),
+    });
+
+    const report = await reportOf(task(), await deps(runtime, sandbox));
+
+    expect(report.checks[0]?.outcome).toBe("passed");
+    expect(report.checks[0]?.output).toBeUndefined();
+  });
+
+  it("truncates a torrent to the tail, and says that it did", async () => {
+    const runtime = scriptedRuntime(completed);
+    const sandbox = new InMemorySandboxManager({
+      defaultExec: () => ({
+        exitCode: 1,
+        stdout: `${"noise".repeat(4_000)}THE ACTUAL ERROR`,
+        stderr: "",
+      }),
+    });
+
+    const report = await reportOf(task(), await deps(runtime, sandbox));
+
+    expect(report.checks[0]?.output?.stdout.truncated).toBe(true);
+    expect(report.checks[0]?.output?.stdout.text.endsWith("THE ACTUAL ERROR")).toBe(true);
+  });
+
   it("records nothing rather than guessing when the run was composed without either", async () => {
     // A plausible default written here would be a ceiling the run was never actually held at,
     // in an artefact that is read months later as a record of fact.

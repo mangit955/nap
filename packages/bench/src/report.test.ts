@@ -143,6 +143,59 @@ describe("a report", () => {
   });
 });
 
+describe("what a failed command said", () => {
+  const failing = (output?: unknown) => ({
+    ...report,
+    status: "failed" as const,
+    score: 40,
+    checks: [
+      {
+        checkId: "lint",
+        kind: "command",
+        category: "code",
+        weight: 1,
+        required: false,
+        build: false,
+        outcome: "failed",
+        detail: "exit 1",
+        ...(output === undefined ? {} : { output }),
+      },
+    ],
+  });
+
+  it("round-trips both streams with their own truncation flags", () => {
+    const parsed = parseBenchReport(
+      failing({
+        stdout: { text: "", truncated: false },
+        stderr: { text: 'Script not found "lint"', truncated: false },
+      }),
+    );
+
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      expect(parsed.value.checks[0]?.output?.stderr.text).toBe('Script not found "lint"');
+    }
+  });
+
+  it("is absent on a check that recorded none, and stays absent through a round trip", () => {
+    // Absent rather than a pair of empty streams, so a passing check adds nothing to the diff.
+    const parsed = parseBenchReport(failing());
+
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) expect(parsed.value.checks[0]?.output).toBeUndefined();
+  });
+
+  it("refuses a stream that does not say whether it was truncated", () => {
+    // The flag is the whole point: without it a fragment reads as the complete output, which
+    // is a more confident wrong answer than recording nothing would have been.
+    const parsed = parseBenchReport(
+      failing({ stdout: { text: "x" }, stderr: { text: "", truncated: false } }),
+    );
+
+    expect(parsed.ok).toBe(false);
+  });
+});
+
 describe("the configuration a run was held at", () => {
   it("reads a report written before the field existed as having recorded nothing", () => {
     // The three funded runs predate this field. Refusing them would make the archive
