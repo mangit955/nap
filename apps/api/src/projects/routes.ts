@@ -27,7 +27,7 @@ import type { EventStore } from "@nap/shared/ports/event-store";
 import type { ObjectStore } from "@nap/shared/ports/object-store";
 import type { ProjectSandboxStore } from "@nap/shared/ports/project-sandbox-store";
 import type { ProjectStore, ProjectSummary } from "@nap/shared/ports/project-store";
-import type { Runtime } from "@nap/shared/ports/runtime";
+import type { ContinueOptions, Runtime } from "@nap/shared/ports/runtime";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
 import { RenameProjectSchema } from "@nap/shared/projects-protocol";
@@ -35,6 +35,8 @@ import type { Hono } from "hono";
 import { z } from "zod";
 import type { AuthVariables } from "../auth/require-user.ts";
 import { parseProjectId } from "../files/params.ts";
+import { resolveTurnAccess } from "../turns/model-access.ts";
+import type { CallerKeys } from "../turns/routes.ts";
 import { checkSandboxQuota, type SandboxLimits } from "../turns/sandbox-quota.ts";
 
 export type CreatedProject = { projectId: string; sessionId: string };
@@ -47,8 +49,22 @@ export type ProjectRouteDeps = {
   objects: ObjectStore;
   sandbox: SandboxManager;
   createProject: (options: { userId: string; name?: string }) => Promise<CreatedProject>;
-  /** Only `resumeSession`: nothing here starts a turn, and a wider type would let it. */
+  /** Only `resumeSession`: nothing here *starts* a turn, and a wider type would let it. */
   runtime: Pick<Runtime, "resumeSession">;
+  /**
+   * Who pays for a job an open continues, and which model it may run on.
+   *
+   * Opening a project can pick a job back up where a restart left it, and that spends tokens —
+   * so the same resolution a turn goes through applies here, from the same facts. Omitted means
+   * the runtime's default, which is right for a test and for a deployment with no key store; the
+   * cost of leaving it out in production is this deployment paying for a BYOK user's repairs.
+   */
+  models?: {
+    keys?: CallerKeys;
+    allowedModels: readonly string[];
+    freeModel: string;
+    defaultModel: string;
+  };
   /**
    * The log a close writes `preview.stopped` to. The same store and bus everything else uses —
    * a second pair would append to a log nobody is reading from.
@@ -184,8 +200,13 @@ export function registerProjectRoutes(
 
     const logger = getLogger();
 
+    // What a continued job would run on. Resolved even though most opens continue nothing: it
+    // is one lookup, and the alternative is deciding whose money to spend after the answer is
+    // already 202.
+    const settings = await continueSettings(deps, c.get("userId"));
+
     void deps.runtime
-      .resumeSession(sessionId)
+      .resumeSession(sessionId, settings)
       .then((outcome) => {
         logger.info({ outcome }, "project open settled");
       })
@@ -288,6 +309,33 @@ export function registerProjectRoutes(
 
     return c.json(removed.value);
   });
+}
+
+/**
+ * What a job continued by this open runs on, and whose account pays for it.
+ *
+ * The same resolver a turn goes through, asked with no model named: opening a project is not a
+ * place to choose one, and the caller's key is the only input. **A refusal cannot happen from
+ * here** — the resolver only says no to a model somebody asked for — so there is no error path,
+ * and an unconfigured deployment falls through to the runtime's own default.
+ */
+async function continueSettings(deps: ProjectRouteDeps, userId: string): Promise<ContinueOptions> {
+  const models = deps.models;
+  if (models === undefined) return {};
+
+  const access = resolveTurnAccess({
+    requested: undefined,
+    key: (await models.keys?.(userId)) ?? null,
+    allowed: models.allowedModels,
+    freeModel: models.freeModel,
+    defaultModel: models.defaultModel,
+  });
+  if (!access.ok) return {};
+
+  return {
+    model: access.model,
+    ...(access.credentials === undefined ? {} : { credentials: access.credentials }),
+  };
 }
 
 type RouteError = { status: 400 | 404; message: string };

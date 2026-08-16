@@ -21,12 +21,11 @@
  */
 
 import { MAX_REPAIR_ATTEMPTS } from "@nap/shared/job-state";
-import type { RanCheck } from "@nap/verify/run-checks";
-import { renderCheckOutput } from "./verify-turn.ts";
+import type { CheckFailure } from "./verify-turn.ts";
 
 export type RepairPromptOptions = {
   /** The check that said no. Short-circuiting means there is exactly one. */
-  failed: RanCheck;
+  failed: CheckFailure;
   /** Which repair this is, counting from one. */
   attempt: number;
 };
@@ -52,12 +51,10 @@ export function repairPrompt(options: RepairPromptOptions): string {
  * A check can fail silently — a non-zero exit and nothing on either stream — and saying so is
  * better than an empty code fence, which reads as "it said nothing important".
  */
-function quoted(failed: RanCheck): string {
-  const output = renderCheckOutput(failed.output);
+function quoted(failed: CheckFailure): string {
+  if (failed.output === null) return "It printed nothing; the exit code is all there is to go on.";
 
-  if (output === null) return "It printed nothing; the exit code is all there is to go on.";
-
-  return `It said:\n\n\`\`\`\n${output}\n\`\`\``;
+  return `It said:\n\n\`\`\`\n${failed.output}\n\`\`\``;
 }
 
 /**
@@ -67,6 +64,6 @@ function quoted(failed: RanCheck): string {
  * message to name itself after — using the synthesized prompt would put a paragraph of
  * instructions in the log. This says what the commit was for instead.
  */
-export function repairCommitSubject(failed: RanCheck, attempt: number): string {
+export function repairCommitSubject(failed: CheckFailure, attempt: number): string {
   return `Repair ${attempt}: ${failed.name}`;
 }

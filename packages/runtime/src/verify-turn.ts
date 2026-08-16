@@ -98,16 +98,39 @@ export function toVerifiedChecks(checks: readonly RanCheck[]): VerifiedCheck[] {
 }
 
 /**
+ * The check that said no, in the shape everything downstream of the verdict needs.
+ *
+ * Narrower than a `RanCheck` and wider than a `VerifiedCheck`, because it has two sources: a
+ * run that just happened, and a run recorded in the log before the process restarted. A repair
+ * prompt reads the same three fields either way, so it takes this rather than either of them —
+ * without it, continuing a job would mean rebuilding a `CommandOutput` out of a string that was
+ * flattened from one.
+ */
+export type CheckFailure = {
+  name: string;
+  /** Why, in a few words — an exit code from a live run, or where a recorded one came from. */
+  detail: string;
+  /** What it printed, already budgeted. `null` when it failed silently. */
+  output: string | null;
+};
+
+/** A check a run just found failing, as the prompt and the job's history both want it. */
+export function failureOf(check: RanCheck): CheckFailure {
+  return { name: check.name, detail: check.detail, output: renderCheckOutput(check.output) };
+}
+
+/**
  * Both streams, in the order a terminal would have shown them, each marked if it was cut.
  *
  * Stderr last on purpose: the reason a build failed is usually there, and the tail of this
  * string is the part a truncated prompt and a scrolled log both keep.
  *
- * Shared with the repair prompt rather than written twice, so what the log shows a person and
- * what the prompt shows the model are the same words. Already budgeted by whoever ran the
- * check — nothing here re-truncates it.
+ * Reached through both of the flatteners above rather than written twice, so what the log shows
+ * a person and what the prompt shows the model are the same words — which is also what lets a
+ * repair prompted from the log say exactly what one prompted from a live run would. Already
+ * budgeted by whoever ran the check; nothing here re-truncates it.
  */
-export function renderCheckOutput(output: CommandOutput | undefined): string | null {
+function renderCheckOutput(output: CommandOutput | undefined): string | null {
   if (output === undefined) return null;
 
   const rendered = [output.stdout, output.stderr]

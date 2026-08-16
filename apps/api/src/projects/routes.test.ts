@@ -5,12 +5,13 @@ import { FAKE_OWNER, InMemoryProjectStore } from "@nap/db/testing/in-memory-proj
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import type { ProjectSummary } from "@nap/shared/ports/project-store";
-import type { ResumeOutcome } from "@nap/shared/ports/runtime";
+import type { ContinueOptions, ResumeOutcome } from "@nap/shared/ports/runtime";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "../app.ts";
 import { createLogger } from "../logger.ts";
 import type { SandboxLimits } from "../turns/sandbox-quota.ts";
+import type { ProjectRouteDeps } from "./routes.ts";
 
 const PROJECT = "3e0fbc41-6f5d-4a8e-ab9c-4d5e6f708192";
 const SESSION = "2a3f8a24-6c1b-4e0e-9b6f-3a5c0a1d9e77";
@@ -30,6 +31,10 @@ let running: Set<string>;
 let created: { projectId: string; sessionId: string };
 /** Sessions the route asked the runtime to bring back up, in order. */
 let resumed: string[];
+/** What the last open asked a continued job to run on. */
+let continueOptions: ContinueOptions | undefined;
+/** The model settings the routes are built with, when a test cares. */
+let models: ProjectRouteDeps["models"];
 let resume: () => Promise<ResumeOutcome>;
 let limits: SandboxLimits | undefined;
 /** The log the app writes to, so a close's announcement can be read back. */
@@ -67,6 +72,8 @@ beforeEach(async () => {
   running = new Set();
   created = { projectId: UNKNOWN, sessionId: SESSION };
   resumed = [];
+  continueOptions = undefined;
+  models = undefined;
   resume = async () => ({ ok: true, sandboxId: "resumed-sandbox", created: true });
   limits = undefined;
   events = new InMemoryEventStore();
@@ -92,12 +99,14 @@ function app() {
       isBusy: (sessionIds) => sessionIds.some((id) => running.has(id)),
       events: { events, bus: new InMemoryEventBus() },
       runtime: {
-        resumeSession: async (sessionId) => {
+        resumeSession: async (sessionId, options) => {
           resumed.push(sessionId);
+          continueOptions = options;
           return await resume();
         },
       },
       ...(limits === undefined ? {} : { limits: { projects, sandboxes: limits } }),
+      ...(models === undefined ? {} : { models }),
     },
   });
 }
@@ -300,6 +309,36 @@ describe("POST /projects/:projectId/open", () => {
     expect(res.status).toBe(202);
     await expect(res.json()).resolves.toMatchObject({ opened: true });
     expect(resumed).toEqual([SESSION]);
+  });
+
+  it("tells the runtime what a continued job may run on, and who pays", async () => {
+    // Opening can pick a job back up where a restart left it, and that spends tokens. Without
+    // this, a user with their own key has their repairs billed to the deployment.
+    models = {
+      keys: async () => ({ platform: "openrouter", apiKey: "sk-or-theirs" }),
+      allowedModels: ["openai/gpt-5.6-luna", "openai/gpt-oss-20b:free"],
+      freeModel: "openai/gpt-oss-20b:free",
+      defaultModel: "openai/gpt-5.6-luna",
+    };
+
+    await app().request(`/projects/${PROJECT}/open`, { method: "POST" });
+
+    expect(continueOptions).toEqual({
+      model: "openai/gpt-5.6-luna",
+      credentials: { platform: "openrouter", apiKey: "sk-or-theirs" },
+    });
+  });
+
+  it("leaves a caller with no key of their own on the model this deployment covers", async () => {
+    models = {
+      allowedModels: ["openai/gpt-5.6-luna", "openai/gpt-oss-20b:free"],
+      freeModel: "openai/gpt-oss-20b:free",
+      defaultModel: "openai/gpt-5.6-luna",
+    };
+
+    await app().request(`/projects/${PROJECT}/open`, { method: "POST" });
+
+    expect(continueOptions).toEqual({ model: "openai/gpt-oss-20b:free" });
   });
 
   it("answers before the restore has finished", async () => {

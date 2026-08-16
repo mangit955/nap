@@ -11,7 +11,7 @@
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
 import { beforeEach, describe, expect, it } from "vitest";
-import { toVerifiedChecks, verifyTurn } from "./verify-turn.ts";
+import { failureOf, toVerifiedChecks, verifyTurn } from "./verify-turn.ts";
 
 const PROJECT_ID = "4d5e6f70-1a2b-4c3d-8e9f-0a1b2c3d4e5f";
 const PORT = 5173;
@@ -145,5 +145,33 @@ describe("toVerifiedChecks", () => {
     const result = await verifyTurn({ sandbox, sandboxId, previewPort: PORT });
 
     expect(toVerifiedChecks(result.checks).every((check) => check.output === null)).toBe(true);
+  });
+});
+
+describe("failureOf", () => {
+  it("flattens a live run's finding into what a prompt and the log both read", async () => {
+    // The same three fields a failure recorded before a restart has — which is the whole
+    // reason this shape exists, since a repair turn may be prompted from either.
+    sandbox.script(/bun run typecheck/, { exitCode: 2, stdout: "", stderr: "error TS2304" });
+
+    const result = await verifyTurn({ sandbox, sandboxId, previewPort: PORT });
+    const failed = result.checks.find((check) => check.outcome === "failed");
+    if (failed === undefined) throw new Error("expected a failing check");
+
+    expect(failureOf(failed)).toStrictEqual({
+      name: "typecheck",
+      detail: "exit 2",
+      output: "error TS2304",
+    });
+  });
+
+  it("says a silent failure printed nothing rather than an empty string", async () => {
+    sandbox.script(/bun run typecheck/, { exitCode: 1, stdout: "", stderr: "" });
+
+    const result = await verifyTurn({ sandbox, sandboxId, previewPort: PORT });
+    const failed = result.checks.find((check) => check.outcome === "failed");
+    if (failed === undefined) throw new Error("expected a failing check");
+
+    expect(failureOf(failed).output).toBeNull();
   });
 });

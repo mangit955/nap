@@ -72,6 +72,22 @@ committed, `HEAD` diverged from the last checkpoint, and says so. Reverting woul
 user can frequently push over the line with one sentence, in exchange for a tidier invariant nobody
 asked for.
 
+**A process restart leaves a job open, and only a person opening the project continues it.** A job
+outlives the process running it — that is what "job state is a fold over the log" buys — so a deploy
+or a crash mid-loop must neither fail the job nor drop it. What it must equally not do is pick it
+back up on its own: a supervisor that continues open jobs is an autonomous loop spending tokens with
+nobody watching, and a crash loop plus auto-continue is a large bill for nothing. `resumeSession`
+therefore continues, because somebody opening a project is the evidence that a person is there. No
+supervisor, no scan, no jobs index. The word is **continue**, not *resume*, which already means
+bringing a put-away sandbox back up.
+
+Two constraints fall out of the fold and are easy to get wrong. Continuing **respects the attempts
+already spent** — repairs are counted from `verification.started`, so a continuation that re-ran an
+interrupted round would silently consume one, and a round already begun is therefore finished rather
+than begun again. And it **never re-runs verified work**: a recorded failure prompts its repair
+directly rather than being re-derived, and a job sitting at a commit that is already a checkpoint is
+closed rather than checked twice.
+
 The verifier runs sandbox commands and a preview probe, and nothing else. Browser and accessibility
 checks stay NapBench's alone — ADR-0001 assigns the browser to `apps/napbench` and to nothing that
 ships, and reversing that here would put Playwright in the deployed API image for a class of failure

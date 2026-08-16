@@ -10,8 +10,9 @@
 import type { RanCheck } from "@nap/verify/run-checks";
 import { describe, expect, it } from "vitest";
 import { repairCommitSubject, repairPrompt } from "./repair-prompt.ts";
+import { failureOf } from "./verify-turn.ts";
 
-const failedTypecheck: RanCheck = {
+const ranTypecheck: RanCheck = {
   name: "typecheck",
   outcome: "failed",
   detail: "exit 2",
@@ -20,6 +21,9 @@ const failedTypecheck: RanCheck = {
     stderr: { text: "", truncated: false },
   },
 };
+
+/** What the runtime hands the prompt: a run's findings, flattened. */
+const failedTypecheck = failureOf(ranTypecheck);
 
 describe("repairPrompt", () => {
   it("names the check that failed and how it failed", () => {
@@ -39,7 +43,7 @@ describe("repairPrompt", () => {
     // A failing build prints its reason on stderr and its progress on stdout, and losing
     // either half is what made the output worth carrying in the first place.
     const prompt = repairPrompt({
-      failed: {
+      failed: failureOf({
         name: "build",
         outcome: "failed",
         detail: "exit 1",
@@ -47,7 +51,7 @@ describe("repairPrompt", () => {
           stdout: { text: "vite v5 building for production…", truncated: false },
           stderr: { text: "Could not resolve './Todo'", truncated: false },
         },
-      },
+      }),
       attempt: 2,
     });
 
@@ -59,7 +63,7 @@ describe("repairPrompt", () => {
     // A non-zero exit and nothing on either stream. An empty code fence reads as "it said
     // nothing important", which is the opposite of what a silent failure means.
     const prompt = repairPrompt({
-      failed: { name: "test", outcome: "failed", detail: "exit 1" },
+      failed: failureOf({ name: "test", outcome: "failed", detail: "exit 1" }),
       attempt: 1,
     });
 
@@ -75,11 +79,11 @@ describe("repairPrompt", () => {
     // The preview check runs no command, so its `detail` is the whole finding. A prompt that
     // only quoted output would tell the model its app is broken and nothing else.
     const prompt = repairPrompt({
-      failed: {
+      failed: failureOf({
         name: "preview",
         outcome: "failed",
         detail: "nothing is listening on port 5173 inside the sandbox",
-      },
+      }),
       attempt: 1,
     });
 
