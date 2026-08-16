@@ -114,7 +114,17 @@ describe("runChecks", () => {
 
     const [typecheck, lint] = result.checks;
     expect(typecheck?.detail).toContain("exit 2");
-    expect(lint?.detail).toContain("typecheck");
+    expect(lint?.detail).toBe("not run: typecheck failed first");
+  });
+
+  it("distinguishes a check stopped by a failure from one stopped by a dead sandbox", async () => {
+    const { sandbox, sandboxId } = await sandboxWith({ destroyed: true });
+
+    const result = await runChecks(sandbox, sandboxId, ALL);
+
+    // Both are absent, and a repair prompt that read "typecheck failed first" here would send
+    // the model looking for a type error that nobody ever asked about.
+    expect(result.checks[1]?.detail).toBe("not run: typecheck could not be run");
   });
 
   it("keeps what a failing check said, and nothing from the ones that passed", async () => {

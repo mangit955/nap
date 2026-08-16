@@ -11,19 +11,28 @@
  * **The result is data, never prose.** Its reader is a repair prompt and an event payload, and
  * both need the check's name, its outcome and what it said, separately.
  *
- * **Three verdicts, because two of them are not the project's fault.** `failed` means a check
- * the project asked for said no — that is a repair turn. `errored` means the run learned
- * nothing: the sandbox refused the command, or the preview is listening but unreachable from
- * out here. Opening a repair turn on either would spend tokens asking a model to fix a machine
- * it cannot see, so the checks involved come back *absent* and the verdict carries the fault.
- * Same reading as `diagnosePreview`, and the same one `CheckOutcome` was given three values for.
+ * **Three verdicts, because one of them is not the project's fault.** `failed` means a check the
+ * project asked for said no — that is a repair turn. `errored` means the run learned nothing:
+ * the sandbox refused the command, or the preview is listening but unreachable from out here.
+ * Opening a repair turn on either would spend tokens asking a model to fix a machine it cannot
+ * see, so the checks involved come back *absent*. Same reading as `diagnosePreview`, and the
+ * same one `CheckOutcome` was given three values for.
+ *
+ * **`errored` is not a verification, and must never be recorded as one.** This is the sharp
+ * edge on this module. `verification.completed` carries checks and no verdict on purpose — a
+ * verification failed exactly when one of its checks did — and `foldJobs` reads an all-absent
+ * payload as `verified`, correctly, because an unasked check is not a failed one. So a caller
+ * that emitted the event for an errored run would tell the log that a commit nothing ran
+ * against had been checked, and `job.checkpointed` would follow. An errored run is the job
+ * ending as **abandoned**: the sandbox went away, which `JobOutcome` already has a word for.
+ * The verdict exists to be branched on before anything is written, not to be persisted.
  */
 
 import type { CheckOutcome } from "@nap/shared/check-outcome";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import { type CommandOutput, captureCommandOutput } from "./command-output.ts";
 import type { CheckName, DiscoveredCheck } from "./discover-checks.ts";
-import { diagnosePreview } from "./preview.ts";
+import { type DiagnosePreviewOptions, diagnosePreview } from "./preview.ts";
 
 /**
  * The preview's name in a result, alongside the four script names.
@@ -57,12 +66,15 @@ export type VerificationResult = {
   checks: RanCheck[];
 };
 
+/** Which port to probe, and how long to give it — `diagnosePreview`'s two questions. */
+export type PreviewProbe = { port: number } & DiagnosePreviewOptions;
+
 export type RunChecksOptions = {
   /**
    * The preview probe, when the project serves something. Omitted for a project that does not,
    * rather than defaulted to a port — a check nobody asked for must not be able to fail.
    */
-  preview?: { port: number; timeoutMs?: number };
+  preview?: PreviewProbe;
 };
 
 export async function runChecks(
@@ -73,7 +85,7 @@ export async function runChecks(
 ): Promise<VerificationResult> {
   const ran: RanCheck[] = [];
   /** What ended the run, once something has. Everything after it is recorded unasked. */
-  let stopped: { verdict: "failed" | "errored"; by: RanCheckName } | undefined;
+  let stopped: Stop | undefined;
 
   for (const check of checks) {
     if (check.state === "absent") {
@@ -82,36 +94,39 @@ export async function runChecks(
     }
 
     if (stopped !== undefined) {
-      ran.push({ name: check.name, outcome: "absent", detail: notReached(stopped.by) });
+      ran.push({ name: check.name, outcome: "absent", detail: notReached(stopped) });
       continue;
     }
 
-    const result = await runOne(sandbox, sandboxId, check);
-    ran.push(result.check);
-    if (result.stops) stopped = { verdict: result.verdict, by: check.name };
+    const attempt = await runOne(sandbox, sandboxId, check);
+    ran.push(attempt.check);
+    stopped = attempt.stopped;
   }
 
   if (options.preview !== undefined) {
     if (stopped !== undefined) {
-      ran.push({
-        name: PREVIEW_CHECK_NAME,
-        outcome: "absent",
-        detail: notReached(stopped.by),
-      });
+      ran.push({ name: PREVIEW_CHECK_NAME, outcome: "absent", detail: notReached(stopped) });
     } else {
-      const result = await probePreview(sandbox, sandboxId, options.preview);
-      ran.push(result.check);
-      if (result.stops) stopped = { verdict: result.verdict, by: PREVIEW_CHECK_NAME };
+      const attempt = await probePreview(sandbox, sandboxId, options.preview);
+      ran.push(attempt.check);
+      stopped = attempt.stopped;
     }
   }
 
   return { verdict: stopped?.verdict ?? "passed", checks: ran };
 }
 
-/** What running one thing produced, plus whether it ends the run. */
-type Attempt =
-  | { check: RanCheck; stops: false }
-  | { check: RanCheck; stops: true; verdict: "failed" | "errored" };
+/**
+ * Why the run ended early, kept whole so the checks after it can say which of the two it was.
+ *
+ * The distinction is the same one `detail` exists for on an unasked check: "there is no lint
+ * script", "lint was never reached because typecheck failed" and "lint was never reached
+ * because the sandbox was gone" are one outcome and three different things to do about it.
+ */
+type Stop = { verdict: "failed" | "errored"; by: RanCheckName };
+
+/** What running one thing produced, and what — if anything — it ends. */
+type Attempt = { check: RanCheck; stopped: Stop | undefined };
 
 async function runOne(
   sandbox: SandboxManager,
@@ -131,14 +146,16 @@ async function runOne(
         outcome: "absent",
         detail: `could not run: ${result.error.code} — ${result.error.message}`,
       },
-      stops: true,
-      verdict: "errored",
+      stopped: { verdict: "errored", by: check.name },
     };
   }
 
   const { exitCode } = result.value;
   if (exitCode === 0) {
-    return { check: { name: check.name, outcome: "passed", detail: "exit 0" }, stops: false };
+    return {
+      check: { name: check.name, outcome: "passed", detail: "exit 0" },
+      stopped: undefined,
+    };
   }
 
   const output = captureCommandOutput(result.value);
@@ -152,15 +169,14 @@ async function runOne(
       // is hundreds of lines that would crowd the failure out of a repair prompt.
       ...(output === undefined ? {} : { output }),
     },
-    stops: true,
-    verdict: "failed",
+    stopped: { verdict: "failed", by: check.name },
   };
 }
 
 async function probePreview(
   sandbox: SandboxManager,
   sandboxId: string,
-  preview: { port: number; timeoutMs?: number },
+  preview: PreviewProbe,
 ): Promise<Attempt> {
   const diagnosis = await diagnosePreview(
     sandbox,
@@ -172,7 +188,7 @@ async function probePreview(
   if (diagnosis.state === "serving") {
     return {
       check: { name: PREVIEW_CHECK_NAME, outcome: "passed", detail: "serving" },
-      stops: false,
+      stopped: undefined,
     };
   }
 
@@ -180,18 +196,19 @@ async function probePreview(
     // The only preview answer that is the agent's: it built something that does not run.
     return {
       check: { name: PREVIEW_CHECK_NAME, outcome: "failed", detail: diagnosis.detail },
-      stops: true,
-      verdict: "failed",
+      stopped: { verdict: "failed", by: PREVIEW_CHECK_NAME },
     };
   }
 
   return {
     check: { name: PREVIEW_CHECK_NAME, outcome: "absent", detail: diagnosis.detail },
-    stops: true,
-    verdict: "errored",
+    stopped: { verdict: "errored", by: PREVIEW_CHECK_NAME },
   };
 }
 
 const notDeclared = (name: CheckName) => `the project declares no ${name} script`;
 
-const notReached = (by: RanCheckName) => `not run: ${by} did not pass`;
+const notReached = (stop: Stop) =>
+  stop.verdict === "failed"
+    ? `not run: ${stop.by} failed first`
+    : `not run: ${stop.by} could not be run`;

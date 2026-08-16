@@ -48,6 +48,16 @@ by the model. Owned by `@nap/verify` and shared with NapBench, which adds scorin
 see the NapBench **Check** entry, and `docs/adr/0007`. The passed/failed/absent triple itself sits
 one layer lower still, in `@nap/shared`, because `verification.completed` carries it into the log.
 
+**Verdict** — what a whole *run* of the checks came to, as against the outcome of any one of them:
+**passed**, **failed**, or **errored**. The third is the one worth the word. Failed is the project's
+and opens a repair turn; errored means nothing was learned about the project — the sandbox refused
+the command, or the preview listens inside and is unreachable from outside — and a repair turn on
+that would ask a model to fix a machine it cannot see, so its checks come back *absent*. **An
+errored run is never written as a verification.** `verification.completed` carries checks and no
+verdict on purpose, and an all-absent payload folds to `verified`; the job ends **abandoned**
+instead. `runChecks` in `@nap/verify` is where a verdict comes from, and it is branched on before
+anything is persisted rather than persisted itself.
+
 **Checkpoint** — a *verified* commit, and the answer to "is this project in a valid state right
 now", which is `HEAD == last checkpoint` rather than a judgement anybody renders. Distinct from a
 **Snapshot**, which is a filesystem archived because a sandbox went away: a checkpoint is about
