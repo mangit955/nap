@@ -14,6 +14,13 @@
  * rather than a thrown one: the caller is a CLI whose job is to explain the problem. See
  * docs/adr/0002.
  *
+ * **The refusals do not all guard the same thing**, which is why they are separate functions
+ * asked in a fixed order. A mismatched weight vector corrupts the *arithmetic*, so it is
+ * skipped when neither run has a number to reprice. A mismatched turn budget corrupts the
+ * *attribution* — `budget_exceeded` counts against the agent only while the ceiling is held
+ * fixed — so it applies to unscored runs too, which is exactly where an error kind is the whole
+ * finding. See docs/adr/0004.
+ *
  * Two runs, and exactly two. Comparing three is a different tool with a different shape — a
  * table rather than a diff — and is explicitly out of scope for v1.
  */

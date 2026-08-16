@@ -31,7 +31,15 @@ import type { ViewportSize } from "./viewport.ts";
 export type BrowserErrorCode =
   /** The driver itself: no browser, a crashed one, a context that would not open. */
   | "unavailable"
-  /** The page would not load: no response, a network error, a navigation that never settled. */
+  /**
+   * The page would not load: no response, a network error, a navigation that never settled.
+   *
+   * Reported, not judged — this says the browser did not get there, and deliberately not why.
+   * An adapter must never read it as "the application is broken": the executor retries a first
+   * arrival before believing it, and attributes one that keeps failing to the evaluator rather
+   * than to the agent, because the preview probe had already proven that URL serves. See
+   * docs/adr/0005.
+   */
   | "navigation_failed"
   /** Nothing matched the selector within the timeout. */
   | "not_found"

@@ -13,6 +13,12 @@
  * learned this from persisted event payloads: `undefined` disappears through JSON, so a
  * missing value and an omitted key become the same thing, and "this run has no score" stops
  * being distinguishable from "this report is from an older shape".
+ *
+ * **The exception, and what earns it:** a field that genuinely has no referent on most records
+ * is absent instead. A check's captured output is the case — a passing check, a browser check
+ * and a silent command all have nothing to say, and writing empty streams onto every one of
+ * them would put noise into an artefact people diff. The rule above is about a value that is
+ * missing; this is about a field that does not apply.
  */
 
 import type { Result } from "@nap/shared/result";

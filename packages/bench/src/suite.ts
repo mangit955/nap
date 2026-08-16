@@ -23,9 +23,11 @@ import { TRACER_TASK } from "./tasks/tracer.ts";
 /**
  * Every task the CLI can be asked for by name.
  *
- * The tracer is in here beside the four real ones on purpose: it is the cheapest thing to
- * point the whole composition at when what is being checked is the apparatus rather than a
- * model, and having to edit a file to run it would defeat that.
+ * The tracer is in here beside the real ones on purpose: it is the cheapest thing to point the
+ * whole composition at when what is being checked is the apparatus rather than a model, and
+ * having to edit a file to run it would defeat that. It belongs to no suite that characterises
+ * anything — `smoke` exists to name it — because a task that asserts almost nothing would
+ * flatter any model averaged in beside the others.
  */
 export const BENCH_TASKS: readonly BenchTask[] = [
   LANDING_PAGE_TASK,

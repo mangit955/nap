@@ -18,7 +18,9 @@
  *
  * **Isolation is structural.** Every run gets its own session, its own stores and its own
  * sandbox, so nothing a run leaves behind can be what makes the next one pass. Suites run
- * serially, which keeps sandbox concurrency and spend predictable.
+ * serially, which keeps sandbox concurrency and spend predictable. That matters more since
+ * `--repeat`: a task run three times is three independent runs, and if it were not, the spread
+ * they exist to measure would be a property of the first one.
  */
 
 import { join } from "node:path";

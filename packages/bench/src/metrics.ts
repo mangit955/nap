@@ -101,7 +101,15 @@ export type RunMetrics = z.infer<typeof RunMetricsSchema>;
 const RUN_COMMAND: ToolName = "run_command";
 
 export type DeriveMetricsOptions = {
-  /** Which model ran, for pricing. Absent means the cost estimate is absent too. */
+  /**
+   * Which model ran, for pricing. Absent means the cost estimate is absent too.
+   *
+   * Not the same field as the report's `configuration.model`, and the duplication is
+   * deliberate: this one exists to price what a run *consumed*, that one records what it was
+   * *held at*. They carry the same value until the first run whose provider falls back
+   * mid-way, which is precisely the run where collapsing them would make one of the two
+   * readings wrong with nothing to say which.
+   */
   model?: string | undefined;
 };
 

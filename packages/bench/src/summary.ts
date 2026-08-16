@@ -10,6 +10,11 @@
  * a run with no score cannot be averaged in as a zero without charging an outage to the model
  * — and the two error rates are kept apart, because a suite contaminated by infrastructure is
  * not weak data but *not data*. See docs/adr/0002.
+ *
+ * **A mean alone is still an anecdote**, so a suite that repeated anything reports each task's
+ * spread beside it, and a success rate beside the mean: 85 every time and 100/70 alternating
+ * are the same average and are not the same thing to depend on. The spread is per task, never
+ * across the suite — see `distribution.ts` for why that distinction is the whole point.
  */
 
 import { type Distribution, describeDistribution } from "./distribution.ts";
