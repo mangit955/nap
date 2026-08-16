@@ -40,6 +40,7 @@ let sandbox: InMemorySandboxManager;
 let events: InMemoryEventStore;
 let sessions: InMemorySessionStore;
 let agent: ScriptedAgent;
+let context: StubContextEngine;
 
 beforeEach(() => {
   sandbox = scriptGit(
@@ -51,6 +52,7 @@ beforeEach(() => {
   events = new InMemoryEventStore();
   sessions = new InMemorySessionStore([{ sessionId: SESSION_ID, projectId: PROJECT_ID }]);
   agent = new ScriptedAgent(() => completedTurn(COMMIT_SHA), true);
+  context = new StubContextEngine();
 });
 
 /** Typecheck says no, every time it is asked. */
@@ -78,7 +80,7 @@ function run(options: { signal?: AbortSignal } = {}) {
   return new SingleAgentRuntime({
     sessions,
     sandbox,
-    context: new StubContextEngine(),
+    context,
     agent,
     events,
     bus: new InMemoryEventBus(),
@@ -187,6 +189,36 @@ describe("a check that says no", () => {
     expect(state.checkpointSha).toBe(COMMIT_SHA);
     expect(state.atCheckpoint).toBe(true);
     expect(outcome).toMatchObject({ ok: true, commitSha: COMMIT_SHA });
+  });
+});
+
+describe("what a repair turn is told about its job", () => {
+  it("states the objective, which is the user's message and not the verifier's prompt", async () => {
+    // The prompt a repair turn carries is the verifier's, and the user's request is only in the
+    // history — which is the first thing a full context gives up. The objective is what stops a
+    // long repair from being run by a model that no longer knows what it is building.
+    redUntil(2);
+
+    await run();
+
+    expect(context.requests.map((request) => request.job?.objective)).toEqual([
+      "add a delete button",
+      "add a delete button",
+    ]);
+  });
+
+  it("carries every failure so far, oldest first, and none on the turn that opens the job", async () => {
+    alwaysRed();
+
+    await run();
+
+    // Four turns: the opening one knows of no failures, and each repair is told about every
+    // round of checks that has run before it, including the one that prompted it.
+    expect(context.requests.map((request) => request.job?.attempts.length)).toEqual([0, 1, 2, 3]);
+
+    const latest = context.requests.at(-1)?.job?.attempts.at(-1);
+    expect(latest?.check).toBe("typecheck");
+    expect(latest?.output).toContain("src/App.tsx: error TS2304");
   });
 });
 

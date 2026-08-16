@@ -1,3 +1,4 @@
+import type { ContextRequest } from "@nap/shared/ports/context-engine";
 import type { FileNode } from "@nap/shared/ports/sandbox-manager";
 import { describe, expect, it } from "vitest";
 import { NapContextEngine } from "./context-engine.ts";
@@ -27,7 +28,7 @@ function templateTree(): FileTree {
 }
 
 /** Nothing here varies between runs, so the snapshot is stable by construction. */
-async function assembled(): Promise<string> {
+async function assembled(overrides: Partial<ContextRequest> = {}): Promise<string> {
   const engine = new NapContextEngine({ root: ROOT });
   const context = await engine.build({
     sessionId: "6f1c1d3e-2b7a-4c5e-8f9a-0d1e2f3a4b5c",
@@ -36,6 +37,7 @@ async function assembled(): Promise<string> {
     history: [],
     sandbox: stubSandbox(templateTree()),
     memory: new NoopMemoryProvider(),
+    ...overrides,
   });
   return context.systemPrompt;
 }
@@ -47,6 +49,26 @@ describe("the system prompt", () => {
     // with `vitest -u` and read the diff — this file is the record that a human approved
     // every word the model is told on every turn.
     expect(await assembled()).toMatchSnapshot();
+  });
+
+  it("matches the reviewed snapshot on a repair turn", async () => {
+    // The second thing a human has to have approved: what a turn prompted by a failed check
+    // is told about the job it is repairing. Same rule — read the diff, do not regenerate it.
+    const prompt = await assembled({
+      userMessage: "The `typecheck` check failed (exited 2). Find the cause and fix it.",
+      job: {
+        objective: "add a dark mode toggle",
+        attempts: [
+          {
+            check: "typecheck",
+            detail: "exited 2",
+            output: "src/App.tsx(4,7): error TS2304: Cannot find name 'useTheme'.",
+          },
+        ],
+      },
+    });
+
+    expect(prompt).toMatchSnapshot();
   });
 
   describe("required sections", () => {

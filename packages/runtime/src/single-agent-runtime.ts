@@ -41,7 +41,7 @@ import type { NapEvent, NapEventOf, PromptSource } from "@nap/shared/events";
 import { MAX_REPAIR_ATTEMPTS } from "@nap/shared/job-state";
 import { addLogContext, getLogger, withLogContext } from "@nap/shared/logging";
 import type { AgentService } from "@nap/shared/ports/agent-service";
-import type { ContextEngine } from "@nap/shared/ports/context-engine";
+import type { ContextEngine, FailedAttempt, JobContext } from "@nap/shared/ports/context-engine";
 import type { EventBus } from "@nap/shared/ports/event-bus";
 import type { EventStore, PendingEvent, StoredEvent } from "@nap/shared/ports/event-store";
 import type { MemoryProvider } from "@nap/shared/ports/memory-provider";
@@ -64,7 +64,7 @@ import { repairCommitSubject, repairPrompt } from "./repair-prompt.ts";
 import { SessionQueue } from "./session-queue.ts";
 import { captureSnapshot } from "./teardown.ts";
 import { captureThumbnail } from "./turn-thumbnail.ts";
-import { toVerifiedChecks, verifyTurn } from "./verify-turn.ts";
+import { renderCheckOutput, toVerifiedChecks, verifyTurn } from "./verify-turn.ts";
 
 type Payload<T extends NapEvent["type"]> = NapEventOf<T>["payload"];
 
@@ -353,8 +353,18 @@ export class SingleAgentRuntime implements Runtime {
       // objective repeats the message on purpose, so the log answers "what was asked" without
       // a reader having to work out which message belongs to which job.
       const jobId = crypto.randomUUID();
+      const objective = objectiveOf(request.message);
       openJobId = jobId;
-      emit("job.started", { jobId, objective: objectiveOf(request.message) });
+      emit("job.started", { jobId, objective });
+
+      /**
+       * What verification has said on this job so far, oldest first.
+       *
+       * Carried into every later turn's context. It is the one thing a repair turn cannot work
+       * out for itself: the transcript shows the model confidently finishing, not that the
+       * finish was rejected, so without this each attempt is free to make the last one again.
+       */
+      const attempts: FailedAttempt[] = [];
 
       // Before the preview, which is about to show whatever state the notice is explaining.
       for (const notice of sandboxId.value.notices) emit("system.notice", notice);
@@ -374,6 +384,7 @@ export class SingleAgentRuntime implements Runtime {
         promptSource: "user",
         commitSubject: request.message,
         history,
+        job: { objective, attempts: [] },
       });
 
       /**
@@ -436,11 +447,26 @@ export class SingleAgentRuntime implements Runtime {
           return outcome;
         }
 
+        // Recorded before the repair runs, so the turn that is about to try again is told what
+        // the checks have said every time so far — including this time.
+        attempts.push({
+          check: failed.name,
+          detail: failed.detail,
+          output: renderCheckOutput(failed.output),
+        });
+
         repairs += 1;
         const repairTurnId = this.#newTurnId();
         turn = this.#scopeFor(session, sink, request.sessionId, repairTurnId);
         outcome = await withLogContext(getLogger(), { turnId: repairTurnId }, () =>
-          this.#repair({ request, scope: turn, sandboxId: sandbox, failed, attempt: repairs }),
+          this.#repair({
+            request,
+            scope: turn,
+            sandboxId: sandbox,
+            failed,
+            attempt: repairs,
+            job: { objective, attempts: [...attempts] },
+          }),
         );
       }
     } catch (error) {
@@ -486,8 +512,16 @@ export class SingleAgentRuntime implements Runtime {
     commitSubject: string;
     /** The session's events, read *before* this turn's prompt was logged. */
     history: StoredEvent[];
+    /**
+     * What the job is for and what its checks have said, for the prompt.
+     *
+     * Handed to the context engine rather than folded there: the component that owns the token
+     * budget performs no I/O and does not read the log twice.
+     */
+    job: JobContext;
   }): Promise<TurnOutcome> {
-    const { request, scope, sandboxId, prompt, promptSource, commitSubject, history } = options;
+    const { request, scope, sandboxId, prompt, promptSource, commitSubject, history, job } =
+      options;
     const { sink, emit, turnId } = scope;
 
     const context = await this.#options.context.build({
@@ -495,6 +529,7 @@ export class SingleAgentRuntime implements Runtime {
       sandboxId,
       userMessage: prompt,
       history,
+      job,
       sandbox: this.#options.sandbox,
       memory: this.#options.memory,
     });
@@ -551,8 +586,9 @@ export class SingleAgentRuntime implements Runtime {
     sandboxId: string;
     failed: RanCheck;
     attempt: number;
+    job: JobContext;
   }): Promise<TurnOutcome> {
-    const { request, scope, sandboxId, failed, attempt } = options;
+    const { request, scope, sandboxId, failed, attempt, job } = options;
     const prompt = repairPrompt({ failed, attempt });
 
     getLogger().info({ check: failed.name, attempt }, "repairing a failed check");
@@ -570,6 +606,7 @@ export class SingleAgentRuntime implements Runtime {
       promptSource: "verification",
       commitSubject: repairCommitSubject(failed, attempt),
       history,
+      job,
     });
   }
 

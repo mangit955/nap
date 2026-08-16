@@ -58,6 +58,15 @@ verdict on purpose, and an all-absent payload folds to `verified`; the job ends 
 instead. `runChecks` in `@nap/verify` is where a verdict comes from, and it is branched on before
 anything is persisted rather than persisted itself.
 
+**Job brief** — the `<job>` section of the assembled prompt: the job's **objective**, and the
+verification failures already seen on it, oldest first. The second half is procedural memory done
+deterministically — a transcript shows the model confidently finishing, never that the finish was
+rejected, so without this each repair is free to make the last one again. Near-unevictable, and
+that is the point: the situation it exists for is a long repair with a full context, which is
+exactly when the turn that stated the objective has fallen out of the window. Handed to the
+`ContextEngine` like `history` is, because the component that owns the token budget performs no
+I/O. `renderJobBrief` in `@nap/context` writes it.
+
 **Checkpoint** — a *verified* commit, and the answer to "is this project in a valid state right
 now", which is `HEAD == last checkpoint` rather than a judgement anybody renders. Distinct from a
 **Snapshot**, which is a filesystem archived because a sandbox went away: a checkpoint is about
