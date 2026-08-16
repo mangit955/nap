@@ -19,11 +19,15 @@ import { runAccessibilityCheck, runBrowserCheck } from "../browser-executor.ts";
 import type { CheckOutcome } from "../report.ts";
 import type { BenchTask } from "../task.ts";
 import {
+  type InteractionHandler,
   ScriptedBrowserSession,
   type ScriptedBrowserSessionOptions,
   type ScriptedElement,
+  type ScriptedInteraction,
+  type ScriptedPageController,
 } from "../testing/scripted-browser-session.ts";
 import { DEBUG_BROKEN_TASK } from "./debug-broken.ts";
+import { EXPENSE_LEDGER_TASK } from "./expense-ledger.ts";
 import { LANDING_PAGE_TASK } from "./landing-page.ts";
 import { RESPONSIVE_LAYOUT_TASK } from "./responsive-layout.ts";
 import { TODO_CRUD_TASK } from "./todo-crud.ts";
@@ -540,5 +544,326 @@ describe("responsive-layout, audited at the size that differs", () => {
     expect(
       await auditOutcomeOf(RESPONSIVE_LAYOUT_TASK, "is-accessible-on-a-phone", unnamedControl),
     ).toBe("failed");
+  });
+});
+
+/**
+ * A scripted expense ledger, and the ways of getting it subtly wrong.
+ *
+ * The larger half of proving `expense-ledger` discriminates: every check in that task asserts
+ * two requirements *interacting*, so a fake that only implements them correctly cannot show
+ * that any check would ever notice. Each defect below is one an agent could plausibly ship —
+ * every one looks right on screen until a second rule is applied at the same time.
+ */
+
+type Expense = { name: string; amount: number; category: string };
+
+/** Exactly what the prompt tells the agent to start with, in the order it states. */
+const EXPENSES: readonly Expense[] = [
+  { name: "Coffee", amount: 4, category: "Food" },
+  { name: "Rent", amount: 1200, category: "Home" },
+  { name: "Bus fare", amount: 3, category: "Travel" },
+  { name: "Groceries", amount: 60, category: "Food" },
+  { name: "Lamp", amount: 25, category: "Home" },
+  { name: "Train", amount: 90, category: "Travel" },
+];
+
+const PAGE_SIZE = 3;
+
+/**
+ * The ways a plausible implementation goes wrong, each the result of applying one rule in the
+ * wrong order relative to another.
+ *
+ * Named for what the application *does* rather than for the check it fails, because the point
+ * is that each is a real mistake rather than a fixture built to fail an assertion.
+ */
+type LedgerDefects = {
+  /** Counts the pages over every expense, so a filtered list still claims two pages. */
+  paginatesBeforeFiltering?: boolean;
+  /** Adds up what is on screen instead of the whole category, so paging changes the total. */
+  totalsTheVisiblePage?: boolean;
+  /** Sorts the three rows already rendered rather than the set they were taken from. */
+  sortsOnlyTheVisiblePage?: boolean;
+  /** Leaves the page index alone when the category changes, stranding the reader past the end. */
+  keepsThePageWhenTheCategoryChanges?: boolean;
+  /** Renders the sort button and never sorts — the half of a feature that is visible. */
+  ignoresTheSortButton?: boolean;
+};
+
+type State = { category: string; sort: "none" | "asc" | "desc"; page: number };
+
+/** What the application shows, given where it has been driven to. */
+function view(state: State, defects: LedgerDefects): ScriptedElement[] {
+  const matching = EXPENSES.filter(
+    (expense) => state.category === "All" || expense.category === state.category,
+  );
+
+  // The correct order: sort the matching set, then take the page out of it. The defect takes
+  // the page first and sorts what it got, which looks identical until the set is longer than
+  // one page — which is exactly when a benchmark should notice.
+  const ordered = defects.sortsOnlyTheVisiblePage
+    ? sorted(matching.slice(offset(state), offset(state) + PAGE_SIZE), state.sort)
+    : sorted(matching, state.sort).slice(offset(state), offset(state) + PAGE_SIZE);
+
+  const pageCount = Math.max(
+    1,
+    Math.ceil((defects.paginatesBeforeFiltering ? EXPENSES.length : matching.length) / PAGE_SIZE),
+  );
+
+  const totalled = defects.totalsTheVisiblePage ? ordered : matching;
+  const total = totalled.reduce((sum, expense) => sum + expense.amount, 0);
+
+  return [
+    ...ordered.map((expense) => ({ role: "listitem", text: expense.name })),
+    { testId: "page", text: `Page ${state.page} of ${pageCount}` },
+    { testId: "total", text: `Total: ${total}` },
+  ];
+}
+
+function offset(state: State): number {
+  return (state.page - 1) * PAGE_SIZE;
+}
+
+function sorted(expenses: readonly Expense[], order: State["sort"]): Expense[] {
+  if (order === "none") return [...expenses];
+
+  const ascending = [...expenses].sort((a, b) => a.amount - b.amount);
+  return order === "asc" ? ascending : ascending.reverse();
+}
+
+/** The controls, which are on the page whatever state it is in. */
+const CONTROLS: readonly ScriptedElement[] = [
+  { role: "combobox", label: "Category", value: "All" },
+  { role: "button", name: "Sort by amount" },
+  { role: "button", name: "Previous" },
+  { role: "button", name: "Next" },
+];
+
+/**
+ * Replaces everything the state decides, leaving the controls where they are.
+ *
+ * `persists` is what the reload check turns on and off: an application that saved its state and
+ * one that merely looked like it did behave identically until the page is reloaded.
+ */
+function rerender(
+  page: ScriptedPageController,
+  state: State,
+  defects: LedgerDefects,
+  persists: boolean,
+): void {
+  page.remove({ by: "role", role: "listitem" });
+  page.remove({ by: "testId", id: "page" });
+  page.remove({ by: "testId", id: "total" });
+
+  for (const element of view(state, defects)) page.add(element, { persists });
+}
+
+function handlers(
+  state: State,
+  defects: LedgerDefects,
+  persists: boolean,
+): Partial<Record<ScriptedInteraction["action"], InteractionHandler>> {
+  const pageCount = () => {
+    const matching = EXPENSES.filter(
+      (expense) => state.category === "All" || expense.category === state.category,
+    );
+    return Math.max(1, Math.ceil(matching.length / PAGE_SIZE));
+  };
+
+  return {
+    click: ({ selector, page }: ScriptedInteraction) => {
+      if (selector?.by !== "role") return;
+
+      if (selector.name === "Sort by amount") {
+        if (defects.ignoresTheSortButton) return;
+        state.sort = state.sort === "asc" ? "desc" : "asc";
+      } else if (selector.name === "Next") {
+        state.page = Math.min(state.page + 1, pageCount());
+      } else if (selector.name === "Previous") {
+        state.page = Math.max(state.page - 1, 1);
+      } else {
+        return;
+      }
+
+      rerender(page, state, defects, persists);
+    },
+    select: ({ value, page }: ScriptedInteraction) => {
+      if (value === undefined) return;
+
+      state.category = value;
+      // The rule that only exists because two others interact: page 2 of everything is not a
+      // page of a filtered list, and an application that keeps the index shows an empty screen.
+      if (!defects.keepsThePageWhenTheCategoryChanges) state.page = 1;
+
+      rerender(page, state, defects, persists);
+    },
+  };
+}
+
+/**
+ * An application that renders on load, for every check that asserts before interacting.
+ *
+ * Its declared page carries the opening render, because that is what a check like
+ * "starts on the first page, unsorted" is about.
+ */
+function ledgerApp(defects: LedgerDefects = {}): ScriptedBrowserSessionOptions {
+  const state: State = { category: "All", sort: "none", page: 1 };
+
+  return {
+    pages: { "/": { elements: [...CONTROLS, ...view(state, defects)] } },
+    on: handlers(state, defects, false),
+  };
+}
+
+/**
+ * The same application, for the one check that reloads.
+ *
+ * **Its declared page is the controls alone**, and that is a limitation of the fake rather than
+ * a claim about the application: a reload restores a page's *declared* elements plus whatever
+ * was saved, so an application whose declared opening render is meant to be replaced by saved
+ * state would come back showing both at once. Declaring nothing state-dependent is the only way
+ * to model "what is on screen after a reload is what was saved". The check that uses this opens
+ * by choosing a category, so the first render happens before anything is asserted.
+ */
+function savingLedger(options: {
+  saves: boolean;
+  defects?: LedgerDefects;
+}): ScriptedBrowserSessionOptions {
+  const state: State = { category: "All", sort: "none", page: 1 };
+
+  return {
+    pages: { "/": { elements: [...CONTROLS] } },
+    on: handlers(state, options.defects ?? {}, options.saves),
+  };
+}
+
+describe("expense-ledger", () => {
+  it("passes an application that gets all five rules right", async () => {
+    for (const checkId of [
+      "starts-on-the-first-page-unsorted",
+      "pages-forward-and-back",
+      "filtering-repaginates-and-retotals",
+      "sorting-changes-which-page-you-are-on",
+      "filtering-and-sorting-hold-at-once",
+      "changing-the-category-returns-to-page-one",
+    ]) {
+      expect(await outcomeOf(EXPENSE_LEDGER_TASK, checkId, ledgerApp())).toBe("passed");
+    }
+  });
+
+  it("catches a page count taken before the filter was applied", async () => {
+    // The list is right and the pager is not: two of six expenses are shown, under a legend
+    // that still says there are two pages. Nothing about the visible rows is wrong.
+    const app = ledgerApp({ paginatesBeforeFiltering: true });
+
+    expect(await outcomeOf(EXPENSE_LEDGER_TASK, "filtering-repaginates-and-retotals", app)).toBe(
+      "failed",
+    );
+  });
+
+  it("catches a total that adds up the screen instead of the category", async () => {
+    // Indistinguishable from correct whenever the matching set fits on one page — which is
+    // most of the time, and is why a task without pagination could not find it at all. Two
+    // Food expenses fit on one page, so the check that filters passes this application; the
+    // one that pages does not.
+    const app = ledgerApp({ totalsTheVisiblePage: true });
+
+    expect(await outcomeOf(EXPENSE_LEDGER_TASK, "filtering-repaginates-and-retotals", app)).toBe(
+      "passed",
+    );
+    expect(await outcomeOf(EXPENSE_LEDGER_TASK, "pages-forward-and-back", app)).toBe("failed");
+  });
+
+  it("catches a sort applied to the rows on screen rather than to the whole set", async () => {
+    // The defect an ordering assertion would miss: the three visible rows really are in
+    // ascending order. They are simply the wrong three.
+    const app = ledgerApp({ sortsOnlyTheVisiblePage: true });
+
+    expect(await outcomeOf(EXPENSE_LEDGER_TASK, "sorting-changes-which-page-you-are-on", app)).toBe(
+      "failed",
+    );
+  });
+
+  it("catches a page index that survives a change of category", async () => {
+    const app = ledgerApp({ keepsThePageWhenTheCategoryChanges: true });
+
+    expect(
+      await outcomeOf(EXPENSE_LEDGER_TASK, "changing-the-category-returns-to-page-one", app),
+    ).toBe("failed");
+  });
+
+  it("passes one that saved what it was showing, and fails one that only looked like it did", async () => {
+    // Both applications behave identically until the reload, which is the whole assertion.
+    //
+    // **What the fake cannot show**, recorded rather than glossed: it persists whole elements,
+    // so an application whose live view differs from its saved one — one that sorts on screen
+    // and forgets on reload — is not expressible. What *is* expressible, and is asserted
+    // below, is an application that never sorts at all; that is enough to make the
+    // sort-sensitive assertions load-bearing rather than decorative.
+    for (const checkId of ["remembers-the-category", "remembers-the-sort-and-the-page"]) {
+      expect(await outcomeOf(EXPENSE_LEDGER_TASK, checkId, savingLedger({ saves: true }))).toBe(
+        "passed",
+      );
+      expect(await outcomeOf(EXPENSE_LEDGER_TASK, checkId, savingLedger({ saves: false }))).toBe(
+        "failed",
+      );
+    }
+  });
+
+  it("catches a reload that comes back unsorted", async () => {
+    // Without this the sort half of the reload check is unproven: an application that saves
+    // nothing already fails it on the page number alone, so the assertions about *which*
+    // expenses came back could be deleted and no test would notice. This one pages and saves
+    // correctly and never sorts, which leaves only those assertions to catch it.
+    expect(
+      await outcomeOf(
+        EXPENSE_LEDGER_TASK,
+        "remembers-the-sort-and-the-page",
+        savingLedger({ saves: true, defects: { ignoresTheSortButton: true } }),
+      ),
+    ).toBe("failed");
+  });
+
+  it("catches a screen-total and a pre-filter page count on the checks that open the task", async () => {
+    // The two checks that had only a passing case. A check never seen to fail is not known to
+    // check anything, which is the rule this whole file exists to enforce.
+    expect(
+      await outcomeOf(
+        EXPENSE_LEDGER_TASK,
+        "starts-on-the-first-page-unsorted",
+        ledgerApp({ totalsTheVisiblePage: true }),
+      ),
+    ).toBe("failed");
+
+    expect(
+      await outcomeOf(
+        EXPENSE_LEDGER_TASK,
+        "filtering-and-sorting-hold-at-once",
+        ledgerApp({ paginatesBeforeFiltering: true }),
+      ),
+    ).toBe("failed");
+  });
+
+  it("passes a clean audit and fails one that ships an unlabelled control", async () => {
+    expect(await auditOutcomeOf(EXPENSE_LEDGER_TASK, "is-accessible", ledgerApp())).toBe("passed");
+
+    const unlabelled: ScriptedBrowserSessionOptions = {
+      pages: {
+        "/": {
+          ...ledgerApp().pages?.["/"],
+          violations: [
+            {
+              id: "select-name",
+              impact: "serious",
+              help: "Select element must have an accessible name",
+              helpUrl: "https://dequeuniversity.com/rules/axe/4.10/select-name",
+              nodes: 1,
+            },
+          ],
+        },
+      },
+    };
+
+    expect(await auditOutcomeOf(EXPENSE_LEDGER_TASK, "is-accessible", unlabelled)).toBe("failed");
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BENCH_TASKS, BENCHMARK_SUITE, resolveSelection, SUITES } from "./suite.ts";
+import { BENCH_TASKS, BENCHMARK_SUITE, HARD_SUITE, resolveSelection, SUITES } from "./suite.ts";
 import { parseBenchTask } from "./task.ts";
 
 function resolved(selection: Parameters<typeof resolveSelection>[0]) {
@@ -26,13 +26,29 @@ describe("the registry", () => {
 });
 
 describe("the suites", () => {
-  it("names the four benchmark tasks as the suite a model is characterised by", () => {
+  it("names the four benchmark tasks as the suite a model is characterised by, and no others", () => {
+    // **This suite is frozen.** Three funded runs are recorded against exactly these four
+    // tasks, and a suite is a name for a fixed list precisely so that adding a task cannot
+    // silently change what a past result meant. A harder task goes in `hard`; adding one here
+    // is meant to fail this test and make somebody argue for it.
     expect(SUITES[BENCHMARK_SUITE]).toEqual([
       "landing-page",
       "todo-crud",
       "debug-broken",
       "responsive-layout",
     ]);
+  });
+
+  it("names the harder tasks separately, so the two can be funded apart", () => {
+    expect(SUITES[HARD_SUITE]).toEqual(["expense-ledger"]);
+  });
+
+  it("keeps the hard tasks out of the frozen suite", () => {
+    // Stated as its own assertion rather than left implicit in the list above: the mistake
+    // this catches is adding a task to both, which quietly reprices `all`.
+    for (const taskId of SUITES[HARD_SUITE]) {
+      expect(SUITES[BENCHMARK_SUITE]).not.toContain(taskId);
+    }
   });
 
   it("name only tasks that are in the registry", () => {

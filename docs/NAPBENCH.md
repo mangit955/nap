@@ -21,6 +21,7 @@ from the existing event stream).
 ```bash
 bun run napbench landing-page              # one task, on fakes — free, offline, scores meaningless
 bun run napbench --suite=all               # the four benchmark tasks, serially, same fakes
+bun run napbench --suite=hard              # the tasks built to separate two models
 bun run napbench --suite=smoke             # the tracer task alone: "is the machinery joined up?"
 
 bun run napbench --real --suite=all        # real E2B, a real model, a real browser. Spends money.
@@ -40,7 +41,7 @@ mistyped on a paid run and silently use the default.
 
 | Flag | Meaning |
 |---|---|
-| `--suite=<name>` | Run a named suite serially. `all` (the four tasks) or `smoke` (the tracer). |
+| `--suite=<name>` | Run a named suite serially. `all` (the four, frozen), `hard` (built to separate models) or `smoke` (the tracer). |
 | `--real` | Real E2B, real model, real Chrome. Also requires `NAP_CHROME_PATH`. |
 | `--platform=<name>` | `openrouter` (default), `anthropic` or `bedrock` — which account pays. |
 | `--model=<id>` | Model for a real run. Also what the cost estimate is priced against. |
@@ -277,6 +278,12 @@ A suite reports the mean over **completed runs only**, with the agent-attributab
 infrastructure-attributable error rates as separate figures over the non-cancelled runs, and a
 success rate beside them — a configuration scoring 85 every time and one alternating 100 and 70
 have the same mean and are not the same thing to depend on.
+
+**`all` is frozen.** Three funded runs are recorded against exactly its four tasks, and a suite is
+a name for a fixed list precisely so that adding a task cannot silently reprice a result already
+taken under that name. Harder tasks go in `hard`, which is funded separately — `all` is cheap and
+comparable with history; `hard` is where a real model comparison would be bought. `suite.test.ts`
+asserts `all`'s membership exactly, so growing it fails a test rather than passing unnoticed.
 
 **One run is an anecdote.** Two runs of `todo-crud` under one model and one configuration scored 88
 and 74, so a comparison drawn from a single run each is noise presented as a finding. `--repeat=<n>`
