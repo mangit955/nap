@@ -74,6 +74,10 @@ So an errored run carries a typed `kind` alongside its message:
 - **configuration** — a missing credential, a malformed task, bad arguments. Wrong before anything
   ran.
 
+> **Superseded in part by ADR-0004.** The list above was the six kinds at the time. A seventh,
+> `runtime`, was later added for Nap's own machinery breaking — which this ADR's list left folded
+> into `agent`. It is infrastructure. Nothing else here changes.
+
 Cancellation is not an error kind. A run an operator stopped is an incomplete observation rather
 than a result, so it gets its own status and is excluded from the mean *and* from the error rate.
 

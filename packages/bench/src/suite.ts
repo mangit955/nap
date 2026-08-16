@@ -14,6 +14,7 @@
 import type { Result } from "@nap/shared/result";
 import type { BenchTask } from "./task.ts";
 import { DEBUG_BROKEN_TASK } from "./tasks/debug-broken.ts";
+import { EXPENSE_LEDGER_TASK } from "./tasks/expense-ledger.ts";
 import { LANDING_PAGE_TASK } from "./tasks/landing-page.ts";
 import { RESPONSIVE_LAYOUT_TASK } from "./tasks/responsive-layout.ts";
 import { TODO_CRUD_TASK } from "./tasks/todo-crud.ts";
@@ -22,20 +23,39 @@ import { TRACER_TASK } from "./tasks/tracer.ts";
 /**
  * Every task the CLI can be asked for by name.
  *
- * The tracer is in here beside the four real ones on purpose: it is the cheapest thing to
- * point the whole composition at when what is being checked is the apparatus rather than a
- * model, and having to edit a file to run it would defeat that.
+ * The tracer is in here beside the real ones on purpose: it is the cheapest thing to point the
+ * whole composition at when what is being checked is the apparatus rather than a model, and
+ * having to edit a file to run it would defeat that. It belongs to no suite that characterises
+ * anything — `smoke` exists to name it — because a task that asserts almost nothing would
+ * flatter any model averaged in beside the others.
  */
 export const BENCH_TASKS: readonly BenchTask[] = [
   LANDING_PAGE_TASK,
   TODO_CRUD_TASK,
   DEBUG_BROKEN_TASK,
   RESPONSIVE_LAYOUT_TASK,
+  EXPENSE_LEDGER_TASK,
   TRACER_TASK,
 ];
 
-/** The suite that characterises a model: the four benchmark tasks, in specification order. */
+/**
+ * The suite that characterises a model: the four benchmark tasks, in specification order.
+ *
+ * **Frozen.** Three funded runs are recorded against exactly these four, and a suite exists to
+ * be a fixed list — growing it would silently reprice every result already taken against the
+ * name. Harder tasks go in `hard`; `suite.test.ts` asserts this membership exactly, so adding
+ * one here fails a test rather than quietly changing what a past number meant.
+ */
 export const BENCHMARK_SUITE = "all";
+
+/**
+ * The tasks built to separate two models rather than to check that the machinery works.
+ *
+ * Its own name rather than an addition to `all` for the reason above, and because the two are
+ * funded separately: `all` is cheap and comparable with history, this is where a real
+ * comparison would be bought.
+ */
+export const HARD_SUITE = "hard";
 
 /**
  * `satisfies` rather than an annotation, so the literal names survive: widening this to
@@ -43,6 +63,7 @@ export const BENCHMARK_SUITE = "all";
  */
 export const SUITES = {
   [BENCHMARK_SUITE]: ["landing-page", "todo-crud", "debug-broken", "responsive-layout"],
+  [HARD_SUITE]: ["expense-ledger"],
   /**
    * One task that exercises every stage without asserting much about the application.
    *

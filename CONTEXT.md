@@ -68,11 +68,25 @@ to cost. Every check carries the category
 it scores into, a weight, and whether it is required. A check produces exactly one of *passed*,
 *failed* or *absent* — and the difference between the last two is load-bearing, see **Gate**.
 
+**Check output** — what a failed command actually said, kept on the check beside the exit code it
+does not explain. Recorded only on failure and only when there was something to record, because a
+passing build's output is churn in an artefact people diff. Each stream is budgeted on its own and
+keeps its **tail** — a failing command prints its banner first and its reason last, and a shared
+budget would let a chatty stdout push out the stderr that explains the failure. A stream says
+whether it was truncated, so a fragment is never read as the whole.
+
 **Step** — one line of a browser check: an *action* that does something to the running application
 (navigate, click, fill, press, reload, select, resize) or an *assertion* that must hold at that
 point. Actions and assertions are one ordered list rather than two, because almost everything worth
 asserting is a change — the item that appears after the button, the list that shortens under a
 filter, the thing still there after a reload.
+
+**Arrival** — the opening navigation of a browser or accessibility check, as distinct from any
+navigating it does later. Retried a few times before it is believed, and a failure that survives
+every attempt is the *evaluator's* rather than the agent's: the preview gate has already proven that
+URL serves, so a check that never gets there observed nothing about the application and must not
+record a failed check against it. A `navigate` or `reload` *after* arrival is the opposite — the
+road was demonstrably fine moments ago — and stays a failed check. See `docs/adr/0005`.
 
 **Selector** — how a step names an element, as a value rather than a CSS string: by *role* (with an
 accessible name), by *label*, by *text* or by *test id*. Nobody wrote the markup of a generated
@@ -100,11 +114,24 @@ functions, each individually tested.
 have a score. *Errored* means no result was obtained, so there is no score to give. *Cancelled*
 means somebody stopped it, which is not an observation at all.
 
-**Error kind** — whose fault an errored run was: *agent*, *model*, *sandbox*, *browser*,
-*evaluator* or *configuration*. The distinction is what keeps a benchmark honest — an agent that
-refused and a provider outage both produce no score, and only the first is evidence about the agent.
-Suite reporting keeps agent-attributable and infrastructure-attributable error rates apart for that
-reason.
+**Error kind** — whose fault an errored run was, as one of seven answers in four groups: the system
+under test (*agent*, *runtime*), what it depends on (*model*, *sandbox*), the instrument (*browser*,
+*evaluator*) and the operator (*configuration*). The distinction is what keeps a benchmark honest —
+an agent that refused and a provider outage both produce no score, and only the first is evidence
+about the agent. **What is measured is the model, with Nap held fixed**, so the split does not ask
+whose code was at fault but whether the failure says anything about a model: *agent* alone is
+agent-attributable and the other six are infrastructure. *Runtime* and *evaluator* are the pair
+worth keeping apart — Nap's own machinery breaking against NapBench crashing on itself — because a
+suite full of the first is a deployment to fix and one full of the second is a benchmark to fix.
+See `docs/adr/0004`.
+
+**Run configuration** — what a run was *held at*, as opposed to what it spent: which model ran, and
+the ceilings the turn was given. The counterpart to the trajectory's model, which prices what was
+*consumed* — two facts that usually share a value and must not be collapsed, since a run whose
+configuration and consumption disagree is exactly the one worth reading. Absent on a report written
+before it was recorded, which is *unrecorded* rather than *none*: a comparison refuses two runs held
+at different budgets and deliberately does not refuse one it cannot tell about, because the second
+rule would make the whole archive incomparable. See `docs/adr/0004`.
 
 **Run** — one execution of one task against one configuration, from a fresh session to a scored
 report. The unit that has an id, a status, a score and a trajectory. **This is the word that
@@ -147,6 +174,12 @@ because one task routinely photographs several viewports.
 **Suite** — a named set of tasks run together, and the level at which a model is characterised
 rather than a single result observed. Reports a mean over completed runs beside an explicit error
 rate, because a run whose turn failed has no score and would otherwise vanish from the average.
+
+**Spread** — what a task's repeated runs came to, as mean, median, sample standard deviation and
+range. Reported **per task**, never across a suite: a deviation over different tasks measures how
+much the tasks differ in difficulty, which is a fact about the benchmark rather than about the
+model. A task run once has *no* standard deviation rather than one of zero — zero is a claim of
+perfect consistency, and what happened is that nobody measured twice.
 
 **Comparison** — two runs of the same task, and what moved between them: overall, per category and
 per check. The **baseline** is what was, the **candidate** is what is; a candidate that scores

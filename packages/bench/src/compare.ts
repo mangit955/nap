@@ -14,6 +14,13 @@
  * rather than a thrown one: the caller is a CLI whose job is to explain the problem. See
  * docs/adr/0002.
  *
+ * **The refusals do not all guard the same thing**, which is why they are separate functions
+ * asked in a fixed order. A mismatched weight vector corrupts the *arithmetic*, so it is
+ * skipped when neither run has a number to reprice. A mismatched turn budget corrupts the
+ * *attribution* — `budget_exceeded` counts against the agent only while the ceiling is held
+ * fixed — so it applies to unscored runs too, which is exactly where an error kind is the whole
+ * finding. See docs/adr/0004.
+ *
  * Two runs, and exactly two. Comparing three is a different tool with a different shape — a
  * table rather than a diff — and is explicitly out of scope for v1.
  */
@@ -23,6 +30,7 @@ import { CATEGORIES, type Category } from "./category.ts";
 import type { ErrorKind } from "./error-kind.ts";
 import type { RunMetrics } from "./metrics.ts";
 import type { BenchReport, CheckOutcome } from "./report.ts";
+import { budgetsDiffer, describeTurnBudget } from "./run-configuration.ts";
 import { carriesScore, type RunStatus } from "./status.ts";
 
 /** How one side of the comparison ended, which is all a comparison needs of a report's head. */
@@ -114,6 +122,11 @@ export function compareRuns(
     };
   }
 
+  // Asked before the weights, because it is the wider refusal: this one applies to unscored
+  // runs too, and a run with no score has no effective vector for the next check to look at.
+  const budget = budgetRefusal(baseline, candidate);
+  if (budget !== null) return { ok: false, error: budget };
+
   const refusal = weightsRefusal(baseline, candidate);
   if (refusal !== null) return { ok: false, error: refusal };
 
@@ -134,6 +147,34 @@ export function compareRuns(
       sameScoreDifferentRoute: scoreDelta === 0 && routeDiffers(metrics),
     },
   };
+}
+
+/**
+ * Why these two runs were not held at the same ceiling, or null if they were.
+ *
+ * The guard that keeps `budget_exceeded` honestly attributed to the agent. That attribution
+ * rests on the budget being one of the things held fixed (docs/adr/0004); across two different
+ * ceilings, "this model ran out" is a property of a setting wearing the costume of a property
+ * of a model.
+ *
+ * **Deliberately not skipped for unscored runs**, which is where it parts company with the
+ * weights refusal below. That one skips them because there is no number to reprice. This one
+ * must not, because what a budget mismatch corrupts is the *attribution* rather than the
+ * arithmetic — and an errored run is precisely where the attribution is the entire finding.
+ *
+ * Nothing is refused on an unknown: see `budgetsDiffer`, which folds "cannot tell" in with
+ * "same" so the archive stays readable.
+ */
+function budgetRefusal(baseline: BenchReport, candidate: BenchReport): string | null {
+  if (!budgetsDiffer(baseline.configuration.budget, candidate.configuration.budget)) return null;
+
+  return (
+    "these runs were held at different turn budgets — " +
+    `${describeTurnBudget(baseline.configuration.budget)} and ` +
+    `${describeTurnBudget(candidate.configuration.budget)}. A budget is one of the things a ` +
+    "comparison holds fixed, and an agent that exhausted the smaller one is not evidence " +
+    "about the model."
+  );
 }
 
 /**

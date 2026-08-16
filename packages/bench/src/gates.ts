@@ -57,9 +57,12 @@ export type GateId = z.infer<typeof GateIdSchema>;
 export const BUILD_FAILURE_SCORE_CAP = 40;
 
 /**
- * The two ways a run can have no browser, kept apart because they are different people's
- * problem: nobody supplied one, which is how the run was set up, and one was supplied and
- * would not drive, which is the host it ran on.
+ * Why a run could not look at the application, kept apart because they are different people's
+ * problem: nobody supplied a browser, which is how the run was set up, and everything else,
+ * which is the host it ran on. The second covers more than a driver that would not start — a
+ * check that never arrived at an application the preview probe had already reached ends up
+ * here too, since both mean the evaluator saw nothing and neither is the agent's doing. See
+ * docs/adr/0005.
  */
 export type BrowserUnavailable = {
   reason: "not_configured" | "unavailable";

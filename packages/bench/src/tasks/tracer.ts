@@ -4,10 +4,13 @@
  * It exists to prove the spine end to end — a task goes in, a scored report comes out — and
  * it is deliberately not a good benchmark task. It asks for something almost any model will
  * manage and checks only that the project still builds afterwards, because what is being
- * measured here is the harness rather than the agent. The tasks that measure the agent are a
- * separate piece of work.
+ * measured here is the harness rather than the agent. The tasks that measure the agent sit
+ * beside it in this directory and assert a great deal more.
  *
- * The shape is the contract, though: this is what every later task file looks like.
+ * It stays because "is the machinery joined up?" is a question worth being able to ask for
+ * nothing, and it is named as the `smoke` suite so that asking it is a command rather than a
+ * piece of folklore. It belongs to no suite that characterises a model: a task that asserts
+ * almost nothing would flatter whatever was averaged in beside it.
  */
 
 import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";

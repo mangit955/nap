@@ -474,6 +474,76 @@ describe("runBenchTask — the trajectory it kept", () => {
     // tokens at another's rate.
     expect(models).toEqual(["anthropic/claude-opus-5"]);
   });
+
+  it("records what the run was held at, so a later comparison can refuse an unfair one", async () => {
+    const runtime = scriptedRuntime(completed);
+    const sandbox = new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0 }) });
+
+    const report = await reportOf(task(), {
+      ...(await deps(runtime, sandbox)),
+      model: "anthropic/claude-opus-5",
+      budget: { maxSteps: 8, maxTokens: 40_000 },
+    });
+
+    expect(report.configuration).toEqual({
+      model: "anthropic/claude-opus-5",
+      budget: { maxSteps: 8, maxTokens: 40_000 },
+    });
+  });
+
+  it("keeps what a failed command said, which is the part `exit 1` leaves out", async () => {
+    // The case this exists for, taken from a real funded run: the report said `exit 1` and the
+    // sentence explaining it was on a stderr nobody kept, so diagnosing it meant paying twice.
+    const runtime = scriptedRuntime(completed);
+    const sandbox = new InMemorySandboxManager({
+      defaultExec: () => ({ exitCode: 1, stdout: "", stderr: 'Script not found "lint"' }),
+    });
+
+    const report = await reportOf(task(), await deps(runtime, sandbox));
+
+    expect(report.checks[0]?.output?.stderr.text).toBe('Script not found "lint"');
+    expect(report.checks[0]?.output?.stderr.truncated).toBe(false);
+  });
+
+  it("keeps nothing from a command that passed", async () => {
+    // A green build's output is hundreds of lines nobody reads, in an artefact people diff.
+    const runtime = scriptedRuntime(completed);
+    const sandbox = new InMemorySandboxManager({
+      defaultExec: () => ({ exitCode: 0, stdout: "built in 1.2s", stderr: "" }),
+    });
+
+    const report = await reportOf(task(), await deps(runtime, sandbox));
+
+    expect(report.checks[0]?.outcome).toBe("passed");
+    expect(report.checks[0]?.output).toBeUndefined();
+  });
+
+  it("truncates a torrent to the tail, and says that it did", async () => {
+    const runtime = scriptedRuntime(completed);
+    const sandbox = new InMemorySandboxManager({
+      defaultExec: () => ({
+        exitCode: 1,
+        stdout: `${"noise".repeat(4_000)}THE ACTUAL ERROR`,
+        stderr: "",
+      }),
+    });
+
+    const report = await reportOf(task(), await deps(runtime, sandbox));
+
+    expect(report.checks[0]?.output?.stdout.truncated).toBe(true);
+    expect(report.checks[0]?.output?.stdout.text.endsWith("THE ACTUAL ERROR")).toBe(true);
+  });
+
+  it("records nothing rather than guessing when the run was composed without either", async () => {
+    // A plausible default written here would be a ceiling the run was never actually held at,
+    // in an artefact that is read months later as a record of fact.
+    const runtime = scriptedRuntime(completed);
+    const sandbox = new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0 }) });
+
+    const report = await reportOf(task(), await deps(runtime, sandbox));
+
+    expect(report.configuration).toEqual({ model: null, budget: null });
+  });
 });
 
 describe("runBenchTask — the preview a task asked for", () => {
@@ -793,6 +863,28 @@ describe("runBenchTask — browser checks", () => {
     expect(report.status).toBe("errored");
     expect(report.errorKind).toBe("browser");
     expect(report.gates).toEqual(["browser_unavailable"]);
+  });
+
+  it("errors with kind browser when it never reaches an application the preview probe reached", async () => {
+    // The end of the chain this ticket exists for. The preview gate has already proven the URL
+    // serves, so a navigation that still fails every attempt is infrastructure — and the run
+    // must error with no score rather than record a failed check, which would be a permanent
+    // accusation in an archived report against an application nobody actually looked at.
+    const { factory } = browserFactory({
+      fail: (call) =>
+        call.method === "goto"
+          ? { code: "navigation_failed", message: "net::ERR_CONNECTION_RESET" }
+          : undefined,
+    });
+
+    const report = await reportOf(browserTask(), {
+      ...(await deps(scriptedRuntime(completed), serving())),
+      browser: factory,
+    });
+
+    expect(report.status).toBe("errored");
+    expect(report.errorKind).toBe("browser");
+    expect(report.score).toBeNull();
   });
 
   it("errors with kind browser when the driver dies part-way through a check", async () => {

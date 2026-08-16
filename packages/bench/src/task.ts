@@ -12,10 +12,13 @@
  * hence `parseBenchTask` returning a typed failure rather than throwing — the caller is a CLI
  * that must print the problem, not a stack trace.
  *
- * Deliberately narrow for now: one prompt, and command checks only. Weights, categories,
- * required flags, seeded files and browser checks are all part of the design — see the
- * vocabulary in CONTEXT.md and the weighting rule in docs/adr/0002 — and none of them exist
- * yet. The strict schema is what stops a task file claiming any of them before they do.
+ * **A task is data, and that is the constraint everything here is shaped by.** It declares a
+ * sequence of prompts, an optional starting state, an optional preview to wait for, and its
+ * checks — each of which carries the category it scores into, a weight, and whether failing it
+ * fails the run. Nothing in it is code. That is what lets a schema validate the whole thing
+ * before a sandbox exists, and it is why the fourth check kind named in `CONTEXT.md` was
+ * deliberately never built: a custom check would be a function, which no schema can validate
+ * and no sandbox can be handed.
  */
 
 import type { Result } from "@nap/shared/result";
@@ -28,8 +31,9 @@ import { describeParseFailure } from "./parse-failure.ts";
 /**
  * A command run inside the sandbox, judged on its exit code.
  *
- * The kind is a single-member enum rather than an omitted field because the other three kinds
- * are coming, and a task written today should read the same after they arrive.
+ * The kind is a single-member enum rather than an omitted field, which cost nothing when this
+ * was the only kind and is what let the browser and accessibility kinds arrive without a
+ * single existing task file changing.
  */
 export const CommandCheckSchema = z.strictObject({
   id: z.string().min(1),
@@ -57,11 +61,12 @@ export const CommandCheckSchema = z.strictObject({
 });
 
 /**
- * Either kind of check a task may declare.
+ * Every kind of check a task may declare: a command, a browser sequence, or an audit.
  *
- * Discriminated on `kind`, which is why every check carried one even when the schema here had
- * a single possible value: a task file written before browser checks existed reads identically
- * after them.
+ * Discriminated on `kind`, which is why every check carried one even when there was only one
+ * possible value: a task file written before the other two existed reads identically after
+ * them. Adding a fourth kind is a schema, a branch in the executor's dispatch and a default
+ * category — which is exactly what the accessibility kind turned out to cost.
  */
 export const BenchCheckSchema = z.discriminatedUnion("kind", [
   CommandCheckSchema,

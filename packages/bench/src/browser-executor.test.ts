@@ -10,7 +10,7 @@
 import { describe, expect, it } from "vitest";
 import type { AccessibilityCheck } from "./accessibility-check.ts";
 import type { BrowserCheck, BrowserStep } from "./browser-check.ts";
-import { runAccessibilityCheck, runBrowserCheck } from "./browser-executor.ts";
+import { NAVIGATION_ATTEMPTS, runAccessibilityCheck, runBrowserCheck } from "./browser-executor.ts";
 import type { AccessibilityViolation } from "./browser-session.ts";
 import type { CheckResult } from "./report.ts";
 import {
@@ -44,6 +44,147 @@ async function outcomeOf(
 ): Promise<CheckResult["outcome"]> {
   return (await run(steps, options, extras)).result.outcome;
 }
+
+/**
+ * Fails the first `times` navigations and then stops, which is what a transient blip looks like.
+ *
+ * A counter in a closure rather than a new capability on the fake: `fail` is handed every call,
+ * so "flaky for a moment" is expressible without the fake having to model time.
+ */
+function flakyNavigation(times: number): NonNullable<ScriptedBrowserSessionOptions["fail"]> {
+  let seen = 0;
+  return (call) => {
+    if (call.method !== "goto") return undefined;
+    seen += 1;
+    return seen <= times
+      ? { code: "navigation_failed", message: "net::ERR_CONNECTION_RESET" }
+      : undefined;
+  };
+}
+
+describe("arriving at the application", () => {
+  const steps: BrowserStep[] = [{ step: "expectText", text: "Todos" }];
+
+  it("retries a navigation that fails once, and carries on", async () => {
+    // The case the whole retry exists for. A blip between the preview probe and the check is
+    // not the application failing to load, and recording it as one docks the model for weather.
+    const session = new ScriptedBrowserSession({ ...heading, fail: flakyNavigation(1) });
+
+    const outcome = await runBrowserCheck(session, check(steps), { baseUrl: BASE_URL });
+
+    expect(outcome.ok && outcome.value.outcome).toBe("passed");
+  });
+
+  it("blames the evaluator, not the agent, when it never gets there", async () => {
+    // The preview gate has already proven this URL serves. Still failing after every attempt
+    // says something is wrong between here and there — which is infrastructure, and must not
+    // become a permanent accusation against the application in an archived report.
+    const session = new ScriptedBrowserSession({ ...heading, fail: flakyNavigation(99) });
+
+    const outcome = await runBrowserCheck(session, check(steps), { baseUrl: BASE_URL });
+
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) expect(outcome.error.code).toBe("navigation_failed");
+  });
+
+  it("gives up rather than retrying forever", async () => {
+    const session = new ScriptedBrowserSession({ ...heading, fail: flakyNavigation(99) });
+
+    await runBrowserCheck(session, check(steps), { baseUrl: BASE_URL });
+
+    expect(session.calls.filter((call) => call.method === "goto")).toHaveLength(
+      NAVIGATION_ATTEMPTS,
+    );
+  });
+
+  it("does not retry a browser that is not there", async () => {
+    // Retrying `unavailable` spends two more navigation deadlines to re-learn a known answer:
+    // there is no browser to ask, and asking again cannot change that. Only a page that would
+    // not load is worth a second attempt.
+    const session = new ScriptedBrowserSession({
+      ...heading,
+      fail: (call) =>
+        call.method === "goto" ? { code: "unavailable", message: "the browser died" } : undefined,
+    });
+
+    const outcome = await runBrowserCheck(session, check(steps), { baseUrl: BASE_URL });
+
+    expect(outcome.ok).toBe(false);
+    expect(session.calls.filter((call) => call.method === "goto")).toHaveLength(1);
+  });
+
+  it("still fails the check when the viewport cannot be sized", async () => {
+    // Unchanged, and deliberately: sizing is not navigation, and a browser that cannot size
+    // has nothing to do with whether the application is reachable.
+    const session = new ScriptedBrowserSession({
+      ...heading,
+      fail: (call) =>
+        call.method === "setViewport"
+          ? { code: "action_failed", message: "no such size" }
+          : undefined,
+    });
+
+    const outcome = await runBrowserCheck(session, check(steps), { baseUrl: BASE_URL });
+
+    expect(outcome.ok && outcome.value.outcome).toBe("failed");
+  });
+
+  it("retries the audit's arrival too, since it opens a page the same way", async () => {
+    const session = new ScriptedBrowserSession({ ...heading, fail: flakyNavigation(1) });
+
+    const outcome = await runAccessibilityCheck(
+      session,
+      { id: "a11y", kind: "accessibility" },
+      { baseUrl: BASE_URL },
+    );
+
+    expect(outcome.ok && outcome.value.outcome).toBe("passed");
+  });
+});
+
+describe("navigating again, once the application has been reached", () => {
+  it("fails the check when a mid-check navigation will not load", async () => {
+    // Not retried and not infrastructure. The application was demonstrably reachable moments
+    // ago, so a route that will not load now is a fact about what the agent built — and
+    // retrying it would launder exactly the defect this benchmark exists to find.
+    let arrived = false;
+    const session = new ScriptedBrowserSession({
+      ...heading,
+      fail: (call) => {
+        if (call.method !== "goto") return undefined;
+        if (!arrived) {
+          arrived = true;
+          return undefined;
+        }
+        return { code: "navigation_failed", message: "net::ERR_ABORTED" };
+      },
+    });
+
+    const outcome = await runBrowserCheck(session, check([{ step: "navigate", path: "/todos" }]), {
+      baseUrl: BASE_URL,
+    });
+
+    expect(outcome.ok && outcome.value.outcome).toBe("failed");
+  });
+
+  it("fails the check when a reload will not load", async () => {
+    // The question a reload asks is whether the work survived, and an application that cannot
+    // come back is the answer being no.
+    const session = new ScriptedBrowserSession({
+      ...heading,
+      fail: (call) =>
+        call.method === "reload"
+          ? { code: "navigation_failed", message: "net::ERR_ABORTED" }
+          : undefined,
+    });
+
+    const outcome = await runBrowserCheck(session, check([{ step: "reload" }]), {
+      baseUrl: BASE_URL,
+    });
+
+    expect(outcome.ok && outcome.value.outcome).toBe("failed");
+  });
+});
 
 const heading: ScriptedBrowserSessionOptions = {
   pages: {
@@ -145,7 +286,12 @@ describe("runBrowserCheck", () => {
       expect(outcome).toEqual({ ok: false, error: { code: "unavailable", message: "no browser" } });
     });
 
-    it("fails the check when the application will not load", async () => {
+    it("does not fail the check when it could never reach the application at all", async () => {
+      // This asserted the opposite until docs/adr/0005. An application the evaluator never
+      // arrived at is not an application that does not work: the preview gate proved this URL
+      // serves before the check was ever started, so a navigation still failing after every
+      // attempt is a fact about the road rather than the destination. Handed back for the gate
+      // ladder to attribute, exactly as a missing browser is.
       const session = new ScriptedBrowserSession({
         fail: (call) =>
           call.method === "goto"
@@ -157,8 +303,8 @@ describe("runBrowserCheck", () => {
         baseUrl: BASE_URL,
       });
 
-      expect(outcome.ok).toBe(true);
-      if (outcome.ok) expect(outcome.value.outcome).toBe("failed");
+      expect(outcome.ok).toBe(false);
+      if (!outcome.ok) expect(outcome.error.code).toBe("navigation_failed");
     });
 
     it("passes each step's own timeout through, falling back to the check's", async () => {

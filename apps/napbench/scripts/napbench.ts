@@ -18,7 +18,9 @@
  *
  * **Isolation is structural.** Every run gets its own session, its own stores and its own
  * sandbox, so nothing a run leaves behind can be what makes the next one pass. Suites run
- * serially, which keeps sandbox concurrency and spend predictable.
+ * serially, which keeps sandbox concurrency and spend predictable. That matters more since
+ * `--repeat`: a task run three times is three independent runs, and if it were not, the spread
+ * they exist to measure would be a property of the first one.
  */
 
 import { join } from "node:path";
@@ -26,6 +28,7 @@ import { NapAgentService } from "@nap/agent/agent-service";
 import { createBedrockClient, toBedrockModel } from "@nap/agent/bedrock";
 import { type AnthropicClient, ClaudeProvider } from "@nap/agent/claude-provider";
 import { createOpenRouterClient, toOpenRouterModel } from "@nap/agent/openrouter";
+import { DEFAULT_MAX_TOKENS } from "@nap/agent/safety/budget";
 import { ScriptedLLMProvider } from "@nap/agent/testing/scripted-llm-provider";
 import type { BrowserSessionFactory } from "@nap/bench/browser-session";
 import { DEFAULT_CATEGORY_WEIGHTS } from "@nap/bench/category";
@@ -80,6 +83,20 @@ if (command.kind === "compare") {
   process.exit(await compareTwoRuns(command.baseline, command.candidate));
 }
 const options = command;
+
+/**
+ * The ceilings this run is held at, resolved once and used twice.
+ *
+ * The same object configures the agent and is recorded on the report, which is the whole point:
+ * two sources would be a report claiming a budget the turn was not actually given, and the
+ * comparison that refuses an unfair pairing would be reading a number nobody enforced.
+ *
+ * Resolved here rather than in `@nap/bench`, which cannot see the agent's defaults — it may
+ * depend on `@nap/shared` and nothing else (docs/adr/0001). `maxTokens` is left at the agent's
+ * own default and named explicitly, because a report that recorded only the ceiling nobody hit
+ * would explain nothing about a turn that hit the other one.
+ */
+const turnBudget = { maxSteps: options.maxSteps, maxTokens: DEFAULT_MAX_TOKENS };
 
 // Resolved before anything is created, so a mistyped task id costs a sentence rather than a
 // sandbox.
@@ -220,7 +237,12 @@ if (options.real) {
   pricedModel = model;
 
   console.log(
-    `REAL RUN — ${tasks.length} task(s) from "${selectionName}", serially, on ${model} via ` +
+    // The run count, not the task count. `--repeat=3` is three times the spend, and the one
+    // moment somebody weighs that is here — a banner that said "4 tasks" before twelve paid
+    // runs would understate the bill by the whole reason the flag exists.
+    `REAL RUN — ${tasks.length * options.repeat} run(s) from "${selectionName}"` +
+      `${options.repeat === 1 ? "" : ` (${tasks.length} task(s) × ${options.repeat})`}` +
+      `, serially, on ${model} via ` +
       `${options.platform} at ${options.effort} effort, ${options.maxSteps} steps max, ` +
       `${options.budgetTokens} context tokens, on real E2B sandboxes. This costs money.\n`,
   );
@@ -246,8 +268,23 @@ if (options.real) {
 
 const reports: BenchReport[] = [];
 
-for (const task of tasks) {
-  console.log(`\n── ${task.id}: ${task.name}`);
+/**
+ * Every run this invocation will perform, in the order it will perform them.
+ *
+ * **Round-robin rather than grouped**: pass one runs every task, then pass two does, instead of
+ * running one task three times before moving on. Grouping would put all of a task's repetitions
+ * inside the same few minutes, so a provider having a bad ten minutes would land entirely on one
+ * task and read as that task being unreliable. Spreading them is the whole reason repetitions
+ * are worth paying for.
+ */
+const scheduled = Array.from({ length: options.repeat }, (_, index) => index + 1).flatMap((pass) =>
+  tasks.map((task) => ({ task, pass })),
+);
+
+for (const { task, pass } of scheduled) {
+  console.log(
+    `\n── ${task.id}: ${task.name}${options.repeat === 1 ? "" : `  (pass ${pass} of ${options.repeat})`}`,
+  );
 
   const sessionId = crypto.randomUUID();
   const events = new InMemoryEventStore();
@@ -269,6 +306,7 @@ for (const task of tasks) {
       screenshots: fileScreenshotStore(resultsDir),
       weights: DEFAULT_CATEGORY_WEIGHTS,
       model: pricedModel,
+      budget: turnBudget,
     });
   } catch (error) {
     // NapBench's own crash. Recorded as an `evaluator` error rather than allowed to abort the
@@ -282,6 +320,9 @@ for (const task of tasks) {
         sessionId,
         weights: DEFAULT_CATEGORY_WEIGHTS,
         metrics: deriveRunMetrics(await events.readFrom(sessionId, 0), { model: pricedModel }),
+        // A crash is one of the runs somebody most wants to reproduce, and the configuration
+        // is exactly what they would otherwise have to guess at.
+        configuration: { model: pricedModel ?? null, budget: turnBudget },
       }),
     );
   }
@@ -318,7 +359,7 @@ function composeRuntime(
     context: new NapContextEngine({ budgetTokens: options.budgetTokens }),
     agent: new NapAgentService({
       provider: providerFor(task),
-      budget: { maxSteps: options.maxSteps },
+      budget: turnBudget,
     }),
     events,
     bus: new InMemoryEventBus(),

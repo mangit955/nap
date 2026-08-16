@@ -9,26 +9,39 @@
  * agent's quality, and a benchmark that counted them as such would rank models by how lucky
  * they were.
  *
- * Six kinds, per `CONTEXT.md`. Three come from a turn's failure reason, one from the preview
- * probe and the run's own setup, one from a browser that would not start, and one — `evaluator`
- * — from NapBench crashing on itself, which the CLI records rather than letting it abort a
- * suite. Each was named before anything raised it, and each now has a producer.
+ * **What is measured is the model, with Nap held fixed** — see docs/adr/0004. Everything else
+ * is apparatus: Nap's runtime, the sandbox provider, the browser driver and NapBench itself.
+ * That is the rule the seven kinds below are grouped by, and the rule that decides which of
+ * the two columns each of them counts in.
+ *
+ * Seven kinds, per `CONTEXT.md`, in four groups: the system under test's own two halves, the
+ * two providers it depends on, the two halves of the instrument, and the operator. Each was
+ * named before anything raised it, and each now has a producer.
  */
 
 import type { TurnFailureReason } from "@nap/shared/events";
 import { z } from "zod";
 
 export const ERROR_KINDS = [
+  // The system under test. `agent` is the only kind that is evidence about a model; `runtime`
+  // is the same deployment failing underneath it, which is not.
   /** The agent itself: it refused, or it spent its budget without arriving. */
   "agent",
+  /** Nap's own machinery: a store that could not be read, a bug in the runtime. */
+  "runtime",
+
+  // What the system under test depends on, and neither of them is ours.
   /** The provider: throttled, overloaded, or briefly down. Says nothing about the model. */
   "model",
   /** The execution plane: no sandbox, a sandbox that went away, a preview nobody can reach. */
   "sandbox",
+
+  // The instrument.
   /** The browser half of the evaluator: a driver that would not start or could not drive. */
   "browser",
-  /** NapBench, or the runtime it drives — the apparatus, rather than what is being measured. */
+  /** NapBench crashing on itself — the instrument, rather than anything it was measuring. */
   "evaluator",
+
   /** The run was set up wrong: no such session, an unmeasurable task, a missing credential. */
   "configuration",
 ] as const;
@@ -49,12 +62,22 @@ export type ErrorAttribution = "agent" | "infrastructure";
 /**
  * Whose column an error kind counts in.
  *
- * A total record rather than a predicate, so a seventh error kind fails this file's typecheck
+ * A total record rather than a predicate, so an eighth error kind fails this file's typecheck
  * and has to be attributed deliberately — the alternative is a new kind defaulting into
- * "infrastructure" and quietly making every suite look cleaner than it is.
+ * "infrastructure" and quietly making every suite look cleaner than it is. This is not
+ * hypothetical: `runtime` was added by adding it here and following the type error.
  */
 const ERROR_ATTRIBUTION: Record<ErrorKind, ErrorAttribution> = {
   agent: "agent",
+  /**
+   * Infrastructure, because Nap is the thing held fixed rather than the thing measured.
+   *
+   * It reads oddly at first — Nap is under test, so surely its faults count? — but the column
+   * is not "was this our fault", it is "is this evidence about the model". A runtime that
+   * fell over tells you nothing about the agent whose work it was carrying, and every model
+   * compared under that deployment suffers it equally.
+   */
+  runtime: "infrastructure",
   model: "infrastructure",
   sandbox: "infrastructure",
   browser: "infrastructure",
@@ -102,17 +125,19 @@ export function dispositionForTurnFailure(reason: TurnFailureReason): TurnFailur
     /**
      * Nap's own machinery broke — a store that could not be read, a bug in the runtime.
      *
-     * `agent` rather than `evaluator`, and the pull is towards the wrong answer here.
-     * `evaluator` is reserved for *NapBench's* own crashes, so that a bug in the benchmark
-     * is never attributed to what it is measuring; using it for a Nap fault would file a
-     * bug in the system under test as a bug in the instrument, which is the same confusion
-     * pointing the other way. Nap's runtime is part of what is being measured, so its
-     * failures belong on that side of the ledger — with the imprecision recorded rather
-     * than hidden: this is not the *model* misbehaving, and a suite with a lot of it should
-     * be read as a deployment to fix rather than a model to rank.
+     * Its own kind, because both of the kinds that already existed were wrong for it, in
+     * opposite directions. `evaluator` is reserved for *NapBench's* own crashes, so using it
+     * here would file a bug in the system under test as a bug in the instrument. `agent` —
+     * what this was until docs/adr/0004 — is the more damaging error: the agent may have
+     * written perfectly good code and had the runtime fall over underneath it, and counting
+     * that against the model is exactly the misattribution this module exists to prevent.
+     *
+     * So: infrastructure, like the other two, but nameable apart from them. A suite carrying
+     * a lot of `runtime` is a deployment to fix; one carrying a lot of `evaluator` is a
+     * benchmark to fix; and a reader can tell which source tree to open.
      */
     case "internal":
-      return errored("agent");
+      return errored("runtime");
 
     // Not an error at all. A run somebody stopped is not an observation, and calling it one
     // would let whoever ran the suite change its numbers by pressing stop.

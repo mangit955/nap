@@ -13,15 +13,27 @@
  * learned this from persisted event payloads: `undefined` disappears through JSON, so a
  * missing value and an omitted key become the same thing, and "this run has no score" stops
  * being distinguishable from "this report is from an older shape".
+ *
+ * **The exception, and what earns it:** a field that genuinely has no referent on most records
+ * is absent instead. A check's captured output is the case — a passing check, a browser check
+ * and a silent command all have nothing to say, and writing empty streams onto every one of
+ * them would put noise into an artefact people diff. The rule above is about a value that is
+ * missing; this is about a field that does not apply.
  */
 
 import type { Result } from "@nap/shared/result";
 import { z } from "zod";
 import { CategorySchema, type CategoryWeights, CategoryWeightsSchema } from "./category.ts";
+import { CommandOutputSchema } from "./command-output.ts";
 import { ErrorKindSchema } from "./error-kind.ts";
 import { GateIdSchema } from "./gates.ts";
 import { type RunMetrics, RunMetricsSchema } from "./metrics.ts";
 import { describeParseFailure } from "./parse-failure.ts";
+import {
+  type RunConfiguration,
+  RunConfigurationSchema,
+  UNRECORDED_CONFIGURATION,
+} from "./run-configuration.ts";
 import { ScreenshotRefSchema } from "./screenshot.ts";
 import { carriesScore, RunStatusSchema } from "./status.ts";
 import { VISUAL_NOT_RUN, VisualEvaluationSchema } from "./visual.ts";
@@ -52,6 +64,21 @@ export const CheckResultSchema = z.strictObject({
   outcome: CheckOutcomeSchema,
   /** Why, in a few words — the exit code, or what stopped it running at all. */
   detail: z.string(),
+  /**
+   * What the command actually said, on a command check that failed and said something.
+   *
+   * `detail` gives the exit code; this gives the reason. The distinction was learned from a
+   * paid run whose report said `exit 1` while the sentence that explained it — a missing
+   * script — sat on a stderr nobody had kept.
+   *
+   * **Absent rather than null**, unlike the score and the turn id above. Those are fields that
+   * always exist and may have no value, so `null` distinguishes "no score" from "old shape".
+   * This one genuinely does not exist on most checks: a passing check, a browser check and a
+   * silent command all have nothing to record, and writing empty streams on each of them would
+   * put noise into every line of a diffed artefact. Same reasoning as the absent metrics in
+   * docs/adr/0003.
+   */
+  output: CommandOutputSchema.optional(),
 });
 
 export const CategoryScoreSchema = z.strictObject({
@@ -114,6 +141,19 @@ export const BenchReportSchema = z
     categories: z.array(CategoryScoreSchema),
     /** The configured vector, so the effective one above can be recomputed and checked. */
     weights: CategoryWeightsSchema,
+    /**
+     * What this run was *held at* — the model, and the turn's ceilings.
+     *
+     * The one field here that defaults rather than being required, and it is the exception the
+     * archive earns: reports written before it existed must still parse, or the tool stops
+     * being able to read its own history. It defaults to *unrecorded* rather than to the
+     * current defaults, because a plausible-looking budget on a run that never declared one is
+     * a fact invented into an artefact people trust.
+     *
+     * A getter, not a literal: a shared default object would be handed to every archived report
+     * parsed in a process, so a single later write would edit all of them at once.
+     */
+    configuration: RunConfigurationSchema.default(() => ({ ...UNRECORDED_CONFIGURATION })),
     checks: z.array(CheckResultSchema),
     /**
      * How the agent got there, derived from the run's event stream.
@@ -191,6 +231,13 @@ export function evaluatorErrorReport(input: {
   sessionId: string;
   weights: CategoryWeights;
   metrics: RunMetrics;
+  /**
+   * What the crashed run was configured as, when the caller knows.
+   *
+   * Worth carrying even here: a crash is one of the runs somebody most wants to reproduce, and
+   * the configuration is what they would have to guess at otherwise.
+   */
+  configuration?: RunConfiguration;
 }): BenchReport {
   return {
     runId: input.runId,
@@ -206,6 +253,7 @@ export function evaluatorErrorReport(input: {
     score: null,
     categories: [],
     weights: input.weights,
+    configuration: input.configuration ?? { ...UNRECORDED_CONFIGURATION },
     checks: [],
     metrics: input.metrics,
     screenshots: [],

@@ -251,6 +251,84 @@ describe("compareRuns", () => {
   });
 });
 
+describe("compareRuns and the budget the runs were held at", () => {
+  const budget = (maxSteps: number) => ({
+    model: "openai/gpt-5.6-luna",
+    budget: { maxSteps, maxTokens: 400_000 },
+  });
+
+  it("refuses two runs held at different ceilings", () => {
+    // `budget_exceeded` is attributed to the agent, which is only honest while the ceiling is
+    // genuinely fixed. Across two different ones, "this model ran out" is a property of a
+    // setting being presented as a property of a model.
+    const [baseline, candidate] = pair({ configuration: budget(40) }, { configuration: budget(8) });
+
+    expect(refused(baseline, candidate)).toMatch(/budget/i);
+  });
+
+  it("names both ceilings, so the reader can see which way it moved", () => {
+    const [baseline, candidate] = pair({ configuration: budget(40) }, { configuration: budget(8) });
+
+    const message = refused(baseline, candidate);
+
+    expect(message).toContain("40 steps");
+    expect(message).toContain("8 steps");
+  });
+
+  it("compares two runs held at the same ceiling", () => {
+    const [baseline, candidate] = pair(
+      { configuration: budget(40) },
+      { configuration: budget(40) },
+    );
+
+    expect(compared(baseline, candidate).scoreDelta).toBe(0);
+  });
+
+  it("compares when either run never recorded one", () => {
+    // Every report written before the field existed has a null budget. Refusing on an unknown
+    // would make the whole archive incomparable with everything after it — refusing on the
+    // strength of a fact nobody wrote down.
+    const [baseline, candidate] = pair({}, { configuration: budget(8) });
+
+    expect(compared(baseline, candidate).scoreDelta).toBe(0);
+  });
+
+  it("refuses even when neither run has a score", () => {
+    // Deliberately unlike the weights refusal, which skips unscored runs because there is no
+    // number to reprice. A budget mismatch invalidates the *attribution* rather than the
+    // arithmetic, and an errored run is exactly where the attribution is the whole finding:
+    // one run erroring `agent` for an exhausted budget the other was never held to is the
+    // most misleading comparison this tool could draw.
+    const baseline = benchReport({
+      status: "errored",
+      score: null,
+      errorKind: "agent",
+      categories: [],
+      configuration: budget(8),
+    });
+    const candidate = benchReport({
+      status: "errored",
+      score: null,
+      errorKind: "agent",
+      categories: [],
+      configuration: budget(40),
+    });
+
+    expect(refused(baseline, candidate)).toMatch(/budget/i);
+  });
+
+  it("does not refuse two runs of different models, which is the whole point", () => {
+    const [baseline, candidate] = pair(
+      { configuration: { model: "openai/gpt-5.6-luna", budget: { maxSteps: 40, maxTokens: 1 } } },
+      {
+        configuration: { model: "anthropic/claude-opus-5", budget: { maxSteps: 40, maxTokens: 1 } },
+      },
+    );
+
+    expect(compared(baseline, candidate).scoreDelta).toBe(0);
+  });
+});
+
 describe("compareRuns refuses what cannot honestly be compared", () => {
   it("refuses two runs whose configured weights moved the effective vector", () => {
     const [baseline, candidate] = pair(

@@ -10,11 +10,33 @@
  * a run with no score cannot be averaged in as a zero without charging an outage to the model
  * — and the two error rates are kept apart, because a suite contaminated by infrastructure is
  * not weak data but *not data*. See docs/adr/0002.
+ *
+ * **A mean alone is still an anecdote**, so a suite that repeated anything reports each task's
+ * spread beside it, and a success rate beside the mean: 85 every time and 100/70 alternating
+ * are the same average and are not the same thing to depend on. The spread is per task, never
+ * across the suite — see `distribution.ts` for why that distinction is the whole point.
  */
 
+import { type Distribution, describeDistribution } from "./distribution.ts";
 import { attributionOf } from "./error-kind.ts";
 import type { BenchReport } from "./report.ts";
 import { carriesScore, countsInAggregates } from "./status.ts";
+
+/**
+ * One task's runs, gathered — which is the level a spread means anything at.
+ *
+ * Present even when every task ran once, so that the shape of the summary does not depend on
+ * how it was invoked and nothing downstream has to branch on whether repeats were asked for.
+ */
+export type TaskRuns = {
+  taskId: string;
+  /** Everything attempted for this task, cancellations included. */
+  runs: number;
+  /** Runs that produced no result. Kept beside the scores, which cannot represent them. */
+  errored: number;
+  /** Over this task's completed runs only. */
+  scores: Distribution;
+};
 
 export type SuiteSummary = {
   /** A suite name, or the task id when one task was run. */
@@ -42,6 +64,23 @@ export type SuiteSummary = {
   agentErrorRate: number;
   infrastructureErrorRate: number;
   /**
+   * The share of counted runs that passed outright.
+   *
+   * Reported beside the mean because they answer different questions and can disagree loudly: a
+   * configuration that scores 85 every time and one that alternates 100 and 70 have the same
+   * mean and are not the same thing to depend on.
+   */
+  successRate: number;
+  /**
+   * Each task's own runs and spread, in the order the tasks were first seen.
+   *
+   * Per task rather than one figure over the suite, because a spread across *different* tasks
+   * measures how much the tasks differ in difficulty — a fact about the benchmark, not about
+   * the model. Ordered by first appearance rather than by score so that two runs of the same
+   * suite can be read side by side.
+   */
+  tasks: TaskRuns[];
+  /**
    * Whether this suite's mean may be compared with another's.
    *
    * False as soon as one run errored on something that is not the agent. Deliberately strict:
@@ -61,6 +100,7 @@ export function summariseSuite(name: string, reports: readonly BenchReport[]): S
       ? null
       : round1(scores.reduce((total, score) => total + score, 0) / scores.length);
 
+  const passed = completed.filter((report) => report.status === "passed").length;
   const errored = counted.filter((report) => report.errorKind !== null);
   const agentErrors = errored.filter(
     (report) => report.errorKind !== null && attributionOf(report.errorKind) === "agent",
@@ -73,7 +113,7 @@ export function summariseSuite(name: string, reports: readonly BenchReport[]): S
     counted: counted.length,
     cancelled: reports.length - counted.length,
     completed: completed.length,
-    passed: completed.filter((report) => report.status === "passed").length,
+    passed,
     failed: completed.filter((report) => report.status === "failed").length,
     errored: errored.length,
     meanScore,
@@ -81,8 +121,42 @@ export function summariseSuite(name: string, reports: readonly BenchReport[]): S
     infrastructureErrors,
     agentErrorRate: rate(agentErrors, counted.length),
     infrastructureErrorRate: rate(infrastructureErrors, counted.length),
+    successRate: rate(
+      completed.filter((report) => report.status === "passed").length,
+      counted.length,
+    ),
+    tasks: groupByTask(reports),
     comparable: infrastructureErrors === 0,
   };
+}
+
+/**
+ * Every task's runs, in the order the tasks were first attempted.
+ *
+ * A `Map` because insertion order is exactly the order wanted and getting it from a sort would
+ * mean inventing a key to sort on — the suite's declared order is not visible from a list of
+ * reports, but the order they were run in is.
+ */
+function groupByTask(reports: readonly BenchReport[]): TaskRuns[] {
+  const byTask = new Map<string, BenchReport[]>();
+  for (const report of reports) {
+    const existing = byTask.get(report.taskId);
+    if (existing === undefined) byTask.set(report.taskId, [report]);
+    else existing.push(report);
+  }
+
+  return [...byTask].map(([taskId, runs]) => {
+    const counted = runs.filter((report) => countsInAggregates(report.status));
+
+    return {
+      taskId,
+      runs: runs.length,
+      errored: counted.filter((report) => report.errorKind !== null).length,
+      scores: describeDistribution(
+        counted.filter((report) => carriesScore(report.status)).map((report) => report.score ?? 0),
+      ),
+    };
+  });
 }
 
 /**
@@ -100,9 +174,12 @@ export function formatSuiteSummary(summary: SuiteSummary): string {
       `${summary.errored} errored, ${summary.cancelled} cancelled`,
     `  mean score       ${summary.meanScore === null ? "—" : summary.meanScore.toFixed(1)}` +
       `  (over ${summary.completed} of ${summary.counted} counted runs)`,
+    `  success rate     ${summary.successRate.toFixed(1)}%  (${summary.passed} of ${summary.counted} counted runs passed)`,
     `  agent errors     ${summary.agentErrors}  (${summary.agentErrorRate.toFixed(1)}%)`,
     `  infrastructure   ${summary.infrastructureErrors}  (${summary.infrastructureErrorRate.toFixed(1)}%)`,
   ];
+
+  lines.push(...spreadLines(summary.tasks));
 
   if (!summary.comparable) {
     lines.push(
@@ -123,6 +200,44 @@ export function formatSuiteSummary(summary: SuiteSummary): string {
   }
 
   return lines.join("\n");
+}
+
+/**
+ * Each task's spread, printed only when something was actually run more than once.
+ *
+ * Silent otherwise, and deliberately: a "distribution" of one score per task is a second copy
+ * of the per-run summaries the reader has just scrolled past, wearing the clothes of
+ * statistics. The point of this section is variance, and one run has none to show.
+ *
+ * The extremes are printed beside the average because they are what a reader reaches for the
+ * moment the spread turns out to be wide — the question after "the deviation is 8.7" is always
+ * "how bad was the worst one".
+ */
+function spreadLines(tasks: readonly TaskRuns[]): string[] {
+  const repeated = tasks.filter((task) => task.runs > 1);
+  if (repeated.length === 0) return [];
+
+  const lines = ["", "  spread, per task, over the runs that scored:"];
+
+  for (const task of repeated) {
+    const { scores } = task;
+    if (scores.mean === null || scores.median === null) {
+      lines.push(`    ${task.taskId.padEnd(18, " ")}no run scored (${task.runs} attempted)`);
+      continue;
+    }
+
+    lines.push(
+      `    ${task.taskId.padEnd(18, " ")}` +
+        `mean ${scores.mean.toFixed(1)}  median ${scores.median.toFixed(1)}  ` +
+        // Null for a single scoring run, and printed as a dash rather than as 0.0: zero would
+        // read as perfect consistency when nothing was measured twice.
+        `sd ${scores.stdDev === null ? "—" : scores.stdDev.toFixed(1)}  ` +
+        `range ${scores.lowest}–${scores.highest}  ` +
+        `(${scores.n} of ${task.runs}${task.errored === 0 ? "" : `, ${task.errored} errored`})`,
+    );
+  }
+
+  return lines;
 }
 
 /**
