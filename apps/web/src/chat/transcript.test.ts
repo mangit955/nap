@@ -32,6 +32,8 @@ function ev<T extends NapEventType>(type: T, payload: Extract<NapEvent, { type: 
  * prompt to the `turn.started` that says who wrote it.
  */
 const REPAIR_TURN = "9d2e3f4a-5b6c-4d7e-9f80-1a2b3c4d5e60";
+const JOB = "5f6a7b8c-9d0e-4f10-a213-456789abcdef";
+const failedCheck = { name: "typecheck", outcome: "failed", output: "exit 2" } as const;
 
 const evIn = (turnId: string, event: StoredEvent): StoredEvent => ({ ...event, turnId });
 
@@ -589,6 +591,69 @@ describe("a repair turn", () => {
     );
 
     expect(items.at(-1)).toMatchObject({ outcome: "failed", retryMessage: "build a todo list" });
+  });
+
+  it("attributes the prompt before its turn has even opened", () => {
+    // The live case, and the one that matters most: the runtime logs the prompt and *then*
+    // builds the turn's context — a sandbox file listing — before the agent emits
+    // `turn.started`. For that whole second the classifying event does not exist yet, and a
+    // fold that waited for it would draw the verifier's paragraph in the user's bubble and
+    // then snap it into place, on the demo, every time.
+    //
+    // A red verification with no turn opened since it is the only thing that can be prompting
+    // one. Deriving it any further than that is what the source field exists to avoid.
+    const items = fold(
+      ev("verification.completed", { jobId: JOB, checks: [failedCheck] }),
+      evIn(REPAIR_TURN, ev("user.message", { text: "The `typecheck` check failed." })),
+    );
+
+    expect(items.at(-1)).toMatchObject({ kind: "message", from: "verifier" });
+  });
+
+  it("hands the conversation back once the job has run out of repairs", () => {
+    // Red checks and a closed job: nothing is going to prompt a repair, so the next message is
+    // somebody typing. Without this, exhaustion would relabel their words as the machine's —
+    // the same mistake as the one above, in the direction that is worse.
+    const items = fold(
+      ev("verification.completed", { jobId: JOB, checks: [failedCheck] }),
+      ev("job.completed", { jobId: JOB, outcome: "exhausted" }),
+      ev("user.message", { text: "just fix the import" }),
+    );
+
+    expect(items.at(-1)).toMatchObject({ from: "user" });
+  });
+
+  it("hands it back once a repair turn has actually opened", () => {
+    // The flag is spent by the turn it was waiting for. A second message under one red
+    // verification is the user adding to the request, not a second repair.
+    const items = fold(
+      ev("verification.completed", { jobId: JOB, checks: [failedCheck] }),
+      evIn(REPAIR_TURN, ev("user.message", { text: "The `typecheck` check failed." })),
+      evIn(REPAIR_TURN, ev("turn.started", { source: "verification" })),
+      evIn(
+        REPAIR_TURN,
+        ev("turn.completed", {
+          usage: { inputTokens: 1, outputTokens: 1 },
+          durationMs: 10,
+          commitSha: "a1b2c3d",
+        }),
+      ),
+      ev("user.message", { text: "also add a footer" }),
+    );
+
+    expect(items.at(-1)).toMatchObject({ from: "user" });
+  });
+
+  it("waits for nothing when the checks came back green", () => {
+    const items = fold(
+      ev("verification.completed", {
+        jobId: JOB,
+        checks: [{ name: "test", outcome: "passed", output: null }],
+      }),
+      ev("user.message", { text: "now add a footer" }),
+    );
+
+    expect(items.at(-1)).toMatchObject({ from: "user" });
   });
 
   it("attributes nothing to the verifier in a window that opens after the turn did", () => {

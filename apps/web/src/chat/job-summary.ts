@@ -20,8 +20,6 @@ import type { VerifiedCheck } from "@nap/shared/events";
 import { type JobPhase, MAX_REPAIR_ATTEMPTS, type SessionJobs } from "@nap/shared/job-state";
 
 export type JobSummary = {
-  /** What was asked, as the prompt that opened the job put it. */
-  objective: string;
   phase: JobPhase;
   /** The phase in a word, for the strip's face. */
   phaseLabel: string;
@@ -47,19 +45,11 @@ const PHASE_LABELS: Record<JobPhase, string> = {
 
 const OPEN_PHASES: readonly JobPhase[] = ["working", "verifying", "repairing"];
 
-/** How a check's outcome is said out loud. The three words are the domain's — `CONTEXT.md`. */
-export const CHECK_LABELS = {
-  passed: "passed",
-  failed: "failed",
-  absent: "absent",
-} as const satisfies Record<VerifiedCheck["outcome"], string>;
-
 export function jobSummary(state: SessionJobs): JobSummary | null {
   const job = state.jobs.at(-1);
   if (job === undefined) return null;
 
   return {
-    objective: job.objective,
     phase: job.phase,
     phaseLabel: PHASE_LABELS[job.phase],
     open: OPEN_PHASES.includes(job.phase),

@@ -10,41 +10,20 @@
  * actually produces rather than against a hand-written shape it might not.
  */
 
-import type { NapEvent, NapEventType } from "@nap/shared/events";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
-import { ev } from "../testing/events.ts";
+import { check, JOB_ID as JOB, jobLog } from "../testing/job-events.ts";
 import { JobStrip } from "./job-strip.tsx";
 
-const JOB = "5f6a7b8c-9d0e-4f10-a213-456789abcdef";
-
-let nextSeq = 0;
-
-function e<T extends NapEventType>(type: T, payload: Extract<NapEvent, { type: T }>["payload"]) {
-  nextSeq += 1;
-  // `as never` for the same reason the rest of the suite does it: `ev`'s generic cannot be
-  // correlated through a second generic wrapper, and the call sites are still checked.
-  return ev(type, payload as never, nextSeq);
-}
+let log = jobLog();
 
 function show(...events: StoredEvent[]) {
   return render(<JobStrip events={events} />);
 }
 
-const opened = () => e("job.started", { jobId: JOB, objective: "build a todo list" });
-
-const committed = (commitSha: string) =>
-  e("turn.completed", { usage: { inputTokens: 1, outputTokens: 1 }, durationMs: 10, commitSha });
-
-const check = (name: string, outcome: "passed" | "failed" | "absent") => ({
-  name,
-  outcome,
-  output: null,
-});
-
 beforeEach(() => {
-  nextSeq = 0;
+  log = jobLog();
 });
 
 describe("when there is nothing to say", () => {
@@ -58,13 +37,13 @@ describe("when there is nothing to say", () => {
 describe("the phase", () => {
   it("is announced rather than only drawn", () => {
     // It changes while somebody is reading and nothing else on screen says so.
-    show(opened(), e("verification.started", { jobId: JOB }));
+    show(log.opened(), log.at("verification.started", { jobId: JOB }));
 
     expect(screen.getByRole("status")).toHaveTextContent(/verifying/i);
   });
 
   it("names the state a job ends in", () => {
-    show(opened(), e("job.completed", { jobId: JOB, outcome: "exhausted" }));
+    show(log.opened(), log.at("job.completed", { jobId: JOB, outcome: "exhausted" }));
 
     expect(screen.getByRole("status")).toHaveTextContent(/out of repairs/i);
   });
@@ -75,8 +54,8 @@ describe("the checks", () => {
     // Not by colour: `absent` and `failed` are the pair it is most expensive to confuse, and
     // one of them is not a failure at all.
     show(
-      opened(),
-      e("verification.completed", {
+      log.opened(),
+      log.at("verification.completed", {
         jobId: JOB,
         checks: [check("typecheck", "passed"), check("test", "failed"), check("build", "absent")],
       }),
@@ -89,7 +68,7 @@ describe("the checks", () => {
   });
 
   it("shows no list before anything has run", () => {
-    show(opened());
+    show(log.opened());
 
     expect(screen.queryByRole("list", { name: /checks/i })).not.toBeInTheDocument();
   });
@@ -98,11 +77,11 @@ describe("the checks", () => {
 describe("repairs used", () => {
   it("says how many of the three have been spent", () => {
     show(
-      opened(),
-      e("verification.started", { jobId: JOB }),
-      e("verification.completed", { jobId: JOB, checks: [check("test", "failed")] }),
-      e("verification.started", { jobId: JOB }),
-      e("verification.completed", { jobId: JOB, checks: [check("test", "failed")] }),
+      log.opened(),
+      log.at("verification.started", { jobId: JOB }),
+      log.at("verification.completed", { jobId: JOB, checks: [check("test", "failed")] }),
+      log.at("verification.started", { jobId: JOB }),
+      log.at("verification.completed", { jobId: JOB, checks: [check("test", "failed")] }),
     );
 
     expect(screen.getByRole("region", { name: /job status/i })).toHaveTextContent(
@@ -111,7 +90,10 @@ describe("repairs used", () => {
   });
 
   it("says nothing about repairs on a job that has needed none", () => {
-    show(opened(), e("verification.completed", { jobId: JOB, checks: [check("test", "passed")] }));
+    show(
+      log.opened(),
+      log.at("verification.completed", { jobId: JOB, checks: [check("test", "passed")] }),
+    );
 
     expect(screen.getByRole("region", { name: /job status/i })).not.toHaveTextContent(/repairs/i);
   });
@@ -120,10 +102,10 @@ describe("repairs used", () => {
 describe("whether the project is at a verified state", () => {
   it("says so when HEAD is the last checkpoint", () => {
     show(
-      opened(),
-      committed("abc123"),
-      e("verification.completed", { jobId: JOB, checks: [check("test", "passed")] }),
-      e("job.checkpointed", { jobId: JOB, commitSha: "abc123" }),
+      log.opened(),
+      log.committed("abc123"),
+      log.at("verification.completed", { jobId: JOB, checks: [check("test", "passed")] }),
+      log.at("job.checkpointed", { jobId: JOB, commitSha: "abc123" }),
     );
 
     expect(screen.getByRole("region", { name: /job status/i })).toHaveTextContent(
@@ -132,16 +114,16 @@ describe("whether the project is at a verified state", () => {
   });
 
   it("is honest about a job whose checks were all absent", () => {
-    // The map's Fog. The fold calls this `verified`, correctly — but nothing ran, and the strip
-    // is where that could quietly become a claim that something did.
+    // The fold calls this `verified`, correctly — but nothing ran, and the strip is where that
+    // could quietly become a claim that something did.
     show(
-      opened(),
-      committed("abc123"),
-      e("verification.completed", {
+      log.opened(),
+      log.committed("abc123"),
+      log.at("verification.completed", {
         jobId: JOB,
         checks: [check("typecheck", "absent"), check("test", "absent")],
       }),
-      e("job.checkpointed", { jobId: JOB, commitSha: "abc123" }),
+      log.at("job.checkpointed", { jobId: JOB, commitSha: "abc123" }),
     );
 
     const strip = screen.getByRole("region", { name: /job status/i });
@@ -154,11 +136,11 @@ describe("whether the project is at a verified state", () => {
 
   it("says HEAD has moved past the checkpoint after an exhausted job", () => {
     show(
-      opened(),
-      committed("abc123"),
-      e("job.checkpointed", { jobId: JOB, commitSha: "abc123" }),
-      committed("def456"),
-      e("job.completed", { jobId: JOB, outcome: "exhausted" }),
+      log.opened(),
+      log.committed("abc123"),
+      log.at("job.checkpointed", { jobId: JOB, commitSha: "abc123" }),
+      log.committed("def456"),
+      log.at("job.completed", { jobId: JOB, outcome: "exhausted" }),
     );
 
     expect(screen.getByRole("region", { name: /job status/i })).toHaveTextContent(

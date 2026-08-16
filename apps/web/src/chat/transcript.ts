@@ -128,6 +128,24 @@ function repairTurns(events: readonly StoredEvent[]): ReadonlySet<string> {
 export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[] {
   const repairs = repairTurns(events);
   const items: TranscriptItem[] = [];
+  /**
+   * A verification came back red and no turn has opened since, so the next prompt is the one it
+   * is about to write.
+   *
+   * The pass above cannot answer for the message that is on screen *right now*: the runtime
+   * logs the repair prompt and then builds the turn's context — a sandbox file listing — before
+   * the agent emits the `turn.started` that classifies it. For that second the log holds the
+   * verifier's paragraph and nothing saying whose it is, and drawing it as the user's and then
+   * correcting it is the one thing this treatment exists to prevent, live, on the demo.
+   *
+   * Deliberately the *narrowest* rule that covers the gap, because the source field exists
+   * precisely so that nobody derives this by counting verifications back from a turn: red
+   * checks, nothing opened since, and it is spent by the turn it was waiting for. Everything
+   * that could mean no repair is coming — a green run, a job that closed, a turn that started —
+   * puts it back, so the failure it cannot make is the expensive one: labelling somebody's own
+   * words as the machine's.
+   */
+  let awaitingRepair = false;
   const stepsById = new Map<string, Step>();
   // The step a `file.changed` belongs to: the last one opened that has not been answered yet.
   let openStep: Step | undefined;
@@ -141,7 +159,7 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
 
     switch (event.type) {
       case "user.message": {
-        const from = repairs.has(event.turnId) ? "verifier" : "user";
+        const from = repairs.has(event.turnId) || awaitingRepair ? "verifier" : "user";
         items.push({ kind: "message", key, from, text: event.payload.text });
         // Remembered for the turn this opens, so a failure downstream knows what to offer to
         // send again — and only when a person wrote it. Retrying means re-sending the request,
@@ -248,7 +266,22 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
         break;
 
       case "turn.started":
+        awaitingRepair = false;
         items.push({ kind: "turn-start", key, source: event.payload.source });
+        break;
+
+      // Draws nothing — the strip above the chat is where a job's phase and its checks are
+      // shown, and saying it twice would put a running status commentary through the pane that
+      // reads as a conversation. Read here only for the flag above.
+      case "verification.completed":
+        awaitingRepair = event.payload.checks.some((check) => check.outcome === "failed");
+        break;
+
+      // Whatever the checks last said, a job that has closed is prompting nothing further. Red
+      // and out of attempts is exactly the case this exists for: the loop stops there, and the
+      // next thing said is somebody typing.
+      case "job.completed":
+        awaitingRepair = false;
         break;
 
       case "turn.completed":

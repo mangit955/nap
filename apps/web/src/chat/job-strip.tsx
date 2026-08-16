@@ -26,10 +26,10 @@
  */
 
 import type { VerifiedCheck } from "@nap/shared/events";
-import { foldJobs } from "@nap/shared/job-state";
+import { foldJobs, type JobPhase } from "@nap/shared/job-state";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { useMemo } from "react";
-import { CHECK_LABELS, type JobSummary, jobSummary } from "./job-summary.ts";
+import { type JobSummary, jobSummary } from "./job-summary.ts";
 
 export function JobStrip({ events }: { events: readonly StoredEvent[] }) {
   // Keyed on the array rather than its length, the way the workspace's other folds are: the log
@@ -60,14 +60,13 @@ export function JobStrip({ events }: { events: readonly StoredEvent[] }) {
               <Dot outcome={check.outcome} />
               <span className="font-mono text-[11px] text-ink-2">{check.name}</span>
               {/*
-                The outcome as a word, beside the colour rather than instead of it. Red and
-                grey are the same thing to a reader who cannot tell them apart, and `absent`
-                and `failed` are the pair it is most expensive to confuse — one is a check the
-                project never declared, the other is a check that said no.
+                The outcome as a word, beside the colour rather than instead of it. Red and grey
+                are the same thing to a reader who cannot tell them apart, and `absent` and
+                `failed` are the pair it is most expensive to confuse — one is a check the
+                project never declared, the other is a check that said no. The domain's own
+                three words, said as they are: `CONTEXT.md` picked them for exactly this.
               */}
-              <span className="font-mono text-[11px] text-muted">
-                {CHECK_LABELS[check.outcome]}
-              </span>
+              <span className="font-mono text-[11px] text-muted">{check.outcome}</span>
             </li>
           ))}
         </ul>
@@ -91,7 +90,7 @@ function Phase({ summary }: { summary: JobSummary }) {
     <p role="status" className="flex items-center gap-1.5 font-medium text-[12px] text-ink">
       <span
         aria-hidden="true"
-        className={`size-1.5 rounded-full ${summary.open ? "animate-pulse bg-accent" : toneOf(summary)}`}
+        className={`size-1.5 rounded-full ${summary.open ? "animate-pulse bg-accent" : toneOf(summary.phase)}`}
       />
       {summary.phaseLabel}
     </p>
@@ -105,8 +104,8 @@ function Phase({ summary }: { summary: JobSummary }) {
  * no success colour on purpose — `globals.css` — so a verified job is a neutral dot and the
  * word beside it, which is what a green tick would have said anyway.
  */
-function toneOf(summary: JobSummary): string {
-  if (summary.phase === "exhausted" || summary.phase === "abandoned") return "bg-danger";
+function toneOf(phase: JobPhase): string {
+  if (phase === "exhausted" || phase === "abandoned") return "bg-danger";
   return "bg-line-strong";
 }
 

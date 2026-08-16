@@ -426,7 +426,7 @@ describe("a repair turn", () => {
   });
 
   it("does not put the verifier's words in the user's mouth", () => {
-    // The failure this guards is the whole ticket: a synthesized prompt drawn as a user bubble
+    // The failure this guards is the reason for the treatment: a synthesized prompt in a bubble
     // reads as the app talking to itself, and the self-correction stops looking intentional.
     showRepair();
 
