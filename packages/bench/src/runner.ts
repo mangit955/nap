@@ -34,6 +34,7 @@ import { applyGates, type BrowserUnavailable, type GateInput } from "./gates.ts"
 import { deriveRunMetrics } from "./metrics.ts";
 import { diagnosePreview } from "./preview.ts";
 import type { BenchReport, CheckResult } from "./report.ts";
+import type { TurnBudgetRecord } from "./run-configuration.ts";
 import { scoreRun } from "./score.ts";
 import {
   type CapturedScreenshot,
@@ -121,6 +122,19 @@ export type BenchRunnerDeps = {
    */
   model?: string | undefined;
   /**
+   * The ceilings the turn was given, recorded on the report as what the run was held at.
+   *
+   * Passed in already **resolved** rather than as the options somebody typed: a run that left
+   * `maxSteps` to its default and one that passed the default explicitly were held at the same
+   * ceiling, and a comparison that refused those two would be refusing over a difference that
+   * does not exist. Whoever composes the run owns the defaults — this package cannot see them,
+   * since it may not depend on the agent (docs/adr/0001).
+   *
+   * Absent leaves the budget unrecorded, which is honest and is what stops a comparison
+   * refusing: see `run-configuration.ts`.
+   */
+  budget?: TurnBudgetRecord | undefined;
+  /**
    * The clock, injectable so a screenshot's timestamp is assertable rather than merely a string.
    *
    * The only clock this package reads, and it is read for one field: `capturedAt` is a fact about
@@ -205,6 +219,7 @@ export async function runBenchTask(
         score: verdict.score,
         categories: scored.categories,
         weights,
+        configuration: { model: deps.model ?? null, budget: deps.budget ?? null },
         checks,
         metrics: deriveRunMetrics(events, { model: deps.model }),
         screenshots,

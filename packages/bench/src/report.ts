@@ -22,6 +22,11 @@ import { ErrorKindSchema } from "./error-kind.ts";
 import { GateIdSchema } from "./gates.ts";
 import { type RunMetrics, RunMetricsSchema } from "./metrics.ts";
 import { describeParseFailure } from "./parse-failure.ts";
+import {
+  type RunConfiguration,
+  RunConfigurationSchema,
+  UNRECORDED_CONFIGURATION,
+} from "./run-configuration.ts";
 import { ScreenshotRefSchema } from "./screenshot.ts";
 import { carriesScore, RunStatusSchema } from "./status.ts";
 import { VISUAL_NOT_RUN, VisualEvaluationSchema } from "./visual.ts";
@@ -114,6 +119,19 @@ export const BenchReportSchema = z
     categories: z.array(CategoryScoreSchema),
     /** The configured vector, so the effective one above can be recomputed and checked. */
     weights: CategoryWeightsSchema,
+    /**
+     * What this run was *held at* — the model, and the turn's ceilings.
+     *
+     * The one field here that defaults rather than being required, and it is the exception the
+     * archive earns: reports written before it existed must still parse, or the tool stops
+     * being able to read its own history. It defaults to *unrecorded* rather than to the
+     * current defaults, because a plausible-looking budget on a run that never declared one is
+     * a fact invented into an artefact people trust.
+     *
+     * A getter, not a literal: a shared default object would be handed to every archived report
+     * parsed in a process, so a single later write would edit all of them at once.
+     */
+    configuration: RunConfigurationSchema.default(() => ({ ...UNRECORDED_CONFIGURATION })),
     checks: z.array(CheckResultSchema),
     /**
      * How the agent got there, derived from the run's event stream.
@@ -191,6 +209,13 @@ export function evaluatorErrorReport(input: {
   sessionId: string;
   weights: CategoryWeights;
   metrics: RunMetrics;
+  /**
+   * What the crashed run was configured as, when the caller knows.
+   *
+   * Worth carrying even here: a crash is one of the runs somebody most wants to reproduce, and
+   * the configuration is what they would have to guess at otherwise.
+   */
+  configuration?: RunConfiguration;
 }): BenchReport {
   return {
     runId: input.runId,
@@ -206,6 +231,7 @@ export function evaluatorErrorReport(input: {
     score: null,
     categories: [],
     weights: input.weights,
+    configuration: input.configuration ?? { ...UNRECORDED_CONFIGURATION },
     checks: [],
     metrics: input.metrics,
     screenshots: [],

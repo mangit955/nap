@@ -16,6 +16,7 @@
 
 import { DEFAULT_CATEGORY_WEIGHTS } from "../category.ts";
 import type { BenchReport } from "../report.ts";
+import { UNRECORDED_CONFIGURATION } from "../run-configuration.ts";
 import { VISUAL_NOT_RUN } from "../visual.ts";
 
 /** A passing run of one task that scored 100 and did almost nothing. */
@@ -32,6 +33,11 @@ export function benchReport(overrides: Partial<BenchReport> = {}): BenchReport {
     score: 100,
     categories: [],
     weights: DEFAULT_CATEGORY_WEIGHTS,
+    // Spread, not the constant itself. Every fake report would otherwise share one
+    // configuration object, so a test that reached in and changed a budget would silently
+    // change it for every other report built in the same run — which is the same trap the
+    // schema's default is a getter to avoid.
+    configuration: { ...UNRECORDED_CONFIGURATION },
     checks: [],
     metrics: {
       toolCalls: 0,

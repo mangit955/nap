@@ -474,6 +474,33 @@ describe("runBenchTask — the trajectory it kept", () => {
     // tokens at another's rate.
     expect(models).toEqual(["anthropic/claude-opus-5"]);
   });
+
+  it("records what the run was held at, so a later comparison can refuse an unfair one", async () => {
+    const runtime = scriptedRuntime(completed);
+    const sandbox = new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0 }) });
+
+    const report = await reportOf(task(), {
+      ...(await deps(runtime, sandbox)),
+      model: "anthropic/claude-opus-5",
+      budget: { maxSteps: 8, maxTokens: 40_000 },
+    });
+
+    expect(report.configuration).toEqual({
+      model: "anthropic/claude-opus-5",
+      budget: { maxSteps: 8, maxTokens: 40_000 },
+    });
+  });
+
+  it("records nothing rather than guessing when the run was composed without either", async () => {
+    // A plausible default written here would be a ceiling the run was never actually held at,
+    // in an artefact that is read months later as a record of fact.
+    const runtime = scriptedRuntime(completed);
+    const sandbox = new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0 }) });
+
+    const report = await reportOf(task(), await deps(runtime, sandbox));
+
+    expect(report.configuration).toEqual({ model: null, budget: null });
+  });
 });
 
 describe("runBenchTask — the preview a task asked for", () => {

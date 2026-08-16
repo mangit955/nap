@@ -111,6 +111,14 @@ worth keeping apart — Nap's own machinery breaking against NapBench crashing o
 suite full of the first is a deployment to fix and one full of the second is a benchmark to fix.
 See `docs/adr/0004`.
 
+**Run configuration** — what a run was *held at*, as opposed to what it spent: which model ran, and
+the ceilings the turn was given. The counterpart to the trajectory's model, which prices what was
+*consumed* — two facts that usually share a value and must not be collapsed, since a run whose
+configuration and consumption disagree is exactly the one worth reading. Absent on a report written
+before it was recorded, which is *unrecorded* rather than *none*: a comparison refuses two runs held
+at different budgets and deliberately does not refuse one it cannot tell about, because the second
+rule would make the whole archive incomparable. See `docs/adr/0004`.
+
 **Run** — one execution of one task against one configuration, from a fresh session to a scored
 report. The unit that has an id, a status, a score and a trajectory. **This is the word that
 collides.** A NapBench *run* contains a Nap *session*, which contains one or more Nap *turns* — a

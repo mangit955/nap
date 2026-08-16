@@ -277,7 +277,9 @@ infrastructure-attributable error rates as separate figures over the non-cancell
 
 Comparison refuses two runs whose **effective weight vectors** differ: renormalisation means a score
 is only meaningful relative to the categories that produced it. It also refuses runs of different
-tasks. Two runs, never three.
+tasks, and runs held at different **turn budgets** — `budget_exceeded` counts against the agent, so
+that attribution is only honest while the ceiling is fixed. It does *not* refuse two runs of
+different models, which is what it is for. Two runs, never three.
 
 ---
 

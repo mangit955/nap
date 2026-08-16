@@ -97,18 +97,46 @@ a bug, and those route to different people. The distinction is currently earning
 premature. It is a reporting concern rather than a taxonomy one, and it stays available: the kinds
 are recorded per run, so any grouping can be applied later without the stored data changing.
 
-## Known gap — the budget guard does not exist yet
+---
+
+## Amendment — the budget guard
+
+*Added when the run configuration reached the report. The gap this replaces was recorded, unfixed,
+when the decision above was first taken.*
 
 Keeping `budget_exceeded` on `agent` is only honest while the budget is genuinely held fixed. Two
 runs at different budgets are not comparable on that axis: "this model ran out" would be a property
-of a setting presented as a property of a model.
+of a setting presented as a property of a model. Nothing enforced that, because the budget was
+constructed in the benchmark application and never reached the report.
 
-Nothing enforces that today. The turn budget is constructed in the benchmark application and never
-reaches the report, so a comparison cannot see it and does not refuse. **The attribution decided
-above is therefore sound in principle and unguarded in practice**, and anyone comparing two runs
-must currently check by hand that both were held at the same budget.
+A report now records the configuration a run was **held at** — the model, and the turn's ceilings —
+and a comparison refuses two runs whose budgets differ. Four things about it were decided
+deliberately.
 
-Closing it means recording the run's configuration on the report and refusing a comparison across
-budgets — deliberately *not* across models, since comparing models is what the comparison is for.
-This ADR will be amended when that lands, and until then the gap is stated here rather than left
-for a reader to discover.
+**Distinct from the metrics.** `metrics.ts` also names a model, and the two are different facts
+sharing a value: the metric prices what a run *consumed*, the configuration says what it was *set
+to*. They are separate so that the first run whose configuration and consumption disagree — a
+fallback that switched models mid-run — does not make one of the two readings silently wrong.
+
+**Both ceilings, resolved rather than declared.** A turn can exhaust steps or tokens, so a report
+naming only the one that was not hit explains nothing. And they are recorded as resolved numbers:
+a run that left `maxSteps` to its default and one that passed the default explicitly were held at
+the same ceiling, and refusing that pair would be refusing over a difference that does not exist.
+Resolution happens in the app, which owns the defaults — `@nap/bench` may not see them (ADR-0001).
+
+**One object configures the agent and is recorded.** Two sources would let a report claim a budget
+the turn was never given, and the guard would then be enforcing a number nobody applied.
+
+**An unknown budget does not refuse.** Every report written before this field existed has a null
+budget, so treating "cannot tell" as "differs" would make the entire archive incomparable with
+everything after it — refusing on the strength of a fact nobody recorded. "Cannot tell" is folded in
+with "same", and the cost is that a comparison across an unknown proceeds quietly, which is exactly
+what happened universally before this existed.
+
+The refusal deliberately **applies to unscored runs**, unlike the weight-vector refusal, which
+skips them because there is no number to reprice. What a budget mismatch corrupts is the
+*attribution* rather than the arithmetic, and an errored run is where the attribution is the whole
+finding: one run erroring `agent` on a ceiling the other was never held to is the most misleading
+pairing this tool could draw.
+
+The comparison does **not** refuse on differing models. Comparing two models is what it is for.

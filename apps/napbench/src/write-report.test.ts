@@ -20,6 +20,7 @@ const report: BenchReport = {
   turnId: "3f2a1c4e-0000-4000-8000-000000000003",
   status: "passed",
   errorKind: null,
+  configuration: { model: null, budget: null },
   gates: [],
   scoreCap: null,
   score: 100,

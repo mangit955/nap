@@ -20,6 +20,7 @@ const report: BenchReport = {
   score: 100,
   categories: [{ category: "functional", score: 100, effectiveWeight: 100, checks: 1 }],
   weights: DEFAULT_CATEGORY_WEIGHTS,
+  configuration: { model: "openai/gpt-5.6-luna", budget: { maxSteps: 40, maxTokens: 400_000 } },
   screenshots: [],
   visual: VISUAL_NOT_RUN,
   metrics: {
@@ -139,6 +140,51 @@ describe("a report", () => {
   it("refuses a gate it does not know", () => {
     // Gates are grouped and diffed across months of reports, so the set is closed.
     expect(parseBenchReport({ ...report, gates: ["vibes"] }).ok).toBe(false);
+  });
+});
+
+describe("the configuration a run was held at", () => {
+  it("reads a report written before the field existed as having recorded nothing", () => {
+    // The three funded runs predate this field. Refusing them would make the archive
+    // unreadable to the tool that produced it, so the field defaults instead of being
+    // required — and it defaults to *unrecorded* rather than to a plausible-looking budget,
+    // because inventing one would put a ceiling in an archived artefact that no run was held at.
+    const { configuration: _omitted, ...archived } = report;
+
+    const parsed = parseBenchReport(archived);
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) expect(parsed.value.configuration).toEqual({ model: null, budget: null });
+  });
+
+  it("keeps what it was given when the run did record it", () => {
+    const parsed = parseBenchReport(report);
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok)
+      expect(parsed.value.configuration.budget).toEqual({
+        maxSteps: 40,
+        maxTokens: 400_000,
+      });
+  });
+
+  it("refuses a configuration that could not describe any real run", () => {
+    expect(
+      parseBenchReport({
+        ...report,
+        configuration: { model: "m", budget: { maxSteps: 0, maxTokens: 1 } },
+      }).ok,
+    ).toBe(false);
+  });
+
+  it("gives two parses their own object rather than one they share", () => {
+    // The default is a getter for this reason. A shared literal would hand every archived
+    // report the same object, so anything that later wrote to one would silently edit them all.
+    const { configuration: _omitted, ...archived } = report;
+    const first = parseBenchReport(archived);
+    const second = parseBenchReport(archived);
+
+    expect(first.ok && second.ok && first.value.configuration).not.toBe(
+      second.ok ? second.value.configuration : null,
+    );
   });
 });
 
