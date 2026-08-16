@@ -101,9 +101,20 @@ whether it passed, failed or was never asked. The runtime uses it to arbitrate a
 benchmark uses it to build a score. The edge that must never exist is `runtime` → `bench` — the
 system under test importing the thing that grades it. See `docs/adr/0007`.
 
-This is enforced by `test/architecture.ts`, not by vigilance — adding a dependency that
-violates it fails `bun run test`. Adding a new workspace package also fails the test until
-you add it to the rule table there.
+This is enforced by `test/architecture.ts`, not by vigilance, and at both ends: one rule reads
+every package's `package.json`, a second reads the `@nap/*` specifiers its `src` and `scripts`
+actually import — type-only ones included, because Bun hoists workspace packages and an undeclared
+import otherwise resolves, typechecks and ships. Either way `bun run test` goes red. Three things
+hold:
+
+- Every file may only import a package its manifest declares.
+- Shipped source — `src`, minus the tests — may only import what the table above allows, and must
+  have it as a real `dependency`. Tests and `scripts/` answer to the manifest but not the table,
+  which is how sibling packages arrive as devDependencies for their fakes.
+- `@nap/bench` is the exception to that exemption: nothing below `apps/napbench` may import it,
+  tests included. See `docs/adr/0007`.
+
+Adding a new workspace package also fails the test until you add it to the rule table there.
 
 ## Component ownership
 

@@ -71,3 +71,9 @@ would put every fresh project into a repair loop it cannot exit.
 
 **A third consumer is now cheap.** Nothing needs one today, and no abstraction was added in
 anticipation of one.
+
+**The forbidden edge is checked in test files too.** `test/architecture.ts` otherwise exempts tests
+from the layer table — ADR-0001 has sibling packages arriving as devDependencies for their fakes,
+and a test-only edge is not the layering that table is about. `@nap/bench` is the one exception:
+a test importing it still has to typecheck, so scoring would still be something a shipped package
+builds against, which is the whole objection above.

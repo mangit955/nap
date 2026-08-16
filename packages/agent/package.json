@@ -17,6 +17,7 @@
     "zod": "4.4.3"
   },
   "devDependencies": {
+    "@nap/context": "workspace:*",
     "@nap/sandbox": "workspace:*"
   }
 }

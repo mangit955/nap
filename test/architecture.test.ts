@@ -1,28 +1,69 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { checkDependencyDirection, type Manifest } from "./architecture.ts";
+import {
+  checkDependencyDirection,
+  checkSourceImports,
+  type Manifest,
+  type PackageSources,
+} from "./architecture.ts";
 
 const repoRoot = join(import.meta.dirname, "..");
 
-function readWorkspaceManifests(): Manifest[] {
-  return ["packages", "apps"].flatMap((group) =>
-    readdirSync(join(repoRoot, group), { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => {
-        const raw = readFileSync(join(repoRoot, group, entry.name, "package.json"), "utf8");
-        const parsed = JSON.parse(raw) as {
-          name: string;
-          dependencies?: Record<string, string>;
-          devDependencies?: Record<string, string>;
-        };
+/** Every `.ts`/`.tsx` under `dir`, or nothing if the directory does not exist. */
+function readTypeScriptFiles(dir: string, prefix: string): { path: string; contents: string }[] {
+  if (!existsSync(dir)) return [];
+  return (
+    readdirSync(dir, { recursive: true, withFileTypes: true })
+      // `.tsx` as well as `.ts`: a React component's imports are dependency
+      // edges exactly like a module's.
+      .filter((f) => f.isFile() && (f.name.endsWith(".ts") || f.name.endsWith(".tsx")))
+      .map((f) => {
+        const absolute = join(f.parentPath, f.name);
         return {
+          path: `${prefix}/${absolute.slice(dir.length + 1)}`,
+          contents: readFileSync(absolute, "utf8"),
+        };
+      })
+  );
+}
+
+// The walk hits every TypeScript file in the repo, and five tests want it. Reading it once
+// keeps this file's cost where it was before the import check existed.
+const workspacePackages: PackageSources[] = ["packages", "apps"].flatMap((group) =>
+  readdirSync(join(repoRoot, group), { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => {
+      const dir = join(repoRoot, group, entry.name);
+      const parsed = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as {
+        name: string;
+        dependencies?: Record<string, string>;
+        devDependencies?: Record<string, string>;
+      };
+      const at = `${group}/${entry.name}`;
+      return {
+        manifest: {
           name: parsed.name,
           dependencies: Object.keys(parsed.dependencies ?? {}),
           devDependencies: Object.keys(parsed.devDependencies ?? {}),
-        };
-      }),
-  );
+        },
+        // `scripts/` as well as `src`: a script is where the real credentials and the real
+        // composition live, so an undeclared import there resolves by hoisting exactly as
+        // one in `src` does.
+        files: [
+          ...readTypeScriptFiles(join(dir, "src"), `${at}/src`),
+          ...readTypeScriptFiles(join(dir, "scripts"), `${at}/scripts`),
+        ],
+      };
+    }),
+);
+
+function readWorkspacePackages(): PackageSources[] {
+  return workspacePackages;
+}
+
+function readWorkspaceManifests(): Manifest[] {
+  return workspacePackages.map((pkg) => pkg.manifest);
 }
 
 describe("dependency direction", () => {
@@ -71,6 +112,285 @@ describe("dependency direction", () => {
       "@nap/verify",
       "@nap/web",
     ]);
+  });
+});
+
+describe("dependency direction at the import", () => {
+  // The manifest check above reads package.json and nothing else, so it can only see edges
+  // somebody remembered to declare. Bun hoists workspace packages, which means an import of
+  // a package this one never declared resolves, typechecks and ships. This is the check that
+  // reads what the source actually imports.
+  it("holds across the real workspace", () => {
+    expect(checkSourceImports(readWorkspacePackages())).toEqual([]);
+  });
+
+  it("actually reads a non-trivial number of internal imports", () => {
+    // Guards against the check going quiet because the walk broke, or because the specifier
+    // pattern stopped matching the import syntax the repo is written in.
+    const seen = readWorkspacePackages().flatMap((pkg) =>
+      pkg.files.flatMap((file) => file.contents.match(/["']@nap\//g) ?? []),
+    );
+    expect(seen.length).toBeGreaterThan(100);
+  });
+});
+
+describe("dependency direction at the import — the checker actually catches violations", () => {
+  const pkg = (
+    name: string,
+    declared: string[],
+    files: Record<string, string>,
+    devDeclared: string[] = [],
+  ): PackageSources[] => [
+    {
+      manifest: { name, dependencies: declared, devDependencies: devDeclared },
+      files: Object.entries(files).map(([path, contents]) => ({ path, contents })),
+    },
+  ];
+
+  it("catches the edge docs/adr/0007 exists to forbid", () => {
+    // The demonstration this check was written for: @nap/verify reaching up into the thing
+    // that grades the system it serves.
+    const violations = checkSourceImports(
+      pkg("@nap/verify", ["@nap/shared", "@nap/bench"], {
+        "packages/verify/src/check-outcome.ts": 'import { CATEGORIES } from "@nap/bench/category";',
+      }),
+    );
+    expect(violations).toHaveLength(1);
+    expect(violations[0]?.from).toBe("packages/verify/src/check-outcome.ts");
+    expect(violations[0]?.to).toBe("@nap/bench");
+  });
+
+  it("counts a type-only import, which is the form a violation is likeliest to take", () => {
+    // `import type` erases at runtime, so nothing in a build or a bundle notices it. It is
+    // still a layering edge: the compiler had to read @nap/bench to check this file.
+    const violations = checkSourceImports(
+      pkg("@nap/verify", ["@nap/shared", "@nap/bench"], {
+        "packages/verify/src/preview.ts":
+          'import type { TaskCategory } from "@nap/bench/category";',
+      }),
+    );
+    expect(violations).toHaveLength(1);
+    expect(violations[0]?.to).toBe("@nap/bench");
+  });
+
+  it("resolves the subpath form to its package", () => {
+    // Specifiers here are always deep — `@nap/bench/category`, never `@nap/bench` — because
+    // every package exports `./*`. Matching the bare name would have caught nothing at all.
+    const violations = checkSourceImports(
+      pkg("@nap/agent", ["@nap/shared", "@nap/db"], {
+        "packages/agent/src/x.ts":
+          'import { schema } from "@nap/db/testing/in-memory-event-store";',
+      }),
+    );
+    expect(violations).toHaveLength(1);
+    expect(violations[0]?.to).toBe("@nap/db");
+  });
+
+  it("catches an import of a package the manifest never declared", () => {
+    // The hoisting hole. Bun puts every workspace package in one root node_modules, so this
+    // resolves at dev time and in the deployed image — which is built by one workspace-wide
+    // install from the whole repo — while package.json claims no such edge exists.
+    const violations = checkSourceImports(
+      pkg("@nap/runtime", ["@nap/shared"], {
+        "packages/runtime/src/turn.ts": 'import { run } from "@nap/verify/check-outcome";',
+      }),
+    );
+    expect(violations).toHaveLength(1);
+    expect(violations[0]?.reason).toContain("does not declare");
+  });
+
+  it("catches it in a test file too — that is how it shipped last time", () => {
+    // A test importing a sibling with no devDependency on it is the same hole: it works only
+    // because of hoisting, and it breaks the moment the package is installed on its own.
+    const violations = checkSourceImports(
+      pkg("@nap/agent", ["@nap/shared"], {
+        "packages/agent/src/x.test.ts":
+          'const { SYSTEM_PROMPT } = await import("@nap/context/system-prompt");',
+      }),
+    );
+    expect(violations).toHaveLength(1);
+    expect(violations[0]?.reason).toContain("does not declare");
+  });
+
+  it("lets a test reach sideways once the manifest says so", () => {
+    // docs/adr/0001: sibling packages appear under devDependencies for their published fakes,
+    // which is what makes runners and adapters testable without a network. The direction rule
+    // is about what shipped source may reach for; a declared test-only edge is not that.
+    const violations = checkSourceImports(
+      pkg(
+        "@nap/bench",
+        ["@nap/shared"],
+        {
+          "packages/bench/src/runner.test.ts":
+            'import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";',
+        },
+        ["@nap/sandbox"],
+      ),
+    );
+    expect(violations).toEqual([]);
+  });
+
+  it("holds shipped source to the table even when the manifest declares the edge", () => {
+    // A devDependency is not a licence for src to use it: declaring @nap/sandbox is how the
+    // fakes get in, and the two rules would disagree about @nap/bench's core if this one
+    // read the manifest rather than the layer table.
+    const violations = checkSourceImports(
+      pkg(
+        "@nap/bench",
+        ["@nap/shared"],
+        { "packages/bench/src/runner.ts": 'import { x } from "@nap/sandbox/template";' },
+        ["@nap/sandbox"],
+      ),
+    );
+    expect(violations).toHaveLength(1);
+    expect(violations[0]?.reason).toContain("may only depend on");
+  });
+
+  it("allows a package to import itself", () => {
+    const violations = checkSourceImports(
+      pkg("@nap/shared", [], {
+        "packages/shared/src/version.test.ts":
+          'import pkg from "@nap/shared" with { type: "json" };',
+      }),
+    );
+    expect(violations).toEqual([]);
+  });
+
+  it("ignores third-party specifiers and relative ones", () => {
+    const violations = checkSourceImports(
+      pkg("@nap/context", ["@nap/shared"], {
+        "packages/context/src/engine.ts":
+          'import { z } from "zod";\nimport { budget } from "./budget.ts";',
+      }),
+    );
+    expect(violations).toEqual([]);
+  });
+
+  it("lets apps import anything they declare", () => {
+    const violations = checkSourceImports(
+      pkg("@nap/api", ["@nap/runtime", "@nap/shared"], {
+        "apps/api/src/index.ts":
+          'import { SingleAgentRuntime } from "@nap/runtime/single-agent-runtime";',
+      }),
+    );
+    expect(violations).toEqual([]);
+  });
+
+  it("still requires an app to declare what it imports", () => {
+    const violations = checkSourceImports(
+      pkg("@nap/api", ["@nap/shared"], {
+        "apps/api/src/index.ts":
+          'import { SingleAgentRuntime } from "@nap/runtime/single-agent-runtime";',
+      }),
+    );
+    expect(violations).toHaveLength(1);
+    expect(violations[0]?.reason).toContain("does not declare");
+  });
+
+  it("reads re-exports, side-effect imports and require as the edges they are", () => {
+    const violations = checkSourceImports(
+      pkg("@nap/verify", ["@nap/shared"], {
+        "packages/verify/src/a.ts": 'export { CATEGORIES } from "@nap/bench/category";',
+        "packages/verify/src/b.ts": 'import "@nap/bench/register";',
+        "packages/verify/src/c.ts": 'const bench = require("@nap/bench/report");',
+      }),
+    );
+    expect(violations.map((v) => v.from).toSorted()).toEqual([
+      "packages/verify/src/a.ts",
+      "packages/verify/src/b.ts",
+      "packages/verify/src/c.ts",
+    ]);
+  });
+
+  it("holds a script to the manifest, since hoisting is what makes its imports resolve too", () => {
+    const violations = checkSourceImports(
+      pkg("@nap/runtime", ["@nap/shared"], {
+        "packages/runtime/scripts/harness.ts":
+          'import { OpenRouter } from "@nap/agent/openrouter";',
+      }),
+    );
+    expect(violations).toHaveLength(1);
+    expect(violations[0]?.reason).toContain("does not declare");
+  });
+
+  it("lets a declared script compose across layers", () => {
+    // A script is credentials and composition — the real E2B sandbox, the real provider — and
+    // never ships as a module. It answers to the manifest, not to the layer table.
+    const violations = checkSourceImports(
+      pkg(
+        "@nap/runtime",
+        ["@nap/shared"],
+        {
+          "packages/runtime/scripts/harness.ts":
+            'import { OpenRouter } from "@nap/agent/openrouter";',
+        },
+        ["@nap/agent"],
+      ),
+    );
+    expect(violations).toEqual([]);
+  });
+
+  it("refuses shipped source an edge the manifest only carries for tests", () => {
+    // The escape hatch the two rules would otherwise leave open together: the manifest rule
+    // reads `dependencies` alone, so an edge parked in devDependencies satisfies "declared"
+    // while staying invisible to the direction check.
+    const violations = checkSourceImports(
+      pkg(
+        "@nap/runtime",
+        ["@nap/shared"],
+        {
+          "packages/runtime/src/turn.ts":
+            'import { AgentService } from "@nap/agent/agent-service";',
+        },
+        ["@nap/agent"],
+      ),
+    );
+    expect(violations).toHaveLength(1);
+    expect(violations[0]?.reason).toContain("only as a devDependency");
+  });
+
+  it("refuses the benchmark to a test, declared or not", () => {
+    // The one edge the exemption does not cover. docs/adr/0007: a test importing @nap/bench
+    // still has to typecheck, so it still makes every scoring change a production change.
+    const violations = checkSourceImports(
+      pkg(
+        "@nap/runtime",
+        ["@nap/shared"],
+        { "packages/runtime/src/turn.test.ts": 'import { score } from "@nap/bench/score";' },
+        ["@nap/bench"],
+      ),
+    );
+    expect(violations).toHaveLength(1);
+    expect(violations[0]?.reason).toContain("docs/adr/0007");
+  });
+
+  it("still lets the benchmark app's own tests use it", () => {
+    const violations = checkSourceImports(
+      pkg("@nap/napbench", ["@nap/bench"], {
+        "apps/napbench/src/run.test.ts": 'import { score } from "@nap/bench/score";',
+      }),
+    );
+    expect(violations).toEqual([]);
+  });
+
+  it("fails loudly on a package the rule table has never heard of", () => {
+    const violations = checkSourceImports(
+      pkg("@nap/mystery", ["@nap/shared"], {
+        "packages/mystery/src/x.ts": 'import { ok } from "@nap/shared/result";',
+      }),
+    );
+    expect(violations).toHaveLength(1);
+    expect(violations[0]?.reason).toContain("unknown");
+  });
+
+  it("reports every violating file, not just the first", () => {
+    const violations = checkSourceImports(
+      pkg("@nap/verify", ["@nap/shared", "@nap/bench"], {
+        "packages/verify/src/a.ts": 'import { a } from "@nap/bench/category";',
+        "packages/verify/src/b.ts": 'import { b } from "@nap/runtime/single-agent-runtime";',
+      }),
+    );
+    expect(violations).toHaveLength(2);
   });
 });
 
