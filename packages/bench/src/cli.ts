@@ -44,6 +44,8 @@ export const NAPBENCH_USAGE = [
   `  --effort=<level>        low | medium | high | xhigh | max (default ${NAPBENCH_DEFAULTS.effort})`,
   `  --max-steps=<n>         Model calls allowed in a turn (default ${NAPBENCH_DEFAULTS.maxSteps})`,
   `  --budget-tokens=<n>     Context budget (default ${NAPBENCH_DEFAULTS.budgetTokens})`,
+  "  --repeat=<n>            Run each task n times, reporting the spread (default 1). On a",
+  "                          real run this multiplies the cost by n.",
   "  --keep                  Leave each sandbox running instead of destroying it",
   "",
   "  --baseline=<ref>        Compare two finished runs instead of running anything. Each",
@@ -78,6 +80,15 @@ export type NapBenchRun = {
   effort: BenchEffort;
   maxSteps: number;
   budgetTokens: number;
+  /**
+   * How many times to run each selected task.
+   *
+   * One unless asked, because repeating multiplies what a real suite costs and that is a
+   * decision somebody makes on purpose. Its reason for existing is that a single run is an
+   * anecdote: two runs of one task under one configuration have already differed by fourteen
+   * points here, so a comparison drawn from one run each is noise presented as a finding.
+   */
+  repeat: number;
   keep: boolean;
 };
 
@@ -112,6 +123,7 @@ const RUN_ONLY_FLAGS = [
   "effort",
   "max-steps",
   "budget-tokens",
+  "repeat",
   "keep",
 ] as const;
 
@@ -160,6 +172,9 @@ export function parseNapBenchArgs(argv: readonly string[]): Result<NapBenchComma
   );
   if (!budgetTokens.ok) return budgetTokens;
 
+  const repeat = positiveInt(flags.get("repeat"), 1, "repeat");
+  if (!repeat.ok) return repeat;
+
   return {
     ok: true,
     value: {
@@ -171,6 +186,7 @@ export function parseNapBenchArgs(argv: readonly string[]): Result<NapBenchComma
       effort,
       maxSteps: maxSteps.value,
       budgetTokens: budgetTokens.value,
+      repeat: repeat.value,
       keep: flags.has("keep"),
     },
   };

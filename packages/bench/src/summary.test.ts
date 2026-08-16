@@ -15,6 +15,92 @@ function errored(errorKind: ErrorKind): BenchReport {
 
 const cancelled = (): BenchReport => benchReport({ status: "cancelled", score: null });
 
+describe("summariseSuite over repeated runs", () => {
+  const run = (taskId: string, score: number): BenchReport =>
+    benchReport({ taskId, status: "passed", score });
+
+  it("describes each task's own spread rather than one figure over all of them", () => {
+    // The whole point. A standard deviation across two *different* tasks measures how much the
+    // tasks differ in difficulty, which is a fact about the benchmark; only a spread within one
+    // task is a fact about the model.
+    const summary = summariseSuite("all", [
+      run("todo-crud", 88),
+      run("todo-crud", 74),
+      run("todo-crud", 90),
+      run("landing-page", 100),
+    ]);
+
+    const todo = summary.tasks.find((task) => task.taskId === "todo-crud");
+    expect(todo?.scores.n).toBe(3);
+    expect(todo?.scores.mean).toBe(84);
+    expect(todo?.scores.stdDev).toBe(8.7);
+  });
+
+  it("gives a task run once no standard deviation rather than a zero", () => {
+    const summary = summariseSuite("all", [run("landing-page", 100)]);
+
+    expect(summary.tasks[0]?.scores.stdDev).toBeNull();
+  });
+
+  it("keeps tasks in the order they were first run, not sorted by score", () => {
+    // A suite runs its tasks in the order the suite declares, and a reader is comparing this
+    // output against the previous run's. Reordering by result would make that impossible.
+    const summary = summariseSuite("all", [
+      run("landing-page", 100),
+      run("todo-crud", 74),
+      run("landing-page", 90),
+    ]);
+
+    expect(summary.tasks.map((task) => task.taskId)).toEqual(["landing-page", "todo-crud"]);
+  });
+
+  it("counts a task's errored runs beside its scores rather than losing them", () => {
+    // A task that scored 100 twice and errored twice is not the same as one that scored 100
+    // twice, and a distribution alone cannot tell them apart.
+    const summary = summariseSuite("all", [
+      run("todo-crud", 100),
+      benchReport({ taskId: "todo-crud", status: "errored", score: null, errorKind: "sandbox" }),
+    ]);
+
+    expect(summary.tasks[0]?.runs).toBe(2);
+    expect(summary.tasks[0]?.scores.n).toBe(1);
+    expect(summary.tasks[0]?.errored).toBe(1);
+  });
+
+  it("prints each task's spread once anything was run more than once", () => {
+    const printed = formatSuiteSummary(
+      summariseSuite("all", [run("todo-crud", 88), run("todo-crud", 74)]),
+    );
+
+    expect(printed).toContain("todo-crud");
+    expect(printed).toContain("81.0");
+    expect(printed).toMatch(/74.*88|88.*74/s);
+  });
+
+  it("says nothing about spread when every task ran once", () => {
+    // A "distribution" of one number per task is a second copy of the per-run summaries the
+    // reader has just scrolled past, dressed up as statistics.
+    const printed = formatSuiteSummary(
+      summariseSuite("all", [run("todo-crud", 88), run("landing-page", 100)]),
+    );
+
+    expect(printed).not.toContain("spread");
+  });
+
+  it("reports the share of counted runs that passed", () => {
+    const summary = summariseSuite("all", [
+      scored("passed", 100),
+      scored("failed", 40),
+      errored("sandbox"),
+      cancelled(),
+    ]);
+
+    // One passed out of three counted; the cancelled run is excluded from both sides, so that
+    // whoever ran the suite cannot move the figure by pressing stop.
+    expect(summary.successRate).toBe(33.3);
+  });
+});
+
 describe("summariseSuite", () => {
   it("means over the runs that produced a score, not over every run", () => {
     const summary = summariseSuite("all", [

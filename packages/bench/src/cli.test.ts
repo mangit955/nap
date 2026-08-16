@@ -62,6 +62,9 @@ describe("parseNapBenchArgs", () => {
     expect(options.effort).toBe(NAPBENCH_DEFAULTS.effort);
     expect(options.maxSteps).toBe(NAPBENCH_DEFAULTS.maxSteps);
     expect(options.budgetTokens).toBe(NAPBENCH_DEFAULTS.budgetTokens);
+    // One run unless somebody says otherwise: repeating is a deliberate multiplication of what
+    // a real suite costs, not something to arrive at by default.
+    expect(options.repeat).toBe(1);
   });
 
   it("accepts overrides for the model, platform, effort and ceilings", () => {
@@ -74,6 +77,7 @@ describe("parseNapBenchArgs", () => {
         "--effort=xhigh",
         "--max-steps=30",
         "--budget-tokens=90000",
+        "--repeat=3",
         "--keep",
       ),
     ).toStrictEqual({
@@ -85,6 +89,7 @@ describe("parseNapBenchArgs", () => {
       effort: "xhigh",
       maxSteps: 30,
       budgetTokens: 90_000,
+      repeat: 3,
       keep: true,
     });
   });
@@ -98,6 +103,12 @@ describe("parseNapBenchArgs", () => {
   it("refuses a ceiling that is not a positive whole number", () => {
     expect(rejected("--max-steps=zero", "todo-crud")).toMatch(/max-steps/);
     expect(rejected("--budget-tokens=-1", "todo-crud")).toMatch(/budget-tokens/);
+    // Zero repetitions would run nothing at all and report a suite of no runs, which reads as
+    // a suite that passed.
+    // Asserted as "not the unknown-flag message" as well, or this passes before the flag
+    // exists at all — `unknown flag --repeat=0` matches /repeat/ perfectly well.
+    expect(rejected("--repeat=0", "todo-crud")).toMatch(/repeat must be/);
+    expect(rejected("--repeat=2.5", "todo-crud")).toMatch(/repeat must be/);
   });
 
   it("refuses an effort level and a platform it does not know", () => {

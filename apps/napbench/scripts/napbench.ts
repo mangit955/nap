@@ -235,7 +235,12 @@ if (options.real) {
   pricedModel = model;
 
   console.log(
-    `REAL RUN — ${tasks.length} task(s) from "${selectionName}", serially, on ${model} via ` +
+    // The run count, not the task count. `--repeat=3` is three times the spend, and the one
+    // moment somebody weighs that is here — a banner that said "4 tasks" before twelve paid
+    // runs would understate the bill by the whole reason the flag exists.
+    `REAL RUN — ${tasks.length * options.repeat} run(s) from "${selectionName}"` +
+      `${options.repeat === 1 ? "" : ` (${tasks.length} task(s) × ${options.repeat})`}` +
+      `, serially, on ${model} via ` +
       `${options.platform} at ${options.effort} effort, ${options.maxSteps} steps max, ` +
       `${options.budgetTokens} context tokens, on real E2B sandboxes. This costs money.\n`,
   );
@@ -261,8 +266,23 @@ if (options.real) {
 
 const reports: BenchReport[] = [];
 
-for (const task of tasks) {
-  console.log(`\n── ${task.id}: ${task.name}`);
+/**
+ * Every run this invocation will perform, in the order it will perform them.
+ *
+ * **Round-robin rather than grouped**: pass one runs every task, then pass two does, instead of
+ * running one task three times before moving on. Grouping would put all of a task's repetitions
+ * inside the same few minutes, so a provider having a bad ten minutes would land entirely on one
+ * task and read as that task being unreliable. Spreading them is the whole reason repetitions
+ * are worth paying for.
+ */
+const scheduled = Array.from({ length: options.repeat }, (_, index) => index + 1).flatMap((pass) =>
+  tasks.map((task) => ({ task, pass })),
+);
+
+for (const { task, pass } of scheduled) {
+  console.log(
+    `\n── ${task.id}: ${task.name}${options.repeat === 1 ? "" : `  (pass ${pass} of ${options.repeat})`}`,
+  );
 
   const sessionId = crypto.randomUUID();
   const events = new InMemoryEventStore();

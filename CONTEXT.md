@@ -175,6 +175,12 @@ because one task routinely photographs several viewports.
 rather than a single result observed. Reports a mean over completed runs beside an explicit error
 rate, because a run whose turn failed has no score and would otherwise vanish from the average.
 
+**Spread** — what a task's repeated runs came to, as mean, median, sample standard deviation and
+range. Reported **per task**, never across a suite: a deviation over different tasks measures how
+much the tasks differ in difficulty, which is a fact about the benchmark rather than about the
+model. A task run once has *no* standard deviation rather than one of zero — zero is a claim of
+perfect consistency, and what happened is that nobody measured twice.
+
 **Comparison** — two runs of the same task, and what moved between them: overall, per category and
 per check. The **baseline** is what was, the **candidate** is what is; a candidate that scores
 worse is a regression against that baseline and nothing else. Two runs, never three — three is a

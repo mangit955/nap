@@ -47,6 +47,7 @@ mistyped on a paid run and silently use the default.
 | `--effort=<level>` | `low` … `max`. |
 | `--max-steps=<n>` | Model calls allowed within one turn. |
 | `--budget-tokens=<n>` | Context budget per turn. |
+| `--repeat=<n>` | Run each task n times and report the spread per task. Multiplies a real run's cost by n. |
 | `--keep` | Leave each sandbox running instead of destroying it. Billed until destroyed. |
 | `--baseline=` / `--candidate=` | Compare two finished runs. Reads reports; runs nothing. |
 
@@ -273,7 +274,18 @@ records why.
 ### Suites and comparison
 
 A suite reports the mean over **completed runs only**, with the agent-attributable and
-infrastructure-attributable error rates as separate figures over the non-cancelled runs.
+infrastructure-attributable error rates as separate figures over the non-cancelled runs, and a
+success rate beside them — a configuration scoring 85 every time and one alternating 100 and 70
+have the same mean and are not the same thing to depend on.
+
+**One run is an anecdote.** Two runs of `todo-crud` under one model and one configuration scored 88
+and 74, so a comparison drawn from a single run each is noise presented as a finding. `--repeat=<n>`
+runs each task n times and prints mean, median, sample standard deviation and range **per task** —
+per task because a spread across *different* tasks measures how much the tasks differ in difficulty,
+which is a fact about the benchmark rather than about the model. A task run once reports no standard
+deviation at all rather than zero: zero would read as perfect consistency when nothing was measured
+twice. Repetitions are scheduled round-robin, so a provider having a bad ten minutes does not land
+entirely on one task.
 
 Comparison refuses two runs whose **effective weight vectors** differ: renormalisation means a score
 is only meaningful relative to the categories that produced it. It also refuses runs of different
