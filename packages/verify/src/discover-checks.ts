@@ -73,16 +73,21 @@ function commandFor(name: CheckName, script: string): string {
   return needsRunFlag(script) ? `${command} --run` : command;
 }
 
-/** Vitest reaching the shell somehow, whether directly or through a runner like `bunx`. */
-const VITEST = /(^|[\s/])vitest(\s|$)/;
+/** Vitest itself, however it is spelled: bare, path-qualified, or launched by a runner. */
+const VITEST = /^(.*\/)?vitest$/;
 
 /**
- * Already asked to run once: the `run` subcommand, `--run`, or watching turned off by hand.
+ * Vitest already asked to run once: the `run` subcommand, `--run`, or watching turned off.
+ *
+ * Read from the arguments *after* the `vitest` token rather than from the whole line, because
+ * the launchers people use to reach vitest are themselves spelled with the word: `bun run
+ * vitest` and `npm run vitest` both contain a bare `run` that belongs to the runner, and
+ * reading it as vitest's leaves the watcher running and hangs the turn.
  *
  * Matched rather than trusted to be harmless, because appending a flag a project already set
  * is how a command grows two contradictory copies of the same option.
  */
-const RUNS_ONCE = /(^|\s)(run|--run|--watch=false|--watch false)(\s|$)/;
+const ASKED_TO_RUN_ONCE = /(^|\s)(run|--run|--watch=false|--watch false)(\s|$)/;
 
 /**
  * Whether this script would sit there waiting for a file to change.
@@ -97,14 +102,18 @@ const RUNS_ONCE = /(^|\s)(run|--run|--watch=false|--watch false)(\s|$)/;
  * on a `"vitest && lint"` one the flag would go to `lint`, which fixes nothing and confuses
  * something. A watcher hidden mid-pipeline is left alone rather than mis-flagged.
  *
- * `vitest --watch` still gets the flag: `--run` is vitest's documented way of saying watch
- * mode is off, and a script that asks for both is better resolved towards terminating than
- * left to hang a turn.
+ * `vitest --watch` still gets the flag, and `vitest --watch --run` was run against vitest
+ * 4.1.10 to confirm it exits rather than assumed to: a script that asks for both is better
+ * resolved towards terminating than left to hang a turn.
  */
 function needsRunFlag(script: string): boolean {
   const last = script.split(/&&|\|\||;|\|/).at(-1) ?? script;
 
-  return VITEST.test(last) && !RUNS_ONCE.test(last);
+  const tokens = last.trim().split(/\s+/);
+  const vitest = tokens.findIndex((token) => VITEST.test(token));
+  if (vitest === -1) return false;
+
+  return !ASKED_TO_RUN_ONCE.test(tokens.slice(vitest + 1).join(" "));
 }
 
 function readScripts(packageJsonContents: string): Record<string, unknown> {

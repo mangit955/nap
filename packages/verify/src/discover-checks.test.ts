@@ -91,7 +91,17 @@ describe("discoverChecks", () => {
     // An appended argument lands on the script's last command, so that is the one the rule
     // reads — `tsc --noEmit && vitest` is flagged, and a `run` earlier in the line is not
     // mistaken for vitest having been asked to run once.
-    for (const script of ["vitest --watch", "bunx vitest", "npm run something && vitest"]) {
+    for (const script of [
+      "vitest --watch",
+      "bunx vitest",
+      "npm run something && vitest",
+      // The launchers are themselves spelled with `run`, and reading that as vitest's own
+      // leaves the watcher going — which is the hang this whole rule exists to prevent.
+      "npm run vitest",
+      "bun run vitest",
+      "pnpm run vitest",
+      "./node_modules/.bin/vitest",
+    ]) {
       const checks = discoverChecks(packageJson({ test: script }));
 
       expect(checkNamed(checks, "test")).toEqual({
