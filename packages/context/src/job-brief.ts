@@ -18,7 +18,7 @@
  */
 
 import type { FailedAttempt } from "@nap/shared/ports/context-engine";
-import { estimateTokens } from "./tokens.ts";
+import { truncateToTokens } from "./tokens.ts";
 
 export type JobBriefOptions = {
   /** What was asked, as the prompt that opened the job put it. */
@@ -28,9 +28,6 @@ export type JobBriefOptions = {
   /** Ceiling on each quoted output. Uncapped when absent. */
   outputTokens?: number;
 };
-
-/** The marker `renderCheckOutput` uses for a stream that was cut, so a cut reads the same way. */
-const CUT = "…";
 
 export function renderJobBrief(options: JobBriefOptions): string {
   const { objective, attempts, outputTokens } = options;
@@ -69,12 +66,8 @@ function quoted(output: string | null, tokens: number | undefined): string {
   if (output === null) return "It printed nothing; the exit code is all there was to go on.";
   if (tokens !== undefined && tokens <= 0) return "Its output did not fit this turn's budget.";
 
-  const kept =
-    tokens === undefined || estimateTokens(output) <= tokens
-      ? output
-      : // One character short of the ceiling, so the marker is paid for out of it rather
-        // than added to it — this is the step that has to make the prompt strictly smaller.
-        `${CUT}${output.slice(-(tokens * 4 - 1))}`;
+  // The tail, because the reason a build failed is at the end of what it printed.
+  const kept = tokens === undefined ? output : truncateToTokens(output, tokens, "tail");
 
   return `\`\`\`\n${kept}\n\`\`\``;
 }

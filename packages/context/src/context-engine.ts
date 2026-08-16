@@ -29,7 +29,7 @@ import type { Memory } from "@nap/shared/ports/memory-provider";
 import { buildFileTreeDigest } from "./file-tree.ts";
 import { renderJobBrief } from "./job-brief.ts";
 import { SYSTEM_PROMPT } from "./system-prompt.ts";
-import { estimateTokens } from "./tokens.ts";
+import { estimateTokens, truncateToTokens } from "./tokens.ts";
 
 /**
  * What a turn is allowed to spend on input.
@@ -309,7 +309,8 @@ export class NapContextEngine implements ContextEngine {
     if (cost() > this.#budgetTokens) {
       const available =
         this.#budgetTokens - estimateTokens(systemPrompt(digest, remembered, brief()));
-      userMessage = truncateToTokens(userMessage, Math.max(available, 0));
+      // The head: a request states what it wants up front and qualifies it after.
+      userMessage = truncateToTokens(userMessage, Math.max(available, 0), "head");
     }
 
     const messages = [
@@ -354,12 +355,4 @@ function systemPrompt(digest: string, memories: Memory[], job: string): string {
   }
 
   return sections.join("\n\n");
-}
-
-function truncateToTokens(text: string, tokens: number): string {
-  if (tokens <= 0) return "";
-  if (estimateTokens(text) <= tokens) return text;
-
-  // Keeps the head: a user's request states what they want up front and qualifies it after.
-  return text.slice(0, tokens * 4);
 }
