@@ -179,6 +179,9 @@
         "@nap/shared": "workspace:*",
         "zod": "4.4.3",
       },
+      "devDependencies": {
+        "@nap/sandbox": "workspace:*",
+      },
     },
   },
   "packages": {

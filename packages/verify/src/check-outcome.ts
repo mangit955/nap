@@ -20,16 +20,3 @@ import { z } from "zod";
 
 export const CheckOutcomeSchema = z.enum(["passed", "failed", "absent"]);
 export type CheckOutcome = z.infer<typeof CheckOutcomeSchema>;
-
-/**
- * Whether this outcome is evidence about the code, as opposed to a record that nothing was
- * looked at.
- *
- * Named for what it asks rather than as `!== "absent"`, because the negation is the thing
- * callers get wrong: both places that count outcomes want "how many checks actually told us
- * something", and writing that as a not-equals at each site is how a third value quietly
- * becomes a boolean again.
- */
-export function isObservation(outcome: CheckOutcome): boolean {
-  return outcome !== "absent";
-}
