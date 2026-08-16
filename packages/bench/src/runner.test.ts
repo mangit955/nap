@@ -865,6 +865,28 @@ describe("runBenchTask — browser checks", () => {
     expect(report.gates).toEqual(["browser_unavailable"]);
   });
 
+  it("errors with kind browser when it never reaches an application the preview probe reached", async () => {
+    // The end of the chain this ticket exists for. The preview gate has already proven the URL
+    // serves, so a navigation that still fails every attempt is infrastructure — and the run
+    // must error with no score rather than record a failed check, which would be a permanent
+    // accusation in an archived report against an application nobody actually looked at.
+    const { factory } = browserFactory({
+      fail: (call) =>
+        call.method === "goto"
+          ? { code: "navigation_failed", message: "net::ERR_CONNECTION_RESET" }
+          : undefined,
+    });
+
+    const report = await reportOf(browserTask(), {
+      ...(await deps(scriptedRuntime(completed), serving())),
+      browser: factory,
+    });
+
+    expect(report.status).toBe("errored");
+    expect(report.errorKind).toBe("browser");
+    expect(report.score).toBeNull();
+  });
+
   it("errors with kind browser when the driver dies part-way through a check", async () => {
     const { factory } = browserFactory({
       fail: (call) =>

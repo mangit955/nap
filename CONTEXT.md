@@ -81,6 +81,13 @@ point. Actions and assertions are one ordered list rather than two, because almo
 asserting is a change — the item that appears after the button, the list that shortens under a
 filter, the thing still there after a reload.
 
+**Arrival** — the opening navigation of a browser or accessibility check, as distinct from any
+navigating it does later. Retried a few times before it is believed, and a failure that survives
+every attempt is the *evaluator's* rather than the agent's: the preview gate has already proven that
+URL serves, so a check that never gets there observed nothing about the application and must not
+record a failed check against it. A `navigate` or `reload` *after* arrival is the opposite — the
+road was demonstrably fine moments ago — and stays a failed check. See `docs/adr/0005`.
+
 **Selector** — how a step names an element, as a value rather than a CSS string: by *role* (with an
 accessible name), by *label*, by *text* or by *test id*. Nobody wrote the markup of a generated
 application, so nobody can write a selector against it; these four are what a page *means* rather

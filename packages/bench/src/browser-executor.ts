@@ -12,11 +12,13 @@
  * step stopped it, because a browser check is the one kind whose failure is otherwise
  * impossible to reconstruct from an archived report.
  *
- * **A dead driver is not a failed check.** Every browser answer is either something about the
- * application — which is the agent's — or the evaluator having no browser to ask with, which is
- * ours. Only the first becomes a check result; the second comes back as an error for the gate
- * ladder to attribute, because a check recorded as failed is a permanent accusation and this
- * one would be false.
+ * **What the evaluator could not do is not a failed check.** Every browser answer is either
+ * something about the application — which is the agent's — or the evaluator being unable to
+ * look, which is ours. There are two of the latter: having no browser to ask with, and never
+ * arriving at an application the preview gate had already proven serves. Only the first kind
+ * becomes a check result; the others come back as errors for the gate ladder to attribute,
+ * because a check recorded as failed is a permanent accusation and those would be false.
+ * See docs/adr/0005.
  */
 
 import type { Result } from "@nap/shared/result";
@@ -71,8 +73,15 @@ function declaredFor(
  * arrived as a copy of these fifteen lines, and a copy is a place for the two to disagree
  * about what a browser that will not size means.
  *
- * `unavailable` is handed back as an error; anything else is described for the caller to
- * record as the check failing.
+ * **Two things are handed back as errors rather than described as check failures**, and they
+ * differ from each other: `unavailable` means there was no browser to ask with, and a
+ * navigation that would not settle after every attempt means there was no getting to the
+ * application — which the preview gate had already proven serves. Both are the evaluator's,
+ * and neither may be written down as a fact about what the agent built. See `arrive` and
+ * docs/adr/0005.
+ *
+ * A viewport that will not size is *not* one of them: sizing is not arriving, and a browser
+ * that cannot resize says nothing about whether the application is reachable.
  */
 async function openPage(
   session: BrowserSession,
@@ -87,16 +96,67 @@ async function openPage(
     };
   }
 
-  const opened = await session.goto(page.url, { timeoutMs: page.timeoutMs });
+  const opened = await arrive(session, page.url, page.timeoutMs);
   if (!opened.ok) {
-    if (opened.error.code === "unavailable") return { ok: false, error: opened.error };
+    // Both branches are the evaluator's rather than the agent's, and the second is the one
+    // this cost a decision. See `arrive` and docs/adr/0005.
+    if (opened.error.code === "unavailable" || opened.error.code === "navigation_failed") {
+      return { ok: false, error: opened.error };
+    }
     return { ok: false, error: { detail: `could not open ${page.what}: ${opened.error.message}` } };
   }
 
   return { ok: true, value: undefined };
 }
 
-/** Whether what came back from `openPage` is a browser to blame rather than a check to fail. */
+/**
+ * Attempts at the *first* arrival of a check, before anything is believed.
+ *
+ * Three rather than one because a single transient failure is the common case and a run of
+ * three is not; three rather than ten because every attempt costs the navigation timeout, and a
+ * suite that spends a minute per unreachable check to reach the same conclusion is one nobody
+ * runs.
+ */
+export const NAVIGATION_ATTEMPTS = 3;
+
+/**
+ * Goes to the page, not believing a navigation failure until it has happened every time.
+ *
+ * **Retried without any backoff.** Navigation already carries its own deadline, so a failure
+ * has already waited out whatever it was given; sleeping on top of that would add delay to
+ * delay, and would mean injecting a clock into a module that is otherwise pure and instant to
+ * test.
+ *
+ * **Only `navigation_failed` is retried.** `unavailable` means there is no browser to try
+ * with, and trying twice more to ask a browser that is not there is two more ways to spend a
+ * timeout on a known answer.
+ *
+ * This is the whole of the transport-versus-application judgement, and it lives here rather
+ * than in the adapter on purpose: the port's methods act or measure and never decide (see
+ * `browser-session.ts`), so a Playwright adapter classifying its own errors would be a
+ * judgement the fake would have to reimplement — two implementations of one decision, and two
+ * chances for them to disagree about what the benchmark measured.
+ */
+async function arrive(
+  session: BrowserSession,
+  url: string,
+  timeoutMs: number | undefined,
+): Promise<Result<undefined, BrowserError>> {
+  // Every exit is a `return` from inside the loop, so there is no error to carry out of it and
+  // no invented fallback for the case that cannot happen — the alternative shape needs a
+  // `last` variable the compiler cannot prove is assigned, and a fabricated `BrowserError` to
+  // satisfy it, in the one module whose whole job is to report accurately what went wrong.
+  for (let attempt = 1; ; attempt += 1) {
+    const opened = await session.goto(url, { timeoutMs });
+    if (opened.ok) return { ok: true, value: undefined };
+
+    const worthRetrying =
+      opened.error.code === "navigation_failed" && attempt < NAVIGATION_ATTEMPTS;
+    if (!worthRetrying) return { ok: false, error: opened.error };
+  }
+}
+
+/** Whether what came back from `openPage` is the evaluator's to answer for, or a check to fail. */
 function isBrowserError(error: BrowserError | { detail: string }): error is BrowserError {
   return "code" in error;
 }
@@ -104,9 +164,10 @@ function isBrowserError(error: BrowserError | { detail: string }): error is Brow
 /**
  * Runs one check to its end or to its first failure.
  *
- * The error case is narrow on purpose: `unavailable` means there is no browser to ask, and
- * nothing else does. Every other browser error is something the application did — a page that
- * would not load, an element that is not there — and is recorded as the check failing.
+ * The error case is narrow on purpose, and it covers exactly the two ways the evaluator can
+ * fail to look at all: no browser to ask with, and no arriving at the application. Everything
+ * else is something the application did — an element that is not there, a route that will not
+ * load once the page has already been driven — and is recorded as the check failing.
  */
 export async function runBrowserCheck(
   session: BrowserSession,
@@ -363,8 +424,8 @@ function quote(value: string | null): string {
  *
  * Beside `runBrowserCheck` rather than in a module of its own because the two are the same
  * shape of thing: a check that needs a live browser session, driven to a page and turned into a
- * `CheckResult`, with `unavailable` handed back so the gate ladder can decide what a missing
- * browser means. What differs is only what happens once the page is open — steps there, one
+ * `CheckResult`, with the evaluator's own failures handed back so the gate ladder can decide
+ * what a browser that could not look means. What differs is only what happens once the page is open — steps there, one
  * audit here — which is why the opening moves are `openPage`, shared with the other kind.
  *
  * The judgement about *which* findings matter is not made here: it is in

@@ -246,7 +246,7 @@ functions, each individually tested.
 | `workspace_missing` | No such session, or the sandbox went away | Errors, kind `configuration` / `sandbox` |
 | `preview_not_started` | Nothing listening on the port inside the sandbox | **Fails** — the agent's application did not start |
 | `preview_unreachable` | Listening inside, unreachable from the host | **Errors**, kind `sandbox` — the proxy, not the agent |
-| `browser_unavailable` | No browser could be started or driven | Errors, kind `browser` |
+| `browser_unavailable` | No browser could be started or driven, or a check never reached the application | Errors, kind `browser` |
 | `nothing_measurable` | The run produced no scoreable check at all | Errors, kind `configuration` |
 | `required_check_failed` | A check marked `required` failed | Fails |
 | `build_failed` | The check marked `build` failed | Fails, and caps the overall score at 40 |
