@@ -199,9 +199,15 @@ describe("SingleAgentRuntime", () => {
 
     expectEventSequence(await events.readFrom(SESSION_ID, 0), [
       "user.message",
+      "job.started",
       "turn.started",
       "agent.message",
       "turn.completed",
+      // The turn committed, so its claim is arbitrated. This sandbox has no manifest to
+      // discover checks from, so the run learns nothing and the job is abandoned rather than
+      // checkpointed — see `job-lifecycle.test.ts` for the verification paths themselves.
+      "verification.started",
+      "job.completed",
     ]);
   });
 
@@ -354,13 +360,19 @@ describe("SingleAgentRuntime", () => {
     // And the log shows two whole turns, not two interleaved ones.
     expectEventSequence(await events.readFrom(SESSION_ID, 0), [
       "user.message",
+      "job.started",
       "turn.started",
       "agent.message",
       "turn.completed",
+      "verification.started",
+      "job.completed",
       "user.message",
+      "job.started",
       "turn.started",
       "agent.message",
       "turn.completed",
+      "verification.started",
+      "job.completed",
     ]);
   });
 
@@ -433,9 +445,11 @@ describe("SingleAgentRuntime", () => {
 
     expect(await loggedTypes()).toEqual([
       "user.message",
+      "job.started",
       "turn.started",
       "agent.message",
       "turn.failed",
+      "job.completed",
     ]);
     expect(outcome).toMatchObject({ ok: false, reason: "internal" });
   });
@@ -448,7 +462,12 @@ describe("SingleAgentRuntime", () => {
 
     const outcome = await runtime(throwing).runTurn({ sessionId: SESSION_ID, message: "hi" });
 
-    expect(await loggedTypes()).toEqual(["user.message", "turn.failed"]);
+    expect(await loggedTypes()).toEqual([
+      "user.message",
+      "job.started",
+      "turn.failed",
+      "job.completed",
+    ]);
     expect(outcome).toMatchObject({ ok: false, reason: "internal" });
   });
 
@@ -457,7 +476,13 @@ describe("SingleAgentRuntime", () => {
 
     const outcome = await runtime(silent).runTurn({ sessionId: SESSION_ID, message: "hi" });
 
-    expect(await loggedTypes()).toEqual(["user.message", "turn.started", "turn.failed"]);
+    expect(await loggedTypes()).toEqual([
+      "user.message",
+      "job.started",
+      "turn.started",
+      "turn.failed",
+      "job.completed",
+    ]);
     expect(outcome).toMatchObject({ ok: false, reason: "internal" });
   });
 
@@ -507,9 +532,12 @@ describe("SingleAgentRuntime", () => {
     expect(outcome).toMatchObject({ ok: true, commitSha: COMMIT_SHA });
     expectEventSequence(await events.readFrom(SESSION_ID, 0), [
       "user.message",
+      "job.started",
       "turn.started",
       "agent.message",
       "turn.completed",
+      "verification.started",
+      "job.completed",
     ]);
   });
 });
@@ -553,10 +581,13 @@ describe("telling the client where the preview is", () => {
     const stored = await events.readFrom(SESSION_ID, 0);
     expectEventSequence(stored, [
       "user.message",
+      "job.started",
       "preview.ready",
       "turn.started",
       "agent.message",
       "turn.completed",
+      // Nothing was committed by this agent, so nothing is verified.
+      "job.completed",
     ]);
 
     const ready = stored.find((event) => event.type === "preview.ready");
@@ -597,9 +628,13 @@ describe("telling the client where the preview is", () => {
     expect(outcome.ok).toBe(true);
     expect(await loggedTypes()).toEqual([
       "user.message",
+      "job.started",
       "turn.started",
       "agent.message",
       "turn.completed",
+      // This agent does not finalize, so the turn committed nothing and there is no claim
+      // about the code to check — the job closes unverified, unchecked.
+      "job.completed",
     ]);
   });
 
@@ -700,11 +735,14 @@ describe("opening a project that has been put away", () => {
     expect(outcome.ok).toBe(true);
     expectEventSequence(await events.readFrom(SESSION_ID, 0), [
       "user.message",
+      "job.started",
       "system.notice",
       "preview.ready",
       "turn.started",
       "agent.message",
       "turn.completed",
+      "verification.started",
+      "job.completed",
     ]);
   });
 

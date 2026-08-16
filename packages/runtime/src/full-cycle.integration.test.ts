@@ -121,6 +121,18 @@ function turnEvents(turnId: string): StoredEvent[] {
   return log.filter((event) => event.turnId === turnId);
 }
 
+/**
+ * A turn's events up to the model's claim, which is where this test's interest ends.
+ *
+ * What follows a `turn.completed` is verification, and its shape depends on whether a real
+ * project's real checks passed — a fact about the template rather than about whether the
+ * pieces fit together. The job events themselves are asserted below, by name.
+ */
+function throughTurnCompleted(events: StoredEvent[]): StoredEvent[] {
+  const end = events.findIndex((event) => event.type === "turn.completed");
+  return end === -1 ? events : events.slice(0, end + 1);
+}
+
 function outputOf(events: StoredEvent[], toolName: string): string {
   const result = events.find(
     (event) => event.type === "tool.result" && event.payload.toolName === toolName,
@@ -248,8 +260,9 @@ it("runs a first turn in a sandbox it created, and commits it", () => {
   // `preview.ready` before `turn.started`: the runtime announces the sandbox it just made
   // before handing it to the agent, and `file.changed` lands between a tool's call and its
   // result because the tool emits it as it writes.
-  expectEventSequence(turnEvents(firstOutcome.turnId), [
+  expectEventSequence(throughTurnCompleted(turnEvents(firstOutcome.turnId)), [
     "user.message",
+    "job.started",
     "preview.ready",
     "turn.started",
     "tool.call",
@@ -258,6 +271,16 @@ it("runs a first turn in a sandbox it created, and commits it", () => {
     "agent.message",
     "turn.completed",
   ]);
+});
+
+it("arbitrates the first turn's claim against the real project", () => {
+  // The turn committed, so the runtime asked the project. Whether the template's build agreed
+  // is not this test's business — that it was *asked*, in a real sandbox, is: the checks are
+  // discovered from a manifest this test never wrote, and run through a real shell.
+  const types = turnEvents(firstOutcome.turnId).map((event) => event.type);
+
+  expect(types).toContain("verification.started");
+  expect(types.filter((type) => type === "job.started")).toHaveLength(1);
 });
 
 it("puts the project away into the real bucket", async () => {
@@ -312,8 +335,9 @@ it("hands the second turn the file the first turn wrote", () => {
   // past the runtime into a filesystem.
   expect(outputOf(events, "read_file")).toBe(SURVIVOR_CONTENTS);
 
-  expectEventSequence(events, [
+  expectEventSequence(throughTurnCompleted(events), [
     "user.message",
+    "job.started",
     "preview.ready",
     "turn.started",
     "tool.call",

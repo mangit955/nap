@@ -1,6 +1,6 @@
 /**
  * One turn, end to end: get a sandbox, build the context, run the agent, write down
- * everything that happened, and commit the result.
+ * everything that happened, commit the result, and ask the project whether it holds up.
  *
  * It owns the lifecycle and nothing inside it. No prompt text, no model parameters, no tool
  * implementations — those belong to the components it calls, and the ordering rules below
@@ -20,6 +20,12 @@
  * **One turn at a time per session.** Two turns in the same chat would otherwise interleave
  * their events in the log and their edits in the workspace. Different sessions are
  * unaffected: the lock is per session, not per process.
+ *
+ * **A completed turn is the model's claim; verification arbitrates it.** A turn that changed
+ * the workspace is committed exactly as before and then checked, and only a passing check
+ * makes the commit a checkpoint. This sits *above* the invariant two paragraphs up rather than
+ * changing it: a failed turn still commits nothing, and a turn that changed nothing is never
+ * verified at all. See `#arbitrate` below, and `docs/adr/0006`.
  */
 
 import { commitAll } from "@nap/sandbox/git";
@@ -38,6 +44,7 @@ import type { SandboxError, SandboxManager } from "@nap/shared/ports/sandbox-man
 import type { SessionRecord, SessionStore } from "@nap/shared/ports/session-store";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
 import type { Result } from "@nap/shared/result";
+import type { VerificationResult } from "@nap/verify/run-checks";
 import {
   type AcquiredSandbox,
   acquireSandbox,
@@ -48,6 +55,7 @@ import { EventSink } from "./event-sink.ts";
 import { SessionQueue } from "./session-queue.ts";
 import { captureSnapshot } from "./teardown.ts";
 import { captureThumbnail } from "./turn-thumbnail.ts";
+import { toVerifiedChecks, verifyTurn } from "./verify-turn.ts";
 
 type Payload<T extends NapEvent["type"]> = NapEventOf<T>["payload"];
 
@@ -285,6 +293,9 @@ export class SingleAgentRuntime implements Runtime {
     const { session, sink, emit } = scope;
     getLogger().info({ chars: request.message.length }, "turn started");
 
+    /** Set once a job has been opened, so the catch below knows whether one is still open. */
+    let openJobId: string | null = null;
+
     try {
       const sandboxId = await this.#acquire(session);
       if (!sandboxId.ok) {
@@ -302,6 +313,14 @@ export class SingleAgentRuntime implements Runtime {
       // itself, so finding it in the history too would send it to the model twice.
       const history = await this.#options.events.readFrom(request.sessionId, 0);
       emit("user.message", { text: request.message });
+
+      // A job opens on a prompt, and this turn belongs to it. Opened after the sandbox is in
+      // hand because a job that could never run is a job nothing will ever close — and the
+      // objective repeats the message on purpose, so the log answers "what was asked" without
+      // a reader having to work out which message belongs to which job.
+      const jobId = crypto.randomUUID();
+      openJobId = jobId;
+      emit("job.started", { jobId, objective: objectiveOf(request.message) });
 
       // Before the preview, which is about to show whatever state the notice is explaining.
       for (const notice of sandboxId.value.notices) emit("system.notice", notice);
@@ -339,6 +358,10 @@ export class SingleAgentRuntime implements Runtime {
 
       const terminal = sink.terminal;
       if (terminal?.type === "turn.completed") {
+        // Before the snapshot and the photograph: this is what the person watching is waiting
+        // for, and the two below are housekeeping nobody is looking at.
+        await this.#arbitrate(scope, jobId, sandboxId.value.id, terminal.payload.commitSha);
+
         await this.#preserve(session.projectId, sandboxId.value.id, terminal.payload.commitSha);
         // After the snapshot, deliberately: the work reaching storage is what must not be
         // delayed by a browser launch, and a picture is the one thing here nobody would miss.
@@ -349,6 +372,10 @@ export class SingleAgentRuntime implements Runtime {
         return { ok: true, turnId, commitSha: terminal.payload.commitSha };
       }
       if (terminal?.type === "turn.failed") {
+        // The turn it was riding on refused or fell over, and nothing will pick the job back
+        // up — a repair repairs a workspace that was changed, and this one changed nothing.
+        emit("job.completed", { jobId, outcome: "abandoned" });
+        await sink.drain();
         return { ok: false, turnId, ...terminal.payload };
       }
 
@@ -356,6 +383,7 @@ export class SingleAgentRuntime implements Runtime {
       // a turn that never closed, and anything replaying it would wait forever.
       const message = "the agent ended the turn without reporting an outcome";
       emit("turn.failed", { reason: "internal", message });
+      emit("job.completed", { jobId, outcome: "abandoned" });
       await sink.drain();
       return { ok: false, turnId, reason: "internal", message };
     } catch (error) {
@@ -365,11 +393,101 @@ export class SingleAgentRuntime implements Runtime {
       // otherwise close the same turn twice.
       if (sink.terminal === null) {
         emit("turn.failed", { reason: "internal", message });
+        // The job goes with it. Left open, it is a job the next opening of this project would
+        // continue — spending tokens on the aftermath of a crash.
+        if (openJobId !== null) emit("job.completed", { jobId: openJobId, outcome: "abandoned" });
         // Best effort: if persistence is what broke, there is nowhere left to record it.
         await sink.drain().catch(() => {});
       }
 
       return { ok: false, turnId, reason: "internal", message };
+    }
+  }
+
+  /**
+   * Arbitrating the model's claim: the turn says it is done, and this asks the project.
+   *
+   * **A turn that mutated nothing is not verified at all.** No commit means no claim about the
+   * code — somebody asked a question and got an answer — and running a project's whole test
+   * suite against a workspace nobody touched spends a minute to learn what the last
+   * verification already said. The job closes *unverified*, which is neither a pass nor a
+   * failure and has its own word for exactly that reason.
+   *
+   * **Only a passing verification checkpoints.** The commit happens either way, as it did in
+   * v1; a checkpoint is the sha verification agreed with, and keeping the two apart is what
+   * makes a red run unable to corrupt the last known-good state by construction (ADR-0006).
+   *
+   * **An errored run is not a verification and is never written as one.** `foldJobs` reads an
+   * all-absent payload as *verified*, so recording a run that learned nothing would checkpoint
+   * a commit against which nothing ran. The job ends *abandoned* instead — the sandbox went
+   * away, and a repair turn on that asks a model to fix a machine it cannot see.
+   *
+   * **A red verification leaves the job open**, at `repairing`, which is where the repair loop
+   * picks it up. Nothing here reverts: the broken code stays committed, because the attempt
+   * that fixes it needs to be able to read it.
+   */
+  async #arbitrate(
+    scope: TurnScope,
+    jobId: string,
+    sandboxId: string,
+    commitSha: string | null,
+  ): Promise<void> {
+    const { sink, emit } = scope;
+
+    if (commitSha === null) {
+      emit("job.completed", { jobId, outcome: "unverified" });
+      await sink.drain();
+      return;
+    }
+
+    // Drained before the checks run, not after: this event exists so that "the checks are
+    // running right now" is a fact in the log rather than a gap between two others, and a
+    // client cannot render a gap.
+    emit("verification.started", { jobId });
+    await sink.drain();
+
+    const verified = await this.#runChecks(sandboxId);
+
+    if (verified === null || verified.verdict === "errored") {
+      emit("job.completed", { jobId, outcome: "abandoned" });
+      await sink.drain();
+      getLogger().warn({ commitSha }, "verification learned nothing about the project");
+      return;
+    }
+
+    emit("verification.completed", { jobId, checks: toVerifiedChecks(verified.checks) });
+
+    if (verified.verdict === "passed") {
+      emit("job.checkpointed", { jobId, commitSha });
+      emit("job.completed", { jobId, outcome: "verified" });
+      await sink.drain();
+      getLogger().info({ commitSha }, "turn checkpointed");
+      return;
+    }
+
+    await sink.drain();
+    const failed = verified.checks.find((check) => check.outcome === "failed");
+    getLogger().info({ commitSha, check: failed?.name }, "verification failed; the job stays open");
+  }
+
+  /**
+   * The checks, with a thrown error treated the same as a sandbox that would not answer.
+   *
+   * Nothing below is supposed to throw — `@nap/verify` returns its failures — but the turn is
+   * already complete and committed by the time any of it runs, and turning a finished turn into
+   * a failed one because a probe blew up would report the wrong thing to the person waiting.
+   */
+  async #runChecks(sandboxId: string): Promise<VerificationResult | null> {
+    try {
+      return await verifyTurn({
+        sandbox: this.#options.sandbox,
+        sandboxId,
+        previewPort: this.#previewPort,
+        previewTimeoutMs: this.#previewTimeoutMs,
+      });
+    } catch (error) {
+      getLogger().warn({ err: error }, "the checks could not be run");
+      return null;
     }
   }
 
@@ -501,6 +619,19 @@ export class SingleAgentRuntime implements Runtime {
     }
     return { commitSha: committed.value.sha };
   }
+}
+
+/**
+ * What the job records as having been asked.
+ *
+ * The message, whole — a job's objective is the request rather than a summary of it, and the
+ * repair prompt that reads it back needs the detail. The fallback is for a caller below the
+ * HTTP route, which is the only way an empty message reaches here: the event contract requires
+ * an objective, and refusing to open a job would be a turn nothing could ever close.
+ */
+function objectiveOf(message: string): string {
+  const objective = message.trim();
+  return objective === "" ? "an unstated objective" : objective;
 }
 
 /**

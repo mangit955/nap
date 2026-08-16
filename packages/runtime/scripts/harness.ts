@@ -32,6 +32,7 @@ import { E2BSandboxManager } from "@nap/sandbox/e2b-sandbox-manager";
 import { NAP_TEMPLATE, TEMPLATE_DEV_PORT, TEMPLATE_WORKDIR } from "@nap/sandbox/template";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { loadEnvFile } from "@nap/shared/env-file";
+import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
 import type { LLMProvider } from "@nap/shared/ports/llm-provider";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import { formatEvent, HARNESS_DEFAULTS, HARNESS_USAGE, parseHarnessArgs } from "../src/harness.ts";
@@ -85,6 +86,9 @@ function scriptedProvider(): LLMProvider {
   ]);
 }
 
+/** What the project template declares, which is what the dry run's checks are discovered from. */
+const TEMPLATE_MANIFEST = { scripts: { build: "vite build", dev: "vite --host" } };
+
 /** An in-memory sandbox answering the commands a turn actually runs, git included. */
 function fakeSandbox(): InMemorySandboxManager {
   return (
@@ -94,6 +98,10 @@ function fakeSandbox(): InMemorySandboxManager {
       defaultExec: () => ({ exitCode: 0, stdout: "" }),
       // Serving from the start, so the dry run shows the `preview.ready` a real one emits.
       serves: [TEMPLATE_DEV_PORT],
+      // And a manifest, so the dry run shows the verification a real one runs. Without it the
+      // verifier finds nothing to discover checks from and every dry run ends `abandoned`,
+      // which is the harness lying about the shape of a turn.
+      seed: { [`${PROJECT_ROOT_PATH}/package.json`]: JSON.stringify(TEMPLATE_MANIFEST) },
     })
       // Non-zero means the index differs from HEAD, which is what makes a commit happen.
       .script(/git diff --cached --quiet/, { exitCode: 1 })

@@ -183,6 +183,32 @@ describe("InMemorySandboxManager preview readiness", () => {
     );
   });
 
+  it("can come up with a project already in it", async () => {
+    // A real sandbox is built from a template, so code that reads the project before writing
+    // to it — the verifier reading `package.json` — has something to read.
+    const manager = new InMemorySandboxManager({ seed: { "/home/user/app/package.json": "{}" } });
+    const created = await manager.create("project");
+    if (!created.ok) throw new Error(created.error.message);
+
+    await expect(
+      manager.readFile(created.value.id, "/home/user/app/package.json"),
+    ).resolves.toEqual({ ok: true, value: "{}" });
+  });
+
+  it("gives each sandbox its own copy of the seed, not a shared one", async () => {
+    const manager = new InMemorySandboxManager({ seed: { "/home/user/app/main.ts": "one" } });
+    const first = await manager.create("project");
+    const second = await manager.create("project");
+    if (!first.ok || !second.ok) throw new Error("the fake refused to create a sandbox");
+
+    await manager.writeFile(first.value.id, "/home/user/app/main.ts", "changed");
+
+    await expect(manager.readFile(second.value.id, "/home/user/app/main.ts")).resolves.toEqual({
+      ok: true,
+      value: "one",
+    });
+  });
+
   it("distinguishes ports, so one served port does not imply another", async () => {
     const manager = new InMemorySandboxManager();
     const created = await manager.create("project");

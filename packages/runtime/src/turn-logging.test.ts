@@ -132,12 +132,18 @@ describe("a turn's logs", () => {
     expect(sink.lines.map((line) => line.fields.eventType ?? line.message)).toEqual([
       "turn started",
       "user.message",
+      "job.started",
       "turn.started",
       "tool.call",
       "command.output",
       "tool.result",
       "file.changed",
       "turn.completed",
+      // The turn committed, so the runtime asks the project whether the claim holds. This
+      // sandbox has no manifest, so the run learns nothing and says so.
+      "verification.started",
+      "job.completed",
+      "verification learned nothing about the project",
     ]);
   });
 

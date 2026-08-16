@@ -58,6 +58,16 @@ export type InMemorySandboxManagerOptions = {
    * came up" path is driven.
    */
   serves?: readonly number[];
+  /**
+   * Files every sandbox this manager creates already contains, by absolute path.
+   *
+   * A real sandbox comes up from a template with a project already in it, and code that reads
+   * the project before writing to it — the verifier reads `package.json` to find out which
+   * checks exist — sees an empty filesystem otherwise. As with `serves`, it has to be declared
+   * up front: whoever calls `create` is usually the code under test, so nothing above it has
+   * an id to write into until the run is over.
+   */
+  seed?: Readonly<Record<string, string>>;
 };
 
 type SandboxState = {
@@ -92,10 +102,12 @@ export class InMemorySandboxManager implements SandboxManager {
   readonly #patternScripts: Array<{ pattern: RegExp; responder: ExecResponder }> = [];
   readonly #defaultExec: ExecResponder | undefined;
   readonly #serves: readonly number[];
+  readonly #seed: Readonly<Record<string, string>>;
 
   constructor(options: InMemorySandboxManagerOptions = {}) {
     this.#defaultExec = options.defaultExec;
     this.#serves = options.serves ?? [];
+    this.#seed = options.seed ?? {};
   }
 
   /**
@@ -132,7 +144,9 @@ export class InMemorySandboxManager implements SandboxManager {
     const id = crypto.randomUUID();
     this.#sandboxes.set(id, {
       projectId,
-      files: new Map(),
+      files: new Map(
+        Object.entries(this.#seed).map(([path, contents]) => [normalize(path), contents]),
+      ),
       commands: [],
       listening: new Set(this.#serves),
       timeoutMs: undefined,
