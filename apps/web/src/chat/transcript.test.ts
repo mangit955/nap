@@ -26,6 +26,15 @@ function ev<T extends NapEventType>(type: T, payload: Extract<NapEvent, { type: 
   } as StoredEvent;
 }
 
+/**
+ * A second turn on the same session. Repair turns get a scope and a `turnId` of their own
+ * (`packages/runtime/src/single-agent-runtime.ts`), and that id is what ties a synthesized
+ * prompt to the `turn.started` that says who wrote it.
+ */
+const REPAIR_TURN = "9d2e3f4a-5b6c-4d7e-9f80-1a2b3c4d5e60";
+
+const evIn = (turnId: string, event: StoredEvent): StoredEvent => ({ ...event, turnId });
+
 function fold(...events: StoredEvent[]): TranscriptItem[] {
   nextSeq = 1;
   return buildTranscript(events);
@@ -522,5 +531,72 @@ describe("what a failed turn would send again", () => {
     const items = buildTranscript([ev("turn.failed", { reason: "internal", message: "boom" })]);
 
     expect(items.at(-1)).toMatchObject({ retryMessage: undefined });
+  });
+});
+
+describe("a repair turn", () => {
+  /**
+   * The prompt is emitted *before* the `turn.started` that classifies it — the runtime logs the
+   * message and then hands the turn to the agent, which opens it. So the fold cannot carry a
+   * "current source" forward; it has to know the turn's source before it reaches the message.
+   * That is why the answer is keyed on `turnId` and taken in a pass of its own.
+   */
+  it("attributes a verifier-written prompt to the verifier, not to the user", () => {
+    const items = fold(
+      evIn(REPAIR_TURN, ev("user.message", { text: "The `typecheck` check failed." })),
+      evIn(REPAIR_TURN, ev("turn.started", { source: "verification" })),
+    );
+
+    expect(items[0]).toMatchObject({ kind: "message", from: "verifier" });
+  });
+
+  it("leaves an ordinary prompt attributed to the user", () => {
+    const items = fold(
+      ev("user.message", { text: "build a todo list" }),
+      ev("turn.started", { source: "user" }),
+    );
+
+    expect(items[0]).toMatchObject({ kind: "message", from: "user" });
+  });
+
+  it("carries the source onto the turn boundary", () => {
+    const items = fold(
+      ev("turn.started", { source: "user" }),
+      evIn(REPAIR_TURN, ev("turn.started", { source: "verification" })),
+    );
+
+    expect(items.map((item) => (item.kind === "turn-start" ? item.source : undefined))).toEqual([
+      "user",
+      "verification",
+    ]);
+  });
+
+  it("never offers a synthesized prompt as something to send again", () => {
+    // The retry button re-sends what the user asked for. A repair prompt is the verifier's
+    // words about a failed check, and re-sending those as a new request would ask the model to
+    // fix a failure nobody has re-run.
+    const items = fold(
+      ev("user.message", { text: "build a todo list" }),
+      ev("turn.started", { source: "user" }),
+      ev("turn.completed", {
+        usage: { inputTokens: 1, outputTokens: 1 },
+        durationMs: 10,
+        commitSha: "a1b2c3d",
+      }),
+      evIn(REPAIR_TURN, ev("user.message", { text: "The `typecheck` check failed." })),
+      evIn(REPAIR_TURN, ev("turn.started", { source: "verification" })),
+      evIn(REPAIR_TURN, ev("turn.failed", { reason: "internal", message: "boom" })),
+    );
+
+    expect(items.at(-1)).toMatchObject({ outcome: "failed", retryMessage: "build a todo list" });
+  });
+
+  it("attributes nothing to the verifier in a window that opens after the turn did", () => {
+    // A client joining with `afterSeq` mid-repair holds the prompt without the `turn.started`
+    // above it. `user` is the default the event contract already states, and guessing the other
+    // way would label somebody's own words as the machine's.
+    const items = fold(evIn(REPAIR_TURN, ev("user.message", { text: "keep going" })));
+
+    expect(items[0]).toMatchObject({ from: "user" });
   });
 });

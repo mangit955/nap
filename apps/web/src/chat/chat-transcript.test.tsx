@@ -397,3 +397,62 @@ describe("a project opened and closed many times", () => {
     expect(visible).toEqual([]);
   });
 });
+
+describe("a repair turn", () => {
+  const REPAIR_TURN = "9d2e3f4a-5b6c-4d7e-9f80-1a2b3c4d5e60";
+
+  /** The prompt as the verifier writes it — see `packages/runtime/src/repair-prompt.ts`. */
+  const PROMPT =
+    "Your last change is committed, but the project's own checks do not pass.\n\n" +
+    "The `typecheck` check failed (exit code 2).\n\nThis is repair attempt 1 of 3.";
+
+  function repair(...events: StoredEvent[]) {
+    return events.map((event) => ({ ...event, turnId: REPAIR_TURN }) as StoredEvent);
+  }
+
+  function showRepair() {
+    return show(
+      ...repair(
+        ev("user.message", { text: PROMPT }),
+        ev("turn.started", { source: "verification" }),
+      ),
+    );
+  }
+
+  it("says on its face that verification asked for it", () => {
+    showRepair();
+
+    expect(screen.getByRole("log")).toHaveTextContent(/verification asked for a repair/i);
+  });
+
+  it("does not put the verifier's words in the user's mouth", () => {
+    // The failure this guards is the whole ticket: a synthesized prompt drawn as a user bubble
+    // reads as the app talking to itself, and the self-correction stops looking intentional.
+    showRepair();
+
+    expect(screen.getByRole("log")).not.toHaveTextContent("You: Your last change");
+  });
+
+  it("keeps the sentence naming the failed check", () => {
+    showRepair();
+
+    expect(screen.getByRole("log")).toHaveTextContent(/the `typecheck` check failed/i);
+  });
+
+  it("names the boundary for somebody who cannot see it", () => {
+    // The rule between turns is a hairline, which is nothing at all to a screen reader — and
+    // "turn started" would tell them the user had said something.
+    show(
+      ev("user.message", { text: "build a todo list" }),
+      ...repair(ev("turn.started", { source: "verification" })),
+    );
+
+    expect(screen.getByText("Repair turn started")).toBeInTheDocument();
+  });
+
+  it("still calls an ordinary turn an ordinary turn", () => {
+    show(ev("user.message", { text: "build a todo list" }), ev("turn.started", { source: "user" }));
+
+    expect(screen.getByText("Turn started")).toBeInTheDocument();
+  });
+});

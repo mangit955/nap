@@ -21,6 +21,16 @@ describe("OutputBlock", () => {
     expect(screen.getByRole("button", { name: /84 more lines/ })).toBeInTheDocument();
   });
 
+  it("keeps the first lines when the caller reads from the top", () => {
+    // A repair prompt names the check that failed in its opening sentence. Clamped the other
+    // way, what survives is a fenced stack trace attributed to nothing.
+    render(<OutputBlock text={lines(CLAMP_LINES + 5)} keep="head" />);
+
+    expect(screen.getByText(/^line 1$/)).toBeVisible();
+    expect(screen.queryByText(new RegExp(`^line ${CLAMP_LINES + 5}$`))).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /5 more lines/ })).toBeInTheDocument();
+  });
+
   it("keeps the newest lines when it clamps", () => {
     // Command output is read for how it ended — the error is at the bottom, not the top.
     render(<OutputBlock text={lines(CLAMP_LINES + 5)} />);

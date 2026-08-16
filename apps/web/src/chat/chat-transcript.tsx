@@ -20,6 +20,8 @@
 
 import { NapMark } from "../brand/nap-mark.tsx";
 import { turnFailureCopy } from "../errors/failure-copy.ts";
+import { AlertIcon } from "../ui/icons.tsx";
+import { OutputBlock } from "./output-block.tsx";
 import type { DisplayItem } from "./step-group.ts";
 import { StepGroupCard } from "./step-group-card.tsx";
 import { StreamingText } from "./streaming-text.tsx";
@@ -102,6 +104,13 @@ function Item({
 }) {
   switch (item.kind) {
     case "message":
+      // A prompt the verifier wrote is neither of the two voices below, and drawing it as
+      // either is the specific thing this treatment exists to prevent: in a user bubble it
+      // reads as the app talking to itself, and as agent prose it reads as the model narrating
+      // its own failure. It is the system quoting a check back at the model, so it is labelled
+      // as such and set in the machine's face. See `docs/adr/0006`.
+      if (item.from === "verifier") return <RepairPrompt text={item.text} />;
+
       // The user's words in a bubble on the right, the agent's as prose across the pane. The
       // asymmetry is deliberate and it is the oldest convention in the medium: what you said is
       // a short thing you can find again by its shape, and what the agent said is something to
@@ -208,9 +217,16 @@ function Item({
       // No `role="separator"`, deliberately: that role is for a widget dividing two panes, and
       // claiming it here would put a focusable-looking thing between every pair of turns. This
       // is a paragraph break drawn as a line.
+      //
+      // A repair turn differs here only in what it is called. The visible distinction is the
+      // block above it — one label per boundary is enough, and a second would be the same fact
+      // twice — but "turn started" would tell somebody listening that the user said something,
+      // which for a repair is the one thing that is not true.
       return (
         <div className="my-1 flex items-center first:hidden">
-          <span className="sr-only">Turn started</span>
+          <span className="sr-only">
+            {item.source === "verification" ? "Repair turn started" : "Turn started"}
+          </span>
           <span aria-hidden="true" className="h-px flex-1 bg-edge" />
         </div>
       );
@@ -232,6 +248,31 @@ function Item({
         <TurnFailure item={item} onRetry={onRetry} />
       );
   }
+}
+
+/**
+ * What a failed check asked the model to do.
+ *
+ * The heading is the whole point of the treatment: a reader has to be able to see, without
+ * reading a word of the prompt, that the next turn was prompted by the project's own checks
+ * rather than by them. Self-correction that looks like the app addressing itself in the user's
+ * voice reads as a bug, and it is the demo's best moment.
+ *
+ * Clamped from the top rather than the bottom. The prompt opens by naming the check that
+ * failed and closes with a fenced copy of what it printed, which the verifier budgets at four
+ * kilobytes a stream — keeping the tail of that would fill the pane with a stack trace and cut
+ * off the sentence saying which check produced it.
+ */
+function RepairPrompt({ text }: { text: string }) {
+  return (
+    <div className="flex flex-col rounded-xl border border-edge bg-field/50 px-3 py-2.5">
+      <p className="flex items-center gap-1.5 font-medium text-[11.5px] text-muted uppercase tracking-wide">
+        <AlertIcon className="size-3.5 shrink-0" />
+        Verification asked for a repair
+      </p>
+      <OutputBlock text={text} keep="head" />
+    </div>
+  );
 }
 
 /**
