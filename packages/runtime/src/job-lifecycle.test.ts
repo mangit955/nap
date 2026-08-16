@@ -141,7 +141,9 @@ describe("a turn that changed the workspace", () => {
     ]);
   });
 
-  it("leaves the job open for repair when a check says no, and checkpoints nothing", async () => {
+  it("checkpoints nothing when a check says no, however the job ends", async () => {
+    // This scripted agent repairs nothing, so the check stays red through every attempt and the
+    // job runs out of them. What the repair loop does in between is `repair-loop.test.ts`'s.
     sandbox.script(/bun run typecheck/, { exitCode: 2, stderr: "error TS2304" });
 
     await run();
@@ -149,11 +151,11 @@ describe("a turn that changed the workspace", () => {
     expect(await loggedTypes()).not.toContain("job.checkpointed");
     const state = await jobs();
     // Committed, unverified, and honest about it: HEAD has diverged from the last checkpoint,
-    // which is exactly the state the repair turn exists to close.
+    // and exhaustion reverts nothing (docs/adr/0006).
     expect(state.headSha).toBe(COMMIT_SHA);
     expect(state.checkpointSha).toBeNull();
     expect(state.atCheckpoint).toBe(false);
-    expect(state.jobs.at(-1)?.phase).toBe("repairing");
+    expect(state.jobs.at(-1)?.phase).toBe("exhausted");
   });
 
   it("keeps what the failing check said, for the turn that will have to fix it", async () => {

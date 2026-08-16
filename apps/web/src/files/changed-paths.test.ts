@@ -57,7 +57,7 @@ describe("changedPaths", () => {
   it("ignores every other kind of event", () => {
     const paths = changedPaths([
       event("agent.message", { text: "wrote src/App.tsx" }),
-      event("turn.started", {}),
+      event("turn.started", { source: "user" }),
     ]);
 
     expect(paths.size).toBe(0);
@@ -67,7 +67,7 @@ describe("changedPaths", () => {
 describe("changeCount", () => {
   it("counts file changes, so a refetch can be triggered by one arriving", () => {
     const events = [
-      event("turn.started", {}),
+      event("turn.started", { source: "user" }),
       changed(`${PROJECT_ROOT_PATH}/a.ts`, "created"),
       changed(`${PROJECT_ROOT_PATH}/b.ts`, "deleted"),
     ];

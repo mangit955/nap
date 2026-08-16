@@ -41,6 +41,8 @@ read the section covering whatever you are about to touch, not the whole file.
 
 - **`apps/api` env is validated at boot by a pure `parseEnv(record)`**, not by reading `process.env` at import time. Keep it that way — it is what lets the env tests run without mutating global state, and it keeps boot order independent of import order.
 
+- **A field added to an event payload has to default, or every session written before it becomes unreadable.** Rows are parsed against `NapEventSchema` on the way out of Postgres, and a strict payload with a new required key rejects the payload that was written last week — replay throws, and the failure surfaces as a session that will not load rather than as a schema mistake. `turn.started`'s `source` is the one field carrying a `.default()` for this reason, and the default has to be a *fact* about the old rows (a turn recorded before there was a verifier to prompt one was prompted by a user), never a placeholder.
+
 - **A `Proxy` cannot reach a class's `#private` fields.** The receiver becomes the proxy, so any method touching `#state` throws `TypeError: Receiver must be an instance of class`. Wrapping an object that has private state means spelling out the delegated methods.
 
 ## Model and provider

@@ -9,6 +9,7 @@
  * `EventStore`, and an emitter that invented its own would break replay ordering.
  */
 
+import type { PromptSource } from "../events.ts";
 import type { BuiltContext } from "./context-engine.ts";
 import type { PendingEvent } from "./event-store.ts";
 import type { ModelCredentials } from "./llm-provider.ts";
@@ -20,6 +21,13 @@ export type AgentTurnRequest = {
   sandboxId: string;
   context: BuiltContext;
   sandbox: SandboxManager;
+  /**
+   * Who prompted this turn, for the `turn.started` this component writes. Absent is the user.
+   *
+   * Carried rather than inferred: the prompt itself is already in `context`, indistinguishable
+   * from any other, and only the caller that composed it knows where it came from.
+   */
+  promptSource?: PromptSource | undefined;
   /** Called for each event as it happens, before it has been persisted. */
   onEvent: (event: PendingEvent) => void;
   /** Cancellation mid-turn must stop tool execution, not just ignore the result. */

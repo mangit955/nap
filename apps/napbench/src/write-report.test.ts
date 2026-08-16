@@ -105,7 +105,7 @@ const trajectory: BenchTrajectory = {
       seq: 1,
       createdAt: "2026-08-14T00:00:00.000Z",
       type: "turn.started",
-      payload: {},
+      payload: { source: "user" },
     },
   ],
 };

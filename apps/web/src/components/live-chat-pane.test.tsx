@@ -52,7 +52,7 @@ const fetchJson = async (url: string, init?: RequestInit): Promise<Response> => 
 function failedTurn(): SessionLog {
   const events = [
     ev("user.message", { text: "build me a todo list" }, 1),
-    ev("turn.started", {}, 2),
+    ev("turn.started", { source: "user" }, 2),
     ev("turn.failed", { reason: "sandbox_unavailable", message: "no capacity" }, 3),
   ];
 

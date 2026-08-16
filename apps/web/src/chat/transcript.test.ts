@@ -427,7 +427,7 @@ describe("the rest of the turn", () => {
 
   it("opens and closes the turn", () => {
     const items = fold(
-      ev("turn.started", {}),
+      ev("turn.started", { source: "user" }),
       ev("agent.message", { text: "done" }),
       ev("turn.completed", {
         usage: { inputTokens: 1200, outputTokens: 340 },
@@ -458,7 +458,7 @@ describe("the rest of the turn", () => {
 
   it("closes the turn on failure, carrying the reason", () => {
     const items = fold(
-      ev("turn.started", {}),
+      ev("turn.started", { source: "user" }),
       ev("turn.failed", { reason: "budget_exceeded", message: "step budget of 40 exceeded" }),
     );
 
@@ -490,7 +490,7 @@ describe("what a failed turn would send again", () => {
   it("carries the message that started that turn", () => {
     const items = buildTranscript([
       ev("user.message", { text: "build a todo list" }),
-      ev("turn.started", {}),
+      ev("turn.started", { source: "user" }),
       ev("turn.failed", { reason: "sandbox_unavailable", message: "no sandbox" }),
     ]);
 
@@ -503,10 +503,10 @@ describe("what a failed turn would send again", () => {
     // the two retry buttons would silently re-send the wrong request.
     const items = buildTranscript([
       ev("user.message", { text: "first ask" }),
-      ev("turn.started", {}),
+      ev("turn.started", { source: "user" }),
       ev("turn.failed", { reason: "internal", message: "boom" }),
       ev("user.message", { text: "second ask" }),
-      ev("turn.started", {}),
+      ev("turn.started", { source: "user" }),
       ev("turn.failed", { reason: "internal", message: "boom again" }),
     ]);
 

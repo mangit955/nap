@@ -164,7 +164,7 @@ describe("readFrom", () => {
       sessionId,
       turnId,
       createdAt: new Date().toISOString(),
-      payload: {},
+      payload: { source: "user" },
     });
     await store.append(message(sessionId, turnId, "done"));
 
@@ -268,7 +268,7 @@ const PAYLOADS = [
     payload: { toolCallId: "call_2", stream: "stderr", chunk: "warning: unused import\n" },
   },
   { type: "preview.ready", payload: { url: "https://5173-abc.e2b.dev", port: 5173 } },
-  { type: "turn.started", payload: {} },
+  { type: "turn.started", payload: { source: "verification" } },
   {
     type: "turn.completed",
     payload: {

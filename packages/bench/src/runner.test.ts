@@ -350,7 +350,7 @@ describe("runBenchTask — the trajectory it kept", () => {
     return {
       async runTurn() {
         const envelope = { sessionId: SESSION_ID, turnId: TURN_ID, createdAt: NOW };
-        await events.append({ ...envelope, type: "turn.started", payload: {} });
+        await events.append({ ...envelope, type: "turn.started", payload: { source: "user" } });
         await events.append({
           ...envelope,
           type: "tool.call",

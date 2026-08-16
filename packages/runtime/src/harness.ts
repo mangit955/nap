@@ -192,7 +192,8 @@ function detail(event: NapEvent): string {
     case "system.notice":
       return `${event.payload.level}: ${oneLine(event.payload.text)}`;
     case "turn.started":
-      return "";
+      // The user's turns are the ones you asked for, so only a repair is worth a word.
+      return event.payload.source === "verification" ? "prompted by verification" : "";
     case "job.started":
       return oneLine(event.payload.objective);
     case "verification.started":

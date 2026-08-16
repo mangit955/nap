@@ -58,7 +58,7 @@ const completed = (inputTokens: number, outputTokens: number, durationMs: number
 /** A run that went well: two tools, one command, two files, one completed turn. */
 function healthyRun(): NapEvent[] {
   return [
-    event("turn.started", {}),
+    event("turn.started", { source: "user" }),
     event("user.message", { text: "Build it." }),
     toolCall("write_file"),
     toolResult(true),
@@ -99,7 +99,7 @@ describe("deriveRunMetrics — what the log can supply", () => {
     // The log spells both `turn.failed`, and they are not the same finding: a run somebody
     // stopped is not an observation, and merging the two would hide that in the aggregate.
     const metrics = deriveRunMetrics([
-      event("turn.started", {}),
+      event("turn.started", { source: "user" }),
       event("turn.failed", { reason: "cancelled", message: "stopped" }),
     ]);
 
@@ -108,9 +108,9 @@ describe("deriveRunMetrics — what the log can supply", () => {
 
   it("counts the turn lifecycle", () => {
     const metrics = deriveRunMetrics([
-      event("turn.started", {}),
+      event("turn.started", { source: "user" }),
       completed(10, 10, 100),
-      event("turn.started", {}),
+      event("turn.started", { source: "user" }),
       event("turn.failed", { reason: "model_unavailable", message: "overloaded" }),
     ]);
 
@@ -166,7 +166,7 @@ describe("deriveRunMetrics — what the log cannot supply stays absent", () => {
     // is most worth knowing, and a zero would understate a failing model's spend.
     const metrics = deriveRunMetrics(
       [
-        event("turn.started", {}),
+        event("turn.started", { source: "user" }),
         toolCall("run_command"),
         event("turn.failed", { reason: "budget_exceeded", message: "out of steps" }),
       ],

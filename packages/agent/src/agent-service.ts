@@ -104,7 +104,10 @@ class Turn {
   }
 
   async run(): Promise<void> {
-    this.#emit({ type: "turn.started", payload: {} });
+    this.#emit({
+      type: "turn.started",
+      payload: { source: this.#request.promptSource ?? "user" },
+    });
 
     for (;;) {
       if (this.#cancelled()) return this.#fail("cancelled", "The turn was cancelled.");

@@ -135,9 +135,9 @@ const CASES = [
   },
   {
     type: "turn.started",
-    valid: { ...ENVELOPE, type: "turn.started", payload: {} },
+    valid: { ...ENVELOPE, type: "turn.started", payload: { source: "verification" } },
     // The envelope is part of every member's contract, so break it here.
-    malformed: { ...ENVELOPE, seq: -1, type: "turn.started", payload: {} },
+    malformed: { ...ENVELOPE, seq: -1, type: "turn.started", payload: { source: "user" } },
     issuePath: ["seq"],
   },
   {
@@ -305,5 +305,26 @@ describe.each(CASES)("$type", ({ type, valid, malformed, issuePath }) => {
     // to catch. Nothing in an event payload may rely on `undefined` surviving.
     const roundTripped = NapEventSchema.parse(JSON.parse(JSON.stringify(valid)));
     expect(roundTripped).toStrictEqual(valid);
+  });
+});
+
+describe("turn.started's prompt source", () => {
+  it("reads a payload written before the field existed as the user's", () => {
+    // Every `turn.started` in the log predating repairs has an empty payload, and replay parses
+    // the rows it finds rather than the rows it wishes it had. A required field here would make
+    // a session written last week unreadable this week.
+    const parsed = NapEventSchema.parse({ ...ENVELOPE, type: "turn.started", payload: {} });
+
+    expect(parsed.payload).toStrictEqual({ source: "user" });
+  });
+
+  it("refuses a source that is neither the user nor the verifier", () => {
+    const result = NapEventSchema.safeParse({
+      ...ENVELOPE,
+      type: "turn.started",
+      payload: { source: "model" },
+    });
+
+    expect(result.success).toBe(false);
   });
 });

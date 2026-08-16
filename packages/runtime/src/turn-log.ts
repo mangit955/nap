@@ -94,7 +94,9 @@ function detail(event: NapEvent): Record<string, unknown> {
       return {};
 
     case "turn.started":
-      return {};
+      // Who prompted it, because a run of turns under one job is otherwise indistinguishable in
+      // the logs from a user sending the same request four times.
+      return { source: event.payload.source };
 
     case "turn.completed":
       return {

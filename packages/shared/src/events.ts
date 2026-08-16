@@ -68,6 +68,17 @@ export const JobOutcomeSchema = z.enum(["verified", "unverified", "exhausted", "
 export type JobOutcome = z.infer<typeof JobOutcomeSchema>;
 
 /**
+ * Where a turn's prompt came from.
+ *
+ * A repair is a Turn like any other — same budgets, same cancellation, same ordering, same
+ * commit-on-completion — and this is the one thing that distinguishes it (docs/adr/0006). It is
+ * on `turn.started` rather than derived from position in the log, because deriving it would mean
+ * counting verifications back from a turn and getting it wrong on every truncated window.
+ */
+export const PromptSourceSchema = z.enum(["user", "verification"]);
+export type PromptSource = z.infer<typeof PromptSourceSchema>;
+
+/**
  * One check as verification found it.
  *
  * `output` is what a failed check said, already budgeted by whoever ran it — this is a
@@ -140,7 +151,15 @@ export const NapEventSchema = z.discriminatedUnion("type", [
    * the address it replaces is already in the log above this.
    */
   event("preview.stopped", {}),
-  event("turn.started", {}),
+  /**
+   * A turn opened, and who prompted it.
+   *
+   * Defaulted rather than required, and this is the only defaulted field in the contract: every
+   * `turn.started` written before repairs existed has an empty payload, and a required field
+   * would make replaying those sessions throw. A turn recorded before there was a verifier to
+   * prompt one was prompted by a user, so the default states a fact rather than guessing.
+   */
+  event("turn.started", { source: PromptSourceSchema.default("user") }),
   event("turn.completed", {
     usage: z.strictObject({
       inputTokens: z.int().nonnegative(),

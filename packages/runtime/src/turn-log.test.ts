@@ -54,7 +54,7 @@ const ONE_OF_EACH: Record<NapEventType, StoredEvent> = {
     payload: { url: "https://5173-abc.e2b.app", port: 5173 },
   }),
   "preview.stopped": stored({ ...base(9), type: "preview.stopped", payload: {} }),
-  "turn.started": stored({ ...base(10), type: "turn.started", payload: {} }),
+  "turn.started": stored({ ...base(10), type: "turn.started", payload: { source: "user" } }),
   "turn.completed": stored({
     ...base(11),
     type: "turn.completed",

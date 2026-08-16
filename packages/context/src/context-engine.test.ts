@@ -73,7 +73,7 @@ function hugeTree(fileCount: number): FileTree {
 function toolTurn(turn: number, outputSize: number): NapEvent[] {
   const id = `tc_${turn}`;
   return [
-    event("turn.started", turn, {}),
+    event("turn.started", turn, { source: "user" }),
     userMessage(turn, `change number ${turn}`),
     toolCall(turn, id, { path: "src/App.tsx" }),
     toolResult(turn, id, "x".repeat(outputSize)),

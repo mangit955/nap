@@ -189,7 +189,7 @@ describe("the transcript as a whole", () => {
 describe("a turn in progress", () => {
   it("shows an unfinished tool call as running", () => {
     show(
-      ev("turn.started", {}),
+      ev("turn.started", { source: "user" }),
       ev("tool.call", {
         toolCallId: "c1",
         toolName: "run_command",
@@ -305,7 +305,7 @@ describe("reasoning arriving as it is produced", () => {
 
   it("reveals the last thing on the rail while the turn is open", () => {
     const { container } = show(
-      ev("turn.started", {}),
+      ev("turn.started", { source: "user" }),
       ev("agent.thinking", { text: "I should read App.tsx" }),
     );
 
@@ -316,7 +316,7 @@ describe("reasoning arriving as it is produced", () => {
     // Only the newest item can still be growing. Re-revealing the ones above it would
     // replay the whole turn every time another word arrived.
     const { container } = show(
-      ev("turn.started", {}),
+      ev("turn.started", { source: "user" }),
       ev("agent.thinking", { text: "an earlier thought" }),
       ev("agent.message", { text: "Added App.tsx." }),
       ev("agent.thinking", { text: "and a later one" }),
@@ -330,7 +330,7 @@ describe("reasoning arriving as it is produced", () => {
     // reveal would say the agent is working on a turn that ended yesterday. What prevents it
     // is that a finished turn ends *with* its terminal event, so the last line has no prose.
     const { container } = show(
-      ev("turn.started", {}),
+      ev("turn.started", { source: "user" }),
       ev("agent.thinking", { text: "a thought from yesterday" }),
       ev("turn.completed", {
         usage: { inputTokens: 1, outputTokens: 1 },
@@ -354,7 +354,7 @@ describe("reasoning arriving as it is produced", () => {
 
   it("shows a run of thinking events as one passage", () => {
     show(
-      ev("turn.started", {}),
+      ev("turn.started", { source: "user" }),
       ev("agent.thinking", { text: "I should read " }),
       ev("agent.thinking", { text: "App.tsx first." }),
     );

@@ -93,7 +93,7 @@ export function toVerifiedChecks(checks: readonly RanCheck[]): VerifiedCheck[] {
   return checks.map((check) => ({
     name: check.name,
     outcome: check.outcome,
-    output: renderOutput(check.output),
+    output: renderCheckOutput(check.output),
   }));
 }
 
@@ -102,8 +102,12 @@ export function toVerifiedChecks(checks: readonly RanCheck[]): VerifiedCheck[] {
  *
  * Stderr last on purpose: the reason a build failed is usually there, and the tail of this
  * string is the part a truncated prompt and a scrolled log both keep.
+ *
+ * Shared with the repair prompt rather than written twice, so what the log shows a person and
+ * what the prompt shows the model are the same words. Already budgeted by whoever ran the
+ * check — nothing here re-truncates it.
  */
-function renderOutput(output: CommandOutput | undefined): string | null {
+export function renderCheckOutput(output: CommandOutput | undefined): string | null {
   if (output === undefined) return null;
 
   const rendered = [output.stdout, output.stderr]

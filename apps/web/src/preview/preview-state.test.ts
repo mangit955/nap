@@ -53,7 +53,7 @@ describe("while a turn is running", () => {
     expect(
       state(
         ev("user.message", { text: "go" }),
-        ev("turn.started", {}),
+        ev("turn.started", { source: "user" }),
         ev("agent.message", { text: "working" }),
       ),
     ).toMatchObject({ status: "starting" });
