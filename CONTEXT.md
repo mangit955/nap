@@ -12,9 +12,46 @@ at a time. Outlives every sandbox it ever had.
 **Session** — one conversation about a project. A project's newest session is the one its workspace
 opens; a link never names a session, because the project grows new ones.
 
-**Turn** — one exchange within a session: a user message, whatever the agent does about it, and
-exactly one terminal event (`turn.completed` or `turn.failed`). The unit budgets, cancellation and
-commits are all scoped to.
+**Turn** — one exchange within a session: a prompt, whatever the agent does about it, and exactly
+one terminal event (`turn.completed` or `turn.failed`). The unit budgets, cancellation and commits
+are all scoped to. **The prompt comes from the user or from failed verification** — a repair is a
+turn and not a smaller thing, which is why it inherits budgets, cancellation, event ordering and
+commit-on-completion without any of them being rebuilt. `turn.completed` is the *model's claim*
+that the work is done, not the system's finding; see **Verification**.
+
+**Job** — one objective, and the durable unit of work that outlives a turn: what was asked, what
+phase it is in, what has been verified, how many repair attempts remain. A fold over the session's
+events exactly as a turn is, with no table and no file behind it, so there is one source of truth
+and resuming is replaying. Every turn belongs to one. A job opens on a prompt and stays open until
+verification agrees it is satisfied or its attempts run out — so a trivial request is a job that
+opens and closes in a single turn, and a large one is a job that spans six, without anything having
+to decide in advance which it is. **Not NapBench's `Task`**, which is a specification of work to be
+repeated; a job is one actual piece of work being done once. See `docs/adr/0006`.
+
+**Verification** — what the system finds, as against what the model claims. A turn that changed the
+workspace is committed and then checked: the project's own checks, cheapest first, stopping at the
+first failure. Passing makes the commit a **checkpoint**; failing opens a repair turn carrying the
+failure. Bounded by attempts rather than by a token ledger, and confined to sandbox commands and a
+preview probe — the browser stays NapBench's alone, per `docs/adr/0001`.
+
+**Check** — one command, run in the sandbox, that passed, failed, or was **absent**. Absent is not
+failure and the gap is load-bearing in both directions: a project with no `test` script has not
+failed its tests, and treating a missing script as a failure would put every fresh project into a
+repair loop it cannot leave. Which checks exist is discovered from the project rather than declared
+by the model. Owned by `@nap/verify` and shared with NapBench, which adds scoring metadata to it —
+see the NapBench **Check** entry, and `docs/adr/0007`.
+
+**Checkpoint** — a *verified* commit, and the answer to "is this project in a valid state right
+now", which is `HEAD == last checkpoint` rather than a judgement anybody renders. Distinct from a
+**Snapshot**, which is a filesystem archived because a sandbox went away: a checkpoint is about
+whether the work is sound, a snapshot about where the work is kept. Every completed turn commits;
+only a verified one checkpoints, which is what makes a failed verification unable to corrupt the
+last known-good state by construction rather than by care.
+
+**Continue** — what happens to an open job when its project is next opened, as distinct from
+**resume**, which already means bringing a put-away project's sandbox back up (`resumeSession`). A
+process restart leaves a job open rather than failing it; nothing continues a job while nobody is
+watching.
 
 **Event** — one durable, ordered fact about a session, identified by its `seq`. Appended to the
 store *before* it is published to the bus, never the other way round.
@@ -49,24 +86,31 @@ a project put away and restarted has two announcements and only one live sandbox
 NapBench is the evaluation harness that measures Nap's agent. Its vocabulary is kept separate
 because it describes the thing *observing* the system, not the system — a user never encounters any
 of these words. Where the two vocabularies collide, the collision is named below rather than
-resolved by hoping nobody notices. See `docs/adr/0001`–`0003` for the decisions behind them.
+resolved by hoping nobody notices. See `docs/adr/0001`–`0005` and `0007` for the decisions behind
+them.
 
 **Task** — one reproducible unit of work put to the agent: an id, a prompt or short sequence of
 prompts, an environment that may seed files before anything runs, and the checks that decide whether
 it worked. Declarative and independent of how Nap is built, so the same task can be pointed at a
 different model, prompt or context engine without being edited. Tasks are the fixed thing in the
-benchmark; everything else is a variable.
+benchmark; everything else is a variable. **This word collides**: a NapBench task is a
+specification of work to be repeated, where the runtime's unit of actual work being done once is a
+**Job**. The two are different concepts and keep different names rather than one being renamed.
 
-**Check** — one acceptance criterion, and the only thing a score is ever made of. Three kinds:
+**Check** — a `@nap/verify` **Check** plus the scoring metadata that makes it an acceptance
+criterion: the category it scores into, a weight, and whether it is required. The primitive — one
+thing run, that passed, failed or was absent — is shared with the runtime's verifier, because it
+was never NapBench's alone; what is NapBench's is that a score is made of nothing else. Three kinds:
 *command* (run something in the sandbox), *browser* (drive the preview and assert) and
 *accessibility* (axe against a rendered page). A fourth, *custom*, was specified and deliberately
 not built: a task is **data**, validated by a schema as its module loads, and a custom check would
 be code — which no schema can validate and no sandbox can be handed. The extension point the fourth
 kind was meant to provide is the discriminated union itself: a new kind is a schema, a branch in the
 executor's dispatch and a default category, which is exactly what adding *accessibility* turned out
-to cost. Every check carries the category
-it scores into, a weight, and whether it is required. A check produces exactly one of *passed*,
-*failed* or *absent* — and the difference between the last two is load-bearing, see **Gate**.
+to cost. Only *command* is the shared primitive; *browser* and *accessibility* are NapBench's own
+and stay there, since ADR-0001 keeps the browser out of anything that ships. The passed / failed /
+*absent* triple is the primitive's, and the difference between the last two is load-bearing here in
+its own way — see **Gate**.
 
 **Check output** — what a failed command actually said, kept on the check beside the exit code it
 does not explain. Recorded only on failure and only when there was something to record, because a

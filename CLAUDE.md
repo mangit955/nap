@@ -6,10 +6,10 @@ Nap is a Lovable-style AI app builder: the user describes an app in chat, an age
 
 | File | Answers | Read it |
 |---|---|---|
-| `docs/PLAN.md` | *What* v1 is; the spec and full task list (§4) | Every session, per its §1 |
+| `docs/PLAN.md` | *What* v1 was; its spec and full task list (§4). Frozen — V2 work is GitHub issues | When touching something v1 built |
 | `CLAUDE.md` (this file) | *How* to work here — commands, conventions, gates | Auto-loaded |
 | `docs/GOTCHAS.md` | *Why* the code is shaped this way — hard-won constraints, per area | The section for whatever you are about to touch |
-| `PROGRESS.md` | *Where* we are — status and deps per task | Every session |
+| `PROGRESS.md` | *Where v1 got to* — status and deps per v1 task, and the running-a-checkout notes. Frozen | For the checkout notes, and v1 history |
 | `docs/DEPLOY.md` | *How it is deployed* — the two services, the one-replica rule, the env list | Before touching anything that runs in production |
 | `CONTEXT.md` | *What things are called* — one concept, one name | Before naming a concept in code, a test or an issue |
 | `docs/NAPBENCH.md` | *How the agent is measured* — the benchmark's architecture, scoring, how to add a task, what needs a sandbox or a browser | Before touching `packages/bench` or `apps/napbench`, or quoting a score |
@@ -147,30 +147,33 @@ because somebody already lost a session to it.
 
 ## Session protocol
 
+> **Where the task list lives changed after v1.** `docs/PLAN.md` §4 and `PROGRESS.md` are the frozen record of v1 and are no longer added to. V2 work is GitHub issues — a wayfinder map with child tickets, blocked via GitHub's native issue dependencies, so "what is next" is a query rather than a table read by eye. See `docs/agents/issue-tracker.md`.
+
 **Starting:**
 1. `git status` and `git log --oneline -10`.
-2. Read `PROGRESS.md`.
+2. Run the frontier query — the V2 map's open children, dropping any with an open blocker or an assignee, first in map order wins.
 3. Run `bun run test` — **confirm green before starting new work.** If red, fixing it is the session's first task.
-4. Pick the next `TODO` task whose deps are all `DONE`.
-5. Read the `docs/GOTCHAS.md` sections that task touches — nothing loads them for you.
-6. Mark it `IN_PROGRESS` in `PROGRESS.md` and commit that single-line change.
+4. Read the `docs/GOTCHAS.md` sections that ticket touches — nothing loads them for you.
+5. Claim it: `gh issue edit <n> --add-assignee @me`. That is the session's first write, and it replaces the old `IN_PROGRESS` commit.
 
 **Finishing a task:**
 1. `bun run test` and `bun run typecheck` — both must pass.
-2. Mark it `DONE` in `PROGRESS.md`, with a one-line note on anything surprising.
-3. Commit: `feat(<scope>): <task id> <summary>`, tests included.
+2. Commit: `feat(<scope>): <summary>`, tests included. **No task IDs in commit subjects** — issue numbers go in the body as `Closes #<n>`, which is what links them.
+3. Close the issue with a comment on anything surprising, then append a pointer to the map's Decisions-so-far.
 
-**Stopping mid-task:** commit `wip(<scope>): <task id> — <what's left>` and leave the task `IN_PROGRESS` with a "next step" note.
+**Stopping mid-task:** commit `wip(<scope>): <what's left>`, and leave a comment on the issue saying what the next step is. Keep the assignee.
 
 > **Never end a session with uncommitted work.** A future session cannot recover context that exists only in a dirty working tree.
 
 Branch per milestone (`feat/m0-scaffold`, `feat/m1-execution-plane`, …), one commit per completed task.
 
+> **Never end a session with an open working tree and no issue comment.** The two together are the handoff; either alone loses the half a future session needs.
+
 ## Agent skills
 
 ### Issue tracker
 
-Issues live as GitHub issues in `mangit955/nap`, via the `gh` CLI; the v1 task list stays in `docs/PLAN.md` §4 and `PROGRESS.md`. See `docs/agents/issue-tracker.md`.
+Issues live as GitHub issues in `mangit955/nap`, via the `gh` CLI. The v1 task list stays frozen in `docs/PLAN.md` §4 and `PROGRESS.md`; V2 onwards is issues. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
