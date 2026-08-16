@@ -100,11 +100,16 @@ functions, each individually tested.
 have a score. *Errored* means no result was obtained, so there is no score to give. *Cancelled*
 means somebody stopped it, which is not an observation at all.
 
-**Error kind** — whose fault an errored run was: *agent*, *model*, *sandbox*, *browser*,
-*evaluator* or *configuration*. The distinction is what keeps a benchmark honest — an agent that
-refused and a provider outage both produce no score, and only the first is evidence about the agent.
-Suite reporting keeps agent-attributable and infrastructure-attributable error rates apart for that
-reason.
+**Error kind** — whose fault an errored run was, as one of seven answers in four groups: the system
+under test (*agent*, *runtime*), what it depends on (*model*, *sandbox*), the instrument (*browser*,
+*evaluator*) and the operator (*configuration*). The distinction is what keeps a benchmark honest —
+an agent that refused and a provider outage both produce no score, and only the first is evidence
+about the agent. **What is measured is the model, with Nap held fixed**, so the split does not ask
+whose code was at fault but whether the failure says anything about a model: *agent* alone is
+agent-attributable and the other six are infrastructure. *Runtime* and *evaluator* are the pair
+worth keeping apart — Nap's own machinery breaking against NapBench crashing on itself — because a
+suite full of the first is a deployment to fix and one full of the second is a benchmark to fix.
+See `docs/adr/0004`.
 
 **Run** — one execution of one task against one configuration, from a fresh session to a scored
 report. The unit that has an id, a status, a score and a trajectory. **This is the word that

@@ -260,10 +260,15 @@ functions, each individually tested.
 | `errored` | No result was obtained | `null` | Yes — into an error rate |
 | `cancelled` | Somebody stopped it | `null` | **No** — neither numerator nor denominator |
 
-An errored run carries an **error kind** — `agent`, `model`, `sandbox`, `browser`, `evaluator` or
-`configuration` — mapped from the turn's failure *reason* rather than inferred from the fact of
-failure. Only `agent` counts against the model. Everything else is infrastructure, and a suite
-carrying any of it prints a banner saying it is not comparable data.
+An errored run carries an **error kind** — `agent`, `runtime`, `model`, `sandbox`, `browser`,
+`evaluator` or `configuration` — mapped from the turn's failure *reason* rather than inferred from
+the fact of failure. Only `agent` counts against the model. Everything else is infrastructure, and a
+suite carrying any of it prints a banner saying it is not comparable data.
+
+What NapBench measures is **the model, with Nap held fixed**, which is what decides that split: it
+asks whether a failure is evidence about a model, not whose code was at fault. Nap's own machinery
+breaking is `runtime`, and so it is infrastructure. `CONTEXT.md` defines the kinds; `docs/adr/0004`
+records why.
 
 ### Suites and comparison
 

@@ -16,9 +16,10 @@ import {
 } from "./error-kind.ts";
 
 describe("error kinds", () => {
-  it("are the six the vocabulary names", () => {
+  it("are the seven the vocabulary names", () => {
     expect([...ERROR_KINDS]).toEqual([
       "agent",
+      "runtime",
       "model",
       "sandbox",
       "browser",
@@ -29,6 +30,15 @@ describe("error kinds", () => {
 
   it("rejects anything else", () => {
     expect(ErrorKindSchema.safeParse("infrastructure").success).toBe(false);
+  });
+
+  it("still accepts every kind a report on disk could already be carrying", () => {
+    // The seventh kind was a *widening*, which is the only reason the three funded runs are
+    // still readable. A rename would have made every archived report unparseable, and a
+    // comparison against one of them impossible — so the guard is that nothing was removed.
+    for (const kind of ["agent", "model", "sandbox", "browser", "evaluator", "configuration"]) {
+      expect(ErrorKindSchema.safeParse(kind).success).toBe(true);
+    }
   });
 });
 
@@ -60,13 +70,15 @@ describe("dispositionForTurnFailure", () => {
     });
   });
 
-  it("files an internal fault against the system under test, not the instrument", () => {
-    // `evaluator` is reserved for NapBench's own crashes: a bug in the benchmark must never
-    // be attributed to what it measures, and the reverse — filing a Nap bug as a benchmark
-    // bug — is the same confusion pointing the other way.
+  it("files an internal fault against the system under test, and not against the model", () => {
+    // The kind exists because both of the obvious answers were wrong. `evaluator` is reserved
+    // for NapBench's own crashes, so using it here would file a bug in the system under test
+    // as a bug in the instrument. `agent` — what this used to be — is worse: the agent may
+    // have written perfect code and had the runtime fall over underneath it, and recording
+    // that as evidence about the model is the one thing this module exists to prevent.
     expect(dispositionForTurnFailure("internal")).toEqual({
       status: "errored",
-      errorKind: "agent",
+      errorKind: "runtime",
     });
   });
 
@@ -98,6 +110,14 @@ describe("attributionOf", () => {
     // The distinction the whole error-kind model exists for: a throttled provider must not
     // depress the measured quality of the model it was throttling.
     expect(attributionOf("model")).toBe("infrastructure");
+  });
+
+  it("counts a Nap runtime fault as infrastructure, so it never reaches the model's column", () => {
+    // NapBench measures the model with Nap held fixed, so Nap's own machinery is apparatus.
+    // A suite carrying a lot of this is a deployment to fix rather than a model to rank —
+    // which is a different reading from a suite carrying a lot of `agent`, and the whole
+    // reason the two are separate kinds.
+    expect(attributionOf("runtime")).toBe("infrastructure");
   });
 
   it("counts everything that is not the agent as infrastructure", () => {
