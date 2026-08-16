@@ -21,8 +21,8 @@
  * missing; this is about a field that does not apply.
  */
 
+import { CheckOutcomeSchema } from "@nap/shared/check-outcome";
 import type { Result } from "@nap/shared/result";
-import { CheckOutcomeSchema } from "@nap/verify/check-outcome";
 import { CommandOutputSchema } from "@nap/verify/command-output";
 import { z } from "zod";
 import { CategorySchema, type CategoryWeights, CategoryWeightsSchema } from "./category.ts";

@@ -16,6 +16,8 @@ const ENVELOPE = {
   createdAt: "2026-08-07T12:00:00.000Z",
 } as const;
 
+const JOB_ID = "3f9a1c2d-5e6b-4f7a-8b9c-0d1e2f3a4b5c";
+
 type Case = {
   readonly type: NapEvent["type"];
   readonly valid: NapEvent;
@@ -188,6 +190,70 @@ const CASES = [
     },
     issuePath: ["payload", "level"],
   },
+  {
+    type: "job.started",
+    valid: {
+      ...ENVELOPE,
+      type: "job.started",
+      payload: { jobId: JOB_ID, objective: "build me a todo list" },
+    },
+    // A job with no objective is a job nothing can be verified against.
+    malformed: { ...ENVELOPE, type: "job.started", payload: { jobId: JOB_ID, objective: "" } },
+    issuePath: ["payload", "objective"],
+  },
+  {
+    type: "verification.started",
+    valid: { ...ENVELOPE, type: "verification.started", payload: { jobId: JOB_ID } },
+    malformed: { ...ENVELOPE, type: "verification.started", payload: { jobId: "job-1" } },
+    issuePath: ["payload", "jobId"],
+  },
+  {
+    type: "verification.completed",
+    valid: {
+      ...ENVELOPE,
+      type: "verification.completed",
+      payload: {
+        jobId: JOB_ID,
+        checks: [
+          { name: "typecheck", outcome: "passed", output: null },
+          { name: "lint", outcome: "failed", output: "1 error" },
+          // Short-circuiting: everything after the first failure was never asked.
+          { name: "build", outcome: "absent", output: null },
+        ],
+      },
+    },
+    // `skipped` is the boolean-shaped answer the three outcomes exist to refuse.
+    malformed: {
+      ...ENVELOPE,
+      type: "verification.completed",
+      payload: { jobId: JOB_ID, checks: [{ name: "lint", outcome: "skipped", output: null }] },
+    },
+    issuePath: ["payload", "checks", 0, "outcome"],
+  },
+  {
+    type: "job.checkpointed",
+    valid: {
+      ...ENVELOPE,
+      type: "job.checkpointed",
+      payload: { jobId: JOB_ID, commitSha: "9f1c2b3" },
+    },
+    malformed: {
+      ...ENVELOPE,
+      type: "job.checkpointed",
+      payload: { jobId: JOB_ID, commitSha: "" },
+    },
+    issuePath: ["payload", "commitSha"],
+  },
+  {
+    type: "job.completed",
+    valid: { ...ENVELOPE, type: "job.completed", payload: { jobId: JOB_ID, outcome: "verified" } },
+    malformed: {
+      ...ENVELOPE,
+      type: "job.completed",
+      payload: { jobId: JOB_ID, outcome: "done" },
+    },
+    issuePath: ["payload", "outcome"],
+  },
 ] as const satisfies readonly Case[];
 
 function byType(type: NapEvent["type"]): Case {
@@ -200,9 +266,9 @@ describe("the case table covers the union", () => {
   it("has one case per event type, with no duplicates and none missing", () => {
     const covered = CASES.map((c) => c.type);
     expect(new Set(covered).size).toBe(covered.length);
-    expect(CASES).toHaveLength(13);
+    expect(CASES).toHaveLength(18);
 
-    // Fails to compile if a 14th member is added to the union without a case here.
+    // Fails to compile if a 19th member is added to the union without a case here.
     const _exhaustive: (typeof CASES)[number]["type"] = null as unknown as NapEvent["type"];
     void _exhaustive;
   });

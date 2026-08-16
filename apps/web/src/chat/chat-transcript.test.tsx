@@ -34,9 +34,23 @@ function show(...events: StoredEvent[]) {
 }
 
 /**
- * `docs/PLAN.md` §4 wants a defined visual treatment *and a test* for every event type.
- * The table is the test: each row names something the reader must be able to find, so a type
- * that renders as nothing fails here, and a twelfth type fails to compile until it has a row.
+ * Event types drawn by the job strip above the chat rather than by the transcript. Same list,
+ * and same reasoning, as `transcript.test.ts` — a job's phase and its checks are status, not
+ * chronology, and putting them in both panes says one thing twice.
+ */
+const DRAWN_ELSEWHERE = [
+  "job.started",
+  "verification.started",
+  "verification.completed",
+  "job.checkpointed",
+  "job.completed",
+] as const satisfies readonly NapEventType[];
+
+/**
+ * `docs/PLAN.md` §4 wants a defined visual treatment *and a test* for every event type the
+ * transcript draws. The table is the test: each row names something the reader must be able to
+ * find, so a type that renders as nothing fails here, and a new type fails to compile until it
+ * has a row or a place above.
  */
 const TREATMENTS = [
   {
@@ -108,13 +122,15 @@ const TREATMENTS = [
 ] as const satisfies readonly { type: NapEventType; payload: NapEvent["payload"]; shows: RegExp }[];
 
 describe("every event type has a visual treatment", () => {
-  it("covers the whole union", () => {
+  it("covers the whole union, between this pane and the strip", () => {
     const covered = TREATMENTS.map((t) => t.type);
     expect(new Set(covered).size).toBe(covered.length);
-    expect(TREATMENTS).toHaveLength(13);
+    expect(new Set([...covered, ...DRAWN_ELSEWHERE]).size).toBe(18);
 
-    // Fails to compile if a 14th member is added to the union without a treatment.
-    const _exhaustive: (typeof TREATMENTS)[number]["type"] = null as unknown as NapEventType;
+    // Fails to compile if a 19th member is added to the union without a treatment here or a
+    // place in `DRAWN_ELSEWHERE`.
+    const _exhaustive: (typeof TREATMENTS)[number]["type"] | (typeof DRAWN_ELSEWHERE)[number] =
+      null as unknown as NapEventType;
     void _exhaustive;
   });
 

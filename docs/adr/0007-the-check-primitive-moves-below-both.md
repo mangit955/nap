@@ -72,6 +72,14 @@ would put every fresh project into a repair loop it cannot exit.
 **A third consumer is now cheap.** Nothing needs one today, and no abstraction was added in
 anticipation of one.
 
+**The passed/failed/absent enum went one layer further down than this.** `CheckOutcomeSchema`
+lives in `@nap/shared`, not in `@nap/verify`, and for a mechanical reason rather than a change of
+mind: `verification.completed` carries those outcomes into the event log, the event contract is
+defined exactly once in `packages/shared/src/events.ts`, and nothing below `shared` may be imported
+from there. The alternative was a second enum with the same three strings in it, which is the thing
+this ADR is against. *Running* a check is still `@nap/verify`'s and unaffected; only the word for
+what running one produced is everybody's.
+
 **The forbidden edge is checked in test files too.** `test/architecture.ts` otherwise exempts tests
 from the layer table — ADR-0001 has sibling packages arriving as devDependencies for their fakes,
 and a test-only edge is not the layering that table is about. `@nap/bench` is the one exception:

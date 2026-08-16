@@ -37,7 +37,7 @@ export type Violation = {
 };
 
 export type SourceFile = {
-  /** Repo-relative, e.g. `packages/verify/src/check-outcome.ts`. */
+  /** Repo-relative, e.g. `packages/verify/src/preview.ts`. */
   path: string;
   contents: string;
 };

@@ -152,11 +152,11 @@ describe("dependency direction at the import — the checker actually catches vi
     // that grades the system it serves.
     const violations = checkSourceImports(
       pkg("@nap/verify", ["@nap/shared", "@nap/bench"], {
-        "packages/verify/src/check-outcome.ts": 'import { CATEGORIES } from "@nap/bench/category";',
+        "packages/verify/src/preview.ts": 'import { CATEGORIES } from "@nap/bench/category";',
       }),
     );
     expect(violations).toHaveLength(1);
-    expect(violations[0]?.from).toBe("packages/verify/src/check-outcome.ts");
+    expect(violations[0]?.from).toBe("packages/verify/src/preview.ts");
     expect(violations[0]?.to).toBe("@nap/bench");
   });
 
@@ -192,7 +192,7 @@ describe("dependency direction at the import — the checker actually catches vi
     // install from the whole repo — while package.json claims no such edge exists.
     const violations = checkSourceImports(
       pkg("@nap/runtime", ["@nap/shared"], {
-        "packages/runtime/src/turn.ts": 'import { run } from "@nap/verify/check-outcome";',
+        "packages/runtime/src/turn.ts": 'import { run } from "@nap/verify/preview";',
       }),
     );
     expect(violations).toHaveLength(1);

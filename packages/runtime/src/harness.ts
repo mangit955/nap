@@ -193,6 +193,16 @@ function detail(event: NapEvent): string {
       return `${event.payload.level}: ${oneLine(event.payload.text)}`;
     case "turn.started":
       return "";
+    case "job.started":
+      return oneLine(event.payload.objective);
+    case "verification.started":
+      return "";
+    case "verification.completed":
+      return event.payload.checks.map((check) => `${check.name} ${check.outcome}`).join(", ");
+    case "job.checkpointed":
+      return event.payload.commitSha;
+    case "job.completed":
+      return event.payload.outcome;
   }
 }
 

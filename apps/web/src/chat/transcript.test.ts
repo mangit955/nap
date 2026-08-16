@@ -46,9 +46,25 @@ function stepsOf(items: TranscriptItem[]) {
 }
 
 /**
- * One case per event type. `docs/PLAN.md` §4 asks for a defined treatment for every one, so
- * the coverage is structural: a twelfth member of the union fails to compile here until it
- * has a case, rather than quietly rendering as nothing.
+ * Event types the transcript deliberately draws nothing for.
+ *
+ * The job strip above the chat is what shows a job's phase, its checks and where its commits
+ * stand; folding them into the chronology as well would say the same thing twice, in the pane
+ * that is meant to read as a conversation. Listed rather than omitted, so that a new type is
+ * still a decision somebody made — the union below is exhaustive across both.
+ */
+const DRAWN_ELSEWHERE = [
+  "job.started",
+  "verification.started",
+  "verification.completed",
+  "job.checkpointed",
+  "job.completed",
+] as const satisfies readonly NapEventType[];
+
+/**
+ * One case per event type the transcript draws. `docs/PLAN.md` §4 asks for a defined treatment
+ * for every one, so the coverage is structural: a new member of the union fails to compile here
+ * until it has a case or is named above, rather than quietly rendering as nothing.
  */
 const CASES = [
   { type: "user.message", payload: { text: "build me a todo list" } },
@@ -89,13 +105,15 @@ const CASES = [
 ] as const satisfies readonly { type: NapEventType; payload: NapEvent["payload"] }[];
 
 describe("the treatment table covers the union", () => {
-  it("has one case per event type", () => {
+  it("has one case per event type the transcript draws", () => {
     const covered = CASES.map((c) => c.type);
     expect(new Set(covered).size).toBe(covered.length);
-    expect(CASES).toHaveLength(13);
+    expect(new Set([...covered, ...DRAWN_ELSEWHERE]).size).toBe(18);
 
-    // Fails to compile if a 14th member is added to the union without a case here.
-    const _exhaustive: (typeof CASES)[number]["type"] = null as unknown as NapEventType;
+    // Fails to compile if a 19th member is added to the union without a case here or a place
+    // in `DRAWN_ELSEWHERE`.
+    const _exhaustive: (typeof CASES)[number]["type"] | (typeof DRAWN_ELSEWHERE)[number] =
+      null as unknown as NapEventType;
     void _exhaustive;
   });
 

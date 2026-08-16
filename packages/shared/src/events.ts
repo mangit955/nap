@@ -20,6 +20,7 @@
  */
 
 import { z } from "zod";
+import { CheckOutcomeSchema } from "./check-outcome.ts";
 
 /** The six sandbox-proxy tools. Nothing else may appear in the log. */
 export const TOOL_NAMES = [
@@ -50,6 +51,37 @@ export const TurnFailureReasonSchema = z.enum([
   "internal",
 ]);
 export type TurnFailureReason = z.infer<typeof TurnFailureReasonSchema>;
+
+/**
+ * How a job ended. Four ways, and the log says which rather than leaving it to be inferred.
+ *
+ * `unverified` is not a failure and not a success: a turn that answered a question changed no
+ * files, so there was nothing to commit and nothing to check. Calling that `verified` would
+ * claim the system had found something it never looked for.
+ *
+ * `abandoned` is the job ending because its turn did — cancelled, refused, or a sandbox that
+ * went away. Distinct from `exhausted`, which is the loop running to the end of its rope with
+ * checks still red; that one leaves committed code behind and a `HEAD` that has diverged from
+ * the last checkpoint, and says so (docs/adr/0006).
+ */
+export const JobOutcomeSchema = z.enum(["verified", "unverified", "exhausted", "abandoned"]);
+export type JobOutcome = z.infer<typeof JobOutcomeSchema>;
+
+/**
+ * One check as verification found it.
+ *
+ * `output` is what a failed check said, already budgeted by whoever ran it — this is a
+ * transcript entry, not the place a cap is decided. `null` on a check that passed, was never
+ * asked, or failed silently: a passing build's output is noise in a log somebody reads to find
+ * out why something broke.
+ */
+export const VerifiedCheckSchema = z.strictObject({
+  /** The check's name as the project knows it — `typecheck`, `lint`, `build`, `test`, `preview`. */
+  name: z.string().min(1),
+  outcome: CheckOutcomeSchema,
+  output: z.string().nullable(),
+});
+export type VerifiedCheck = z.infer<typeof VerifiedCheckSchema>;
 
 /** Carried by every event. `seq` is assigned by `EventStore.append`, not by the emitter. */
 const envelope = {
@@ -128,6 +160,44 @@ export const NapEventSchema = z.discriminatedUnion("type", [
    * attributing them to the model would be a lie about who is talking.
    */
   event("system.notice", { level: z.enum(["info", "warning"]), text: z.string().min(1) }),
+
+  /**
+   * A job opened. Every turn belongs to one, and these five events are the whole of what a
+   * job is: there is no jobs table and no `.nap/state.json`, only the fold in `job-state.ts`.
+   *
+   * `objective` repeats the prompt that opened the job, which is already in the log as a
+   * `user.message`. The duplication is deliberate: it makes "what was asked" answerable from
+   * the job events alone, without a reader having to work out which message belongs to which
+   * job by counting turn boundaries — and a repair turn's `user.message` is not the objective.
+   */
+  event("job.started", { jobId: z.uuid(), objective: z.string().min(1) }),
+  /**
+   * Verification is running against the commit a turn just produced. Carries nothing but the
+   * job: what is being checked is whatever the project declares, discovered rather than
+   * announced, and the answer arrives in `verification.completed`.
+   *
+   * It exists so that "checks are running right now" is a fact in the log rather than a gap
+   * between two events, which is what a client would otherwise have to render as nothing.
+   */
+  event("verification.started", { jobId: z.uuid() }),
+  /**
+   * What verification found. `failed` is not a field: a verification failed exactly when one
+   * of its checks did, and recording the verdict beside the evidence invites the two to
+   * disagree. Short-circuiting means the checks after the first failure are `absent`.
+   */
+  event("verification.completed", { jobId: z.uuid(), checks: z.array(VerifiedCheckSchema) }),
+  /**
+   * A commit that verification agreed with — a *checkpoint*, as against the commit every
+   * completed turn makes. `HEAD == last checkpoint` is what "is this project in a valid state"
+   * means, which is why the sha is here and not merely implied by the passing checks above it.
+   */
+  event("job.checkpointed", { jobId: z.uuid(), commitSha: z.string().min(1) }),
+  /**
+   * The job closed. The fold can derive most outcomes on its own, and does when a process died
+   * before writing this — but "open" is the one thing about a job that must never be guessed,
+   * because it is what decides whether opening the project spends tokens continuing it.
+   */
+  event("job.completed", { jobId: z.uuid(), outcome: JobOutcomeSchema }),
 ]);
 
 export type NapEvent = z.infer<typeof NapEventSchema>;

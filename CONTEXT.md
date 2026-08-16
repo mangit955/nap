@@ -28,6 +28,12 @@ opens and closes in a single turn, and a large one is a job that spans six, with
 to decide in advance which it is. **Not NapBench's `Task`**, which is a specification of work to be
 repeated; a job is one actual piece of work being done once. See `docs/adr/0006`.
 
+A job is *working*, *verifying* or *repairing* while it is open, and once closed its phase is how it
+ended: **verified** (checks passed, so the commit is a checkpoint), **unverified** (the turn changed
+no files, so there was nothing to check — not a failure and not a success), **exhausted** (three
+repairs spent with checks still red) or **abandoned** (the turn it was riding on was cancelled or
+refused). `foldJobs` in `@nap/shared` is the one function that decides all of it.
+
 **Verification** — what the system finds, as against what the model claims. A turn that changed the
 workspace is committed and then checked: the project's own checks, cheapest first, stopping at the
 first failure. Passing makes the commit a **checkpoint**; failing opens a repair turn carrying the
@@ -39,7 +45,8 @@ failure and the gap is load-bearing in both directions: a project with no `test`
 failed its tests, and treating a missing script as a failure would put every fresh project into a
 repair loop it cannot leave. Which checks exist is discovered from the project rather than declared
 by the model. Owned by `@nap/verify` and shared with NapBench, which adds scoring metadata to it —
-see the NapBench **Check** entry, and `docs/adr/0007`.
+see the NapBench **Check** entry, and `docs/adr/0007`. The passed/failed/absent triple itself sits
+one layer lower still, in `@nap/shared`, because `verification.completed` carries it into the log.
 
 **Checkpoint** — a *verified* commit, and the answer to "is this project in a valid state right
 now", which is `HEAD == last checkpoint` rather than a judgement anybody renders. Distinct from a
@@ -73,7 +80,9 @@ seconds. The state a project spends most of its life in.
 *running*, *put away* or *failed*. Reconciles three sources that each know something the others
 cannot — the record, the log, and a request in flight — in a fixed precedence. One function decides
 it (`projects/project-phase.ts`); every pane draws it. Not to be confused with the record's own
-`status` column, which is one of its inputs.
+`status` column, which is one of its inputs — nor with a **Job**'s phase, which answers a different
+question about a different thing: this one is whether the project is *running*, that one is how far
+the work has got.
 
 **Snapshot** — the archived filesystem of a put-away project; what a restore rebuilds from.
 

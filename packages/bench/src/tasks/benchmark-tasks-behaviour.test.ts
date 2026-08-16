@@ -12,7 +12,7 @@
  * tasks are authored and verified without the Playwright adapter existing.
  */
 
-import type { CheckOutcome } from "@nap/verify/check-outcome";
+import type { CheckOutcome } from "@nap/shared/check-outcome";
 import { describe, expect, it } from "vitest";
 import type { AccessibilityCheck } from "../accessibility-check.ts";
 import type { BrowserCheck } from "../browser-check.ts";
