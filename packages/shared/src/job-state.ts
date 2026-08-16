@@ -133,6 +133,12 @@ export function foldJobs(events: readonly StoredEvent[]): SessionJobs {
     // is the one half of "is this project in a valid state".
     if (event.type === "job.checkpointed") {
       checkpointSha = event.payload.commitSha;
+      // A checkpoint is a commit that verification agreed with, so it is also evidence that a
+      // commit happened — evidence a window opening between the `turn.completed` that made it
+      // and this event would otherwise lack. Without this, a verified project read from that
+      // window reports HEAD as having diverged from a checkpoint it is sitting on. Only ever
+      // fills a gap: a later commit still moves HEAD off it.
+      headSha ??= event.payload.commitSha;
       continue;
     }
 
@@ -200,11 +206,18 @@ function toJobState(tally: Tally): JobState {
 /**
  * What a job's events add up to.
  *
- * `job.completed` wins wherever it exists, because whether a job is open is the one thing about
- * a job that must never be guessed — it is what decides whether opening the project spends
- * tokens continuing it. Everything below that line is derivation, and exists for the log that
- * stops abruptly: a process killed after its last verification should come back as a job that
- * has been checked, not as one still waiting for checks that have already run.
+ * `job.completed` wins wherever it exists: it is the runtime saying how the job ended, and the
+ * rest of this function is only for the log that stops before it was written. What that
+ * derivation may and may not conclude is the careful part.
+ *
+ * It may conclude a job is **open**, freely — that is the safe direction, since continuing a
+ * job that had nothing left to do costs one fold and no tokens.
+ *
+ * It may conclude a job is **closed** in exactly two cases, and both are ones where the log
+ * already contains the answer the job existed to get: a verification that came back green, and
+ * a verification that came back red with no attempts left to spend on it. Neither can be turned
+ * into more work by continuing it, so calling them closed guesses nothing — the job.completed
+ * that a crash swallowed would have said the same thing. Anything short of those two stays open.
  */
 function phaseOf(tally: Tally, attemptsUsed: number): JobPhase {
   if (tally.outcome !== undefined) return tally.outcome;
@@ -212,6 +225,10 @@ function phaseOf(tally: Tally, attemptsUsed: number): JobPhase {
   // as the previous round's verdict, which is a stale answer wearing a current one's clothes.
   if (tally.started > tally.completed) return "verifying";
   if (tally.completed === 0) return "working";
+  // Nothing red. Checks that were *absent* land here too, and deliberately: a project with no
+  // test script has not failed its tests (docs/adr/0002), and calling that unfinished would put
+  // every project without a full complement of scripts into a repair loop it cannot leave. What
+  // was and was not actually run is on `checks` for anything that wants to say so out loud.
   if (!tally.red) return "verified";
   return attemptsUsed < MAX_REPAIR_ATTEMPTS ? "repairing" : "exhausted";
 }

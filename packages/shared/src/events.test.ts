@@ -266,9 +266,9 @@ describe("the case table covers the union", () => {
   it("has one case per event type, with no duplicates and none missing", () => {
     const covered = CASES.map((c) => c.type);
     expect(new Set(covered).size).toBe(covered.length);
-    expect(CASES).toHaveLength(18);
+    expect(CASES).toHaveLength(NapEventSchema.options.length);
 
-    // Fails to compile if a 19th member is added to the union without a case here.
+    // Fails to compile if a new member is added to the union without a case here.
     const _exhaustive: (typeof CASES)[number]["type"] = null as unknown as NapEvent["type"];
     void _exhaustive;
   });

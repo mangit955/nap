@@ -1,4 +1,4 @@
-import type { NapEvent, NapEventType } from "@nap/shared/events";
+import { type NapEvent, NapEventSchema, type NapEventType } from "@nap/shared/events";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { describe, expect, it } from "vitest";
 import { buildTranscript, type TranscriptItem } from "./transcript.ts";
@@ -108,13 +108,23 @@ describe("the treatment table covers the union", () => {
   it("has one case per event type the transcript draws", () => {
     const covered = CASES.map((c) => c.type);
     expect(new Set(covered).size).toBe(covered.length);
-    expect(new Set([...covered, ...DRAWN_ELSEWHERE]).size).toBe(18);
+    expect(new Set([...covered, ...DRAWN_ELSEWHERE]).size).toBe(NapEventSchema.options.length);
 
-    // Fails to compile if a 19th member is added to the union without a case here or a place
+    // Fails to compile if a new member is added to the union without a case here or a place
     // in `DRAWN_ELSEWHERE`.
     const _exhaustive: (typeof CASES)[number]["type"] | (typeof DRAWN_ELSEWHERE)[number] =
       null as unknown as NapEventType;
     void _exhaustive;
+  });
+
+  it("lets nothing but a job event out of the treatment table", () => {
+    // Otherwise the list above is an escape hatch: anything moved into it keeps both the count
+    // and the compile check green while rendering nowhere at all, which is the exact failure
+    // this table exists to catch. Only the job strip's own events may sit there.
+    for (const type of DRAWN_ELSEWHERE) {
+      expect(type).toMatch(/^(job|verification)\./);
+      expect(CASES.map((c) => c.type)).not.toContain(type);
+    }
   });
 
   it.each(CASES)("folds $type into something renderable", ({ type, payload }) => {

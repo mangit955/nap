@@ -302,9 +302,9 @@ describe("every event type survives the round trip", () => {
   it("covers the whole union", () => {
     const covered = PAYLOADS.map((p) => p.type);
     expect(new Set(covered).size).toBe(covered.length);
-    expect(PAYLOADS).toHaveLength(18);
+    expect(PAYLOADS).toHaveLength(NapEventSchema.options.length);
 
-    // Fails to compile if a 19th member is added to the union without a fixture here.
+    // Fails to compile if a new member is added to the union without a fixture here.
     const _exhaustive: (typeof PAYLOADS)[number]["type"] = null as unknown as NapEvent["type"];
     void _exhaustive;
   });

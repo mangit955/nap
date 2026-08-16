@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { NapEvent, VerifiedCheck } from "./events.ts";
+import type { JobOutcome, NapEvent, VerifiedCheck } from "./events.ts";
 import { foldJobs, isJobOpen, MAX_REPAIR_ATTEMPTS, openJob } from "./job-state.ts";
 import type { StoredEvent } from "./ports/event-store.ts";
 
@@ -43,7 +43,7 @@ const checkpoint = (jobId: string, commitSha: string) => ({
   type: "job.checkpointed" as const,
   payload: { jobId, commitSha },
 });
-const closed = (jobId: string, outcome: string) => ({
+const closed = (jobId: string, outcome: JobOutcome) => ({
   type: "job.completed" as const,
   payload: { jobId, outcome },
 });
@@ -103,6 +103,16 @@ describe("foldJobs", () => {
     expect(state.jobs[0]?.phase).toBe("verified");
     expect(isJobOpen(state.jobs[0]!)).toBe(false);
     expect(openJob(state)).toBeUndefined();
+  });
+
+  it("counts a verification that found nothing to run as passing", () => {
+    // The all-absent case, decided rather than fallen into. A project with no scripts has not
+    // failed anything (docs/adr/0002), and the opposite answer would leave every such project
+    // in a repair loop no repair can close. `checks` is right there for a reader that wants to
+    // say "nothing was checked" out loud rather than "verified".
+    const state = foldJobs(log(started(JOB_A), verifying(JOB_A), verified(JOB_A, ABSENT)));
+    expect(state.jobs[0]?.phase).toBe("verified");
+    expect(state.jobs[0]?.checks).toEqual([ABSENT]);
   });
 
   it("prefers what the log says a job closed as over what the checks imply", () => {
@@ -249,6 +259,21 @@ describe("foldJobs on a partial log", () => {
       log(verifying(JOB_A), verified(JOB_A, FAILED), closed(JOB_A, "verified")),
     );
     expect(state.jobs).toEqual([]);
+  });
+
+  it("does not report a diverged HEAD from a window that opens on the checkpoint", () => {
+    // A window beginning between the commit and the checkpoint that blessed it. The commit is
+    // outside it, so nothing else says HEAD exists — and answering "no" would tell someone
+    // sitting on a verified project that it needs repairing.
+    const state = foldJobs(log(checkpoint(JOB_A, "abc123")));
+    expect(state.headSha).toBe("abc123");
+    expect(state.atCheckpoint).toBe(true);
+  });
+
+  it("still moves HEAD off a checkpoint when a later turn commits", () => {
+    const state = foldJobs(log(checkpoint(JOB_A, "abc123"), committed("def456")));
+    expect(state.headSha).toBe("def456");
+    expect(state.atCheckpoint).toBe(false);
   });
 
   it("still reports the checkpoint from a window that opens mid-job", () => {

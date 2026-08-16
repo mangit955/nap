@@ -1,4 +1,4 @@
-import type { NapEvent, NapEventType } from "@nap/shared/events";
+import { type NapEvent, NapEventSchema, type NapEventType } from "@nap/shared/events";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -125,13 +125,22 @@ describe("every event type has a visual treatment", () => {
   it("covers the whole union, between this pane and the strip", () => {
     const covered = TREATMENTS.map((t) => t.type);
     expect(new Set(covered).size).toBe(covered.length);
-    expect(new Set([...covered, ...DRAWN_ELSEWHERE]).size).toBe(18);
+    expect(new Set([...covered, ...DRAWN_ELSEWHERE]).size).toBe(NapEventSchema.options.length);
 
-    // Fails to compile if a 19th member is added to the union without a treatment here or a
+    // Fails to compile if a new member is added to the union without a treatment here or a
     // place in `DRAWN_ELSEWHERE`.
     const _exhaustive: (typeof TREATMENTS)[number]["type"] | (typeof DRAWN_ELSEWHERE)[number] =
       null as unknown as NapEventType;
     void _exhaustive;
+  });
+
+  it("lets nothing but a job event out of the treatment table", () => {
+    // The list is otherwise an escape hatch: a type moved into it renders nowhere while both
+    // the count and the compile check stay green, which is what this table exists to catch.
+    for (const type of DRAWN_ELSEWHERE) {
+      expect(type).toMatch(/^(job|verification)\./);
+      expect(TREATMENTS.map((t) => t.type)).not.toContain(type);
+    }
   });
 
   it.each(TREATMENTS)("renders $type", ({ type, payload, shows }) => {
