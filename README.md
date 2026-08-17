@@ -27,6 +27,9 @@ Most of the engineering below exists to make those three things true.
   into the composer, let the tool calls stream in the transcript, and stop once the preview
   goes live. Save as docs/demo.gif and replace this comment with:
   ![Nap building a todo app](docs/demo.gif)
+
+  It has a second home: apps/web/src/docs/how-nap-works.tsx opens with the same recording and
+  carries the same note. One recording, both holes — fill them together or they will drift.
 -->
 
 ---
@@ -77,16 +80,14 @@ API server (Hono on Bun)                  ← API Gateway/BFF + Session Service 
 ```
 
 A thin vertical slice through all five planes. Each component owns one thing, and the boundaries are
-the point:
+the point: `Runtime` owns the turn lifecycle and never owns prompt content; `ContextEngine` owns the
+token budget and never calls the model; `AgentService` drives one turn's model loop and never
+touches persistence or git; `SandboxManager` knows nothing about agents or turns; `EventStore`
+appends before `EventBus` fans out. The dependency direction between packages is enforced by
+`test/architecture.ts` rather than by discipline, at both the manifest and the import.
 
-| Component | Owns | Never does |
-|---|---|---|
-| `Runtime` | The turn lifecycle: acquire sandbox → build context → run agent → persist → publish → commit → snapshot → photograph. Budgets, cancellation, recovery. | Prompt content, model params, tool implementations |
-| `ContextEngine` | Assembling context and owning the token budget and truncation order | Calling the model; deciding when a turn ends |
-| `AgentService` | Driving the model loop for one turn; executing tools; emitting typed events | Persistence, git, sandbox lifecycle, prompt assembly |
-| `LLMProvider` | Model policy — effort, thinking config, retries, usage accounting | Vendor abstraction; deciding which models a caller may reach |
-| `SandboxManager` | Sandbox lifecycle, filesystem, exec, preview URL | Knowing what an agent or a turn is |
-| `EventStore` / `EventBus` | Durable append, **then** fanout — in that order | Business logic |
+**The full table — every component, what it owns and what it must never do — is on the
+[docs page](https://nap-tawny.vercel.app/docs#architecture), with the package graph beside it.**
 
 ## Decisions worth defending
 
@@ -96,6 +97,21 @@ Publishing first is faster, and it means a client can see an event that a crash 
 which the browser and the database disagree and nothing can say which is right. Because the order is
 fixed, catching up is a single question: everything after `seq`. A reconnect an hour later is the
 same operation as a reconnect a second later.
+
+**A completed turn is a claim, not a fact.** A model announcing it is finished is evidence, not a
+finding, so a turn that changed files is committed and then checked against the project's own
+checks — discovered from the project rather than declared by the agent. Passing makes that commit a
+*checkpoint*; failing opens a repair turn carrying the failure, which is an ordinary turn and so
+inherits budgets, cancellation and event ordering without any of them being rebuilt. A failed
+verification cannot corrupt the last known-good state, by construction rather than by care.
+[The loop in full →](https://nap-tawny.vercel.app/docs#verification)
+
+**A job outlives the turn that started it, and has no table behind it.** What was asked, how far it
+has got and what has been verified are a fold over the session's events — the same events the
+transcript is folded from — so there is one source of truth and resuming is replaying. A trivial
+request is a job that opens and closes in one turn; a large one spans six, with nothing having had
+to decide in advance which it was.
+[Phases and bounds →](https://nap-tawny.vercel.app/docs#durable-jobs)
 
 **An idle project is snapshotted, not paused.** Keeping a sandbox alive so a project stays openable
 means paying for a machine nobody is using — so the reaper commits the workspace, bundles the git
@@ -114,7 +130,7 @@ than disabling built-ins, because there is no toggle to get wrong. It is also wh
 unattended agent something you can walk away from: there is no reachable filesystem but its own.
 
 **The dependency direction is enforced by a test, not by discipline.**
-`runtime → {context, agent, sandbox, storage, capture, db} → shared`, checked in
+`runtime → {context, agent, sandbox, storage, capture, db, verify} → shared`, checked in
 `test/architecture.ts`. Adding an import that violates it fails `bun run test`; adding a new
 workspace package fails the test until you declare its rule. `agent` imports the `SandboxManager`
 *interface* and never the E2B adapter, which is what makes swapping E2B for Kubernetes a
@@ -210,8 +226,8 @@ The same three gates run on pre-commit and in CI on every push.
 ## Layout
 
 ```
-packages/  shared  db  sandbox  storage  capture  agent  context  runtime
-apps/      web (Next.js)   api (Hono, on Bun)
+packages/  shared  db  sandbox  storage  capture  agent  context  runtime  verify  bench
+apps/      web (Next.js)   api (Hono, on Bun)   napbench (the benchmark CLI)
 ```
 
 Bun is the package manager, script runner and the API's runtime. Vitest stays the test runner —
@@ -237,6 +253,9 @@ different claim from a roadmap:
 
 ## More
 
+- **[The docs page](https://nap-tawny.vercel.app/docs)** — how it works and why it is built this
+  way, at length: the event model, durable jobs, verification and repair, sandboxes and snapshots,
+  and how the agent is measured. This README states the consequences; that states the mechanisms.
 - [`docs/PLAN.md`](docs/PLAN.md) — the v1 spec, locked decisions and full task list
 - [`docs/GOTCHAS.md`](docs/GOTCHAS.md) — the hard-won constraints, grouped by area, each one written
   down because it cost a session

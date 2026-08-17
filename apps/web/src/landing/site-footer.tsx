@@ -28,6 +28,15 @@ export function SiteFooter() {
           <p className="text-[var(--s-text-subtle)] text-xs">
             Built on E2B, OpenRouter, Bun and Postgres.
           </p>
+          {/* One inline link, not a column. The argument above is against four headings over one
+              link each — it is not against the second link this page has anywhere to send
+              somebody, at the end of the scroll where the bar has long gone. */}
+          <a
+            href="/docs"
+            className="text-[var(--s-text-muted)] text-xs transition-colors hover:text-[var(--s-text-primary)] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--s-text-primary)]"
+          >
+            Docs
+          </a>
           <GithubButton />
         </div>
       </div>

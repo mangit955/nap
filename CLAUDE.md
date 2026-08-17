@@ -15,8 +15,15 @@ Nap is a Lovable-style AI app builder: the user describes an app in chat, an age
 | `docs/NAPBENCH.md` | *How the agent is measured* — the benchmark's architecture, scoring, how to add a task, what needs a sandbox or a browser | Before touching `packages/bench` or `apps/napbench`, or quoting a score |
 | `docs/napbench-*.md` | *What funded runs found* — one write-up per run that spent money, each recording something no dry run could have caught | Before spending on a real benchmark run, or quoting one |
 | `docs/adr/` | *What was decided and why* — choices expensive to reverse | The ADRs touching whatever you are about to change |
+| `apps/web/src/docs/` | *What the public is told about how it works* — the `/docs` page, eight sections over the same ground as the README | Before changing any mechanism a reader was promised, or adding architecture prose to `README.md` |
 
 Keep each fact in exactly one of these. This file must never restate a task spec — link to `docs/PLAN.md` §4 instead.
+
+**`README.md` and `/docs` divide one subject and must not both explain it.** The README states
+*consequences* — what the system does for somebody deciding whether to care — and links onward.
+`apps/web/src/docs/` states *mechanisms*, and **specific numbers live only there**: the repair
+bound, the category weights, the ceilings. Nothing enforces this, so it is worth reading twice
+before adding a paragraph to either.
 
 ## Commands
 
