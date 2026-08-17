@@ -387,3 +387,10 @@ before/after measurement of the verification loop: the `hard` suite, n=3 per arm
 against on, model held fixed. Worth reading for the two ways the experiment failed rather than for
 its number — the control arm ceilinged, and the loop turned out to be blind to the only check that
 broke, for the same reason the first funded run found and by the same route the fakes cannot reach.
+
+[`napbench-luna-remeasurement.md`](napbench-luna-remeasurement.md) is the same experiment re-run
+on the model the tasks were calibrated against, after the template gained the `typecheck` script.
+It confirms the loop now arbitrates that check on real projects, and is otherwise a record of why
+the measurement still cannot be taken: the run that separated the two arms failed only browser
+checks while building and typechecking clean, so the loop was blind to it as well. Twelve funded
+runs across both measurements have fired zero repair turns.

@@ -135,5 +135,10 @@ and close the gap between what `@nap/verify` discovers and what the template dec
   `nap-vite-react` was republished (build `ae11c9f7`) and the integration case that runs
   `bun run typecheck` inside a real sandbox passed against the new image. Projects created from
   the older image keep the old manifest in their git history and stay blind until recreated.
-- Re-run the measurement on `gpt-5.6-luna`, which the tasks were calibrated against and which
-  leaves the headroom this pairing did not have. Six runs is roughly $0.02 at that rate.
+- ~~Re-run the measurement on `gpt-5.6-luna`, which the tasks were calibrated against and which
+  leaves the headroom this pairing did not have. Six runs is roughly $0.02 at that rate.~~
+  **Done, $0.0153 — see [`napbench-luna-remeasurement.md`](napbench-luna-remeasurement.md).**
+  `luna` does separate the task (SD 27.3 against `terra`'s 0.0), and the loop does now arbitrate
+  `typecheck`. The measurement still failed: the run that separated the arms built and typechecked
+  clean while failing five browser checks, so the loop was blind to that one too, and no repair
+  turn fired in either measurement.
