@@ -24,12 +24,11 @@
  */
 
 import type { ReactNode } from "react";
-import { NapMark } from "../brand/nap-mark.tsx";
 import { Capabilities } from "./capabilities.tsx";
 import { ClosingCta } from "./closing-cta.tsx";
-import { GithubButton } from "./github-button.tsx";
 import { HowItWorks } from "./how-it-works.tsx";
 import { SiteFooter } from "./site-footer.tsx";
+import { SiteHeader } from "./site-header.tsx";
 
 export type AuthState = "pending" | "signed-out";
 
@@ -37,36 +36,23 @@ export function Landing({ auth, hero }: { auth: AuthState; hero: ReactNode }) {
   return (
     <div className="ai-stage-ink relative flex min-h-dvh flex-col bg-[var(--s-surface-1)]">
       {/*
-        Drawn over the hero rather than above it: a header in the normal flow would put a strip
-        above the stage, and the stage is meant to be the first thing on the page. It scrolls away
-        with everything else — the closing band is what offers the way in again.
+        Drawn over the hero rather than above it, which is why the positioning is passed in here
+        rather than living in the bar: the stage is meant to be the first thing on the page. It
+        scrolls away with everything else — the closing band is what offers the way in again.
       */}
-      <header className="absolute inset-x-0 top-0 z-30 flex h-14 items-center justify-between px-6">
-        {/* `data-no-trail` on each end rather than the bar: the bar is the width of the page,
-            and the hero's badge trail is welcome to the empty middle of it. */}
-        <span
-          data-no-trail
-          className="flex items-center gap-0.5 font-semibold text-[var(--s-text-primary)] text-sm tracking-tight"
-        >
-          <NapMark className="size-10" />
-          nap
-        </span>
-
-        {/* Left of Sign in, so the way *into* the product stays last, nearest the corner the eye
-            lands on. */}
-        <span data-no-trail className="flex items-center gap-4">
-          <GithubButton />
-
-          {auth === "signed-out" && (
+      <SiteHeader
+        className="absolute inset-x-0 top-0"
+        wayIn={
+          auth === "signed-out" ? (
             <a
               href="/sign-in"
               className="text-[var(--s-text-muted)] text-xs transition-colors hover:text-[var(--s-text-primary)] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--s-text-primary)]"
             >
               Sign in
             </a>
-          )}
-        </span>
-      </header>
+          ) : undefined
+        }
+      />
 
       <main className="flex flex-1 flex-col">
         {hero}

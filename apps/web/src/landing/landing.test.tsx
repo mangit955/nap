@@ -48,6 +48,28 @@ describe("the repository link", () => {
   });
 });
 
+describe("the way into the docs", () => {
+  it("is offered from the bar", () => {
+    show("signed-out");
+
+    expect(bar().getByRole("link", { name: /^docs$/i })).toHaveAttribute("href", "/docs");
+  });
+
+  it("is offered again at the foot of the page, where the bar has long gone", () => {
+    show("signed-out");
+    const footer = within(screen.getByRole("contentinfo"));
+
+    expect(footer.getByRole("link", { name: /^docs$/i })).toHaveAttribute("href", "/docs");
+  });
+
+  it("is there before the session resolves, because it is right either way", () => {
+    // Same argument as the repository link: nothing about the docs depends on who is asking.
+    show("pending");
+
+    expect(bar().getByRole("link", { name: /^docs$/i })).toBeInTheDocument();
+  });
+});
+
 describe("the frame", () => {
   it("has exactly one main landmark", () => {
     show("signed-out");

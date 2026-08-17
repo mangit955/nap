@@ -34,10 +34,15 @@ describe("the footer", () => {
     expect(screen.getAllByRole("contentinfo")).toHaveLength(1);
   });
 
-  it("links to the repository rather than to columns of pages that do not exist", () => {
+  it("offers the two places there are to go, rather than columns of pages that do not exist", () => {
+    // The count is the assertion, not the links: the rule this footer is written to is that it
+    // has somewhere to send people or it has nothing, never four headings over one link each.
+    // It grew a second link when there was a second destination, and should not grow a third
+    // without one.
     render(<SiteFooter />);
 
-    expect(screen.getAllByRole("link")).toHaveLength(1);
+    expect(screen.getAllByRole("link")).toHaveLength(2);
     expect(screen.getByRole("link", { name: /star on github/i })).toHaveAttribute("href", REPO_URL);
+    expect(screen.getByRole("link", { name: /^docs$/i })).toHaveAttribute("href", "/docs");
   });
 });
