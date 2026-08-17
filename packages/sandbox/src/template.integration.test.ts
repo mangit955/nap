@@ -93,9 +93,9 @@ it("type-checks, so the starter app is not merely present but valid", async () =
 it("reaches that typecheck through a script, the only spelling verification can find", async () => {
   // The verifier discovers checks by reading scripts out of `package.json` and runs them by
   // name; it never reaches for a binary. So the case above passing proves the starter app is
-  // valid, and proves nothing about whether the loop can ever ask. Three funded runs reported
-  // `verified` on code `tsc --noEmit` rejected, because `build` is Vite and Vite does not
-  // typecheck — see docs/napbench-verification-measurement.md.
+  // valid, and proves nothing about whether the loop can ever ask. Every verification-arm run of
+  // the measurement reported `verified` on code `tsc --noEmit` rejected, because `build` is Vite
+  // and Vite does not typecheck — see docs/napbench-verification-measurement.md.
   //
   // Running the script rather than reading it: the shebang path is the risk. `bunx tsc` is
   // already known to fail here, and `bun run typecheck` reaching the same binary through

@@ -137,9 +137,9 @@ export const MY_TASK = defineTask({
     {
       id: "typecheck",
       kind: "command",
-      // The binary, not a package script: the template has no `lint` or `typecheck` script,
-      // and a check that cannot pass on an untouched template measures the harness rather
-      // than the agent. See docs/napbench-first-real-run.md — this cost a funded run to learn.
+      // The binary, not a package script: a script is a file the agent under test can edit,
+      // and a grader that asks a project how it should be graded is not grading it. The
+      // template's scripts have already moved once for this reason — see the bullet below.
       command: `cd ${PROJECT_ROOT_PATH} && bunx tsc --noEmit`,
       category: "code",
     },
@@ -199,10 +199,13 @@ Things worth knowing when writing one:
   `bunx tsc --noEmit` are both commands and only the first is functional. An accessibility audit
   defaults to `code` rather than `browser`: it needs a browser to run, but what it measures is
   the quality of the markup that was written, not whether the application behaves when driven.
-- **Run your command against an untouched template before trusting it.** The template's scripts
-  are `dev`, `build` and `preview` — there is no `lint` and no `typecheck`, so `bun run lint`
-  fails on every run for every model while looking like a code-quality measurement. The guard is
-  `apps/napbench/src/task-commands.integration.test.ts`.
+- **Run your command against an untouched template before trusting it, and do not assume its
+  scripts.** They are `dev`, `typecheck`, `build` and `preview` today; there is still no `lint`,
+  and there was no `typecheck` either until the verification loop needed one. A check spelled
+  `bun run lint` fails on every run for every model while looking like a code-quality
+  measurement — which is what a funded run cost to learn (`docs/napbench-first-real-run.md`).
+  That the list moved afterwards is the second reason a task invokes the binary instead. The
+  guard is `apps/napbench/src/task-commands.integration.test.ts`.
 - **`required: true`** fails the run outright regardless of the score. **`build: true`** does that
   *and* caps the overall score at 40, because an application that does not compile cannot be
   three-quarters good.
