@@ -18,11 +18,19 @@ import { z } from "zod";
 import type { TokenUsage } from "./metrics.ts";
 
 /**
- * Bumped whenever a price changes, and recorded in every estimate.
+ * Bumped whenever the table below changes at all, and recorded in every estimate.
  *
  * Prices move, and a comparison between a report from today and one from six months ago is a
  * comparison of two tables unless the reader can see they were the same. Dated rather than
  * numbered so the version answers "when was this true" without a changelog.
+ *
+ * **Membership counts as a change, not just a rate.** Two reports carrying different versions
+ * mean the table differed somehow — a repriced model, or a model one of them had never heard
+ * of — and not necessarily that anything either report priced moved. The looser reading is the
+ * safe one: it makes the version a name for the table's contents, so a version can always be
+ * resolved to exactly one table, which is the property somebody reading an archived report a
+ * year from now actually needs. Tying it to rates alone would leave two different tables
+ * sharing a name, and no way to tell from the report which one produced the figure.
  */
 export const PRICE_TABLE_VERSION = "2026-08-17";
 
@@ -43,9 +51,10 @@ export type ModelPrice = z.infer<typeof ModelPriceSchema>;
 export const MODEL_PRICES = {
   // The debug model, from the figures recorded in PROGRESS.md when the harness was costed.
   "openai/gpt-5.6-luna": { inputPerMTokUsd: 0.1, outputPerMTokUsd: 0.6 },
-  // The measurement model: strong enough to attempt the hard suite, cheap enough to run six
-  // times. Read from OpenRouter's own model listing on the date in the version below, which
-  // is the rate the before/after arms were actually billed at.
+  // The measurement model: strong enough to attempt the hard suite, cheap enough to run it
+  // repeatedly. Read from OpenRouter's own model listing on the date the version above carries,
+  // which is the rate the funded before/after arms were quoted — not one anybody read off a
+  // bill, since nothing here ever does. See docs/napbench-verification-measurement.md.
   "openai/gpt-5.6-terra": { inputPerMTokUsd: 1, outputPerMTokUsd: 6 },
   // The demo model. Anthropic's published first-party rate; OpenRouter's own margin on top
   // is not modelled, which is one more reason the figure is called an estimate.

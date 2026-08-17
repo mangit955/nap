@@ -21,7 +21,8 @@ from the existing event stream).
 ```bash
 bun run napbench landing-page              # one task, on fakes — free, offline, scores meaningless
 bun run napbench --suite=all               # the four benchmark tasks, serially, same fakes
-bun run napbench --suite=hard              # the tasks built to separate two models
+bun run napbench --suite=hard              # built to separate two models — but see the write-up:
+                                           # a strong enough model clears it 3/3 with no spread
 bun run napbench --suite=smoke             # the tracer task alone: "is the machinery joined up?"
 
 bun run napbench --real --suite=all        # real E2B, a real model, a real browser. Spends money.
@@ -377,3 +378,9 @@ six checks, one of which fails, and every figure in it decomposes.
 the finding that mattered most, which is that the first suite's `code` category could not have been
 earned by any model, because every task ran a `lint` script the template does not have. No dry run
 could have caught it: the in-memory sandbox answers an unscripted command with a success.
+
+[`napbench-verification-measurement.md`](napbench-verification-measurement.md) is the funded
+before/after measurement of the verification loop: the `hard` suite, n=3 per arm, verification off
+against on, model held fixed. Worth reading for the two ways the experiment failed rather than for
+its number — the control arm ceilinged, and the loop turned out to be blind to the only check that
+broke, for the same reason the first funded run found and by the same route the fakes cannot reach.
