@@ -75,8 +75,9 @@ Two ways to get this wrong, both quiet:
 
 - **`NAP_WEB_ORIGIN` must match the browser's origin exactly** — no trailing slash, and
   `https`. CORS compares it verbatim, and a mismatch reads as "the API is down".
-- **An empty variable is not an unset one.** `NAP_CHROME_PATH=` fails boot with
-  *"expected string to have >=1 characters"*. Leave optional variables out entirely.
+- **An empty variable is not an unset one.** `GITHUB_CLIENT_ID=` fails boot with
+  *"expected string to have >=1 characters"*. Leave optional variables out entirely — including
+  `NAP_CHROME_PATH`, which the image sets and a blank platform variable would shadow.
 
 The two origins refer to each other, so the first deployment is circular: deploy the API,
 take its domain to Vercel, then come back and set `NAP_WEB_ORIGIN` and redeploy.
@@ -174,9 +175,24 @@ for a 200 first. On Luna it costs a few cents.
 decides to restart or de-register a process, and neither helps when the thing that is down
 is Postgres. Read the body, not the status.
 
+## Screenshots
+
+The dashboard's cards are pictures of the apps themselves, taken at the end of the last turn
+that changed each one. That needs a browser in the image, so `Dockerfile` installs Debian's
+`chromium` and sets **`NAP_CHROME_PATH=/usr/bin/chromium` itself**. Do not set it as a Railway
+variable: the binary and the path to it are one fact, and a variable can drift from the image
+that has to satisfy it.
+
+It costs about a gigabyte of image — chromium is ~370MB and drags in mesa and libllvm for a GPU
+stack it never uses. Runtime memory only moves while a capture is in flight, which is a second
+or two per turn on the one replica, but it is the reason this was off at first.
+
+**A missing browser is not an error anywhere.** Capture returns a typed failure, the turn
+succeeds regardless, the thumbnail route 404s and each card falls back to a colour hashed from
+its project id. So the way to tell which state you are in is the boot line: `bun`'s log at
+startup carries `screenshots: "on" | "off"`. If it says `off`, the image lost its Chromium —
+nothing else will tell you, because every layer below is designed to shrug.
+
 ## Things that are not deployed, deliberately
 
-- **Screenshots.** `NAP_CHROME_PATH` is unset, so the dashboard's cards show a colour
-  hashed from the project id instead of a picture. Turning it on means installing Chromium
-  in the image and roughly doubling its memory ceiling.
 - **The integration suite.** It spends real money and stays a manual, local step.
