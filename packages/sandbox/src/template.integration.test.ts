@@ -90,6 +90,22 @@ it("type-checks, so the starter app is not merely present but valid", async () =
   expect(result.exitCode).toBe(0);
 });
 
+it("reaches that typecheck through a script, the only spelling verification can find", async () => {
+  // The verifier discovers checks by reading scripts out of `package.json` and runs them by
+  // name; it never reaches for a binary. So the case above passing proves the starter app is
+  // valid, and proves nothing about whether the loop can ever ask. Three funded runs reported
+  // `verified` on code `tsc --noEmit` rejected, because `build` is Vite and Vite does not
+  // typecheck — see docs/napbench-verification-measurement.md.
+  //
+  // Running the script rather than reading it: the shebang path is the risk. `bunx tsc` is
+  // already known to fail here, and `bun run typecheck` reaching the same binary through
+  // `node_modules/.bin` is a different resolution that only a real sandbox can settle.
+  const result = await run("bun run typecheck 2>&1");
+
+  expect(result.stdout).not.toContain("Script not found");
+  expect(result.exitCode).toBe(0);
+});
+
 it("starts from exactly one commit, with nothing left uncommitted", async () => {
   const log = await run("git log --oneline");
   const status = await run("git status --porcelain");
