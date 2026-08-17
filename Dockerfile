@@ -10,6 +10,25 @@ FROM oven/bun:1.3.13-slim
 
 WORKDIR /app
 
+# Chromium, so finished turns get photographed and the dashboard's cards are pictures of real
+# apps rather than a colour hashed from the project id.
+#
+# Debian's `chromium` rather than a download: `puppeteer-core` ships no browser on purpose (see
+# packages/capture), and apt gives us one that is patched by somebody else and comes with the
+# shared libraries it needs already resolved. `fonts-liberation` is not optional decoration —
+# without any font at all every screenshot is a page of empty boxes, which looks precisely like
+# a broken app.
+#
+# Before `COPY . .` so a code change does not reinstall a browser on every deploy.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends chromium fonts-liberation \
+  && rm -rf /var/lib/apt/lists/*
+
+# Set here rather than as a platform variable, because the binary and the path to it are two
+# halves of one fact and this image is where both live. A Railway variable could drift from the
+# image that has to satisfy it; this cannot.
+ENV NAP_CHROME_PATH=/usr/bin/chromium
+
 # The whole workspace, because the API imports eight sibling packages by source and a
 # per-package copy would be a list to forget to update.
 COPY . .
@@ -17,7 +36,8 @@ COPY . .
 # `--ignore-scripts` is load-bearing: the root `prepare` script runs `lefthook install`, which
 # needs a git repository and a git hooks directory. Neither exists in an image, so without
 # this the install fails outright. Nothing installed here has a postinstall step that matters
-# at runtime — puppeteer-core downloads no browser, and this image deliberately has none.
+# at runtime — puppeteer-core downloads no browser, and the one this image has came from apt
+# above, so nothing needs a second copy.
 RUN bun install --frozen-lockfile --ignore-scripts
 
 # Devdependencies come along for the ride. Pruning them would save a little space and risk
