@@ -131,8 +131,9 @@ and close the gap between what `@nap/verify` discovers and what the template dec
   declares `"typecheck": "tsc --noEmit"`, so discovery finds it and the loop arbitrates it.
   Discovery itself is unchanged — a script nobody declared stays *absent* rather than falling back
   to a binary, which keeps that word meaning what `discover-checks.ts` says it means. `lint` is
-  still absent and honestly so: the template ships no linter. **The fix is not live until the
-  template image is rebuilt** (`bun run template:build`), and projects created before that keep the
-  old manifest.
+  still absent and honestly so: the template ships no linter. **Live as of 2026-08-17**, when
+  `nap-vite-react` was republished (build `ae11c9f7`) and the integration case that runs
+  `bun run typecheck` inside a real sandbox passed against the new image. Projects created from
+  the older image keep the old manifest in their git history and stay blind until recreated.
 - Re-run the measurement on `gpt-5.6-luna`, which the tasks were calibrated against and which
   leaves the headroom this pairing did not have. Six runs is roughly $0.02 at that rate.
