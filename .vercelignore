@@ -1,17 +1,23 @@
 # What not to upload to Vercel. The CLI uploads the whole workspace — the web app imports
 # `@nap/shared` by source, so `apps/web` alone would not build — and without this that
 # includes a gigabyte of `node_modules` and a local `.next`, which exceeds the upload limit.
-node_modules
+#
+# **Every pattern here is anchored — `/name` for one at the repository root, `**/name` for one
+# meant at any depth — and `test/deploy-ignore.ts` fails the build if one is not.** A bare name is
+# the recursive form in this syntax, and that is almost never what is meant here: bare `docs`
+# excluded `apps/web/src/docs` and `apps/web/src/app/docs` along with the root `docs/`, which
+# deleted the `/docs` route on its way to Vercel. Nothing failed. The route and everything it
+# imported went missing together, so there was no unresolved import to error on, and the header
+# that links to it is not under a `docs/` path and shipped fine — the site built green and served
+# a 404 on a page whose own links were live.
 **/node_modules
-.next
 **/.next
-.turbo
 **/.turbo
 
 # The API's business, not the browser's.
-Dockerfile
-.dockerignore
-railway.json
-infra
-test
-docs
+/Dockerfile
+/.dockerignore
+/railway.json
+/infra
+/test
+/docs
