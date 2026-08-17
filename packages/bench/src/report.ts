@@ -143,7 +143,7 @@ export const BenchReportSchema = z
     /** The configured vector, so the effective one above can be recomputed and checked. */
     weights: CategoryWeightsSchema,
     /**
-     * What this run was *held at* — the model, and the turn's ceilings.
+     * What this run was *held at* — the model, the turn's ceilings, and which Nap produced it.
      *
      * The one field here that defaults rather than being required, and it is the exception the
      * archive earns: reports written before it existed must still parse, or the tool stops

@@ -91,7 +91,16 @@ describe("parseNapBenchArgs", () => {
       budgetTokens: 90_000,
       repeat: 3,
       keep: true,
+      verify: true,
     });
+  });
+
+  it("arbitrates what a turn claims unless --no-verify is given", () => {
+    // The other default that decides what is being measured rather than merely how it prints:
+    // a suite silently run without the loop would be reported as a measurement of the harness
+    // that ships, and would not be one.
+    expect(parsedRun("todo-crud").verify).toBe(true);
+    expect(parsedRun("--no-verify", "todo-crud").verify).toBe(false);
   });
 
   it("refuses an unknown flag rather than ignoring it", () => {

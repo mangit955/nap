@@ -47,6 +47,9 @@ export const NAPBENCH_USAGE = [
   "  --repeat=<n>            Run each task n times, reporting the spread (default 1). On a",
   "                          real run this multiplies the cost by n.",
   "  --keep                  Leave each sandbox running instead of destroying it",
+  "  --no-verify             Do not arbitrate a turn's claim: commit it and believe it, as v1",
+  "                          did. The control arm of a before/after measurement, and recorded",
+  "                          on every report it produces.",
   "",
   "  --baseline=<ref>        Compare two finished runs instead of running anything. Each",
   "  --candidate=<ref>       reference is a run id or a path to a report. Two runs, not three.",
@@ -90,6 +93,16 @@ export type NapBenchRun = {
    */
   repeat: number;
   keep: boolean;
+  /**
+   * Whether the runtime arbitrates what its turns claim.
+   *
+   * True unless asked otherwise, because the harness under measurement is the one that ships.
+   * Its reason for existing is that a measurement of the verification loop needs an arm without
+   * it, and building that arm out of an older checkout would vary every commit in between
+   * rather than the one thing being measured. Recorded on the report either way — see the
+   * harness identity in `run-configuration.ts`.
+   */
+  verify: boolean;
 };
 
 /**
@@ -125,6 +138,7 @@ const RUN_ONLY_FLAGS = [
   "budget-tokens",
   "repeat",
   "keep",
+  "no-verify",
 ] as const;
 
 const KNOWN_FLAGS = new Set<string>([...RUN_ONLY_FLAGS, "baseline", "candidate"]);
@@ -188,6 +202,7 @@ export function parseNapBenchArgs(argv: readonly string[]): Result<NapBenchComma
       budgetTokens: budgetTokens.value,
       repeat: repeat.value,
       keep: flags.has("keep"),
+      verify: !flags.has("no-verify"),
     },
   };
 }

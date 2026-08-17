@@ -203,6 +203,21 @@ export type SingleAgentRuntimeOptions = {
    * is captured.
    */
   capture?: PageCapture;
+  /**
+   * Whether a completed turn's claim is arbitrated, or simply believed. Defaults to arbitrating.
+   *
+   * **This exists for one caller and it is not a deployment.** NapBench measures a difference by
+   * running the same tasks with the loop and without it, and an arm that could only be built by
+   * checking out an older Nap would differ from the other arm in every commit between them
+   * rather than in the one thing being measured (docs/adr/0004, and the harness identity on the
+   * report). `trust` *is* v1's behaviour: the turn commits, and the job closes `unverified`,
+   * which is the same word a turn that changed nothing already closes with — no claim about the
+   * code was arbitrated, and it must not read as a pass.
+   *
+   * Two words rather than a boolean, so that neither value can be arrived at by a stray `false`
+   * and so that reading a composition tells you which one it asked for.
+   */
+  verification?: "arbitrate" | "trust";
   /** Injected so a test can assert on whole events rather than on everything but the clock. */
   now?: () => string;
   /** Injected for the same reason: a turn id a test can predict. */
@@ -819,6 +834,10 @@ export class SingleAgentRuntime implements Runtime {
    * a commit against which nothing ran. The job ends *abandoned* instead — the sandbox went
    * away, and a repair turn on that asks a model to fix a machine it cannot see.
    *
+   * **A composition that was asked to `trust` never gets here at all**, in the sense that it
+   * returns on the first branch below: the job closes unverified, exactly as v1's turns ended.
+   * See `verification` on the options for why that switch exists.
+   *
    * **A red verification leaves the job open**, at `repairing`, and is the one path that writes
    * no `job.completed`: it returns the check that said no, for the caller to prompt a repair
    * turn with. Nothing here reverts — the broken code stays committed, because the attempt that
@@ -841,7 +860,10 @@ export class SingleAgentRuntime implements Runtime {
     const { scope, jobId, sandboxId, commitSha, announce } = options;
     const { sink, emit } = scope;
 
-    if (commitSha === null) {
+    // Nothing to arbitrate against, either because the turn made no claim about the code or
+    // because this composition was asked not to arbitrate at all. Both close the job
+    // *unverified*, which is the word for a job whose code no check ever looked at.
+    if (commitSha === null || this.#options.verification === "trust") {
       emit("job.completed", { jobId, outcome: "unverified" });
       await sink.drain();
       return null;

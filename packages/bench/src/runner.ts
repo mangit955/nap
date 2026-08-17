@@ -35,7 +35,7 @@ import { type CategoryWeights, DEFAULT_CATEGORY_WEIGHTS } from "./category.ts";
 import { applyGates, type BrowserUnavailable, type GateInput } from "./gates.ts";
 import { deriveRunMetrics } from "./metrics.ts";
 import type { BenchReport, CheckResult } from "./report.ts";
-import type { TurnBudgetRecord } from "./run-configuration.ts";
+import type { HarnessRecord, TurnBudgetRecord } from "./run-configuration.ts";
 import { scoreRun } from "./score.ts";
 import {
   type CapturedScreenshot,
@@ -136,6 +136,16 @@ export type BenchRunnerDeps = {
    */
   budget?: TurnBudgetRecord | undefined;
   /**
+   * Which Nap is being measured, recorded on the report as what produced it.
+   *
+   * Passed in for the same reason the budget is: this package cannot see a git checkout any
+   * more than it can see the agent's defaults, and whoever composed the run is the only thing
+   * that knows both the sha it is running at and whether it wired verification up.
+   *
+   * Absent leaves it unrecorded, which is what a run from outside a checkout honestly is.
+   */
+  harness?: HarnessRecord | undefined;
+  /**
    * The clock, injectable so a screenshot's timestamp is assertable rather than merely a string.
    *
    * The only clock this package reads, and it is read for one field: `capturedAt` is a fact about
@@ -220,7 +230,11 @@ export async function runBenchTask(
         score: verdict.score,
         categories: scored.categories,
         weights,
-        configuration: { model: deps.model ?? null, budget: deps.budget ?? null },
+        configuration: {
+          model: deps.model ?? null,
+          budget: deps.budget ?? null,
+          harness: deps.harness ?? null,
+        },
         checks,
         metrics: deriveRunMetrics(events, { model: deps.model }),
         screenshots,

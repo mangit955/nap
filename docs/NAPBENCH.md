@@ -50,6 +50,7 @@ mistyped on a paid run and silently use the default.
 | `--budget-tokens=<n>` | Context budget per turn. |
 | `--repeat=<n>` | Run each task n times and report the spread per task. Multiplies a real run's cost by n. |
 | `--keep` | Leave each sandbox running instead of destroying it. Billed until destroyed. |
+| `--no-verify` | Do not arbitrate what a turn claims — commit it and believe it, as v1 did. The control arm of a before/after measurement, and recorded on every report it produces. |
 | `--baseline=` / `--candidate=` | Compare two finished runs. Reads reports; runs nothing. |
 
 Exit code answers *did the benchmark run*, not *did the agent do well*: a low score exits 0, and a
@@ -307,6 +308,16 @@ is only meaningful relative to the categories that produced it. It also refuses 
 tasks, and runs held at different **turn budgets** — `budget_exceeded` counts against the agent, so
 that attribution is only honest while the ceiling is fixed. It does *not* refuse two runs of
 different models, which is what it is for. Two runs, never three.
+
+**A differing harness is reported, never refused.** Every report records a *harness identity* — the
+commit Nap was running at, whether that tree was modified, and whether verification was on — because
+ADR-0004 fixed the frame as the model with Nap held fixed, and V2 moves Nap. By the letter of the
+rule above a differing harness belongs with the weight vector; it is deliberately not, because
+comparing two Naps is the question V2 asks, and refusing it would refuse the only comparison the
+identity was recorded for while stranding the whole pre-V2 archive as well. So `compare` prints the
+two identities above the numbers they explain, and says plainly that what moved is not only the
+model's doing. An absent identity is *unrecorded* rather than *none*, and never reads as a
+difference — the same rounding the turn budget uses, for the same reason.
 
 ---
 

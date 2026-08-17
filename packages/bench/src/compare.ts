@@ -21,6 +21,16 @@
  * fixed — so it applies to unscored runs too, which is exactly where an error kind is the whole
  * finding. See docs/adr/0004.
  *
+ * **A differing harness is reported and never refused, and that is a decision.** By the letter
+ * of the rule above it belongs with the weight vector: two runs produced by different Naps are
+ * not two measurements of one thing either. But comparing two Naps is the *question* V2 asks —
+ * refusing it would refuse the only comparison the harness identity was recorded for, and would
+ * additionally strand every report from before verification existed. So the difference is put
+ * where a reader cannot miss it and the arithmetic proceeds: what a differing harness corrupts
+ * is the *interpretation*, and a reader who has been told which two Naps produced these numbers
+ * is equipped to do that themselves. The other two are not like this — nobody ever wants a
+ * comparison across two weight vectors.
+ *
  * Two runs, and exactly two. Comparing three is a different tool with a different shape — a
  * table rather than a diff — and is explicitly out of scope for v1.
  */
@@ -31,7 +41,13 @@ import { CATEGORIES, type Category } from "./category.ts";
 import type { ErrorKind } from "./error-kind.ts";
 import type { RunMetrics } from "./metrics.ts";
 import type { BenchReport } from "./report.ts";
-import { budgetsDiffer, describeTurnBudget } from "./run-configuration.ts";
+import {
+  budgetsDiffer,
+  describeHarness,
+  describeTurnBudget,
+  type HarnessRecord,
+  harnessesDiffer,
+} from "./run-configuration.ts";
 import { carriesScore, type RunStatus } from "./status.ts";
 
 /** How one side of the comparison ended, which is all a comparison needs of a report's head. */
@@ -91,10 +107,25 @@ export type MetricComparison = {
   turnDurationMs?: MetricDelta;
 };
 
+/**
+ * Which Nap produced each side, and whether they were the same one.
+ *
+ * Always present, including when both sides are unrecorded: "were these the same Nap" has an
+ * answer on every comparison, and it is a different answer from "nobody recorded which Nap this
+ * was" — which is precisely the distinction the two nullable fields carry.
+ */
+export type HarnessComparison = {
+  baseline: HarnessRecord | null;
+  candidate: HarnessRecord | null;
+  /** Known to be two different Naps. False for two runs nobody can tell apart — see `harnessesDiffer`. */
+  differs: boolean;
+};
+
 export type RunComparison = {
   taskId: string;
   baseline: RunSide;
   candidate: RunSide;
+  harness: HarnessComparison;
   /** Null when either side has no score, since a delta from nothing is not a delta. */
   scoreDelta: number | null;
   categories: CategoryDelta[];
@@ -141,6 +172,7 @@ export function compareRuns(
       taskId: baseline.taskId,
       baseline: sideOf(baseline),
       candidate: sideOf(candidate),
+      harness: compareHarnesses(baseline, candidate),
       scoreDelta,
       categories: compareCategories(baseline, candidate),
       checks: compareChecks(baseline, candidate),
@@ -176,6 +208,15 @@ function budgetRefusal(baseline: BenchReport, candidate: BenchReport): string | 
     "comparison holds fixed, and an agent that exhausted the smaller one is not evidence " +
     "about the model."
   );
+}
+
+/** Which Nap each side was produced by, and whether they are known to be different ones. */
+function compareHarnesses(baseline: BenchReport, candidate: BenchReport): HarnessComparison {
+  return {
+    baseline: baseline.configuration.harness,
+    candidate: candidate.configuration.harness,
+    differs: harnessesDiffer(baseline.configuration.harness, candidate.configuration.harness),
+  };
 }
 
 /**
@@ -407,8 +448,21 @@ export function formatComparison(comparison: RunComparison): string {
   const lines = [
     "",
     `${comparison.taskId} — ${short(comparison.baseline.runId)} → ${short(comparison.candidate.runId)}`,
-    `  overall      ${arrow(comparison.baseline.score, comparison.candidate.score, comparison.scoreDelta)}`,
   ];
+
+  // Above the numbers rather than below them, because it is the thing that decides how they are
+  // read: a score that moved between two Naps is not the same finding as one that moved between
+  // two runs of one Nap, and a reader who learns that afterwards has already drawn a conclusion.
+  if (comparison.harness.differs) {
+    lines.push(
+      `  harness      ${describeHarness(comparison.harness.baseline)} → ` +
+        `${describeHarness(comparison.harness.candidate)}`,
+    );
+  }
+
+  lines.push(
+    `  overall      ${arrow(comparison.baseline.score, comparison.candidate.score, comparison.scoreDelta)}`,
+  );
 
   for (const category of comparison.categories) {
     lines.push(
@@ -434,6 +488,15 @@ export function formatComparison(comparison: RunComparison): string {
 
   const route = describeRoute(comparison.metrics);
   if (route !== null) lines.push(`  route ${route}`);
+
+  if (comparison.harness.differs) {
+    lines.push(
+      "",
+      "These runs were produced by different Naps, so what moved above is not only the model's",
+      "doing. That is a comparison worth making — it is the one V2 exists to make — but it is not",
+      "the same claim as two runs of one harness, and nothing here can tell the two apart for you.",
+    );
+  }
 
   if (comparison.sameScoreDifferentRoute) {
     lines.push(

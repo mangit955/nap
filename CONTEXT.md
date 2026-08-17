@@ -205,6 +205,16 @@ before it was recorded, which is *unrecorded* rather than *none*: a comparison r
 at different budgets and deliberately does not refuse one it cannot tell about, because the second
 rule would make the whole archive incomparable. See `docs/adr/0004`.
 
+**Harness identity** — which Nap produced a run: the commit it was running at, whether that tree was
+modified, and whether verification was on. Part of the run configuration, because ADR-0004 fixed the
+frame as *the model, with Nap held fixed* and V2 moves Nap — without it, comparing a pre- and
+post-verification run repeats the configuration-versus-consumption collapse one level up. **This
+word collides, twice over**: NapBench is itself "the evaluation harness", and `bun run harness`
+drives one turn. Here it is the *system under test*, named from the outside; the three keep their
+names rather than one being renamed. Unrecorded on a report written before V2 and on any run from
+outside a checkout, which is never read as a difference. A **Comparison** reports a differing
+harness and, alone among the things it can see differ, does not refuse one.
+
 **Run** — one execution of one task against one configuration, from a fresh session to a scored
 report. The unit that has an id, a status, a score and a trajectory. **This is the word that
 collides.** A NapBench *run* contains a Nap *session*, which contains one or more Nap *turns* — a
@@ -261,7 +271,8 @@ renormalisation means a score is only meaningful relative to the categories that
 *configured* vector deliberately does not decide, since reweighting a category neither run scored
 renormalises to the same vector and those runs are comparable. Refusal is skipped when either run
 has no score: there is no number there to reprice, and refusing would make an errored run
-incomparable with everything, which is when its counterpart is most worth reading.
+incomparable with everything, which is when its counterpart is most worth reading. A differing
+**Harness identity** is the one difference it reports rather than refuses.
 
 **Check movement** — what happened to one check between the two runs: *fixed*, *broken*, *changed*,
 *unchanged*, *added* or *removed*. `changed` is the one that earns its place: a check that went

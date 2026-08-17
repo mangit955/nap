@@ -67,7 +67,10 @@ beforeEach(() => {
   sessions = new InMemorySessionStore([{ sessionId: SESSION_ID, projectId: PROJECT_ID }]);
 });
 
-const run = (script: AgentScript = () => completedTurn(COMMIT_SHA)) =>
+const run = (
+  script: AgentScript = () => completedTurn(COMMIT_SHA),
+  verification: "arbitrate" | "trust" = "arbitrate",
+) =>
   new SingleAgentRuntime({
     sessions,
     sandbox,
@@ -78,6 +81,7 @@ const run = (script: AgentScript = () => completedTurn(COMMIT_SHA)) =>
     events,
     bus: new InMemoryEventBus(),
     memory: new NoopMemoryProvider(),
+    verification,
   }).runTurn({ sessionId: SESSION_ID, message: "add a delete button" });
 
 async function loggedTypes(): Promise<NapEventType[]> {
@@ -205,6 +209,47 @@ describe("a turn that changed nothing", () => {
     const state = await jobs();
     expect(state.jobs.at(-1)).toMatchObject({ phase: "unverified", checks: [] });
     expect(state.checkpointSha).toBeNull();
+  });
+});
+
+describe("a composition asked to trust its turns", () => {
+  // The benchmark's control arm, and nothing else: it is v1's behaviour, kept reachable so that
+  // the two arms of a before/after measurement differ in the loop rather than in every commit
+  // between two checkouts. What it must not do is look like a pass.
+  it("commits, checks nothing, and closes the job unverified", async () => {
+    passingChecks();
+
+    await run(undefined, "trust");
+
+    expect(await loggedTypes()).toEqual([
+      "user.message",
+      "job.started",
+      "preview.ready",
+      "turn.started",
+      "turn.completed",
+      "job.completed",
+    ]);
+    expect(await checkCommands()).toEqual([]);
+
+    const state = await jobs();
+    expect(state.jobs.at(-1)).toMatchObject({ phase: "unverified", checks: [] });
+    expect(state.headSha).toBe(COMMIT_SHA);
+    // Nothing agreed with this commit, so it is not a checkpoint. A trusted turn that quietly
+    // checkpointed would make "is this project valid" answer yes on the strength of nothing.
+    expect(state.checkpointSha).toBeNull();
+    expect(state.atCheckpoint).toBe(false);
+  });
+
+  it("never repairs, because nothing ever says no", async () => {
+    sandbox.script(/bun run typecheck/, { exitCode: 2, stderr: "error TS2304" });
+
+    await run(undefined, "trust");
+
+    const types = await loggedTypes();
+    expect(types).not.toContain("verification.started");
+    expect(types).not.toContain("verification.completed");
+    // One turn, and one only: a repair turn is prompted by a failed check, and no check ran.
+    expect(types.filter((type) => type === "turn.started")).toHaveLength(1);
   });
 });
 
