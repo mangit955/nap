@@ -20,3 +20,7 @@ next-env.d.ts
 .DS_Store
 .vercel
 .env*
+
+# Local scratch notes. Kept out of the tree so a benchmark run can record a clean
+# checkout — a funded number is only quotable if the report says which Nap produced it.
+.scratch/

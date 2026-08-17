@@ -24,7 +24,7 @@ import type { TokenUsage } from "./metrics.ts";
  * comparison of two tables unless the reader can see they were the same. Dated rather than
  * numbered so the version answers "when was this true" without a changelog.
  */
-export const PRICE_TABLE_VERSION = "2026-08-14";
+export const PRICE_TABLE_VERSION = "2026-08-17";
 
 export const ModelPriceSchema = z.strictObject({
   inputPerMTokUsd: z.number().nonnegative(),
@@ -36,13 +36,17 @@ export type ModelPrice = z.infer<typeof ModelPriceSchema>;
 /**
  * Per-million-token prices, by the model id this repository spells models with.
  *
- * Only the two models Nap actually runs on. A table of everything OpenRouter offers would be
+ * Only the models Nap actually runs on. A table of everything OpenRouter offers would be
  * a maintenance burden whose entries were never checked against a bill, and the failure mode
  * of a stale price nobody uses is that somebody eventually does.
  */
 export const MODEL_PRICES = {
   // The debug model, from the figures recorded in PROGRESS.md when the harness was costed.
   "openai/gpt-5.6-luna": { inputPerMTokUsd: 0.1, outputPerMTokUsd: 0.6 },
+  // The measurement model: strong enough to attempt the hard suite, cheap enough to run six
+  // times. Read from OpenRouter's own model listing on the date in the version below, which
+  // is the rate the before/after arms were actually billed at.
+  "openai/gpt-5.6-terra": { inputPerMTokUsd: 1, outputPerMTokUsd: 6 },
   // The demo model. Anthropic's published first-party rate; OpenRouter's own margin on top
   // is not modelled, which is one more reason the figure is called an estimate.
   "anthropic/claude-opus-5": { inputPerMTokUsd: 5, outputPerMTokUsd: 25 },

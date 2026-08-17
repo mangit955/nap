@@ -39,6 +39,17 @@ describe("estimateCost", () => {
     expect(dear).toBeGreaterThan(cheap * 10);
   });
 
+  it("prices the model the funded before/after measurement was taken on", () => {
+    // The hard suite's two arms were bought on this one, and a report from a funded run
+    // carrying no cost figure is the one place the gap actually costs something: the whole
+    // point of that measurement is a number somebody can quote, price included.
+    const price = MODEL_PRICES["openai/gpt-5.6-terra"];
+
+    expect(estimateCost("openai/gpt-5.6-terra", MILLION)?.usd).toBe(
+      price.inputPerMTokUsd + price.outputPerMTokUsd,
+    );
+  });
+
   it("returns nothing for a model the table does not price", () => {
     // Not zero, and not a guess from a similar model: a confident wrong figure in an
     // archived report is worse than a gap somebody can see.
