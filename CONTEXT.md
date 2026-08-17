@@ -87,6 +87,16 @@ socket, one `seq`, many derived views. Distinct from the `EventStore`, which is 
 the log is one reader's copy of them. In the browser it is `useSessionLog`, and there is one per
 workspace — a second one is two clients that can disagree about what the newest event was.
 
+**Transcript** — the conversation a reader sees, folded from a session log. Much shorter than the
+log it comes from, because one tool call, everything it printed, the files it touched and how it
+ended are four kinds of event and a single thing on screen. **A derived view and never state**: it
+is recomputed from the log every frame and nothing is ever written into it, which is why joining
+mid-turn, reloading the page and watching from a second tab all land on the same picture without
+anything having to be reconciled. Its speakers are the user, the agent and the **verifier**, which
+is a fact about the log rather than a third party to the conversation. `chat/transcript.ts` in
+`apps/web` is the fold; a second view over the same log is another fold, not another copy. See
+`docs/adr/0008`.
+
 **Sandbox** — the isolated machine a project's code is written into and served from. Reclaimable at
 any time, by the reaper or by the provider's own timer, which is why no view may treat "there is a
 `preview.ready` in the log" as "something is running".
