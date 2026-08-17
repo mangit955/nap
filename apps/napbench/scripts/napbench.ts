@@ -58,6 +58,7 @@ import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-m
 import { loadEnvFile } from "@nap/shared/env-file";
 import type { LLMProvider } from "@nap/shared/ports/llm-provider";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
+import { gitAt, harnessIdentity } from "../src/harness-identity.ts";
 import { loadBenchReport } from "../src/load-report.ts";
 import { launchPlaywrightBrowser } from "../src/playwright-browser-session.ts";
 import { resolveResultsDir } from "../src/results-dir.ts";
@@ -97,6 +98,16 @@ const options = command;
  * would explain nothing about a turn that hit the other one.
  */
 const turnBudget = { maxSteps: options.maxSteps, maxTokens: DEFAULT_MAX_TOKENS };
+
+/**
+ * Which Nap these runs are of, resolved once and recorded on every report they produce.
+ *
+ * Read here for the same reason the budget is resolved here: the two facts it carries live on
+ * opposite sides of the package boundary — the sha is in a checkout `@nap/bench` cannot see, and
+ * whether the loop runs is decided twenty lines below, in the runtime this script composes.
+ * Null when there is no checkout to identify, which reads as unrecorded.
+ */
+const harness = harnessIdentity({ git: gitAt(REPO_ROOT), verification: options.verify });
 
 // Resolved before anything is created, so a mistyped task id costs a sentence rather than a
 // sandbox.
@@ -244,7 +255,11 @@ if (options.real) {
       `${options.repeat === 1 ? "" : ` (${tasks.length} task(s) × ${options.repeat})`}` +
       `, serially, on ${model} via ` +
       `${options.platform} at ${options.effort} effort, ${options.maxSteps} steps max, ` +
-      `${options.budgetTokens} context tokens, on real E2B sandboxes. This costs money.\n`,
+      `${options.budgetTokens} context tokens, ` +
+      // Named in the banner because it decides what is being measured rather than what it
+      // costs: a paid suite run without the loop is a control arm, and finding that out
+      // afterwards from the report is finding it out too late.
+      `verification ${options.verify ? "on" : "off"}, on real E2B sandboxes. This costs money.\n`,
   );
 
   sandbox = new E2BSandboxManager({ template: NAP_TEMPLATE });
@@ -307,6 +322,7 @@ for (const { task, pass } of scheduled) {
       weights: DEFAULT_CATEGORY_WEIGHTS,
       model: pricedModel,
       budget: turnBudget,
+      harness: harness ?? undefined,
     });
   } catch (error) {
     // NapBench's own crash. Recorded as an `evaluator` error rather than allowed to abort the
@@ -322,7 +338,7 @@ for (const { task, pass } of scheduled) {
         metrics: deriveRunMetrics(await events.readFrom(sessionId, 0), { model: pricedModel }),
         // A crash is one of the runs somebody most wants to reproduce, and the configuration
         // is exactly what they would otherwise have to guess at.
-        configuration: { model: pricedModel ?? null, budget: turnBudget },
+        configuration: { model: pricedModel ?? null, budget: turnBudget, harness },
       }),
     );
   }
@@ -364,6 +380,10 @@ function composeRuntime(
     events,
     bus: new InMemoryEventBus(),
     memory: new NoopMemoryProvider(),
+    // The measured difference, and the one the report's harness identity records: `trust` is
+    // v1's behaviour, kept reachable so a before/after run varies the loop rather than a
+    // checkout. See `--no-verify`.
+    verification: options.verify ? "arbitrate" : "trust",
   });
 }
 

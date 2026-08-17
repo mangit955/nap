@@ -255,6 +255,7 @@ describe("compareRuns and the budget the runs were held at", () => {
   const budget = (maxSteps: number) => ({
     model: "openai/gpt-5.6-luna",
     budget: { maxSteps, maxTokens: 400_000 },
+    harness: null,
   });
 
   it("refuses two runs held at different ceilings", () => {
@@ -319,13 +320,102 @@ describe("compareRuns and the budget the runs were held at", () => {
 
   it("does not refuse two runs of different models, which is the whole point", () => {
     const [baseline, candidate] = pair(
-      { configuration: { model: "openai/gpt-5.6-luna", budget: { maxSteps: 40, maxTokens: 1 } } },
       {
-        configuration: { model: "anthropic/claude-opus-5", budget: { maxSteps: 40, maxTokens: 1 } },
+        configuration: {
+          model: "openai/gpt-5.6-luna",
+          budget: { maxSteps: 40, maxTokens: 1 },
+          harness: null,
+        },
+      },
+      {
+        configuration: {
+          model: "anthropic/claude-opus-5",
+          budget: { maxSteps: 40, maxTokens: 1 },
+          harness: null,
+        },
       },
     );
 
     expect(compared(baseline, candidate).scoreDelta).toBe(0);
+  });
+});
+
+describe("compareRuns and which Nap produced each side", () => {
+  const harness = (
+    overrides: Partial<{ commit: string; dirty: boolean; verification: boolean }>,
+  ) => ({
+    model: "openai/gpt-5.6-luna",
+    budget: null,
+    harness: {
+      commit: "9e107d9d372bb6826bd81d3542a419d6c2b0f5a1",
+      dirty: false,
+      verification: true,
+      ...overrides,
+    },
+  });
+
+  it("says when the two sides were produced by different Naps", () => {
+    const [baseline, candidate] = pair(
+      { configuration: harness({ verification: false }) },
+      { configuration: harness({ verification: true }) },
+    );
+
+    const comparison = compared(baseline, candidate);
+
+    expect(comparison.harness.differs).toBe(true);
+    expect(comparison.harness.baseline?.verification).toBe(false);
+    expect(comparison.harness.candidate?.verification).toBe(true);
+  });
+
+  it("compares them anyway — this is the comparison V2 exists to make", () => {
+    // Deliberately unlike the budget and the weight vector, both of which refuse. Refusing here
+    // would refuse the only comparison the harness identity was ever recorded for, and would
+    // strand every report written before verification existed as well.
+    const [baseline, candidate] = pair(
+      { configuration: harness({ commit: "a".repeat(40), verification: false }) },
+      { configuration: harness({ verification: true }) },
+    );
+
+    expect(compareRuns(baseline, candidate).ok).toBe(true);
+    expect(compared(baseline, candidate).scoreDelta).toBe(0);
+  });
+
+  it("does not claim a difference it cannot see", () => {
+    // A pre-V2 report has no harness at all. That is *unrecorded*, and reading it as a
+    // difference would put a caveat on every comparison drawn against the archive.
+    const [baseline, candidate] = pair({}, { configuration: harness({}) });
+
+    expect(compared(baseline, candidate).harness).toStrictEqual({
+      baseline: null,
+      candidate: harness({}).harness,
+      differs: false,
+    });
+  });
+
+  it("puts a differing harness above the numbers it explains, and says what it means", () => {
+    const [baseline, candidate] = pair(
+      { configuration: harness({ verification: false }) },
+      { configuration: harness({ commit: "b".repeat(40), dirty: true }) },
+    );
+
+    const printed = formatComparison(compared(baseline, candidate));
+    const [harnessLine, overallLine] = printed
+      .split("\n")
+      .filter((line) => /harness|overall/.test(line));
+
+    expect(harnessLine).toContain("9e107d9d, verification off");
+    expect(harnessLine).toContain("bbbbbbbb (modified), verification on");
+    expect(overallLine).toContain("overall");
+    expect(printed).toContain("different Naps");
+  });
+
+  it("says nothing about the harness when the two sides cannot be told apart", () => {
+    const [baseline, candidate] = pair(
+      { configuration: harness({}) },
+      { configuration: harness({}) },
+    );
+
+    expect(formatComparison(compared(baseline, candidate))).not.toMatch(/harness/i);
   });
 });
 

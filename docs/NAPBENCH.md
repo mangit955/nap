@@ -21,7 +21,8 @@ from the existing event stream).
 ```bash
 bun run napbench landing-page              # one task, on fakes — free, offline, scores meaningless
 bun run napbench --suite=all               # the four benchmark tasks, serially, same fakes
-bun run napbench --suite=hard              # the tasks built to separate two models
+bun run napbench --suite=hard              # built to separate two models — but see the write-up:
+                                           # a strong enough model clears it 3/3 with no spread
 bun run napbench --suite=smoke             # the tracer task alone: "is the machinery joined up?"
 
 bun run napbench --real --suite=all        # real E2B, a real model, a real browser. Spends money.
@@ -50,6 +51,7 @@ mistyped on a paid run and silently use the default.
 | `--budget-tokens=<n>` | Context budget per turn. |
 | `--repeat=<n>` | Run each task n times and report the spread per task. Multiplies a real run's cost by n. |
 | `--keep` | Leave each sandbox running instead of destroying it. Billed until destroyed. |
+| `--no-verify` | Do not arbitrate what a turn claims — commit it and believe it, as v1 did. The control arm of a before/after measurement, and recorded on every report it produces. |
 | `--baseline=` / `--candidate=` | Compare two finished runs. Reads reports; runs nothing. |
 
 Exit code answers *did the benchmark run*, not *did the agent do well*: a low score exits 0, and a
@@ -62,13 +64,21 @@ Everything a run produces — reports, trajectories, screenshots and their sidec
 
 ## Architecture
 
-Two units, per [ADR-0001](adr/0001-napbench-splits-into-a-pure-package-and-an-app.md).
+Two units, per [ADR-0001](adr/0001-napbench-splits-into-a-pure-package-and-an-app.md), over a
+shared primitive, per [ADR-0007](adr/0007-the-check-primitive-moves-below-both.md).
 
 **`packages/bench`** is the pure half: tasks, checks, gates, scoring, metrics, reports,
-trajectories, the CLI's argument parsing, suite aggregation and comparison. Its only runtime
-workspace dependency is `@nap/shared`. It is written against ports — `Runtime`, `SandboxManager`,
-`SessionStore`, `EventStore`, `BrowserSession` — which is what lets the whole evaluation be driven
-by a unit test with no network, no model and no database.
+trajectories, the CLI's argument parsing, suite aggregation and comparison. Its runtime workspace
+dependencies are `@nap/shared` and `@nap/verify`. It is written against ports — `Runtime`,
+`SandboxManager`, `SessionStore`, `EventStore`, `BrowserSession` — which is what lets the whole
+evaluation be driven by a unit test with no network, no model and no database.
+
+**`packages/verify`** sits below it, and below the runtime too: the preview probe, the captured
+output of a failed command, and the passed/failed/absent answer. NapBench's `Check` is one of these
+plus a category, a weight and a required flag — the scoring metadata was never part of running the
+check. Nap's own verifier uses the same primitive to arbitrate whether a turn's claim of success
+holds. What must never exist is the reverse edge: the runtime importing the benchmark that grades
+it.
 
 **`apps/napbench`** is the composition root: the Playwright adapter, the real sandbox manager, the
 real model provider, everything that touches a filesystem, and the CLI script. `playwright-core` is
@@ -127,9 +137,9 @@ export const MY_TASK = defineTask({
     {
       id: "typecheck",
       kind: "command",
-      // The binary, not a package script: the template has no `lint` or `typecheck` script,
-      // and a check that cannot pass on an untouched template measures the harness rather
-      // than the agent. See docs/napbench-first-real-run.md — this cost a funded run to learn.
+      // The binary, not a package script: a script is a file the agent under test can edit,
+      // and a grader that asks a project how it should be graded is not grading it. The
+      // template's scripts have already moved once for this reason — see the bullet below.
       command: `cd ${PROJECT_ROOT_PATH} && bunx tsc --noEmit`,
       category: "code",
     },
@@ -189,10 +199,13 @@ Things worth knowing when writing one:
   `bunx tsc --noEmit` are both commands and only the first is functional. An accessibility audit
   defaults to `code` rather than `browser`: it needs a browser to run, but what it measures is
   the quality of the markup that was written, not whether the application behaves when driven.
-- **Run your command against an untouched template before trusting it.** The template's scripts
-  are `dev`, `build` and `preview` — there is no `lint` and no `typecheck`, so `bun run lint`
-  fails on every run for every model while looking like a code-quality measurement. The guard is
-  `apps/napbench/src/task-commands.integration.test.ts`.
+- **Run your command against an untouched template before trusting it, and do not assume its
+  scripts.** They are `dev`, `typecheck`, `build` and `preview` today; there is still no `lint`,
+  and there was no `typecheck` either until the verification loop needed one. A check spelled
+  `bun run lint` fails on every run for every model while looking like a code-quality
+  measurement — which is what a funded run cost to learn (`docs/napbench-first-real-run.md`).
+  That the list moved afterwards is the second reason a task invokes the binary instead. The
+  guard is `apps/napbench/src/task-commands.integration.test.ts`.
 - **`required: true`** fails the run outright regardless of the score. **`build: true`** does that
   *and* caps the overall score at 40, because an application that does not compile cannot be
   three-quarters good.
@@ -300,6 +313,16 @@ tasks, and runs held at different **turn budgets** — `budget_exceeded` counts 
 that attribution is only honest while the ceiling is fixed. It does *not* refuse two runs of
 different models, which is what it is for. Two runs, never three.
 
+**A differing harness is reported, never refused.** Every report records a *harness identity* — the
+commit Nap was running at, whether that tree was modified, and whether verification was on — because
+ADR-0004 fixed the frame as the model with Nap held fixed, and V2 moves Nap. By the letter of the
+rule above a differing harness belongs with the weight vector; it is deliberately not, because
+comparing two Naps is the question V2 asks, and refusing it would refuse the only comparison the
+identity was recorded for while stranding the whole pre-V2 archive as well. So `compare` prints the
+two identities above the numbers they explain, and says plainly that what moved is not only the
+model's doing. An absent identity is *unrecorded* rather than *none*, and never reads as a
+difference — the same rounding the turn budget uses, for the same reason.
+
 ---
 
 ## Metrics
@@ -358,3 +381,9 @@ six checks, one of which fails, and every figure in it decomposes.
 the finding that mattered most, which is that the first suite's `code` category could not have been
 earned by any model, because every task ran a `lint` script the template does not have. No dry run
 could have caught it: the in-memory sandbox answers an unscripted command with a success.
+
+[`napbench-verification-measurement.md`](napbench-verification-measurement.md) is the funded
+before/after measurement of the verification loop: the `hard` suite, n=3 per arm, verification off
+against on, model held fixed. Worth reading for the two ways the experiment failed rather than for
+its number — the control arm ceilinged, and the loop turned out to be blind to the only check that
+broke, for the same reason the first funded run found and by the same route the fakes cannot reach.

@@ -10,6 +10,7 @@
         "@nap/context": "workspace:*",
         "@nap/sandbox": "workspace:*",
         "@nap/shared": "workspace:*",
+        "@nap/verify": "workspace:*",
         "@types/node": "26.1.2",
         "@vitejs/plugin-react": "6.0.5",
         "lefthook": "2.1.10",
@@ -90,6 +91,7 @@
         "zod": "4.4.3",
       },
       "devDependencies": {
+        "@nap/context": "workspace:*",
         "@nap/sandbox": "workspace:*",
       },
     },
@@ -98,6 +100,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@nap/shared": "workspace:*",
+        "@nap/verify": "workspace:*",
         "zod": "4.4.3",
       },
       "devDependencies": {
@@ -140,6 +143,7 @@
         "@nap/sandbox": "workspace:*",
         "@nap/shared": "workspace:*",
         "@nap/storage": "workspace:*",
+        "@nap/verify": "workspace:*",
       },
       "devDependencies": {
         "@nap/agent": "workspace:*",
@@ -169,6 +173,17 @@
       "dependencies": {
         "@aws-sdk/client-s3": "^3.1106.0",
         "@nap/shared": "workspace:*",
+      },
+    },
+    "packages/verify": {
+      "name": "@nap/verify",
+      "version": "0.0.0",
+      "dependencies": {
+        "@nap/shared": "workspace:*",
+        "zod": "4.4.3",
+      },
+      "devDependencies": {
+        "@nap/sandbox": "workspace:*",
       },
     },
   },
@@ -464,6 +479,8 @@
     "@nap/shared": ["@nap/shared@workspace:packages/shared"],
 
     "@nap/storage": ["@nap/storage@workspace:packages/storage"],
+
+    "@nap/verify": ["@nap/verify@workspace:packages/verify"],
 
     "@nap/web": ["@nap/web@workspace:apps/web"],
 

@@ -38,6 +38,18 @@ export class EventSink {
     return this.#terminal;
   }
 
+  /**
+   * Forgets the previous turn's ending, before another turn is run through this sink.
+   *
+   * A job is several turns — the prompt, then up to three repairs — and they share one sink,
+   * because sharing it is what keeps their events on a single append-then-publish chain. Without
+   * this, a repair turn would be read as having ended the moment it started, on the turn before
+   * it, and the loop would arbitrate the same claim twice.
+   */
+  beginTurn(): void {
+    this.#terminal = null;
+  }
+
   readonly emit = (event: PendingEvent): void => {
     this.#chain = this.#chain.then(async () => {
       if (this.#failure !== null) return;

@@ -286,6 +286,14 @@ const app = createApp({
     // The same runtime the turn routes drive: resuming a project and running a turn in it are
     // serialized per session there, which is what stops the two starting two sandboxes.
     runtime,
+    // Opening a project can continue a job a restart left open, which spends tokens — so it is
+    // billed exactly as a turn is, to whoever is standing in front of it.
+    models: {
+      keys: openCallerKey,
+      allowedModels: env.NAP_ALLOWED_MODELS,
+      freeModel: env.NAP_FREE_MODEL,
+      defaultModel: env.NAP_MODEL,
+    },
     // The same store and bus the socket subscribes to, or a close would append `preview.stopped`
     // to a log nobody is listening on.
     events: { events: store, bus },

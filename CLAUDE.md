@@ -6,13 +6,14 @@ Nap is a Lovable-style AI app builder: the user describes an app in chat, an age
 
 | File | Answers | Read it |
 |---|---|---|
-| `docs/PLAN.md` | *What* v1 is; the spec and full task list (§4) | Every session, per its §1 |
+| `docs/PLAN.md` | *What* v1 was; its spec and full task list (§4). Frozen — V2 work is GitHub issues | When touching something v1 built |
 | `CLAUDE.md` (this file) | *How* to work here — commands, conventions, gates | Auto-loaded |
 | `docs/GOTCHAS.md` | *Why* the code is shaped this way — hard-won constraints, per area | The section for whatever you are about to touch |
-| `PROGRESS.md` | *Where* we are — status and deps per task | Every session |
+| `PROGRESS.md` | *Where v1 got to* — status and deps per v1 task, and the running-a-checkout notes. Frozen | For the checkout notes, and v1 history |
 | `docs/DEPLOY.md` | *How it is deployed* — the two services, the one-replica rule, the env list | Before touching anything that runs in production |
 | `CONTEXT.md` | *What things are called* — one concept, one name | Before naming a concept in code, a test or an issue |
 | `docs/NAPBENCH.md` | *How the agent is measured* — the benchmark's architecture, scoring, how to add a task, what needs a sandbox or a browser | Before touching `packages/bench` or `apps/napbench`, or quoting a score |
+| `docs/napbench-*.md` | *What funded runs found* — one write-up per run that spent money, each recording something no dry run could have caught | Before spending on a real benchmark run, or quoting one |
 | `docs/adr/` | *What was decided and why* — choices expensive to reverse | The ADRs touching whatever you are about to change |
 
 Keep each fact in exactly one of these. This file must never restate a task spec — link to `docs/PLAN.md` §4 instead.
@@ -84,11 +85,11 @@ A lefthook pre-commit hook runs `biome check` + `typecheck` + `vitest --changed`
 ## Layout
 
 ```
-packages/  shared  db  sandbox  storage  capture  agent  context  runtime  bench
+packages/  shared  db  sandbox  storage  capture  agent  context  runtime  verify  bench
 apps/      web (Next.js)   api (Hono, runs on Bun)   napbench (the benchmark CLI)
 ```
 
-**Dependency direction, enforced:** `runtime` → {`context`, `agent`, `sandbox`, `storage`, `capture`, `db`} → `shared`.
+**Dependency direction, enforced:** `runtime` → {`context`, `agent`, `sandbox`, `storage`, `capture`, `db`, `verify`} → `shared`.
 `agent` imports the `SandboxManager` *interface*, never the E2B adapter.
 
 `bench` sits beside `shared` rather than above `runtime`: it is NapBench's pure half — tasks,
@@ -96,9 +97,25 @@ scoring, gates, reports — written against ports, and `apps/napbench` is the sh
 real infrastructure behind them. Playwright belongs to that app alone and to nothing that ships.
 See `docs/adr/0001`.
 
-This is enforced by `test/architecture.ts`, not by vigilance — adding a dependency that
-violates it fails `bun run test`. Adding a new workspace package also fails the test until
-you add it to the rule table there.
+`verify` sits *below both* `runtime` and `bench`: running one check against a sandbox and saying
+whether it passed, failed or was never asked. The runtime uses it to arbitrate a turn's claim; the
+benchmark uses it to build a score. The edge that must never exist is `runtime` → `bench` — the
+system under test importing the thing that grades it. See `docs/adr/0007`.
+
+This is enforced by `test/architecture.ts`, not by vigilance, and at both ends: one rule reads
+every package's `package.json`, a second reads the `@nap/*` specifiers its `src` and `scripts`
+actually import — type-only ones included, because Bun hoists workspace packages and an undeclared
+import otherwise resolves, typechecks and ships. Either way `bun run test` goes red. Three things
+hold:
+
+- Every file may only import a package its manifest declares.
+- Shipped source — `src`, minus the tests — may only import what the table above allows, and must
+  have it as a real `dependency`. Tests and `scripts/` answer to the manifest but not the table,
+  which is how sibling packages arrive as devDependencies for their fakes.
+- `@nap/bench` is the exception to that exemption: nothing below `apps/napbench` may import it,
+  tests included. See `docs/adr/0007`.
+
+Adding a new workspace package also fails the test until you add it to the rule table there.
 
 ## Component ownership
 
@@ -106,7 +123,7 @@ Drift here is the most expensive kind of mistake. Before adding code to a compon
 
 | Component | Owns | Never does |
 |---|---|---|
-| `Runtime` | Turn lifecycle: acquire sandbox → build context → run agent → persist → publish → commit → snapshot → photograph. Budgets, cancellation, recovery. | Prompt content, model params, tool implementations |
+| `Runtime` | Turn lifecycle: acquire sandbox → build context → run agent → persist → publish → commit → verify → snapshot → photograph. Budgets, cancellation, recovery. Opening and closing the **job** a turn belongs to, arbitrating the turn's claim against the project's own checks, and continuing a job an open found still open (ADR-0006) | Prompt content, model params, tool implementations. Deciding *which* checks exist or how to run one — that is `@nap/verify`'s. Continuing a job nobody asked to see |
 | `ContextEngine` | Assembling context and owning the token budget + truncation order | Calling the model; deciding when a turn ends |
 | `AgentService` | Driving the model loop for one turn; executing proxy tools; emitting typed events | Persistence, git, sandbox lifecycle, prompt assembly |
 | `LLMProvider` | Model *policy* — effort, thinking config, refusal/fallback, retries, usage accounting — and the default model. A turn may override **two** things through `startTurn({ model, credentials })` and nothing else: which model, and whose account pays. Both are facts about who asked rather than preferences, which is why they vary per turn while everything else here does not | Vendor abstraction — it is *not* a cross-vendor swap. Deciding *which* models are allowed, or which key a caller has: that is the route's, via `resolveTurnAccess` |
@@ -147,30 +164,33 @@ because somebody already lost a session to it.
 
 ## Session protocol
 
+> **Where the task list lives changed after v1.** `docs/PLAN.md` §4 and `PROGRESS.md` are the frozen record of v1 and are no longer added to. V2 work is GitHub issues — a wayfinder map with child tickets, blocked via GitHub's native issue dependencies, so "what is next" is a query rather than a table read by eye. See `docs/agents/issue-tracker.md`.
+
 **Starting:**
 1. `git status` and `git log --oneline -10`.
-2. Read `PROGRESS.md`.
+2. Run the frontier query — the V2 map's open children, dropping any with an open blocker or an assignee, first in map order wins.
 3. Run `bun run test` — **confirm green before starting new work.** If red, fixing it is the session's first task.
-4. Pick the next `TODO` task whose deps are all `DONE`.
-5. Read the `docs/GOTCHAS.md` sections that task touches — nothing loads them for you.
-6. Mark it `IN_PROGRESS` in `PROGRESS.md` and commit that single-line change.
+4. Read the `docs/GOTCHAS.md` sections that ticket touches — nothing loads them for you.
+5. Claim it: `gh issue edit <n> --add-assignee @me`. That is the session's first write, and it replaces the old `IN_PROGRESS` commit.
 
 **Finishing a task:**
 1. `bun run test` and `bun run typecheck` — both must pass.
-2. Mark it `DONE` in `PROGRESS.md`, with a one-line note on anything surprising.
-3. Commit: `feat(<scope>): <task id> <summary>`, tests included.
+2. Commit: `feat(<scope>): <summary>`, tests included. **No task IDs in commit subjects** — issue numbers go in the body as `Closes #<n>`, which is what links them.
+3. Close the issue with a comment on anything surprising, then append a pointer to the map's Decisions-so-far.
 
-**Stopping mid-task:** commit `wip(<scope>): <task id> — <what's left>` and leave the task `IN_PROGRESS` with a "next step" note.
+**Stopping mid-task:** commit `wip(<scope>): <what's left>`, and leave a comment on the issue saying what the next step is. Keep the assignee.
 
 > **Never end a session with uncommitted work.** A future session cannot recover context that exists only in a dirty working tree.
 
 Branch per milestone (`feat/m0-scaffold`, `feat/m1-execution-plane`, …), one commit per completed task.
 
+> **Never end a session with an open working tree and no issue comment.** The two together are the handoff; either alone loses the half a future session needs.
+
 ## Agent skills
 
 ### Issue tracker
 
-Issues live as GitHub issues in `mangit955/nap`, via the `gh` CLI; the v1 task list stays in `docs/PLAN.md` §4 and `PROGRESS.md`. See `docs/agents/issue-tracker.md`.
+Issues live as GitHub issues in `mangit955/nap`, via the `gh` CLI. The v1 task list stays frozen in `docs/PLAN.md` §4 and `PROGRESS.md`; V2 onwards is issues. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 

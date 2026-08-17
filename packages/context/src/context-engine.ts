@@ -18,12 +18,18 @@
  */
 
 import type { NapEvent } from "@nap/shared/events";
-import type { BuiltContext, ContextEngine, ContextRequest } from "@nap/shared/ports/context-engine";
+import type {
+  BuiltContext,
+  ContextEngine,
+  ContextRequest,
+  FailedAttempt,
+} from "@nap/shared/ports/context-engine";
 import type { LLMContentBlock, LLMMessage } from "@nap/shared/ports/llm-provider";
 import type { Memory } from "@nap/shared/ports/memory-provider";
 import { buildFileTreeDigest } from "./file-tree.ts";
+import { renderJobBrief } from "./job-brief.ts";
 import { SYSTEM_PROMPT } from "./system-prompt.ts";
-import { estimateTokens } from "./tokens.ts";
+import { estimateTokens, truncateToTokens } from "./tokens.ts";
 
 /**
  * What a turn is allowed to spend on input.
@@ -218,9 +224,30 @@ export class NapContextEngine implements ContextEngine {
     let turns = toTurns(request.history).slice(-this.#maxTurns);
     let remembered: Memory[] = memories;
     let userMessage = request.userMessage;
+    let attempts: readonly FailedAttempt[] = request.job?.attempts ?? [];
+    /** A ceiling on each quoted failure. Uncapped until the last resort below applies one. */
+    let outputTokens: number | undefined;
+
+    /**
+     * What the model is told about the job, or nothing.
+     *
+     * Nothing on the turn that opens a job, where the objective *is* the message directly
+     * below it — a section that restates the request costs tokens on every opening turn and
+     * tells the model something it has just been told. Compared trimmed, because an objective
+     * is a tidied copy of the message and whitespace is not a difference worth a section.
+     */
+    const brief = (): string =>
+      request.job === undefined ||
+      (attempts.length === 0 && request.job.objective === request.userMessage.trim())
+        ? ""
+        : renderJobBrief({
+            objective: request.job.objective,
+            attempts,
+            ...(outputTokens === undefined ? {} : { outputTokens }),
+          });
 
     const cost = (): number =>
-      estimateTokens(systemPrompt(digest, remembered)) +
+      estimateTokens(systemPrompt(digest, remembered, brief())) +
       messagesTokens(turns.flatMap((turn) => turn.messages)) +
       estimateTokens(userMessage);
 
@@ -230,9 +257,14 @@ export class NapContextEngine implements ContextEngine {
     // the transcript by a wide margin and the least irreplaceable — the model can re-read a
     // file. Whole turns go next, oldest first, because a conversation degrades from the far
     // end. The file listing goes before either of *those* survivors is touched further,
-    // since it is a convenience the agent can rebuild with one tool call. Memories are last
-    // because they are the smallest thing here. The turn's own message is cut only when
-    // nothing else is left.
+    // since it is a convenience the agent can rebuild with one tool call. Memories are next
+    // because they are the smallest thing here.
+    //
+    // What the job is *for* and what its checks last said outlive all of that, and are cut
+    // only in the two steps before the turn's own message. That placement is the design too:
+    // a long repair with a full context is exactly the situation this section exists for, so
+    // dropping it under pressure would degrade the loop precisely where it is needed. Older
+    // failures go before the newest one, and the newest one is shortened rather than removed.
 
     // 1. Elide old tool output, oldest first, keeping the block so the call stays answered.
     for (const turn of turns) {
@@ -256,17 +288,36 @@ export class NapContextEngine implements ContextEngine {
     // 4. Give up retrieved memories.
     if (cost() > this.#budgetTokens) remembered = [];
 
-    // 5. Truncate the turn's own message, so the budget is a guarantee and not a hope.
+    // 5. Give up the older failures, oldest first, always keeping the most recent — that one
+    //    is the failure being repaired right now, and losing it is losing the turn's subject.
+    while (cost() > this.#budgetTokens && attempts.length > 1) {
+      attempts = attempts.slice(1);
+    }
+
+    // 6. Shorten what the surviving failure printed, keeping its tail. A check can print more
+    //    than the whole budget, so a section nothing can shrink would make the budget a wish.
     if (cost() > this.#budgetTokens) {
-      const available = this.#budgetTokens - estimateTokens(systemPrompt(digest, remembered));
-      userMessage = truncateToTokens(userMessage, Math.max(available, 0));
+      // Measured with the quote already gone, so the ceiling is what is left over rather than
+      // what is currently spent — and with the turn's own message still paid for, so shrinking
+      // a quote can never be what silences the instruction the turn is actually carrying.
+      outputTokens = 0;
+      const floor = estimateTokens(systemPrompt(digest, remembered, brief()));
+      outputTokens = Math.max(this.#budgetTokens - floor - USER_MESSAGE_FLOOR_TOKENS, 0);
+    }
+
+    // 7. Truncate the turn's own message, so the budget is a guarantee and not a hope.
+    if (cost() > this.#budgetTokens) {
+      const available =
+        this.#budgetTokens - estimateTokens(systemPrompt(digest, remembered, brief()));
+      // The head: a request states what it wants up front and qualifies it after.
+      userMessage = truncateToTokens(userMessage, Math.max(available, 0), "head");
     }
 
     const messages = [
       ...turns.flatMap((turn) => turn.messages),
       { role: "user", content: [textBlock(userMessage)] } satisfies LLMMessage,
     ];
-    const prompt = systemPrompt(digest, remembered);
+    const prompt = systemPrompt(digest, remembered, brief());
 
     return {
       systemPrompt: prompt,
@@ -282,11 +333,18 @@ export class NapContextEngine implements ContextEngine {
  * Placing the cache breakpoint is the provider's job; leaving it somewhere worth placing is
  * this one's.
  */
-function systemPrompt(digest: string, memories: Memory[]): string {
+function systemPrompt(digest: string, memories: Memory[], job: string): string {
   const sections = [SYSTEM_PROMPT];
 
   if (digest !== "") {
     sections.push(`<project_files>\n${digest}\n</project_files>`);
+  }
+
+  // After the listing rather than before it: within a job the objective does not change and
+  // the failures grow, so putting this first would move the listing on every repair turn and
+  // lose the cached prefix even on the turns where nothing about the project's files changed.
+  if (job !== "") {
+    sections.push(job);
   }
 
   // Absent, not empty, when there is nothing to say — an empty section is a section the
@@ -297,12 +355,4 @@ function systemPrompt(digest: string, memories: Memory[]): string {
   }
 
   return sections.join("\n\n");
-}
-
-function truncateToTokens(text: string, tokens: number): string {
-  if (tokens <= 0) return "";
-  if (estimateTokens(text) <= tokens) return text;
-
-  // Keeps the head: a user's request states what they want up front and qualifies it after.
-  return text.slice(0, tokens * 4);
 }

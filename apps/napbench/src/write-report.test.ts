@@ -20,7 +20,7 @@ const report: BenchReport = {
   turnId: "3f2a1c4e-0000-4000-8000-000000000003",
   status: "passed",
   errorKind: null,
-  configuration: { model: null, budget: null },
+  configuration: { model: null, budget: null, harness: null },
   gates: [],
   scoreCap: null,
   score: 100,
@@ -105,7 +105,7 @@ const trajectory: BenchTrajectory = {
       seq: 1,
       createdAt: "2026-08-14T00:00:00.000Z",
       type: "turn.started",
-      payload: {},
+      payload: { source: "user" },
     },
   ],
 };

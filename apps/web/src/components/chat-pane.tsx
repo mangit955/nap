@@ -8,6 +8,7 @@ import { useApiKey } from "../account/use-api-key.ts";
 import { NapMark } from "../brand/nap-mark.tsx";
 import { ChatInput } from "../chat/chat-input.tsx";
 import { ChatTranscript } from "../chat/chat-transcript.tsx";
+import { JobStrip } from "../chat/job-strip.tsx";
 import { groupSteps } from "../chat/step-group.ts";
 import { buildTranscript, type TranscriptItem } from "../chat/transcript.ts";
 import { TranscriptSkeleton } from "../chat/transcript-skeleton.tsx";
@@ -86,6 +87,13 @@ export function ChatPane({
   return (
     <Pane id="chat" title="Chat" chrome="none">
       <div className="flex h-full min-h-0 flex-col">
+        {/*
+          Above the scroller rather than inside it: the strip is the job's current state, and a
+          state that scrolls away with the conversation is one somebody has to go looking for
+          during the exact minute it matters.
+        */}
+        <JobStrip events={events} />
+
         <div
           ref={scroller} // `overflow-x-hidden`, not `auto`: tool output is arbitrary text, and a long line
           // belongs scrolling inside its own `OutputBlock` rather than dragging the whole

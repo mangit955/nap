@@ -1,6 +1,6 @@
 /**
  * One turn, end to end: get a sandbox, build the context, run the agent, write down
- * everything that happened, and commit the result.
+ * everything that happened, commit the result, and ask the project whether it holds up.
  *
  * It owns the lifecycle and nothing inside it. No prompt text, no model parameters, no tool
  * implementations — those belong to the components it calls, and the ordering rules below
@@ -20,42 +20,130 @@
  * **One turn at a time per session.** Two turns in the same chat would otherwise interleave
  * their events in the log and their edits in the workspace. Different sessions are
  * unaffected: the lock is per session, not per process.
+ *
+ * **A completed turn is the model's claim; verification arbitrates it.** A turn that changed
+ * the workspace is committed exactly as before and then checked, and only a passing check
+ * makes the commit a checkpoint. This sits *above* the invariant two paragraphs up rather than
+ * changing it: a failed turn still commits nothing, and a turn that changed nothing is never
+ * verified at all. See `#arbitrate` below, and `docs/adr/0006`.
+ *
+ * **A repair is a Turn**, and that is why this file grew a loop and nothing else. A red
+ * verification prompts another turn on the same job, carrying the failure; that turn gets the
+ * same budgets, the same cancellation, the same event ordering and the same commit-on-completion
+ * as the one that opened the job, because it is the same kind of thing. Bounded at three, and
+ * exhaustion reverts nothing — the code stays committed with `HEAD` diverged from the last
+ * checkpoint, which is a state the user can usually close with one sentence.
  */
 
 import { commitAll } from "@nap/sandbox/git";
 import { TEMPLATE_DEV_PORT } from "@nap/sandbox/template";
-import type { NapEvent, NapEventOf } from "@nap/shared/events";
+import type { JobOutcome, NapEvent, NapEventOf, PromptSource } from "@nap/shared/events";
+import { foldJobs, MAX_REPAIR_ATTEMPTS } from "@nap/shared/job-state";
 import { addLogContext, getLogger, withLogContext } from "@nap/shared/logging";
 import type { AgentService } from "@nap/shared/ports/agent-service";
-import type { ContextEngine } from "@nap/shared/ports/context-engine";
+import type { ContextEngine, FailedAttempt, JobContext } from "@nap/shared/ports/context-engine";
 import type { EventBus } from "@nap/shared/ports/event-bus";
-import type { EventStore, PendingEvent } from "@nap/shared/ports/event-store";
+import type { EventStore, PendingEvent, StoredEvent } from "@nap/shared/ports/event-store";
+import type { ModelCredentials } from "@nap/shared/ports/llm-provider";
 import type { MemoryProvider } from "@nap/shared/ports/memory-provider";
 import type { ObjectStore } from "@nap/shared/ports/object-store";
 import type { PageCapture } from "@nap/shared/ports/page-capture";
-import type { ResumeOutcome, Runtime, TurnOutcome, TurnRequest } from "@nap/shared/ports/runtime";
+import type {
+  ContinueOptions,
+  ResumeOutcome,
+  Runtime,
+  TurnOutcome,
+  TurnRequest,
+} from "@nap/shared/ports/runtime";
 import type { SandboxError, SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SessionRecord, SessionStore } from "@nap/shared/ports/session-store";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
 import type { Result } from "@nap/shared/result";
+import type { VerificationResult } from "@nap/verify/run-checks";
 import {
   type AcquiredSandbox,
   acquireSandbox,
   type RestoreDeps,
   restoreDepsOf,
 } from "./acquire-sandbox.ts";
+import { continuationFor } from "./continue-job.ts";
 import { EventSink } from "./event-sink.ts";
+import { repairCommitSubject, repairPrompt } from "./repair-prompt.ts";
 import { SessionQueue } from "./session-queue.ts";
 import { captureSnapshot } from "./teardown.ts";
 import { captureThumbnail } from "./turn-thumbnail.ts";
+import { type CheckFailure, failureOf, toVerifiedChecks, verifyTurn } from "./verify-turn.ts";
 
 type Payload<T extends NapEvent["type"]> = NapEventOf<T>["payload"];
 
-/** What a turn or a resume works within: whose project it is, and where its events go. */
+/**
+ * What a turn or a resume works within: whose project it is, where its events go, and which
+ * turn they belong to.
+ *
+ * A job is several turns through one sink — the prompt, then up to three repairs — so the
+ * `turnId` is on the scope rather than on the sink, and each repair gets a scope of its own.
+ */
 type TurnScope = {
   session: SessionRecord;
   sink: EventSink;
+  turnId: string;
   emit: <T extends NapEvent["type"]>(type: T, payload: Payload<T>) => void;
+};
+
+/**
+ * Everything a turn of a job is run with apart from its prompt.
+ *
+ * Narrower than `TurnRequest` because a continued job has no message: what it inherits from
+ * whoever opened the project is the signal, the model and whose account pays, and nothing else.
+ */
+type TurnSettings = {
+  sessionId: string;
+  signal?: AbortSignal | undefined;
+  model?: string | undefined;
+  credentials?: ModelCredentials | undefined;
+};
+
+/**
+ * A job in flight, and what it is doing right now.
+ *
+ * Mutable, and held by whoever started it: the loop moves `turn` on with each repair and clears
+ * `open` when it writes the `job.completed`, and the caller's catch has to be able to read both
+ * — a throw can land between one turn ending and the next beginning.
+ */
+type JobRun = {
+  settings: TurnSettings;
+  session: SessionRecord;
+  sink: EventSink;
+  sandboxId: string;
+  jobId: string;
+  objective: string;
+  /** Failures already responded to, oldest first — the one thing a repair cannot rederive. */
+  attempts: FailedAttempt[];
+  /** Repair turns already spent. Non-zero for a job a restart is continuing. */
+  repairs: number;
+  /** The turn the job is running right now. */
+  turn: TurnScope;
+  /** False once a `job.completed` has been written for it. */
+  open: boolean;
+};
+
+/**
+ * Where the loop is picked up: after a turn this process just ran, or at whatever a restart
+ * found in the log. See `continue-job.ts`.
+ */
+type JobEntry = {
+  /** The turn to arbitrate — or, for a continued job, the commit it left behind. */
+  outcome: TurnOutcome;
+  /** A failure already recorded, to repair from without asking the project again. */
+  failed: CheckFailure | null;
+  /** Whether the first round writes its own `verification.started`. */
+  announce: boolean;
+  /**
+   * Whether that first arbitration follows a turn this loop ran, and so has work to snapshot
+   * and something new to photograph. False for a continuation: it is arbitrating a commit that
+   * was preserved before the process died.
+   */
+  fresh: boolean;
 };
 
 /** Git's own convention for a subject line, and what every log viewer is laid out for. */
@@ -115,6 +203,21 @@ export type SingleAgentRuntimeOptions = {
    * is captured.
    */
   capture?: PageCapture;
+  /**
+   * Whether a completed turn's claim is arbitrated, or simply believed. Defaults to arbitrating.
+   *
+   * **This exists for one caller and it is not a deployment.** NapBench measures a difference by
+   * running the same tasks with the loop and without it, and an arm that could only be built by
+   * checking out an older Nap would differ from the other arm in every commit between them
+   * rather than in the one thing being measured (docs/adr/0004, and the harness identity on the
+   * report). `trust` *is* v1's behaviour: the turn commits, and the job closes `unverified`,
+   * which is the same word a turn that changed nothing already closes with — no claim about the
+   * code was arbitrated, and it must not read as a pass.
+   *
+   * Two words rather than a boolean, so that neither value can be arrived at by a stray `false`
+   * and so that reading a composition tells you which one it asked for.
+   */
+  verification?: "arbitrate" | "trust";
   /** Injected so a test can assert on whole events rather than on everything but the clock. */
   now?: () => string;
   /** Injected for the same reason: a turn id a test can predict. */
@@ -157,16 +260,21 @@ export class SingleAgentRuntime implements Runtime {
   }
 
   /**
-   * Starting a project back up, without a turn and without a model.
+   * Starting a project back up — and continuing the job a restart left open in it.
    *
    * On the same queue as a turn, which is what makes it safe to offer at all: both paths
    * create a sandbox when the project has none, and a page that resumes on arrival while its
    * user types a message asks for both at once. Serialized, the second one finds the first
    * one's sandbox; run in parallel, they would each start one and the project would end up
    * with two, one of which nobody can find and nobody stops paying for.
+   *
+   * **This is the only thing that continues a job, and that is the design.** A process restart
+   * leaves a job open rather than failing it, and nothing sweeps for those: an autonomous loop
+   * that spends tokens with nobody watching is a bill, and a crash loop plus auto-continue is a
+   * large one. Somebody opening the project is the signal that a person is there.
    */
-  resumeSession(sessionId: string): Promise<ResumeOutcome> {
-    return this.#queue.run(sessionId, () => this.#resume(sessionId));
+  resumeSession(sessionId: string, options: ContinueOptions = {}): Promise<ResumeOutcome> {
+    return this.#queue.run(sessionId, () => this.#resume(sessionId, options));
   }
 
   /**
@@ -186,10 +294,10 @@ export class SingleAgentRuntime implements Runtime {
   }
 
   /** The same log context a turn gets, around a lifecycle operation that has no turn id. */
-  async #resume(sessionId: string): Promise<ResumeOutcome> {
+  async #resume(sessionId: string, options: ContinueOptions): Promise<ResumeOutcome> {
     const turnId = this.#newTurnId();
     return await withLogContext(getLogger(), { sessionId, turnId }, () =>
-      this.#resumeLogged(sessionId, turnId),
+      this.#resumeLogged(sessionId, turnId, options),
     );
   }
 
@@ -211,14 +319,24 @@ export class SingleAgentRuntime implements Runtime {
     addLogContext({ projectId: session.projectId });
 
     const sink = new EventSink(this.#options.events, this.#options.bus);
+
+    return this.#scopeFor(session, sink, sessionId, turnId);
+  }
+
+  /** The same session and the same sink, under a different turn — what a repair runs in. */
+  #scopeFor(session: SessionRecord, sink: EventSink, sessionId: string, turnId: string): TurnScope {
     const emit = <T extends NapEvent["type"]>(type: T, payload: Payload<T>): void => {
       sink.emit({ type, payload, sessionId, turnId, createdAt: this.#now() } as PendingEvent);
     };
 
-    return { session, sink, emit };
+    return { session, sink, turnId, emit };
   }
 
-  async #resumeLogged(sessionId: string, turnId: string): Promise<ResumeOutcome> {
+  async #resumeLogged(
+    sessionId: string,
+    turnId: string,
+    options: ContinueOptions,
+  ): Promise<ResumeOutcome> {
     const scope = await this.#open(sessionId, turnId);
 
     if (scope === null) {
@@ -261,11 +379,99 @@ export class SingleAgentRuntime implements Runtime {
       // and a browser launch must not be able to delay or fail it.
       if (acquired.value.created) await this.#photograph(session.projectId, acquired.value.id);
 
+      // Last of all, and after everything the caller asked for is done: continuing a job runs
+      // turns, which take minutes, and the project is up and usable the whole time. The caller
+      // does not wait on this — `POST /projects/:id/open` has already answered — but the queue
+      // does, which is what stops a message sent during a continuation interleaving with it.
+      await this.#continue(scope, acquired.value.id, options);
+
       return { ok: true, sandboxId: acquired.value.id, created: acquired.value.created };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       getLogger().error({ err: error }, "could not resume the project");
       return { ok: false, reason: "internal", message };
+    }
+  }
+
+  /**
+   * Picking a job back up where a process restart left it.
+   *
+   * The log is the only state there is, so this folds it and acts on what `continue-job.ts`
+   * makes of the result — no supervisor, no scan, no jobs index. Three of its four answers cost
+   * nothing: an unfinished job with no commit behind it is closed, a job already sitting at a
+   * checkpoint is closed, and a session with nothing open does nothing at all.
+   *
+   * **A throw here never fails the resume, and never leaves the job open.** The project is up
+   * either way, and reporting the open as broken because a continuation fell over would take the
+   * app away from somebody over work they can restart with a sentence. Closing the job is the
+   * other half: left open, it is one that every subsequent open would try to continue again.
+   */
+  async #continue(scope: TurnScope, sandboxId: string, options: ContinueOptions): Promise<void> {
+    const { session, sink } = scope;
+    const history = await this.#options.events.readFrom(session.sessionId, 0);
+    const continuation = continuationFor(foldJobs(history));
+
+    if (continuation.kind === "none") return;
+
+    if (continuation.kind === "close") {
+      scope.emit("job.completed", {
+        jobId: continuation.jobId,
+        outcome: continuation.outcome,
+      });
+      await sink.drain();
+      getLogger().info(
+        { jobId: continuation.jobId, outcome: continuation.outcome },
+        "an open job had nothing left to do and was closed",
+      );
+      return;
+    }
+
+    const run: JobRun = {
+      settings: { sessionId: session.sessionId, ...options },
+      session,
+      sink,
+      sandboxId,
+      jobId: continuation.jobId,
+      objective: continuation.objective,
+      attempts: [...continuation.attempts],
+      // Where the budget stopped, not where it starts. Resetting it is how a project that
+      // restarts under a check it cannot pass repairs forever.
+      repairs: continuation.attemptsUsed,
+      turn: scope,
+      open: true,
+    };
+
+    getLogger().info(
+      { jobId: run.jobId, kind: continuation.kind, repairs: run.repairs },
+      "continuing an open job",
+    );
+
+    // The commit the job left behind, arbitrated as the claim its turn would have made. Nothing
+    // is preserved or photographed off it: it reached storage before the process died, which is
+    // how it is here to be checked at all.
+    const outcome: TurnOutcome = {
+      ok: true,
+      turnId: scope.turnId,
+      commitSha: continuation.kind === "verify" ? continuation.commitSha : null,
+    };
+
+    try {
+      await this.#driveJob(run, {
+        outcome,
+        failed: continuation.kind === "repair" ? continuation.failed : null,
+        announce: continuation.kind === "verify" ? continuation.announce : true,
+        fresh: false,
+      });
+    } catch (error) {
+      getLogger().error({ err: error, jobId: run.jobId }, "could not continue the open job");
+
+      // The same reasoning the turn path's catch uses, for the same reason: a job left open by a
+      // continuation that fell over is one that the *next* open would try to continue too, and
+      // nothing about the failure has changed by then.
+      if (run.open) {
+        run.turn.emit("job.completed", { jobId: run.jobId, outcome: "abandoned" });
+        await sink.drain().catch(() => {});
+      }
     }
   }
 
@@ -282,7 +488,19 @@ export class SingleAgentRuntime implements Runtime {
       };
     }
 
-    const { session, sink, emit } = scope;
+    const { session, sink } = scope;
+
+    /**
+     * The job, once one is open — held here so the catch below can write under the turn that is
+     * actually running and close a job that a throw left open. Both move on with each repair,
+     * and a throw can land between one turn ending and the next beginning.
+     */
+    let run: JobRun | null = null;
+
+    const emit = <T extends NapEvent["type"]>(type: T, payload: Payload<T>): void => {
+      (run?.turn ?? scope).emit(type, payload);
+    };
+
     getLogger().info({ chars: request.message.length }, "turn started");
 
     try {
@@ -303,6 +521,14 @@ export class SingleAgentRuntime implements Runtime {
       const history = await this.#options.events.readFrom(request.sessionId, 0);
       emit("user.message", { text: request.message });
 
+      // A job opens on a prompt, and this turn belongs to it. Opened after the sandbox is in
+      // hand because a job that could never run is a job nothing will ever close — and the
+      // objective repeats the message on purpose, so the log answers "what was asked" without
+      // a reader having to work out which message belongs to which job.
+      const jobId = crypto.randomUUID();
+      const objective = objectiveOf(request.message);
+      emit("job.started", { jobId, objective });
+
       // Before the preview, which is about to show whatever state the notice is explaining.
       for (const notice of sandboxId.value.notices) emit("system.notice", notice);
 
@@ -311,65 +537,398 @@ export class SingleAgentRuntime implements Runtime {
       // the app underneath someone in the middle of using it, on every turn.
       if (sandboxId.value.created) await this.#announcePreview(sandboxId.value.id, emit);
 
-      const context = await this.#options.context.build({
-        sessionId: request.sessionId,
+      run = {
+        settings: request,
+        session,
+        sink,
         sandboxId: sandboxId.value.id,
-        userMessage: request.message,
+        jobId,
+        objective,
+        attempts: [],
+        repairs: 0,
+        turn: scope,
+        open: true,
+      };
+
+      const outcome = await this.#attempt({
+        settings: request,
+        scope,
+        sandboxId: run.sandboxId,
+        prompt: request.message,
+        promptSource: "user",
+        commitSubject: request.message,
         history,
-        sandbox: this.#options.sandbox,
-        memory: this.#options.memory,
+        job: { objective, attempts: [] },
       });
 
-      await this.#options.agent.runTurn({
-        sessionId: request.sessionId,
-        turnId,
-        sandboxId: sandboxId.value.id,
-        context,
-        sandbox: this.#options.sandbox,
-        onEvent: sink.emit,
-        finalize: () => this.#commit(sandboxId.value.id, request.message),
-        ...(request.signal === undefined ? {} : { signal: request.signal }),
-        ...(request.model === undefined ? {} : { model: request.model }),
-        // Passed straight through and read nowhere here: the runtime decides *when* a turn
-        // runs, never who pays for it.
-        ...(request.credentials === undefined ? {} : { credentials: request.credentials }),
-      });
-
-      await sink.drain();
-
-      const terminal = sink.terminal;
-      if (terminal?.type === "turn.completed") {
-        await this.#preserve(session.projectId, sandboxId.value.id, terminal.payload.commitSha);
-        // After the snapshot, deliberately: the work reaching storage is what must not be
-        // delayed by a browser launch, and a picture is the one thing here nobody would miss.
-        // Only when the turn changed something — an unchanged app photographs identically.
-        if (terminal.payload.commitSha !== null) {
-          await this.#photograph(session.projectId, sandboxId.value.id);
-        }
-        return { ok: true, turnId, commitSha: terminal.payload.commitSha };
-      }
-      if (terminal?.type === "turn.failed") {
-        return { ok: false, turnId, ...terminal.payload };
-      }
-
-      // The agent is supposed to end a turn exactly once. If it did not, the log would show
-      // a turn that never closed, and anything replaying it would wait forever.
-      const message = "the agent ended the turn without reporting an outcome";
-      emit("turn.failed", { reason: "internal", message });
-      await sink.drain();
-      return { ok: false, turnId, reason: "internal", message };
+      return await this.#driveJob(run, { outcome, failed: null, announce: true, fresh: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
 
       // Only if the turn is not already closed — a thrown error after a `turn.failed` would
       // otherwise close the same turn twice.
-      if (sink.terminal === null) {
-        emit("turn.failed", { reason: "internal", message });
-        // Best effort: if persistence is what broke, there is nowhere left to record it.
-        await sink.drain().catch(() => {});
+      if (sink.terminal === null) emit("turn.failed", { reason: "internal", message });
+
+      // The job goes with it, whether or not the turn that crashed had already ended: a job left
+      // open is one the next opening of this project would continue, spending tokens on the
+      // aftermath of a crash. Tracked rather than inferred from the turn, because the throw can
+      // land between a turn ending and the next one starting.
+      if (run?.open === true) emit("job.completed", { jobId: run.jobId, outcome: "abandoned" });
+
+      // Best effort: if persistence is what broke, there is nowhere left to record it.
+      await sink.drain().catch(() => {});
+
+      return { ok: false, turnId: (run?.turn ?? scope).turnId, reason: "internal", message };
+    }
+  }
+
+  /**
+   * The job, turn by turn, until something ends it.
+   *
+   * Every iteration arbitrates one completed turn and then decides whether there is another to
+   * run. This loop is the whole of the repair machinery: a repair turn needs no new lifecycle
+   * because it is the same one, run again with a different prompt.
+   *
+   * **It is also where a continued job rejoins.** A job left open by a process restart is the
+   * same job with some of its budget spent, so opening the project hands this the state the log
+   * folded to and lets it carry on (`continue-job.ts`). The entry says which of the loop's two
+   * halves to start in: a commit nothing has checked enters at the arbitration, and a failure
+   * the log already recorded enters at the repair it prompts.
+   */
+  async #driveJob(run: JobRun, entry: JobEntry): Promise<TurnOutcome> {
+    const { session, sink, sandboxId, jobId, objective, settings, attempts } = run;
+    const emit = <T extends NapEvent["type"]>(type: T, payload: Payload<T>): void => {
+      run.turn.emit(type, payload);
+    };
+    /** Written once, wherever the loop leaves. */
+    const close = async (outcome: JobOutcome): Promise<void> => {
+      emit("job.completed", { jobId, outcome });
+      run.open = false;
+      await sink.drain();
+    };
+
+    let { outcome, failed, announce, fresh } = entry;
+
+    for (;;) {
+      if (failed === null) {
+        if (!outcome.ok) {
+          // The turn the job was riding on refused, was cancelled, or fell over. Nothing will
+          // pick the job back up — that turn changed nothing, and a repair repairs a workspace
+          // that was changed.
+          await close("abandoned");
+          return outcome;
+        }
+
+        // Before the snapshot and the photograph: this is what the person watching is waiting
+        // for, and the two below are housekeeping nobody is looking at.
+        failed = await this.#arbitrate({
+          scope: run.turn,
+          jobId,
+          sandboxId,
+          commitSha: outcome.commitSha,
+          announce,
+        });
+        // Every round after the first is one this loop began itself.
+        announce = true;
+
+        // Only for a turn this loop ran. A continued job is arbitrating a commit that reached
+        // storage before the process died, and re-bundling it would pay for the same bytes
+        // twice — and photograph an application nothing has changed since the last shot.
+        if (fresh) {
+          await this.#preserve(session.projectId, sandboxId, outcome.commitSha);
+          // After the snapshot, deliberately: the work reaching storage is what must not be
+          // delayed by a browser launch, and a picture is the one thing here nobody would miss.
+          // Only when the turn changed something — an unchanged app photographs identically.
+          if (outcome.commitSha !== null) await this.#photograph(session.projectId, sandboxId);
+        }
+
+        // Arbitration closed the job: it passed, there was nothing to check, or the run learned
+        // nothing about the project.
+        if (failed === null) {
+          run.open = false;
+          return outcome;
+        }
       }
 
-      return { ok: false, turnId, reason: "internal", message };
+      if (run.repairs >= MAX_REPAIR_ATTEMPTS) {
+        // Nothing is reverted. The code stays committed and `HEAD` stays diverged from the
+        // last checkpoint, because a user can frequently close the gap with one sentence and
+        // throwing the work away to tidy an invariant is the worse trade (docs/adr/0006).
+        await close("exhausted");
+        getLogger().warn(
+          { check: failed.name, repairs: run.repairs },
+          "the repair attempts are spent and the checks are still red",
+        );
+        return outcome;
+      }
+
+      // Cancellation stops the loop, not just the turn. The signal is checked here as well as
+      // inside the agent because this is the one moment where nothing is running: a cancel
+      // that landed while the checks were running would otherwise start another turn on it.
+      if (settings.signal?.aborted === true) {
+        await close("abandoned");
+        getLogger().info({ check: failed.name }, "the job was cancelled before its repair");
+        return outcome;
+      }
+
+      // Recorded before the repair runs, so the turn that is about to try again is told what
+      // the checks have said every time so far — including this time.
+      attempts.push({ check: failed.name, detail: failed.detail, output: failed.output });
+
+      run.repairs += 1;
+      const attempt = run.repairs;
+      const repairTurnId = this.#newTurnId();
+      run.turn = this.#scopeFor(session, sink, settings.sessionId, repairTurnId);
+      const repaired = failed;
+      outcome = await withLogContext(getLogger(), { turnId: repairTurnId }, () =>
+        this.#repair({
+          settings,
+          scope: run.turn,
+          sandboxId,
+          failed: repaired,
+          attempt,
+          job: { objective, attempts: [...attempts] },
+        }),
+      );
+      failed = null;
+      fresh = true;
+    }
+  }
+
+  /**
+   * One turn of a job: build its context, run the agent, and say how it ended.
+   *
+   * Everything that differs between the user's turn and a repair is a parameter here — the
+   * prompt, where it came from, what its commit is called — and nothing else does. That is the
+   * whole of ADR-0006's "a repair is a Turn": budgets, cancellation, event ordering, streaming
+   * and commit-on-completion are not re-implemented for repairs because they are not reached
+   * twice.
+   *
+   * Reports rather than throws, including when the agent ends a turn without ending it. The
+   * caller decides what a failure means for the job.
+   */
+  async #attempt(options: {
+    settings: TurnSettings;
+    scope: TurnScope;
+    sandboxId: string;
+    /** What the model is being asked, which the context engine appends itself. */
+    prompt: string;
+    promptSource: PromptSource;
+    /** The subject for whatever this turn commits. */
+    commitSubject: string;
+    /** The session's events, read *before* this turn's prompt was logged. */
+    history: StoredEvent[];
+    /**
+     * What the job is for and what its checks have said, for the prompt.
+     *
+     * Handed to the context engine rather than folded there: the component that owns the token
+     * budget performs no I/O and does not read the log twice.
+     */
+    job: JobContext;
+  }): Promise<TurnOutcome> {
+    const { settings, scope, sandboxId, prompt, promptSource, commitSubject, history, job } =
+      options;
+    const { sink, emit, turnId } = scope;
+
+    const context = await this.#options.context.build({
+      sessionId: settings.sessionId,
+      sandboxId,
+      userMessage: prompt,
+      history,
+      job,
+      sandbox: this.#options.sandbox,
+      memory: this.#options.memory,
+    });
+
+    // The previous turn of this job ended on this sink, and its ending is not this one's.
+    sink.beginTurn();
+
+    await this.#options.agent.runTurn({
+      sessionId: settings.sessionId,
+      turnId,
+      sandboxId,
+      context,
+      sandbox: this.#options.sandbox,
+      onEvent: sink.emit,
+      promptSource,
+      finalize: () => this.#commit(sandboxId, commitSubject),
+      ...(settings.signal === undefined ? {} : { signal: settings.signal }),
+      ...(settings.model === undefined ? {} : { model: settings.model }),
+      // Passed straight through and read nowhere here: the runtime decides *when* a turn
+      // runs, never who pays for it.
+      ...(settings.credentials === undefined ? {} : { credentials: settings.credentials }),
+    });
+
+    await sink.drain();
+
+    const terminal = sink.terminal;
+    if (terminal?.type === "turn.completed") {
+      return { ok: true, turnId, commitSha: terminal.payload.commitSha };
+    }
+    if (terminal?.type === "turn.failed") {
+      return { ok: false, turnId, ...terminal.payload };
+    }
+
+    // The agent is supposed to end a turn exactly once. If it did not, the log would show
+    // a turn that never closed, and anything replaying it would wait forever.
+    const message = "the agent ended the turn without reporting an outcome";
+    emit("turn.failed", { reason: "internal", message });
+    await sink.drain();
+    return { ok: false, turnId, reason: "internal", message };
+  }
+
+  /**
+   * The turn a failed check prompts.
+   *
+   * The prompt is written down as a `user.message` like any other, and *that is deliberate*: it
+   * is what the model was asked, the transcript is the record of what was asked, and a second
+   * event type for it would leave every replay, every context build and every chat pane with two
+   * shapes to handle. What distinguishes it is `turn.started`'s source, which is one field on an
+   * event the log already carries.
+   */
+  async #repair(options: {
+    settings: TurnSettings;
+    scope: TurnScope;
+    sandboxId: string;
+    failed: CheckFailure;
+    attempt: number;
+    job: JobContext;
+  }): Promise<TurnOutcome> {
+    const { settings, scope, sandboxId, failed, attempt, job } = options;
+    const prompt = repairPrompt({ failed, attempt });
+
+    getLogger().info({ check: failed.name, attempt }, "repairing a failed check");
+
+    // Read before the prompt is logged, for the same reason the user's turn does it: the
+    // context engine appends this turn's own message itself.
+    const history = await this.#options.events.readFrom(settings.sessionId, 0);
+    scope.emit("user.message", { text: prompt });
+
+    return await this.#attempt({
+      settings,
+      scope,
+      sandboxId,
+      prompt,
+      promptSource: "verification",
+      commitSubject: repairCommitSubject(failed, attempt),
+      history,
+      job,
+    });
+  }
+
+  /**
+   * Arbitrating the model's claim: the turn says it is done, and this asks the project.
+   *
+   * **A turn that mutated nothing is not verified at all.** No commit means no claim about the
+   * code — somebody asked a question and got an answer — and running a project's whole test
+   * suite against a workspace nobody touched spends a minute to learn what the last
+   * verification already said. The job closes *unverified*, which is neither a pass nor a
+   * failure and has its own word for exactly that reason.
+   *
+   * **Only a passing verification checkpoints.** The commit happens either way, as it did in
+   * v1; a checkpoint is the sha verification agreed with, and keeping the two apart is what
+   * makes a red run unable to corrupt the last known-good state by construction (ADR-0006).
+   *
+   * **An errored run is not a verification and is never written as one.** `foldJobs` reads an
+   * all-absent payload as *verified*, so recording a run that learned nothing would checkpoint
+   * a commit against which nothing ran. The job ends *abandoned* instead — the sandbox went
+   * away, and a repair turn on that asks a model to fix a machine it cannot see.
+   *
+   * **A composition that was asked to `trust` never gets here at all**, in the sense that it
+   * returns on the first branch below: the job closes unverified, exactly as v1's turns ended.
+   * See `verification` on the options for why that switch exists.
+   *
+   * **A red verification leaves the job open**, at `repairing`, and is the one path that writes
+   * no `job.completed`: it returns the check that said no, for the caller to prompt a repair
+   * turn with. Nothing here reverts — the broken code stays committed, because the attempt that
+   * fixes it needs to be able to read it.
+   */
+  async #arbitrate(options: {
+    scope: TurnScope;
+    jobId: string;
+    sandboxId: string;
+    commitSha: string | null;
+    /**
+     * Whether this round is new.
+     *
+     * False when a restart is finishing a `verification.started` that is already in the log:
+     * `foldJobs` counts repair attempts from those, so writing a second one for the same round
+     * would spend an attempt that no repair turn ever used (`continue-job.ts`).
+     */
+    announce: boolean;
+  }): Promise<CheckFailure | null> {
+    const { scope, jobId, sandboxId, commitSha, announce } = options;
+    const { sink, emit } = scope;
+
+    // Nothing to arbitrate against, either because the turn made no claim about the code or
+    // because this composition was asked not to arbitrate at all. Both close the job
+    // *unverified*, which is the word for a job whose code no check ever looked at.
+    if (commitSha === null || this.#options.verification === "trust") {
+      emit("job.completed", { jobId, outcome: "unverified" });
+      await sink.drain();
+      return null;
+    }
+
+    // Drained before the checks run, not after: this event exists so that "the checks are
+    // running right now" is a fact in the log rather than a gap between two others, and a
+    // client cannot render a gap.
+    if (announce) emit("verification.started", { jobId });
+    await sink.drain();
+
+    const verified = await this.#runChecks(sandboxId);
+
+    if (verified === null || verified.verdict === "errored") {
+      emit("job.completed", { jobId, outcome: "abandoned" });
+      await sink.drain();
+      getLogger().warn({ commitSha }, "verification learned nothing about the project");
+      return null;
+    }
+
+    emit("verification.completed", { jobId, checks: toVerifiedChecks(verified.checks) });
+
+    if (verified.verdict === "passed") {
+      emit("job.checkpointed", { jobId, commitSha });
+      emit("job.completed", { jobId, outcome: "verified" });
+      await sink.drain();
+      getLogger().info({ commitSha }, "turn checkpointed");
+      return null;
+    }
+
+    const failed = verified.checks.find((check) => check.outcome === "failed");
+
+    // A `failed` verdict *is* a check that said no, so this branch is unreachable — but a job
+    // left open with nothing to repair is one that the next opening of the project would try to
+    // continue forever, so the disagreement is closed rather than trusted not to happen.
+    if (failed === undefined) {
+      emit("job.completed", { jobId, outcome: "abandoned" });
+      await sink.drain();
+      getLogger().warn({ commitSha }, "verification failed without naming a failing check");
+      return null;
+    }
+
+    await sink.drain();
+    getLogger().info({ commitSha, check: failed.name }, "verification failed; the job stays open");
+    return failureOf(failed);
+  }
+
+  /**
+   * The checks, with a thrown error treated the same as a sandbox that would not answer.
+   *
+   * Nothing below is supposed to throw — `@nap/verify` returns its failures — but the turn is
+   * already complete and committed by the time any of it runs, and turning a finished turn into
+   * a failed one because a probe blew up would report the wrong thing to the person waiting.
+   */
+  async #runChecks(sandboxId: string): Promise<VerificationResult | null> {
+    try {
+      return await verifyTurn({
+        sandbox: this.#options.sandbox,
+        sandboxId,
+        previewPort: this.#previewPort,
+        previewTimeoutMs: this.#previewTimeoutMs,
+      });
+    } catch (error) {
+      getLogger().warn({ err: error }, "the checks could not be run");
+      return null;
     }
   }
 
@@ -501,6 +1060,19 @@ export class SingleAgentRuntime implements Runtime {
     }
     return { commitSha: committed.value.sha };
   }
+}
+
+/**
+ * What the job records as having been asked.
+ *
+ * The message, whole — a job's objective is the request rather than a summary of it, and the
+ * repair prompt that reads it back needs the detail. The fallback is for a caller below the
+ * HTTP route, which is the only way an empty message reaches here: the event contract requires
+ * an objective, and refusing to open a job would be a turn nothing could ever close.
+ */
+function objectiveOf(message: string): string {
+  const objective = message.trim();
+  return objective === "" ? "an unstated objective" : objective;
 }
 
 /**

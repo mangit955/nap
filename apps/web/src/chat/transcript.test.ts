@@ -1,4 +1,4 @@
-import type { NapEvent, NapEventType } from "@nap/shared/events";
+import { type NapEvent, NapEventSchema, type NapEventType } from "@nap/shared/events";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { describe, expect, it } from "vitest";
 import { buildTranscript, type TranscriptItem } from "./transcript.ts";
@@ -26,6 +26,17 @@ function ev<T extends NapEventType>(type: T, payload: Extract<NapEvent, { type: 
   } as StoredEvent;
 }
 
+/**
+ * A second turn on the same session. Repair turns get a scope and a `turnId` of their own
+ * (`packages/runtime/src/single-agent-runtime.ts`), and that id is what ties a synthesized
+ * prompt to the `turn.started` that says who wrote it.
+ */
+const REPAIR_TURN = "9d2e3f4a-5b6c-4d7e-9f80-1a2b3c4d5e60";
+const JOB = "5f6a7b8c-9d0e-4f10-a213-456789abcdef";
+const failedCheck = { name: "typecheck", outcome: "failed", output: "exit 2" } as const;
+
+const evIn = (turnId: string, event: StoredEvent): StoredEvent => ({ ...event, turnId });
+
 function fold(...events: StoredEvent[]): TranscriptItem[] {
   nextSeq = 1;
   return buildTranscript(events);
@@ -46,9 +57,25 @@ function stepsOf(items: TranscriptItem[]) {
 }
 
 /**
- * One case per event type. `docs/PLAN.md` §4 asks for a defined treatment for every one, so
- * the coverage is structural: a twelfth member of the union fails to compile here until it
- * has a case, rather than quietly rendering as nothing.
+ * Event types the transcript deliberately draws nothing for.
+ *
+ * The job strip above the chat is what shows a job's phase, its checks and where its commits
+ * stand; folding them into the chronology as well would say the same thing twice, in the pane
+ * that is meant to read as a conversation. Listed rather than omitted, so that a new type is
+ * still a decision somebody made — the union below is exhaustive across both.
+ */
+const DRAWN_ELSEWHERE = [
+  "job.started",
+  "verification.started",
+  "verification.completed",
+  "job.checkpointed",
+  "job.completed",
+] as const satisfies readonly NapEventType[];
+
+/**
+ * One case per event type the transcript draws. `docs/PLAN.md` §4 asks for a defined treatment
+ * for every one, so the coverage is structural: a new member of the union fails to compile here
+ * until it has a case or is named above, rather than quietly rendering as nothing.
  */
 const CASES = [
   { type: "user.message", payload: { text: "build me a todo list" } },
@@ -89,14 +116,26 @@ const CASES = [
 ] as const satisfies readonly { type: NapEventType; payload: NapEvent["payload"] }[];
 
 describe("the treatment table covers the union", () => {
-  it("has one case per event type", () => {
+  it("has one case per event type the transcript draws", () => {
     const covered = CASES.map((c) => c.type);
     expect(new Set(covered).size).toBe(covered.length);
-    expect(CASES).toHaveLength(13);
+    expect(new Set([...covered, ...DRAWN_ELSEWHERE]).size).toBe(NapEventSchema.options.length);
 
-    // Fails to compile if a 14th member is added to the union without a case here.
-    const _exhaustive: (typeof CASES)[number]["type"] = null as unknown as NapEventType;
+    // Fails to compile if a new member is added to the union without a case here or a place
+    // in `DRAWN_ELSEWHERE`.
+    const _exhaustive: (typeof CASES)[number]["type"] | (typeof DRAWN_ELSEWHERE)[number] =
+      null as unknown as NapEventType;
     void _exhaustive;
+  });
+
+  it("lets nothing but a job event out of the treatment table", () => {
+    // Otherwise the list above is an escape hatch: anything moved into it keeps both the count
+    // and the compile check green while rendering nowhere at all, which is the exact failure
+    // this table exists to catch. Only the job strip's own events may sit there.
+    for (const type of DRAWN_ELSEWHERE) {
+      expect(type).toMatch(/^(job|verification)\./);
+      expect(CASES.map((c) => c.type)).not.toContain(type);
+    }
   });
 
   it.each(CASES)("folds $type into something renderable", ({ type, payload }) => {
@@ -399,7 +438,7 @@ describe("the rest of the turn", () => {
 
   it("opens and closes the turn", () => {
     const items = fold(
-      ev("turn.started", {}),
+      ev("turn.started", { source: "user" }),
       ev("agent.message", { text: "done" }),
       ev("turn.completed", {
         usage: { inputTokens: 1200, outputTokens: 340 },
@@ -430,7 +469,7 @@ describe("the rest of the turn", () => {
 
   it("closes the turn on failure, carrying the reason", () => {
     const items = fold(
-      ev("turn.started", {}),
+      ev("turn.started", { source: "user" }),
       ev("turn.failed", { reason: "budget_exceeded", message: "step budget of 40 exceeded" }),
     );
 
@@ -462,7 +501,7 @@ describe("what a failed turn would send again", () => {
   it("carries the message that started that turn", () => {
     const items = buildTranscript([
       ev("user.message", { text: "build a todo list" }),
-      ev("turn.started", {}),
+      ev("turn.started", { source: "user" }),
       ev("turn.failed", { reason: "sandbox_unavailable", message: "no sandbox" }),
     ]);
 
@@ -475,10 +514,10 @@ describe("what a failed turn would send again", () => {
     // the two retry buttons would silently re-send the wrong request.
     const items = buildTranscript([
       ev("user.message", { text: "first ask" }),
-      ev("turn.started", {}),
+      ev("turn.started", { source: "user" }),
       ev("turn.failed", { reason: "internal", message: "boom" }),
       ev("user.message", { text: "second ask" }),
-      ev("turn.started", {}),
+      ev("turn.started", { source: "user" }),
       ev("turn.failed", { reason: "internal", message: "boom again" }),
     ]);
 
@@ -494,5 +533,135 @@ describe("what a failed turn would send again", () => {
     const items = buildTranscript([ev("turn.failed", { reason: "internal", message: "boom" })]);
 
     expect(items.at(-1)).toMatchObject({ retryMessage: undefined });
+  });
+});
+
+describe("a repair turn", () => {
+  /**
+   * The prompt is emitted *before* the `turn.started` that classifies it — the runtime logs the
+   * message and then hands the turn to the agent, which opens it. So the fold cannot carry a
+   * "current source" forward; it has to know the turn's source before it reaches the message.
+   * That is why the answer is keyed on `turnId` and taken in a pass of its own.
+   */
+  it("attributes a verifier-written prompt to the verifier, not to the user", () => {
+    const items = fold(
+      evIn(REPAIR_TURN, ev("user.message", { text: "The `typecheck` check failed." })),
+      evIn(REPAIR_TURN, ev("turn.started", { source: "verification" })),
+    );
+
+    expect(items[0]).toMatchObject({ kind: "message", from: "verifier" });
+  });
+
+  it("leaves an ordinary prompt attributed to the user", () => {
+    const items = fold(
+      ev("user.message", { text: "build a todo list" }),
+      ev("turn.started", { source: "user" }),
+    );
+
+    expect(items[0]).toMatchObject({ kind: "message", from: "user" });
+  });
+
+  it("carries the source onto the turn boundary", () => {
+    const items = fold(
+      ev("turn.started", { source: "user" }),
+      evIn(REPAIR_TURN, ev("turn.started", { source: "verification" })),
+    );
+
+    expect(items.map((item) => (item.kind === "turn-start" ? item.source : undefined))).toEqual([
+      "user",
+      "verification",
+    ]);
+  });
+
+  it("never offers a synthesized prompt as something to send again", () => {
+    // The retry button re-sends what the user asked for. A repair prompt is the verifier's
+    // words about a failed check, and re-sending those as a new request would ask the model to
+    // fix a failure nobody has re-run.
+    const items = fold(
+      ev("user.message", { text: "build a todo list" }),
+      ev("turn.started", { source: "user" }),
+      ev("turn.completed", {
+        usage: { inputTokens: 1, outputTokens: 1 },
+        durationMs: 10,
+        commitSha: "a1b2c3d",
+      }),
+      evIn(REPAIR_TURN, ev("user.message", { text: "The `typecheck` check failed." })),
+      evIn(REPAIR_TURN, ev("turn.started", { source: "verification" })),
+      evIn(REPAIR_TURN, ev("turn.failed", { reason: "internal", message: "boom" })),
+    );
+
+    expect(items.at(-1)).toMatchObject({ outcome: "failed", retryMessage: "build a todo list" });
+  });
+
+  it("attributes the prompt before its turn has even opened", () => {
+    // The live case, and the one that matters most: the runtime logs the prompt and *then*
+    // builds the turn's context — a sandbox file listing — before the agent emits
+    // `turn.started`. For that whole second the classifying event does not exist yet, and a
+    // fold that waited for it would draw the verifier's paragraph in the user's bubble and
+    // then snap it into place, on the demo, every time.
+    //
+    // A red verification with no turn opened since it is the only thing that can be prompting
+    // one. Deriving it any further than that is what the source field exists to avoid.
+    const items = fold(
+      ev("verification.completed", { jobId: JOB, checks: [failedCheck] }),
+      evIn(REPAIR_TURN, ev("user.message", { text: "The `typecheck` check failed." })),
+    );
+
+    expect(items.at(-1)).toMatchObject({ kind: "message", from: "verifier" });
+  });
+
+  it("hands the conversation back once the job has run out of repairs", () => {
+    // Red checks and a closed job: nothing is going to prompt a repair, so the next message is
+    // somebody typing. Without this, exhaustion would relabel their words as the machine's —
+    // the same mistake as the one above, in the direction that is worse.
+    const items = fold(
+      ev("verification.completed", { jobId: JOB, checks: [failedCheck] }),
+      ev("job.completed", { jobId: JOB, outcome: "exhausted" }),
+      ev("user.message", { text: "just fix the import" }),
+    );
+
+    expect(items.at(-1)).toMatchObject({ from: "user" });
+  });
+
+  it("hands it back once a repair turn has actually opened", () => {
+    // The flag is spent by the turn it was waiting for. A second message under one red
+    // verification is the user adding to the request, not a second repair.
+    const items = fold(
+      ev("verification.completed", { jobId: JOB, checks: [failedCheck] }),
+      evIn(REPAIR_TURN, ev("user.message", { text: "The `typecheck` check failed." })),
+      evIn(REPAIR_TURN, ev("turn.started", { source: "verification" })),
+      evIn(
+        REPAIR_TURN,
+        ev("turn.completed", {
+          usage: { inputTokens: 1, outputTokens: 1 },
+          durationMs: 10,
+          commitSha: "a1b2c3d",
+        }),
+      ),
+      ev("user.message", { text: "also add a footer" }),
+    );
+
+    expect(items.at(-1)).toMatchObject({ from: "user" });
+  });
+
+  it("waits for nothing when the checks came back green", () => {
+    const items = fold(
+      ev("verification.completed", {
+        jobId: JOB,
+        checks: [{ name: "test", outcome: "passed", output: null }],
+      }),
+      ev("user.message", { text: "now add a footer" }),
+    );
+
+    expect(items.at(-1)).toMatchObject({ from: "user" });
+  });
+
+  it("attributes nothing to the verifier in a window that opens after the turn did", () => {
+    // A client joining with `afterSeq` mid-repair holds the prompt without the `turn.started`
+    // above it. `user` is the default the event contract already states, and guessing the other
+    // way would label somebody's own words as the machine's.
+    const items = fold(evIn(REPAIR_TURN, ev("user.message", { text: "keep going" })));
+
+    expect(items[0]).toMatchObject({ from: "user" });
   });
 });

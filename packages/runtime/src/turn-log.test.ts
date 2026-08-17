@@ -5,6 +5,7 @@ import { eventLogLine } from "./turn-log.ts";
 
 const SESSION = "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f";
 const TURN = "9c1d2e3f-4a5b-6c7d-8e9f-0a1b2c3d4e5f";
+const JOB = "3f9a1c2d-5e6b-4f7a-8b9c-0d1e2f3a4b5c";
 
 function stored<T extends NapEvent>(event: T): StoredEvent {
   return event;
@@ -53,7 +54,7 @@ const ONE_OF_EACH: Record<NapEventType, StoredEvent> = {
     payload: { url: "https://5173-abc.e2b.app", port: 5173 },
   }),
   "preview.stopped": stored({ ...base(9), type: "preview.stopped", payload: {} }),
-  "turn.started": stored({ ...base(10), type: "turn.started", payload: {} }),
+  "turn.started": stored({ ...base(10), type: "turn.started", payload: { source: "user" } }),
   "turn.completed": stored({
     ...base(11),
     type: "turn.completed",
@@ -72,6 +73,37 @@ const ONE_OF_EACH: Record<NapEventType, StoredEvent> = {
     ...base(13),
     type: "system.notice",
     payload: { level: "warning", text: "restored from a snapshot" },
+  }),
+  "job.started": stored({
+    ...base(14),
+    type: "job.started",
+    payload: { jobId: JOB, objective: "build a todo app" },
+  }),
+  "verification.started": stored({
+    ...base(15),
+    type: "verification.started",
+    payload: { jobId: JOB },
+  }),
+  "verification.completed": stored({
+    ...base(16),
+    type: "verification.completed",
+    payload: {
+      jobId: JOB,
+      checks: [
+        { name: "typecheck", outcome: "failed", output: "src/App.tsx(3,1): error TS2304" },
+        { name: "lint", outcome: "absent", output: null },
+      ],
+    },
+  }),
+  "job.checkpointed": stored({
+    ...base(17),
+    type: "job.checkpointed",
+    payload: { jobId: JOB, commitSha: "a1b2c3d" },
+  }),
+  "job.completed": stored({
+    ...base(18),
+    type: "job.completed",
+    payload: { jobId: JOB, outcome: "exhausted" },
   }),
 };
 
@@ -134,6 +166,27 @@ describe("eventLogLine", () => {
     // turn that went perfectly.
     expect(eventLogLine(ONE_OF_EACH["turn.failed"]).level).toBe("warn");
     expect(eventLogLine(ONE_OF_EACH["system.notice"]).level).toBe("warn");
+    // Three repairs spent with the checks still red: committed code nobody has verified.
+    expect(eventLogLine(ONE_OF_EACH["job.completed"]).level).toBe("warn");
+  });
+
+  it("logs a job that ended well at info, so exhaustion stands out among them", () => {
+    const completed = ONE_OF_EACH["job.completed"];
+    for (const outcome of ["verified", "unverified", "abandoned"]) {
+      expect(
+        eventLogLine({
+          ...completed,
+          payload: { jobId: JOB, outcome },
+        } as StoredEvent).level,
+      ).toBe("info");
+    }
+  });
+
+  it("says what verification found, per check", () => {
+    expect(eventLogLine(ONE_OF_EACH["verification.completed"]).fields).toMatchObject({
+      jobId: JOB,
+      checks: { typecheck: "failed", lint: "absent" },
+    });
   });
 
   it("logs an informational notice at info rather than crying wolf", () => {
@@ -146,6 +199,8 @@ describe("eventLogLine", () => {
   it("logs the ordinary course of a turn at info", () => {
     for (const [type, event] of Object.entries(ONE_OF_EACH)) {
       if (type === "command.output" || type === "turn.failed" || type === "system.notice") continue;
+      // Warns on `exhausted` alone, which is the outcome this fixture happens to carry.
+      if (type === "job.completed") continue;
       expect(eventLogLine(event).level).toBe("info");
     }
   });
@@ -164,6 +219,9 @@ describe("eventLogLine", () => {
       "error: secret token leaked",
       "restored from a snapshot",
       "ran out of steps",
+      // A failed check's output is a diagnostic, and it is in the events table under this
+      // `seq` already. The line says which check went red, which is the fact you alert on.
+      "src/App.tsx(3,1): error TS2304",
     ];
 
     for (const event of Object.values(ONE_OF_EACH)) {

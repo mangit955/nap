@@ -1,5 +1,5 @@
 import type { NapEvent } from "@nap/shared/events";
-import type { ContextRequest } from "@nap/shared/ports/context-engine";
+import type { ContextRequest, FailedAttempt } from "@nap/shared/ports/context-engine";
 import type { LLMContentBlock, LLMMessage } from "@nap/shared/ports/llm-provider";
 import type { Memory, MemoryProvider } from "@nap/shared/ports/memory-provider";
 import type { FileNode } from "@nap/shared/ports/sandbox-manager";
@@ -73,7 +73,7 @@ function hugeTree(fileCount: number): FileTree {
 function toolTurn(turn: number, outputSize: number): NapEvent[] {
   const id = `tc_${turn}`;
   return [
-    event("turn.started", turn, {}),
+    event("turn.started", turn, { source: "user" }),
     userMessage(turn, `change number ${turn}`),
     toolCall(turn, id, { path: "src/App.tsx" }),
     toolResult(turn, id, "x".repeat(outputSize)),
@@ -523,6 +523,140 @@ describe("NapContextEngine", () => {
 
       expect(context.systemPrompt).not.toContain("<project_files>");
       expect(context.systemPrompt).toContain("the user prefers tabs");
+    });
+  });
+
+  describe("the job", () => {
+    const failure = (overrides: Partial<FailedAttempt> = {}): FailedAttempt => ({
+      check: "test",
+      detail: "exited 1",
+      output: "FAIL src/App.test.tsx",
+      ...overrides,
+    });
+
+    /** A repair turn: the message is the verifier's prompt, the objective is the user's. */
+    const repairing = (attempts: readonly FailedAttempt[]): Partial<ContextRequest> => ({
+      userMessage: "the `test` check failed; find the cause and fix it",
+      job: { objective: "add a dark mode toggle", attempts },
+    });
+
+    it("is absent from the prompt for a caller that tracks none", async () => {
+      const context = await engine().build(request());
+
+      expect(context.systemPrompt).not.toContain("<job>");
+    });
+
+    it("leaves the prompt untouched when the turn's message is the objective itself", async () => {
+      // The first turn of a job. Restating the message directly below it is a section paid
+      // for on every opening turn of every job in exchange for nothing.
+      const withoutJob = await engine().build(request());
+      const withJob = await engine().build(
+        request({ job: { objective: "add a dark mode toggle", attempts: [] } }),
+      );
+
+      expect(withJob.systemPrompt).toBe(withoutJob.systemPrompt);
+    });
+
+    it("states the objective on a turn whose message is not it", async () => {
+      const context = await engine().build(request(repairing([])));
+
+      expect(context.systemPrompt).toContain("<job>");
+      expect(context.systemPrompt).toContain("add a dark mode toggle");
+    });
+
+    it("carries the failures already seen", async () => {
+      const context = await engine().build(
+        request(repairing([failure({ check: "typecheck", output: "error TS2322" })])),
+      );
+
+      expect(context.systemPrompt).toContain("typecheck");
+      expect(context.systemPrompt).toContain("error TS2322");
+    });
+
+    it("survives the budget that drops the conversation it came from", async () => {
+      // The whole point of the section. A long repair is exactly the situation where the
+      // turn that stated the objective has fallen out of the window, so an objective that
+      // goes with it would leave the model repairing checks with no idea what it is building.
+      const history = [1, 2, 3, 4, 5, 6].flatMap((n) => wordyTurn(n, 4_000));
+
+      const context = await engine({ budgetTokens: 2_000 }).build(
+        request({ ...repairing([failure()]), history }),
+      );
+
+      expect(context.systemPrompt).toContain("add a dark mode toggle");
+      expect(context.systemPrompt).toContain("FAIL src/App.test.tsx");
+      expect(texts(context.messages).join("\n")).not.toContain("change number 1");
+    });
+
+    it("outlives the file listing and the memories", async () => {
+      const memory: MemoryProvider = {
+        retrieve: async () => [{ id: "m1", content: "the user prefers tabs", score: 1 }],
+        write: async () => {},
+      };
+
+      // A failure large enough that something has to go: without the pressure the ordering
+      // claim is unobservable, because everything fits and nothing is given up at all.
+      const context = await engine({ budgetTokens: MIN_BUDGET_TOKENS + 200 }).build(
+        request({
+          ...repairing([failure({ output: "x".repeat(8_000) })]),
+          sandbox: stubSandbox(hugeTree(400)),
+          memory,
+        }),
+      );
+
+      expect(context.systemPrompt).not.toContain("<project_files>");
+      expect(context.systemPrompt).not.toContain("the user prefers tabs");
+      expect(context.systemPrompt).toContain("add a dark mode toggle");
+    });
+
+    it("gives up the oldest failures before the one being repaired now", async () => {
+      const attempts = [
+        failure({ check: "typecheck", output: "the oldest failure" }),
+        failure({ check: "lint", output: "the middle failure" }),
+        failure({ check: "test", output: "the newest failure" }),
+        // Long enough that they cannot all fit, and marked at the end, because what a
+        // shortened quote keeps is its tail.
+      ].map((attempt) => ({ ...attempt, output: `${"x".repeat(8_000)} ${attempt.output}` }));
+
+      const context = await engine({ budgetTokens: MIN_BUDGET_TOKENS + 500 }).build(
+        request(repairing(attempts)),
+      );
+
+      expect(context.systemPrompt).toContain("the newest failure");
+      expect(context.systemPrompt).not.toContain("the oldest failure");
+    });
+
+    it.each([MIN_BUDGET_TOKENS, MIN_BUDGET_TOKENS + 1_000, 10_000, DEFAULT_BUDGET_TOKENS])(
+      "never exceeds a budget of %i tokens with a job and a full history",
+      async (budgetTokens) => {
+        const history = Array.from({ length: 30 }, (_, i) => toolTurn(i + 1, 5_000)).flat();
+        const attempts = [1, 2, 3].map(() => failure({ output: "z".repeat(200_000) }));
+
+        const context = await engine({ budgetTokens }).build(
+          request({ ...repairing(attempts), history }),
+        );
+
+        expect(context.estimatedTokens).toBeLessThanOrEqual(budgetTokens);
+        expect(totalTokens(context.systemPrompt, context.messages)).toBeLessThanOrEqual(
+          budgetTokens,
+        );
+      },
+    );
+
+    it("holds the budget against a failure that printed more than the budget", async () => {
+      // Near-unevictable is not unevictable: a check can print a megabyte, and the guarantee
+      // that the assembled context fits is not allowed to become a hope because of it.
+      const context = await engine({ budgetTokens: MIN_BUDGET_TOKENS }).build(
+        request(repairing([failure({ output: "y".repeat(400_000) })])),
+      );
+
+      expect(context.estimatedTokens).toBeLessThanOrEqual(MIN_BUDGET_TOKENS);
+      expect(totalTokens(context.systemPrompt, context.messages)).toBeLessThanOrEqual(
+        MIN_BUDGET_TOKENS,
+      );
+      // Still says what was asked and which check said no, having given up only the quote.
+      expect(context.systemPrompt).toContain("add a dark mode toggle");
+      expect(context.systemPrompt).toContain("test");
     });
   });
 

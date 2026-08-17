@@ -53,15 +53,18 @@ describe("workingLabel", () => {
   });
 
   it("names an open read by the file it is reading", () => {
-    expect(labelFor(ev("turn.started", {}), call("a", "read_file", { path: "src/App.tsx" }))).toBe(
-      "Reading App.tsx",
-    );
+    expect(
+      labelFor(
+        ev("turn.started", { source: "user" }),
+        call("a", "read_file", { path: "src/App.tsx" }),
+      ),
+    ).toBe("Reading App.tsx");
   });
 
   it("strips the sandbox path, which is on every line and identifies nothing", () => {
     expect(
       labelFor(
-        ev("turn.started", {}),
+        ev("turn.started", { source: "user" }),
         call("a", "write_file", { path: "/home/user/app/src/Counter.tsx" }),
       ),
     ).toBe("Writing Counter.tsx");
@@ -69,14 +72,17 @@ describe("workingLabel", () => {
 
   it("names an open command by the command", () => {
     expect(
-      labelFor(ev("turn.started", {}), call("a", "run_command", { command: "bun install" })),
+      labelFor(
+        ev("turn.started", { source: "user" }),
+        call("a", "run_command", { command: "bun install" }),
+      ),
     ).toBe("Running bun install");
   });
 
   it("falls back to thinking once every call has been answered", () => {
     expect(
       labelFor(
-        ev("turn.started", {}),
+        ev("turn.started", { source: "user" }),
         call("a", "read_file", { path: "src/App.tsx" }),
         result("a", "read_file"),
       ),
@@ -88,7 +94,7 @@ describe("workingLabel", () => {
     // calls. Naming the first would leave the label stuck on a call that already returned.
     expect(
       labelFor(
-        ev("turn.started", {}),
+        ev("turn.started", { source: "user" }),
         call("a", "read_file", { path: "src/App.tsx" }),
         call("b", "run_command", { command: "bun install" }),
       ),
@@ -98,7 +104,7 @@ describe("workingLabel", () => {
   it("goes back to thinking when the newer of two calls is answered", () => {
     expect(
       labelFor(
-        ev("turn.started", {}),
+        ev("turn.started", { source: "user" }),
         call("a", "read_file", { path: "src/App.tsx" }),
         call("b", "run_command", { command: "bun install" }),
         result("b", "run_command"),
@@ -107,7 +113,7 @@ describe("workingLabel", () => {
   });
 
   it("thinks rather than starting up when the turn is open but has done nothing yet", () => {
-    expect(labelFor(ev("turn.started", {}))).toBe("Thinking");
+    expect(labelFor(ev("turn.started", { source: "user" }))).toBe("Thinking");
   });
 });
 
@@ -141,7 +147,7 @@ describe("turnStartedAt", () => {
 
   it("is the timestamp the server wrote on the open turn", () => {
     reset();
-    const started = ev("turn.started", {});
+    const started = ev("turn.started", { source: "user" });
     expect(turnStartedAt([started, ev("agent.thinking", { text: "…" })])).toBe(started.createdAt);
   });
 
@@ -149,7 +155,7 @@ describe("turnStartedAt", () => {
     reset();
     expect(
       turnStartedAt([
-        ev("turn.started", {}),
+        ev("turn.started", { source: "user" }),
         ev("turn.completed", {
           durationMs: 1200,
           usage: { inputTokens: 10, outputTokens: 2 },
@@ -163,7 +169,7 @@ describe("turnStartedAt", () => {
     reset();
     expect(
       turnStartedAt([
-        ev("turn.started", {}),
+        ev("turn.started", { source: "user" }),
         ev("turn.failed", { reason: "sandbox_unavailable", message: "no sandbox" }),
       ]),
     ).toBeUndefined();
@@ -173,14 +179,14 @@ describe("turnStartedAt", () => {
     // A second turn in the same session. Anchoring the timer to the first would show an
     // elapsed time counting the gap between them, which is most of the number.
     reset();
-    const first = ev("turn.started", {});
+    const first = ev("turn.started", { source: "user" });
     const second = [
       ev("turn.completed", {
         durationMs: 1200,
         usage: { inputTokens: 10, outputTokens: 2 },
         commitSha: null,
       }),
-      ev("turn.started", {}),
+      ev("turn.started", { source: "user" }),
     ] as const;
 
     const answer = turnStartedAt([first, ...second]);

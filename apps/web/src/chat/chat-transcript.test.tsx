@@ -1,4 +1,4 @@
-import type { NapEvent, NapEventType } from "@nap/shared/events";
+import { type NapEvent, NapEventSchema, type NapEventType } from "@nap/shared/events";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -34,9 +34,23 @@ function show(...events: StoredEvent[]) {
 }
 
 /**
- * `docs/PLAN.md` §4 wants a defined visual treatment *and a test* for every event type.
- * The table is the test: each row names something the reader must be able to find, so a type
- * that renders as nothing fails here, and a twelfth type fails to compile until it has a row.
+ * Event types drawn by the job strip above the chat rather than by the transcript. Same list,
+ * and same reasoning, as `transcript.test.ts` — a job's phase and its checks are status, not
+ * chronology, and putting them in both panes says one thing twice.
+ */
+const DRAWN_ELSEWHERE = [
+  "job.started",
+  "verification.started",
+  "verification.completed",
+  "job.checkpointed",
+  "job.completed",
+] as const satisfies readonly NapEventType[];
+
+/**
+ * `docs/PLAN.md` §4 wants a defined visual treatment *and a test* for every event type the
+ * transcript draws. The table is the test: each row names something the reader must be able to
+ * find, so a type that renders as nothing fails here, and a new type fails to compile until it
+ * has a row or a place above.
  */
 const TREATMENTS = [
   {
@@ -108,14 +122,25 @@ const TREATMENTS = [
 ] as const satisfies readonly { type: NapEventType; payload: NapEvent["payload"]; shows: RegExp }[];
 
 describe("every event type has a visual treatment", () => {
-  it("covers the whole union", () => {
+  it("covers the whole union, between this pane and the strip", () => {
     const covered = TREATMENTS.map((t) => t.type);
     expect(new Set(covered).size).toBe(covered.length);
-    expect(TREATMENTS).toHaveLength(13);
+    expect(new Set([...covered, ...DRAWN_ELSEWHERE]).size).toBe(NapEventSchema.options.length);
 
-    // Fails to compile if a 14th member is added to the union without a treatment.
-    const _exhaustive: (typeof TREATMENTS)[number]["type"] = null as unknown as NapEventType;
+    // Fails to compile if a new member is added to the union without a treatment here or a
+    // place in `DRAWN_ELSEWHERE`.
+    const _exhaustive: (typeof TREATMENTS)[number]["type"] | (typeof DRAWN_ELSEWHERE)[number] =
+      null as unknown as NapEventType;
     void _exhaustive;
+  });
+
+  it("lets nothing but a job event out of the treatment table", () => {
+    // The list is otherwise an escape hatch: a type moved into it renders nowhere while both
+    // the count and the compile check stay green, which is what this table exists to catch.
+    for (const type of DRAWN_ELSEWHERE) {
+      expect(type).toMatch(/^(job|verification)\./);
+      expect(TREATMENTS.map((t) => t.type)).not.toContain(type);
+    }
   });
 
   it.each(TREATMENTS)("renders $type", ({ type, payload, shows }) => {
@@ -164,7 +189,7 @@ describe("the transcript as a whole", () => {
 describe("a turn in progress", () => {
   it("shows an unfinished tool call as running", () => {
     show(
-      ev("turn.started", {}),
+      ev("turn.started", { source: "user" }),
       ev("tool.call", {
         toolCallId: "c1",
         toolName: "run_command",
@@ -280,7 +305,7 @@ describe("reasoning arriving as it is produced", () => {
 
   it("reveals the last thing on the rail while the turn is open", () => {
     const { container } = show(
-      ev("turn.started", {}),
+      ev("turn.started", { source: "user" }),
       ev("agent.thinking", { text: "I should read App.tsx" }),
     );
 
@@ -291,7 +316,7 @@ describe("reasoning arriving as it is produced", () => {
     // Only the newest item can still be growing. Re-revealing the ones above it would
     // replay the whole turn every time another word arrived.
     const { container } = show(
-      ev("turn.started", {}),
+      ev("turn.started", { source: "user" }),
       ev("agent.thinking", { text: "an earlier thought" }),
       ev("agent.message", { text: "Added App.tsx." }),
       ev("agent.thinking", { text: "and a later one" }),
@@ -305,7 +330,7 @@ describe("reasoning arriving as it is produced", () => {
     // reveal would say the agent is working on a turn that ended yesterday. What prevents it
     // is that a finished turn ends *with* its terminal event, so the last line has no prose.
     const { container } = show(
-      ev("turn.started", {}),
+      ev("turn.started", { source: "user" }),
       ev("agent.thinking", { text: "a thought from yesterday" }),
       ev("turn.completed", {
         usage: { inputTokens: 1, outputTokens: 1 },
@@ -329,7 +354,7 @@ describe("reasoning arriving as it is produced", () => {
 
   it("shows a run of thinking events as one passage", () => {
     show(
-      ev("turn.started", {}),
+      ev("turn.started", { source: "user" }),
       ev("agent.thinking", { text: "I should read " }),
       ev("agent.thinking", { text: "App.tsx first." }),
     );
@@ -370,5 +395,64 @@ describe("a project opened and closed many times", () => {
       .getAllByText(/the project was put away/i)
       .filter((line) => !line.closest(".sr-only"));
     expect(visible).toEqual([]);
+  });
+});
+
+describe("a repair turn", () => {
+  const REPAIR_TURN = "9d2e3f4a-5b6c-4d7e-9f80-1a2b3c4d5e60";
+
+  /** The prompt as the verifier writes it — see `packages/runtime/src/repair-prompt.ts`. */
+  const PROMPT =
+    "Your last change is committed, but the project's own checks do not pass.\n\n" +
+    "The `typecheck` check failed (exit code 2).\n\nThis is repair attempt 1 of 3.";
+
+  function repair(...events: StoredEvent[]) {
+    return events.map((event) => ({ ...event, turnId: REPAIR_TURN }) as StoredEvent);
+  }
+
+  function showRepair() {
+    return show(
+      ...repair(
+        ev("user.message", { text: PROMPT }),
+        ev("turn.started", { source: "verification" }),
+      ),
+    );
+  }
+
+  it("says on its face that verification asked for it", () => {
+    showRepair();
+
+    expect(screen.getByRole("log")).toHaveTextContent(/verification asked for a repair/i);
+  });
+
+  it("does not put the verifier's words in the user's mouth", () => {
+    // The failure this guards is the reason for the treatment: a synthesized prompt in a bubble
+    // reads as the app talking to itself, and the self-correction stops looking intentional.
+    showRepair();
+
+    expect(screen.getByRole("log")).not.toHaveTextContent("You: Your last change");
+  });
+
+  it("keeps the sentence naming the failed check", () => {
+    showRepair();
+
+    expect(screen.getByRole("log")).toHaveTextContent(/the `typecheck` check failed/i);
+  });
+
+  it("names the boundary for somebody who cannot see it", () => {
+    // The rule between turns is a hairline, which is nothing at all to a screen reader — and
+    // "turn started" would tell them the user had said something.
+    show(
+      ev("user.message", { text: "build a todo list" }),
+      ...repair(ev("turn.started", { source: "verification" })),
+    );
+
+    expect(screen.getByText("Repair turn started")).toBeInTheDocument();
+  });
+
+  it("still calls an ordinary turn an ordinary turn", () => {
+    show(ev("user.message", { text: "build a todo list" }), ev("turn.started", { source: "user" }));
+
+    expect(screen.getByText("Turn started")).toBeInTheDocument();
   });
 });

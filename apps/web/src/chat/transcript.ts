@@ -22,7 +22,7 @@
  * anything that survives the call.
  */
 
-import type { NapEventOf, ToolName } from "@nap/shared/events";
+import type { NapEventOf, PromptSource, ToolName } from "@nap/shared/events";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 
 export type FileChange = {
@@ -35,8 +35,19 @@ export type FileChange = {
 
 export type StepStatus = "running" | "ok" | "failed";
 
+/**
+ * Who a block of prose came from.
+ *
+ * `verifier` is not a third speaker in the conversation — it is the same `user.message` event
+ * every prompt is, written by the runtime instead of by a person (docs/adr/0006). It is told
+ * apart here rather than in the component because the distinction is a fact about the log, and
+ * it is the whole of what makes a repair read as the system correcting itself rather than as
+ * the app talking to itself in the user's voice.
+ */
+export type Speaker = "user" | "agent" | "verifier";
+
 export type TranscriptItem =
-  | { kind: "message"; key: number; from: "user" | "agent"; text: string }
+  | { kind: "message"; key: number; from: Speaker; text: string }
   | { kind: "thinking"; key: number; text: string }
   | {
       kind: "step";
@@ -65,7 +76,7 @@ export type TranscriptItem =
    */
   | { kind: "preview-stopped"; key: number; superseded: boolean }
   | { kind: "notice"; key: number; level: "info" | "warning"; text: string }
-  | { kind: "turn-start"; key: number }
+  | { kind: "turn-start"; key: number; source: PromptSource }
   | ({ kind: "turn-end"; key: number } & TurnOutcome);
 
 type TurnOutcome =
@@ -93,8 +104,48 @@ type TurnOutcome =
 
 type Step = Extract<TranscriptItem, { kind: "step" }>;
 
+/**
+ * The turns a failed check prompted, by id.
+ *
+ * A pass of its own, and it has to be: the runtime writes the synthesized prompt *before*
+ * handing the turn to the agent, which is what emits `turn.started`, so by the time the fold
+ * below reaches the message the event that classifies it has not arrived yet. The two are tied
+ * together by `turnId` — each repair runs in a scope of its own — rather than by position,
+ * which would be wrong on every window that opens mid-turn.
+ */
+function repairTurns(events: readonly StoredEvent[]): ReadonlySet<string> {
+  const ids = new Set<string>();
+
+  for (const event of events) {
+    if (event.type === "turn.started" && event.payload.source === "verification") {
+      ids.add(event.turnId);
+    }
+  }
+
+  return ids;
+}
+
 export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[] {
+  const repairs = repairTurns(events);
   const items: TranscriptItem[] = [];
+  /**
+   * A verification came back red and no turn has opened since, so the next prompt is the one it
+   * is about to write.
+   *
+   * The pass above cannot answer for the message that is on screen *right now*: the runtime
+   * logs the repair prompt and then builds the turn's context — a sandbox file listing — before
+   * the agent emits the `turn.started` that classifies it. For that second the log holds the
+   * verifier's paragraph and nothing saying whose it is, and drawing it as the user's and then
+   * correcting it is the one thing this treatment exists to prevent, live, on the demo.
+   *
+   * Deliberately the *narrowest* rule that covers the gap, because the source field exists
+   * precisely so that nobody derives this by counting verifications back from a turn: red
+   * checks, nothing opened since, and it is spent by the turn it was waiting for. Everything
+   * that could mean no repair is coming — a green run, a job that closed, a turn that started —
+   * puts it back, so the failure it cannot make is the expensive one: labelling somebody's own
+   * words as the machine's.
+   */
+  let awaitingRepair = false;
   const stepsById = new Map<string, Step>();
   // The step a `file.changed` belongs to: the last one opened that has not been answered yet.
   let openStep: Step | undefined;
@@ -107,12 +158,15 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
     const key = event.seq;
 
     switch (event.type) {
-      case "user.message":
-        items.push({ kind: "message", key, from: "user", text: event.payload.text });
+      case "user.message": {
+        const from = repairs.has(event.turnId) || awaitingRepair ? "verifier" : "user";
+        items.push({ kind: "message", key, from, text: event.payload.text });
         // Remembered for the turn this opens, so a failure downstream knows what to offer to
-        // send again.
-        lastUserMessage = event.payload.text;
+        // send again — and only when a person wrote it. Retrying means re-sending the request,
+        // and a repair prompt is the verifier's account of a check that has not been re-run.
+        if (from === "user") lastUserMessage = event.payload.text;
         break;
+      }
 
       case "agent.message": {
         // Same rule as reasoning below, and for the same reason: the answer is shown as it is
@@ -212,7 +266,22 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
         break;
 
       case "turn.started":
-        items.push({ kind: "turn-start", key });
+        awaitingRepair = false;
+        items.push({ kind: "turn-start", key, source: event.payload.source });
+        break;
+
+      // Draws nothing — the strip above the chat is where a job's phase and its checks are
+      // shown, and saying it twice would put a running status commentary through the pane that
+      // reads as a conversation. Read here only for the flag above.
+      case "verification.completed":
+        awaitingRepair = event.payload.checks.some((check) => check.outcome === "failed");
+        break;
+
+      // Whatever the checks last said, a job that has closed is prompting nothing further. Red
+      // and out of attempts is exactly the case this exists for: the loop stops there, and the
+      // next thing said is somebody typing.
+      case "job.completed":
+        awaitingRepair = false;
         break;
 
       case "turn.completed":

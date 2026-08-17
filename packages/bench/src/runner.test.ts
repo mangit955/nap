@@ -350,7 +350,7 @@ describe("runBenchTask — the trajectory it kept", () => {
     return {
       async runTurn() {
         const envelope = { sessionId: SESSION_ID, turnId: TURN_ID, createdAt: NOW };
-        await events.append({ ...envelope, type: "turn.started", payload: {} });
+        await events.append({ ...envelope, type: "turn.started", payload: { source: "user" } });
         await events.append({
           ...envelope,
           type: "tool.call",
@@ -483,11 +483,23 @@ describe("runBenchTask — the trajectory it kept", () => {
       ...(await deps(runtime, sandbox)),
       model: "anthropic/claude-opus-5",
       budget: { maxSteps: 8, maxTokens: 40_000 },
+      harness: {
+        commit: "9e107d9d372bb6826bd81d3542a419d6c2b0f5a1",
+        dirty: true,
+        verification: false,
+      },
     });
 
     expect(report.configuration).toEqual({
       model: "anthropic/claude-opus-5",
       budget: { maxSteps: 8, maxTokens: 40_000 },
+      // Which Nap produced this, including whether it arbitrated what its turns claimed — the
+      // two arms of a before/after measurement are told apart by nothing else.
+      harness: {
+        commit: "9e107d9d372bb6826bd81d3542a419d6c2b0f5a1",
+        dirty: true,
+        verification: false,
+      },
     });
   });
 
@@ -542,7 +554,7 @@ describe("runBenchTask — the trajectory it kept", () => {
 
     const report = await reportOf(task(), await deps(runtime, sandbox));
 
-    expect(report.configuration).toEqual({ model: null, budget: null });
+    expect(report.configuration).toEqual({ model: null, budget: null, harness: null });
   });
 });
 

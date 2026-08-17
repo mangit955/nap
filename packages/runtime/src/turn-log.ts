@@ -43,6 +43,11 @@ function levelFor(event: StoredEvent): EventLogLine["level"] {
   if (event.type === "turn.failed") return "warn";
   if (event.type === "system.notice") return event.payload.level === "warning" ? "warn" : "info";
 
+  // A job that spent all three repairs with checks still red is the failure this whole loop
+  // exists to prevent, and it leaves committed code behind that nobody has verified. The other
+  // three outcomes are ordinary; only this one is worth finding without knowing to look.
+  if (event.type === "job.completed" && event.payload.outcome === "exhausted") return "warn";
+
   return "info";
 }
 
@@ -89,7 +94,9 @@ function detail(event: NapEvent): Record<string, unknown> {
       return {};
 
     case "turn.started":
-      return {};
+      // Who prompted it, because a run of turns under one job is otherwise indistinguishable in
+      // the logs from a user sending the same request four times.
+      return { source: event.payload.source };
 
     case "turn.completed":
       return {
@@ -106,5 +113,27 @@ function detail(event: NapEvent): Record<string, unknown> {
 
     case "system.notice":
       return { noticeLevel: event.payload.level };
+
+    case "job.started":
+      // The objective is the user's own prose, and the rule above applies to it as much as to
+      // a message: it is in the `events` table already, addressable by this very id.
+      return { jobId: event.payload.jobId, chars: event.payload.objective.length };
+
+    case "verification.started":
+      return { jobId: event.payload.jobId };
+
+    case "verification.completed":
+      // The outcomes, not the output. Which check went red is what a rate of repair loops is
+      // measured from; what it said is a diagnostic, and it is in the log under this `seq`.
+      return {
+        jobId: event.payload.jobId,
+        checks: Object.fromEntries(event.payload.checks.map((c) => [c.name, c.outcome])),
+      };
+
+    case "job.checkpointed":
+      return { jobId: event.payload.jobId, commitSha: event.payload.commitSha };
+
+    case "job.completed":
+      return { jobId: event.payload.jobId, outcome: event.payload.outcome };
   }
 }

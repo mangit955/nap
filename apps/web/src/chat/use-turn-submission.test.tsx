@@ -20,7 +20,7 @@ function ev<T extends NapEventType>(type: T, payload: Extract<NapEvent, { type: 
   } as StoredEvent;
 }
 
-const started = () => ev("turn.started", {});
+const started = () => ev("turn.started", { source: "user" });
 const userSaid = (text: string) => ev("user.message", { text });
 const completed = () =>
   ev("turn.completed", {

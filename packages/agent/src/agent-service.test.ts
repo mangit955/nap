@@ -110,6 +110,26 @@ describe("the model a turn runs on", () => {
   });
 });
 
+describe("runTurn — who prompted the turn", () => {
+  it("records the verifier as the source when the runtime says a repair prompted it", async () => {
+    // The one thing that distinguishes a repair turn from any other in the log, and the whole
+    // reason the loop above needs nothing else (docs/adr/0006).
+    const { agent } = service([[{ text: "fixed", toolCalls: [] }]]);
+
+    await agent.runTurn(request({ promptSource: "verification" }));
+
+    expect(recorder.payloadsOf("turn.started")).toEqual([{ source: "verification" }]);
+  });
+
+  it("records the user when nothing said otherwise", async () => {
+    const { agent } = service([[{ text: "done", toolCalls: [] }]]);
+
+    await agent.runTurn(request());
+
+    expect(recorder.payloadsOf("turn.started")).toEqual([{ source: "user" }]);
+  });
+});
+
 describe("runTurn — event ordering", () => {
   it("emits started, call, result, message, completed in exactly that order", async () => {
     await manager.writeFile(

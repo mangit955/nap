@@ -164,7 +164,7 @@ describe("readFrom", () => {
       sessionId,
       turnId,
       createdAt: new Date().toISOString(),
-      payload: {},
+      payload: { source: "user" },
     });
     await store.append(message(sessionId, turnId, "done"));
 
@@ -245,6 +245,8 @@ describe("the store and the bus together", () => {
  * One fixture per event type, so the payloads that actually go through `jsonb` are all
  * exercised rather than just the two the other tests happen to use.
  */
+const JOB = "3f9a1c2d-5e6b-4f7a-8b9c-0d1e2f3a4b5c";
+
 const PAYLOADS = [
   { type: "user.message", payload: { text: "build me a todo list" } },
   { type: "agent.thinking", payload: { text: "considering the layout" } },
@@ -266,7 +268,7 @@ const PAYLOADS = [
     payload: { toolCallId: "call_2", stream: "stderr", chunk: "warning: unused import\n" },
   },
   { type: "preview.ready", payload: { url: "https://5173-abc.e2b.dev", port: 5173 } },
-  { type: "turn.started", payload: {} },
+  { type: "turn.started", payload: { source: "verification" } },
   {
     type: "turn.completed",
     payload: {
@@ -278,15 +280,31 @@ const PAYLOADS = [
   { type: "turn.failed", payload: { reason: "refusal", message: "declined" } },
   { type: "system.notice", payload: { level: "warning", text: "restored from a snapshot" } },
   { type: "preview.stopped", payload: {} },
+  { type: "job.started", payload: { jobId: JOB, objective: "build me a todo list" } },
+  { type: "verification.started", payload: { jobId: JOB } },
+  {
+    type: "verification.completed",
+    payload: {
+      jobId: JOB,
+      checks: [
+        { name: "typecheck", outcome: "failed", output: "1 error" },
+        // A nested `null` is the case worth round-tripping: `undefined` would be dropped by
+        // `jsonb` on the way in and the row would come back a different shape.
+        { name: "lint", outcome: "absent", output: null },
+      ],
+    },
+  },
+  { type: "job.checkpointed", payload: { jobId: JOB, commitSha: "a1b2c3d" } },
+  { type: "job.completed", payload: { jobId: JOB, outcome: "exhausted" } },
 ] as const satisfies readonly { type: NapEvent["type"]; payload: NapEvent["payload"] }[];
 
 describe("every event type survives the round trip", () => {
   it("covers the whole union", () => {
     const covered = PAYLOADS.map((p) => p.type);
     expect(new Set(covered).size).toBe(covered.length);
-    expect(PAYLOADS).toHaveLength(13);
+    expect(PAYLOADS).toHaveLength(NapEventSchema.options.length);
 
-    // Fails to compile if a 14th member is added to the union without a fixture here.
+    // Fails to compile if a new member is added to the union without a fixture here.
     const _exhaustive: (typeof PAYLOADS)[number]["type"] = null as unknown as NapEvent["type"];
     void _exhaustive;
   });

@@ -48,6 +48,20 @@ export class ScriptedAgent implements AgentService {
     await this.before?.(request);
 
     for (const event of this.script(request)) {
+      // Filled in here for the same reason the sha below is: who prompted the turn is a fact
+      // about the request, not about the script, and a runtime that stopped passing it down
+      // would otherwise go on looking correct to every test above this one.
+      if (event.type === "turn.started") {
+        request.onEvent({
+          type: "turn.started",
+          payload: { source: request.promptSource ?? "user" },
+          sessionId: request.sessionId,
+          turnId: request.turnId,
+          createdAt: FIXED_TIME,
+        } as PendingEvent);
+        continue;
+      }
+
       if (event.type === "turn.completed" && this.finalizes) {
         const finalized = await request.finalize?.();
         request.onEvent(

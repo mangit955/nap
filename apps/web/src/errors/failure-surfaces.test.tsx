@@ -42,7 +42,7 @@ function failedTurn(reason: FailureReason, message: string) {
   nextSeq = 1;
   return [
     ev("user.message", { text: "build me a todo list" }),
-    ev("turn.started", {}),
+    ev("turn.started", { source: "user" }),
     ev("turn.failed", { reason, message }),
   ];
 }

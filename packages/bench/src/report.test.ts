@@ -20,7 +20,15 @@ const report: BenchReport = {
   score: 100,
   categories: [{ category: "functional", score: 100, effectiveWeight: 100, checks: 1 }],
   weights: DEFAULT_CATEGORY_WEIGHTS,
-  configuration: { model: "openai/gpt-5.6-luna", budget: { maxSteps: 40, maxTokens: 400_000 } },
+  configuration: {
+    model: "openai/gpt-5.6-luna",
+    budget: { maxSteps: 40, maxTokens: 400_000 },
+    harness: {
+      commit: "9e107d9d372bb6826bd81d3542a419d6c2b0f5a1",
+      dirty: false,
+      verification: true,
+    },
+  },
   screenshots: [],
   visual: VISUAL_NOT_RUN,
   metrics: {
@@ -206,7 +214,8 @@ describe("the configuration a run was held at", () => {
 
     const parsed = parseBenchReport(archived);
     expect(parsed.ok).toBe(true);
-    if (parsed.ok) expect(parsed.value.configuration).toEqual({ model: null, budget: null });
+    if (parsed.ok)
+      expect(parsed.value.configuration).toEqual({ model: null, budget: null, harness: null });
   });
 
   it("keeps what it was given when the run did record it", () => {
@@ -223,7 +232,7 @@ describe("the configuration a run was held at", () => {
     expect(
       parseBenchReport({
         ...report,
-        configuration: { model: "m", budget: { maxSteps: 0, maxTokens: 1 } },
+        configuration: { model: "m", budget: { maxSteps: 0, maxTokens: 1 }, harness: null },
       }).ok,
     ).toBe(false);
   });

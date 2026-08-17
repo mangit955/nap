@@ -35,7 +35,9 @@ Run `gh issue view <number> --comments`.
 
 ## Relationship to `PROGRESS.md` and `docs/PLAN.md`
 
-The v1 task list lives in `docs/PLAN.md` §4 and its status in `PROGRESS.md`; those are the source of truth for planned milestone work and are **not** mirrored into GitHub issues. GitHub issues are for everything else — bugs, incoming requests, and work that arrives outside the plan.
+**v1 only.** The v1 task list lives in `docs/PLAN.md` §4 and its status in `PROGRESS.md`. Both are now the frozen historical record of a shipped milestone: they are not mirrored into GitHub issues and they are not added to.
+
+**V2 onwards lives in GitHub issues**, as a wayfinder map with child tickets (see *Wayfinding operations* above). The reason for the switch is that dependency gating stops being something a reader infers from a table and becomes a query — GitHub's native issue dependencies answer "which task is next" directly, where `PROGRESS.md` answered it by eye. Everything else — bugs, incoming requests, work outside any plan — was always issues and still is.
 
 ## Wayfinding operations
 

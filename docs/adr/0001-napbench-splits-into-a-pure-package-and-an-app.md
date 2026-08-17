@@ -14,7 +14,10 @@ Three facts about this repository constrain where that code can live.
 The dependency direction is a table, not a habit. `test/architecture.ts` enumerates what every
 workspace package may depend on, and a new package fails the suite until it appears there. So
 placement is a decision somebody has to make deliberately; there is no default to fall into. Apps
-are the exception — they are `"*"`, because composing everything is what an app is for.
+are the exception — they are `"*"`, because composing everything is what an app is for. The table
+is read twice: against the manifests, and against the `@nap/*` specifiers each package's `src`
+actually imports, since a manifest-only rule is enforced one level away from where violations get
+written.
 
 The browser is already spoken for. `EXCLUSIVE_EXTERNALS` assigns `puppeteer-core` to
 `@nap/capture`, on the grounds that nothing above the `PageCapture` interface may know a thumbnail

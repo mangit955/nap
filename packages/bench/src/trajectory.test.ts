@@ -13,7 +13,7 @@ const envelope = {
 };
 
 const events: NapEvent[] = [
-  { ...envelope, seq: 1, type: "turn.started", payload: {} },
+  { ...envelope, seq: 1, type: "turn.started", payload: { source: "user" } },
   { ...envelope, seq: 2, type: "agent.thinking", payload: { text: "hmm" } },
   {
     ...envelope,
