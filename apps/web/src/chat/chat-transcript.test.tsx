@@ -1,7 +1,7 @@
 import { type NapEvent, NapEventSchema, type NapEventType } from "@nap/shared/events";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
 import { ChatTranscript } from "./chat-transcript.tsx";
 import { groupSteps } from "./step-group.ts";
 import { REVEAL_CLASS } from "./streaming-text.tsx";
@@ -454,5 +454,97 @@ describe("a repair turn", () => {
     show(ev("user.message", { text: "build a todo list" }), ev("turn.started", { source: "user" }));
 
     expect(screen.getByText("Turn started")).toBeInTheDocument();
+  });
+});
+
+describe("taking what the agent said away with you", () => {
+  /**
+   * The clipboard is stubbed as the platform boundary it is, rather than injected as a prop.
+   * jsdom implements no `navigator.clipboard`, so something has to give — and a prop would move
+   * the actual write up into the pane, where nothing tests it, in exchange for asserting that a
+   * callback this test invented was called.
+   */
+  function stubClipboard(): string[] {
+    const written: string[] = [];
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: (text: string) => {
+          written.push(text);
+          return Promise.resolve();
+        },
+      },
+    });
+    return written;
+  }
+
+  afterEach(() => {
+    Reflect.deleteProperty(navigator, "clipboard");
+  });
+
+  it("puts a passage on the clipboard", () => {
+    const written = stubClipboard();
+    show(ev("agent.message", { text: "Added App.tsx." }));
+
+    fireEvent.click(screen.getByRole("button", { name: /copy/i }));
+
+    expect(written).toEqual(["Added App.tsx."]);
+  });
+
+  it("copies the passage you asked for and not the machinery around it", () => {
+    // The rule the fold already keeps — a run of `agent.message` joins, a tool step breaks the
+    // run — carried through to the clipboard. What this guards against is the obvious
+    // simplification of copying the pane's `textContent`, which hands somebody a build banner
+    // and both halves of the turn when they wanted one sentence.
+    const written = stubClipboard();
+    show(
+      ev("agent.message", { text: "Reading the project first." }),
+      ev("tool.call", {
+        toolCallId: "c1",
+        toolName: "run_command",
+        input: { command: "bun run build" },
+      }),
+      ev("command.output", { toolCallId: "c1", stream: "stdout", chunk: "vite v8.0.0 ready" }),
+      ev("tool.result", {
+        toolCallId: "c1",
+        toolName: "run_command",
+        ok: true,
+        output: "exit code 0",
+      }),
+      ev("agent.message", { text: "Added App.tsx." }),
+    );
+
+    const [, second] = screen.getAllByRole("button", { name: /copy/i });
+    fireEvent.click(second as HTMLElement);
+
+    expect(written).toEqual(["Added App.tsx."]);
+  });
+
+  it("offers one control per passage rather than one per turn", () => {
+    const written = stubClipboard();
+    show(
+      ev("agent.message", { text: "Reading the project first." }),
+      ev("tool.call", {
+        toolCallId: "c1",
+        toolName: "run_command",
+        input: { command: "bun run build" },
+      }),
+      ev("agent.message", { text: "Added App.tsx." }),
+    );
+
+    const buttons = screen.getAllByRole("button", { name: /copy/i });
+    expect(buttons).toHaveLength(2);
+
+    fireEvent.click(buttons[0] as HTMLElement);
+    expect(written).toEqual(["Reading the project first."]);
+  });
+
+  it("offers nothing to copy on the user's own words", () => {
+    // A bubble the reader typed is already theirs, and a control on it is one more thing between
+    // them and the conversation.
+    stubClipboard();
+    show(ev("user.message", { text: "build me a todo list" }));
+
+    expect(screen.queryByRole("button", { name: /copy/i })).not.toBeInTheDocument();
   });
 });

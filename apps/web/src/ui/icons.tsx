@@ -139,6 +139,15 @@ export function CheckIcon({ className = "size-4" }: IconProps) {
   );
 }
 
+export function CopyIcon({ className = "size-4" }: IconProps) {
+  return (
+    <svg aria-hidden="true" {...STROKE} className={className}>
+      <rect x="5.6" y="5.6" width="7.6" height="7.6" rx="1.6" />
+      <path d="M10.4 3.2a1.6 1.6 0 0 0-1.6-1.6H4.4a1.6 1.6 0 0 0-1.6 1.6v4.4a1.6 1.6 0 0 0 1.6 1.6" />
+    </svg>
+  );
+}
+
 export function AlertIcon({ className = "size-4" }: IconProps) {
   return (
     <svg aria-hidden="true" {...STROKE} className={className}>

@@ -20,7 +20,7 @@
 
 import { NapMark } from "../brand/nap-mark.tsx";
 import { turnFailureCopy } from "../errors/failure-copy.ts";
-import { AlertIcon } from "../ui/icons.tsx";
+import { AlertIcon, CopyIcon } from "../ui/icons.tsx";
 import { OutputBlock } from "./output-block.tsx";
 import type { DisplayItem } from "./step-group.ts";
 import { StepGroupCard } from "./step-group-card.tsx";
@@ -141,6 +141,7 @@ function Item({
             <span className="sr-only">Agent: </span>
             <StreamingText text={item.text} live={live} />
           </p>
+          <CopyButton text={item.text} />
         </div>
       );
 
@@ -248,6 +249,34 @@ function Item({
         <TurnFailure item={item} onRetry={onRetry} />
       );
   }
+}
+
+/**
+ * Taking one passage of the agent's prose away with you.
+ *
+ * Scoped to the passage rather than to the turn on purpose. A turn is prose, tool calls, streamed
+ * output and a commit line, and "copy" on all of that hands somebody four kilobytes of `vite`
+ * banner when they wanted the sentence explaining what changed. The fold has already decided where
+ * a passage ends — `transcript.ts` joins a run of `agent.message` events and refuses to join across
+ * a tool step — so the boundary this copies is one the reader can see.
+ */
+function CopyButton({ text }: { text: string }) {
+  return (
+    <button
+      type="button"
+      // Named rather than labelled by its glyph: the icon is the only thing drawn, so without
+      // this the control reads as "button" to anyone listening.
+      aria-label="Copy response"
+      onClick={() => {
+        // Nothing to do with the promise. It rejects when the document is not focused or the
+        // permission is refused, and neither is something to tell the reader about mid-transcript.
+        void navigator.clipboard?.writeText(text);
+      }}
+      className="self-start rounded-chip p-1 text-muted transition-colors hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
+    >
+      <CopyIcon className="size-3.5" />
+    </button>
+  );
 }
 
 /**
