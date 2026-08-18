@@ -84,6 +84,45 @@ export function Figure({ children, label }: { children: string; label: string })
 }
 
 /**
+ * A screen recording — the one thing on this page that is evidence rather than argument.
+ *
+ * It does not autoplay and it is not muted-and-looping wallpaper: it is two minutes long, a reader
+ * arrives here mid-sentence, and a page that starts moving on its own costs more attention than the
+ * recording is worth. `preload="metadata"` means the poster is what loads with the page and the
+ * eight megabytes only follow if somebody presses play.
+ *
+ * The `src` and `poster` are strings under `apps/web/public` that nothing type-checks, so
+ * `docs-page.test.tsx` asserts both resolve to files that exist.
+ */
+export function Recording({
+  src,
+  poster,
+  label,
+  caption,
+}: {
+  src: string;
+  poster: string;
+  label: string;
+  caption: string;
+}) {
+  return (
+    <figure className="mt-7 max-w-3xl" aria-label={label}>
+      {/* biome-ignore lint/a11y/useMediaCaption: no speech and no audio track — there is nothing to caption. */}
+      <video
+        src={src}
+        poster={poster}
+        controls
+        playsInline
+        preload="metadata"
+        aria-label={label}
+        className="w-full rounded-lg border border-[var(--s-border-1)] bg-[var(--s-surface-2)]"
+      />
+      <figcaption className="mt-2 text-[var(--s-text-subtle)] text-xs">{caption}</figcaption>
+    </figure>
+  );
+}
+
+/**
  * A pointer out of the page — usually to the file that actually decides the thing just described.
  * External by default because almost everything worth pointing at is source.
  */

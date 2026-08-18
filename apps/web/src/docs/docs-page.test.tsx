@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { DocsPage } from "./docs-page.tsx";
@@ -89,5 +91,44 @@ describe("the frame", () => {
 
     expect(bar.getByRole("link", { name: /open nap/i })).toHaveAttribute("href", "/");
     expect(bar.queryByRole("link", { name: /sign in/i })).not.toBeInTheDocument();
+  });
+});
+
+describe("the recording", () => {
+  // The only asset the page loads, and the only reference on it a compiler cannot follow: `src`
+  // and `poster` are plain strings resolved by the browser against `apps/web/public` at request
+  // time. Rename or forget to commit either file and the page still renders, still passes every
+  // test above, and serves a dead player — so this reaches for the filesystem, which is also why
+  // it is the one place here that queries by tag rather than by role.
+  // Walked up from the working directory rather than resolved from `import.meta.url`, which in
+  // the jsdom environment is an http:// URL and cannot be turned back into a path.
+  const publicDir = (() => {
+    for (let dir = process.cwd(); dir !== dirname(dir); dir = dirname(dir)) {
+      const candidate = join(dir, "apps/web/public");
+      if (existsSync(candidate)) return candidate;
+    }
+    throw new Error("could not find apps/web/public from the working directory");
+  })();
+
+  it("points at files that are actually in the deployed bundle", () => {
+    const { container } = render(<DocsPage />);
+    const video = container.querySelector("video");
+
+    expect(video).not.toBeNull();
+    for (const attribute of ["src", "poster"] as const) {
+      const path = video?.getAttribute(attribute);
+      expect(path).toMatch(/^\//);
+      expect({ [attribute]: path, exists: existsSync(join(publicDir, path ?? "")) }).toEqual({
+        [attribute]: path,
+        exists: true,
+      });
+    }
+  });
+
+  it("has an accessible name, and does not start playing on its own", () => {
+    render(<DocsPage />);
+    const figure = screen.getByRole("figure", { name: /recorded nap session/i });
+
+    expect(within(figure).getByLabelText(/recorded nap session/i)).not.toHaveAttribute("autoplay");
   });
 });

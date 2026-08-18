@@ -22,15 +22,14 @@ Most of the engineering below exists to make those three things true.
 > session cookie is third-party, and Safari and Brave block those outright. Running it yourself
 > is [below](#running-it); deploying your own is [docs/DEPLOY.md](docs/DEPLOY.md).
 
-<!--
-  DEMO GOES HERE. Record ~20s at 1280×800: type "a todo list with add, complete and delete"
-  into the composer, let the tool calls stream in the transcript, and stop once the preview
-  goes live. Save as docs/demo.gif and replace this comment with:
-  ![Nap building a todo app](docs/demo.gif)
+![A prompt for a finance dashboard, the agent reading files and running the project's checks, the
+verdict "Verified successfully with both npm run typecheck and npm run build", and the app it
+built](docs/demo.gif)
 
-  It has a second home: apps/web/src/docs/how-nap-works.tsx opens with the same recording and
-  carries the same note. One recording, both holes — fill them together or they will drift.
--->
+<sub>Twenty-two seconds of a real run: the prompt, a tool call into the sandbox, the project's own
+checks running, the verdict, the app. The whole session — two minutes, uncut — is at the top of
+**[/docs](https://nap-tawny.vercel.app/docs)**. Both come out of `scripts/demo-cuts.sh`, from one
+recording, so they cannot drift apart.</sub>
 
 ---
 

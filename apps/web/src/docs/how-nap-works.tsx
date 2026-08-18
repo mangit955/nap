@@ -7,7 +7,7 @@
  * something true.
  */
 
-import { Code, Facts, Figure, Lede, P, Term } from "./prose.tsx";
+import { Code, Facts, Figure, Lede, P, Recording, Term } from "./prose.tsx";
 
 const FLOW = `you                 "a todo list with add, complete and delete"
   │
@@ -34,15 +34,19 @@ export function HowNapWorks() {
       </Lede>
 
       {/*
-        The demo belongs at the very top of this section: it is the one piece of evidence on the
-        page that is not an argument. Left as a marked hole rather than a placeholder image —
-        a broken frame reads as a bug, an absence reads as work not yet done.
+        The recording belongs at the very top of this section: it is the one piece of evidence on
+        the page that is not an argument, and a reader who watches it has already been told what
+        the eight sections below go on to explain.
 
-        DEMO GOES HERE. The same ~20s recording the README asks for: type "a todo list with add,
-        complete and delete" into the composer, let the tool calls stream in the transcript, stop
-        once the preview goes live. Save as apps/web/public/demo.gif, then replace this comment
-        with a figure holding it and drop this note.
+        The README carries a 22s cut of this same run. Both are built by scripts/demo-cuts.sh from
+        one master, so the short one is always a subset of what is playing here.
       */}
+      <Recording
+        src="/demo.mp4"
+        poster="/demo-poster.jpg"
+        label="A recorded Nap session, from an empty dashboard to a finished app"
+        caption="One session, uncut: a sentence, a sandbox waking up, the agent reading and writing files, the project's own checks run against what it claimed, and the app it left behind."
+      />
 
       <P>
         A <Term>turn</Term> is one exchange: your prompt, whatever the agent does about it, and
