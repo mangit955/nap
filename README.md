@@ -27,9 +27,9 @@ verdict "Verified successfully with both npm run typecheck and npm run build", a
 built](docs/demo.gif)
 
 <sub>Twenty-two seconds of a real run: the prompt, a tool call into the sandbox, the project's own
-checks running, the verdict, the app. The whole session — two minutes, uncut — is at the top of
-**[/docs](https://nap-tawny.vercel.app/docs)**. Both come out of `scripts/demo-cuts.sh`, from one
-recording, so they cannot drift apart.</sub>
+checks running, the verdict, and the app on its own URL. The whole session — two minutes, uncut —
+is at the top of **[/docs](https://nap-tawny.vercel.app/docs)**. Both come out of
+`scripts/demo-cuts.sh`, from one recording, so they cannot drift apart.</sub>
 
 ---
 
