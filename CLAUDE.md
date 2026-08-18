@@ -21,9 +21,13 @@ Keep each fact in exactly one of these. This file must never restate a task spec
 
 **`README.md` and `/docs` divide one subject and must not both explain it.** The README states
 *consequences* — what the system does for somebody deciding whether to care — and links onward.
-`apps/web/src/docs/` states *mechanisms*, and **specific numbers live only there**: the repair
+`apps/web/src/docs/` states *mechanisms*, and **mechanism numbers live only there**: the repair
 bound, the category weights, the ceilings. Nothing enforces this, so it is worth reading twice
 before adding a paragraph to either.
+
+*Measurement results* are the one exception. A funded run's headline figures — arms, n, spend, what
+moved — live in `docs/napbench-*.md` and nowhere in `/docs`, so the README quoting them duplicates
+nothing. It may; it may not quote mechanism numbers alongside them.
 
 ## Commands
 
