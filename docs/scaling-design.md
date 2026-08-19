@@ -51,8 +51,8 @@ This is more than the brief assumed, and it is why the change is smaller than it
 | `SessionQueue` | `packages/runtime/src/session-queue.ts` | **The expensive one.** Two pods run two turns for one session; each calls `acquireSandbox`; the project ends up with two sandboxes, one of which nobody can find and nobody stops paying for. |
 | `TurnRegistry` | `apps/api/src/turns/registry.ts` | Cancel on pod A cannot reach a turn on pod B. Also feeds `isBusy` for project close/delete and the reaper, so both go blind. |
 | `TurnRateLimiter` ×2 | `apps/api/src/turns/rate-limiter.ts` | N pods = N× the limit. Free-tier spend multiplies by replica count. |
-| Reaper `setInterval` | `apps/api/src/index.ts:322` | N pods = N concurrent sweeps tearing the same project down twice. |
-| `ChromePageCapture` | `apps/api/src/index.ts:102` | One Chromium per process; ~1GB of image and a RAM spike per capture. |
+| Reaper `setInterval` | `apps/api/src/compose.ts:283` | N pods = N concurrent sweeps tearing the same project down twice. |
+| `ChromePageCapture` | `apps/api/src/index.ts:95` | One Chromium per process; ~1GB of image and a RAM spike per capture. |
 | DB pool `max: 10` | `packages/db/src/client.ts:25` | Sized for one process doing everything. |
 | Sandbox quota TOCTOU | `apps/api/src/turns/sandbox-quota.ts` | Count-then-create. At 100 concurrent admissions the global cap is guaranteed to overshoot. |
 
@@ -625,7 +625,7 @@ three repairs is minutes. 900s covers the tail.
 API, on `SIGTERM`: stop accepting, close sockets with a normal close code, exit within 30s. Clients
 reconnect with `?seq=` and lose nothing.
 
-The reaper's existing signal handler (`apps/api/src/index.ts:350`) carries over unchanged.
+The reaper's existing signal handler (`apps/api/src/index.ts:189`) carries over unchanged.
 
 ---
 
