@@ -20,10 +20,10 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 
 /** Pinned rather than `latest`: `gen_random_uuid()` and the SQL the migrations emit are version-sensitive. */
-const POSTGRES_IMAGE = "postgres:17-alpine";
+export const POSTGRES_IMAGE = "postgres:17-alpine";
 
 /** `packages/db/drizzle`, resolved from this file rather than from the process cwd. */
-const MIGRATIONS_FOLDER = join(import.meta.dirname, "..", "..", "drizzle");
+export const MIGRATIONS_FOLDER = join(import.meta.dirname, "..", "..", "drizzle");
 
 export type MigratedPostgres = {
   url: string;

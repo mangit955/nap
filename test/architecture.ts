@@ -74,6 +74,13 @@ const ALLOWED: Record<string, readonly string[]> = {
   // with no network. Its sibling packages appear under devDependencies for their published
   // fakes, which this check deliberately does not read. See docs/adr/0001.
   "@nap/bench": ["@nap/shared", "@nap/verify"],
+  // The pure half of the load harness: percentile maths, metric rollup, threshold verdicts, the
+  // scripted user's ordering, and how slow the fakes pretend to be. It sits beside `bench` and
+  // for the same reason — it is written against the ports in `shared` and knows nothing about
+  // Postgres, a socket or a server, which is what lets the arithmetic a report is read through
+  // be tested rather than trusted. The process that composes real infrastructure behind it is
+  // `apps/api/scripts/loadgen.ts`, which is an app and may reach for anything.
+  "@nap/loadgen": ["@nap/shared"],
   "@nap/runtime": [
     "@nap/context",
     "@nap/agent",

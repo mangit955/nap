@@ -42,6 +42,8 @@ bun run harness "<prompt>"        # one turn, printing the event stream — fake
 bun run harness --real "<prompt>" # the same turn against real E2B + a real model; this spends money
 bun run harness --real --model=anthropic/claude-opus-5 "<prompt>"  # the demo model, ~20x the cost
 bun run ws:smoke          # drives /ws over a real Bun socket — fakes, free, no database
+bun run loadgen           # scripted users against the composed API — fakes, free; needs Docker
+bun run loadgen --users=25        # that many at once, latencies calibrated from a funded run
 bun run napbench <task-id>        # one benchmark run — fakes, free; scores mean nothing
 bun run napbench --suite=all      # the four tasks, serially, same fakes — frozen, see docs/NAPBENCH.md
 bun run napbench --suite=hard     # the tasks built to separate two models
@@ -96,7 +98,7 @@ A lefthook pre-commit hook runs `biome check` + `typecheck` + `vitest --changed`
 ## Layout
 
 ```
-packages/  shared  db  sandbox  storage  capture  agent  context  runtime  verify  bench
+packages/  shared  db  sandbox  storage  capture  agent  context  runtime  verify  bench  loadgen
 apps/      web (Next.js)   api (Hono, runs on Bun)   napbench (the benchmark CLI)
 ```
 
@@ -107,6 +109,11 @@ apps/      web (Next.js)   api (Hono, runs on Bun)   napbench (the benchmark CLI
 scoring, gates, reports — written against ports, and `apps/napbench` is the shell that composes
 real infrastructure behind them. Playwright belongs to that app alone and to nothing that ships.
 See `docs/adr/0001`.
+
+`loadgen` sits beside `bench` and for the same reason: percentile maths, metric rollup, threshold
+verdicts and the scripted user's ordering, written against ports and knowing nothing about a
+socket or a server. `apps/api/scripts/loadgen.ts` is the shell that composes the real API with a
+fake sandbox and a fake model against a real Postgres.
 
 `verify` sits *below both* `runtime` and `bench`: running one check against a sandbox and saying
 whether it passed, failed or was never asked. The runtime uses it to arbitrate a turn's claim; the

@@ -304,3 +304,25 @@ declined to grade is still one, and guessing a severity for it would understate 
 *code* rather than *browser*, because a category is a property of what a check measures rather than
 of how it measures it: the audit drives nothing and asserts no behaviour, and what it reports is the
 quality of the markup.
+
+## Load-generation glossary
+
+The vocabulary of the load harness. Kept separate for the same reason NapBench's is: it describes
+something *driving* the system rather than anything a user encounters. See
+`docs/scaling-design.md` §23.
+
+**Journey** — one scripted user's whole path through the system, start to finish: sign in through
+the demo door, create a project, open a socket, wait to be told the replay is over, submit a turn,
+read frames until `job.completed`. The unit a load run is made of — a hundred concurrent users is
+a hundred journeys, not one journey repeated. A step that fails ends the journey, because a turn
+that was never admitted has no duration worth reporting.
+
+**Calibration** — how slow the fakes pretend to be, and where those numbers came from. Every
+figure is from a funded run recorded in `docs/napbench-*.md`, never chosen to make a run finish
+sooner: instant fakes would complete each turn before the next user connected, and nothing would
+ever be concurrent. **This word is not a synonym for configuration** — a calibration figure
+changes only when another funded run records something different.
+
+**Threshold** — one condition a run is held to, as a metric, a statistic of it, a comparison and a
+number. A threshold whose metric was never recorded **fails**, rather than passing vacuously: a
+harness that quietly stopped measuring something must not report a green run.
