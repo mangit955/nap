@@ -19,6 +19,7 @@ import { createOpenRouterClient, toOpenRouterModel } from "@nap/agent/openrouter
 import { ChromePageCapture } from "@nap/capture/chrome-page-capture";
 import { createDatabase, createListenerConnection, pingDatabase } from "@nap/db/client";
 import { InProcessEventBus } from "@nap/db/in-process-event-bus";
+import { PostgresCapacityReconciler } from "@nap/db/postgres-capacity-reconciler";
 import { PostgresEventStore } from "@nap/db/postgres-event-store";
 import { PostgresNotifyEventBus } from "@nap/db/postgres-notify-event-bus";
 import { PostgresNotifyTransport } from "@nap/db/postgres-notify-transport";
@@ -191,6 +192,11 @@ const { app, reaper } = composeNap({
     perUser: env.NAP_MAX_SANDBOXES_PER_USER,
     total: env.NAP_MAX_SANDBOXES_TOTAL,
   }),
+  // What makes that ceiling self-healing rather than a number that only ever shrinks. The
+  // inventory is the E2B manager itself: `list` is on `SandboxInventory` rather than on
+  // `SandboxManager`, for the reason `ping` is — it is a question about the deployment rather
+  // than about one project's workspace.
+  reconcile: { reconciler: new PostgresCapacityReconciler(db), inventory: sandbox },
   snapshots: new PostgresSnapshotStore(db),
   userKeys: new PostgresUserKeyStore(db),
   // One store and one bus for the process, shared by the runtime that publishes and the socket

@@ -27,7 +27,9 @@ API is the one that holds all the state, spends all the money, and must not be s
   two sandboxes) is in memory.
 - `TurnRateLimiter` is in memory, so N instances mean N times the rate limit.
 - The reaper runs in-process. It is what snapshots an idle project and destroys its
-  sandbox, and it is the only thing standing between an abandoned tab and an E2B bill.
+  sandbox, and it is the only thing standing between an abandoned tab and an E2B bill. It is
+  also what reconciles the sandbox ceiling — reclaiming slots held by a process that died
+  mid-creation, and destroying sandboxes E2B is running that no project references.
 
 That last point also rules out anything that sleeps an idle service: a sleeping process is
 a reaper that is not reaping while the sandboxes it should have cleaned up keep billing.
@@ -183,7 +185,9 @@ is affordable, and they are worth setting deliberately rather than inheriting:
   the same number whether one process is running or six. This is the only one that bounds
   total spend; the per-user limits multiply by the number of users. Ten concurrent E2B
   sandboxes is ten times the burn rate of one.
-- `NAP_REAP_IDLE_MINUTES=10` — how long an abandoned project keeps costing money.
+- `NAP_REAP_IDLE_MINUTES=10` — how long an abandoned project keeps costing money. The same
+  tick reconciles the ceiling, so a slot leaked by a crash comes back within minutes rather
+  than waiting for a deploy.
 
 ## Verifying a deployment
 

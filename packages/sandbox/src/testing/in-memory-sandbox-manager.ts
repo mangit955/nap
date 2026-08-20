@@ -17,6 +17,7 @@
  * genuinely do not care pass `defaultExec`.
  */
 
+import type { SandboxInventory, SandboxListing } from "@nap/shared/ports/sandbox-inventory";
 import type {
   ExecOutputHandler,
   ExecResult,
@@ -68,6 +69,12 @@ export type InMemorySandboxManagerOptions = {
    * an id to write into until the run is over.
    */
   seed?: Readonly<Record<string, string>>;
+  /**
+   * The clock every sandbox's start time is read from. Injected so that "created an hour ago"
+   * is a line in a test rather than an hour's wait — a reconciling sweep decides what to
+   * destroy partly on how old a sandbox is.
+   */
+  now?: () => number;
 };
 
 type SandboxState = {
@@ -76,6 +83,8 @@ type SandboxState = {
   commands: string[];
   /** Ports a test has declared to be serving; see `listen`. */
   listening: Set<number>;
+  /** When `create` was called, as an ISO string, for the inventory to report. */
+  startedAt: string;
   /** The lifetime last requested, recorded rather than enforced — nothing expires here. */
   timeoutMs: number | undefined;
 };
@@ -94,7 +103,7 @@ function toResponder(response: ScriptedExecResponse | ExecResponder): ExecRespon
   return typeof response === "function" ? response : () => response;
 }
 
-export class InMemorySandboxManager implements SandboxManager {
+export class InMemorySandboxManager implements SandboxManager, SandboxInventory {
   readonly #sandboxes = new Map<string, SandboxState>();
   /** Ids this manager destroyed, kept so a use-after-destroy reads differently from a typo. */
   readonly #destroyed = new Set<string>();
@@ -103,11 +112,13 @@ export class InMemorySandboxManager implements SandboxManager {
   readonly #defaultExec: ExecResponder | undefined;
   readonly #serves: readonly number[];
   readonly #seed: Readonly<Record<string, string>>;
+  readonly #now: () => number;
 
   constructor(options: InMemorySandboxManagerOptions = {}) {
     this.#defaultExec = options.defaultExec;
     this.#serves = options.serves ?? [];
     this.#seed = options.seed ?? {};
+    this.#now = options.now ?? Date.now;
   }
 
   /**
@@ -150,8 +161,27 @@ export class InMemorySandboxManager implements SandboxManager {
       commands: [],
       listening: new Set(this.#serves),
       timeoutMs: undefined,
+      startedAt: new Date(this.#now()).toISOString(),
     });
     return { ok: true, value: { id, projectId } };
+  }
+
+  /**
+   * `SandboxInventory`: everything this manager currently holds.
+   *
+   * Implemented here as well as on the E2B adapter because the callers that reconcile capacity
+   * against the provider have to be testable without one, and because a sandbox created through
+   * `create` and then lost track of is exactly the situation they exist to clean up.
+   */
+  async list(): Promise<Result<SandboxListing[], SandboxError>> {
+    return {
+      ok: true,
+      value: [...this.#sandboxes].map(([id, state]) => ({
+        id,
+        projectId: state.projectId,
+        startedAt: state.startedAt,
+      })),
+    };
   }
 
   async resume(sandboxId: string): Promise<Result<Sandbox, SandboxError>> {

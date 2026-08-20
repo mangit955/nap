@@ -9,7 +9,7 @@ import {
   TimeoutError,
 } from "e2b";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { E2BClient, E2BSandboxHandle } from "./e2b-sandbox-manager.ts";
+import type { E2BClient, E2BSandboxHandle, E2BSandboxSummary } from "./e2b-sandbox-manager.ts";
 import { E2BSandboxManager, toSandboxError } from "./e2b-sandbox-manager.ts";
 
 /**
@@ -38,6 +38,7 @@ function stubClient(handle: E2BSandboxHandle = stubHandle()): E2BClient {
     create: () => Promise.resolve(handle),
     connect: () => Promise.resolve(handle),
     ping: () => Promise.resolve([]),
+    list: () => Promise.reject(new Error("list not stubbed")),
   };
 }
 
@@ -374,6 +375,7 @@ describe("E2BSandboxManager lifecycle", () => {
         create: () => Promise.reject(new Error("unused")),
         connect: () => Promise.reject(new SandboxNotFoundError("no such sandbox")),
         ping: () => Promise.reject(new Error("unused")),
+        list: () => Promise.reject(new Error("unused")),
       },
     });
 
@@ -428,6 +430,7 @@ describe("E2BSandboxManager lifecycle", () => {
           return Promise.resolve(handle);
         },
         ping: () => Promise.reject(new Error("unused")),
+        list: () => Promise.reject(new Error("unused")),
       },
     });
 
@@ -454,6 +457,7 @@ describe("E2BSandboxManager lifecycle", () => {
       client: {
         create: () => Promise.reject(new Error("unused")),
         ping: () => Promise.reject(new Error("unused")),
+        list: () => Promise.reject(new Error("unused")),
         connect: () => {
           connects += 1;
           return Promise.resolve(handle);
@@ -495,6 +499,7 @@ describe("keeping a sandbox alive", () => {
         },
         connect: () => Promise.resolve(handle),
         ping: () => Promise.reject(new Error("unused")),
+        list: () => Promise.reject(new Error("unused")),
       },
     });
 
@@ -564,5 +569,58 @@ describe("ping", () => {
     await manager.ping();
 
     expect(created).toBe(0);
+  });
+});
+
+describe("listing what the provider is running", () => {
+  const RUNNING = new Date("2026-08-09T11:00:00.000Z");
+
+  function listing(overrides: Partial<E2BSandboxSummary> = {}): E2BSandboxSummary {
+    return {
+      sandboxId: "sbx_listed",
+      metadata: { projectId: "project" },
+      startedAt: RUNNING,
+      ...overrides,
+    };
+  }
+
+  it("reports the id, the project it was made for, and when it started", async () => {
+    // All three are what a reconciling sweep decides on: what to destroy, whether it is ours at
+    // all, and whether it is young enough to be a creation still in flight.
+    const manager = new E2BSandboxManager({
+      client: { ...stubClient(), list: () => Promise.resolve([listing()]) },
+    });
+
+    await expect(manager.list()).resolves.toEqual({
+      ok: true,
+      value: [{ id: "sbx_listed", projectId: "project", startedAt: RUNNING.toISOString() }],
+    });
+  });
+
+  it("reports no project for a sandbox nothing here created", async () => {
+    // The account may be shared. Whoever consumes this destroys unreferenced sandboxes, and a
+    // missing project id is the only evidence that something else owns one.
+    const manager = new E2BSandboxManager({
+      client: { ...stubClient(), list: () => Promise.resolve([listing({ metadata: {} })]) },
+    });
+
+    const listed = await manager.list();
+
+    expect(listed).toMatchObject({ ok: true, value: [{ projectId: null }] });
+  });
+
+  it("maps a provider failure onto our vocabulary rather than throwing", async () => {
+    // A sweep runs on a timer with nobody watching; an exception here would end the whole pass.
+    const manager = new E2BSandboxManager({
+      client: {
+        ...stubClient(),
+        list: () => Promise.reject(new AuthenticationError("invalid api key")),
+      },
+    });
+
+    await expect(manager.list()).resolves.toMatchObject({
+      ok: false,
+      error: { code: "unavailable" },
+    });
   });
 });

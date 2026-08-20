@@ -23,9 +23,11 @@
  * **A stranded row holds capacity until something reclaims it.** A process that dies between
  * reserving and creating leaves a `reserved` row nobody will ever release, which is what
  * `expires_at` is for; nothing here reads that column, because reclaiming is a sweep's job rather
- * than an admission's. Until that sweep exists, a crash mid-creation costs one slot.
+ * than an admission's. That sweep is `PostgresCapacityReconciler`, run by the reaper, so a crash
+ * mid-creation costs one slot for minutes rather than forever.
  */
 
+import { RESERVATION_TTL_MS } from "@nap/shared/capacity-windows";
 import type {
   CapacityRefusal,
   Reservation,
@@ -37,13 +39,12 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { sandboxReservations } from "./schema.ts";
 
 /**
- * What a reservation may cost this deployment before it is used.
+ * What a reservation may cost this deployment before it is used, as a Postgres interval.
  *
- * Two minutes is several times a cold start and a small fraction of an hour's sandbox billing:
- * long enough that a slow creation is never cut off mid-flight, short enough that a process dying
- * at the wrong moment costs minutes of one slot rather than a permanently smaller ceiling.
+ * The number itself lives in `@nap/shared/capacity-windows` beside the window the reclaiming
+ * sweep waits, because the two have to agree and a constant in each file would drift.
  */
-const RESERVATION_TTL = "2 minutes";
+const RESERVATION_TTL = `${RESERVATION_TTL_MS} milliseconds`;
 
 /**
  * The one lock every admission contends on, whichever project or process it is for.

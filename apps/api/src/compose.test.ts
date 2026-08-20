@@ -1,4 +1,5 @@
 import { ScriptedLLMProvider } from "@nap/agent/testing/scripted-llm-provider";
+import { InMemoryCapacityReconciler } from "@nap/db/testing/in-memory-capacity-reconciler";
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { InMemoryProjectSandboxStore } from "@nap/db/testing/in-memory-project-sandbox-store";
@@ -150,6 +151,20 @@ describe("composeNap", () => {
 
     const res = await app.request("/projects");
     expect(res.status).toBe(401);
+  });
+
+  it("reconciles sandbox capacity on the same tick, when given the parts", async () => {
+    // The wiring is the whole risk here: `reconcile` is optional, so a composition that dropped
+    // it type-checks, boots, sweeps, and silently never puts a leaked slot back. Asserted on the
+    // reconciler being *asked*, which is the one thing only the composition can get wrong.
+    const reconcile = new InMemoryCapacityReconciler();
+
+    compose({
+      reconcile: { reconciler: reconcile, inventory: new InMemorySandboxManager() },
+      config: { ...CONFIG, NAP_REAP_INTERVAL_SECONDS: 0.01 },
+    });
+
+    await expect.poll(() => reconcile.reclaimCalls(), { timeout: 2000 }).toBeGreaterThan(0);
   });
 
   it("sweeps a project nobody is using", async () => {

@@ -255,3 +255,31 @@ describe("InMemorySandboxManager filesystem", () => {
     expect(created.value.projectId).toBe("project-42");
   });
 });
+
+describe("listing what it holds", () => {
+  it("reports every sandbox it created, with the project and the start time", async () => {
+    const at = Date.UTC(2026, 7, 9, 12, 0, 0);
+    const manager = new InMemorySandboxManager({ now: () => at });
+    const created = await manager.create("project-1");
+    if (!created.ok) throw new Error("could not create a sandbox");
+
+    await expect(manager.list()).resolves.toEqual({
+      ok: true,
+      value: [
+        { id: created.value.id, projectId: "project-1", startedAt: new Date(at).toISOString() },
+      ],
+    });
+  });
+
+  it("stops reporting one that was destroyed", async () => {
+    // The inventory is what something else destroys *from*; a stale entry would have it trying
+    // to kill the same sandbox on every tick forever.
+    const manager = new InMemorySandboxManager();
+    const created = await manager.create("project-1");
+    if (!created.ok) throw new Error("could not create a sandbox");
+
+    await manager.destroy(created.value.id);
+
+    await expect(manager.list()).resolves.toEqual({ ok: true, value: [] });
+  });
+});

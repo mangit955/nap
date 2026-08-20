@@ -108,6 +108,13 @@ has already been paid for. It is the authoritative ceiling — the count the API
 admission is a cheap refusal and nothing more. Never called a quota: a quota is what a route
 answers with, a reservation is what a slot *is*.
 
+**Reconciliation** — the reaper's second job, on the same tick as the sweep: putting back capacity
+no ordinary path gave back. Three things it finds — a reservation whose process died before it
+created anything, a reservation whose sandbox the provider has since reclaimed, and a sandbox the
+provider is running that nothing in the database references. Only the third destroys anything, and
+only outside a grace window, because a sandbox seconds old and referenced by nothing is far more
+likely to be a creation in flight than a leak.
+
 **Put away** — a project whose sandbox has been destroyed on purpose, its work preserved in a
 snapshot. Not an error and not an empty project: its files are safe, and starting it back up takes
 seconds. The state a project spends most of its life in.

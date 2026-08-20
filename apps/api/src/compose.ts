@@ -23,6 +23,7 @@ import { NoopMemoryProvider } from "@nap/context/noop-memory-provider";
 import { startReaper, sweepIdleProjects } from "@nap/runtime/reaper";
 import { SingleAgentRuntime } from "@nap/runtime/single-agent-runtime";
 import type { Logger } from "@nap/shared/logging";
+import type { CapacityReconciler } from "@nap/shared/ports/capacity-reconciler";
 import type { EventBus } from "@nap/shared/ports/event-bus";
 import type { EventStore } from "@nap/shared/ports/event-store";
 import type { LLMProvider } from "@nap/shared/ports/llm-provider";
@@ -31,6 +32,7 @@ import type { PageCapture } from "@nap/shared/ports/page-capture";
 import type { ProjectSandboxStore } from "@nap/shared/ports/project-sandbox-store";
 import type { ProjectStore } from "@nap/shared/ports/project-store";
 import type { SandboxCapacity } from "@nap/shared/ports/sandbox-capacity";
+import type { SandboxInventory } from "@nap/shared/ports/sandbox-inventory";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SessionStore } from "@nap/shared/ports/session-store";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
@@ -92,6 +94,16 @@ export type NapDeps = {
    * pass, which is exactly how the limits block once failed to reach boot at all.
    */
   capacity: SandboxCapacity;
+  /**
+   * How the reaper puts back capacity nothing gave back, if this composition can offer it.
+   *
+   * Optional because both halves are real infrastructure — the reservations table and the
+   * provider's own list of what it is running — and a composition holding neither still serves
+   * every request. What it loses is self-healing: a process killed mid-creation costs a slot of
+   * the ceiling until the next deploy, and a sandbox created just before the row recording it
+   * failed is billed until somebody notices.
+   */
+  reconcile?: { reconciler: CapacityReconciler; inventory: SandboxInventory };
   snapshots: SnapshotStore;
   userKeys: UserKeyStore;
   /**
@@ -315,6 +327,9 @@ export function composeNap(deps: NapDeps): ComposedNap {
         // A swept sandbox is the main way capacity ever comes back; without this the ceiling
         // would count every project this cluster had ever opened.
         capacity: deps.capacity,
+        // The other half of the same tick: slots no path gave back, and sandboxes running under
+        // an id nothing in the database ever recorded. See `reconcileCapacity`.
+        ...(deps.reconcile === undefined ? {} : { reconcile: deps.reconcile }),
         idleMs: config.NAP_REAP_IDLE_MINUTES * 60 * 1000,
         isBusy: (project) => project.sessionIds.some((id) => registry.isRunning(id)),
         // A swept project's tabs are still open on it, showing an address that is about to stop
@@ -329,6 +344,28 @@ export function composeNap(deps: NapDeps): ComposedNap {
         }
         for (const failure of result.failed)
           logger.error({ failure }, "could not put a project away");
+
+        const reconciled = result.reconciled;
+        if (reconciled !== undefined) {
+          // Logged only when something moved, because the healthy answer is three empty lists
+          // every tick forever. A number that keeps climbing is the signal worth seeing: it
+          // means processes are dying between reserving a slot and using it.
+          if (
+            reconciled.expired.length + reconciled.orphaned.length + reconciled.destroyed.length >
+            0
+          ) {
+            logger.warn(
+              {
+                expired: reconciled.expired.length,
+                orphaned: reconciled.orphaned.length,
+                destroyed: reconciled.destroyed,
+              },
+              "reclaimed sandbox capacity nothing gave back",
+            );
+          }
+          for (const failure of reconciled.failed)
+            logger.error({ failure }, "could not reconcile sandbox capacity");
+        }
       }),
     onError: (error) => logger.error({ err: error }, "reaper sweep threw"),
   });

@@ -39,7 +39,9 @@ This is more than the brief assumed, and it is why the change is smaller than it
 - **Replay and dedupe.** `openEventStream` (`apps/api/src/ws/event-stream.ts`) subscribes, buffers,
   reads history, flushes, then tails; every outbound event passes one `lastSentSeq` gate. A client
   reconnecting with `?seq=N` gets exactly the gap.
-- **Sandbox ownership** is a Postgres column (`projects.sandbox_id`, `sessions.sandbox_id`).
+- **Sandbox ownership** is a Postgres column, `projects.sandbox_id`. (There is no
+  `sessions.sandbox_id`: `PostgresSessionStore.setSandboxId` writes the *project's* column,
+  reached through the session's `project_id`. Corrected when §7 was built.)
 - **The global sandbox count** already reads from Postgres, so it is cluster-wide — though not
   atomic. See §7.
 
@@ -379,7 +381,7 @@ it matches the reasoning already in `sandbox-quota.ts:19`.
 |---|---|---|
 | Reserved, E2B create fails | TXN 3 deletes the row; turn fails `sandbox_unavailable` | immediate |
 | **Process dies after TXN 1, before create** | Row stays `reserved`; capacity held | reaper deletes `reserved` rows past `expires_at` — ≤2 min |
-| **Create succeeds, TXN 2 fails** | Sandbox exists; `sessions.sandbox_id` null; row still `reserved`. **A sandbox nobody can find.** | reaper lists E2B sandboxes and destroys any whose id appears in no `sessions.sandbox_id` — new machinery, required |
+| **Create succeeds, TXN 2 fails** | Sandbox exists; the project names no sandbox; row still `reserved`. **A sandbox nobody can find.** | reaper lists E2B sandboxes and destroys any whose id appears in no `projects.sandbox_id` — new machinery, required |
 | Sandbox destroyed out-of-band (E2B reclaim, provider TTL) | Row stays `active`; capacity held | reaper deletes `active` rows whose `sandbox_id` is absent from `projects.sandbox_id` |
 
 ### Consequence for component ownership

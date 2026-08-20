@@ -255,10 +255,11 @@ export const events = pgTable(
  * activated row is set to `infinity`: it is released by the teardown that destroys its sandbox,
  * not by a clock.
  *
- * **Nothing sweeps expired rows yet.** What reads `expires_at` today is the reservation itself:
- * a project asking again for a slot it already holds gets that slot back once the row has expired,
- * so a crash mid-creation costs one project a couple of minutes rather than costing the ceiling a
- * slot forever. Reclaiming rows nobody asks about again is still to be built.
+ * **Two things read `expires_at`.** The reservation itself: a project asking again for a slot it
+ * already holds gets that slot back once the row has expired, so a crash mid-creation costs one
+ * project a couple of minutes rather than costing the ceiling a slot forever. And the reaper's
+ * reconciling pass — `postgres-capacity-reconciler.ts` — which deletes expired rows nobody ever
+ * asks about again, and `active` rows whose sandbox no project names any more.
  */
 export const sandboxReservations = pgTable(
   "sandbox_reservations",
