@@ -42,15 +42,15 @@ const StageWindowsSchema = z.object({
   windows: z.array(z.object({ tag: z.string(), from: z.number(), to: z.number() })),
 });
 
-type Profile = "ramp" | "extended" | "saturate" | "smoke" | "realism";
-
-const PROFILES: Record<Profile, { users: number }> = {
+const PROFILES = {
   smoke: { users: 4 },
   ramp: { users: 100 },
   extended: { users: 400 },
   saturate: { users: 1_200 },
   realism: { users: 100 },
-};
+} as const;
+
+type Profile = keyof typeof PROFILES;
 
 function argument(name: string, fallback: string): string {
   return (
@@ -58,18 +58,38 @@ function argument(name: string, fallback: string): string {
   );
 }
 
-const PROFILE = argument("profile", "ramp") as Profile;
-const PORT = Number(argument("port", "3100"));
-const RESULTS_ROOT = argument("out", "napload-results");
+/**
+ * The command line is a boundary like any other, so it is parsed rather than cast.
+ *
+ * A cast here would tell the compiler the profile is one of five and then leave the runtime
+ * check below as unreachable code that still has to run — and `Number("nonsense")` is `NaN`,
+ * which `Bun.serve` accepts as "pick a port for me" rather than refusing. Both failures are of
+ * the kind that show up twenty minutes into a run.
+ */
+const ArgumentsSchema = z.object({
+  profile: z.enum(Object.keys(PROFILES) as [Profile, ...Profile[]]),
+  port: z.string().regex(/^\d+$/, "must be a port number").transform(Number),
+  out: z.string().min(1),
+});
+
+const parsedArguments = ArgumentsSchema.safeParse({
+  profile: argument("profile", "ramp"),
+  port: argument("port", "3100"),
+  out: argument("out", "napload-results"),
+});
+
+if (!parsedArguments.success) {
+  for (const issue of parsedArguments.error.issues) {
+    console.error(`--${issue.path.join(".")}: ${issue.message}`);
+  }
+  process.exit(1);
+}
+
+const { profile: PROFILE, port: PORT, out: RESULTS_ROOT } = parsedArguments.data;
 /** Often enough to see a stage change, rarely enough not to be part of the load. */
 const SAMPLE_INTERVAL_MS = 5_000;
 /** How the sampler's own connections identify themselves, so it can leave them out. */
 const PROBE_APPLICATION_NAME = "nap-loadgen-probe";
-
-if (PROFILES[PROFILE] === undefined) {
-  console.error(`--profile must be one of ${Object.keys(PROFILES).join(", ")}`);
-  process.exit(1);
-}
 
 /**
  * What counts as the system getting materially worse.
@@ -128,7 +148,20 @@ const THRESHOLDS: readonly Threshold[] = [
   { metric: "queue_wait", statistic: "p95", op: "<", value: 5_000 },
   { metric: "time_to_first_event", statistic: "p95", op: "<", value: 2_000 },
   { metric: "event_delivery_latency", statistic: "p95", op: "<", value: 1_000 },
+  { metric: "http_req_failed", statistic: "rate", op: "<", value: 0.01 },
   { metric: "dropped_iterations", statistic: "count", op: "==", value: 0 },
+];
+
+/**
+ * §23's two thresholds on the submission request itself.
+ *
+ * Separate because they are stated on a *tagged* sub-metric — `http_req_duration{name:submit_turn}`
+ * — and the untagged rollup deliberately leaves those out, or one stage's samples would be counted
+ * a second time as though they were the whole run.
+ */
+const SUBMIT_THRESHOLDS: readonly Threshold[] = [
+  { metric: "http_req_duration", statistic: "p95", op: "<", value: 500 },
+  { metric: "http_req_duration", statistic: "p99", op: "<", value: 1_500 },
 ];
 
 /** Samples the process and its database on a timer, and hands back everything it took. */
@@ -335,7 +368,14 @@ async function main(): Promise<void> {
   // numbers should describe a steady load, so it is dropped rather than ranked among them.
   const stages = stageRollups(parsed.value, "stage").filter((stage) => Number.isFinite(stage.vus));
   const degradation = firstDegradation(stages, DEGRADATION);
-  const thresholds = evaluateThresholds(overall, THRESHOLDS);
+  const thresholds = [
+    ...evaluateThresholds(overall, THRESHOLDS),
+    // Renamed on the way out, or the report shows two rows called `http_req_duration` that are
+    // about different requests.
+    ...evaluateThresholds(rollupOf(parsed.value, { name: "submit_turn" }), SUBMIT_THRESHOLDS).map(
+      (result) => ({ ...result, metric: "http_req_duration{name:submit_turn}" }),
+    ),
+  ];
 
   // The samples, cut at the same boundaries k6 tagged its own by — so a stage's CPU and its
   // latency describe the same minutes. The boundaries come from k6 rather than from a second
@@ -371,6 +411,12 @@ async function main(): Promise<void> {
   const report = {
     runId,
     profile: PROFILE,
+    /**
+     * What the run would have spent, had anything been real. §23 asks for the column so the
+     * shape of a real run's cost sits beside its latencies; the money half is deliberately
+     * absent — see `docs/scaling-baseline.md`.
+     */
+    tokens: api.modelTotals(),
     startedAt: new Date(startedAt).toISOString(),
     durationMs,
     k6Exit,
@@ -417,7 +463,18 @@ async function main(): Promise<void> {
   }
 
   console.log(`\nReport written to ${join(outDir, "report.json")}`);
-  process.exit(k6Exit === 0 && degradation !== null ? 0 : 1);
+
+  /**
+   * Zero means the run answered §23's question, which is not the same as the run being happy.
+   *
+   * The first version of this asked for `k6Exit === 0 && degradation !== null`, which can never
+   * both hold: degradation trips a k6 threshold, so k6 exits 99 in exactly the case the run was
+   * looking for. What matters is whether the run *found the point of material degradation* —
+   * a ramp that stayed flat throughout has not finished, however green it looks, and that is the
+   * one outcome that should not be quotable as a pass.
+   */
+  if (!Number.isInteger(k6Exit)) process.exit(1);
+  process.exit(degradation === null ? 1 : 0);
 }
 
 await main();

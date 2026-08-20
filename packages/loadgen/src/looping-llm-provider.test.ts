@@ -63,6 +63,32 @@ describe("loopingLLMProvider", () => {
     expect(turn.usage()).toEqual({ inputTokens: 300, outputTokens: 30 });
   });
 
+  it("totals what every turn spent, so a run can report its synthetic token count", async () => {
+    // `docs/scaling-design.md` §23 wants the column even though the run spends nothing, and a
+    // turn's own `usage()` is gone the moment the turn is. Only the provider outlives them all.
+    const provider = loopingLLMProvider([
+      { text: "a", usage: { inputTokens: 100, outputTokens: 10 } },
+      { text: "b", usage: { inputTokens: 200, outputTokens: 20 } },
+    ]);
+    expect(provider.totals()).toEqual({ turns: 0, inputTokens: 0, outputTokens: 0 });
+
+    for (let i = 0; i < 3; i += 1) {
+      const turn = provider.startTurn();
+      await turn.complete(request);
+      await turn.complete(request);
+    }
+
+    expect(provider.totals()).toEqual({ turns: 3, inputTokens: 900, outputTokens: 90 });
+  });
+
+  it("counts a turn from the moment it starts, not from when it first answers", () => {
+    // A turn in flight is a turn the run started; leaving it out would make the count lag the
+    // load by exactly the turns that are still running.
+    const provider = loopingLLMProvider([{ text: "a" }]);
+    provider.startTurn();
+    expect(provider.totals().turns).toBe(1);
+  });
+
   it("refuses an empty script rather than answering nothing forever", () => {
     expect(() => loopingLLMProvider([])).toThrow(RangeError);
   });

@@ -29,7 +29,7 @@ import { PostgresUserKeyStore } from "@nap/db/postgres-user-key-store";
 import { createProjectSession } from "@nap/db/session-bootstrap";
 import { startDockerPostgres } from "@nap/db/testing/docker-postgres";
 import { seededRandom } from "@nap/loadgen/calibration";
-import { loopingLLMProvider } from "@nap/loadgen/looping-llm-provider";
+import { loopingLLMProvider, type ProviderTotals } from "@nap/loadgen/looping-llm-provider";
 import { slowLLMProvider, slowSandboxManager } from "@nap/loadgen/slow-ports";
 import { TEMPLATE_DEV_PORT, TEMPLATE_WORKDIR } from "@nap/sandbox/template";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
@@ -134,6 +134,13 @@ export type BootedLoadgenApi = {
   port: number;
   /** The throwaway container's URL, so a probe can open its own connection to it. */
   postgresUrl: string;
+  /**
+   * The synthetic tokens every turn of this run "spent".
+   *
+   * Real in the sense that it is what the model was really asked for and really answered with;
+   * imaginary in that no vendor saw any of it. §23 wants the column regardless.
+   */
+  modelTotals: () => ProviderTotals;
   /** Stops the server, the reaper, the pool and the container, in that order. */
   stop: () => Promise<void>;
 };
@@ -148,6 +155,10 @@ export type BootedLoadgenApi = {
 export async function bootLoadgenApi(options: BootOptions): Promise<BootedLoadgenApi> {
   const postgres = await startDockerPostgres();
   const { db, close } = createDatabase(postgres.url);
+
+  // Held rather than inlined, because it is the only thing that can say afterwards how many
+  // turns ran through it and what they notionally cost.
+  const model = loopingLLMProvider(scriptedTurn());
 
   const logger = createLogger({ level: "silent" }, { write: () => {} });
   // One draw per turn's duration from one seeded stream, so a difference between two reports
@@ -166,7 +177,7 @@ export async function bootLoadgenApi(options: BootOptions): Promise<BootedLoadge
     bus: new InProcessEventBus(),
     sandbox: slowSandboxManager(fakeSandbox()),
     objects: new InMemoryObjectStore(),
-    provider: slowLLMProvider(loopingLLMProvider(scriptedTurn()), { random }),
+    provider: slowLLMProvider(model, { random }),
     auth: createAuth(db, {
       secret: "loadgen-secret-loadgen-secret-32b",
       baseUrl: "http://localhost",
@@ -193,6 +204,7 @@ export async function bootLoadgenApi(options: BootOptions): Promise<BootedLoadge
   return {
     base: `http://localhost:${port}`,
     port,
+    modelTotals: () => model.totals(),
     postgresUrl: postgres.url,
     stop: async () => {
       reaper.stop();

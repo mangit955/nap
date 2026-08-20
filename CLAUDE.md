@@ -46,7 +46,8 @@ bun run ws:smoke          # drives /ws over a real Bun socket — fakes, free, n
 bun run loadgen           # scripted users against the composed API — fakes, free; needs Docker
 bun run loadgen --users=25        # that many at once, latencies calibrated from a funded run
 bun run loadgen:ramp      # the k6 ramp to 100 concurrent turns — fakes, free; needs Docker and k6
-                          # ~20 minutes. --profile=smoke (90s), extended (past 100), realism
+                          # ~20 minutes. --profile=smoke (3m), extended (to 400), saturate (to
+                          # 1200), realism. Exits non-zero when no degradation was found — see §23
                           # Results land in napload-results/; see docs/scaling-baseline.md
 bun run napbench <task-id>        # one benchmark run — fakes, free; scores mean nothing
 bun run napbench --suite=all      # the four tasks, serially, same fakes — frozen, see docs/NAPBENCH.md

@@ -554,6 +554,11 @@ function runTurn(tags, options) {
       stream.onclose = () => {
         if (self.retired || settled) return;
         countError("socket", tags);
+        // Both, like every other way a turn can end badly. A client that lost its socket cannot
+        // claim the turn finished — it stopped watching — and recording only the job would make
+        // turn completion read better than reality at exactly the load where sockets start
+        // dropping, which is the reading the whole run exists to produce.
+        turnCompletion.add(false, tags);
         jobCompletion.add(false, tags);
         finish("closed");
       };

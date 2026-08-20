@@ -62,6 +62,14 @@ fake-backed run measures honestly, and it is the number the four blocked tickets
 
 *(10–100 from the `ramp` run, 400–1200 from `saturate`; CPU is a percentage of one core.)*
 
+Each turn asks the fake model for 2,600 tokens and gets 110 back, so a run of this shape would
+have sent a vendor roughly **102M in / 4.3M out** across the 1,200-VU run's 39,183 turns, **32M /
+1.4M** at 400 and **6.3M / 266k** at 100. Those three are the turn count times the script's
+declared usage, and are therefore *floors* — a turn that ran past its script repeats the last
+response, and pays for it. The harness now totals the real figure and writes it to `report.json`
+under `tokens`; the runs above predate that counter. What it would have **cost** is deliberately
+absent, for the reason below.
+
 `event_delivery_latency` is the row's own `created_at` against the client's clock — append to
 delivery, on one machine — so it really is fanout and not a round trip. It stayed under 40ms at
 p95 throughout, and the whole-run p99 at 1,200 VUs was 23ms.
@@ -76,6 +84,13 @@ its life idle; it is not evidence of anything good. The flat line is the finding
 The design calls 5 a guess. Little's law on the measured numbers: at the 100-VU plateau the
 process completed **1,078 turns in 300 seconds (3.59/s)** with a **mean turn of 25.3s**, which is
 **91 turns in flight**. That is the whole of the offered load — the queue never had a backlog.
+
+Those three inputs come from the `ramp` run's own per-stage data (`stages[4]` in its
+`report.json`). Its top-level `workerConcurrency` field says something different — 54 in flight —
+because the sizing helper was changed to read the *heaviest plateau* rather than the whole run
+after that run had already finished, and a run's summary is never recomputed. Averaging the whole
+ramp in is the wrong answer: it includes the minutes spent at ten users. The `extended` and
+`saturate` runs' fields are plateau-based and agree with the arithmetic above.
 
 With 1.5× headroom over that:
 
@@ -145,10 +160,17 @@ instead of below it. **Emitting `user.message` before acquiring would cost nothi
 something on screen immediately** — worth its own ticket.
 
 **The connection pool is the first thing that will actually run out.** It reached 10 of 10 at 400
-VUs and stayed there, with database round trips still at 0.2ms — so it was saturated but not
-*slow*, and nothing queued long enough to notice. It is the resource with the least headroom in
-the whole picture (41% of one core, 843MB of 17GB, 4.5 of 10 load average), and it is the one the
-four blocked tickets are about to add queries to. Whatever they add, measure this column again.
+VUs and stayed there, with database round trips still at 0.2ms — so every connection was in use
+and none of them was slow. It is the resource with the least headroom in the whole picture (41% of
+one core, 843MB of 17GB, 4.5 of 10 load average), and it is the one the four blocked tickets are
+about to add queries to. Whatever they add, measure this column again.
+
+Be precise about what that column *is*, though: it counts backends open in `pg_stat_activity`, not
+callers waiting for one. A pool at its limit with nobody queued and a pool at its limit with a
+queue behind it read identically here, and only the second is a problem. **Nothing measured
+checkout wait**, so "10 of 10" is evidence that the pool is the tightest resource, not evidence
+that anything was blocked on it. Measuring the wait is the first thing to add before the four
+tickets land.
 
 **Memory grows about 0.55MB per concurrent user, and most of that is the harness.** 337MB at 400
 → 843MB at 1,200. The in-memory sandbox holds every file it was written and the in-memory object
@@ -171,6 +193,12 @@ this line.
   first event of a connection (a stale reconnect would otherwise be silenced forever). The gap
   counter catches lost events, which is what it is for; it does not catch a client that lied about
   where it was.
+- **What it would have cost.** §23 asks the report to carry a modelled money column beside the
+  token counts. The tokens are here — the harness totals what every turn asked for and answered
+  with — but the money is not, and deliberately: this repo's only price table is
+  `packages/bench/src/pricing.ts`, which ADR-0007 forbids anything below `apps/napbench` from
+  importing, and a second copy of a rate table is exactly the kind of fact that drifts. Pricing
+  synthetic turns would also produce a number about the script rather than about Nap.
 - **Anything about a deployed cluster.** §24 item 6 — 100 anonymous users and 100 projects per
   run, with no teardown path — is still open, and blocks the confirmation run against Railway.
 
@@ -188,6 +216,8 @@ Needs Docker and k6 on the path; costs nothing and reaches nothing but localhost
 `k6-summary.json`, `server-samples.jsonl` and `report.json` to `napload-results/<run-id>/`, which
 is gitignored — what a run *found* belongs here, the megabytes it produced getting there do not.
 
-The exit code is non-zero when no degradation was found, which is why every run above "failed".
-That is deliberate: §23 says a run that finds nothing is not finished, and a green tick would
-invite somebody to quote it as a pass.
+**The exit code is zero only when the run found the point of material degradation**, which is why
+every run above "failed". That is deliberate: §23 says a run that finds nothing is not finished,
+and a green tick would invite somebody to quote it as a pass. Note that k6's own exit code is not
+the harness's — k6 exits non-zero whenever a threshold is crossed, which is precisely what a run
+that found something will do.
