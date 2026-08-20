@@ -13,12 +13,13 @@
  * every process agrees on is the store's own.
  */
 
-import { LEASE_TTL_MS } from "@nap/shared/lease-windows";
+import { LEASE_GRACE_MS, LEASE_TTL_MS, ORPHAN_SWEEP_LIMIT } from "@nap/shared/lease-windows";
 import type {
   CancelOutcome,
   EnqueueTurnRequest,
   LeasedTurnRequest,
   LeaseRenewal,
+  OrphanedTurnRequest,
   TurnQueue,
   TurnRequestKind,
   TurnRequestSettlement,
@@ -38,6 +39,8 @@ type Row = {
   leaseOwner: string | null;
   leaseExpiresAt: number | null;
   createdAt: number;
+  /** When this row's terminal events reached the log. Null on an orphan nobody has announced. */
+  finishedAt: number | null;
 };
 
 export type InMemoryTurnQueueOptions = {
@@ -45,17 +48,21 @@ export type InMemoryTurnQueueOptions = {
   now?: () => number;
   /** How long a claim is good for. Defaults to the shared lease TTL. */
   leaseTtlMs?: number;
+  /** How long past expiry the janitor waits. Defaults to the shared grace. */
+  leaseGraceMs?: number;
 };
 
 export class InMemoryTurnQueue implements TurnQueue {
   readonly #rows: Row[] = [];
   readonly #now: () => number;
   readonly #leaseTtlMs: number;
+  readonly #leaseGraceMs: number;
   #sequence = 0;
 
   constructor(options: InMemoryTurnQueueOptions = {}) {
     this.#now = options.now ?? (() => Date.now());
     this.#leaseTtlMs = options.leaseTtlMs ?? LEASE_TTL_MS;
+    this.#leaseGraceMs = options.leaseGraceMs ?? LEASE_GRACE_MS;
   }
 
   async enqueue(request: EnqueueTurnRequest): Promise<{ id: string }> {
@@ -73,6 +80,7 @@ export class InMemoryTurnQueue implements TurnQueue {
       cancelRequested: false,
       leaseOwner: null,
       leaseExpiresAt: null,
+      finishedAt: null,
       // The sequence, not the clock: two requests enqueued in the same millisecond still have an
       // order, and a test that injected a frozen clock would otherwise have none.
       createdAt: this.#sequence,
@@ -129,6 +137,7 @@ export class InMemoryTurnQueue implements TurnQueue {
 
     row.state = state;
     row.leaseExpiresAt = null;
+    row.finishedAt = this.#now();
     return true;
   }
 
@@ -144,9 +153,44 @@ export class InMemoryTurnQueue implements TurnQueue {
     for (const row of rows) {
       row.cancelRequested = true;
       if (row.state === "leased") was = "leased";
-      else row.state = "failed";
+      else {
+        row.state = "failed";
+        row.finishedAt = this.#now();
+      }
     }
     return { cancelled: true, was };
+  }
+
+  async orphanExpired(limit = ORPHAN_SWEEP_LIMIT): Promise<OrphanedTurnRequest[]> {
+    // The fence: expiry alone is not enough, because a worker only learns it lost its lease on
+    // its next renewal. See `@nap/shared/lease-windows`.
+    const reclaimable = this.#now() - this.#leaseGraceMs;
+
+    const expired = this.#rows
+      .filter((row) => row.state === "leased" && (row.leaseExpiresAt ?? 0) < reclaimable)
+      .sort((a, b) => (a.leaseExpiresAt ?? 0) - (b.leaseExpiresAt ?? 0))
+      .slice(0, limit);
+
+    for (const row of expired) row.state = "orphaned";
+    // `finishedAt` deliberately stays null: it is the marker saying the terminal events are not
+    // in the log yet, which is what `unannouncedOrphans` reads.
+    return expired.map(asOrphan);
+  }
+
+  async unannouncedOrphans(limit = ORPHAN_SWEEP_LIMIT): Promise<OrphanedTurnRequest[]> {
+    return this.#rows
+      .filter((row) => row.state === "orphaned" && row.finishedAt === null)
+      .slice(0, limit)
+      .map(asOrphan);
+  }
+
+  async markOrphanAnnounced(requestId: string): Promise<void> {
+    // Conditional on the state, as the real statement is: only an orphan is terminal with a null
+    // `finishedAt`, so nothing else may be marked through this door.
+    const row = this.#rows.find(
+      (candidate) => candidate.id === requestId && candidate.state === "orphaned",
+    );
+    if (row !== undefined) row.finishedAt = this.#now();
   }
 
   /** What state a request is in, for tests that assert on the queue rather than through it. */
@@ -184,8 +228,20 @@ export class InMemoryTurnQueue implements TurnQueue {
     row.leaseOwner = newOwner;
   }
 
-  /** An expired lease is not a held one, whoever still thinks they own it. */
+  /**
+   * Whether this row occupies its session, which is a question about **state alone**.
+   *
+   * An expired lease still holds the session, exactly as it does in Postgres — the partial unique
+   * index is over `state = 'leased'` and knows nothing about the clock. Freeing a session on
+   * expiry would let a second worker in while the first has not yet learned it is a zombie, which
+   * is the two-writer failure the grace window exists to make unreachable. Only the janitor moves
+   * a row out of `leased`, and only after that window.
+   */
   #isLeased(row: Row): boolean {
-    return row.state === "leased" && (row.leaseExpiresAt ?? 0) > this.#now();
+    return row.state === "leased";
   }
+}
+
+function asOrphan(row: Row): OrphanedTurnRequest {
+  return { id: row.id, sessionId: row.sessionId, kind: row.kind };
 }

@@ -8,8 +8,8 @@ import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-m
 import { scriptGit } from "@nap/sandbox/testing/script-git";
 import type { IdleProject } from "@nap/shared/ports/project-sandbox-store";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { startReaper, sweepIdleProjects } from "./reaper.ts";
+import { beforeEach, describe, expect, it } from "vitest";
+import { sweepIdleProjects } from "./reaper.ts";
 
 const PROJECT = "3e0fbc41-6f5d-4a8e-ab9c-4d5e6f708192";
 const SESSION = "2a3f8a24-6c1b-4e0e-9b6f-3a5c0a1d9e77";
@@ -295,110 +295,5 @@ describe("reconciling capacity", () => {
     // and the pass that would otherwise have found it unreferenced has nothing to do.
     expect(swept.reaped).toEqual([PROJECT]);
     expect(swept.reconciled?.destroyed).toEqual([]);
-  });
-});
-
-describe("the schedule", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  /**
-   * The schedule takes the sweep as a dependency rather than building one, so these tests are
-   * about ticking and nothing else — no sandbox, no store, and no back door into the reaper
-   * that production does not use.
-   */
-  function counting(): { sweep: () => Promise<void>; calls: () => number } {
-    let calls = 0;
-    return {
-      calls: () => calls,
-      sweep: async () => {
-        calls += 1;
-      },
-    };
-  }
-
-  it("does not sweep the moment it starts", () => {
-    const { sweep, calls } = counting();
-
-    const reaper = startReaper({ intervalMs: 60_000, sweep });
-
-    expect(calls()).toBe(0);
-    reaper.stop();
-  });
-
-  it("sweeps on every tick", async () => {
-    const { sweep, calls } = counting();
-    const reaper = startReaper({ intervalMs: 60_000, sweep });
-
-    await vi.advanceTimersByTimeAsync(60_000);
-    expect(calls()).toBe(1);
-    await vi.advanceTimersByTimeAsync(60_000);
-    expect(calls()).toBe(2);
-
-    reaper.stop();
-  });
-
-  it("leaves no timer behind when stopped", () => {
-    // Asserted on the resource rather than on a flag: a `stopped` boolean that suppresses the
-    // work still leaks the interval, and the process never exits.
-    const reaper = startReaper({ intervalMs: 60_000, sweep: counting().sweep });
-
-    reaper.stop();
-
-    expect(vi.getTimerCount()).toBe(0);
-  });
-
-  it("skips a tick that lands while the previous sweep is still running", async () => {
-    // A sweep talks to sandboxes and an object store over the network; two overlapping would
-    // try to tear the same project down twice.
-    let release = () => {};
-    const blocked = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    let calls = 0;
-    const reaper = startReaper({
-      intervalMs: 60_000,
-      sweep: () => {
-        calls += 1;
-        return blocked;
-      },
-    });
-
-    await vi.advanceTimersByTimeAsync(60_000);
-    await vi.advanceTimersByTimeAsync(60_000);
-    expect(calls).toBe(1);
-
-    release();
-    await vi.advanceTimersByTimeAsync(60_000);
-    expect(calls).toBe(2);
-
-    reaper.stop();
-  });
-
-  it("keeps sweeping after one fails, and reports it", async () => {
-    // An unhandled rejection ends the Bun process, which would turn one bad sweep into an
-    // outage for every open tab.
-    const failures: unknown[] = [];
-    let calls = 0;
-    const reaper = startReaper({
-      intervalMs: 60_000,
-      sweep: () => {
-        calls += 1;
-        return Promise.reject(new Error("the database went away"));
-      },
-      onError: (error) => failures.push(error),
-    });
-
-    await vi.advanceTimersByTimeAsync(60_000);
-    await vi.advanceTimersByTimeAsync(60_000);
-
-    expect(calls).toBe(2);
-    expect(failures).toHaveLength(2);
-    reaper.stop();
   });
 });

@@ -191,6 +191,10 @@ is affordable, and they are worth setting deliberately rather than inheriting:
   ceiling on spend, which is what the three above are: turn it down when a pod is the
   bottleneck, not when the bill is. A turn that cannot be claimed waits in `turn_requests`
   rather than being refused, so this changes latency and never who gets in.
+- `NAP_JANITOR_INTERVAL_SECONDS=15` — how often to look for turns whose worker died holding
+  their lease. Not a ceiling on anything: it is how long somebody watching an interrupted turn
+  waits to be told, on top of the lease and its grace window. The grace itself is a fence and is
+  not configurable — shortening it is what would allow two writers on one session.
 
 ## Verifying a deployment
 

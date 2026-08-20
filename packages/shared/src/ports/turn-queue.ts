@@ -79,6 +79,18 @@ export type LeaseRenewal = { held: true; cancelRequested: boolean } | { held: fa
 /** How a claimed request ended. Both are terminal; neither returns it to the queue. */
 export type TurnRequestSettlement = "done" | "failed";
 
+/**
+ * A request whose worker went silent, and the little the janitor needs to close it out.
+ *
+ * `id` is also the turn id its events were written under — that identity is the whole reason the
+ * janitor can close the right Turn without having run it. See `docs/scaling-design.md` §6.
+ */
+export type OrphanedTurnRequest = {
+  id: string;
+  sessionId: string;
+  kind: TurnRequestKind;
+};
+
 /** What a cancellation found, so a route can tell "stopped it" from "there was nothing to stop". */
 export type CancelOutcome =
   /** A request was queued and has been failed outright — it will never be claimed. */
@@ -133,4 +145,35 @@ export interface TurnQueue {
    * from outside is what the renewal answer is for.
    */
   requestCancel(sessionId: string): Promise<CancelOutcome>;
+
+  /**
+   * Moves every lease that ran out more than the grace window ago to `orphaned`, and says which.
+   *
+   * **The grace is a fence, not a timeout.** Renewal is conditional, so a worker that lost its
+   * lease has aborted by `expiry + LEASE_RENEWAL_INTERVAL_MS`; reclaiming only at
+   * `expiry + LEASE_GRACE_MS` is what makes two writers on one session unreachable. Reclaiming
+   * early does not merely act sooner, it removes the only thing preventing that.
+   *
+   * **It never requeues.** Automatic re-execution is the autonomous loop that spends tokens with
+   * nobody watching, which `CONTEXT.md`'s *Continue* semantics forbid: the row goes terminal, the
+   * Job stays open, and a human reopening the project is the signal that somebody is there to
+   * watch.
+   *
+   * Exclusive, so two janitors ticking at once do not both take the same row — whoever's update
+   * commits first is the one it is returned to.
+   */
+  orphanExpired(limit?: number): Promise<OrphanedTurnRequest[]>;
+
+  /**
+   * Orphaned requests whose terminal events are not in the log yet.
+   *
+   * Orphaning and announcing cannot be one transaction — one is a row in Postgres and the other is
+   * an append plus a fanout — so a janitor that dies between them would otherwise leave a request
+   * that is terminal in the queue and still spinning in somebody's chat pane. This is what the
+   * next tick reads to finish the job, and it includes the rows the same tick just orphaned.
+   */
+  unannouncedOrphans(limit?: number): Promise<OrphanedTurnRequest[]>;
+
+  /** Records that an orphan's terminal events are durably in the log. */
+  markOrphanAnnounced(requestId: string): Promise<void>;
 }

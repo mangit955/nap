@@ -256,6 +256,14 @@ the request's own `turnId`, appends:
 **The Job is left open. No `job.completed` is written.** Recovery is §6's continuation path,
 triggered by a human.
 
+**Orphaning and announcing are two steps, because they are two systems.** One is a row in
+Postgres and the other is an append plus a fanout, and no transaction spans them. The row is taken
+first — an `update … where state = 'leased' and lease_expires_at < now() - grace … for update skip
+locked`, which is what makes it exclusive between janitors — and `finished_at` is set only once
+the events are durable. An `orphaned` row with a null `finished_at` is a request whose terminal
+events are still owed, and the next tick finds it and finishes. The other order would leave, on a
+crash in between, exactly the state invariant 15 forbids.
+
 ---
 
 ## 6. Turn-request identity, and the execution guarantee
@@ -862,7 +870,9 @@ New, and specific to this design:
 13. **`turn_requests.id` equals the `turn_id` of the request's first logical Turn**, and is allocated
     before the row is inserted.
 14. **Every `turn_request` reaches a terminal state** (`done`, `failed`, `orphaned`) within
-    `lease_ttl + grace`.
+    `lease_ttl + grace`. Of a request that was *claimed*: a `queued` row has been interrupted by
+    nothing and is waiting for a worker, which is the queue working rather than a request stuck,
+    and the janitor deliberately leaves it alone.
 15. **Every `orphaned` request has a terminal `turn.*` event and a `system.notice` in its session's
     log**, under its own `turnId`. No Turn is permanently invisible; no chat pane spins forever.
 16. **Global live sandboxes never exceed `NAP_MAX_SANDBOXES_TOTAL`** — enforced at reservation,

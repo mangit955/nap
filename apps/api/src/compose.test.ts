@@ -43,6 +43,7 @@ const CONFIG: NapDeps["config"] = {
   NAP_SANDBOX_TTL_MINUTES: 30,
   NAP_REAP_IDLE_MINUTES: 10,
   NAP_REAP_INTERVAL_SECONDS: 60,
+  NAP_JANITOR_INTERVAL_SECONDS: 60,
   NAP_WORKER_CONCURRENCY: 4,
 };
 
@@ -95,7 +96,7 @@ function compose(overrides: Partial<NapDeps> = {}) {
     ...overrides,
   });
 
-  stopping.push(composed.reaper, composed.worker);
+  stopping.push(composed.reaper, composed.janitor, composed.worker);
   return composed;
 }
 

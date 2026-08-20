@@ -43,6 +43,13 @@
       "when": 1787226101128,
       "tag": "0005_moaning_kang",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1787241163470,
+      "tag": "0006_heavy_xavin",
+      "breakpoints": true
     }
   ]
 }

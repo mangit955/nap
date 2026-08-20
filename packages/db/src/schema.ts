@@ -401,6 +401,13 @@ export const turnRequests = pgTable(
     index("turn_requests_queued").on(t.createdAt).where(sql`${t.state} = 'queued'`),
     // The janitor's: which leases have run out. Partial for the same reason.
     index("turn_requests_lease_expiry").on(t.leaseExpiresAt).where(sql`${t.state} = 'leased'`),
+    // The janitor's other half: orphans whose terminal events are not in the log yet. Orphaning
+    // and announcing cannot be one transaction, so this is what the next tick reads to finish a
+    // job the last one died in the middle of. In a healthy deployment it is empty, which is
+    // exactly what a partial index costs nothing to answer.
+    index("turn_requests_unannounced_orphans")
+      .on(t.leaseExpiresAt)
+      .where(sql`${t.state} = 'orphaned' and ${t.finishedAt} is null`),
   ],
 );
 

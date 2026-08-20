@@ -454,3 +454,175 @@ describe("requestCancel", () => {
     }
   });
 });
+
+describe("orphanExpired", () => {
+  /** Just past expiry, and well inside the grace: where the worker has yet to notice. */
+  async function expireLeaseWithinGrace(id: string): Promise<void> {
+    await db
+      .update(turnRequests)
+      .set({ leaseExpiresAt: sqlOf`now() - interval '5 seconds'` })
+      .where(eq(turnRequests.id, id));
+  }
+
+  it("leaves an expired lease alone until the grace window has passed", async () => {
+    const seed = await seedSession();
+    const { id } = await enqueueTurn(seed);
+    await queue.claim("worker-1");
+    await expireLeaseWithinGrace(id);
+
+    // The fence, not a timeout: the worker learns it is a zombie on its next renewal, and
+    // reclaiming before then is what would put two writers on one session.
+    expect(await queue.orphanExpired()).toEqual([]);
+    expect((await rowOf(id))?.state).toBe("leased");
+  });
+
+  it("orphans a lease that ran out longer ago than the grace", async () => {
+    const seed = await seedSession();
+    const { id } = await enqueueTurn(seed);
+    await queue.claim("worker-1");
+    await expireLease(id);
+
+    expect(await queue.orphanExpired()).toEqual([{ id, sessionId: seed.sessionId, kind: "turn" }]);
+
+    const row = await rowOf(id);
+    expect(row?.state).toBe("orphaned");
+    // The marker that its terminal events are still owed, and the record of when its worker
+    // went silent.
+    expect(row?.finishedAt).toBeNull();
+    expect(row?.leaseExpiresAt).not.toBeNull();
+  });
+
+  it("holds the session until it orphans, so a zombie never shares it", async () => {
+    const seed = await seedSession();
+    const first = await enqueueTurn(seed, "first");
+    await queue.claim("worker-1");
+    const second = await enqueueTurn(seed, "second");
+    await expireLease(first.id);
+
+    // The index is over `state = 'leased'` and knows nothing about the clock, which is what
+    // keeps the grace window meaningful at all.
+    expect(await queue.claim("worker-2")).toBeNull();
+
+    await queue.orphanExpired();
+    expect((await queue.claim("worker-2"))?.id).toBe(second.id);
+  });
+
+  it("never re-claims an orphaned request", async () => {
+    const seed = await seedSession();
+    const { id } = await enqueueTurn(seed);
+    await queue.claim("worker-1");
+    await expireLease(id);
+    await queue.orphanExpired();
+
+    expect(await queue.claim("worker-2")).toBeNull();
+    expect((await rowOf(id))?.state).toBe("orphaned");
+  });
+
+  it("hands a row to exactly one of two janitors running at once", async () => {
+    const seeds = await Promise.all(Array.from({ length: 8 }, () => seedSession()));
+    const ids: string[] = [];
+    for (const seed of seeds) {
+      const { id } = await enqueueTurn(seed);
+      await queue.claim("worker-1");
+      await expireLease(id);
+      ids.push(id);
+    }
+
+    const sweeps = await Promise.all([
+      queue.orphanExpired(),
+      queue.orphanExpired(),
+      queue.orphanExpired(),
+    ]);
+
+    const taken = sweeps.flat().map((request) => request.id);
+    expect(taken).toHaveLength(new Set(taken).size);
+    // Between them they take everything: `skip locked` steps over a row another janitor holds,
+    // and that row is returned to whoever does hold it.
+    expect(new Set(taken)).toEqual(new Set(ids));
+  });
+
+  it("leaves a request its worker settled alone", async () => {
+    const seed = await seedSession();
+    const { id } = await enqueueTurn(seed);
+    await queue.claim("worker-1");
+    await queue.settle(id, "worker-1", "done");
+    await expireLease(id);
+
+    expect(await queue.orphanExpired()).toEqual([]);
+    expect((await rowOf(id))?.state).toBe("done");
+  });
+
+  it("takes no more than the limit in one tick", async () => {
+    const seeds = await Promise.all(Array.from({ length: 3 }, () => seedSession()));
+    for (const seed of seeds) {
+      const { id } = await enqueueTurn(seed);
+      await queue.claim("worker-1");
+      await expireLease(id);
+    }
+
+    expect(await queue.orphanExpired(2)).toHaveLength(2);
+    expect(await queue.orphanExpired(2)).toHaveLength(1);
+  });
+});
+
+describe("unannouncedOrphans", () => {
+  it("offers an orphan until its terminal events are recorded as written", async () => {
+    const seed = await seedSession();
+    const { id } = await enqueueTurn(seed);
+    await queue.claim("worker-1");
+    await expireLease(id);
+    await queue.orphanExpired();
+
+    expect(await queue.unannouncedOrphans()).toEqual([
+      { id, sessionId: seed.sessionId, kind: "turn" },
+    ]);
+
+    await queue.markOrphanAnnounced(id);
+    expect(await queue.unannouncedOrphans()).toEqual([]);
+    expect((await rowOf(id))?.finishedAt).not.toBeNull();
+  });
+
+  it("refuses a mark for a request that is not an orphan", async () => {
+    const seed = await seedSession();
+    const { id } = await enqueueTurn(seed);
+    // Nothing has been interrupted, so there is nothing to announce. A mark that landed anyway
+    // would set the marker on a row that later becomes an orphan, whose terminal events would
+    // then never be written.
+    await queue.markOrphanAnnounced(id);
+
+    await queue.claim("worker-1");
+    await expireLease(id);
+    await queue.orphanExpired();
+
+    expect((await queue.unannouncedOrphans()).map((request) => request.id)).toEqual([id]);
+  });
+
+  it("offers the longest-abandoned orphan first", async () => {
+    const seeds = await Promise.all([seedSession(), seedSession()]);
+    const ids: string[] = [];
+    for (const seed of seeds) {
+      const { id } = await enqueueTurn(seed);
+      await queue.claim("worker-1");
+      ids.push(id);
+    }
+
+    // The first one has been abandoned an hour longer than the second.
+    await expireLease(ids[0] ?? "");
+    await db
+      .update(turnRequests)
+      .set({ leaseExpiresAt: sqlOf`now() - interval '5 minutes'` })
+      .where(eq(turnRequests.id, ids[1] ?? ""));
+    await queue.orphanExpired();
+
+    expect((await queue.unannouncedOrphans()).map((request) => request.id)).toEqual(ids);
+  });
+
+  it("ignores everything a worker settled itself", async () => {
+    const seed = await seedSession();
+    const { id } = await enqueueTurn(seed);
+    await queue.claim("worker-1");
+    await queue.settle(id, "worker-1", "failed");
+
+    expect(await queue.unannouncedOrphans()).toEqual([]);
+  });
+});

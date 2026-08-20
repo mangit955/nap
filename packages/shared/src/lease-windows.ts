@@ -40,3 +40,13 @@ export const LEASE_RENEWAL_INTERVAL_MS = 15 * 1000;
  * "the row is reclaimable" never closes to zero.
  */
 export const LEASE_GRACE_MS = 30 * 1000;
+
+/**
+ * How many abandoned requests one janitor tick closes out.
+ *
+ * A cap so the backlog left by a long outage drains over several ticks rather than in one
+ * transaction holding a connection for as long as it takes. It lives here rather than in either
+ * queue for the reason the windows do: both implementations answer to it, and a constant in each
+ * file would drift.
+ */
+export const ORPHAN_SWEEP_LIMIT = 100;

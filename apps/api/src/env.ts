@@ -245,6 +245,17 @@ const BaseSchema = z.object({
   NAP_SANDBOX_TTL_MINUTES: z.coerce.number().int().positive().default(30),
 
   /**
+   * How often to look for turns whose worker died holding their lease.
+   *
+   * On a schedule of its own rather than the reaper's, because the two answer to different
+   * clocks: a project can wait a minute to be put away, and a chat pane waiting on a turn that
+   * will never finish cannot. A worker's death is visible within the lease, its grace window and
+   * one of these — so this is the only part of that sum a deployment can shorten. It never moves
+   * the grace itself, which is a fence rather than a delay; see `@nap/shared/lease-windows`.
+   */
+  NAP_JANITOR_INTERVAL_SECONDS: z.coerce.number().int().positive().default(15),
+
+  /**
    * How many queued turns this process runs at once.
    *
    * A property of the *worker*, not a ceiling on the deployment: what a person may spend is the

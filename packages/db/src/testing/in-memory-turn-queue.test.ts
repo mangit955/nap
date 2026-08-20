@@ -56,12 +56,19 @@ describe("claim", () => {
     expect(await queue.claim("worker-3")).toBeNull();
   });
 
-  it("lets the session be claimed again once the lease has expired", async () => {
+  it("lets the session be claimed again once the janitor has reclaimed the lease", async () => {
     await enqueue("session-a", "first");
     const second = await enqueue("session-a", "second");
     await queue.claim("worker-1");
 
+    // Expiry alone frees nothing: the partial unique index in Postgres is over `state = 'leased'`
+    // and knows nothing about the clock, and the worker that holds it may not have learned it is
+    // a zombie yet. Only the janitor, past the grace window, moves the row out.
     now += 60_001;
+    expect(await queue.claim("worker-2")).toBeNull();
+
+    now += 30_000;
+    await queue.orphanExpired();
     expect((await queue.claim("worker-2"))?.id).toBe(second.id);
   });
 
@@ -149,5 +156,123 @@ describe("requestCancel", () => {
 
   it("reports nothing to cancel on an idle session", async () => {
     expect(await queue.requestCancel("session-a")).toEqual({ cancelled: false });
+  });
+});
+
+describe("orphanExpired", () => {
+  it("leaves a lease alone until the grace window has passed", async () => {
+    const { id } = await enqueue("session-a");
+    await queue.claim("worker-1");
+
+    // Expired, but the worker may not have learned that yet: it finds out on its next renewal.
+    now += 60_000 + 1;
+    expect(await queue.orphanExpired()).toEqual([]);
+    expect(queue.stateOf(id)).toBe("leased");
+
+    now += 30_000;
+    expect(await queue.orphanExpired()).toEqual([{ id, sessionId: "session-a", kind: "turn" }]);
+    expect(queue.stateOf(id)).toBe("orphaned");
+  });
+
+  it("holds the session until it orphans, so a zombie never shares it", async () => {
+    await enqueue("session-a");
+    await queue.claim("worker-1");
+    await enqueue("session-a");
+
+    // The lease has run out but nothing has reclaimed it. The index in Postgres is over the
+    // state alone, and the second request must wait for the same reason here.
+    now += 60_000 + 1;
+    expect(await queue.claim("worker-2")).toBeNull();
+
+    now += 30_000;
+    await queue.orphanExpired();
+    expect(await queue.claim("worker-2")).not.toBeNull();
+  });
+
+  it("never re-claims an orphaned request", async () => {
+    const { id } = await enqueue("session-a");
+    await queue.claim("worker-1");
+    now += 90_001;
+    await queue.orphanExpired();
+
+    expect(await queue.claim("worker-2")).toBeNull();
+    expect(queue.stateOf(id)).toBe("orphaned");
+  });
+
+  it("takes a row once, so two janitors do not both close it out", async () => {
+    await enqueue("session-a");
+    await queue.claim("worker-1");
+    now += 90_001;
+
+    expect(await queue.orphanExpired()).toHaveLength(1);
+    expect(await queue.orphanExpired()).toEqual([]);
+  });
+
+  it("does not touch a settled request", async () => {
+    const { id } = await enqueue("session-a");
+    await queue.claim("worker-1");
+    await queue.settle(id, "worker-1", "done");
+    now += 90_001;
+
+    expect(await queue.orphanExpired()).toEqual([]);
+    expect(queue.stateOf(id)).toBe("done");
+  });
+});
+
+describe("unannouncedOrphans", () => {
+  it("offers an orphan until its terminal events are recorded as written", async () => {
+    const { id } = await enqueue("session-a");
+    await queue.claim("worker-1");
+    now += 90_001;
+    await queue.orphanExpired();
+
+    // A janitor that died between orphaning and appending would otherwise leave a request that
+    // is terminal here and still spinning in somebody's chat pane.
+    expect(await queue.unannouncedOrphans()).toEqual([
+      { id, sessionId: "session-a", kind: "turn" },
+    ]);
+
+    await queue.markOrphanAnnounced(id);
+    expect(await queue.unannouncedOrphans()).toEqual([]);
+  });
+
+  it("ignores requests a worker settled itself", async () => {
+    const { id } = await enqueue("session-a");
+    await queue.claim("worker-1");
+    await queue.settle(id, "worker-1", "failed");
+
+    expect(await queue.unannouncedOrphans()).toEqual([]);
+  });
+});
+
+describe("markOrphanAnnounced", () => {
+  it("refuses a request that is not an orphan", async () => {
+    const { id } = await enqueue("session-a");
+    // Nothing has been interrupted, so there is nothing to announce. A mark that landed anyway
+    // would set the marker on a row that later becomes an orphan, and its terminal events would
+    // then never be written.
+    await queue.markOrphanAnnounced(id);
+
+    await queue.claim("worker-1");
+    now += 90_001;
+    await queue.orphanExpired();
+
+    expect((await queue.unannouncedOrphans()).map((request) => request.id)).toEqual([id]);
+  });
+
+  it("offers the longest-abandoned orphan first", async () => {
+    const first = await enqueue("session-a");
+    await queue.claim("worker-1");
+    now += 10_000;
+    const second = await enqueue("session-b");
+    await queue.claim("worker-2");
+
+    now += 90_001;
+    await queue.orphanExpired();
+
+    expect((await queue.unannouncedOrphans()).map((request) => request.id)).toEqual([
+      first.id,
+      second.id,
+    ]);
   });
 });

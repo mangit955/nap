@@ -120,6 +120,9 @@ export function loadgenConfig(users: number): NapConfig {
     // Far longer than any run, so the reaper never takes a sandbox away mid-journey.
     NAP_REAP_IDLE_MINUTES: 29,
     NAP_REAP_INTERVAL_SECONDS: 600,
+    // Nothing here kills a worker, so the janitor has nothing to find; long enough that a ramp
+    // never pays for the query.
+    NAP_JANITOR_INTERVAL_SECONDS: 600,
     // Sized like the ceilings above rather than like production's: a worker that could only run
     // ten turns at once would make every ramp above ten a measurement of this number.
     NAP_WORKER_CONCURRENCY: users * 2,
@@ -156,7 +159,7 @@ export type BootedLoadgenApi = {
    * imaginary in that no vendor saw any of it. §23 wants the column regardless.
    */
   modelTotals: () => ProviderTotals;
-  /** Stops the server, the reaper, the pool and the container, in that order. */
+  /** Stops the server, the two sweeps, the pool and the container, in that order. */
   stop: () => Promise<void>;
 };
 
@@ -182,7 +185,7 @@ export async function bootLoadgenApi(options: BootOptions): Promise<BootedLoadge
 
   const config = loadgenConfig(options.users);
 
-  const { app, reaper, worker } = composeNap({
+  const { app, reaper, worker, janitor } = composeNap({
     config,
     logger,
     sessions: new PostgresSessionStore(db),
@@ -242,6 +245,7 @@ export async function bootLoadgenApi(options: BootOptions): Promise<BootedLoadge
     postgresUrl: postgres.url,
     stop: async () => {
       reaper.stop();
+      janitor.stop();
       // Before the server, so a run that ended with turns in flight settles them rather than
       // leaving leases to expire against a database that is about to be torn down.
       await worker.stop();

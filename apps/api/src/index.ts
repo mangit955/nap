@@ -184,7 +184,7 @@ const auth = createAuth(db, {
 /** Fixed by the names of the two settings that fill it: `NAP_…_TURNS_PER_HOUR`. */
 const TURN_RATE_WINDOW_MS = 60 * 60 * 1000;
 
-const { app, reaper, worker } = composeNap({
+const { app, reaper, worker, janitor } = composeNap({
   config: env,
   logger,
   sessions: new PostgresSessionStore(db),
@@ -296,6 +296,9 @@ const { app, reaper, worker } = composeNap({
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
     reaper.stop();
+    // The same reasoning: a tick that has not started must not start while the process is
+    // leaving. Anything it would have closed out is still expired when the next pod looks.
+    janitor.stop();
 
     // Closing the listener too, so a rolling restart does not leave a `LISTEN` connection
     // holding a backend open until the database notices the socket is gone. Exiting is inside

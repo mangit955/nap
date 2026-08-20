@@ -27,16 +27,17 @@
  * the predicate it could renew or settle a request another worker had already claimed.
  */
 
-import { LEASE_TTL_MS } from "@nap/shared/lease-windows";
+import { LEASE_GRACE_MS, LEASE_TTL_MS, ORPHAN_SWEEP_LIMIT } from "@nap/shared/lease-windows";
 import type {
   CancelOutcome,
   EnqueueTurnRequest,
   LeasedTurnRequest,
   LeaseRenewal,
+  OrphanedTurnRequest,
   TurnQueue,
   TurnRequestSettlement,
 } from "@nap/shared/ports/turn-queue";
-import { and, eq, inArray, notInArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { turnRequests } from "./schema.ts";
 
@@ -47,6 +48,15 @@ import { turnRequests } from "./schema.ts";
  * grace, because the three have to agree and a constant in each file would drift.
  */
 const LEASE_TTL = `${LEASE_TTL_MS} milliseconds`;
+
+/**
+ * How long past expiry a lease is left alone, as a Postgres interval.
+ *
+ * A fence rather than a timeout: renewal is conditional, so a worker that lost its lease has
+ * aborted by expiry plus one renewal interval, and reclaiming only after this window is the sole
+ * reason two writers on one session are unreachable. See `@nap/shared/lease-windows`.
+ */
+const LEASE_GRACE = `${LEASE_GRACE_MS} milliseconds`;
 
 /**
  * How many candidates one `claim` will try before giving up for this tick.
@@ -268,6 +278,57 @@ export class PostgresTurnQueue implements TurnQueue {
     if (rows.some((row) => row.state === "leased")) return { cancelled: true, was: "leased" };
     if (rows.length > 0) return { cancelled: true, was: "queued" };
     return { cancelled: false };
+  }
+
+  async orphanExpired(limit = ORPHAN_SWEEP_LIMIT): Promise<OrphanedTurnRequest[]> {
+    return await this.#db
+      .update(turnRequests)
+      .set({ state: "orphaned" })
+      // `for update skip locked` is what makes two janitors ticking at once safe: whichever holds
+      // the row takes it, and the other steps over it rather than waiting to update a row that is
+      // about to stop being `leased`. Ordered by expiry, so the longest-abandoned turn — the one
+      // whose chat pane has been spinning longest — is closed out first.
+      .where(
+        sql`${turnRequests.id} in (
+          select id from ${turnRequests}
+          where state = 'leased'
+            and lease_expires_at < now() - ${LEASE_GRACE}::interval
+          order by lease_expires_at
+          for update skip locked
+          limit ${limit}
+        )`,
+      )
+      // `finished_at` is deliberately left null, and `lease_expires_at` deliberately left set. The
+      // first is the marker saying this request's terminal events are not in the log yet; the
+      // second is the only record of when its worker went silent, and no index reads it outside
+      // `state = 'leased'`.
+      .returning({
+        id: turnRequests.id,
+        sessionId: turnRequests.sessionId,
+        kind: turnRequests.kind,
+      });
+  }
+
+  async unannouncedOrphans(limit = ORPHAN_SWEEP_LIMIT): Promise<OrphanedTurnRequest[]> {
+    return await this.#db
+      .select({
+        id: turnRequests.id,
+        sessionId: turnRequests.sessionId,
+        kind: turnRequests.kind,
+      })
+      .from(turnRequests)
+      .where(and(eq(turnRequests.state, "orphaned"), isNull(turnRequests.finishedAt)))
+      .orderBy(asc(turnRequests.leaseExpiresAt))
+      .limit(limit);
+  }
+
+  async markOrphanAnnounced(requestId: string): Promise<void> {
+    await this.#db
+      .update(turnRequests)
+      .set({ finishedAt: sql`now()` })
+      // Conditional on the state, so this can never be mistaken for a settlement: only the
+      // janitor's own rows are terminal with a null `finished_at`.
+      .where(and(eq(turnRequests.id, requestId), eq(turnRequests.state, "orphaned")));
   }
 }
 

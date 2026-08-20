@@ -95,6 +95,14 @@ two processes cannot agree about anything a database is not adjudicating. Renewe
 whether it is still allowed to run, and zero rows back means the lease is gone and the turn must be
 aborted at once. Losing a lease never requeues the request.
 
+**Janitor** — what closes out a turn request whose worker never came back, as distinct from the
+**reaper**, which puts away projects nobody is looking at. It waits past the lease's **grace
+window** — a *fence*, not a timeout: renewal is conditional, so the previous worker has certainly
+aborted by then, and reclaiming earlier is what would put two writers on one session — then marks
+the request *orphaned* and writes the terminal event the interrupted Turn never got, under the
+request's own id. **It never requeues and never closes the Job**: re-executing with nobody watching
+is what *Continue* forbids, so the work waits for a human to reopen the project.
+
 **Fanout** — delivery of an already-persisted event to whichever API pods hold subscribers for its
 session. Strictly after the append, as it has always been. **A notification is a wake-up signal; the
 durable log is the delivery** — a lost notification costs latency and never costs an event, because

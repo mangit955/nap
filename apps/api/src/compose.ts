@@ -20,8 +20,10 @@
 import { NapAgentService } from "@nap/agent/agent-service";
 import { NapContextEngine } from "@nap/context/context-engine";
 import { NoopMemoryProvider } from "@nap/context/noop-memory-provider";
-import { startReaper, sweepIdleProjects } from "@nap/runtime/reaper";
+import { sweepOrphanedRequests } from "@nap/runtime/janitor";
+import { sweepIdleProjects } from "@nap/runtime/reaper";
 import { SingleAgentRuntime } from "@nap/runtime/single-agent-runtime";
+import { startSweeping } from "@nap/runtime/sweep-schedule";
 import { startTurnWorker, type TurnWorker } from "@nap/runtime/turn-worker";
 import type { Logger } from "@nap/shared/logging";
 import type { CapacityReconciler } from "@nap/shared/ports/capacity-reconciler";
@@ -73,6 +75,7 @@ export type NapConfig = Pick<
   | "NAP_WORKER_CONCURRENCY"
   | "NAP_REAP_IDLE_MINUTES"
   | "NAP_REAP_INTERVAL_SECONDS"
+  | "NAP_JANITOR_INTERVAL_SECONDS"
 >;
 
 export type NapDeps = {
@@ -178,6 +181,13 @@ export type ComposedNap = {
   worker: TurnWorker;
   /** Already sweeping. The caller owns stopping it, on a signal or at the end of a test. */
   reaper: { stop: () => void };
+  /**
+   * Already looking for turns whose worker died. The caller owns stopping it.
+   *
+   * A schedule of its own rather than a share of the reaper's: an idle project can wait a minute
+   * to be put away, and a chat pane waiting on a turn that will never finish cannot.
+   */
+  janitor: { stop: () => void };
 };
 
 export function composeNap(deps: NapDeps): ComposedNap {
@@ -344,7 +354,7 @@ export function composeNap(deps: NapDeps): ComposedNap {
    * thing in this process that knows a turn is running. It reads across a project's sessions
    * because a sandbox belongs to the project they share.
    */
-  const reaper = startReaper({
+  const reaper = startSweeping({
     intervalMs: config.NAP_REAP_INTERVAL_SECONDS * 1000,
     sweep: async () => {
       // Turns recorded long enough ago that no window can still count them. Cheap, unrelated to
@@ -431,5 +441,46 @@ export function composeNap(deps: NapDeps): ComposedNap {
     running: registry,
   });
 
-  return { app, runtime, registry, worker, reaper };
+  /**
+   * The other half of a worker dying: the request it was holding, and the chat pane waiting on a
+   * turn that will never finish.
+   *
+   * It runs here because this process is the one Nap has. `docs/scaling-design.md` §5 puts it in
+   * the reaper pod, and §24.3 leaves whether the two share a process open — either way it is a
+   * composition's choice, and moving it later changes nothing about what it does. Several
+   * replicas sweeping at once is safe rather than merely tolerated: the reclaim holds each row
+   * with `for update skip locked`, so two janitors never close out the same request.
+   *
+   * On its own interval, and that is the point of the separate schedule: an idle project can wait
+   * a minute to be put away, and a chat pane waiting on a turn that will never finish cannot.
+   */
+  const janitor = startSweeping({
+    intervalMs: config.NAP_JANITOR_INTERVAL_SECONDS * 1000,
+    sweep: async () => {
+      const result = await sweepOrphanedRequests({
+        queue: deps.queue,
+        // The same store and bus as everything else: the terminal event it writes is replayed
+        // from the log by whoever reconnects, exactly like the ones a turn writes.
+        events: deps.events,
+        bus: deps.bus,
+      });
+
+      // Logged here rather than inside the sweep, for the reason the reconciliation pass is: the
+      // sweep answers with values and the composition owns what is worth a line. Only when
+      // something moved — in a healthy deployment every tick finds nothing, and a number that
+      // climbs means workers are dying rather than settling their requests.
+      if (result.orphaned.length > 0) {
+        logger.warn(
+          { orphaned: result.orphaned },
+          "turn requests outlived their leases and were closed out; their jobs are still open",
+        );
+      }
+      for (const failure of result.failed) {
+        logger.error({ failure }, "could not close out an interrupted turn");
+      }
+    },
+    onError: (error) => logger.error({ err: error }, "janitor sweep threw"),
+  });
+
+  return { app, runtime, registry, worker, reaper, janitor };
 }
