@@ -36,6 +36,7 @@ import type { SandboxInventory } from "@nap/shared/ports/sandbox-inventory";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SessionStore } from "@nap/shared/ports/session-store";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
+import type { TurnRateLimiter } from "@nap/shared/ports/turn-rate-limit";
 import type { UserKeyStore } from "@nap/shared/ports/user-key-store";
 import type { Hono } from "hono";
 import type { VerifyKey } from "./account/routes.ts";
@@ -46,7 +47,6 @@ import type { AuthVariables } from "./auth/require-user.ts";
 import type { Env } from "./env.ts";
 import type { HealthProbe } from "./health.ts";
 import type { CreatedProject } from "./projects/routes.ts";
-import { TurnRateLimiter } from "./turns/rate-limiter.ts";
 import { TurnRegistry } from "./turns/registry.ts";
 
 /**
@@ -64,8 +64,6 @@ export type NapConfig = Pick<
   | "NAP_ALLOWED_MODELS"
   | "NAP_MAX_STEPS"
   | "NAP_CONTEXT_BUDGET_TOKENS"
-  | "NAP_TURNS_PER_HOUR"
-  | "NAP_FREE_TURNS_PER_HOUR"
   | "NAP_MAX_SANDBOXES_PER_USER"
   | "NAP_FREE_MAX_SANDBOXES_PER_USER"
   | "NAP_MAX_SANDBOXES_TOTAL"
@@ -94,6 +92,20 @@ export type NapDeps = {
    * pass, which is exactly how the limits block once failed to reach boot at all.
    */
   capacity: SandboxCapacity;
+  /**
+   * How fast one person may spend, in both tiers — the other ceiling that bounds the bill, and
+   * required for the same reason `capacity` is.
+   *
+   * **Two limiters, never one shared.** The window is per tier as well as per user, so a single
+   * allowance would let somebody's paid turns eat their free one and make "5 free turns an hour"
+   * mean something different depending on what else they did.
+   *
+   * Handed in rather than constructed here because the window lives in Postgres now: a limiter
+   * needs a database, and what a deployment is willing to spend is boot's fact rather than the
+   * composition's. A composition given a per-process limiter still works — it is what a test
+   * wants — but it is one allowance per replica, which is the thing this stopped being.
+   */
+  rateLimits: { rate: TurnRateLimiter; freeRate: TurnRateLimiter };
   /**
    * How the reaper puts back capacity nothing gave back, if this composition can offer it.
    *
@@ -253,13 +265,10 @@ export function composeNap(deps: NapDeps): ComposedNap {
       // only place either ceiling is applied *early* — the sandbox one is applied for real when a
       // sandbox is created, and `sandbox-quota.ts` says why the cheap refusal is worth keeping.
       limits: {
-        rate: new TurnRateLimiter({ limit: config.NAP_TURNS_PER_HOUR, windowMs: 60 * 60 * 1000 }),
+        rate: deps.rateLimits.rate,
         // The tighter one, for turns this deployment is paying for. Its own limiter rather than
         // its own number, so a person's paid turns cannot eat their free allowance.
-        freeRate: new TurnRateLimiter({
-          limit: config.NAP_FREE_TURNS_PER_HOUR,
-          windowMs: 60 * 60 * 1000,
-        }),
+        freeRate: deps.rateLimits.freeRate,
         projects: deps.projects,
         sandboxes: {
           perUser: config.NAP_MAX_SANDBOXES_PER_USER,
@@ -318,8 +327,22 @@ export function composeNap(deps: NapDeps): ComposedNap {
    */
   const reaper = startReaper({
     intervalMs: config.NAP_REAP_INTERVAL_SECONDS * 1000,
-    sweep: () =>
-      sweepIdleProjects({
+    sweep: async () => {
+      // Turns recorded long enough ago that no window can still count them. Cheap, unrelated to
+      // the projects below, and here for the reason reconciliation is: this is the deployment's
+      // "come past occasionally and put things right" schedule, and without it the table keeps a
+      // row for every visitor who ever sent one message.
+      await Promise.all(
+        [deps.rateLimits.rate, deps.rateLimits.freeRate].map((limiter) =>
+          limiter.sweep().catch((error: unknown) => {
+            // Its own catch, not the sweep's: a failure to tidy must not cost this tick the
+            // projects it was about to put away, which is the half that spends money.
+            logger.error({ err: error }, "could not sweep expired turn rate events");
+          }),
+        ),
+      );
+
+      return await sweepIdleProjects({
         projects: deps.projectSandboxes,
         sandbox: deps.sandbox,
         objects: deps.objects,
@@ -366,7 +389,8 @@ export function composeNap(deps: NapDeps): ComposedNap {
           for (const failure of reconciled.failed)
             logger.error({ failure }, "could not reconcile sandbox capacity");
         }
-      }),
+      });
+    },
     onError: (error) => logger.error({ err: error }, "reaper sweep threw"),
   });
 

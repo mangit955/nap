@@ -25,7 +25,6 @@ API is the one that holds all the state, spends all the money, and must not be s
   it is off by default** — see below.
 - `TurnRegistry` (cancellation, and the per-session queue that stops one project starting
   two sandboxes) is in memory.
-- `TurnRateLimiter` is in memory, so N instances mean N times the rate limit.
 - The reaper runs in-process. It is what snapshots an idle project and destroys its
   sandbox, and it is the only thing standing between an abandoned tab and an E2B bill. It is
   also what reconciles the sandbox ceiling — reclaiming slots held by a process that died
@@ -43,9 +42,9 @@ this, not restarts.
 
 `NAP_EVENT_BUS=postgres` swaps `InProcessEventBus` for `PostgresNotifyEventBus`, which
 announces `{sessionId, seq}` through `pg_notify` and lets every process read the events out of
-the durable log. That removes the first bullet above and **none of the others** — the registry,
-the rate limiters and the reaper are still per-process (the sandbox ceiling is not: it is
-reserved in Postgres), so this is a prerequisite for a second
+the durable log. That removes the first bullet above and **none of the others** — the registry
+and the reaper are still per-process (the sandbox ceiling and the turn allowance are not: one is
+reserved in Postgres and the other is counted there), so this is a prerequisite for a second
 replica rather than permission for one. `railway.json` still pins `numReplicas: 1`.
 
 Two things to get right when you do turn it on:

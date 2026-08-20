@@ -7,8 +7,10 @@ import { FAKE_OWNER, InMemoryProjectStore } from "@nap/db/testing/in-memory-proj
 import { InMemorySandboxCapacity } from "@nap/db/testing/in-memory-sandbox-capacity";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
+import { InMemoryTurnRateLimiter } from "@nap/db/testing/in-memory-turn-rate-limiter";
 import { InMemoryUserKeyStore } from "@nap/db/testing/in-memory-user-key-store";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
+import type { TurnRateLimiter } from "@nap/shared/ports/turn-rate-limit";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import type { WSEvents } from "hono/ws";
 import { afterEach, describe, expect, it } from "vitest";
@@ -34,8 +36,6 @@ const CONFIG: NapDeps["config"] = {
   NAP_ALLOWED_MODELS: ["openai/gpt-5.6-luna"],
   NAP_MAX_STEPS: 4,
   NAP_CONTEXT_BUDGET_TOKENS: 10_000,
-  NAP_TURNS_PER_HOUR: 15,
-  NAP_FREE_TURNS_PER_HOUR: 5,
   NAP_MAX_SANDBOXES_PER_USER: 2,
   NAP_FREE_MAX_SANDBOXES_PER_USER: 1,
   NAP_MAX_SANDBOXES_TOTAL: 10,
@@ -65,6 +65,12 @@ function compose(overrides: Partial<NapDeps> = {}) {
     projects: new InMemoryProjectStore(),
     projectSandboxes: new InMemoryProjectSandboxStore(),
     capacity: new InMemorySandboxCapacity(),
+    // Per-process limiters, which is exactly what a test wants and exactly what a deployment
+    // must not have: one of these per replica is one allowance per replica.
+    rateLimits: {
+      rate: new InMemoryTurnRateLimiter({ limit: 15, windowMs: 60 * 60 * 1000 }),
+      freeRate: new InMemoryTurnRateLimiter({ limit: 5, windowMs: 60 * 60 * 1000 }),
+    },
     snapshots: new InMemorySnapshotStore(),
     userKeys: new InMemoryUserKeyStore(),
     events: new InMemoryEventStore(),
@@ -165,6 +171,28 @@ describe("composeNap", () => {
     });
 
     await expect.poll(() => reconcile.reclaimCalls(), { timeout: 2000 }).toBeGreaterThan(0);
+  });
+
+  it("sweeps both turn allowances on the same tick", async () => {
+    // The rate window is rows in Postgres now, so something has to delete the ones that have
+    // left it or the table keeps one per visitor forever. Both limiters, because each owns its
+    // own tier's rows and a sweep of one says nothing about the other.
+    const swept = { rate: 0, freeRate: 0 };
+    const counting = (tally: "rate" | "freeRate"): TurnRateLimiter => ({
+      check: async () => ({ allowed: true }),
+      sweep: async () => {
+        swept[tally] += 1;
+        return 0;
+      },
+    });
+
+    compose({
+      rateLimits: { rate: counting("rate"), freeRate: counting("freeRate") },
+      config: { ...CONFIG, NAP_REAP_INTERVAL_SECONDS: 0.01 },
+    });
+
+    await expect.poll(() => swept.rate, { timeout: 2000 }).toBeGreaterThan(0);
+    expect(swept.freeRate).toBeGreaterThan(0);
   });
 
   it("sweeps a project nobody is using", async () => {

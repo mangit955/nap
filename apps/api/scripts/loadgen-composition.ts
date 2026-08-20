@@ -26,6 +26,7 @@ import { PostgresProjectStore } from "@nap/db/postgres-project-store";
 import { PostgresSandboxCapacity } from "@nap/db/postgres-sandbox-capacity";
 import { PostgresSessionStore } from "@nap/db/postgres-session-store";
 import { PostgresSnapshotStore } from "@nap/db/postgres-snapshot-store";
+import { PostgresTurnRateLimiter } from "@nap/db/postgres-turn-rate-limiter";
 import { PostgresUserKeyStore } from "@nap/db/postgres-user-key-store";
 import { createProjectSession } from "@nap/db/session-bootstrap";
 import { startDockerPostgres } from "@nap/db/testing/docker-postgres";
@@ -36,6 +37,7 @@ import { TEMPLATE_DEV_PORT, TEMPLATE_WORKDIR } from "@nap/sandbox/template";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
+import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { upgradeWebSocket, websocket } from "hono/bun";
 import { encryptionKeyFrom } from "../src/account/secret-box.ts";
 import { createAuth } from "../src/auth/auth.ts";
@@ -98,8 +100,9 @@ function fakeSandbox(): InMemorySandboxManager {
  *
  * Production's numbers are deliberately not used and deliberately not changed: a harness that ran
  * at `NAP_MAX_SANDBOXES_TOTAL=10` would spend a hundred-user run reporting quota refusals, which
- * is a separate assertion (§16) with its own composition. The rate limit is per hour and a ramp
- * runs for twenty minutes, so it is set far past what any user can reach in one.
+ * is a separate assertion (§16) with its own composition. The turn allowance is sized the same
+ * way and is no longer here — it is a limiter rather than a number now, built in `bootLoadgenApi`
+ * against the same Postgres.
  */
 export function loadgenConfig(users: number): NapConfig {
   return {
@@ -109,8 +112,6 @@ export function loadgenConfig(users: number): NapConfig {
     NAP_ALLOWED_MODELS: ["loadgen/fake"],
     NAP_MAX_STEPS: 8,
     NAP_CONTEXT_BUDGET_TOKENS: 80_000,
-    NAP_TURNS_PER_HOUR: users * 200,
-    NAP_FREE_TURNS_PER_HOUR: users * 200,
     NAP_MAX_SANDBOXES_PER_USER: 2,
     NAP_FREE_MAX_SANDBOXES_PER_USER: 2,
     NAP_MAX_SANDBOXES_TOTAL: users * 2,
@@ -119,6 +120,15 @@ export function loadgenConfig(users: number): NapConfig {
     NAP_REAP_IDLE_MINUTES: 29,
     NAP_REAP_INTERVAL_SECONDS: 600,
   };
+}
+
+/** One tier's allowance, sized like the ceilings above: far past what a run can reach. */
+function turnRateLimiter(db: PostgresJsDatabase, users: number, tier: "free" | "paid") {
+  return new PostgresTurnRateLimiter(db, {
+    limit: users * 200,
+    windowMs: 60 * 60 * 1000,
+    tier,
+  });
 }
 
 export type BootOptions = {
@@ -180,6 +190,14 @@ export async function bootLoadgenApi(options: BootOptions): Promise<BootedLoadge
       perUser: config.NAP_MAX_SANDBOXES_PER_USER,
       total: config.NAP_MAX_SANDBOXES_TOTAL,
     }),
+    // The real limiter too, and against the same Postgres: it is on the admission hot path of
+    // every turn the ramp sends, so a fake would be measuring a system nobody deploys. The
+    // allowance is per hour and a ramp runs for twenty minutes, so it is set far past what any
+    // user can reach in one — the run measures the system rather than its own configuration.
+    rateLimits: {
+      rate: turnRateLimiter(db, options.users, "paid"),
+      freeRate: turnRateLimiter(db, options.users, "free"),
+    },
     snapshots: new PostgresSnapshotStore(db),
     userKeys: new PostgresUserKeyStore(db),
     events: new PostgresEventStore(db),

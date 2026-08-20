@@ -25,6 +25,7 @@ import type { NapEvent, NapEventType } from "@nap/shared/events";
 import { sql } from "drizzle-orm";
 import {
   boolean,
+  index,
   integer,
   jsonb,
   pgEnum,
@@ -284,6 +285,40 @@ export const sandboxReservations = pgTable(
     uniqueIndex("sandbox_reservations_one_per_project")
       .on(t.projectId)
       .where(sql`${t.state} in ('reserved', 'active')`),
+  ],
+);
+
+/**
+ * One row per turn somebody was *allowed* to start — the sliding window, kept where every replica
+ * can see it.
+ *
+ * **Accepted turns only.** A refused attempt writes nothing, or a client retrying in a loop would
+ * push its own recovery further away with every attempt and the wait it was told would never
+ * arrive. That single rule is why the count here is exactly what the window holds, and why the
+ * oldest row inside it is precisely when a slot opens.
+ *
+ * `tier` is what keeps two allowances two allowances: turns this deployment pays for are limited
+ * because that is the only reason the door can be open to strangers, and turns somebody pays for
+ * themselves are limited to stop a runaway loop. Sharing one count would let the second eat the
+ * first.
+ *
+ * There is no `id`: nothing ever addresses one of these rows. They are counted inside the window
+ * and deleted in bulk once past it, so a key would be bytes and an index nobody reads.
+ */
+export const turnRateEvents = pgTable(
+  "turn_rate_events",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tier: text("tier").$type<"free" | "paid">().notNull(),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // The exact shape of both statements that touch this table: admission counts one user's rows
+    // in one tier since a cutoff, and the sweep deletes across users by the same cutoff. Without
+    // it, every turn in the cluster is a sequential scan over every turn recently taken.
+    index("turn_rate_events_user_tier_at").on(t.userId, t.tier, t.at),
   ],
 );
 

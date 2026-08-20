@@ -28,6 +28,7 @@ import { PostgresProjectStore } from "@nap/db/postgres-project-store";
 import { PostgresSandboxCapacity } from "@nap/db/postgres-sandbox-capacity";
 import { PostgresSessionStore } from "@nap/db/postgres-session-store";
 import { PostgresSnapshotStore } from "@nap/db/postgres-snapshot-store";
+import { PostgresTurnRateLimiter } from "@nap/db/postgres-turn-rate-limiter";
 import { PostgresUserKeyStore } from "@nap/db/postgres-user-key-store";
 import { createProjectSession } from "@nap/db/session-bootstrap";
 import { E2BSandboxManager } from "@nap/sandbox/e2b-sandbox-manager";
@@ -179,6 +180,9 @@ const auth = createAuth(db, {
   allowAnonymous: env.NAP_ALLOW_DEMO,
 });
 
+/** Fixed by the names of the two settings that fill it: `NAP_…_TURNS_PER_HOUR`. */
+const TURN_RATE_WINDOW_MS = 60 * 60 * 1000;
+
 const { app, reaper } = composeNap({
   config: env,
   logger,
@@ -197,6 +201,22 @@ const { app, reaper } = composeNap({
   // `SandboxManager`, for the reason `ping` is — it is a question about the deployment rather
   // than about one project's workspace.
   reconcile: { reconciler: new PostgresCapacityReconciler(db), inventory: sandbox },
+  // The other ceiling that bounds the bill, and in rows for the same reason: a limiter held in
+  // this process would give each replica its own allowance, so "5 free turns an hour" would
+  // quietly become five times the replica count. Two instances rather than two numbers on one —
+  // sharing a window would let somebody's paid turns eat their free allowance.
+  rateLimits: {
+    rate: new PostgresTurnRateLimiter(db, {
+      limit: env.NAP_TURNS_PER_HOUR,
+      windowMs: TURN_RATE_WINDOW_MS,
+      tier: "paid",
+    }),
+    freeRate: new PostgresTurnRateLimiter(db, {
+      limit: env.NAP_FREE_TURNS_PER_HOUR,
+      windowMs: TURN_RATE_WINDOW_MS,
+      tier: "free",
+    }),
+  },
   snapshots: new PostgresSnapshotStore(db),
   userKeys: new PostgresUserKeyStore(db),
   // One store and one bus for the process, shared by the runtime that publishes and the socket

@@ -108,6 +108,14 @@ has already been paid for. It is the authoritative ceiling — the count the API
 admission is a cheap refusal and nothing more. Never called a quota: a quota is what a route
 answers with, a reservation is what a slot *is*.
 
+**Turn allowance** — how many turns one person may start inside a rolling hour, counted as one row
+per *accepted* turn in `turn_rate_events`. Sliding rather than fixed, so `Retry-After` is the exact
+moment the oldest row leaves the window; a refused attempt records nothing, so a retrying client's
+recovery never recedes. There are two of them, told apart by *tier* — *free* for turns this
+deployment pays for, *paid* for turns billed to whoever brought a key — and they are never one
+shared count. An allowance is what a person may spend; a *ceiling* is what the deployment may run
+at once. Different words for different limits, deliberately.
+
 **Reconciliation** — the reaper's second job, on the same tick as the sweep: putting back capacity
 no ordinary path gave back. Three things it finds — a reservation whose process died before it
 created anything, a reservation whose sandbox the provider has since reclaimed, and a sandbox the

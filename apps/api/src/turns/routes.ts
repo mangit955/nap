@@ -22,13 +22,13 @@ import type { ModelCredentials } from "@nap/shared/ports/llm-provider";
 import type { ProjectStore } from "@nap/shared/ports/project-store";
 import type { Runtime } from "@nap/shared/ports/runtime";
 import type { SessionRecord, SessionStore } from "@nap/shared/ports/session-store";
+import type { TurnRateLimiter } from "@nap/shared/ports/turn-rate-limit";
 import { isUnnamed, titleFromPrompt } from "@nap/shared/project-title";
 import type { Context, Hono } from "hono";
 import { z } from "zod";
 import { findOwnedSession } from "../auth/owned-session.ts";
 import type { AuthVariables } from "../auth/require-user.ts";
 import { resolveTurnAccess } from "./model-access.ts";
-import type { TurnRateLimiter } from "./rate-limiter.ts";
 import type { TurnRegistry } from "./registry.ts";
 import { checkSandboxQuota, type SandboxLimits } from "./sandbox-quota.ts";
 
@@ -220,6 +220,14 @@ export function registerTurnRoutes(
  * with a `Retry-After` a client can obey, and **409 for the quota**, which is a conflict with
  * the current state and is fixed by closing a project rather than by waiting. Both carry a
  * `code`, so the browser can tell them apart without reading the prose.
+ *
+ * **The quota is asked first, and the order is load-bearing now that it was not before.** The rate
+ * check *records* an accepted turn, so asking it ahead of a quota that then refuses spends an hour
+ * of somebody's allowance on a turn that never ran — and since the window moved into Postgres that
+ * is durable and cluster-wide rather than a soon-forgotten entry in one process's map. Somebody at
+ * their sandbox limit hammering the button would burn their whole hour without starting anything.
+ * The visible consequence is that a caller who is at *both* limits is told about the one they can
+ * do something about, which is the better of the two answers anyway.
  */
 async function refuse(
   deps: TurnRouteDeps,
@@ -237,7 +245,20 @@ async function refuse(
   const rateLimiter = paysTheirOwnWay ? limits.rate : limits.freeRate;
   const sandboxLimits = paysTheirOwnWay ? limits.sandboxes : limits.freeSandboxes;
 
-  const rate = rateLimiter.check(userId, Date.now());
+  // Reads nothing and writes nothing, so a turn refused here has cost the asker nothing either.
+  const quota = await checkSandboxQuota({
+    projects: limits.projects,
+    userId,
+    sessionSandboxId: session.sandboxId,
+    limits: sandboxLimits,
+  });
+  if (!quota.allowed) {
+    return (c) => c.json({ error: quota.message, code: "sandbox_quota_exceeded" }, 409);
+  }
+
+  // Awaited, and it records: the window lives in Postgres, so every replica is deciding against
+  // one allowance rather than each holding its own copy of it.
+  const rate = await rateLimiter.check(userId);
   if (!rate.allowed) {
     const seconds = rate.retryAfterSeconds;
     return (c) =>
@@ -251,16 +272,6 @@ async function refuse(
         // on its own, and a 429 without it invites an immediate retry.
         { "retry-after": String(seconds) },
       );
-  }
-
-  const quota = await checkSandboxQuota({
-    projects: limits.projects,
-    userId,
-    sessionSandboxId: session.sandboxId,
-    limits: sandboxLimits,
-  });
-  if (!quota.allowed) {
-    return (c) => c.json({ error: quota.message, code: "sandbox_quota_exceeded" }, 409);
   }
 
   return undefined;

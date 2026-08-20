@@ -2,6 +2,7 @@ import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { FAKE_OWNER, InMemoryProjectStore } from "@nap/db/testing/in-memory-project-store";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
+import { InMemoryTurnRateLimiter } from "@nap/db/testing/in-memory-turn-rate-limiter";
 import { ControllableRuntime } from "@nap/runtime/testing/controllable-runtime";
 import type { Runtime } from "@nap/shared/ports/runtime";
 import { UNTITLED_PROJECT } from "@nap/shared/project-title";
@@ -9,7 +10,6 @@ import type { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import { createApp } from "../app.ts";
 import { createLogger } from "../logger.ts";
-import { TurnRateLimiter } from "./rate-limiter.ts";
 import { TurnRegistry } from "./registry.ts";
 
 const SESSION = "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f";
@@ -224,6 +224,8 @@ describe("limits", () => {
     total?: number;
     running?: { sandboxId: string | null; userId?: string }[];
     sessionSandboxId?: string | null;
+    /** Passed in when a test needs to look at what the allowance actually recorded. */
+    rate?: InMemoryTurnRateLimiter;
   }) {
     const projects = new InMemoryProjectStore(
       (options.running ?? []).map((project, i) => ({
@@ -261,8 +263,13 @@ describe("limits", () => {
           },
         ]),
         limits: {
-          rate: new TurnRateLimiter({ limit: options.turns ?? 100, windowMs: 60 * 60 * 1000 }),
-          freeRate: new TurnRateLimiter({
+          rate:
+            options.rate ??
+            new InMemoryTurnRateLimiter({
+              limit: options.turns ?? 100,
+              windowMs: 60 * 60 * 1000,
+            }),
+          freeRate: new InMemoryTurnRateLimiter({
             limit: options.freeTurns ?? 100,
             windowMs: 60 * 60 * 1000,
           }),
@@ -458,6 +465,26 @@ describe("limits", () => {
     // project rather than to wait, so `Retry-After` would be a lie.
     expect(refused.status).toBe(409);
     await expect(refused.json()).resolves.toMatchObject({ code: "sandbox_quota_exceeded" });
+    expect(runtime.requests).toEqual([]);
+  });
+
+  it("does not spend the turn allowance on a turn the sandbox cap refused", async () => {
+    // The rate check *records* an accepted turn, so asking it before the quota would charge
+    // somebody an hour of their allowance for a turn that never ran — and the window is in
+    // Postgres now, so that charge is durable and cluster-wide rather than one process's map.
+    // Somebody at their sandbox limit hammering the button would burn their whole hour.
+    const rate = new InMemoryTurnRateLimiter({ limit: 5, windowMs: 60 * 60 * 1000 });
+    const runtime = new ControllableRuntime();
+    const hono = limited({ runtime, rate, perUser: 1, running: [{ sandboxId: "sbx-a" }] });
+
+    for (let i = 0; i < 3; i += 1) {
+      const refused = await post(hono, `/sessions/${SESSION}/turns`, { message: "hello" });
+      expect(refused.status).toBe(409);
+    }
+
+    // Nothing recorded at all: the limiter is not tracking this caller, so the whole allowance
+    // is still theirs.
+    expect(rate.size).toBe(0);
     expect(runtime.requests).toEqual([]);
   });
 
