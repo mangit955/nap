@@ -107,6 +107,92 @@ describe("GET /health", () => {
   });
 });
 
+describe("GET /livez and GET /readyz", () => {
+  it("answers liveness 200 without consulting anything", async () => {
+    // Whatever a liveness probe touches becomes a reason to restart the process. Nothing here
+    // may reach for a dependency, so there is nothing to reach for in the deps.
+    const res = await app().request("/livez");
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({ status: "ok", version: VERSION });
+  });
+
+  it("answers liveness 200 even when the readiness probe says the database is down", async () => {
+    // The acceptance criterion of this split, stated as one test: a Neon blip must take the pod
+    // out of the Service without restarting it. Same request pair, two different answers.
+    const deps = {
+      readiness: async () => ({
+        status: "degraded" as const,
+        checks: { database: "down" as const },
+      }),
+    };
+
+    const live = await app(deps).request("/livez");
+    const ready = await app(deps).request("/readyz");
+
+    expect(live.status).toBe(200);
+    expect(ready.status).toBe(503);
+  });
+
+  it("answers readiness 200 when the database is reachable", async () => {
+    const res = await app({
+      readiness: async () => ({ status: "ok", checks: { database: "ok" } }),
+    }).request("/readyz");
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({
+      status: "ok",
+      version: VERSION,
+      checks: { database: "ok" },
+    });
+  });
+
+  it("names what is unready in the body of the 503", async () => {
+    // A probe reads the status code; a person reads this, and "not ready" alone sends them
+    // looking for which dependency.
+    const res = await app({
+      readiness: async () => ({ status: "degraded", checks: { database: "down" } }),
+    }).request("/readyz");
+
+    expect(res.status).toBe(503);
+    await expect(res.json()).resolves.toEqual({
+      status: "degraded",
+      version: VERSION,
+      checks: { database: "down" },
+    });
+  });
+
+  it("answers readiness 200 when no probe was wired at all", async () => {
+    // An app assembled with no database has nothing to be unready for, and reporting 503
+    // forever would be a lie about a working process — the same reasoning `/health` uses.
+    const res = await app().request("/readyz");
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({ status: "ok", version: VERSION });
+  });
+
+  it("keeps both reachable without being signed in", async () => {
+    // A kubelet has no session and never will. Behind the guard, the only thing a probe would
+    // learn is that authentication works.
+    const signedOut = { authenticate: async () => null };
+
+    expect((await app(signedOut).request("/livez")).status).toBe(200);
+    expect((await app(signedOut).request("/readyz")).status).toBe(200);
+  });
+
+  it("does not let a sandbox outage make the pod unready", async () => {
+    // Readiness answers "should this pod receive traffic", and every other pod shares the same
+    // sandbox provider — de-registering on that turns a partial outage into a total one. It is
+    // `/health` that reports the sandbox, and it is a human who acts on it.
+    const res = await app({
+      health: async () => ({ status: "degraded", checks: { database: "ok", sandbox: "down" } }),
+      readiness: async () => ({ status: "ok", checks: { database: "ok" } }),
+    }).request("/readyz");
+
+    expect(res.status).toBe(200);
+  });
+});
+
 describe("GET /ws", () => {
   it("upgrades a request with a valid session and seq", async () => {
     const upgrader = new FakeUpgrader();

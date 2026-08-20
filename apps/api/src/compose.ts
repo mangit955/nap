@@ -41,7 +41,7 @@ import { createApp, type UpgradeWebSocket } from "./app.ts";
 import type { Authenticate, AuthInstance } from "./auth/auth.ts";
 import type { AuthVariables } from "./auth/require-user.ts";
 import type { Env } from "./env.ts";
-import type { HealthReport } from "./health.ts";
+import type { HealthProbe } from "./health.ts";
 import type { CreatedProject } from "./projects/routes.ts";
 import { TurnRateLimiter } from "./turns/rate-limiter.ts";
 import { TurnRegistry } from "./turns/registry.ts";
@@ -114,7 +114,12 @@ export type NapDeps = {
    * deliberately not on the `SandboxManager` port — "is E2B up?" is a question about the
    * deployment, not about one project's workspace. Absent means liveness only.
    */
-  health?: () => Promise<HealthReport>;
+  health?: HealthProbe;
+  /**
+   * What `/readyz` answers with a status code — narrower than `health`, and built by the caller
+   * for the same reason. Absent means ready. See `AppDeps.readiness`.
+   */
+  readiness?: HealthProbe;
 };
 
 export type ComposedNap = {
@@ -177,6 +182,7 @@ export function composeNap(deps: NapDeps): ComposedNap {
   const app = createApp({
     logger,
     ...(deps.health === undefined ? {} : { health: deps.health }),
+    ...(deps.readiness === undefined ? {} : { readiness: deps.readiness }),
     // The browser app is on another port, so every request it makes is cross-origin and every
     // session cookie depends on this being right.
     webOrigin: config.NAP_WEB_ORIGIN,

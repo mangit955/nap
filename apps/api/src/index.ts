@@ -182,6 +182,23 @@ const { app, reaper } = composeNap({
       { name: "sandbox", probe: () => sandbox.ping() },
     ],
   }),
+  // Readiness is only the database, and its own probe rather than a reading of the one above:
+  // a slow sandbox provider must not delay the answer to "may this pod have traffic", and an
+  // unreachable one must not change it — every replica shares that provider, so de-registering
+  // on it would empty the load balancer instead of shifting work to a pod that can serve.
+  //
+  // A much shorter cache than `/health`'s, because the two are polled for different reasons.
+  // That 5s exists to stop a public endpoint billing an E2B call per request; here the only
+  // check is a local `select 1`, and the cost of staleness is real — a probe on a 5s period
+  // would spend an extra failed interval both leaving the rotation and rejoining it.
+  //
+  // The design also has readiness fail when the Postgres LISTEN connection is down. There is
+  // no LISTEN connection yet — it arrives with the notify-based event bus — and it becomes a
+  // second check here, not a change to anything above.
+  readiness: createHealthProbe({
+    checks: [{ name: "database", probe: () => pingDatabase(db) }],
+    ttlMs: 1000,
+  }),
 });
 
 // A signal means the platform is taking the process away; stopping the timer means an

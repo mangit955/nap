@@ -40,6 +40,15 @@ export type HealthCheck = {
   probe: () => Promise<unknown>;
 };
 
+/**
+ * Asking, once, whether the things behind one endpoint are there.
+ *
+ * Named because three places now hold one of these — `/health`'s, `/readyz`'s narrower one, and
+ * whatever boot builds them from — and a repeated `() => Promise<HealthReport>` says the shape
+ * without saying the concept.
+ */
+export type HealthProbe = () => Promise<HealthReport>;
+
 export type HealthProbeOptions = {
   checks: HealthCheck[];
   /** How long a dependency has to answer before it is treated as down. */
@@ -69,7 +78,7 @@ const DEFAULT_TIMEOUT_MS = 5000;
  */
 const DEFAULT_TTL_MS = 5000;
 
-export function createHealthProbe(options: HealthProbeOptions): () => Promise<HealthReport> {
+export function createHealthProbe(options: HealthProbeOptions): HealthProbe {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const ttlMs = options.ttlMs ?? DEFAULT_TTL_MS;
   const now = options.now ?? Date.now;

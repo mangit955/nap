@@ -48,6 +48,8 @@ type RouteEntry = {
 /** Reachable without signing in, each for a reason `requireUser` spells out. */
 export const PUBLIC_ROUTES: RouteEntry[] = [
   { method: "GET", path: "/health", examplePath: "/health" },
+  { method: "GET", path: "/livez", examplePath: "/livez" },
+  { method: "GET", path: "/readyz", examplePath: "/readyz" },
   { method: "GET", path: "/auth/providers", examplePath: "/auth/providers" },
   { method: "ALL", path: "/api/auth/*", examplePath: "/api/auth/sign-in/email" },
 ];

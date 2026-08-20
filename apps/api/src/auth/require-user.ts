@@ -9,7 +9,8 @@
  *
  * The list is short on purpose and each entry earns its place:
  *
- *   - `/health` is polled by things that have no session and never will.
+ *   - `/health`, `/livez` and `/readyz` are polled by things that have no session and never will
+ *     — a human with `curl`, and an orchestrator's two probes.
  *   - `/api/auth/*` is how a session is *obtained*; requiring one to reach it is a locked door
  *     with the key on the inside. The library owns every path under that prefix.
  *   - `/auth/providers` says which sign-in buttons to draw, which the page needs before anyone
@@ -35,7 +36,7 @@ import type { Authenticate } from "./auth.ts";
 export type AuthVariables = { userId: string; isAnonymous: boolean };
 
 /** Matched exactly, not by prefix: `/healthz` is a different route from `/health`. */
-const PUBLIC_PATHS = new Set(["/health", "/auth/providers"]);
+const PUBLIC_PATHS = new Set(["/health", "/livez", "/readyz", "/auth/providers"]);
 
 /** The one prefix, because the auth library owns which paths exist beneath it. */
 const PUBLIC_PREFIX = "/api/auth/";

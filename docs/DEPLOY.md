@@ -175,6 +175,19 @@ for a 200 first. On Luna it costs a few cents.
 decides to restart or de-register a process, and neither helps when the thing that is down
 is Postgres. Read the body, not the status.
 
+That is the right answer for a human and for this one replica, and the wrong one for an
+orchestrator with other pods to send traffic to. Two endpoints exist for that case, and
+nothing polls them here — Railway's healthcheck stays on `/health`:
+
+| Endpoint | Answers | Meant for |
+|---|---|---|
+| `/livez` | 200, touching no dependency | a `livenessProbe` |
+| `/readyz` | **503** when Postgres is unreachable, 200 otherwise | a `readinessProbe` |
+| `/health` | 200 with a body naming each dependency, degraded or not | a person, and `curl` |
+
+Why each answers what it does — and why readiness watches Postgres but not the sandbox
+provider — is in `docs/GOTCHAS.md`, under API, auth and logging.
+
 ## Screenshots
 
 The dashboard's cards are pictures of the apps themselves, taken at the end of the last turn

@@ -93,9 +93,27 @@ describe("composeNap", () => {
     const health = await app.request("/health");
     expect(health.status).toBe(200);
 
+    // The two probe endpoints are the composition's, not boot's — a k8s manifest pointing at a
+    // route only `index.ts` knows how to mount would be a deployment that fails on the kubelet's
+    // first poll rather than in a test.
+    expect((await app.request("/livez")).status).toBe(200);
+    expect((await app.request("/readyz")).status).toBe(200);
+
     const projects = await app.request("/projects");
     expect(projects.status).toBe(200);
     await expect(projects.json()).resolves.toEqual({ projects: [] });
+  });
+
+  it("hands the readiness probe to /readyz, where a down database becomes a 503", async () => {
+    // Wired separately from `health`, so this is the assertion that it is wired at all: a probe
+    // built in boot and dropped on the floor here would look exactly like a healthy pod.
+    const { app } = compose({
+      readiness: async () => ({ status: "degraded", checks: { database: "down" } }),
+    });
+
+    expect((await app.request("/readyz")).status).toBe(503);
+    // And the process is still alive, which is the whole reason the two are separate endpoints.
+    expect((await app.request("/livez")).status).toBe(200);
   });
 
   it("reads and writes through the stores it was handed", async () => {
