@@ -14,6 +14,7 @@ Nap is a Lovable-style AI app builder: the user describes an app in chat, an age
 | `CONTEXT.md` | *What things are called* — one concept, one name | Before naming a concept in code, a test or an issue |
 | `docs/NAPBENCH.md` | *How the agent is measured* — the benchmark's architecture, scoring, how to add a task, what needs a sandbox or a browser | Before touching `packages/bench` or `apps/napbench`, or quoting a score |
 | `docs/napbench-*.md` | *What funded runs found* — one write-up per run that spent money, each recording something no dry run could have caught | Before spending on a real benchmark run, or quoting one |
+| `docs/scaling-baseline.md` | *What the system did before it was changed* — the k6 ramp's numbers, and the three §24 questions it answered | Before changing anything on the admission hot path, or quoting a load figure |
 | `docs/adr/` | *What was decided and why* — choices expensive to reverse | The ADRs touching whatever you are about to change |
 | `apps/web/src/docs/` | *What the public is told about how it works* — the `/docs` page, eight sections over the same ground as the README | Before changing any mechanism a reader was promised, or adding architecture prose to `README.md` |
 
@@ -44,6 +45,9 @@ bun run harness --real --model=anthropic/claude-opus-5 "<prompt>"  # the demo mo
 bun run ws:smoke          # drives /ws over a real Bun socket — fakes, free, no database
 bun run loadgen           # scripted users against the composed API — fakes, free; needs Docker
 bun run loadgen --users=25        # that many at once, latencies calibrated from a funded run
+bun run loadgen:ramp      # the k6 ramp to 100 concurrent turns — fakes, free; needs Docker and k6
+                          # ~20 minutes. --profile=smoke (90s), extended (past 100), realism
+                          # Results land in napload-results/; see docs/scaling-baseline.md
 bun run napbench <task-id>        # one benchmark run — fakes, free; scores mean nothing
 bun run napbench --suite=all      # the four tasks, serially, same fakes — frozen, see docs/NAPBENCH.md
 bun run napbench --suite=hard     # the tasks built to separate two models
@@ -111,9 +115,10 @@ real infrastructure behind them. Playwright belongs to that app alone and to not
 See `docs/adr/0001`.
 
 `loadgen` sits beside `bench` and for the same reason: percentile maths, metric rollup, threshold
-verdicts and the scripted user's ordering, written against ports and knowing nothing about a
-socket or a server. `apps/api/scripts/loadgen.ts` is the shell that composes the real API with a
-fake sandbox and a fake model against a real Postgres.
+verdicts, degradation rules, k6-summary parsing and the scripted user's ordering, written against
+ports and knowing nothing about a socket or a server. `apps/api/scripts/loadgen-composition.ts` is
+the shell that composes the real API with a fake sandbox and a fake model against a real Postgres;
+`loadgen.ts` drives it with in-process users and `loadgen-ramp.ts` holds it open for k6.
 
 `verify` sits *below both* `runtime` and `bench`: running one check against a sandbox and saying
 whether it passed, failed or was never asked. The runtime uses it to arbitrate a turn's claim; the
@@ -179,6 +184,7 @@ because somebody already lost a session to it.
 | `apps/api` — routes, auth, limits, logging, `/health` | API, auth and logging |
 | `apps/web` — components, the landing page, browser checks | Web and UI |
 | writing tests, fakes, mutation checks | Testing |
+| `packages/loadgen`, `apps/api/k6`, the ramp, a baseline run | Load testing |
 
 ## Session protocol
 

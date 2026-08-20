@@ -1,0 +1,204 @@
+/**
+ * The system under load: the real API, composed with fake infrastructure, on a real Postgres.
+ *
+ * Shared by the two things that drive it — `loadgen.ts`, which runs scripted users inside this
+ * process, and `loadgen-ramp.ts`, which holds it open for k6 — because the *composition* is the
+ * thing being measured and two copies of it would eventually become two different systems. What
+ * a caller chooses is how many users to size the ceilings for and which port to serve on.
+ *
+ * **It costs nothing and it is meant to stay that way.** Nothing here reaches E2B, OpenRouter or
+ * R2; the only things outside this process are a throwaway Postgres container and localhost. What
+ * the run measures is the layer that is single-process — admission, the turn queue, the event
+ * log, fanout to sockets — because that is the part `docs/scaling-design.md` is about. Vendor
+ * concurrency is a quota question, not an architecture one, and faking it is what keeps a
+ * hundred-user run repeatable.
+ *
+ * The fakes are slowed to the speeds a funded run really recorded (`@nap/loadgen/calibration`);
+ * instant fakes would finish each turn before the next user connected and nothing would ever be
+ * concurrent, which is the one thing this exists to produce.
+ */
+
+import { createDatabase } from "@nap/db/client";
+import { InProcessEventBus } from "@nap/db/in-process-event-bus";
+import { PostgresEventStore } from "@nap/db/postgres-event-store";
+import { PostgresProjectSandboxStore } from "@nap/db/postgres-project-sandbox-store";
+import { PostgresProjectStore } from "@nap/db/postgres-project-store";
+import { PostgresSessionStore } from "@nap/db/postgres-session-store";
+import { PostgresSnapshotStore } from "@nap/db/postgres-snapshot-store";
+import { PostgresUserKeyStore } from "@nap/db/postgres-user-key-store";
+import { createProjectSession } from "@nap/db/session-bootstrap";
+import { startDockerPostgres } from "@nap/db/testing/docker-postgres";
+import { seededRandom } from "@nap/loadgen/calibration";
+import { loopingLLMProvider } from "@nap/loadgen/looping-llm-provider";
+import { slowLLMProvider, slowSandboxManager } from "@nap/loadgen/slow-ports";
+import { TEMPLATE_DEV_PORT, TEMPLATE_WORKDIR } from "@nap/sandbox/template";
+import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
+import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
+import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
+import { upgradeWebSocket, websocket } from "hono/bun";
+import { encryptionKeyFrom } from "../src/account/secret-box.ts";
+import { createAuth } from "../src/auth/auth.ts";
+import { composeNap, type NapConfig } from "../src/compose.ts";
+import { createLogger } from "../src/logger.ts";
+
+/** What the project template declares, so the verifier finds checks to run. */
+const TEMPLATE_MANIFEST = { scripts: { build: "vite build", dev: "vite --host" } };
+
+/**
+ * One model turn: think, write a file, answer.
+ *
+ * Handed to `loopingLLMProvider`, so every turn of the run gets this script from the beginning
+ * and a turn that runs long keeps receiving the last, tool-free answer — which ends the agent's
+ * loop. A load run cannot know in advance how many turns it will start, and a provider that
+ * throws past a fixed count fails the harness rather than the system under test.
+ */
+function scriptedTurn() {
+  return [
+    {
+      thinking: ["The project has no toggle yet, ", "so I will add one."],
+      streamedText: ["I'll add ", "the component."],
+      text: "I'll add the component.",
+      toolCalls: [
+        {
+          id: "call_1",
+          name: "write_file",
+          input: {
+            path: `${TEMPLATE_WORKDIR}/src/DarkModeToggle.tsx`,
+            contents:
+              "export function DarkModeToggle() {\n  return <button>Toggle theme</button>;\n}\n",
+          },
+        },
+      ],
+      usage: { inputTokens: 1_200, outputTokens: 90 },
+    },
+    {
+      text: "Added the toggle component.",
+      usage: { inputTokens: 1_400, outputTokens: 20 },
+    },
+  ];
+}
+
+/** An in-memory sandbox answering the commands a turn actually runs, git included. */
+function fakeSandbox(): InMemorySandboxManager {
+  return (
+    new InMemorySandboxManager({
+      defaultExec: () => ({ exitCode: 0, stdout: "" }),
+      serves: [TEMPLATE_DEV_PORT],
+      seed: { [`${PROJECT_ROOT_PATH}/package.json`]: JSON.stringify(TEMPLATE_MANIFEST) },
+    })
+      // Non-zero means the index differs from HEAD, which is what makes a commit happen.
+      .script(/git diff --cached --quiet/, { exitCode: 1 })
+      .script(/git rev-parse HEAD/, { exitCode: 0, stdout: `${"0".repeat(40)}\n` })
+  );
+}
+
+/**
+ * Ceilings wide enough that the run measures the system rather than its own configuration.
+ *
+ * Production's numbers are deliberately not used and deliberately not changed: a harness that ran
+ * at `NAP_MAX_SANDBOXES_TOTAL=10` would spend a hundred-user run reporting quota refusals, which
+ * is a separate assertion (§16) with its own composition. The rate limit is per hour and a ramp
+ * runs for twenty minutes, so it is set far past what any user can reach in one.
+ */
+export function loadgenConfig(users: number): NapConfig {
+  return {
+    NAP_WEB_ORIGIN: "http://localhost:3000",
+    NAP_MODEL: "loadgen/fake",
+    NAP_FREE_MODEL: "loadgen/fake",
+    NAP_ALLOWED_MODELS: ["loadgen/fake"],
+    NAP_MAX_STEPS: 8,
+    NAP_CONTEXT_BUDGET_TOKENS: 80_000,
+    NAP_TURNS_PER_HOUR: users * 200,
+    NAP_FREE_TURNS_PER_HOUR: users * 200,
+    NAP_MAX_SANDBOXES_PER_USER: 2,
+    NAP_FREE_MAX_SANDBOXES_PER_USER: 2,
+    NAP_MAX_SANDBOXES_TOTAL: users * 2,
+    NAP_SANDBOX_TTL_MINUTES: 30,
+    // Far longer than any run, so the reaper never takes a sandbox away mid-journey.
+    NAP_REAP_IDLE_MINUTES: 29,
+    NAP_REAP_INTERVAL_SECONDS: 600,
+  };
+}
+
+export type BootOptions = {
+  /** How many users the ceilings are sized for. */
+  users: number;
+  /** 0 lets the operating system choose, which is what an in-process run wants. */
+  port?: number;
+  /** Seeds the turn-duration draws, so two runs of one harness produce the same latencies. */
+  seed?: number;
+};
+
+export type BootedLoadgenApi = {
+  base: string;
+  port: number;
+  /** The throwaway container's URL, so a probe can open its own connection to it. */
+  postgresUrl: string;
+  /** Stops the server, the reaper, the pool and the container, in that order. */
+  stop: () => Promise<void>;
+};
+
+/**
+ * Starts Postgres, composes Nap against it with fakes, and serves.
+ *
+ * The pool is left at `createDatabase`'s default because that is what `index.ts` boots with: a
+ * harness that widened it would be measuring a deployment nobody runs, and pool exhaustion under
+ * a hundred concurrent turns is a finding rather than a nuisance.
+ */
+export async function bootLoadgenApi(options: BootOptions): Promise<BootedLoadgenApi> {
+  const postgres = await startDockerPostgres();
+  const { db, close } = createDatabase(postgres.url);
+
+  const logger = createLogger({ level: "silent" }, { write: () => {} });
+  // One draw per turn's duration from one seeded stream, so a difference between two reports
+  // came from the system rather than from the dice.
+  const random = seededRandom(options.seed ?? 1);
+
+  const { app, reaper } = composeNap({
+    config: loadgenConfig(options.users),
+    logger,
+    sessions: new PostgresSessionStore(db),
+    projects: new PostgresProjectStore(db),
+    projectSandboxes: new PostgresProjectSandboxStore(db),
+    snapshots: new PostgresSnapshotStore(db),
+    userKeys: new PostgresUserKeyStore(db),
+    events: new PostgresEventStore(db),
+    bus: new InProcessEventBus(),
+    sandbox: slowSandboxManager(fakeSandbox()),
+    objects: new InMemoryObjectStore(),
+    provider: slowLLMProvider(loopingLLMProvider(scriptedTurn()), { random }),
+    auth: createAuth(db, {
+      secret: "loadgen-secret-loadgen-secret-32b",
+      baseUrl: "http://localhost",
+      webOrigin: "http://localhost:3000",
+      // The door the whole journey goes through.
+      allowAnonymous: true,
+    }),
+    encryptionKey: encryptionKeyFrom(
+      Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64"),
+    ),
+    // Nothing here brings a key, so nothing ever verifies one. A stub rather than the real
+    // verifier because the real one calls a vendor, and this run reaches nothing but localhost.
+    verifyKey: async () => ({ ok: true }),
+    createProject: (createOptions) => createProjectSession(db, createOptions),
+    upgradeWebSocket,
+  });
+
+  const server = Bun.serve({ port: options.port ?? 0, fetch: app.fetch, websocket });
+  // `port` is optional on Bun's server because a unix-socket server has none. This one always
+  // listens on a port, and a load run with nothing to point k6 at should say so here.
+  const port = server.port;
+  if (port === undefined) throw new Error("the load harness's server came up without a port");
+
+  return {
+    base: `http://localhost:${port}`,
+    port,
+    postgresUrl: postgres.url,
+    stop: async () => {
+      reaper.stop();
+      server.stop(true);
+      await close();
+      await postgres.stop();
+    },
+  };
+}

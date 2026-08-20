@@ -18,6 +18,7 @@
     "db:migrate": "bun run packages/db/scripts/migrate.ts",
     "ws:smoke": "bun run apps/api/scripts/ws-smoke.ts",
     "loadgen": "bun run apps/api/scripts/loadgen.ts",
+    "loadgen:ramp": "bun run apps/api/scripts/loadgen-ramp.ts",
     "lint": "biome check .",
     "format": "biome check --write .",
     "prepare": "lefthook install",
