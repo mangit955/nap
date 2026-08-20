@@ -1,16 +1,24 @@
 /**
  * Starting and stopping a turn.
  *
- * **The turn runs detached and the request answers immediately.** A turn is a minute or two
- * of model calls and sandbox commands; the client is already subscribed to the session's
- * event stream and sees `user.message` land within milliseconds of this returning, so holding
- * the connection open for the duration would buy nothing and lose to the first proxy with an
- * idle timeout. What the caller gets back is "accepted", not "done".
+ * **The request is written down, not run.** A turn is a minute or two of model calls and sandbox
+ * commands; the client is already subscribed to the session's event stream and sees `user.message`
+ * land shortly after this returns, so holding the connection open for the duration would buy
+ * nothing and lose to the first proxy with an idle timeout. What the caller gets back is
+ * "accepted", not "done".
  *
- * That makes two things load-bearing. The background promise **must** be handled — an
- * unhandled rejection ends the Bun process, which would turn one broken turn into an outage
- * for every open tab. And the turn has to be findable again to be cancelled, which is what
- * `TurnRegistry` is for.
+ * It used to be accepted by *starting the turn here* and letting the promise run detached, which
+ * meant the work belonged to whichever pod took the HTTP request and existed only in its memory.
+ * Now admission ends at `queue.enqueue`: the intent is durable before the response is written, and
+ * a worker — today in this same process, tomorrow in its own deployment — claims it, leases the
+ * session and runs it. Two consequences worth knowing about:
+ *
+ *   - **The request cannot report on the turn.** It never could usefully; now it cannot at all,
+ *     and anything a caller wants to know arrives as events on the session, which is where a
+ *     client is already looking.
+ *   - **Cancellation is a row, not a `Map`.** `requestCancel` reaches a turn running on any pod,
+ *     which the old registry could not. The registry is still consulted, as a fast path for the
+ *     case where the turn happens to be running here — see `registry.ts`.
  *
  * A session that does not exist is refused here as well as inside the runtime. The runtime's
  * answer is a failed turn with no event — correctly, since an event needs a session to belong
@@ -20,8 +28,8 @@
 import { getLogger } from "@nap/shared/logging";
 import type { ModelCredentials } from "@nap/shared/ports/llm-provider";
 import type { ProjectStore } from "@nap/shared/ports/project-store";
-import type { Runtime } from "@nap/shared/ports/runtime";
 import type { SessionRecord, SessionStore } from "@nap/shared/ports/session-store";
+import type { TurnQueue } from "@nap/shared/ports/turn-queue";
 import type { TurnRateLimiter } from "@nap/shared/ports/turn-rate-limit";
 import { isUnnamed, titleFromPrompt } from "@nap/shared/project-title";
 import type { Context, Hono } from "hono";
@@ -33,7 +41,12 @@ import type { TurnRegistry } from "./registry.ts";
 import { checkSandboxQuota, type SandboxLimits } from "./sandbox-quota.ts";
 
 export type TurnRouteDeps = {
-  runtime: Runtime;
+  /** Where an admitted turn goes. A worker takes it from here; this route never runs one. */
+  queue: TurnQueue;
+  /**
+   * Which turns are running *in this process*, so a cancel that lands on the pod holding the turn
+   * is felt at once rather than at the worker's next renewal. Never the durable answer.
+   */
   registry: TurnRegistry;
   /**
    * The projects these sessions belong to, so a project still carrying the default name can be
@@ -153,43 +166,29 @@ export function registerTurnRoutes(
     if (refusal !== undefined) return refusal(c);
 
     const { sessionId } = found.value;
-    const signal = deps.registry.start(sessionId);
-    const logger = getLogger();
 
     // Awaited rather than detached: it is one indexed update, and the client reloads the project
     // record as soon as the turn is accepted — naming it in the background would race that read
     // and leave the bar saying "Untitled project" until something else refreshed it.
     await nameFromFirstPrompt(deps, found.value, c.get("userId"), body.data.message);
 
-    // Deliberately not awaited — see the note above. Both settlement paths are handled, and
-    // the entry is cleared either way, or a cancel arriving later would abort a turn that
-    // has already ended and the next turn would inherit an aborted signal.
-    void deps.runtime
-      .runTurn({
-        sessionId,
-        message: body.data.message,
-        signal,
-        // Both concrete by now. The resolver always returns a model rather than leaving a
-        // default to be applied here, because the default that would be applied is a *paid*
-        // one and forgetting it is this deployment buying tokens for a stranger.
-        model: access.model,
-        ...(access.credentials === undefined ? {} : { credentials: access.credentials }),
-      })
-      .then((outcome) => {
-        // `turnId` hoisted out of the outcome rather than left nested inside it: this line is
-        // written by the request, which never learns the id the runtime generated, so without
-        // it the one line saying how the turn ended is not reachable by the key everything
-        // else about that turn is grouped under.
-        logger.info({ turnId: outcome.turnId, outcome }, "turn settled");
-      })
-      .catch((error: unknown) => {
-        // A thrown error is a bug in the runtime rather than a failed turn, which is a value.
-        // Nothing here can recover it; what matters is that it is written down and contained.
-        logger.error({ err: error }, "turn threw");
-      })
-      .finally(() => {
-        deps.registry.finish(sessionId, signal);
-      });
+    // Where admission ends. Durable before the response is written, so a pod that dies in the next
+    // millisecond costs the turn a delay rather than the turn itself.
+    const { id } = await deps.queue.enqueue({
+      sessionId,
+      userId: c.get("userId"),
+      kind: "turn",
+      message: body.data.message,
+      // Concrete by now. The resolver always returns a model rather than leaving a default to be
+      // applied later, because the default that would be applied is a *paid* one and forgetting
+      // it is this deployment buying tokens for a stranger.
+      model: access.model,
+      // Whether, never which — the worker re-opens the key by user id, so plaintext credentials
+      // never reach the queue, a query log or a backup.
+      billsToUser: access.credentials !== undefined,
+    });
+
+    getLogger().info({ requestId: id, sessionId }, "turn request queued");
 
     return c.json({ accepted: true }, 202);
   });
@@ -202,11 +201,20 @@ export function registerTurnRoutes(
     if (!found.ok) return c.json({ error: found.error.message }, found.error.status);
     const { sessionId } = found.value;
 
-    // Nothing running is a race, not a failure: the user clicked as the turn was ending. The
+    // The durable half, and the only one that reaches a turn running on another pod: a queued
+    // request is failed outright so it is never claimed, and a leased one is flagged for the
+    // worker holding it, which aborts on its next renewal.
+    const outcome = await deps.queue.requestCancel(sessionId);
+
+    // Nothing in flight is a race, not a failure: the user clicked as the turn was ending. The
     // status says so rather than reporting a server error for something nobody did wrong.
-    if (!deps.registry.cancel(sessionId)) {
+    if (!outcome.cancelled) {
       return c.json({ error: "no turn is running for this session" }, 409);
     }
+
+    // The fast path, for when the turn happens to be running in this process. Does nothing at all
+    // when it is not, which is correct — the flag above has already reached it.
+    deps.registry.cancel(sessionId);
 
     return c.json({ cancelled: true }, 202);
   });

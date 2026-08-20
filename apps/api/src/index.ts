@@ -28,6 +28,7 @@ import { PostgresProjectStore } from "@nap/db/postgres-project-store";
 import { PostgresSandboxCapacity } from "@nap/db/postgres-sandbox-capacity";
 import { PostgresSessionStore } from "@nap/db/postgres-session-store";
 import { PostgresSnapshotStore } from "@nap/db/postgres-snapshot-store";
+import { PostgresTurnQueue } from "@nap/db/postgres-turn-queue";
 import { PostgresTurnRateLimiter } from "@nap/db/postgres-turn-rate-limiter";
 import { PostgresUserKeyStore } from "@nap/db/postgres-user-key-store";
 import { createProjectSession } from "@nap/db/session-bootstrap";
@@ -183,7 +184,7 @@ const auth = createAuth(db, {
 /** Fixed by the names of the two settings that fill it: `NAP_…_TURNS_PER_HOUR`. */
 const TURN_RATE_WINDOW_MS = 60 * 60 * 1000;
 
-const { app, reaper } = composeNap({
+const { app, reaper, worker } = composeNap({
   config: env,
   logger,
   sessions: new PostgresSessionStore(db),
@@ -217,6 +218,10 @@ const { app, reaper } = composeNap({
       tier: "free",
     }),
   },
+  // The distributed `SessionQueue`: one in-flight request per session, enforced by a partial
+  // unique index rather than by a `Map` each replica keeps its own copy of. Every pod writes to
+  // it at admission and this process's worker claims from it.
+  queue: new PostgresTurnQueue(db),
   snapshots: new PostgresSnapshotStore(db),
   userKeys: new PostgresUserKeyStore(db),
   // One store and one bus for the process, shared by the runtime that publishes and the socket
@@ -299,6 +304,10 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
     // reclaimed on its own once the socket drops.
     void (async () => {
       try {
+        // Before the listener, and awaited: the worker stops claiming and waits for the turns it
+        // already holds, so a rolling restart finishes them rather than leaving their leases to
+        // expire and their Jobs open for somebody to continue by hand.
+        await worker.stop();
         await notifyBus?.stop();
       } finally {
         process.exit(0);

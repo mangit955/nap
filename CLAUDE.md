@@ -6,7 +6,7 @@ Nap is a Lovable-style AI app builder: the user describes an app in chat, an age
 
 | File | Answers | Read it |
 |---|---|---|
-| `docs/PLAN.md` | *What* v1 was; its spec and full task list (§4). Frozen — V2 work is GitHub issues | When touching something v1 built |
+| `docs/PLAN.md` | *What* v1 was; its spec and full task list (§4). Frozen | When touching something v1 built |
 | `CLAUDE.md` (this file) | *How* to work here — commands, conventions, gates | Auto-loaded |
 | `docs/GOTCHAS.md` | *Why* the code is shaped this way — hard-won constraints, per area | The section for whatever you are about to touch |
 | `PROGRESS.md` | *Where v1 got to* — status and deps per v1 task, and the running-a-checkout notes. Frozen | For the checkout notes, and v1 history |
@@ -14,21 +14,14 @@ Nap is a Lovable-style AI app builder: the user describes an app in chat, an age
 | `CONTEXT.md` | *What things are called* — one concept, one name | Before naming a concept in code, a test or an issue |
 | `docs/NAPBENCH.md` | *How the agent is measured* — the benchmark's architecture, scoring, how to add a task, what needs a sandbox or a browser | Before touching `packages/bench` or `apps/napbench`, or quoting a score |
 | `docs/napbench-*.md` | *What funded runs found* — one write-up per run that spent money, each recording something no dry run could have caught | Before spending on a real benchmark run, or quoting one |
+| `docs/scaling-design.md` | *What V2 is being built to* — the queue's semantics, the state machines, the invariants, the tests required. Sections are cited from shipped source | Before changing anything the queue, the leases or the fanout rest on |
 | `docs/scaling-baseline.md` | *What the system did before it was changed* — the k6 ramp's numbers, and the three §24 questions it answered | Before changing anything on the admission hot path, or quoting a load figure |
 | `docs/adr/` | *What was decided and why* — choices expensive to reverse | The ADRs touching whatever you are about to change |
 | `apps/web/src/docs/` | *What the public is told about how it works* — the `/docs` page, eight sections over the same ground as the README | Before changing any mechanism a reader was promised, or adding architecture prose to `README.md` |
 
 Keep each fact in exactly one of these. This file must never restate a task spec — link to `docs/PLAN.md` §4 instead.
 
-**`README.md` and `/docs` divide one subject and must not both explain it.** The README states
-*consequences* — what the system does for somebody deciding whether to care — and links onward.
-`apps/web/src/docs/` states *mechanisms*, and **mechanism numbers live only there**: the repair
-bound, the category weights, the ceilings. Nothing enforces this, so it is worth reading twice
-before adding a paragraph to either.
-
-*Measurement results* are the one exception. A funded run's headline figures — arms, n, spend, what
-moved — live in `docs/napbench-*.md` and nowhere in `/docs`, so the README quoting them duplicates
-nothing. It may; it may not quote mechanism numbers alongside them.
+**`README.md` and `/docs` divide one subject and must not both explain it.** The README states *consequences* — what the system does for somebody deciding whether to care — and links onward. `apps/web/src/docs/` states *mechanisms*, and **mechanism numbers live only there**: the repair bound, the category weights, the ceilings. Nothing enforces this, so it is worth reading twice before adding a paragraph to either. *Measurement results* are the one exception: a funded run's headline figures — arms, n, spend, what moved — live in `docs/napbench-*.md` and nowhere in `/docs`, so the README quoting them duplicates nothing. It may; it may not quote mechanism numbers alongside them.
 
 ## Commands
 
@@ -72,20 +65,15 @@ A lefthook pre-commit hook runs `biome check` + `typecheck` + `vitest --changed`
 
 **No task, step, or feature is complete until all five hold.** This is a gate, not a checklist to skim — work through it before marking anything `DONE`.
 
-**1. Gates pass.** `bun run test`, `bun run typecheck`, `bun run lint`. Read the real output. Never infer success from having written the code.
-
-**2. Anything that guards must be seen to fail.** For a check, validator, test, or enforcement rule: deliberately break the thing it protects and confirm it catches the breakage, then revert. *A check that has never been observed failing is not known to work* — it may be silently passing on everything.
-
-**3. Integration review — the step that gets skipped.** Ask explicitly, every time:
-
+1. **Gates pass.** `bun run test`, `bun run typecheck`, `bun run lint`. Read the real output. Never infer success from having written the code.
+2. **Anything that guards must be seen to fail.** For a check, validator, test, or enforcement rule: deliberately break the thing it protects and confirm it catches the breakage, then revert. *A check that has never been observed failing is not known to work* — it may be silently passing on everything.
+3. **Integration review — the step that gets skipped.** Ask explicitly, every time:
    - **Is the new code inside *every* existing gate?** A new directory is not automatically typechecked or linted. Verify, don't assume.
    - Does it interact with the hooks in `.claude/settings.json`, lefthook, or CI?
    - Does any existing test, script, config, or glob need to learn that it exists?
    - Do `CLAUDE.md`, `docs/PLAN.md`, and `PROGRESS.md` still describe reality after this change?
-
-**4. The task's own "Done when"** from `docs/PLAN.md` §4 is satisfied literally. It is often stricter than "tests pass" — e.g. M2-7 wants ordering tests green *10 runs in a row*; M1-3 wants a recorded cold-start time.
-
-**5. Tree clean and committed.**
+4. **The task's own "Done when"** from `docs/PLAN.md` §4 is satisfied literally. It is often stricter than "tests pass" — e.g. M2-7 wants ordering tests green *10 runs in a row*; M1-3 wants a recorded cold-start time.
+5. **Tree clean and committed.**
 
 > This rule exists because it was earned. `test/` shipped outside typecheck: the suite was green, the new tests passed, and two enforcement modules sat unchecked for two commits. Step 1 passed while step 3 was never asked.
 
@@ -107,37 +95,17 @@ packages/  shared  db  sandbox  storage  capture  agent  context  runtime  verif
 apps/      web (Next.js)   api (Hono, runs on Bun)   napbench (the benchmark CLI)
 ```
 
-**Dependency direction, enforced:** `runtime` → {`context`, `agent`, `sandbox`, `storage`, `capture`, `db`, `verify`} → `shared`.
-`agent` imports the `SandboxManager` *interface*, never the E2B adapter.
+**Dependency direction, enforced:** `runtime` → {`context`, `agent`, `sandbox`, `storage`, `capture`, `db`, `verify`} → `shared`. `agent` imports the `SandboxManager` *interface*, never the E2B adapter.
 
-`bench` sits beside `shared` rather than above `runtime`: it is NapBench's pure half — tasks,
-scoring, gates, reports — written against ports, and `apps/napbench` is the shell that composes
-real infrastructure behind them. Playwright belongs to that app alone and to nothing that ships.
-See `docs/adr/0001`.
+- **`bench` sits beside `shared`** rather than above `runtime`: it is NapBench's pure half — tasks, scoring, gates, reports — written against ports, and `apps/napbench` is the shell that composes real infrastructure behind them. Playwright belongs to that app alone and to nothing that ships. See `docs/adr/0001`.
+- **`loadgen` sits beside `bench`** and for the same reason: percentile maths, metric rollup, threshold verdicts, degradation rules, k6-summary parsing and the scripted user's ordering, written against ports and knowing nothing about a socket or a server. `apps/api/scripts/loadgen-composition.ts` is the shell that composes the real API with a fake sandbox and a fake model against a real Postgres; `loadgen.ts` drives it with in-process users and `loadgen-ramp.ts` holds it open for k6.
+- **`verify` sits *below both* `runtime` and `bench`**: running one check against a sandbox and saying whether it passed, failed or was never asked. The runtime uses it to arbitrate a turn's claim; the benchmark uses it to build a score. The edge that must never exist is `runtime` → `bench` — the system under test importing the thing that grades it. See `docs/adr/0007`.
 
-`loadgen` sits beside `bench` and for the same reason: percentile maths, metric rollup, threshold
-verdicts, degradation rules, k6-summary parsing and the scripted user's ordering, written against
-ports and knowing nothing about a socket or a server. `apps/api/scripts/loadgen-composition.ts` is
-the shell that composes the real API with a fake sandbox and a fake model against a real Postgres;
-`loadgen.ts` drives it with in-process users and `loadgen-ramp.ts` holds it open for k6.
-
-`verify` sits *below both* `runtime` and `bench`: running one check against a sandbox and saying
-whether it passed, failed or was never asked. The runtime uses it to arbitrate a turn's claim; the
-benchmark uses it to build a score. The edge that must never exist is `runtime` → `bench` — the
-system under test importing the thing that grades it. See `docs/adr/0007`.
-
-This is enforced by `test/architecture.ts`, not by vigilance, and at both ends: one rule reads
-every package's `package.json`, a second reads the `@nap/*` specifiers its `src` and `scripts`
-actually import — type-only ones included, because Bun hoists workspace packages and an undeclared
-import otherwise resolves, typechecks and ships. Either way `bun run test` goes red. Three things
-hold:
+This is enforced by `test/architecture.ts`, not by vigilance, and at both ends: one rule reads every package's `package.json`, a second reads the `@nap/*` specifiers its `src` and `scripts` actually import — type-only ones included, because Bun hoists workspace packages and an undeclared import otherwise resolves, typechecks and ships. Either way `bun run test` goes red. Three things hold:
 
 - Every file may only import a package its manifest declares.
-- Shipped source — `src`, minus the tests — may only import what the table above allows, and must
-  have it as a real `dependency`. Tests and `scripts/` answer to the manifest but not the table,
-  which is how sibling packages arrive as devDependencies for their fakes.
-- `@nap/bench` is the exception to that exemption: nothing below `apps/napbench` may import it,
-  tests included. See `docs/adr/0007`.
+- Shipped source — `src`, minus the tests — may only import what the table above allows, and must have it as a real `dependency`. Tests and `scripts/` answer to the manifest but not the table, which is how sibling packages arrive as devDependencies for their fakes.
+- `@nap/bench` is the exception to that exemption: nothing below `apps/napbench` may import it, tests included. See `docs/adr/0007`.
 
 Adding a new workspace package also fails the test until you add it to the rule table there.
 
@@ -147,6 +115,8 @@ Drift here is the most expensive kind of mistake. Before adding code to a compon
 
 | Component | Owns | Never does |
 |---|---|---|
+| `TurnQueue` | The durable queue of turn requests and the per-session leases that make one exclusive: enqueue, claim, renew, settle, cancel. **One in-flight request per session cluster-wide, enforced by a partial unique index** rather than by any caller remembering | Running anything. Holding a credential — it records *whether* the asker pays, never their key. Deciding who may start a turn, which is the route's |
+| `TurnWorker` | Claiming a request, renewing its lease, running it through the `Runtime`, settling the row — and **aborting the turn the moment a renewal says the lease is gone**. Today it runs inside the API process | Admission, ceilings, model access. Deciding *what* a turn does — it drives the `Runtime` and owns none of it |
 | `Runtime` | Turn lifecycle: acquire sandbox → build context → run agent → persist → publish → commit → verify → snapshot → photograph. Budgets, cancellation, recovery. **Reserving sandbox capacity at the point of creation** — the authoritative ceiling, since a queued turn may not create anything for a minute — and **reconciling it on the reaper's tick**, so a slot no path gave back comes back in minutes rather than never. Opening and closing the **job** a turn belongs to, arbitrating the turn's claim against the project's own checks, and continuing a job an open found still open (ADR-0006) | Prompt content, model params, tool implementations. Deciding *which* checks exist or how to run one — that is `@nap/verify`'s. Deciding *what* the ceiling is — the limits belong to the composition. Continuing a job nobody asked to see |
 | `ContextEngine` | Assembling context and owning the token budget + truncation order | Calling the model; deciding when a turn ends |
 | `AgentService` | Driving the model loop for one turn; executing proxy tools; emitting typed events | Persistence, git, sandbox lifecycle, prompt assembly |
@@ -172,10 +142,7 @@ Drift here is the most expensive kind of mistake. Before adding code to a compon
 
 ## Repo-specific gotchas
 
-The hard-won constraints live in `docs/GOTCHAS.md`, grouped by area, because
-most of them do not apply to most sessions. **Read the sections your task
-touches before you write code in that area** — every one of them is there
-because somebody already lost a session to it.
+The hard-won constraints live in `docs/GOTCHAS.md`, grouped by area, because most of them do not apply to most sessions. **Read the sections your task touches before you write code in that area** — every one of them is there because somebody already lost a session to it.
 
 | Touching… | Read `docs/GOTCHAS.md` § |
 |---|---|
@@ -183,7 +150,7 @@ because somebody already lost a session to it.
 | types, schemas, the event contract, env parsing | Types and data contracts |
 | `packages/agent`, prompts, caching, streaming, OpenRouter, cost | Model and provider |
 | `packages/sandbox`, `packages/storage`, snapshots, the reaper | Sandbox and storage |
-| `apps/api` — routes, auth, limits, logging, `/health` | API, auth and logging |
+| `apps/api` — routes, auth, limits, logging, `/health`; the turn queue and leases | API, auth and logging |
 | `apps/web` — components, the landing page, browser checks | Web and UI |
 | writing tests, fakes, mutation checks | Testing |
 | `packages/loadgen`, `apps/api/k6`, the ramp, a baseline run | Load testing |
@@ -206,22 +173,14 @@ because somebody already lost a session to it.
 
 **Stopping mid-task:** commit `wip(<scope>): <what's left>`, and leave a comment on the issue saying what the next step is. Keep the assignee.
 
-> **Never end a session with uncommitted work.** A future session cannot recover context that exists only in a dirty working tree.
-
 Branch per milestone (`feat/m0-scaffold`, `feat/m1-execution-plane`, …), one commit per completed task.
 
-> **Never end a session with an open working tree and no issue comment.** The two together are the handoff; either alone loses the half a future session needs.
+> **Never end a session with uncommitted work, or with an open working tree and no issue comment.** A future session cannot recover context that exists only in a dirty working tree; the commit and the comment together are the handoff, and either alone loses the half a future session needs.
 
 ## Agent skills
 
-### Issue tracker
-
-Issues live as GitHub issues in `mangit955/nap`, via the `gh` CLI. The v1 task list stays frozen in `docs/PLAN.md` §4 and `PROGRESS.md`; V2 onwards is issues. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-The five canonical roles, each label string equal to its name. See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context — one root `CONTEXT.md` (the glossary) plus `docs/adr/` (decisions that would be expensive to reverse). Read the glossary before naming a concept, and the ADRs that touch whatever you are about to change. See `docs/agents/domain.md`.
+| Skill | What it covers | See |
+|---|---|---|
+| Issue tracker | Issues live as GitHub issues in `mangit955/nap`, via the `gh` CLI. The v1 task list stays frozen in `docs/PLAN.md` §4 and `PROGRESS.md`; V2 onwards is issues | `docs/agents/issue-tracker.md` |
+| Triage labels | The five canonical roles, each label string equal to its name | `docs/agents/triage-labels.md` |
+| Domain docs | Single-context — one root `CONTEXT.md` (the glossary) plus `docs/adr/` (decisions that would be expensive to reverse). Read the glossary before naming a concept, and the ADRs that touch whatever you are about to change | `docs/agents/domain.md` |

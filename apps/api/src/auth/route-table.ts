@@ -17,10 +17,11 @@ import { InMemoryProjectSandboxStore } from "@nap/db/testing/in-memory-project-s
 import { FAKE_OWNER, InMemoryProjectStore } from "@nap/db/testing/in-memory-project-store";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
+import { InMemoryTurnQueue } from "@nap/db/testing/in-memory-turn-queue";
 import { InMemoryUserKeyStore } from "@nap/db/testing/in-memory-user-key-store";
 import { TEMPLATE_WORKDIR } from "@nap/sandbox/template";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
-import type { ResumeOutcome, TurnOutcome } from "@nap/shared/ports/runtime";
+import type { ResumeOutcome } from "@nap/shared/ports/runtime";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import { encryptionKeyFrom } from "../account/secret-box.ts";
 import type { AppDeps } from "../app.ts";
@@ -193,16 +194,9 @@ export function fullyWiredDeps(seeded?: SeededSandbox): Omit<AppDeps, "logger"> 
       freeModel: FREE_MODEL,
     },
     turns: {
-      // Never actually reached by an authorization test: a turn that got as far as running
-      // would mean the route let somebody through, which is the thing being tested.
-      runtime: {
-        runTurn: async (): Promise<TurnOutcome> => ({ ok: true, turnId: "t", commitSha: null }),
-        resumeSession: async (): Promise<ResumeOutcome> => ({
-          ok: false,
-          reason: "internal",
-          message: "unreachable",
-        }),
-      },
+      // Never actually reached by an authorization test: a request that got as far as being
+      // queued would mean the route let somebody through, which is the thing being tested.
+      queue: new InMemoryTurnQueue(),
       registry: new TurnRegistry(),
       freeModel: FREE_MODEL,
       defaultModel: "openai/gpt-5.6-luna",
@@ -220,7 +214,7 @@ export function fullyWiredDeps(seeded?: SeededSandbox): Omit<AppDeps, "logger"> 
         void options;
         return { projectId: PROJECT, sessionId: SESSION };
       },
-      // Never actually reached, for the same reason the runtime above is not.
+      // Never actually reached, for the same reason the queue above is not.
       runtime: {
         resumeSession: async (): Promise<ResumeOutcome> => ({
           ok: false,

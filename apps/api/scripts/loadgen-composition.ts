@@ -26,6 +26,7 @@ import { PostgresProjectStore } from "@nap/db/postgres-project-store";
 import { PostgresSandboxCapacity } from "@nap/db/postgres-sandbox-capacity";
 import { PostgresSessionStore } from "@nap/db/postgres-session-store";
 import { PostgresSnapshotStore } from "@nap/db/postgres-snapshot-store";
+import { PostgresTurnQueue } from "@nap/db/postgres-turn-queue";
 import { PostgresTurnRateLimiter } from "@nap/db/postgres-turn-rate-limiter";
 import { PostgresUserKeyStore } from "@nap/db/postgres-user-key-store";
 import { createProjectSession } from "@nap/db/session-bootstrap";
@@ -119,6 +120,9 @@ export function loadgenConfig(users: number): NapConfig {
     // Far longer than any run, so the reaper never takes a sandbox away mid-journey.
     NAP_REAP_IDLE_MINUTES: 29,
     NAP_REAP_INTERVAL_SECONDS: 600,
+    // Sized like the ceilings above rather than like production's: a worker that could only run
+    // ten turns at once would make every ramp above ten a measurement of this number.
+    NAP_WORKER_CONCURRENCY: users * 2,
   };
 }
 
@@ -178,7 +182,7 @@ export async function bootLoadgenApi(options: BootOptions): Promise<BootedLoadge
 
   const config = loadgenConfig(options.users);
 
-  const { app, reaper } = composeNap({
+  const { app, reaper, worker } = composeNap({
     config,
     logger,
     sessions: new PostgresSessionStore(db),
@@ -198,6 +202,9 @@ export async function bootLoadgenApi(options: BootOptions): Promise<BootedLoadge
       rate: turnRateLimiter(db, options.users, "paid"),
       freeRate: turnRateLimiter(db, options.users, "free"),
     },
+    // The real queue, against the ramp's own Postgres. Every turn the ramp sends is admitted
+    // through it and claimed off it, which is precisely the hot path the ramp exists to measure.
+    queue: new PostgresTurnQueue(db),
     snapshots: new PostgresSnapshotStore(db),
     userKeys: new PostgresUserKeyStore(db),
     events: new PostgresEventStore(db),
@@ -235,6 +242,9 @@ export async function bootLoadgenApi(options: BootOptions): Promise<BootedLoadge
     postgresUrl: postgres.url,
     stop: async () => {
       reaper.stop();
+      // Before the server, so a run that ended with turns in flight settles them rather than
+      // leaving leases to expire against a database that is about to be torn down.
+      await worker.stop();
       server.stop(true);
       await close();
       await postgres.stop();

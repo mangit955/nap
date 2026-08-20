@@ -245,6 +245,18 @@ const BaseSchema = z.object({
   NAP_SANDBOX_TTL_MINUTES: z.coerce.number().int().positive().default(30),
 
   /**
+   * How many queued turns this process runs at once.
+   *
+   * A property of the *worker*, not a ceiling on the deployment: what a person may spend is the
+   * rate limiters' business and how many sandboxes may exist at once is
+   * `NAP_MAX_SANDBOXES_TOTAL`'s. This is how much of the queue one process takes responsibility
+   * for at a time, and the number to turn down when a pod is the bottleneck rather than the bill.
+   * A turn that cannot be claimed waits in `turn_requests` rather than being refused, so this
+   * changes latency and never who gets in.
+   */
+  NAP_WORKER_CONCURRENCY: z.coerce.number().int().positive().default(10),
+
+  /**
    * A Chrome or Chromium binary to photograph finished turns with, for the dashboard's cards.
    *
    * Optional, and the one env key here that is genuinely allowed to be absent: without it the

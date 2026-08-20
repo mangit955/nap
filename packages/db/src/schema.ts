@@ -22,6 +22,7 @@
  */
 
 import type { NapEvent, NapEventType } from "@nap/shared/events";
+import { TURN_REQUEST_KINDS, TURN_REQUEST_STATES } from "@nap/shared/ports/turn-queue";
 import { sql } from "drizzle-orm";
 import {
   boolean,
@@ -319,6 +320,87 @@ export const turnRateEvents = pgTable(
     // in one tier since a cutoff, and the sweep deletes across users by the same cutoff. Without
     // it, every turn in the cluster is a sequential scan over every turn recently taken.
     index("turn_rate_events_user_tier_at").on(t.userId, t.tier, t.at),
+  ],
+);
+
+/**
+ * What state a queued execution intent is in. The transitions are in `docs/scaling-design.md` §18.
+ *
+ * **There is no edge back to `queued`.** A request is claimed at most once, so a worker that dies
+ * mid-turn leaves a partial event log rather than a turn that runs twice — and a partial log is
+ * something `foldJobs` already reads, where a duplicated turn is not. `orphaned` is the janitor's:
+ * the lease ran out and the request was closed for it, never re-claimed.
+ *
+ * **Both enums are declared from the port's own tuples**, so the column and the type a caller
+ * writes against cannot drift into disagreeing. This is the one place a `pgEnum` is worth having
+ * over `text` — unlike `sandbox_reservations.state`, this is a closed state machine a design
+ * document draws, where that one is expected to grow states as the reconciling sweep learns to
+ * find more.
+ */
+export const turnRequestState = pgEnum("turn_request_state", TURN_REQUEST_STATES);
+
+/** What the request asks for: a turn on a prompt, or bringing a put-away project back up. */
+export const turnRequestKind = pgEnum("turn_request_kind", TURN_REQUEST_KINDS);
+
+/**
+ * The queue of turn requests, and the leases that make one per session exclusive.
+ *
+ * This table is the distributed `SessionQueue`. The old one was a `Map` of promises in a single
+ * process: it stopped a turn and a project-open both creating a sandbox for the same project, and
+ * stopped nothing once a second process existed. Here the rule is a **partial unique index** over
+ * `state = 'leased'`, the same posture `unique(session_id, seq)` takes with replay ordering —
+ * application code is not trusted with an invariant it cannot see the other side of.
+ *
+ * `lease_owner` names the *worker process*, and every renewal and settlement is conditional on it.
+ * That is the fencing: a worker can outlive its lease through a GC pause or a network blip, and
+ * without the predicate it would keep writing to a session another worker had already claimed.
+ * A settled row keeps its `lease_owner` — who ran a request is worth being able to read
+ * afterwards, and only `state` decides whether the index applies — but its `lease_expires_at` is
+ * cleared, because nothing is waiting on that row any more and a stale deadline on it would read
+ * as a lease the janitor should be interested in.
+ * */
+export const turnRequests = pgTable(
+  "turn_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    kind: turnRequestKind("kind").notNull(),
+    state: turnRequestState("state").notNull().default("queued"),
+    /** The prompt. Null for `resume`, which asks for no new work. */
+    message: text("message"),
+    /** Resolved at admission: which models somebody may name is a fact about who is asking. */
+    model: text("model").notNull(),
+    /**
+     * Whether the asker's own account pays.
+     *
+     * **Never a key.** The worker re-opens the caller's stored credential by `user_id`, so
+     * plaintext credentials never touch this table, a query log, or a backup.
+     */
+    billsToUser: boolean("bills_to_user").notNull().default(false),
+    cancelRequested: boolean("cancel_requested").notNull().default(false),
+    /** Which worker process holds the lease. Every renewal is conditional on it. */
+    leaseOwner: text("lease_owner"),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    createdAt,
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (t) => [
+    // The mechanism, not a backstop. Two workers claiming one session is the failure that leaves a
+    // project holding two sandboxes, and it is unreachable only because this index exists.
+    uniqueIndex("turn_requests_one_leased_per_session")
+      .on(t.sessionId)
+      .where(sql`${t.state} = 'leased'`),
+    // The claim's exact shape: oldest queued row first. Partial, so the index stays the size of
+    // the backlog rather than of every turn this deployment has ever run.
+    index("turn_requests_queued").on(t.createdAt).where(sql`${t.state} = 'queued'`),
+    // The janitor's: which leases have run out. Partial for the same reason.
+    index("turn_requests_lease_expiry").on(t.leaseExpiresAt).where(sql`${t.state} = 'leased'`),
   ],
 );
 

@@ -79,6 +79,27 @@ last known-good state by construction rather than by care.
 process restart leaves a job open rather than failing it; nothing continues a job while nobody is
 watching.
 
+**Turn request** — a durable, queued intent to execute, and one row in `turn_requests`. Created by
+an API pod at admission, claimed by exactly one worker, terminal exactly once — *queued*, then
+*leased*, then one of *done*, *failed* or *orphaned*, with **no path back to queued**. Its *kind* is
+`turn` or `resume`. **Not a Job**: a job is one objective folded from the event log, and one request
+may drive a job through several turns — the prompt and its repairs. It carries *whether* the asker
+pays, never their key, so no credential is ever in that table. A request is claimed at most once,
+which is what makes queue delivery at-least-once and logical turn execution at-most-once.
+
+**Lease** — a worker's time-bounded, exclusive claim on a session, and what replaces the in-process
+`SessionQueue`. Held by at most one worker per session cluster-wide, enforced by the partial unique
+index `unique (session_id) where state = 'leased'` rather than by application logic — two callers in
+two processes cannot agree about anything a database is not adjudicating. Renewed on a timer, and
+**renewal is conditional on the request id, the owner and the state**: renewing is how a worker asks
+whether it is still allowed to run, and zero rows back means the lease is gone and the turn must be
+aborted at once. Losing a lease never requeues the request.
+
+**Fanout** — delivery of an already-persisted event to whichever API pods hold subscribers for its
+session. Strictly after the append, as it has always been. **A notification is a wake-up signal; the
+durable log is the delivery** — a lost notification costs latency and never costs an event, because
+the catch-up read is what actually hands anything to a socket.
+
 **Event** — one durable, ordered fact about a session, identified by its `seq`. Appended to the
 store *before* it is published to the bus, never the other way round.
 

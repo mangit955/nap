@@ -76,6 +76,19 @@ export type ResumeOutcome =
 export type ContinueOptions = {
   model?: string | undefined;
   credentials?: ModelCredentials | undefined;
+  /**
+   * How to stop the work a continuation turns out to involve.
+   *
+   * A third thing, and unlike the two above it is not about who asked: a resume that continues a
+   * job runs turns, and a worker that has lost its session's lease must be able to stop them at
+   * once. Without it that worker would keep appending to a session another one may already have
+   * claimed — the failure the whole lease exists to prevent, reached through the one entry point
+   * that had no way to be interrupted.
+   *
+   * It does not abort the restore itself, which is a few seconds of provider calls with nothing
+   * to roll back. What it reaches is the continuation, which is the part that takes minutes.
+   */
+  signal?: AbortSignal | undefined;
 };
 
 export interface Runtime {

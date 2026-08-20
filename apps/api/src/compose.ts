@@ -22,6 +22,7 @@ import { NapContextEngine } from "@nap/context/context-engine";
 import { NoopMemoryProvider } from "@nap/context/noop-memory-provider";
 import { startReaper, sweepIdleProjects } from "@nap/runtime/reaper";
 import { SingleAgentRuntime } from "@nap/runtime/single-agent-runtime";
+import { startTurnWorker, type TurnWorker } from "@nap/runtime/turn-worker";
 import type { Logger } from "@nap/shared/logging";
 import type { CapacityReconciler } from "@nap/shared/ports/capacity-reconciler";
 import type { EventBus } from "@nap/shared/ports/event-bus";
@@ -36,6 +37,7 @@ import type { SandboxInventory } from "@nap/shared/ports/sandbox-inventory";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SessionStore } from "@nap/shared/ports/session-store";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
+import type { TurnQueue } from "@nap/shared/ports/turn-queue";
 import type { TurnRateLimiter } from "@nap/shared/ports/turn-rate-limit";
 import type { UserKeyStore } from "@nap/shared/ports/user-key-store";
 import type { Hono } from "hono";
@@ -68,6 +70,7 @@ export type NapConfig = Pick<
   | "NAP_FREE_MAX_SANDBOXES_PER_USER"
   | "NAP_MAX_SANDBOXES_TOTAL"
   | "NAP_SANDBOX_TTL_MINUTES"
+  | "NAP_WORKER_CONCURRENCY"
   | "NAP_REAP_IDLE_MINUTES"
   | "NAP_REAP_INTERVAL_SECONDS"
 >;
@@ -106,6 +109,14 @@ export type NapDeps = {
    * wants — but it is one allowance per replica, which is the thing this stopped being.
    */
   rateLimits: { rate: TurnRateLimiter; freeRate: TurnRateLimiter };
+  /**
+   * Where an admitted turn is written down, and where this composition's worker takes it from.
+   *
+   * Required, and the reason it cannot be optional is the one `capacity` gives: a composition
+   * without it would type-check, boot, accept turns and run none of them. **One queue per
+   * database, never per process** — the whole point is that the lease is visible to every replica.
+   */
+  queue: TurnQueue;
   /**
    * How the reaper puts back capacity nothing gave back, if this composition can offer it.
    *
@@ -163,6 +174,8 @@ export type ComposedNap = {
   runtime: SingleAgentRuntime;
   /** Which turns are running here — read by the routes, the reaper and anything draining. */
   registry: TurnRegistry;
+  /** Already claiming. The caller owns stopping it, on a signal or at the end of a test. */
+  worker: TurnWorker;
   /** Already sweeping. The caller owns stopping it, on a signal or at the end of a test. */
   reaper: { stop: () => void };
 };
@@ -250,7 +263,7 @@ export function composeNap(deps: NapDeps): ComposedNap {
       keys: (userId) => deps.userKeys.get(userId),
     },
     turns: {
-      runtime,
+      queue: deps.queue,
       registry,
       sessions: deps.sessions,
       // Who pays for each turn, which is also what decides the models they may name.
@@ -311,9 +324,15 @@ export function composeNap(deps: NapDeps): ComposedNap {
           total: config.NAP_MAX_SANDBOXES_TOTAL,
         },
       },
-      // The same registry the turn routes write to and the reaper reads, so "busy" means one
-      // thing everywhere: closing or deleting a project mid-turn is refused for the same reason
+      // The same registry the worker writes to and the reaper reads, so "busy" means one thing
+      // in this process: closing or deleting a project mid-turn is refused for the same reason
       // the reaper skips it.
+      //
+      // **Per-process, and that is now a known gap rather than the design.** The authoritative
+      // answer is a `leased` row in `turn_requests`, which every replica can see; this map only
+      // knows about turns claimed here, so once the worker runs somewhere else this reads a busy
+      // session as idle. It is safe today because there is one process, and it stops being safe
+      // in the same change that makes there be two.
       isBusy: (sessionIds) => sessionIds.some((id) => registry.isRunning(id)),
     },
   });
@@ -394,5 +413,23 @@ export function composeNap(deps: NapDeps): ComposedNap {
     onError: (error) => logger.error({ err: error }, "reaper sweep threw"),
   });
 
-  return { app, runtime, registry, reaper };
+  /**
+   * The loop that actually runs the queued turns — in this process, for now.
+   *
+   * A worker deployment of its own is the next step and changes nothing about the queue: one
+   * replica composed like this behaves exactly as it did when the route ran the turn itself, and
+   * turns simply flow through the durable queue on the way. Started after the app so the registry
+   * it writes to is the same one the cancel route and the reaper read.
+   */
+  const worker = startTurnWorker({
+    queue: deps.queue,
+    runtime,
+    concurrency: config.NAP_WORKER_CONCURRENCY,
+    // The same function the turn route resolves access with — the queue stores only *whether* the
+    // asker pays, so this is where their key is re-opened, once the request has been claimed.
+    credentialsFor: openCallerKey,
+    running: registry,
+  });
+
+  return { app, runtime, registry, worker, reaper };
 }

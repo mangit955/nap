@@ -7,6 +7,7 @@ import { FAKE_OWNER, InMemoryProjectStore } from "@nap/db/testing/in-memory-proj
 import { InMemorySandboxCapacity } from "@nap/db/testing/in-memory-sandbox-capacity";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
+import { InMemoryTurnQueue } from "@nap/db/testing/in-memory-turn-queue";
 import { InMemoryTurnRateLimiter } from "@nap/db/testing/in-memory-turn-rate-limiter";
 import { InMemoryUserKeyStore } from "@nap/db/testing/in-memory-user-key-store";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
@@ -42,6 +43,7 @@ const CONFIG: NapDeps["config"] = {
   NAP_SANDBOX_TTL_MINUTES: 30,
   NAP_REAP_IDLE_MINUTES: 10,
   NAP_REAP_INTERVAL_SECONDS: 60,
+  NAP_WORKER_CONCURRENCY: 4,
 };
 
 /** 32 bytes of base64, which is all `encryptionKeyFrom` asks of it. */
@@ -50,11 +52,12 @@ const SECRET = Buffer.alloc(32, 7).toString("base64");
 /** The routes validate the shape of an id before they look it up, so it has to be a real one. */
 const PROJECT = "6f0a6f2c-2d2f-4a1e-9d31-6c9f2f0f4b21";
 
-const stopping: Array<{ stop: () => void }> = [];
+const stopping: Array<{ stop: () => void | Promise<void> }> = [];
 
-afterEach(() => {
-  // A composition owns a timer, so a test that forgets to stop it holds the runner open.
-  while (stopping.length > 0) stopping.pop()?.stop();
+afterEach(async () => {
+  // A composition owns a timer and a claiming loop, so a test that forgets to stop them holds
+  // the runner open.
+  while (stopping.length > 0) await stopping.pop()?.stop();
 });
 
 function compose(overrides: Partial<NapDeps> = {}) {
@@ -63,6 +66,7 @@ function compose(overrides: Partial<NapDeps> = {}) {
     logger: createLogger({ level: "silent" }, { write: () => {} }),
     sessions: new InMemorySessionStore(),
     projects: new InMemoryProjectStore(),
+    queue: new InMemoryTurnQueue(),
     projectSandboxes: new InMemoryProjectSandboxStore(),
     capacity: new InMemorySandboxCapacity(),
     // Per-process limiters, which is exactly what a test wants and exactly what a deployment
@@ -91,7 +95,7 @@ function compose(overrides: Partial<NapDeps> = {}) {
     ...overrides,
   });
 
-  stopping.push(composed.reaper);
+  stopping.push(composed.reaper, composed.worker);
   return composed;
 }
 

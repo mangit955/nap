@@ -187,6 +187,10 @@ is affordable, and they are worth setting deliberately rather than inheriting:
 - `NAP_REAP_IDLE_MINUTES=10` — how long an abandoned project keeps costing money. The same
   tick reconciles the ceiling, so a slot leaked by a crash comes back within minutes rather
   than waiting for a deploy.
+- `NAP_WORKER_CONCURRENCY=10` — how many queued turns *one process* runs at once. Not a
+  ceiling on spend, which is what the three above are: turn it down when a pod is the
+  bottleneck, not when the bill is. A turn that cannot be claimed waits in `turn_requests`
+  rather than being refused, so this changes latency and never who gets in.
 
 ## Verifying a deployment
 
