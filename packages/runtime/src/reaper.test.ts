@@ -1,6 +1,7 @@
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { InMemoryProjectSandboxStore } from "@nap/db/testing/in-memory-project-sandbox-store";
+import { InMemorySandboxCapacity } from "@nap/db/testing/in-memory-sandbox-capacity";
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { scriptGit } from "@nap/sandbox/testing/script-git";
@@ -12,6 +13,7 @@ import { startReaper, sweepIdleProjects } from "./reaper.ts";
 const PROJECT = "3e0fbc41-6f5d-4a8e-ab9c-4d5e6f708192";
 const SESSION = "2a3f8a24-6c1b-4e0e-9b6f-3a5c0a1d9e77";
 const SHA = "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f80912";
+const USER = "8f0a1b2c-3d4e-4f50-9a6b-7c8d9e0f1a2b";
 
 /** The clock every test reads, so "an hour ago" is a fixed number rather than a real wait. */
 const NOW = Date.UTC(2026, 7, 9, 12, 0, 0);
@@ -41,13 +43,19 @@ beforeEach(async () => {
   ]);
 });
 
-function sweep(overrides: { isBusy?: (project: IdleProject) => boolean } = {}) {
+function sweep(
+  overrides: {
+    isBusy?: (project: IdleProject) => boolean;
+    capacity?: InMemorySandboxCapacity;
+  } = {},
+) {
   return sweepIdleProjects({
     projects,
     sandbox,
     objects,
     snapshots,
     idleMs: IDLE_MS,
+    ...(overrides.capacity === undefined ? {} : { capacity: overrides.capacity }),
     isBusy: overrides.isBusy ?? (() => false),
     now: () => NOW,
     announce: { events, bus: new InMemoryEventBus() },
@@ -55,6 +63,18 @@ function sweep(overrides: { isBusy?: (project: IdleProject) => boolean } = {}) {
 }
 
 describe("reaping an idle project", () => {
+  it("gives back the capacity its sandbox was occupying", async () => {
+    // The sweep is where most sandboxes end, so it is the main way capacity ever comes back: a
+    // ceiling nothing released would count every project this cluster had ever opened.
+    const capacity = new InMemorySandboxCapacity();
+    const reserved = await capacity.reserve({ projectId: PROJECT, userId: USER });
+    if (reserved.ok) await capacity.activate(reserved.value.id, sandboxId);
+
+    await sweep({ capacity });
+
+    expect(capacity.held()).toEqual([]);
+  });
+
   it("snapshots it and destroys the sandbox", async () => {
     const result = await sweep();
 

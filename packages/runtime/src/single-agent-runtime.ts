@@ -55,6 +55,7 @@ import type {
   TurnOutcome,
   TurnRequest,
 } from "@nap/shared/ports/runtime";
+import type { SandboxCapacity } from "@nap/shared/ports/sandbox-capacity";
 import type { SandboxError, SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SessionRecord, SessionStore } from "@nap/shared/ports/session-store";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
@@ -203,6 +204,16 @@ export type SingleAgentRuntimeOptions = {
    * is captured.
    */
   capture?: PageCapture;
+  /**
+   * The ceiling on how many sandboxes exist at once, claimed at the moment one is created.
+   *
+   * **This is the authoritative one**, and the route's quota check is an advisory refusal in
+   * front of it: a turn may wait before it runs, so capacity claimed at admission would be held
+   * for work that has not started. Absent means uncapped — the harness and the benchmark, which
+   * create one sandbox at a time and pay for it either way. Every deployment supplies one, and
+   * `compose.test.ts` is what says so.
+   */
+  capacity?: SandboxCapacity;
   /**
    * Whether a completed turn's claim is arbitrated, or simply believed. Defaults to arbitrating.
    *
@@ -1041,6 +1052,7 @@ export class SingleAgentRuntime implements Runtime {
         sessions: this.#options.sessions,
         restore: this.#restore,
         ttlMs: this.#sandboxTtlMs,
+        ...(this.#options.capacity === undefined ? {} : { capacity: this.#options.capacity }),
       },
       session,
     );

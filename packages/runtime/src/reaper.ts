@@ -25,6 +25,7 @@ import type { EventBus } from "@nap/shared/ports/event-bus";
 import type { EventStore } from "@nap/shared/ports/event-store";
 import type { ObjectStore } from "@nap/shared/ports/object-store";
 import type { IdleProject, ProjectSandboxStore } from "@nap/shared/ports/project-sandbox-store";
+import type { SandboxCapacity } from "@nap/shared/ports/sandbox-capacity";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
 import { putProjectAway } from "./close-project.ts";
@@ -57,6 +58,11 @@ export type SweepOptions = {
   snapshots: SnapshotStore;
   /** How long a project must have been quiet before its sandbox is put away. */
   idleMs: number;
+  /**
+   * Where a swept project's sandbox capacity goes back to. Absent means the deployment is
+   * uncapped; see `putProjectAway`, which owns what happens with it.
+   */
+  capacity?: SandboxCapacity;
   /**
    * Whether a turn is running for any of the project's sessions. Injected because turns are
    * tracked by whatever is serving requests, and this package has no idea what that is.
@@ -93,6 +99,7 @@ export async function sweepIdleProjects(options: SweepOptions): Promise<SweepRes
       snapshots: options.snapshots,
       projectId: project.projectId,
       sandboxId: project.sandboxId,
+      ...(options.capacity === undefined ? {} : { capacity: options.capacity }),
       ...(options.announce === undefined
         ? {}
         : { announce: { ...options.announce, sessionIds: project.sessionIds } }),

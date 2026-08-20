@@ -22,6 +22,7 @@
  */
 
 import type { NapEvent, NapEventType } from "@nap/shared/events";
+import { sql } from "drizzle-orm";
 import {
   boolean,
   integer,
@@ -31,6 +32,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -233,6 +235,55 @@ export const events = pgTable(
     createdAt,
   },
   (t) => [unique("events_session_id_seq_unique").on(t.sessionId, t.seq)],
+);
+
+/**
+ * One row per sandbox somebody is holding capacity for — the thing that bounds the bill.
+ *
+ * **The rows are the count.** `select count(*)` over this table, taken under an advisory lock in
+ * the same transaction as the insert, is what makes admission atomic; `projects.sandbox_id` could
+ * only ever be counted after the sandbox existed, which is one E2B call too late. See
+ * `postgres-sandbox-capacity.ts` for the three transactions.
+ *
+ * `state` is `reserved` until the provider has answered and `active` afterwards. Both states
+ * occupy capacity, which is the point: a creation in flight has already been paid for. It is text
+ * rather than a pg enum because the reconciling sweep is expected to grow states, and adding a
+ * value to an enum costs a migration.
+ *
+ * `expires_at` bounds only the `reserved` half — how long a process may hold capacity it has not
+ * used, so that one dying between reserving and creating costs minutes rather than forever. An
+ * activated row is set to `infinity`: it is released by the teardown that destroys its sandbox,
+ * not by a clock.
+ *
+ * **Nothing sweeps expired rows yet.** What reads `expires_at` today is the reservation itself:
+ * a project asking again for a slot it already holds gets that slot back once the row has expired,
+ * so a crash mid-creation costs one project a couple of minutes rather than costing the ceiling a
+ * slot forever. Reclaiming rows nobody asks about again is still to be built.
+ */
+export const sandboxReservations = pgTable(
+  "sandbox_reservations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    state: text("state").$type<"reserved" | "active">().notNull(),
+    /** Null while `reserved`: there is nothing to name until the provider has answered. */
+    sandboxId: text("sandbox_id"),
+    createdAt,
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    // Partial, and load-bearing rather than a backstop: it is what stops two processes admitting
+    // the same project twice and leaving it with a sandbox nothing references. Released rows are
+    // deleted rather than marked, so no state outside these two needs excluding.
+    uniqueIndex("sandbox_reservations_one_per_project")
+      .on(t.projectId)
+      .where(sql`${t.state} in ('reserved', 'active')`),
+  ],
 );
 
 export const snapshots = pgTable("snapshots", {

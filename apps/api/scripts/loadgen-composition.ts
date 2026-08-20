@@ -23,6 +23,7 @@ import { InProcessEventBus } from "@nap/db/in-process-event-bus";
 import { PostgresEventStore } from "@nap/db/postgres-event-store";
 import { PostgresProjectSandboxStore } from "@nap/db/postgres-project-sandbox-store";
 import { PostgresProjectStore } from "@nap/db/postgres-project-store";
+import { PostgresSandboxCapacity } from "@nap/db/postgres-sandbox-capacity";
 import { PostgresSessionStore } from "@nap/db/postgres-session-store";
 import { PostgresSnapshotStore } from "@nap/db/postgres-snapshot-store";
 import { PostgresUserKeyStore } from "@nap/db/postgres-user-key-store";
@@ -165,12 +166,20 @@ export async function bootLoadgenApi(options: BootOptions): Promise<BootedLoadge
   // came from the system rather than from the dice.
   const random = seededRandom(options.seed ?? 1);
 
+  const config = loadgenConfig(options.users);
+
   const { app, reaper } = composeNap({
-    config: loadgenConfig(options.users),
+    config,
     logger,
     sessions: new PostgresSessionStore(db),
     projects: new PostgresProjectStore(db),
     projectSandboxes: new PostgresProjectSandboxStore(db),
+    // The real one, against the ramp's own Postgres: admission under load is exactly what the
+    // ramp is measuring, so a fake here would measure the wrong system.
+    capacity: new PostgresSandboxCapacity(db, {
+      perUser: config.NAP_MAX_SANDBOXES_PER_USER,
+      total: config.NAP_MAX_SANDBOXES_TOTAL,
+    }),
     snapshots: new PostgresSnapshotStore(db),
     userKeys: new PostgresUserKeyStore(db),
     events: new PostgresEventStore(db),

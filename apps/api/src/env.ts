@@ -190,9 +190,11 @@ const BaseSchema = z.object({
    * ten messages, so fifteen an hour is room to work rather than a wall, and two running
    * projects is more than anybody uses at once.
    *
-   * `NAP_MAX_SANDBOXES_TOTAL` is the process-wide ceiling and is the only one of the three that
-   * bounds what *everybody together* can spend. Per-user limits alone multiply by the number of
-   * users, which is the arithmetic that matters the first time this is shown to strangers.
+   * `NAP_MAX_SANDBOXES_TOTAL` is the **cluster-wide** ceiling — it is counted in Postgres and
+   * reserved under a lock there, so it means the same number however many processes are running —
+   * and it is the only one of the three that bounds what *everybody together* can spend. Per-user
+   * limits alone multiply by the number of users, which is the arithmetic that matters the first
+   * time this is shown to strangers.
    */
   NAP_TURNS_PER_HOUR: z.coerce.number().int().positive().default(15),
   NAP_MAX_SANDBOXES_PER_USER: z.coerce.number().int().positive().default(2),

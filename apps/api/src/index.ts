@@ -24,6 +24,7 @@ import { PostgresNotifyEventBus } from "@nap/db/postgres-notify-event-bus";
 import { PostgresNotifyTransport } from "@nap/db/postgres-notify-transport";
 import { PostgresProjectSandboxStore } from "@nap/db/postgres-project-sandbox-store";
 import { PostgresProjectStore } from "@nap/db/postgres-project-store";
+import { PostgresSandboxCapacity } from "@nap/db/postgres-sandbox-capacity";
 import { PostgresSessionStore } from "@nap/db/postgres-session-store";
 import { PostgresSnapshotStore } from "@nap/db/postgres-snapshot-store";
 import { PostgresUserKeyStore } from "@nap/db/postgres-user-key-store";
@@ -183,6 +184,13 @@ const { app, reaper } = composeNap({
   sessions: new PostgresSessionStore(db),
   projects: new PostgresProjectStore(db),
   projectSandboxes: new PostgresProjectSandboxStore(db),
+  // The ceiling that bounds this deployment's E2B bill, held in rows rather than in this
+  // process: the count and the creation it guards happen in one transaction, so a burst of
+  // turns across every replica cannot all find themselves under the cap at once.
+  capacity: new PostgresSandboxCapacity(db, {
+    perUser: env.NAP_MAX_SANDBOXES_PER_USER,
+    total: env.NAP_MAX_SANDBOXES_TOTAL,
+  }),
   snapshots: new PostgresSnapshotStore(db),
   userKeys: new PostgresUserKeyStore(db),
   // One store and one bus for the process, shared by the runtime that publishes and the socket

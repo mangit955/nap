@@ -30,6 +30,7 @@ import type { ObjectStore } from "@nap/shared/ports/object-store";
 import type { PageCapture } from "@nap/shared/ports/page-capture";
 import type { ProjectSandboxStore } from "@nap/shared/ports/project-sandbox-store";
 import type { ProjectStore } from "@nap/shared/ports/project-store";
+import type { SandboxCapacity } from "@nap/shared/ports/sandbox-capacity";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SessionStore } from "@nap/shared/ports/session-store";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
@@ -80,6 +81,17 @@ export type NapDeps = {
   projects: ProjectStore;
   /** The reaper's slice of the same tables: which projects hold a sandbox, and since when. */
   projectSandboxes: ProjectSandboxStore;
+  /**
+   * The ceiling on how many sandboxes exist at once — the only thing bounding this deployment's
+   * E2B bill, and the reason it is required rather than optional.
+   *
+   * The route's quota check in `limits.sandboxes` is a cheap refusal in front of this and is not
+   * authoritative: it counts and then, some time later, something creates. This is claimed at the
+   * moment of creation, atomically, so a burst of admissions cannot all find themselves under the
+   * cap at once. A composition that forgot it would run unlimited and every test would still
+   * pass, which is exactly how the limits block once failed to reach boot at all.
+   */
+  capacity: SandboxCapacity;
   snapshots: SnapshotStore;
   userKeys: UserKeyStore;
   /**
@@ -148,6 +160,9 @@ export function composeNap(deps: NapDeps): ComposedNap {
     snapshots: deps.snapshots,
     // A picture of each finished turn, and of each project coming back up.
     ...(deps.capture === undefined ? {} : { capture: deps.capture }),
+    // Where the ceiling is really enforced: at the point a sandbox is created, not at the route
+    // that asked for one.
+    capacity: deps.capacity,
     sandboxTtlMs: config.NAP_SANDBOX_TTL_MINUTES * 60 * 1000,
     context: new NapContextEngine({ budgetTokens: config.NAP_CONTEXT_BUDGET_TOKENS }),
     agent: new NapAgentService({
@@ -222,8 +237,9 @@ export function composeNap(deps: NapDeps): ComposedNap {
       // renamed by hand are written through one code path.
       projects: deps.projects,
       allowedModels: config.NAP_ALLOWED_MODELS,
-      // What one person, and this whole process, may have running at once. This endpoint is the
-      // only way to start a turn, so it is the only place either ceiling has to be applied.
+      // What one person, and everybody together, may have running at once. This endpoint is the
+      // only place either ceiling is applied *early* — the sandbox one is applied for real when a
+      // sandbox is created, and `sandbox-quota.ts` says why the cheap refusal is worth keeping.
       limits: {
         rate: new TurnRateLimiter({ limit: config.NAP_TURNS_PER_HOUR, windowMs: 60 * 60 * 1000 }),
         // The tighter one, for turns this deployment is paying for. Its own limiter rather than
@@ -264,6 +280,8 @@ export function composeNap(deps: NapDeps): ComposedNap {
       // The same store and bus the socket subscribes to, or a close would append `preview.stopped`
       // to a log nobody is listening on.
       events: { events: deps.events, bus: deps.bus },
+      // A close destroys a sandbox, so it is where that sandbox's slot comes back.
+      capacity: deps.capacity,
       // Resuming makes a sandbox, so it answers to the same ceiling a turn does.
       limits: {
         projects: deps.projects,
@@ -294,6 +312,9 @@ export function composeNap(deps: NapDeps): ComposedNap {
         sandbox: deps.sandbox,
         objects: deps.objects,
         snapshots: deps.snapshots,
+        // A swept sandbox is the main way capacity ever comes back; without this the ceiling
+        // would count every project this cluster had ever opened.
+        capacity: deps.capacity,
         idleMs: config.NAP_REAP_IDLE_MINUTES * 60 * 1000,
         isBusy: (project) => project.sessionIds.some((id) => registry.isRunning(id)),
         // A swept project's tabs are still open on it, showing an address that is about to stop

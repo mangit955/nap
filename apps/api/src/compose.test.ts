@@ -3,6 +3,7 @@ import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { InMemoryProjectSandboxStore } from "@nap/db/testing/in-memory-project-sandbox-store";
 import { FAKE_OWNER, InMemoryProjectStore } from "@nap/db/testing/in-memory-project-store";
+import { InMemorySandboxCapacity } from "@nap/db/testing/in-memory-sandbox-capacity";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
 import { InMemoryUserKeyStore } from "@nap/db/testing/in-memory-user-key-store";
@@ -62,6 +63,7 @@ function compose(overrides: Partial<NapDeps> = {}) {
     sessions: new InMemorySessionStore(),
     projects: new InMemoryProjectStore(),
     projectSandboxes: new InMemoryProjectSandboxStore(),
+    capacity: new InMemorySandboxCapacity(),
     snapshots: new InMemorySnapshotStore(),
     userKeys: new InMemoryUserKeyStore(),
     events: new InMemoryEventStore(),

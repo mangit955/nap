@@ -42,7 +42,8 @@ this, not restarts.
 `NAP_EVENT_BUS=postgres` swaps `InProcessEventBus` for `PostgresNotifyEventBus`, which
 announces `{sessionId, seq}` through `pg_notify` and lets every process read the events out of
 the durable log. That removes the first bullet above and **none of the others** — the registry,
-the rate limiters and the reaper are still per-process, so this is a prerequisite for a second
+the rate limiters and the reaper are still per-process (the sandbox ceiling is not: it is
+reserved in Postgres), so this is a prerequisite for a second
 replica rather than permission for one. `railway.json` still pins `numReplicas: 1`.
 
 Two things to get right when you do turn it on:
@@ -177,7 +178,9 @@ throwaway identity and turns paid for by this deployment. The ceilings are the r
 is affordable, and they are worth setting deliberately rather than inheriting:
 
 - `NAP_FREE_TURNS_PER_HOUR=5`, `NAP_FREE_MAX_SANDBOXES_PER_USER=1` — per visitor.
-- `NAP_MAX_SANDBOXES_TOTAL=10` — **everybody together**. This is the only one that bounds
+- `NAP_MAX_SANDBOXES_TOTAL=10` — **everybody together, across every replica**. It is a count
+  of rows in Postgres, reserved under a lock at the moment a sandbox is created, so it means
+  the same number whether one process is running or six. This is the only one that bounds
   total spend; the per-user limits multiply by the number of users. Ten concurrent E2B
   sandboxes is ten times the burn rate of one.
 - `NAP_REAP_IDLE_MINUTES=10` — how long an abandoned project keeps costing money.

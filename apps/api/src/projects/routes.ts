@@ -28,6 +28,7 @@ import type { ObjectStore } from "@nap/shared/ports/object-store";
 import type { ProjectSandboxStore } from "@nap/shared/ports/project-sandbox-store";
 import type { ProjectStore, ProjectSummary } from "@nap/shared/ports/project-store";
 import type { ContinueOptions, Runtime } from "@nap/shared/ports/runtime";
+import type { SandboxCapacity } from "@nap/shared/ports/sandbox-capacity";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
 import { RenameProjectSchema } from "@nap/shared/projects-protocol";
@@ -70,6 +71,15 @@ export type ProjectRouteDeps = {
    * a second pair would append to a log nobody is reading from.
    */
   events: { events: EventStore; bus: EventBus };
+  /**
+   * Where a closed project's sandbox capacity goes back to.
+   *
+   * The authoritative ceiling is reserved at the point of creation, so this is the other end of
+   * it: a close that destroyed a sandbox without releasing its reservation would leave the
+   * deployment counting a project nobody is running. Optional for the same reason `limits` is —
+   * absent means uncapped, and boot always passes one.
+   */
+  capacity?: SandboxCapacity;
   /**
    * The sandbox ceiling, applied to opening a project exactly as it is to starting a turn.
    * Optional for the same reason it is on the turn routes: absent means unlimited, which is a
@@ -270,6 +280,7 @@ export function registerProjectRoutes(
       // So every tab open on this project learns its preview has stopped, rather than keeping
       // an iframe pointed at a sandbox that no longer exists.
       announce: { ...deps.events, sessionIds: project.value.sessionIds },
+      ...(deps.capacity === undefined ? {} : { capacity: deps.capacity }),
     });
 
     if (closed.outcome === "failed") {

@@ -101,6 +101,13 @@ is a fact about the log rather than a third party to the conversation. `chat/tra
 any time, by the reaper or by the provider's own timer, which is why no view may treat "there is a
 `preview.ready` in the log" as "something is running".
 
+**Sandbox reservation** — a row claiming one slot of the deployment's sandbox ceiling, taken before
+the sandbox exists and released when it stops existing. *Reserved* while the provider is being
+asked, *active* once there is a sandbox to name; both occupy capacity, because a creation in flight
+has already been paid for. It is the authoritative ceiling — the count the API route does at
+admission is a cheap refusal and nothing more. Never called a quota: a quota is what a route
+answers with, a reservation is what a slot *is*.
+
 **Put away** — a project whose sandbox has been destroyed on purpose, its work preserved in a
 snapshot. Not an error and not an empty project: its files are safe, and starting it back up takes
 seconds. The state a project spends most of its life in.

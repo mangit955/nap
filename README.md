@@ -316,8 +316,8 @@ NapBench, the harness that measures the agent. Its spec is frozen in [`docs/PLAN
 work since then is GitHub issues.
 
 Ceilings exist on everything that costs money, because an unattended agent with an open-ended budget
-is a bill with no ceiling: per-user turn rate limits, per-user and process-wide sandbox quotas, a
-token budget per turn, and a step budget per agent loop.
+is a bill with no ceiling: per-user turn rate limits, per-user and deployment-wide sandbox
+quotas, a token budget per turn, and a step budget per agent loop.
 
 ### Deliberately not built
 
