@@ -26,7 +26,12 @@ import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store"
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { scriptGit } from "@nap/sandbox/testing/script-git";
 import { NapEventSchema, type NapEventType } from "@nap/shared/events";
-import type { EventStore, PendingEvent, StoredEvent } from "@nap/shared/ports/event-store";
+import type {
+  AppendOptions,
+  EventStore,
+  PendingEvent,
+  StoredEvent,
+} from "@nap/shared/ports/event-store";
 import type { ObjectStore } from "@nap/shared/ports/object-store";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
@@ -87,8 +92,8 @@ class OrderRecorder {
   wrap(store: EventStore, bus: InMemoryEventBus): { store: EventStore; bus: InMemoryEventBus } {
     const recorder = this;
     const wrappedStore: EventStore = {
-      async append(event: PendingEvent) {
-        const stored = await store.append(event);
+      async append(event: PendingEvent, options?: AppendOptions) {
+        const stored = await store.append(event, options);
         recorder.calls.push(["append", stored.type]);
         return stored;
       },

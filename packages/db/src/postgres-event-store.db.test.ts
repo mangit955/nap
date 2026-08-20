@@ -138,6 +138,84 @@ describe("concurrent appends", () => {
   });
 });
 
+describe("a retried append", () => {
+  it("returns the row the lost attempt wrote rather than writing a second one", async () => {
+    // The case the retry exists to survive: the transaction committed and the acknowledgement
+    // never arrived, so the caller cannot tell it from a failure before the commit. A second
+    // insert here is a duplicated message in somebody's chat.
+    const sessionId = await seedSession();
+    const event = message(sessionId, randomUUID(), "committed, then the connection dropped");
+    const first = await store.append(event);
+
+    const retried = await store.append(event, { isRetry: true });
+
+    expect(retried).toStrictEqual(first);
+    expect(await store.readFrom(sessionId, 0)).toHaveLength(1);
+  });
+
+  it("writes the event when the lost attempt really did not commit", async () => {
+    const sessionId = await seedSession();
+    const turnId = randomUUID();
+    await store.append(message(sessionId, turnId, "one"));
+
+    const second = await store.append(message(sessionId, turnId, "two"), { isRetry: true });
+
+    expect(second.seq).toBe(2);
+    expectEventSequence(await store.readFrom(sessionId, 0), ["agent.message", "agent.message"]);
+  });
+
+  it("writes a genuine repeat that arrives after something else", async () => {
+    // Only the newest row is compared, because only the newest row can be the interrupted
+    // append's. An identical event further back is a real event of its own.
+    const sessionId = await seedSession();
+    const turnId = randomUUID();
+    const repeated = message(sessionId, turnId, "same again");
+    await store.append(repeated);
+    await store.append(message(sessionId, turnId, "something else"));
+
+    const third = await store.append(repeated, { isRetry: true });
+
+    expect(third.seq).toBe(3);
+  });
+
+  it("writes normally when nothing says an attempt was lost", async () => {
+    const sessionId = await seedSession();
+    const event = message(sessionId, randomUUID(), "twice on purpose");
+    await store.append(event);
+
+    await store.append(event);
+
+    expect(await store.readFrom(sessionId, 0)).toHaveLength(2);
+  });
+
+  it("recognises its own row through the timestamp normalization", async () => {
+    // `created_at` is timestamptz, so what comes back is not string-identical to what went in.
+    // Comparing the two raw would find no match and write the event a second time.
+    const sessionId = await seedSession();
+    const event: PendingEvent = {
+      type: "agent.message",
+      sessionId,
+      turnId: randomUUID(),
+      createdAt: "2026-08-09T12:00:00Z",
+      payload: { text: "hi" },
+    };
+    const first = await store.append(event);
+
+    expect(await store.append(event, { isRetry: true })).toStrictEqual(first);
+    expect(await store.readFrom(sessionId, 0)).toHaveLength(1);
+  });
+
+  it("is the first event of a session, when that is what was lost", async () => {
+    const sessionId = await seedSession();
+
+    const only = await store.append(message(sessionId, randomUUID(), "the very first"), {
+      isRetry: true,
+    });
+
+    expect(only.seq).toBe(1);
+  });
+});
+
 describe("readFrom", () => {
   it("returns exactly the events after the given seq, in order", async () => {
     const sessionId = await seedSession();

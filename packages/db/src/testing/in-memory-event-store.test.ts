@@ -78,6 +78,37 @@ describe("InMemoryEventStore", () => {
     expect(await new InMemoryEventStore().readFrom(SESSION_A, 0)).toEqual([]);
   });
 
+  it("writes a second copy of an event when nothing says the first attempt may have landed", async () => {
+    // The dedupe is opt-in, and has to be: a turn legitimately emits two identical-looking
+    // events, and a store that swallowed the second would lose a line of the transcript.
+    const store = new InMemoryEventStore();
+    await store.append(message(SESSION_A, "same"));
+    await store.append(message(SESSION_A, "same"));
+
+    expect(await store.readFrom(SESSION_A, 0)).toHaveLength(2);
+  });
+
+  it("returns the row already written rather than a second one, when told this is a retry", async () => {
+    const store = new InMemoryEventStore();
+    const pending = message(SESSION_A, "committed, then the connection dropped");
+    const first = await store.append(pending);
+
+    const retried = await store.append(pending, { isRetry: true });
+
+    expect(retried).toStrictEqual(first);
+    expect(await store.readFrom(SESSION_A, 0)).toHaveLength(1);
+  });
+
+  it("still writes a retried event that never landed", async () => {
+    const store = new InMemoryEventStore();
+    await store.append(message(SESSION_A, "one"));
+
+    const second = await store.append(message(SESSION_A, "two"), { isRetry: true });
+
+    expect(second.seq).toBe(2);
+    expect(await store.readFrom(SESSION_A, 0)).toHaveLength(2);
+  });
+
   it("hands out copies, so a caller mutating a read event cannot corrupt the log", async () => {
     const store = new InMemoryEventStore();
     await store.append(message(SESSION_A, "original"));

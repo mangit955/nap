@@ -43,6 +43,8 @@ read the section covering whatever you are about to touch, not the whole file.
 
 - **A field added to an event payload has to default, or every session written before it becomes unreadable.** Rows are parsed against `NapEventSchema` on the way out of Postgres, and a strict payload with a new required key rejects the payload that was written last week — replay throws, and the failure surfaces as a session that will not load rather than as a schema mistake. `turn.started`'s `source` is the one field carrying a `.default()` for this reason, and the default has to be a *fact* about the old rows (a turn recorded before there was a verifier to prompt one was prompted by a user), never a placeholder.
 
+- **An event read back from Postgres is never string-identical to the one that went in, so comparing the two raw finds no match.** `created_at` is `timestamptz`: `…T12:00:00Z` returns as `…T12:00:00.000Z`. This only matters in one place and it matters a lot there — `PostgresEventStore.append` deciding, on a retry, whether the interrupted attempt already committed. Compared raw, the answer is always "no" and the event is written twice, which is a duplicated message in somebody's chat rather than a failing test. Normalize through `new Date(...).toISOString()` before handing anything to `isSameEvent`.
+
 - **A `Proxy` cannot reach a class's `#private` fields.** The receiver becomes the proxy, so any method touching `#state` throws `TypeError: Receiver must be an instance of class`. Wrapping an object that has private state means spelling out the delegated methods.
 
 ## Model and provider

@@ -6,6 +6,10 @@
  * before publish and that `seq` had no gaps, both of which are properties of the caller.
  * Standing in for the database here keeps those tests in the free suite.
  *
+ * It holds the same non-duplication rule for a retried append as the real store, for the same
+ * reason a fake holds any invariant: a caller whose retry would have written a second copy of
+ * an event must not pass here and fail in production.
+ *
  * It holds the two invariants the real store is judged on — `seq` starts at 1, increments
  * by one, and is counted **per session** — because a fake that assigned sequence numbers
  * loosely would let a caller with a real ordering bug pass.
@@ -15,7 +19,13 @@
  * a failure no database would ever reproduce.
  */
 
-import type { EventStore, PendingEvent, StoredEvent } from "@nap/shared/ports/event-store";
+import { isSameEvent } from "@nap/shared/event-identity";
+import type {
+  AppendOptions,
+  EventStore,
+  PendingEvent,
+  StoredEvent,
+} from "@nap/shared/ports/event-store";
 
 function copy(event: StoredEvent): StoredEvent {
   return structuredClone(event);
@@ -24,8 +34,16 @@ function copy(event: StoredEvent): StoredEvent {
 export class InMemoryEventStore implements EventStore {
   readonly #bySession = new Map<string, StoredEvent[]>();
 
-  async append(event: PendingEvent): Promise<StoredEvent> {
+  async append(event: PendingEvent, options: AppendOptions = {}): Promise<StoredEvent> {
     const existing = this.#bySession.get(event.sessionId) ?? [];
+
+    // A retry may be following an append that committed and then lost its acknowledgement. The
+    // real store answers this under its advisory lock; here the array is the serialization.
+    if (options.isRetry === true) {
+      const last = existing.at(-1);
+      if (last !== undefined && isSameEvent(event, last)) return copy(last);
+    }
+
     const stored = { ...event, seq: existing.length + 1 } as StoredEvent;
 
     existing.push(copy(stored));

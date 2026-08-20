@@ -11,6 +11,11 @@
  * is cluster-wide. `unique(session_id, seq)` remains the database's backstop — it is simply
  * never expected to fire.
  *
+ * The lock earns its keep a second time for a retried append. A caller whose first attempt
+ * failed without a knowable outcome sets `isRetry`, and the store then decides *under the same
+ * lock* whether that attempt committed, by comparing the session's newest row against the event
+ * it was handed. Doing it outside the lock would race the very writer being asked about.
+ *
  * Both methods read `created_at` back from the row rather than echoing what the caller
  * passed. The column is `timestamptz` and the contract is an ISO-8601 string, so the value
  * is normalized on the way through; taking it from the row in both places is what makes a
@@ -20,9 +25,15 @@
  * corruption rather than an expected failure, so it throws.
  */
 
+import { isSameEvent } from "@nap/shared/event-identity";
 import { type NapEvent, NapEventSchema } from "@nap/shared/events";
-import type { EventStore, PendingEvent, StoredEvent } from "@nap/shared/ports/event-store";
-import { and, asc, eq, gt, sql } from "drizzle-orm";
+import type {
+  AppendOptions,
+  EventStore,
+  PendingEvent,
+  StoredEvent,
+} from "@nap/shared/ports/event-store";
+import { and, asc, desc, eq, gt, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { events } from "./schema.ts";
 
@@ -40,6 +51,17 @@ function toEvent(row: EventRow): StoredEvent {
   } satisfies Record<keyof NapEvent, unknown>);
 }
 
+/**
+ * The event as the column would hold it.
+ *
+ * `created_at` is `timestamptz`, so a row read back is never string-identical to what the
+ * caller passed — `…T12:00:00Z` returns as `…T12:00:00.000Z`. Comparing the two raw would find
+ * no match for an event that is plainly there, and the retry would write it twice.
+ */
+function normalized(event: PendingEvent): PendingEvent {
+  return { ...event, createdAt: new Date(event.createdAt).toISOString() };
+}
+
 export class PostgresEventStore implements EventStore {
   readonly #db: PostgresJsDatabase;
 
@@ -51,11 +73,28 @@ export class PostgresEventStore implements EventStore {
     this.#db = db;
   }
 
-  async append(event: PendingEvent): Promise<StoredEvent> {
+  async append(event: PendingEvent, options: AppendOptions = {}): Promise<StoredEvent> {
     const row = await this.#db.transaction(async (tx) => {
       // Held until the transaction ends, so the read of max(seq) below and the insert that
       // depends on it cannot be interleaved with another writer's.
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${event.sessionId}))`);
+
+      // A retry may be following an attempt that committed and then lost its acknowledgement,
+      // which is indistinguishable from one that never committed. Under the same lock the
+      // newest row is settled, and the newest row is the only one the interrupted attempt can
+      // have written — a session's appends are serialized, both by the sink's own chain and by
+      // there being one leased request per session — so if it is this event, the append
+      // already happened.
+      if (options.isRetry === true) {
+        const [newest] = await tx
+          .select()
+          .from(events)
+          .where(eq(events.sessionId, event.sessionId))
+          .orderBy(desc(events.seq))
+          .limit(1);
+
+        if (newest !== undefined && isSameEvent(normalized(event), toEvent(newest))) return newest;
+      }
 
       const [inserted] = await tx
         .insert(events)

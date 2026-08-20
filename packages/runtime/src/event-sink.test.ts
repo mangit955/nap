@@ -36,21 +36,42 @@ function pending(type: PendingEvent["type"], payload: object = {}): PendingEvent
   } as PendingEvent;
 }
 
+/**
+ * How an append fails on a given attempt.
+ *
+ * `committed` is the case the whole retry design turns on: the transaction went through and
+ * the acknowledgement did not come back, which the caller cannot tell from a clean failure.
+ */
+type ScriptedFailure = { error: unknown; committed?: boolean };
+
 /** A store and a bus that write their calls into one shared list. */
-function recording(options: { failAppendAt?: number } = {}) {
+function recording(
+  options: {
+    failAppendAt?: number;
+    /** Returns how attempt `n` at the append fails, or `undefined` for one that succeeds. */
+    appendFailure?: (attempt: number) => ScriptedFailure | undefined;
+  } = {},
+) {
   const calls: string[] = [];
+  const waits: number[] = [];
+  const retries: boolean[] = [];
   const store = new InMemoryEventStore();
   const bus = new InMemoryEventBus();
   let appends = 0;
 
   const recordingStore: EventStore = {
-    append: async (event) => {
+    append: async (event, appendOptions) => {
       appends += 1;
-      if (appends === options.failAppendAt) {
+      retries.push(appendOptions?.isRetry === true);
+
+      const scripted = options.appendFailure?.(appends);
+      if (appends === options.failAppendAt || scripted !== undefined) {
+        if (scripted?.committed === true) await store.append(event, appendOptions);
         calls.push(`append-failed:${event.type}`);
-        throw new Error("the store is down");
+        throw scripted?.error ?? new Error("the store is down");
       }
-      const stored = await store.append(event);
+
+      const stored = await store.append(event, appendOptions);
       calls.push(`append:${event.type}`);
       return stored;
     },
@@ -65,7 +86,18 @@ function recording(options: { failAppendAt?: number } = {}) {
     subscribe: (sessionId, handler) => bus.subscribe(sessionId, handler),
   };
 
-  return { calls, store, sink: new EventSink(recordingStore, recordingBus) };
+  const sink = new EventSink(recordingStore, recordingBus, {
+    sleep: async (ms) => {
+      waits.push(ms);
+    },
+  });
+
+  return { calls, waits, retries, store, sink, attempts: () => appends };
+}
+
+/** A failure of a class the sink is allowed to try again. */
+function transient(): Error {
+  return Object.assign(new Error("connection lost"), { code: "CONNECTION_CLOSED" });
 }
 
 describe("the order events reach the world in", () => {
@@ -136,6 +168,141 @@ describe("when the store fails", () => {
       "publish:turn.started",
       "append-failed:agent.message",
     ]);
+  });
+});
+
+describe("when the store fails transiently", () => {
+  /**
+   * At a hundred concurrent turns a dropped pooled connection is routine, and treating each one
+   * as fatal throws away a whole turn along with its repair budget. See `docs/scaling-design.md`
+   * §17.
+   */
+
+  it("tries again and carries on", async () => {
+    const { calls, sink, attempts } = recording({
+      appendFailure: (attempt) => (attempt === 1 ? { error: transient() } : undefined),
+    });
+
+    sink.emit(pending("user.message", { text: "build me a todo list" }));
+    await sink.drain();
+
+    expect(attempts()).toBe(2);
+    expect(calls).toEqual([
+      "append-failed:user.message",
+      "append:user.message",
+      "publish:user.message",
+    ]);
+  });
+
+  it("leaves exactly one row when the lost attempt had already committed", async () => {
+    // The dangerous case. The transaction went through and the acknowledgement did not come
+    // back; a retry that inserted again would put the same message in the chat twice.
+    const { sink, store, calls } = recording({
+      appendFailure: (attempt) =>
+        attempt === 1 ? { error: transient(), committed: true } : undefined,
+    });
+
+    sink.emit(pending("agent.message", { text: "on it" }));
+    await sink.drain();
+
+    const written = await store.readFrom(SESSION_ID, 0);
+    expect(written).toHaveLength(1);
+    expect(calls.filter((call) => call.startsWith("publish:"))).toEqual(["publish:agent.message"]);
+  });
+
+  it("tells the store when an append is a retry, and only then", async () => {
+    // The store cannot see for itself that an earlier attempt may have committed, and it is the
+    // only place that can settle the question under the lock it appends with.
+    const { sink, retries } = recording({
+      appendFailure: (attempt) => (attempt <= 1 ? { error: transient() } : undefined),
+    });
+
+    sink.emit(pending("turn.started"));
+    await sink.drain();
+
+    expect(retries).toEqual([false, true]);
+  });
+
+  it("waits the backoff schedule between attempts", async () => {
+    const { sink, waits } = recording({
+      appendFailure: (attempt) => (attempt <= 2 ? { error: transient() } : undefined),
+    });
+
+    sink.emit(pending("turn.started"));
+    await sink.drain();
+
+    // 100 and 400, each jittered by up to a quarter either way.
+    expect(waits).toHaveLength(2);
+    expect(waits[0]).toBeGreaterThanOrEqual(75);
+    expect(waits[0]).toBeLessThanOrEqual(125);
+    expect(waits[1]).toBeGreaterThanOrEqual(300);
+    expect(waits[1]).toBeLessThanOrEqual(500);
+  });
+
+  it("gives up after three attempts and fails as it always did", async () => {
+    const { sink, calls, attempts } = recording({ appendFailure: () => ({ error: transient() }) });
+
+    sink.emit(pending("turn.started"));
+    sink.emit(pending("agent.message", { text: "on it" }));
+
+    await expect(sink.drain()).rejects.toThrow("connection lost");
+    expect(attempts()).toBe(3);
+    // Sticky: the second event is never attempted, and nothing was published.
+    expect(calls).toEqual([
+      "append-failed:turn.started",
+      "append-failed:turn.started",
+      "append-failed:turn.started",
+    ]);
+  });
+
+  it("keeps the ordering rule while retrying", async () => {
+    // A retry must not let the event behind it overtake the one being retried.
+    const { sink, calls } = recording({
+      appendFailure: (attempt) => (attempt === 2 ? { error: transient() } : undefined),
+    });
+
+    sink.emit(pending("turn.started"));
+    sink.emit(pending("agent.message", { text: "on it" }));
+    sink.emit(pending("turn.completed", COMPLETED));
+    await sink.drain();
+
+    expect(calls).toEqual([
+      "append:turn.started",
+      "publish:turn.started",
+      "append-failed:agent.message",
+      "append:agent.message",
+      "publish:agent.message",
+      "append:turn.completed",
+      "publish:turn.completed",
+    ]);
+  });
+});
+
+describe("when the store fails in a way retrying cannot help", () => {
+  it.each([
+    ["a unique violation", "23505"],
+    ["a foreign key violation", "23503"],
+  ])("does not retry %s", async (_name, code) => {
+    // A duplicate `(session_id, seq)` means the ordering guarantee itself broke. Retrying would
+    // either write the event twice or bury that.
+    const error = Object.assign(new Error("duplicate key value"), { code });
+    const { sink, attempts } = recording({ appendFailure: () => ({ error }) });
+
+    sink.emit(pending("turn.started"));
+
+    await expect(sink.drain()).rejects.toThrow("duplicate key value");
+    expect(attempts()).toBe(1);
+  });
+
+  it("does not retry a parse failure", async () => {
+    const error = Object.assign(new Error("invalid payload"), { name: "ZodError" });
+    const { sink, attempts, waits } = recording({ appendFailure: () => ({ error }) });
+
+    sink.emit(pending("turn.started"));
+
+    await expect(sink.drain()).rejects.toThrow("invalid payload");
+    expect(attempts()).toBe(1);
+    expect(waits).toEqual([]);
   });
 });
 
