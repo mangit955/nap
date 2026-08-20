@@ -61,15 +61,27 @@ const MISSED_HEARTBEATS_BEFORE_DOWN = 3;
 /**
  * How far a session's log has been read, and whether that number can be trusted.
  *
- * `known` is the subtle half. A subscription starts by asking where the log currently ends,
- * because a cursor of zero would hand the subscriber the entire history the first time
- * anything happened. That question is a query, and an event can be appended while it is in
- * flight — so a notification arriving before the answer wins, and sets the cursor to just
- * below its own `seq`. The event a notification announces is therefore never skipped, whatever
- * order the two resolve in. Once `known`, nothing moves the cursor backwards again, so a
- * notification arriving out of order cannot cause a re-read.
+ * The two flags are the subtle half. A subscription starts by asking where the log currently
+ * ends, because a cursor of zero would hand the subscriber the entire history the first time
+ * anything happened — and that question is a query, which an append can commit in the middle
+ * of. `known` says the cursor has a value at all; `settled` says a read has actually run
+ * against it.
+ *
+ * **Until it is settled, a notification may pull the cursor backwards**, and that is what
+ * closes the only gap this arrangement can otherwise have. `openEventStream` reads its history
+ * and the bus reads the head as two independent queries at two independent moments; an event
+ * committing between them is in neither snapshot, so a head-derived cursor would sit *above* an
+ * event nobody had delivered and the notification announcing it would be discarded as old. A
+ * notification naming a `seq` at or below an unsettled cursor is therefore proof that the head
+ * was read too late, and it wins. It cannot re-deliver anything, because nothing has been
+ * delivered yet.
+ *
+ * **Once settled the cursor only ever moves forwards.** Notifications genuinely can arrive out
+ * of `seq` order — two processes appending to one session commit in lock order but publish
+ * whenever each returns — and a cursor that could still walk backwards would answer the late
+ * one by re-reading a range it had already handed over.
  */
-type Cursor = { after: number; known: boolean };
+type Cursor = { after: number; known: boolean; settled: boolean };
 
 export type PostgresNotifyEventBusOptions = {
   /** Where events are actually read from. The notification only says that there are some. */
@@ -188,7 +200,7 @@ export class PostgresNotifyEventBus implements EventBus {
     this.#subscribers.set(sessionId, handlers);
 
     if (!this.#cursors.has(sessionId)) {
-      this.#cursors.set(sessionId, { after: 0, known: false });
+      this.#cursors.set(sessionId, { after: 0, known: false, settled: false });
       this.#enqueue(() => this.#establish(sessionId));
     }
 
@@ -222,6 +234,10 @@ export class PostgresNotifyEventBus implements EventBus {
         // Deliberately silent. A failed heartbeat is reported by `listening` going false,
         // which is the signal that matters; a log line per tick during an outage is noise.
       });
+    // The send half goes over the pool, so trouble *there* also reads as a down listener. That
+    // is not a false reading worth engineering away: readiness pings the same pool for its
+    // `database` check and would fail on it anyway, and three consecutive missed echoes is
+    // already more patience than a momentarily busy pool needs.
 
     this.#enqueue(() => this.#drain([...this.#subscribers.keys()]));
     await this.#chain;
@@ -239,6 +255,10 @@ export class PostgresNotifyEventBus implements EventBus {
     if (!cursor.known) {
       cursor.after = notification.seq - 1;
       cursor.known = true;
+    } else if (!cursor.settled && notification.seq - 1 < cursor.after) {
+      // The head query resolved *after* this event committed, so it read a log that already
+      // contained an event nobody has delivered. See the note on `Cursor`.
+      cursor.after = notification.seq - 1;
     }
 
     this.#enqueue(() => this.#drain([notification.sessionId]));
@@ -276,7 +296,17 @@ export class PostgresNotifyEventBus implements EventBus {
       cursors.set(sessionId, cursor.after);
     }
 
-    for (const event of await this.#reader.readTails(cursors)) {
+    const tail = await this.#reader.readTails(cursors);
+
+    // Before delivering rather than after: a handler runs synchronously and may subscribe, and
+    // what `settled` records is that a read has been *made* against this cursor, so the head it
+    // came from can no longer be overruled.
+    for (const sessionId of cursors.keys()) {
+      const cursor = this.#cursors.get(sessionId);
+      if (cursor !== undefined) cursor.settled = true;
+    }
+
+    for (const event of tail) {
       const cursor = this.#cursors.get(event.sessionId);
       // Unsubscribed while the read was in flight, or already delivered by a read that
       // overlapped this one's range.

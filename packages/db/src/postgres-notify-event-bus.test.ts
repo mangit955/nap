@@ -72,6 +72,16 @@ async function emit(
   return stored;
 }
 
+/**
+ * Lets the bus's internal promise chain run without asking it to read.
+ *
+ * `tick` would do it too, but a tick also drains — and for the establishment race below the
+ * whole point is to observe the cursor *between* the head query answering and any read.
+ */
+function tickOver(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 /** The bus reads on its own promise chain; `tick` is the point at which it has caught up. */
 async function settle(...buses: PostgresNotifyEventBus[]): Promise<void> {
   for (const bus of buses) await bus.tick();
@@ -158,6 +168,76 @@ describe("fanout over a notification channel", () => {
     await settle(bus);
 
     expect(inbox).toEqual([racing]);
+  });
+
+  it("delivers an event the head query saw but the subscriber's own replay did not", async () => {
+    const hub = new NotifyHub();
+    const store = new InMemoryEventStore();
+
+    // The gap this closes is a race between two independent readers. `openEventStream`
+    // subscribes, then reads its history; the bus reads the head of the log. An event that
+    // commits *between* those two queries is in neither snapshot — so a cursor taken from the
+    // head would sit above an event nobody had delivered, and the notification announcing it
+    // would be discarded as something already seen. Held here rather than raced: the head query
+    // does not answer until after the event is in the log.
+    let releaseHead = () => {};
+    const held = new Promise<void>((resolve) => {
+      releaseHead = resolve;
+    });
+    const slowHead = {
+      headSeq: async (sessionId: string) => {
+        await held;
+        return store.headSeq(sessionId);
+      },
+      readTails: (cursors: ReadonlyMap<string, number>) => store.readTails(cursors),
+    };
+
+    const bus = new PostgresNotifyEventBus({
+      reader: slowHead,
+      transport: hub.connect(),
+      pollIntervalMs: 60_000,
+    });
+    await bus.start();
+    running.push(bus);
+
+    const inbox: StoredEvent[] = [];
+    bus.subscribe(SESSION_A, (event) => inbox.push(event));
+
+    // The append commits while the head query is still in flight, so the head — released next —
+    // reports a log that already contains it and the cursor lands *above* an undelivered event.
+    // The notification is deliberately sent after that, which is the ordering that used to lose
+    // the event: the cursor was already known, so the wake-up read as something long since seen.
+    const missed = await store.append(pending(SESSION_A, "committed mid-establish"));
+    releaseHead();
+    await tickOver();
+
+    bus.publish(missed);
+    await settle(bus);
+
+    expect(inbox).toEqual([missed]);
+  });
+
+  it("does not re-deliver when notifications arrive out of seq order", async () => {
+    const hub = new NotifyHub();
+    const store = new InMemoryEventStore();
+    const { bus, received } = await replica(hub, store);
+    const inbox = received(SESSION_A);
+    await settle(bus);
+
+    const one = await emit(store, bus, pending(SESSION_A, "one"));
+    await settle(bus);
+
+    // Two processes appending to one session commit in the store's lock order but publish
+    // whenever each of them returns, so the wake-ups can genuinely arrive the wrong way round —
+    // and the later one names a `seq` well below where the cursor has already reached.
+    const two = await store.append(pending(SESSION_A, "two"));
+    const three = await store.append(pending(SESSION_A, "three"));
+    bus.publish(three);
+    await settle(bus);
+    bus.publish(two);
+    await settle(bus);
+
+    expect(inbox).toEqual([one, two, three]);
   });
 
   it("stops delivering once unsubscribed", async () => {

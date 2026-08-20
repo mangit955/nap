@@ -64,7 +64,11 @@ export class InMemoryEventStore implements EventStore, EventTailReader {
   }
 
   async headSeq(sessionId: string): Promise<number> {
-    return this.#bySession.get(sessionId)?.length ?? 0;
+    // The highest `seq`, not the number of rows. They agree here because this fake is also what
+    // assigns them — which is exactly why taking the count would be the wrong shortcut: it would
+    // make a caller that confuses the two impossible to catch anywhere but production.
+    const events = this.#bySession.get(sessionId) ?? [];
+    return events.reduce((highest, event) => Math.max(highest, event.seq), 0);
   }
 
   async readTails(cursors: SessionCursors): Promise<StoredEvent[]> {

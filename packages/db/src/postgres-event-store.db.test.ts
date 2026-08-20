@@ -423,3 +423,53 @@ describe("every event type survives the round trip", () => {
     expect(read).toStrictEqual(appended);
   });
 });
+
+/**
+ * The batched read the notify bus polls with, and the head query a subscription starts from.
+ *
+ * Separate from `readFrom` because the shape is what matters: a hundred live sessions on a 2s
+ * tick has to be one query rather than a hundred, so this asks for several sessions at once and
+ * the assertions are about grouping and ordering rather than about any one row.
+ */
+describe("reading several sessions' tails at once", () => {
+  it("returns everything above each session's own cursor, in seq order", async () => {
+    const [first, second] = [await seedSession(), await seedSession()];
+    const turnId = randomUUID();
+
+    for (const text of ["a1", "a2", "a3"]) await store.append(message(first!, turnId, text));
+    for (const text of ["b1", "b2"]) await store.append(message(second!, turnId, text));
+
+    const tail = await store.readTails(
+      new Map([
+        [first!, 1],
+        [second!, 0],
+      ]),
+    );
+
+    expect(tail.filter((e) => e.sessionId === first).map((e) => e.seq)).toEqual([2, 3]);
+    expect(tail.filter((e) => e.sessionId === second).map((e) => e.seq)).toEqual([1, 2]);
+  });
+
+  it("reads nothing at all for an empty set of cursors", async () => {
+    // Not a micro-optimisation, and the reason it has a test of its own: `or()` over nothing is
+    // `undefined`, which drizzle reads as *no filter* — so without the guard a process with no
+    // subscribers would select every event in the table, every tick, forever.
+    const sessionId = await seedSession();
+    await store.append(message(sessionId, randomUUID(), "somebody else's event"));
+
+    expect(await store.readTails(new Map())).toEqual([]);
+  });
+
+  it("gives the head of a session's log, and 0 for one with no events", async () => {
+    const empty = await seedSession();
+    expect(await store.headSeq(empty!)).toBe(0);
+
+    const sessionId = await seedSession();
+    const turnId = randomUUID();
+    for (const text of ["one", "two"]) await store.append(message(sessionId, turnId, text));
+
+    expect(await store.headSeq(sessionId!)).toBe(2);
+    // Untouched by another session's log, which is what makes it a per-session cursor at all.
+    expect(await store.headSeq(empty!)).toBe(0);
+  });
+});

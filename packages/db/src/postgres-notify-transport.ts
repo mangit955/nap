@@ -1,17 +1,13 @@
 /**
  * `LISTEN`/`NOTIFY` over a postgres.js connection.
  *
- * **`LISTEN` needs a session-mode connection**, and that is the one operational constraint worth
- * getting right here. A listener is a piece of *session* state: a transaction pooler hands the
- * next statement to whichever backend is free, so the `LISTEN` would land on a connection that
- * is then returned to the pool and the process would hear nothing while every query it ran kept
- * working. Neon's pooled endpoint and PgBouncer in transaction mode are both this. postgres.js
- * already treats it that way — `sql.listen` opens a connection of its own with `max: 1` and no
- * idle timeout, and re-issues the `LISTEN` if it ever reconnects — so what this file adds is a
- * connection that is *only* used for that, opened from a URL that may need to be the direct
- * endpoint rather than the pooled one.
+ * Two connections rather than one, and which is which is the whole point: `listen` goes to a
+ * connection of its own, opened by `createListenerConnection`, which is where the reasoning
+ * about session mode and transaction poolers is written down. `notify` is a perfectly ordinary
+ * statement and goes through the pool.
  *
- * `notify` is a perfectly ordinary statement and goes through the pool.
+ * postgres.js does most of the work — `sql.listen` opens its own `max: 1` socket and re-issues
+ * the `LISTEN` if it reconnects — so what this adds is the separation and the port.
  *
  * Reconnecting silently is a mixed blessing: the channel comes back on its own, and nothing
  * tells the process it ever went away. `PostgresNotifyEventBus` covers that with its own

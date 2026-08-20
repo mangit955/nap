@@ -106,14 +106,11 @@ const BaseSchema = z.object({
    */
   NAP_EVENT_BUS: z.enum(["in-process", "postgres"]).default("in-process"),
   /**
-   * Where the `LISTEN` connection goes, when it cannot go where everything else does.
+   * Where the `LISTEN` connection goes, when it cannot go where everything else does — which is
+   * any deployment behind a transaction pooler. `createListenerConnection` in `@nap/db` says why
+   * that is not optional.
    *
-   * A listener is session state, so it cannot be opened through a transaction pooler: the
-   * `LISTEN` lands on a backend that is handed back to the pool, and the process then hears
-   * nothing while every query it runs keeps working — a failure with no error in it. Neon's
-   * pooled endpoint and PgBouncer in transaction mode are both this, and a deployment behind
-   * either points this at the direct endpoint. Absent means `DATABASE_URL`, which is right for
-   * a local Postgres and for anything not pooled.
+   * Absent means `DATABASE_URL`, which is right for a local Postgres and anything unpooled.
    */
   NAP_LISTEN_DATABASE_URL: z.string().min(1).optional(),
 

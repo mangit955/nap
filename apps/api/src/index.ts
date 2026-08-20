@@ -81,18 +81,20 @@ const events = new PostgresEventStore(db);
  * has no business answering requests, and the failure should be a boot that dies loudly rather
  * than a server that streams nothing.
  */
-const bus =
-  env.NAP_EVENT_BUS === "in-process"
-    ? new InProcessEventBus()
-    : new PostgresNotifyEventBus({
+const notifyBus =
+  env.NAP_EVENT_BUS === "postgres"
+    ? new PostgresNotifyEventBus({
         reader: events,
         transport: new PostgresNotifyTransport({
           notifier: client,
           listener: createListenerConnection(env.NAP_LISTEN_DATABASE_URL ?? env.DATABASE_URL),
         }),
-      });
+      })
+    : null;
 
-if (bus instanceof PostgresNotifyEventBus) await bus.start();
+const bus = notifyBus ?? new InProcessEventBus();
+
+if (notifyBus !== null) await notifyBus.start();
 
 const sandbox = new E2BSandboxManager({
   template: NAP_TEMPLATE,
@@ -233,16 +235,18 @@ const { app, reaper } = composeNap({
   readiness: createHealthProbe({
     checks: [
       { name: "database", probe: () => pingDatabase(db) },
-      ...(bus instanceof PostgresNotifyEventBus
-        ? [
+      ...(notifyBus === null
+        ? []
+        : [
             {
               name: "listener",
               probe: async () => {
-                if (!bus.listening) throw new Error("the event listener has stopped delivering");
+                if (!notifyBus.listening) {
+                  throw new Error("the event listener has stopped delivering");
+                }
               },
             },
-          ]
-        : []),
+          ]),
     ],
     ttlMs: 1000,
   }),
@@ -253,10 +257,19 @@ const { app, reaper } = composeNap({
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
     reaper.stop();
+
     // Closing the listener too, so a rolling restart does not leave a `LISTEN` connection
-    // holding a backend open until the database notices the socket is gone.
-    if (bus instanceof PostgresNotifyEventBus) void bus.stop();
-    process.exit(0);
+    // holding a backend open until the database notices the socket is gone. Exiting is inside
+    // the `finally` because it has to happen either way: a close that hangs must not turn a
+    // graceful shutdown into a process the platform has to kill, and an unclosed connection is
+    // reclaimed on its own once the socket drops.
+    void (async () => {
+      try {
+        await notifyBus?.stop();
+      } finally {
+        process.exit(0);
+      }
+    })();
   });
 }
 
