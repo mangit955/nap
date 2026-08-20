@@ -21,7 +21,8 @@ API is the one that holds all the state, spends all the money, and must not be s
 
 - `InProcessEventBus` (`packages/db/src/in-process-event-bus.ts`) fans out events to
   WebSocket subscribers *inside one process*. A browser connected to instance A would never
-  see a turn that ran on B — the chat would simply stop moving.
+  see a turn that ran on B — the chat would simply stop moving. **This one now has a fix, and
+  it is off by default** — see below.
 - `TurnRegistry` (cancellation, and the per-session queue that stops one project starting
   two sandboxes) is in memory.
 - `TurnRateLimiter` is in memory, so N instances mean N times the rate limit.
@@ -35,6 +36,27 @@ a reaper that is not reaping while the sandboxes it should have cleaned up keep 
 The event log itself is durable and ordered in Postgres, so a *restart* loses nothing — a
 client reconnects with `?afterSeq=` and gets exactly the gap. It is concurrency that breaks
 this, not restarts.
+
+### The fanout half of it, and how to turn it on
+
+`NAP_EVENT_BUS=postgres` swaps `InProcessEventBus` for `PostgresNotifyEventBus`, which
+announces `{sessionId, seq}` through `pg_notify` and lets every process read the events out of
+the durable log. That removes the first bullet above and **none of the others** — the registry,
+the rate limiters and the reaper are still per-process, so this is a prerequisite for a second
+replica rather than permission for one. `railway.json` still pins `numReplicas: 1`.
+
+Two things to get right when you do turn it on:
+
+- **`LISTEN` cannot go through a connection pooler.** It is session state, and a transaction
+  pooler hands the next statement to whichever backend is free — so the `LISTEN` lands on a
+  connection that is returned to the pool, and the process hears nothing while every query it
+  runs keeps working. Behind Neon's pooled endpoint (or PgBouncer in transaction mode), set
+  `NAP_LISTEN_DATABASE_URL` to the **direct** endpoint. Omit it otherwise.
+- **`/readyz` gains a `listener` check and fails on it**, so a pod whose fanout has degraded to
+  the 2s catch-up poll leaves the rotation while another pod's has not. `/livez` does not: the
+  connection reconnects on its own, and restarting the process would only drop the sockets it
+  still had. A `503` from `/readyz` with `{"checks":{"database":"ok","listener":"down"}}` means
+  exactly this, and usually means the listener is going through the pooler.
 
 ## First deployment
 

@@ -26,12 +26,13 @@ import type {
   PendingEvent,
   StoredEvent,
 } from "@nap/shared/ports/event-store";
+import type { EventTailReader, SessionCursors } from "../event-tail-reader.ts";
 
 function copy(event: StoredEvent): StoredEvent {
   return structuredClone(event);
 }
 
-export class InMemoryEventStore implements EventStore {
+export class InMemoryEventStore implements EventStore, EventTailReader {
   readonly #bySession = new Map<string, StoredEvent[]>();
 
   async append(event: PendingEvent, options: AppendOptions = {}): Promise<StoredEvent> {
@@ -60,5 +61,22 @@ export class InMemoryEventStore implements EventStore {
   async readFrom(sessionId: string, afterSeq: number): Promise<StoredEvent[]> {
     const events = this.#bySession.get(sessionId) ?? [];
     return events.filter((event) => event.seq > afterSeq).map(copy);
+  }
+
+  async headSeq(sessionId: string): Promise<number> {
+    return this.#bySession.get(sessionId)?.length ?? 0;
+  }
+
+  async readTails(cursors: SessionCursors): Promise<StoredEvent[]> {
+    const tails = [...cursors].flatMap(([sessionId, afterSeq]) =>
+      (this.#bySession.get(sessionId) ?? []).filter((event) => event.seq > afterSeq),
+    );
+
+    // Sorted the way the real store's `order by session_id, seq` sorts, so a caller that
+    // happens to depend on the grouping does not pass here and behave differently in
+    // production. Within a session that is `seq` order, which is the part that matters.
+    return tails
+      .sort((a, b) => (a.sessionId === b.sessionId ? 0 : a.sessionId < b.sessionId ? -1 : 1))
+      .map(copy);
   }
 }

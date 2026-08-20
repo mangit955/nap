@@ -91,6 +91,32 @@ const BaseSchema = z.object({
     .refine((value) => Buffer.from(value, "base64").length === 32, {
       message: "must be 32 bytes of base64 — try `openssl rand -base64 32`",
     }),
+  /**
+   * How a turn's events reach the sockets watching them.
+   *
+   * `in-process` is an emitter keyed by session id: correct for exactly one replica, and
+   * silently wrong for two — a socket on one process never sees a turn run by another and the
+   * chat simply stops moving. `postgres` announces `{sessionId, seq}` through `pg_notify` and
+   * every process reads the events from the durable log, which works whatever the replica count
+   * is.
+   *
+   * **Defaults to `in-process`, deliberately**, so the deployment that exists keeps working
+   * exactly as it did while the other one is proven. Turning it on is a prerequisite for
+   * retiring the one-replica rule in `docs/DEPLOY.md`, not a substitute for the rest of it.
+   */
+  NAP_EVENT_BUS: z.enum(["in-process", "postgres"]).default("in-process"),
+  /**
+   * Where the `LISTEN` connection goes, when it cannot go where everything else does.
+   *
+   * A listener is session state, so it cannot be opened through a transaction pooler: the
+   * `LISTEN` lands on a backend that is handed back to the pool, and the process then hears
+   * nothing while every query it runs keeps working — a failure with no error in it. Neon's
+   * pooled endpoint and PgBouncer in transaction mode are both this, and a deployment behind
+   * either points this at the direct endpoint. Absent means `DATABASE_URL`, which is right for
+   * a local Postgres and for anything not pooled.
+   */
+  NAP_LISTEN_DATABASE_URL: z.string().min(1).optional(),
+
   /** Environments are all strings; the rest of the app should not have to remember that. */
   PORT: z.coerce.number().int().positive().default(3001),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),

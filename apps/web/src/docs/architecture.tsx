@@ -20,7 +20,7 @@ API server (Hono on Bun)                ← gateway · sessions · streaming hub
          ├── SandboxManager ────────────► E2B sandbox      ← execution
          ├── EventStore (Postgres)         /workspace (git repo)
          ├── Verifier (@nap/verify)        vite dev :5173 → preview URL
-         └── EventBus (in-process)`;
+         └── EventBus (in-process, or Postgres NOTIFY)`;
 
 const DIRECTION = `runtime ──► context · agent · sandbox · storage · capture · db · verify ──► shared
 

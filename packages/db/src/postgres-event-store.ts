@@ -33,8 +33,9 @@ import type {
   PendingEvent,
   StoredEvent,
 } from "@nap/shared/ports/event-store";
-import { and, asc, eq, gt, sql } from "drizzle-orm";
+import { and, asc, eq, gt, max, or, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import type { EventTailReader, SessionCursors } from "./event-tail-reader.ts";
 import { events } from "./schema.ts";
 
 /** The shape `select().from(events)` and `.returning()` both produce. */
@@ -62,7 +63,7 @@ function normalized(event: PendingEvent): PendingEvent {
   return { ...event, createdAt: new Date(event.createdAt).toISOString() };
 }
 
-export class PostgresEventStore implements EventStore {
+export class PostgresEventStore implements EventStore, EventTailReader {
   readonly #db: PostgresJsDatabase;
 
   /**
@@ -125,6 +126,38 @@ export class PostgresEventStore implements EventStore {
       .from(events)
       .where(and(eq(events.sessionId, sessionId), gt(events.seq, afterSeq)))
       .orderBy(asc(events.seq));
+
+    return rows.map(toEvent);
+  }
+
+  async headSeq(sessionId: string): Promise<number> {
+    const [row] = await this.#db
+      .select({ head: max(events.seq) })
+      .from(events)
+      .where(eq(events.sessionId, sessionId));
+
+    // `max` over no rows is SQL NULL, and a session with no events has a log ending at 0 —
+    // which is exactly the cursor a subscriber to a brand-new session should start from.
+    return row?.head ?? 0;
+  }
+
+  async readTails(cursors: SessionCursors): Promise<StoredEvent[]> {
+    // Not merely an optimisation: `or()` over nothing is `undefined`, which drizzle reads as
+    // "no filter" — an empty map would otherwise read every event in the table.
+    if (cursors.size === 0) return [];
+
+    const perSession = [...cursors].map(([sessionId, afterSeq]) =>
+      and(eq(events.sessionId, sessionId), gt(events.seq, afterSeq)),
+    );
+
+    // One query rather than one per session. At a hundred live sessions the alternative is a
+    // hundred round trips every poll interval, against a database that is also serving turns.
+    // Each branch is an index seek on `unique(session_id, seq)`, so the disjunction stays cheap.
+    const rows = await this.#db
+      .select()
+      .from(events)
+      .where(or(...perSession))
+      .orderBy(asc(events.sessionId), asc(events.seq));
 
     return rows.map(toEvent);
   }

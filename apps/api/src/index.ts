@@ -17,9 +17,11 @@ import { createBedrockClient, toBedrockModel } from "@nap/agent/bedrock";
 import { ClaudeProvider } from "@nap/agent/claude-provider";
 import { createOpenRouterClient, toOpenRouterModel } from "@nap/agent/openrouter";
 import { ChromePageCapture } from "@nap/capture/chrome-page-capture";
-import { createDatabase, pingDatabase } from "@nap/db/client";
+import { createDatabase, createListenerConnection, pingDatabase } from "@nap/db/client";
 import { InProcessEventBus } from "@nap/db/in-process-event-bus";
 import { PostgresEventStore } from "@nap/db/postgres-event-store";
+import { PostgresNotifyEventBus } from "@nap/db/postgres-notify-event-bus";
+import { PostgresNotifyTransport } from "@nap/db/postgres-notify-transport";
 import { PostgresProjectSandboxStore } from "@nap/db/postgres-project-sandbox-store";
 import { PostgresProjectStore } from "@nap/db/postgres-project-store";
 import { PostgresSessionStore } from "@nap/db/postgres-session-store";
@@ -63,7 +65,34 @@ const logger = createLogger({ level: env.LOG_LEVEL });
 setRootLogger(logger);
 
 // One pool for the process; the stores are handed a database rather than opening their own.
-const { db } = createDatabase(env.DATABASE_URL);
+const { db, client } = createDatabase(env.DATABASE_URL);
+
+const events = new PostgresEventStore(db);
+
+/**
+ * How a turn's events reach the sockets watching them.
+ *
+ * Both implement the same port, so nothing above this line can tell which one it got — the
+ * difference is only whether a socket on *another* process hears anything. The Postgres one is
+ * behind an environment switch rather than simply replacing the other, because one replica is
+ * what is deployed today and a fanout change is not the sort of thing to prove in production.
+ *
+ * `start()` is awaited at the top level: a process that could not open its `LISTEN` connection
+ * has no business answering requests, and the failure should be a boot that dies loudly rather
+ * than a server that streams nothing.
+ */
+const bus =
+  env.NAP_EVENT_BUS === "in-process"
+    ? new InProcessEventBus()
+    : new PostgresNotifyEventBus({
+        reader: events,
+        transport: new PostgresNotifyTransport({
+          notifier: client,
+          listener: createListenerConnection(env.NAP_LISTEN_DATABASE_URL ?? env.DATABASE_URL),
+        }),
+      });
+
+if (bus instanceof PostgresNotifyEventBus) await bus.start();
 
 const sandbox = new E2BSandboxManager({
   template: NAP_TEMPLATE,
@@ -157,8 +186,8 @@ const { app, reaper } = composeNap({
   // One store and one bus for the process, shared by the runtime that publishes and the socket
   // that subscribes. Two instances would compile, boot, and stream nothing: the runtime would
   // be announcing to a bus with no listeners while every open tab waited on an empty one.
-  events: new PostgresEventStore(db),
-  bus: new InProcessEventBus(),
+  events,
+  bus,
   sandbox,
   objects,
   provider: buildProvider(),
@@ -192,11 +221,29 @@ const { app, reaper } = composeNap({
   // check is a local `select 1`, and the cost of staleness is real — a probe on a 5s period
   // would spend an extra failed interval both leaving the rotation and rejoining it.
   //
-  // The design also has readiness fail when the Postgres LISTEN connection is down. There is
-  // no LISTEN connection yet — it arrives with the notify-based event bus — and it becomes a
-  // second check here, not a change to anything above.
+  // **Readiness fails on a lost LISTEN connection**, which is design §24 item 5 decided rather
+  // than left open. The argument for merely warning is that such a pod can still serve HTTP and
+  // can still replay from the log, since the catch-up poll covers fanout — but "covers" here
+  // means every event arrives up to a poll interval late, and a chat that answers two seconds
+  // behind is the thing this whole endpoint exists to route around. Another pod is streaming
+  // properly; send the traffic there. It is not a *liveness* failure: the connection comes back
+  // on its own, and restarting the process would only throw away the sockets it still had.
+  //
+  // Absent from the in-process arrangement entirely, because there is nothing to be down.
   readiness: createHealthProbe({
-    checks: [{ name: "database", probe: () => pingDatabase(db) }],
+    checks: [
+      { name: "database", probe: () => pingDatabase(db) },
+      ...(bus instanceof PostgresNotifyEventBus
+        ? [
+            {
+              name: "listener",
+              probe: async () => {
+                if (!bus.listening) throw new Error("the event listener has stopped delivering");
+              },
+            },
+          ]
+        : []),
+    ],
     ttlMs: 1000,
   }),
 });
@@ -206,6 +253,9 @@ const { app, reaper } = composeNap({
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
     reaper.stop();
+    // Closing the listener too, so a rolling restart does not leave a `LISTEN` connection
+    // holding a backend open until the database notices the socket is gone.
+    if (bus instanceof PostgresNotifyEventBus) void bus.stop();
     process.exit(0);
   });
 }
@@ -217,6 +267,9 @@ logger.info(
     port: env.PORT,
     nodeEnv: env.NODE_ENV,
     platform: env.NAP_PLATFORM,
+    // Whether this process can share a session with another one. `in-process` and two replicas
+    // is a chat that stops moving, and that is worth being able to read off a boot line.
+    eventBus: env.NAP_EVENT_BUS,
     model: env.NAP_MODEL,
     effort: env.NAP_EFFORT,
     // Whether the dashboard's cards will get pictures. Off is a perfectly good state to run in,
