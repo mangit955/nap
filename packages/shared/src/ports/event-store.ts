@@ -30,18 +30,24 @@ export type PendingEvent = DistributiveOmit<NapEvent, "seq">;
 /** What the caller knows about this append that the store cannot see for itself. */
 export interface AppendOptions {
   /**
-   * That an earlier attempt at *this same event* failed without a knowable outcome.
+   * The highest `seq` this caller has seen durably appended for the session, set **only** when
+   * an earlier attempt at *this same event* failed without a knowable outcome.
    *
    * A connection lost between commit and acknowledgement looks exactly like a connection lost
    * before the commit, and a caller retrying the second case blindly writes the first one twice
    * — a fresh `seq` for an event already in the log, and a duplicated message in somebody's
-   * chat. An implementation told this is a retry must establish whether the event is already
-   * present, under whatever serialization it appends with, and return the stored row rather
-   * than write a second one.
+   * chat. An implementation given this must look for the event *above* the stated `seq`, under
+   * whatever serialization it appends with, and return the stored row rather than write a
+   * second one.
    *
-   * Only a caller that has already seen an attempt fail may set it.
+   * It is a watermark rather than a flag because content alone cannot answer the question. A
+   * turn legitimately emits the same event twice running — two `command.output` chunks carrying
+   * the same text in the same millisecond — and a store comparing against the whole log would
+   * read the *previous* event as this one's lost append, drop the new event and publish the
+   * previous `seq` twice. Everything at or below the watermark is known to be somebody else's,
+   * so only what came after it can be the interrupted attempt's.
    */
-  readonly isRetry?: boolean;
+  readonly retryAfterSeq?: number;
 }
 
 export interface EventStore {

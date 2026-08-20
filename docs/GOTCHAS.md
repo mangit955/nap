@@ -45,6 +45,8 @@ read the section covering whatever you are about to touch, not the whole file.
 
 - **An event read back from Postgres is never string-identical to the one that went in, so comparing the two raw finds no match.** `created_at` is `timestamptz`: `…T12:00:00Z` returns as `…T12:00:00.000Z`. This only matters in one place and it matters a lot there — `PostgresEventStore.append` deciding, on a retry, whether the interrupted attempt already committed. Compared raw, the answer is always "no" and the event is written twice, which is a duplicated message in somebody's chat rather than a failing test. Normalize through `new Date(...).toISOString()` before handing anything to `isSameEvent`.
 
+- **Content alone cannot identify an event, because a turn legitimately emits the same one twice running.** Two `command.output` chunks carrying the same text in the same millisecond agree on type, session, turn, `createdAt` and payload — everything but `seq`, which is the field in doubt. A retried append that matched on content alone would read the *previous* event as its own lost write, drop the new one and hand back a `seq` already published. `AppendOptions.retryAfterSeq` is a watermark for exactly this: rows at or below it were durable before the attempt began, so only what came after it can be the attempt's own.
+
 - **A `Proxy` cannot reach a class's `#private` fields.** The receiver becomes the proxy, so any method touching `#state` throws `TypeError: Receiver must be an instance of class`. Wrapping an object that has private state means spelling out the delegated methods.
 
 ## Model and provider

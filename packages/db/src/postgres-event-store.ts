@@ -12,9 +12,9 @@
  * never expected to fire.
  *
  * The lock earns its keep a second time for a retried append. A caller whose first attempt
- * failed without a knowable outcome sets `isRetry`, and the store then decides *under the same
- * lock* whether that attempt committed, by comparing the session's newest row against the event
- * it was handed. Doing it outside the lock would race the very writer being asked about.
+ * failed without a knowable outcome passes `retryAfterSeq`, and the store then decides *under
+ * the same lock* whether that attempt committed, by looking for the event among the rows above
+ * that watermark. Doing it outside the lock would race the very writer being asked about.
  *
  * Both methods read `created_at` back from the row rather than echoing what the caller
  * passed. The column is `timestamptz` and the contract is an ISO-8601 string, so the value
@@ -33,7 +33,7 @@ import type {
   PendingEvent,
   StoredEvent,
 } from "@nap/shared/ports/event-store";
-import { and, asc, desc, eq, gt, sql } from "drizzle-orm";
+import { and, asc, eq, gt, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { events } from "./schema.ts";
 
@@ -80,20 +80,22 @@ export class PostgresEventStore implements EventStore {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${event.sessionId}))`);
 
       // A retry may be following an attempt that committed and then lost its acknowledgement,
-      // which is indistinguishable from one that never committed. Under the same lock the
-      // newest row is settled, and the newest row is the only one the interrupted attempt can
-      // have written — a session's appends are serialized, both by the sink's own chain and by
-      // there being one leased request per session — so if it is this event, the append
-      // already happened.
-      if (options.isRetry === true) {
-        const [newest] = await tx
+      // which is indistinguishable from one that never committed. Under the same lock the log
+      // is settled, so the question is answerable: is this event already above the caller's
+      // watermark? Rows at or below it were durable before the attempt began and cannot be it,
+      // which is what stops an identical earlier event from being mistaken for this one.
+      //
+      // The scan is bounded by how far the log moved since the caller last heard from it —
+      // normally nothing, since a session's appends are serialized.
+      if (options.retryAfterSeq !== undefined) {
+        const since = await tx
           .select()
           .from(events)
-          .where(eq(events.sessionId, event.sessionId))
-          .orderBy(desc(events.seq))
-          .limit(1);
+          .where(and(eq(events.sessionId, event.sessionId), gt(events.seq, options.retryAfterSeq)))
+          .orderBy(asc(events.seq));
 
-        if (newest !== undefined && isSameEvent(normalized(event), toEvent(newest))) return newest;
+        const already = since.find((row) => isSameEvent(normalized(event), toEvent(row)));
+        if (already !== undefined) return already;
       }
 
       const [inserted] = await tx

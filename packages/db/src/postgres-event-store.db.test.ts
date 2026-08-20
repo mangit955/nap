@@ -147,7 +147,9 @@ describe("a retried append", () => {
     const event = message(sessionId, randomUUID(), "committed, then the connection dropped");
     const first = await store.append(event);
 
-    const retried = await store.append(event, { isRetry: true });
+    // Nothing was durable before the attempt, so the watermark is 0 and the row at seq 1 is
+    // a candidate.
+    const retried = await store.append(event, { retryAfterSeq: 0 });
 
     expect(retried).toStrictEqual(first);
     expect(await store.readFrom(sessionId, 0)).toHaveLength(1);
@@ -158,24 +160,40 @@ describe("a retried append", () => {
     const turnId = randomUUID();
     await store.append(message(sessionId, turnId, "one"));
 
-    const second = await store.append(message(sessionId, turnId, "two"), { isRetry: true });
+    const second = await store.append(message(sessionId, turnId, "two"), { retryAfterSeq: 1 });
 
     expect(second.seq).toBe(2);
     expectEventSequence(await store.readFrom(sessionId, 0), ["agent.message", "agent.message"]);
   });
 
   it("writes a genuine repeat that arrives after something else", async () => {
-    // Only the newest row is compared, because only the newest row can be the interrupted
-    // append's. An identical event further back is a real event of its own.
+    // An identical event at or below the watermark was durable before the attempt began, so
+    // it cannot be what the attempt wrote — it is a real event of its own.
     const sessionId = await seedSession();
     const turnId = randomUUID();
     const repeated = message(sessionId, turnId, "same again");
     await store.append(repeated);
     await store.append(message(sessionId, turnId, "something else"));
 
-    const third = await store.append(repeated, { isRetry: true });
+    const third = await store.append(repeated, { retryAfterSeq: 2 });
 
     expect(third.seq).toBe(3);
+  });
+
+  it("writes the second of two identical events, when the first is below the watermark", async () => {
+    // The case a content-only comparison gets wrong. A turn emits the same event twice running
+    // — two `command.output` chunks with the same text in the same millisecond — and the second
+    // one's attempt fails before committing. Matching on content alone finds the *first* event,
+    // drops the second and hands back a seq that was already published.
+    const sessionId = await seedSession();
+    const turnId = randomUUID();
+    const repeated = message(sessionId, turnId, "building...");
+    const first = await store.append(repeated);
+
+    const second = await store.append(repeated, { retryAfterSeq: first.seq });
+
+    expect(second.seq).toBe(2);
+    expect(await store.readFrom(sessionId, 0)).toHaveLength(2);
   });
 
   it("writes normally when nothing says an attempt was lost", async () => {
@@ -201,7 +219,7 @@ describe("a retried append", () => {
     };
     const first = await store.append(event);
 
-    expect(await store.append(event, { isRetry: true })).toStrictEqual(first);
+    expect(await store.append(event, { retryAfterSeq: 0 })).toStrictEqual(first);
     expect(await store.readFrom(sessionId, 0)).toHaveLength(1);
   });
 
@@ -209,7 +227,7 @@ describe("a retried append", () => {
     const sessionId = await seedSession();
 
     const only = await store.append(message(sessionId, randomUUID(), "the very first"), {
-      isRetry: true,
+      retryAfterSeq: 0,
     });
 
     expect(only.seq).toBe(1);

@@ -54,7 +54,7 @@ function recording(
 ) {
   const calls: string[] = [];
   const waits: number[] = [];
-  const retries: boolean[] = [];
+  const watermarks: (number | undefined)[] = [];
   const store = new InMemoryEventStore();
   const bus = new InMemoryEventBus();
   let appends = 0;
@@ -62,7 +62,7 @@ function recording(
   const recordingStore: EventStore = {
     append: async (event, appendOptions) => {
       appends += 1;
-      retries.push(appendOptions?.isRetry === true);
+      watermarks.push(appendOptions?.retryAfterSeq);
 
       const scripted = options.appendFailure?.(appends);
       if (appends === options.failAppendAt || scripted !== undefined) {
@@ -92,7 +92,7 @@ function recording(
     },
   });
 
-  return { calls, waits, retries, store, sink, attempts: () => appends };
+  return { calls, waits, watermarks, store, sink, attempts: () => appends };
 }
 
 /** A failure of a class the sink is allowed to try again. */
@@ -210,17 +210,45 @@ describe("when the store fails transiently", () => {
     expect(calls.filter((call) => call.startsWith("publish:"))).toEqual(["publish:agent.message"]);
   });
 
-  it("tells the store when an append is a retry, and only then", async () => {
+  it("does not mistake the identical event before it for its own lost append", async () => {
+    // A turn can emit the same event twice running — two `command.output` chunks carrying the
+    // same text, in the same millisecond. If the second one's attempt fails *before* it
+    // commits, a retry that recognises its own row by content alone matches the *first* event,
+    // drops the second, and publishes the first one's seq twice.
+    const { sink, store, calls } = recording({
+      appendFailure: (attempt) => (attempt === 2 ? { error: transient() } : undefined),
+    });
+
+    const chunk = pending("command.output", {
+      toolCallId: "call_1",
+      stream: "stdout",
+      chunk: "building...\n",
+    });
+    sink.emit(chunk);
+    sink.emit(chunk);
+    await sink.drain();
+
+    const written = await store.readFrom(SESSION_ID, 0);
+    expect(written.map((event) => event.seq)).toEqual([1, 2]);
+    expect(calls.filter((call) => call.startsWith("publish:"))).toHaveLength(2);
+  });
+
+  it("gives the store its watermark on a retry, and nothing on a first attempt", async () => {
     // The store cannot see for itself that an earlier attempt may have committed, and it is the
-    // only place that can settle the question under the lock it appends with.
-    const { sink, retries } = recording({
-      appendFailure: (attempt) => (attempt <= 1 ? { error: transient() } : undefined),
+    // only place that can settle the question under the lock it appends with. What it needs is
+    // the seq the sink last saw land: everything at or below that was durable before the
+    // attempt began, so only what came after it can be the attempt's own row.
+    const { sink, watermarks } = recording({
+      appendFailure: (attempt) => (attempt === 2 ? { error: transient() } : undefined),
     });
 
     sink.emit(pending("turn.started"));
+    sink.emit(pending("agent.message", { text: "on it" }));
     await sink.drain();
 
-    expect(retries).toEqual([false, true]);
+    // First event: a clean first attempt, no watermark. Second event: its first attempt carries
+    // none either, and its retry carries seq 1 — what the first event landed at.
+    expect(watermarks).toEqual([undefined, undefined, 1]);
   });
 
   it("waits the backoff schedule between attempts", async () => {

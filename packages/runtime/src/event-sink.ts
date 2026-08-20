@@ -46,6 +46,16 @@ export class EventSink {
   #terminal: NapEventOf<"turn.completed"> | NapEventOf<"turn.failed"> | null = null;
   readonly #sleep: (ms: number) => Promise<void>;
 
+  /**
+   * The newest `seq` this sink has seen durably appended, per session.
+   *
+   * A retry needs it to tell its own lost append from an identical event that was already in
+   * the log — content alone cannot, because a turn legitimately emits the same event twice
+   * running. Keyed by session rather than held as one number because `emit` takes the session
+   * from the event, so nothing here guarantees a sink only ever sees one.
+   */
+  readonly #appended = new Map<string, number>();
+
   constructor(
     private readonly store: EventStore,
     private readonly bus: EventBus,
@@ -98,14 +108,21 @@ export class EventSink {
   /**
    * The append, with a bounded retry around it.
    *
-   * Every attempt after the first says so, because an attempt that failed may have been an
-   * attempt that committed and then lost its acknowledgement — indistinguishable from here, and
-   * answerable only by the store, under the serialization it appends with.
+   * Every attempt after the first carries the watermark, because an attempt that failed may
+   * have been an attempt that committed and then lost its acknowledgement — indistinguishable
+   * from here, and answerable only by the store, under the serialization it appends with.
    */
   async #append(event: PendingEvent): Promise<StoredEvent> {
+    const watermark = this.#appended.get(event.sessionId) ?? 0;
+
     for (let attempt = 1; ; attempt += 1) {
       try {
-        return await this.store.append(event, attempt === 1 ? undefined : { isRetry: true });
+        const stored = await this.store.append(
+          event,
+          attempt === 1 ? undefined : { retryAfterSeq: watermark },
+        );
+        this.#appended.set(stored.sessionId, stored.seq);
+        return stored;
       } catch (error) {
         if (attempt >= APPEND_ATTEMPTS || !isTransientAppendFailure(error)) throw error;
 

@@ -39,9 +39,14 @@ export class InMemoryEventStore implements EventStore {
 
     // A retry may be following an append that committed and then lost its acknowledgement. The
     // real store answers this under its advisory lock; here the array is the serialization.
-    if (options.isRetry === true) {
-      const last = existing.at(-1);
-      if (last !== undefined && isSameEvent(event, last)) return copy(last);
+    // Only rows above the caller's watermark are candidates — an identical event below it was
+    // durable before the attempt began, so it is somebody else's.
+    const watermark = options.retryAfterSeq;
+    if (watermark !== undefined) {
+      const already = existing.find(
+        (stored) => stored.seq > watermark && isSameEvent(event, stored),
+      );
+      if (already !== undefined) return copy(already);
     }
 
     const stored = { ...event, seq: existing.length + 1 } as StoredEvent;

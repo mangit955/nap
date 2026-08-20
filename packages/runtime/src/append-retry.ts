@@ -40,7 +40,15 @@ const TRANSIENT_DRIVER_CODES = new Set([
   "ETIMEDOUT",
 ]);
 
-/** How many times an append is tried in total, the first attempt included. */
+/**
+ * How many times an append is tried in total, the first attempt included.
+ *
+ * Three, so the waits actually reached are 100ms and 400ms. `docs/scaling-design.md` §17 names
+ * both "3 attempts" and a three-rung schedule "100ms / 400ms / 1600ms", which cannot both be
+ * literal; "attempts" is the one it states twice, and the third rung is simply where the
+ * sequence would go next rather than a wait anything performs. Raising this reaches it without
+ * any other change — at ~2.6s of added latency per event in the worst case rather than ~0.6s.
+ */
 export const APPEND_ATTEMPTS = 3;
 
 /** The first wait; each one after it is four times the last. */

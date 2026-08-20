@@ -93,17 +93,29 @@ describe("InMemoryEventStore", () => {
     const pending = message(SESSION_A, "committed, then the connection dropped");
     const first = await store.append(pending);
 
-    const retried = await store.append(pending, { isRetry: true });
+    const retried = await store.append(pending, { retryAfterSeq: 0 });
 
     expect(retried).toStrictEqual(first);
     expect(await store.readFrom(SESSION_A, 0)).toHaveLength(1);
+  });
+
+  it("writes the second of two identical events, when the first is below the watermark", async () => {
+    // Content alone cannot tell a retry's own lost append from the identical event before it.
+    const store = new InMemoryEventStore();
+    const repeated = message(SESSION_A, "same");
+    const first = await store.append(repeated);
+
+    const second = await store.append(repeated, { retryAfterSeq: first.seq });
+
+    expect(second.seq).toBe(2);
+    expect(await store.readFrom(SESSION_A, 0)).toHaveLength(2);
   });
 
   it("still writes a retried event that never landed", async () => {
     const store = new InMemoryEventStore();
     await store.append(message(SESSION_A, "one"));
 
-    const second = await store.append(message(SESSION_A, "two"), { isRetry: true });
+    const second = await store.append(message(SESSION_A, "two"), { retryAfterSeq: 1 });
 
     expect(second.seq).toBe(2);
     expect(await store.readFrom(SESSION_A, 0)).toHaveLength(2);
