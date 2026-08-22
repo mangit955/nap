@@ -310,9 +310,10 @@ export function composeNap(deps: NapDeps): ComposedNap {
       objects: deps.objects,
       sandbox: deps.sandbox,
       createProject: deps.createProject,
-      // The same runtime the turn routes drive: resuming a project and running a turn in it are
-      // serialized per session there, which is what stops the two starting two sandboxes.
-      runtime,
+      // The same queue the turn routes write to, and the same one this composition's worker
+      // claims from: an open is a `resume` request that takes the session's lease exactly as a
+      // turn does, which is what stops the two starting two sandboxes for one project.
+      queue: deps.queue,
       // Opening a project can continue a job a restart left open, which spends tokens — so it is
       // billed exactly as a turn is, to whoever is standing in front of it.
       models: {

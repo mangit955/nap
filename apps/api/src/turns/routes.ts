@@ -36,7 +36,7 @@ import type { Context, Hono } from "hono";
 import { z } from "zod";
 import { findOwnedSession } from "../auth/owned-session.ts";
 import type { AuthVariables } from "../auth/require-user.ts";
-import { resolveTurnAccess } from "./model-access.ts";
+import { refusalStatus, resolveTurnAccess } from "./model-access.ts";
 import type { TurnRegistry } from "./registry.ts";
 import { checkSandboxQuota, type SandboxLimits } from "./sandbox-quota.ts";
 
@@ -149,14 +149,7 @@ export function registerTurnRoutes(
       defaultModel: deps.defaultModel,
     });
     if (!access.ok) {
-      // 403 for `byok_required` and 400 for the rest: naming a model you are not allowed to
-      // *pay for* is a permission answer with something to do about it, while naming one that
-      // does not exist here is a bad request with nothing a key would fix. The browser reads
-      // the code and offers the key form on the first but not the second.
-      return c.json(
-        { error: access.message, code: access.code },
-        access.code === "byok_required" ? 403 : 400,
-      );
+      return c.json({ error: access.message, code: access.code }, refusalStatus(access.code));
     }
 
     // Both ceilings are checked after the body, so a malformed request never costs somebody a

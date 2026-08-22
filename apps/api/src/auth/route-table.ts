@@ -21,7 +21,6 @@ import { InMemoryTurnQueue } from "@nap/db/testing/in-memory-turn-queue";
 import { InMemoryUserKeyStore } from "@nap/db/testing/in-memory-user-key-store";
 import { TEMPLATE_WORKDIR } from "@nap/sandbox/template";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
-import type { ResumeOutcome } from "@nap/shared/ports/runtime";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import { encryptionKeyFrom } from "../account/secret-box.ts";
 import type { AppDeps } from "../app.ts";
@@ -214,13 +213,12 @@ export function fullyWiredDeps(seeded?: SeededSandbox): Omit<AppDeps, "logger"> 
         void options;
         return { projectId: PROJECT, sessionId: SESSION };
       },
-      // Never actually reached, for the same reason the queue above is not.
-      runtime: {
-        resumeSession: async (): Promise<ResumeOutcome> => ({
-          ok: false,
-          reason: "internal",
-          message: "unreachable",
-        }),
+      // Never actually reached, for the same reason the turn routes' queue is not.
+      queue: new InMemoryTurnQueue(),
+      models: {
+        allowedModels: ["openai/gpt-5.6-luna", FREE_MODEL],
+        freeModel: FREE_MODEL,
+        defaultModel: "openai/gpt-5.6-luna",
       },
       events: { events: new InMemoryEventStore(), bus: new InMemoryEventBus() },
       isBusy: () => false,

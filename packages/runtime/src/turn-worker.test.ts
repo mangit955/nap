@@ -245,6 +245,34 @@ describe("running a claimed request", () => {
     runtime.completeResume();
     await vi.waitFor(() => expect(queue.stateOf(id)).toBe("done"));
   });
+
+  it("never runs a resume beside a turn on the same session", async () => {
+    // The two-sandbox failure in one test: a page that resumes on arrival while its user types a
+    // message asks for both at once, and both create a sandbox when the project has none. The
+    // lease is what makes the second wait, and a worker with room for both is the only way to
+    // see it — concurrency 1 would serialise them for a reason that has nothing to do with it.
+    const queue = new InMemoryTurnQueue();
+    const runtime = new RecordingRuntime();
+    start(queue, runtime, { concurrency: 4 });
+    await enqueueTurn(queue, { sessionId: "session-a" });
+    await queue.enqueue({
+      sessionId: "session-a",
+      userId: "user-1",
+      kind: "resume",
+      message: null,
+      model: "openai/gpt-5-mini",
+      billsToUser: false,
+    });
+
+    await vi.waitFor(() => expect(runtime.turns).toHaveLength(1));
+    // Long enough for several poll intervals, so this is "it did not start" rather than "it had
+    // not started yet".
+    await new Promise((resolve) => setTimeout(resolve, POLL_MS * 10));
+    expect(runtime.resumes).toHaveLength(0);
+
+    runtime.complete();
+    await vi.waitFor(() => expect(runtime.resumes).toHaveLength(1));
+  });
 });
 
 describe("who pays", () => {

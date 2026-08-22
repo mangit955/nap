@@ -48,6 +48,19 @@ export type TurnAccessRequest = {
   defaultModel: string;
 };
 
+/**
+ * How a refusal is answered over HTTP, in one place because two routes now answer it.
+ *
+ * **403 for `byok_required` and 400 for the rest.** Naming a model you are not allowed to *pay
+ * for* is a permission answer with something to do about it; naming one that does not exist here
+ * is a bad request with nothing a key would fix. The browser reads the code and offers the key
+ * form on the first but not the second — so the two routes disagreeing about the status would be
+ * the same refusal offering a way out on one page and not the other.
+ */
+export function refusalStatus(code: Extract<TurnAccess, { ok: false }>["code"]): 400 | 403 {
+  return code === "byok_required" ? 403 : 400;
+}
+
 /** OpenRouter's convention, and the only thing that marks a model as costing nothing. */
 export function isFree(model: string): boolean {
   return model.endsWith(":free");

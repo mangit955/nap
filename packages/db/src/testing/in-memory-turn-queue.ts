@@ -199,6 +199,17 @@ export class InMemoryTurnQueue implements TurnQueue {
   }
 
   /**
+   * How many requests are neither settled nor abandoned.
+   *
+   * What a test waits on when it wants "and then everything finished": a worker is a polling
+   * loop, so the alternative is a fixed sleep long enough to be slow and short enough to be
+   * flaky. Zero means every request reached a terminal state, whichever one.
+   */
+  get inFlight(): number {
+    return this.#rows.filter((row) => row.state === "queued" || row.state === "leased").length;
+  }
+
+  /**
    * Everything ever enqueued, oldest first.
    *
    * What an admission test asserts on: the route's whole job is now to write one of these down

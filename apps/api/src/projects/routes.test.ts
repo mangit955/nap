@@ -3,9 +3,9 @@ import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { InMemoryProjectSandboxStore } from "@nap/db/testing/in-memory-project-sandbox-store";
 import { FAKE_OWNER, InMemoryProjectStore } from "@nap/db/testing/in-memory-project-store";
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
+import { InMemoryTurnQueue } from "@nap/db/testing/in-memory-turn-queue";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import type { ProjectSummary } from "@nap/shared/ports/project-store";
-import type { ContinueOptions, ResumeOutcome } from "@nap/shared/ports/runtime";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "../app.ts";
@@ -17,6 +17,8 @@ const PROJECT = "3e0fbc41-6f5d-4a8e-ab9c-4d5e6f708192";
 const SESSION = "2a3f8a24-6c1b-4e0e-9b6f-3a5c0a1d9e77";
 const UNKNOWN = "6b7c8d9e-0f1a-4b2c-8d3e-4f5a6b7c8d9e";
 const SHA = "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f80912";
+const PAID_MODEL = "openai/gpt-5.6-luna";
+const FREE_MODEL = "openai/gpt-oss-20b:free";
 
 const silent = () => createLogger({ level: "silent" }, { write: () => {} });
 
@@ -29,13 +31,10 @@ let sandboxId: string;
 /** Sessions the test declares to have a turn running. */
 let running: Set<string>;
 let created: { projectId: string; sessionId: string };
-/** Sessions the route asked the runtime to bring back up, in order. */
-let resumed: string[];
-/** What the last open asked a continued job to run on. */
-let continueOptions: ContinueOptions | undefined;
-/** The model settings the routes are built with, when a test cares. */
+/** Where an accepted open is written down. Nothing in these tests claims from it. */
+let queue: InMemoryTurnQueue;
+/** The model settings the routes are built with. */
 let models: ProjectRouteDeps["models"];
-let resume: () => Promise<ResumeOutcome>;
 let limits: SandboxLimits | undefined;
 /** The log the app writes to, so a close's announcement can be read back. */
 let events: InMemoryEventStore;
@@ -71,10 +70,14 @@ beforeEach(async () => {
   objects = new InMemoryObjectStore();
   running = new Set();
   created = { projectId: UNKNOWN, sessionId: SESSION };
-  resumed = [];
-  continueOptions = undefined;
-  models = undefined;
-  resume = async () => ({ ok: true, sandboxId: "resumed-sandbox", created: true });
+  queue = new InMemoryTurnQueue();
+  // Required rather than optional, because a queued resume carries a concrete model: the row is
+  // written before anything can default one, and the default that would be applied is paid.
+  models = {
+    allowedModels: [PAID_MODEL, FREE_MODEL],
+    freeModel: FREE_MODEL,
+    defaultModel: PAID_MODEL,
+  };
   limits = undefined;
   events = new InMemoryEventStore();
 });
@@ -98,15 +101,9 @@ function app() {
       createProject: async () => created,
       isBusy: (sessionIds) => sessionIds.some((id) => running.has(id)),
       events: { events, bus: new InMemoryEventBus() },
-      runtime: {
-        resumeSession: async (sessionId, options) => {
-          resumed.push(sessionId);
-          continueOptions = options;
-          return await resume();
-        },
-      },
+      queue,
+      models,
       ...(limits === undefined ? {} : { limits: { projects, sandboxes: limits } }),
-      ...(models === undefined ? {} : { models }),
     },
   });
 }
@@ -303,68 +300,72 @@ describe("POST /projects/:projectId/open", () => {
     projects = new InMemoryProjectStore([summary({ sandboxId: null, status: "idle" })]);
   });
 
-  it("accepts, and asks the runtime for the project's newest session", async () => {
+  it("accepts, and queues a resume for the project's newest session", async () => {
+    // Written down rather than run here. A restore that executed in this process would continue
+    // whatever job the log left open *without a lease*, beside a worker turn on the same session
+    // — which is the two-sandbox failure the lease exists to prevent.
     const res = await app().request(`/projects/${PROJECT}/open`, { method: "POST" });
 
     expect(res.status).toBe(202);
     await expect(res.json()).resolves.toMatchObject({ opened: true });
-    expect(resumed).toEqual([SESSION]);
+    // Durable *before* the answer was written, which is the whole of what 202 now promises.
+    expect(queue.enqueued).toEqual([
+      expect.objectContaining({ sessionId: SESSION, kind: "resume", message: null }),
+    ]);
   });
 
-  it("tells the runtime what a continued job may run on, and who pays", async () => {
+  it("resolves what a continued job may run on, and who pays, before it is queued", async () => {
     // Opening can pick a job back up where a restart left it, and that spends tokens. Without
     // this, a user with their own key has their repairs billed to the deployment.
     models = {
       keys: async () => ({ platform: "openrouter", apiKey: "sk-or-theirs" }),
-      allowedModels: ["openai/gpt-5.6-luna", "openai/gpt-oss-20b:free"],
-      freeModel: "openai/gpt-oss-20b:free",
-      defaultModel: "openai/gpt-5.6-luna",
+      allowedModels: [PAID_MODEL, FREE_MODEL],
+      freeModel: FREE_MODEL,
+      defaultModel: PAID_MODEL,
     };
 
     await app().request(`/projects/${PROJECT}/open`, { method: "POST" });
 
-    expect(continueOptions).toEqual({
-      model: "openai/gpt-5.6-luna",
-      credentials: { platform: "openrouter", apiKey: "sk-or-theirs" },
-    });
+    // `billsToUser` rather than the key itself: the worker re-opens it by user id, so plaintext
+    // credentials never reach the queue, a query log or a backup.
+    expect(queue.enqueued).toEqual([
+      expect.objectContaining({ model: PAID_MODEL, billsToUser: true }),
+    ]);
   });
 
   it("leaves a caller with no key of their own on the model this deployment covers", async () => {
-    models = {
-      allowedModels: ["openai/gpt-5.6-luna", "openai/gpt-oss-20b:free"],
-      freeModel: "openai/gpt-oss-20b:free",
-      defaultModel: "openai/gpt-5.6-luna",
-    };
-
     await app().request(`/projects/${PROJECT}/open`, { method: "POST" });
 
-    expect(continueOptions).toEqual({ model: "openai/gpt-oss-20b:free" });
+    expect(queue.enqueued).toEqual([
+      expect.objectContaining({ model: FREE_MODEL, billsToUser: false }),
+    ]);
   });
 
-  it("answers before the restore has finished", async () => {
-    // Unbundling a project and installing its dependencies is tens of seconds. Everything the
-    // user needs to see arrives on the socket, so holding the request open buys nothing and
-    // loses to the first proxy with an idle timeout.
-    let finish = (): void => {};
-    resume = () =>
-      new Promise((resolve) => {
-        finish = () => resolve({ ok: true, sandboxId: "sb", created: true });
-      });
+  it("refuses a caller whose key cannot reach any model here, rather than queueing one", async () => {
+    // An Anthropic key against an allowlist with no Claude model on it. Rare, but the resolver
+    // can say no with nothing requested, and a queued row needs a model that will actually run.
+    models = {
+      keys: async () => ({ platform: "anthropic", apiKey: "sk-ant-theirs" }),
+      allowedModels: [PAID_MODEL, FREE_MODEL],
+      freeModel: FREE_MODEL,
+      defaultModel: PAID_MODEL,
+    };
 
     const res = await app().request(`/projects/${PROJECT}/open`, { method: "POST" });
 
-    expect(res.status).toBe(202);
-    finish();
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({ code: "model_not_allowed" });
+    expect(queue.enqueued).toEqual([]);
   });
 
-  it("says so, rather than starting a second sandbox, when it is already running", async () => {
+  it("says so, rather than queueing a second sandbox, when it is already running", async () => {
     projects = new InMemoryProjectStore([summary()]);
 
     const res = await app().request(`/projects/${PROJECT}/open`, { method: "POST" });
 
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toMatchObject({ opened: false, reason: "already_running" });
-    expect(resumed).toEqual([]);
+    expect(queue.enqueued).toEqual([]);
   });
 
   it("refuses at the sandbox quota, in the same shape a turn is refused in", async () => {
@@ -380,25 +381,14 @@ describe("POST /projects/:projectId/open", () => {
 
     expect(res.status).toBe(409);
     await expect(res.json()).resolves.toMatchObject({ code: "sandbox_quota_exceeded" });
-    expect(resumed).toEqual([]);
+    expect(queue.enqueued).toEqual([]);
   });
 
   it("is 404 for a project that is not yours", async () => {
     const res = await app().request(`/projects/${UNKNOWN}/open`, { method: "POST" });
 
     expect(res.status).toBe(404);
-    expect(resumed).toEqual([]);
-  });
-
-  it("survives a runtime that throws", async () => {
-    // The resume runs detached, so an unhandled rejection here would end the Bun process and
-    // disconnect every open session.
-    resume = () => Promise.reject(new Error("the database went away"));
-
-    const res = await app().request(`/projects/${PROJECT}/open`, { method: "POST" });
-
-    expect(res.status).toBe(202);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(queue.enqueued).toEqual([]);
   });
 });
 

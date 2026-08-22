@@ -276,3 +276,22 @@ describe("markOrphanAnnounced", () => {
     ]);
   });
 });
+
+describe("inFlight", () => {
+  it("counts the requests that have not reached a terminal state", async () => {
+    const leased = await enqueue("session-a");
+    const queued = await enqueue("session-b");
+    await queue.claim("worker-1");
+
+    expect(queue.inFlight).toBe(2);
+
+    await queue.settle(leased.id, "worker-1", "done");
+    expect(queue.inFlight).toBe(1);
+
+    // Failed counts as finished too: a test waiting on "everything settled" is waiting for the
+    // work to be over, not for it to have gone well.
+    await queue.requestCancel("session-b");
+    expect(queue.stateOf(queued.id)).toBe("failed");
+    expect(queue.inFlight).toBe(0);
+  });
+});

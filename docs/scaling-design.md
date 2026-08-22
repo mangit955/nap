@@ -317,6 +317,11 @@ principle and `single-agent-runtime.ts:270` — *"an autonomous loop that spends
 watching is a bill, and a crash loop plus auto-continue is a large one"* — carried into a
 distributed system unchanged.
 
+Two consequences the design did not anticipate, both recorded in `docs/GOTCHAS.md` (API section):
+the row carries a concrete model, so **an open can now be refused for a model nobody asked for**;
+and an orphaned `resume` is announced with the `system.notice` alone, since opening a project
+starts no turn for a `turn.failed` to close.
+
 ---
 
 ## 7. Atomic sandbox admission

@@ -27,16 +27,16 @@ import type { EventStore } from "@nap/shared/ports/event-store";
 import type { ObjectStore } from "@nap/shared/ports/object-store";
 import type { ProjectSandboxStore } from "@nap/shared/ports/project-sandbox-store";
 import type { ProjectStore, ProjectSummary } from "@nap/shared/ports/project-store";
-import type { ContinueOptions, Runtime } from "@nap/shared/ports/runtime";
 import type { SandboxCapacity } from "@nap/shared/ports/sandbox-capacity";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
+import type { TurnQueue } from "@nap/shared/ports/turn-queue";
 import { RenameProjectSchema } from "@nap/shared/projects-protocol";
 import type { Hono } from "hono";
 import { z } from "zod";
 import type { AuthVariables } from "../auth/require-user.ts";
 import { parseProjectId } from "../files/params.ts";
-import { resolveTurnAccess } from "../turns/model-access.ts";
+import { refusalStatus, resolveTurnAccess } from "../turns/model-access.ts";
 import type { CallerKeys } from "../turns/routes.ts";
 import { checkSandboxQuota, type SandboxLimits } from "../turns/sandbox-quota.ts";
 
@@ -50,17 +50,22 @@ export type ProjectRouteDeps = {
   objects: ObjectStore;
   sandbox: SandboxManager;
   createProject: (options: { userId: string; name?: string }) => Promise<CreatedProject>;
-  /** Only `resumeSession`: nothing here *starts* a turn, and a wider type would let it. */
-  runtime: Pick<Runtime, "resumeSession">;
+  /**
+   * Where an accepted open is written down. **This module runs nothing** — a worker claims the
+   * request, leases the session, and resumes under it.
+   */
+  queue: TurnQueue;
   /**
    * Who pays for a job an open continues, and which model it may run on.
    *
    * Opening a project can pick a job back up where a restart left it, and that spends tokens —
-   * so the same resolution a turn goes through applies here, from the same facts. Omitted means
-   * the runtime's default, which is right for a test and for a deployment with no key store; the
-   * cost of leaving it out in production is this deployment paying for a BYOK user's repairs.
+   * so the same resolution a turn goes through applies here, from the same facts.
+   *
+   * **Required, unlike the ceilings below, because a queued request carries a concrete model** —
+   * see `continueAccess`. `keys` alone is optional: a deployment with no key store has nobody to
+   * bill but itself.
    */
-  models?: {
+  models: {
     keys?: CallerKeys;
     allowedModels: readonly string[];
     freeModel: string;
@@ -168,10 +173,23 @@ export function registerProjectRoutes(
   /**
    * Starting a project back up, so its preview and its files are there to look at.
    *
-   * **202, and the restore runs detached** — the same shape as starting a turn, and for the
-   * same reason: unbundling a project and installing its dependencies is tens of seconds, and
-   * everything the user needs to see arrives on the session's event stream anyway. The
-   * background promise must be handled, or one bad restore ends the process.
+   * **202, and the request is written down rather than run** — the same shape as starting a
+   * turn, and now for the same reason as well. Unbundling a project and installing its
+   * dependencies is tens of seconds and everything the user needs to see arrives on the
+   * session's event stream anyway, so this route never held the connection open; what changed is
+   * that it no longer holds the *work* either.
+   *
+   * It used to call `resumeSession` here and let the promise run detached, which meant the
+   * continuation of whatever job the log left open executed **without a lease**, in whichever pod
+   * took the HTTP request, possibly beside a worker turn on the same session. Two sandboxes for
+   * one project, one of which nobody can find and nobody stops paying for, is exactly what the
+   * per-session lease exists to prevent — so a resume is a queued request like any other, and
+   * takes the same lease. Everything downstream is unchanged: restore, continuation, repairs.
+   *
+   * This is also the recovery path for a request whose worker died. The janitor closes such a
+   * request out and leaves its Job open, deliberately never requeueing it, because an autonomous
+   * loop that spends tokens with nobody watching is a bill — a person reopening the project is
+   * the signal that somebody is there to watch.
    *
    * The quota is checked here as well as on a turn, because this is the second way to make a
    * sandbox and a ceiling with two doors is not a ceiling.
@@ -208,22 +226,28 @@ export function registerProjectRoutes(
       }
     }
 
-    const logger = getLogger();
+    // What a continued job would run on, and whose account pays. Resolved here even though most
+    // opens continue nothing: the queued row carries a concrete model, and the alternative is
+    // deciding whose money to spend after the answer is already 202.
+    const access = await continueAccess(deps, c.get("userId"));
+    if (!access.ok) {
+      return c.json({ error: access.message, code: access.code }, refusalStatus(access.code));
+    }
 
-    // What a continued job would run on. Resolved even though most opens continue nothing: it
-    // is one lookup, and the alternative is deciding whose money to spend after the answer is
-    // already 202.
-    const settings = await continueSettings(deps, c.get("userId"));
+    const { id } = await deps.queue.enqueue({
+      sessionId,
+      userId: c.get("userId"),
+      kind: "resume",
+      // A resume asks for no new work: what it does is decided by folding the log, not by a
+      // prompt somebody typed.
+      message: null,
+      model: access.model,
+      // Whether, never which — the worker re-opens the key by user id, so plaintext credentials
+      // never reach the queue, a query log or a backup.
+      billsToUser: access.billsToUser,
+    });
 
-    void deps.runtime
-      .resumeSession(sessionId, settings)
-      .then((outcome) => {
-        logger.info({ outcome }, "project open settled");
-      })
-      .catch((error: unknown) => {
-        // A thrown error is a bug in the runtime rather than a failed resume, which is a value.
-        logger.error({ err: error }, "opening a project threw");
-      });
+    getLogger().info({ requestId: id, sessionId }, "resume request queued");
 
     return c.json({ opened: true }, 202);
   });
@@ -326,13 +350,21 @@ export function registerProjectRoutes(
  * What a job continued by this open runs on, and whose account pays for it.
  *
  * The same resolver a turn goes through, asked with no model named: opening a project is not a
- * place to choose one, and the caller's key is the only input. **A refusal cannot happen from
- * here** — the resolver only says no to a model somebody asked for — so there is no error path,
- * and an unconfigured deployment falls through to the runtime's own default.
+ * place to choose one, and the caller's key is the only input.
+ *
+ * **It can still refuse**, which is easy to miss because nobody asked for a model: an Anthropic
+ * key against an allowlist holding no Claude model has nothing it can reach. That used to fall
+ * through to the runtime's default; a queued row cannot, because it carries a model that
+ * something will later run, so the refusal has to reach the caller instead.
  */
-async function continueSettings(deps: ProjectRouteDeps, userId: string): Promise<ContinueOptions> {
-  const models = deps.models;
-  if (models === undefined) return {};
+async function continueAccess(
+  deps: ProjectRouteDeps,
+  userId: string,
+): Promise<
+  | { ok: true; model: string; billsToUser: boolean }
+  | { ok: false; code: "byok_required" | "model_not_allowed"; message: string }
+> {
+  const { models } = deps;
 
   const access = resolveTurnAccess({
     requested: undefined,
@@ -341,12 +373,9 @@ async function continueSettings(deps: ProjectRouteDeps, userId: string): Promise
     freeModel: models.freeModel,
     defaultModel: models.defaultModel,
   });
-  if (!access.ok) return {};
+  if (!access.ok) return access;
 
-  return {
-    model: access.model,
-    ...(access.credentials === undefined ? {} : { credentials: access.credentials }),
-  };
+  return { ok: true, model: access.model, billsToUser: access.credentials !== undefined };
 }
 
 type RouteError = { status: 400 | 404; message: string };

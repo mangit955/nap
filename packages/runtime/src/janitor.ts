@@ -5,7 +5,8 @@
  * `openEventStream` has no timeout, so the chat pane waits on an event nobody will ever write —
  * it spins forever and the person watching it is told nothing at all. This is what writes that
  * event: past the grace window the request becomes `orphaned` and, under the request's own turn
- * id, a `turn.failed` and a `system.notice` go into the log.
+ * id, a `turn.failed` and a `system.notice` go into the log. **A `resume` gets the notice alone**
+ * — opening a project starts no turn, so there is nothing waiting and nothing to fail.
  *
  * **It does not requeue, and that is the point.** Automatic re-execution is the autonomous loop
  * that spends tokens with nobody watching, which `CONTEXT.md`'s *Continue* semantics forbid. The
@@ -113,13 +114,21 @@ async function announce(
   // Both under the request's own id, which is the first Turn's turn id. That identity is what
   // lets something which never ran the turn close the right one — see `docs/scaling-design.md`
   // §6. Ordered: the terminal event ends the turn, and the notice explains it.
-  sink.emit({
-    type: "turn.failed",
-    payload: { reason: "internal", message: INTERRUPTED_MESSAGE },
-    sessionId: request.sessionId,
-    turnId: request.id,
-    createdAt,
-  });
+  //
+  // **A resume gets the notice alone.** Nobody started a turn by opening a project, so a
+  // `turn.failed` there is a failure in the transcript for something the user never asked for,
+  // offered back to them with a retry of an unrelated message. The event exists to stop a pane
+  // spinning on a turn it is waiting for, and an open leaves nothing waiting: there is no
+  // `user.message` to be unanswered.
+  if (request.kind === "turn") {
+    sink.emit({
+      type: "turn.failed",
+      payload: { reason: "internal", message: INTERRUPTED_MESSAGE },
+      sessionId: request.sessionId,
+      turnId: request.id,
+      createdAt,
+    });
+  }
   sink.emit({
     type: "system.notice",
     payload: { level: "warning", text: RESUME_NOTICE },

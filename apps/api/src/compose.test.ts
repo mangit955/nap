@@ -10,7 +10,9 @@ import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store"
 import { InMemoryTurnQueue } from "@nap/db/testing/in-memory-turn-queue";
 import { InMemoryTurnRateLimiter } from "@nap/db/testing/in-memory-turn-rate-limiter";
 import { InMemoryUserKeyStore } from "@nap/db/testing/in-memory-user-key-store";
+import { TEMPLATE_DEV_PORT } from "@nap/sandbox/template";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
+import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
 import type { TurnRateLimiter } from "@nap/shared/ports/turn-rate-limit";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import type { WSEvents } from "hono/ws";
@@ -53,7 +55,35 @@ const SECRET = Buffer.alloc(32, 7).toString("base64");
 /** The routes validate the shape of an id before they look it up, so it has to be a real one. */
 const PROJECT = "6f0a6f2c-2d2f-4a1e-9d31-6c9f2f0f4b21";
 
+/** The one session that project holds, for the tests that run something in it. */
+const SESSION = "9b2c1a30-4f5e-4c7a-8e1d-2b3c4d5e6f70";
+
 const stopping: Array<{ stop: () => void | Promise<void> }> = [];
+
+/**
+ * A sandbox that answers the commands a turn really runs, git included.
+ *
+ * `InMemorySandboxManager` throws on anything nobody scripted, which is right for a test that is
+ * about one command and wrong for one that drives a whole turn through the runtime.
+ */
+function turnableSandbox(): InMemorySandboxManager {
+  return new InMemorySandboxManager({
+    defaultExec: () => ({ exitCode: 0, stdout: "" }),
+    serves: [TEMPLATE_DEV_PORT],
+    seed: { [`${PROJECT_ROOT_PATH}/package.json`]: JSON.stringify({ scripts: {} }) },
+  }).script(/git rev-parse HEAD/, { exitCode: 0, stdout: `${"0".repeat(40)}\n` });
+}
+
+/**
+ * A model that answers in prose and asks for no tools, twice over.
+ *
+ * Two scripted turns because two requests are in flight: whichever of them continues a job runs a
+ * turn of its own, and `ScriptedLLMProvider` throws past the end of its script rather than
+ * inventing an answer.
+ */
+function chattyProvider(): ScriptedLLMProvider {
+  return new ScriptedLLMProvider([[{ text: "Added the toggle." }], [{ text: "Nothing left." }]]);
+}
 
 afterEach(async () => {
   // A composition owns a timer and a claiming loop, so a test that forgets to stop them holds
@@ -198,6 +228,64 @@ describe("composeNap", () => {
 
     await expect.poll(() => swept.rate, { timeout: 2000 }).toBeGreaterThan(0);
     expect(swept.freeRate).toBeGreaterThan(0);
+  });
+
+  it("serialises an open and a turn on one session, leaving the project one sandbox", async () => {
+    // The failure this exists to prevent: a page that resumes on arrival while its user types a
+    // message asks for both at once, and both create a sandbox when the project has none. Run in
+    // parallel they each start one and the project ends up holding two — one of which nobody can
+    // find and nobody stops paying for. Both are queued requests now, so the per-session lease
+    // serialises them and the second finds the first one's sandbox.
+    const sessions = new InMemorySessionStore([{ sessionId: SESSION, projectId: PROJECT }]);
+    const projects = new InMemoryProjectStore([
+      {
+        projectId: PROJECT,
+        name: "a thing",
+        status: "idle",
+        sandboxId: null,
+        updatedAt: new Date().toISOString(),
+        sessionIds: [SESSION],
+      },
+    ]);
+    const queue = new InMemoryTurnQueue();
+    const sandbox = turnableSandbox();
+    const events = new InMemoryEventStore();
+    const { app } = compose({
+      sessions,
+      projects,
+      queue,
+      sandbox,
+      events,
+      provider: chattyProvider(),
+    });
+
+    // Together, from one client, which is the whole point: neither request can see the other's
+    // sandbox because at admission there isn't one.
+    const [turn, open] = await Promise.all([
+      app.request(`/sessions/${SESSION}/turns`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: "add a dark mode toggle" }),
+      }),
+      app.request(`/projects/${PROJECT}/open`, { method: "POST" }),
+    ]);
+
+    expect(turn.status).toBe(202);
+    expect(open.status).toBe(202);
+    // Sorted, because which of the two admissions finishes first is not this test's subject —
+    // that both were written down as requests rather than run in the request is.
+    expect(queue.enqueued.map((request) => request.kind).sort()).toEqual(["resume", "turn"]);
+
+    await expect.poll(() => queue.inFlight, { timeout: 10_000 }).toBe(0);
+
+    // Both really ran, in some order — otherwise "one sandbox" would also be what a resume that
+    // was silently dropped looks like. The open announced a preview, and the turn finished.
+    const logged = (await events.readFrom(SESSION, 0)).map((event) => event.type);
+    expect(logged).toContain("preview.ready");
+    expect(logged).toContain("turn.completed");
+
+    const live = await sandbox.list();
+    expect(live.ok && live.value).toHaveLength(1);
   });
 
   it("sweeps a project nobody is using", async () => {

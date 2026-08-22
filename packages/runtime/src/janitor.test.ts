@@ -137,13 +137,17 @@ describe("orphaning an abandoned request", () => {
     expect(continuation.kind).not.toBe("none");
   });
 
-  it("closes out an abandoned resume the same way", async () => {
+  it("closes out an abandoned resume with the notice alone", async () => {
+    // Nobody started a turn by opening a project, so a `turn.failed` here would be a failure in
+    // the transcript for something the user never asked for — offered back with a retry of an
+    // unrelated message. Nothing is waiting on it either: the pane spins on a `user.message`
+    // with no terminal event after it, and an open writes none.
     const id = await abandoned(SESSION, "resume");
     pastGrace();
     await sweep();
 
     expect(queue.stateOf(id)).toBe("orphaned");
-    expect(await typesIn()).toEqual(["turn.failed", "system.notice"]);
+    expect(await typesIn()).toEqual(["system.notice"]);
   });
 
   it("publishes what it appends, so an open tab hears without reconnecting", async () => {
