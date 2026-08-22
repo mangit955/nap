@@ -43,6 +43,7 @@ class RecordingRuntime implements Runtime {
   #finish: ((outcome: TurnOutcome) => void)[] = [];
   #finishResume: ((outcome: ResumeOutcome) => void)[] = [];
   #throws = false;
+  #deaf = false;
 
   constructor() {
     runtimes.push(this);
@@ -54,6 +55,13 @@ class RecordingRuntime implements Runtime {
     return runtime;
   }
 
+  /** One that ignores its signal, which is the only way to produce a turn that will not stop. */
+  static deaf(): RecordingRuntime {
+    const runtime = new RecordingRuntime();
+    runtime.#deaf = true;
+    return runtime;
+  }
+
   runTurn(request: TurnRequest): Promise<TurnOutcome> {
     this.turns.push(request);
     if (this.#throws) return Promise.reject(new Error("the runtime fell over"));
@@ -62,6 +70,7 @@ class RecordingRuntime implements Runtime {
       this.#finish.push(resolve);
       // A turn does not outlive its abort here, which is what makes the worker's own settlement
       // observable rather than something the test has to arrange.
+      if (this.#deaf) return;
       request.signal?.addEventListener("abort", () => {
         resolve({ ok: false, turnId: "t1", reason: "cancelled", message: "aborted" });
       });
@@ -108,6 +117,8 @@ function start(
     concurrency?: number;
     credentialsFor?: (userId: string) => Promise<ModelCredentials | null>;
     running?: RunningTurns;
+    drainTimeoutMs?: number;
+    abortGraceMs?: number;
   } = {},
 ): TurnWorker {
   const worker = startTurnWorker({
@@ -119,6 +130,8 @@ function start(
     renewIntervalMs: RENEW_MS,
     ...(overrides.credentialsFor === undefined ? {} : { credentialsFor: overrides.credentialsFor }),
     ...(overrides.running === undefined ? {} : { running: overrides.running }),
+    ...(overrides.drainTimeoutMs === undefined ? {} : { drainTimeoutMs: overrides.drainTimeoutMs }),
+    ...(overrides.abortGraceMs === undefined ? {} : { abortGraceMs: overrides.abortGraceMs }),
   });
   workers.push(worker);
   return worker;
@@ -481,5 +494,89 @@ describe("stopping", () => {
     runtime.complete();
     await stopping;
     expect(runtime.turns).toHaveLength(1);
+  });
+
+  it("keeps renewing the leases of the turns it is draining", async () => {
+    // The half of a drain nobody thinks to write down: a worker that stopped renewing while it
+    // waited would have its own in-flight turns orphaned out from under it by the janitor, and
+    // another worker would pick up a session this one is still writing to.
+    const queue = new InMemoryTurnQueue();
+    const runtime = new RecordingRuntime();
+    let renewals = 0;
+    const counting: TurnQueue = {
+      enqueue: (request) => queue.enqueue(request),
+      claim: (owner) => queue.claim(owner),
+      renew: (requestId, owner) => {
+        renewals += 1;
+        return queue.renew(requestId, owner);
+      },
+      settle: (requestId, owner, state) => queue.settle(requestId, owner, state),
+      requestCancel: (sessionId) => queue.requestCancel(sessionId),
+      orphanExpired: (limit) => queue.orphanExpired(limit),
+      unannouncedOrphans: (limit) => queue.unannouncedOrphans(limit),
+      markOrphanAnnounced: (requestId) => queue.markOrphanAnnounced(requestId),
+    };
+
+    const worker = start(counting, runtime, { drainTimeoutMs: 5_000 });
+    await enqueueTurn(queue);
+    await vi.waitFor(() => expect(runtime.turns).toHaveLength(1));
+
+    const stopping = worker.stop();
+    const before = renewals;
+    await vi.waitFor(() => expect(renewals).toBeGreaterThan(before + 1));
+
+    runtime.complete();
+    await stopping;
+  });
+
+  it("aborts what is still running when the drain timeout expires", async () => {
+    const queue = new InMemoryTurnQueue();
+    const runtime = new RecordingRuntime();
+    const worker = start(queue, runtime, { drainTimeoutMs: RENEW_MS * 4 });
+    const { id } = await enqueueTurn(queue);
+    await vi.waitFor(() => expect(runtime.turns).toHaveLength(1));
+
+    // Nothing completes it: the platform is taking this process away and the turn is not going to
+    // finish. An abort is a clean stop — the runtime commits nothing and closes its job — where
+    // waiting forever would turn a rolling restart into a pod the platform has to kill.
+    await worker.stop();
+
+    expect(runtime.signal?.aborted).toBe(true);
+    // And the row reaches a terminal state, so the session is not held by a lease whose worker
+    // has exited and which only the janitor can now clear.
+    expect(queue.stateOf(id)).toBe("failed");
+  });
+
+  it("gives up on a turn that ignores its abort, rather than never returning", async () => {
+    // An abort is a request, and `stop()` is what stands between a graceful shutdown and SIGKILL:
+    // a runtime that does not honour its signal would otherwise leave the caller's `process.exit`
+    // waiting for ever, which is the exact ending the drain timeout exists to prevent.
+    const queue = new InMemoryTurnQueue();
+    const deaf = RecordingRuntime.deaf();
+    const worker = start(queue, deaf, { drainTimeoutMs: 5, abortGraceMs: 20 });
+    const { id } = await enqueueTurn(queue);
+    await vi.waitFor(() => expect(deaf.turns).toHaveLength(1));
+
+    await worker.stop();
+
+    expect(deaf.signal?.aborted).toBe(true);
+    // The request is still leased by a worker that is leaving, which is the janitor's case and the
+    // reason it exists. Nothing here may settle it: this worker no longer knows what happened.
+    expect(queue.stateOf(id)).toBe("leased");
+  });
+
+  it("does not abort a turn that finishes inside the drain window", async () => {
+    const queue = new InMemoryTurnQueue();
+    const runtime = new RecordingRuntime();
+    const worker = start(queue, runtime, { drainTimeoutMs: 5_000 });
+    const { id } = await enqueueTurn(queue);
+    await vi.waitFor(() => expect(runtime.turns).toHaveLength(1));
+
+    const stopping = worker.stop();
+    runtime.complete();
+    await stopping;
+
+    expect(runtime.signal?.aborted).toBe(false);
+    expect(queue.stateOf(id)).toBe("done");
   });
 });

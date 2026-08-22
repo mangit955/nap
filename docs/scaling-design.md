@@ -54,7 +54,7 @@ This is more than the brief assumed, and it is why the change is smaller than it
 | `TurnRegistry` | `apps/api/src/turns/registry.ts` | Cancel on pod A cannot reach a turn on pod B. Also feeds `isBusy` for project close/delete and the reaper, so both go blind. |
 | `TurnRateLimiter` ×2 | `apps/api/src/turns/rate-limiter.ts` | N pods = N× the limit. Free-tier spend multiplies by replica count. |
 | Reaper `setInterval` | `apps/api/src/compose.ts:283` | N pods = N concurrent sweeps tearing the same project down twice. |
-| `ChromePageCapture` | `apps/api/src/index.ts:95` | One Chromium per process; ~1GB of image and a RAM spike per capture. |
+| `ChromePageCapture` | `apps/api/src/boot.ts` | One Chromium per process; ~1GB of image and a RAM spike per capture. Bounded by `BoundedPageCapture` since B-6. |
 | DB pool `max: 10` | `packages/db/src/client.ts:25` | Sized for one process doing everything. |
 | Sandbox quota TOCTOU | `apps/api/src/turns/sandbox-quota.ts` | Count-then-create. At 100 concurrent admissions the global cap is guaranteed to overshoot. |
 
@@ -628,7 +628,8 @@ human a reopen — so scale-down should be lazy and rare.
 Worker, on `SIGTERM`:
 
 1. Stop claiming. The claim loop exits immediately.
-2. Let in-flight turns finish, up to `NAP_DRAIN_TIMEOUT` (600s), inside the 900s grace period.
+2. Let in-flight turns finish, up to `NAP_DRAIN_TIMEOUT_SECONDS` (600s), inside the 900s grace
+   period. (Shipped under that name; this section said `NAP_DRAIN_TIMEOUT` before it was built.)
 3. **Keep renewing leases** of turns still running, so the janitor does not orphan progressing work.
 4. On completion, settle each request and release its lease.
 5. If the drain timeout expires: abort remaining turns via their `AbortController`. A cancelled turn
@@ -640,7 +641,8 @@ three repairs is minutes. 900s covers the tail.
 API, on `SIGTERM`: stop accepting, close sockets with a normal close code, exit within 30s. Clients
 reconnect with `?seq=` and lose nothing.
 
-The reaper's existing signal handler (`apps/api/src/index.ts:189`) carries over unchanged.
+The signal handler is `bootNap`'s (`apps/api/src/boot.ts`), so both processes shut down through
+one sequence and neither can forget a piece the other stops.
 
 ---
 

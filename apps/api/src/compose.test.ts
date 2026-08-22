@@ -47,6 +47,10 @@ const CONFIG: NapDeps["config"] = {
   NAP_REAP_INTERVAL_SECONDS: 60,
   NAP_JANITOR_INTERVAL_SECONDS: 60,
   NAP_WORKER_CONCURRENCY: 4,
+  // Short, because a test that leaves a turn hanging should fail rather than wait ten minutes for
+  // the teardown's drain.
+  NAP_DRAIN_TIMEOUT_SECONDS: 1,
+  NAP_CAPTURE_CONCURRENCY: 1,
 };
 
 /** 32 bytes of base64, which is all `encryptionKeyFrom` asks of it. */
@@ -72,6 +76,20 @@ function turnableSandbox(): InMemorySandboxManager {
     serves: [TEMPLATE_DEV_PORT],
     seed: { [`${PROJECT_ROOT_PATH}/package.json`]: JSON.stringify({ scripts: {} }) },
   }).script(/git rev-parse HEAD/, { exitCode: 0, stdout: `${"0".repeat(40)}\n` });
+}
+
+/** A project that owns one session, which is what the admission route's checks look for. */
+function projectHolding(sessionId: string): InMemoryProjectStore {
+  return new InMemoryProjectStore([
+    {
+      projectId: PROJECT,
+      name: "a thing",
+      status: "idle",
+      sandboxId: null,
+      updatedAt: new Date().toISOString(),
+      sessionIds: [sessionId],
+    },
+  ]);
 }
 
 /**
@@ -286,6 +304,89 @@ describe("composeNap", () => {
 
     const live = await sandbox.list();
     expect(live.ok && live.value).toHaveLength(1);
+  });
+
+  it("executes nothing when it is composed as an API", async () => {
+    // The whole of what `role: "api"` means. A composition that started its worker anyway would
+    // look identical from outside — the turn runs, the chat moves — right up until two pods were
+    // running it, so the assertion has to be that nothing here claimed the request.
+    const queue = new InMemoryTurnQueue();
+    const sessions = new InMemorySessionStore([{ sessionId: SESSION, projectId: PROJECT }]);
+    const { app } = compose({
+      role: "api",
+      queue,
+      sessions,
+      projects: projectHolding(SESSION),
+      sandbox: turnableSandbox(),
+    });
+
+    const accepted = await app.request(`/sessions/${SESSION}/turns`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: "add a dark mode toggle" }),
+    });
+    expect(accepted.status).toBe(202);
+
+    // Long enough for many poll intervals, so this is "nobody claimed it" rather than "not yet".
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(queue.enqueued).toHaveLength(1);
+    // Still waiting for a worker somewhere else, which is exactly what an API pod should leave
+    // behind: the request written down, and nothing in this process having touched it.
+    expect(queue.inFlight).toBe(1);
+  });
+
+  it("sweeps nothing when it is composed as an API", async () => {
+    // The other half of "executes nothing". Both sweeps go with the turns: the reaper's busy check
+    // is the in-process registry, so a reaper in an API pod reads every busy project as idle and
+    // tears one down mid-turn. Same fixture as the sweeping test below, same fast tick — the only
+    // difference is the role, so a gate that only covered the worker loop fails here.
+    const projectSandboxes = new InMemoryProjectSandboxStore([
+      {
+        projectId: "idle-project-api-role",
+        sandboxId: "sandbox-2",
+        sessionIds: ["session-2"],
+        lastActiveAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      },
+    ]);
+
+    compose({
+      role: "api",
+      projectSandboxes,
+      config: { ...CONFIG, NAP_REAP_INTERVAL_SECONDS: 0.01 },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(projectSandboxes.get("idle-project-api-role")?.sandboxId).toBe("sandbox-2");
+  });
+
+  it("runs a turn the API admitted, composed as a worker beside it", async () => {
+    // The two halves against one queue, which is the arrangement a deployment has: the API pod
+    // writes the request down and answers 202, and a process that serves nothing picks it up.
+    // Anything that quietly required the two to be the same process fails here and nowhere else.
+    const queue = new InMemoryTurnQueue();
+    const sessions = new InMemorySessionStore([{ sessionId: SESSION, projectId: PROJECT }]);
+    const events = new InMemoryEventStore();
+    const shared = {
+      queue,
+      sessions,
+      events,
+      projects: projectHolding(SESSION),
+      sandbox: turnableSandbox(),
+    };
+
+    const { app } = compose({ ...shared, role: "api" });
+    compose({ ...shared, role: "worker", provider: chattyProvider() });
+
+    const accepted = await app.request(`/sessions/${SESSION}/turns`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: "add a dark mode toggle" }),
+    });
+    expect(accepted.status).toBe(202);
+
+    await expect.poll(() => queue.inFlight, { timeout: 10_000 }).toBe(0);
+    const logged = (await events.readFrom(SESSION, 0)).map((event) => event.type);
+    expect(logged).toContain("turn.completed");
   });
 
   it("sweeps a project nobody is using", async () => {

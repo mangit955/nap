@@ -126,6 +126,12 @@ export function loadgenConfig(users: number): NapConfig {
     // Sized like the ceilings above rather than like production's: a worker that could only run
     // ten turns at once would make every ramp above ten a measurement of this number.
     NAP_WORKER_CONCURRENCY: users * 2,
+    // A run ends by killing the harness, so nothing here ever drains; short enough that a
+    // teardown which does reach it does not hold the process open.
+    NAP_DRAIN_TIMEOUT_SECONDS: 5,
+    // Nothing in a run photographs anything — the composition holds no browser — so this is the
+    // bound on a semaphore in front of nothing.
+    NAP_CAPTURE_CONCURRENCY: 1,
   };
 }
 

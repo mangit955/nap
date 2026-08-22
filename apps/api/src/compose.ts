@@ -13,11 +13,18 @@
  * policy of its own** — every number comes from `config`, every port from the caller — and that
  * is what makes a composition with fakes the same system rather than a similar one.
  *
- * What deliberately stays in `index.ts`: reading and validating the environment, constructing the
+ * What deliberately stays in `boot.ts`: reading and validating the environment, constructing the
  * real clients, the boot log line, and the signal handlers. Those are things a *process* does.
+ *
+ * **One composition, two processes.** `role` is what an API pod and a worker pod differ by, and it
+ * is a switch on what is *started* rather than on what is built: both assemble the same system
+ * from the same parts, and one of them never turns the claiming loop on while the other never
+ * serves the app it holds. A second composition function would have been two copies of six hundred
+ * lines of wiring, and the copies would have drifted the first time somebody changed one.
  */
 
 import { NapAgentService } from "@nap/agent/agent-service";
+import { BoundedPageCapture } from "@nap/capture/bounded-page-capture";
 import { NapContextEngine } from "@nap/context/context-engine";
 import { NoopMemoryProvider } from "@nap/context/noop-memory-provider";
 import { sweepOrphanedRequests } from "@nap/runtime/janitor";
@@ -73,13 +80,31 @@ export type NapConfig = Pick<
   | "NAP_MAX_SANDBOXES_TOTAL"
   | "NAP_SANDBOX_TTL_MINUTES"
   | "NAP_WORKER_CONCURRENCY"
+  | "NAP_DRAIN_TIMEOUT_SECONDS"
+  | "NAP_CAPTURE_CONCURRENCY"
   | "NAP_REAP_IDLE_MINUTES"
   | "NAP_REAP_INTERVAL_SECONDS"
   | "NAP_JANITOR_INTERVAL_SECONDS"
 >;
 
+/**
+ * Which half of the deployment this process is.
+ *
+ * `docs/scaling-design.md` §4: an API pod owns HTTP, WebSockets, auth and admission and executes
+ * nothing; a worker pod owns executing turns and serves nothing. `all` is both in one process,
+ * which is what a single-container deployment, the load harness and every test compose.
+ *
+ * It gates the *loops*, never the objects: a worker still builds the Hono app it never serves and
+ * an API still builds the runtime it never drives, because the alternative is two composition
+ * functions and two sets of assumptions about which dependencies each half is allowed to skip.
+ * Nothing here has a side effect until something starts it.
+ */
+export type NapRole = "api" | "worker" | "all";
+
 export type NapDeps = {
   config: NapConfig;
+  /** Defaults to `all`: a composition that was not told is one process doing everything. */
+  role?: NapRole;
   /** Where this composition reports from. Also installed as the root logger by boot, not here. */
   logger: Logger;
 
@@ -143,7 +168,13 @@ export type NapDeps = {
   objects: ObjectStore;
   /** Model policy is the provider's; which provider it is, is the caller's. */
   provider: LLMProvider;
-  /** A browser to photograph finished turns with, if this deployment has one. */
+  /**
+   * A browser to photograph finished turns with, if this deployment has one.
+   *
+   * Handed over unbounded: this composition is what puts a semaphore in front of it, because how
+   * many browsers may be open at once is a property of the *process running turns* rather than of
+   * the browser, and only this layer knows what that process's concurrency is.
+   */
   capture?: PageCapture;
 
   /** Sign-in and the OAuth callback, if this composition has any. */
@@ -172,17 +203,31 @@ export type NapDeps = {
   readiness?: HealthProbe;
 };
 
+/**
+ * A background loop this role does not run.
+ *
+ * Returned rather than `undefined` so that every caller's shutdown sequence is the same three
+ * lines whichever half it composed: a process that has to ask which of its pieces exist before it
+ * can stop them is a process that will one day forget to stop one.
+ */
+const NOT_STARTED = { stop: () => {} };
+const NOT_CLAIMING: TurnWorker = { stop: async () => {} };
+
 export type ComposedNap = {
   app: Hono<{ Variables: AuthVariables }>;
   runtime: SingleAgentRuntime;
   /** Which turns are running here — read by the routes, the reaper and anything draining. */
   registry: TurnRegistry;
-  /** Already claiming. The caller owns stopping it, on a signal or at the end of a test. */
+  /**
+   * Already claiming, unless the role is `api`, in which case it never claims anything. The caller
+   * owns stopping it either way — on a signal, or at the end of a test.
+   */
   worker: TurnWorker;
-  /** Already sweeping. The caller owns stopping it, on a signal or at the end of a test. */
+  /** Already sweeping, unless the role is `api`. The caller owns stopping it. */
   reaper: { stop: () => void };
   /**
-   * Already looking for turns whose worker died. The caller owns stopping it.
+   * Already looking for turns whose worker died, unless the role is `api`. The caller owns
+   * stopping it.
    *
    * A schedule of its own rather than a share of the reaper's: an idle project can wait a minute
    * to be put away, and a chat pane waiting on a turn that will never finish cannot.
@@ -192,6 +237,9 @@ export type ComposedNap = {
 
 export function composeNap(deps: NapDeps): ComposedNap {
   const { config, logger } = deps;
+  const role = deps.role ?? "all";
+  /** The half that executes: the claiming loop, and the sweeps that clean up after it. */
+  const executes = role !== "api";
 
   const registry = new TurnRegistry();
   // Absent means refuse, not allow — see `requireUser`. Boot always has an auth instance, and a
@@ -205,8 +253,17 @@ export function composeNap(deps: NapDeps): ComposedNap {
     // from its last snapshot rather than starting again from an empty template.
     objects: deps.objects,
     snapshots: deps.snapshots,
-    // A picture of each finished turn, and of each project coming back up.
-    ...(deps.capture === undefined ? {} : { capture: deps.capture }),
+    // A picture of each finished turn, and of each project coming back up — behind a semaphore,
+    // because this runs after *every* committed turn and a worker holding 25 at once would
+    // otherwise launch 25 Chromiums in one container. Capture is best-effort and nobody waits on
+    // it, so queueing costs a card that appears late where the alternative costs the whole pod.
+    ...(deps.capture === undefined
+      ? {}
+      : {
+          capture: new BoundedPageCapture(deps.capture, {
+            concurrency: config.NAP_CAPTURE_CONCURRENCY,
+          }),
+        }),
     // Where the ceiling is really enforced: at the point a sandbox is created, not at the route
     // that asked for one.
     capacity: deps.capacity,
@@ -341,9 +398,12 @@ export function composeNap(deps: NapDeps): ComposedNap {
       //
       // **Per-process, and that is now a known gap rather than the design.** The authoritative
       // answer is a `leased` row in `turn_requests`, which every replica can see; this map only
-      // knows about turns claimed here, so once the worker runs somewhere else this reads a busy
-      // session as idle. It is safe today because there is one process, and it stops being safe
-      // in the same change that makes there be two.
+      // knows about turns claimed here, so an API pod composed apart from its workers reads every
+      // busy session as idle and would let somebody close a project mid-turn.
+      //
+      // Which is why the split entrypoints exist but the deployed arrangement is still one
+      // process: `role: "all"` keeps the worker and these routes sharing a registry, and moving
+      // to two pods waits on this becoming a lease read rather than a map lookup.
       isBusy: (sessionIds) => sessionIds.some((id) => registry.isRunning(id)),
     },
   });
@@ -354,134 +414,153 @@ export function composeNap(deps: NapDeps): ComposedNap {
    * The busy check reuses the registry the turn routes already write to, which is the only
    * thing in this process that knows a turn is running. It reads across a project's sessions
    * because a sandbox belongs to the project they share.
+   *
+   * **It runs with the worker rather than with the API**, and that is a consequence of that
+   * registry: "is this project busy?" can only be answered by the process holding the turns, so a
+   * reaper in an API pod would read every busy project as idle and tear one down mid-turn. The
+   * proper answer is the lease in Postgres and a reaper process of its own, which is the next
+   * ticket; until then, sitting beside the turns is the arrangement that is not wrong.
    */
-  const reaper = startSweeping({
-    intervalMs: config.NAP_REAP_INTERVAL_SECONDS * 1000,
-    sweep: async () => {
-      // Turns recorded long enough ago that no window can still count them. Cheap, unrelated to
-      // the projects below, and here for the reason reconciliation is: this is the deployment's
-      // "come past occasionally and put things right" schedule, and without it the table keeps a
-      // row for every visitor who ever sent one message.
-      await Promise.all(
-        [deps.rateLimits.rate, deps.rateLimits.freeRate].map((limiter) =>
-          limiter.sweep().catch((error: unknown) => {
-            // Its own catch, not the sweep's: a failure to tidy must not cost this tick the
-            // projects it was about to put away, which is the half that spends money.
-            logger.error({ err: error }, "could not sweep expired turn rate events");
-          }),
-        ),
-      );
+  const reaper = !executes
+    ? NOT_STARTED
+    : startSweeping({
+        intervalMs: config.NAP_REAP_INTERVAL_SECONDS * 1000,
+        sweep: async () => {
+          // Turns recorded long enough ago that no window can still count them. Cheap, unrelated to
+          // the projects below, and here for the reason reconciliation is: this is the deployment's
+          // "come past occasionally and put things right" schedule, and without it the table keeps a
+          // row for every visitor who ever sent one message.
+          await Promise.all(
+            [deps.rateLimits.rate, deps.rateLimits.freeRate].map((limiter) =>
+              limiter.sweep().catch((error: unknown) => {
+                // Its own catch, not the sweep's: a failure to tidy must not cost this tick the
+                // projects it was about to put away, which is the half that spends money.
+                logger.error({ err: error }, "could not sweep expired turn rate events");
+              }),
+            ),
+          );
 
-      return await sweepIdleProjects({
-        projects: deps.projectSandboxes,
-        sandbox: deps.sandbox,
-        objects: deps.objects,
-        snapshots: deps.snapshots,
-        // A swept sandbox is the main way capacity ever comes back; without this the ceiling
-        // would count every project this cluster had ever opened.
-        capacity: deps.capacity,
-        // The other half of the same tick: slots no path gave back, and sandboxes running under
-        // an id nothing in the database ever recorded. See `reconcileCapacity`.
-        ...(deps.reconcile === undefined ? {} : { reconcile: deps.reconcile }),
-        idleMs: config.NAP_REAP_IDLE_MINUTES * 60 * 1000,
-        isBusy: (project) => project.sessionIds.some((id) => registry.isRunning(id)),
-        // A swept project's tabs are still open on it, showing an address that is about to stop
-        // answering. Same store and bus as everything else, for the same reason.
-        announce: { events: deps.events, bus: deps.bus },
-      }).then((result) => {
-        if (result.reaped.length > 0) logger.info({ reaped: result.reaped }, "projects put away");
-        // Their sandboxes were reclaimed by something else before we could snapshot them. Worth
-        // a line each: a steady stream of these means the lifetimes above are wrong.
-        for (const projectId of result.abandoned) {
-          logger.warn({ projectId }, "sandbox was already gone; released without a snapshot");
-        }
-        for (const failure of result.failed)
-          logger.error({ failure }, "could not put a project away");
+          return await sweepIdleProjects({
+            projects: deps.projectSandboxes,
+            sandbox: deps.sandbox,
+            objects: deps.objects,
+            snapshots: deps.snapshots,
+            // A swept sandbox is the main way capacity ever comes back; without this the ceiling
+            // would count every project this cluster had ever opened.
+            capacity: deps.capacity,
+            // The other half of the same tick: slots no path gave back, and sandboxes running under
+            // an id nothing in the database ever recorded. See `reconcileCapacity`.
+            ...(deps.reconcile === undefined ? {} : { reconcile: deps.reconcile }),
+            idleMs: config.NAP_REAP_IDLE_MINUTES * 60 * 1000,
+            isBusy: (project) => project.sessionIds.some((id) => registry.isRunning(id)),
+            // A swept project's tabs are still open on it, showing an address that is about to stop
+            // answering. Same store and bus as everything else, for the same reason.
+            announce: { events: deps.events, bus: deps.bus },
+          }).then((result) => {
+            if (result.reaped.length > 0)
+              logger.info({ reaped: result.reaped }, "projects put away");
+            // Their sandboxes were reclaimed by something else before we could snapshot them. Worth
+            // a line each: a steady stream of these means the lifetimes above are wrong.
+            for (const projectId of result.abandoned) {
+              logger.warn({ projectId }, "sandbox was already gone; released without a snapshot");
+            }
+            for (const failure of result.failed)
+              logger.error({ failure }, "could not put a project away");
 
-        const reconciled = result.reconciled;
-        if (reconciled !== undefined) {
-          // Logged only when something moved, because the healthy answer is three empty lists
-          // every tick forever. A number that keeps climbing is the signal worth seeing: it
-          // means processes are dying between reserving a slot and using it.
-          if (
-            reconciled.expired.length + reconciled.orphaned.length + reconciled.destroyed.length >
-            0
-          ) {
-            logger.warn(
-              {
-                expired: reconciled.expired.length,
-                orphaned: reconciled.orphaned.length,
-                destroyed: reconciled.destroyed,
-              },
-              "reclaimed sandbox capacity nothing gave back",
-            );
-          }
-          for (const failure of reconciled.failed)
-            logger.error({ failure }, "could not reconcile sandbox capacity");
-        }
+            const reconciled = result.reconciled;
+            if (reconciled !== undefined) {
+              // Logged only when something moved, because the healthy answer is three empty lists
+              // every tick forever. A number that keeps climbing is the signal worth seeing: it
+              // means processes are dying between reserving a slot and using it.
+              if (
+                reconciled.expired.length +
+                  reconciled.orphaned.length +
+                  reconciled.destroyed.length >
+                0
+              ) {
+                logger.warn(
+                  {
+                    expired: reconciled.expired.length,
+                    orphaned: reconciled.orphaned.length,
+                    destroyed: reconciled.destroyed,
+                  },
+                  "reclaimed sandbox capacity nothing gave back",
+                );
+              }
+              for (const failure of reconciled.failed)
+                logger.error({ failure }, "could not reconcile sandbox capacity");
+            }
+          });
+        },
+        onError: (error) => logger.error({ err: error }, "reaper sweep threw"),
       });
-    },
-    onError: (error) => logger.error({ err: error }, "reaper sweep threw"),
-  });
 
   /**
-   * The loop that actually runs the queued turns — in this process, for now.
+   * The loop that actually runs the queued turns, and the whole of what a worker process is.
    *
-   * A worker deployment of its own is the next step and changes nothing about the queue: one
-   * replica composed like this behaves exactly as it did when the route ran the turn itself, and
-   * turns simply flow through the durable queue on the way. Started after the app so the registry
-   * it writes to is the same one the cancel route and the reaper read.
+   * An API composition does not start it, which is the single line that makes an API pod execute
+   * nothing: everything above is built the same way either half is composed, and turns reach a
+   * worker through the durable queue rather than through anything in this process. Started after
+   * the app so the registry it writes to is the same one the cancel route and the reaper read.
    */
-  const worker = startTurnWorker({
-    queue: deps.queue,
-    runtime,
-    concurrency: config.NAP_WORKER_CONCURRENCY,
-    // The same function the turn route resolves access with — the queue stores only *whether* the
-    // asker pays, so this is where their key is re-opened, once the request has been claimed.
-    credentialsFor: openCallerKey,
-    running: registry,
-  });
+  const worker = !executes
+    ? NOT_CLAIMING
+    : startTurnWorker({
+        queue: deps.queue,
+        runtime,
+        concurrency: config.NAP_WORKER_CONCURRENCY,
+        // How long a shutdown waits for turns in flight before aborting them. Config rather than
+        // the port's default, because what fits depends on the platform's grace period.
+        drainTimeoutMs: config.NAP_DRAIN_TIMEOUT_SECONDS * 1000,
+        // The same function the turn route resolves access with — the queue stores only *whether*
+        // the asker pays, so this is where their key is re-opened, once the request is claimed.
+        credentialsFor: openCallerKey,
+        running: registry,
+      });
 
   /**
    * The other half of a worker dying: the request it was holding, and the chat pane waiting on a
    * turn that will never finish.
    *
-   * It runs here because this process is the one Nap has. `docs/scaling-design.md` §5 puts it in
-   * the reaper pod, and §24.3 leaves whether the two share a process open — either way it is a
-   * composition's choice, and moving it later changes nothing about what it does. Several
-   * replicas sweeping at once is safe rather than merely tolerated: the reclaim holds each row
-   * with `for update skip locked`, so two janitors never close out the same request.
+   * It runs with the workers. `docs/scaling-design.md` §5 puts it in the reaper pod and §24.3
+   * leaves whether the two share a process open — either way it is a composition's choice, and
+   * moving it later changes nothing about what it does. Several replicas sweeping at once is safe
+   * rather than merely tolerated: the reclaim holds each row with `for update skip locked`, so two
+   * janitors never close out the same request. What it must not do is run *only* where no turns
+   * do, which is why it is on this side of the split rather than the API's.
    *
    * On its own interval, and that is the point of the separate schedule: an idle project can wait
    * a minute to be put away, and a chat pane waiting on a turn that will never finish cannot.
    */
-  const janitor = startSweeping({
-    intervalMs: config.NAP_JANITOR_INTERVAL_SECONDS * 1000,
-    sweep: async () => {
-      const result = await sweepOrphanedRequests({
-        queue: deps.queue,
-        // The same store and bus as everything else: the terminal event it writes is replayed
-        // from the log by whoever reconnects, exactly like the ones a turn writes.
-        events: deps.events,
-        bus: deps.bus,
-      });
+  const janitor = !executes
+    ? NOT_STARTED
+    : startSweeping({
+        intervalMs: config.NAP_JANITOR_INTERVAL_SECONDS * 1000,
+        sweep: async () => {
+          const result = await sweepOrphanedRequests({
+            queue: deps.queue,
+            // The same store and bus as everything else: the terminal event it writes is replayed
+            // from the log by whoever reconnects, exactly like the ones a turn writes.
+            events: deps.events,
+            bus: deps.bus,
+          });
 
-      // Logged here rather than inside the sweep, for the reason the reconciliation pass is: the
-      // sweep answers with values and the composition owns what is worth a line. Only when
-      // something moved — in a healthy deployment every tick finds nothing, and a number that
-      // climbs means workers are dying rather than settling their requests.
-      if (result.orphaned.length > 0) {
-        logger.warn(
-          { orphaned: result.orphaned },
-          "turn requests outlived their leases and were closed out; their jobs are still open",
-        );
-      }
-      for (const failure of result.failed) {
-        logger.error({ failure }, "could not close out an interrupted turn");
-      }
-    },
-    onError: (error) => logger.error({ err: error }, "janitor sweep threw"),
-  });
+          // Logged here rather than inside the sweep, for the reason the reconciliation pass is: the
+          // sweep answers with values and the composition owns what is worth a line. Only when
+          // something moved — in a healthy deployment every tick finds nothing, and a number that
+          // climbs means workers are dying rather than settling their requests.
+          if (result.orphaned.length > 0) {
+            logger.warn(
+              { orphaned: result.orphaned },
+              "turn requests outlived their leases and were closed out; their jobs are still open",
+            );
+          }
+          for (const failure of result.failed) {
+            logger.error({ failure }, "could not close out an interrupted turn");
+          }
+        },
+        onError: (error) => logger.error({ err: error }, "janitor sweep threw"),
+      });
 
   return { app, runtime, registry, worker, reaper, janitor };
 }

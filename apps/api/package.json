@@ -6,6 +6,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "dev": "bun --watch src/index.ts",
+    "dev:worker": "bun --watch src/worker.ts",
     "ws:smoke": "bun run scripts/ws-smoke.ts",
     "acceptance": "bun run scripts/acceptance.ts",
     "loadgen": "bun run scripts/loadgen.ts"

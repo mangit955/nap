@@ -103,6 +103,18 @@ the request *orphaned* and writes the terminal event the interrupted Turn never 
 request's own id. **It never requeues and never closes the Job**: re-executing with nobody watching
 is what *Continue* forbids, so the work waits for a human to reopen the project.
 
+**Role** — which half of the deployment a process is: an **API pod** serves HTTP, WebSockets, auth
+and admission and executes nothing, and a **worker** claims leases and executes turns and serves
+nothing. Both are the same composition given a different role, so it names a *process's job* and
+never a build, an image or a code path. `all` is the two in one process, which is what tests and the
+load harness compose and what no entrypoint offers.
+
+**Drain** — what a worker does between `SIGTERM` and exiting: stop claiming, keep renewing the
+leases it holds, and wait for the turns already running. Bounded by the **drain timeout**, past
+which the rest are aborted — a clean stop, committing nothing and closing each Job *abandoned*,
+never a kill. Draining is a property of a process going away; it is not cancellation, which is
+somebody asking for one turn to stop.
+
 **Fanout** — delivery of an already-persisted event to whichever API pods hold subscribers for its
 session. Strictly after the append, as it has always been. **A notification is a wake-up signal; the
 durable log is the delivery** — a lost notification costs latency and never costs an event, because

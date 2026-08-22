@@ -9,6 +9,7 @@
   ],
   "scripts": {
     "dev": "turbo run dev",
+    "dev:worker": "turbo run dev:worker",
     "build": "turbo run build",
     "test": "vitest run --project unit --project types --project web --project db",
     "test:fast": "vitest run --project unit --project types --project web",

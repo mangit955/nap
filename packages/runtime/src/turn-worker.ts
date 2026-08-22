@@ -3,11 +3,12 @@
  *
  * It is what turns a durable queue into a system that does anything: an API pod writes down the
  * intent to execute and answers 202, and this claims that intent, leases the session, runs the
- * turn and settles the row. **For now it runs inside the API process**, so one replica behaves
- * exactly as it did before — turns simply flow through the queue on the way — which is what keeps
- * the move to a real worker deployment a change of process rather than a change of behaviour.
+ * turn and settles the row. It is what a worker process *is*: `apps/api/src/worker.ts` composes
+ * Nap with everything else switched off and this loop running, and the API process composes the
+ * same system with this loop not started. Nothing here knows which, and that is the point — the
+ * queue is the only thing the two halves share.
  *
- * Three things here are load-bearing.
+ * Four things here are load-bearing.
  *
  * **A lease is renewed, and losing it is fatal.** A worker can outlive its lease through a GC
  * pause, a Postgres blip or a partition, and would then keep appending to a session another worker
@@ -24,6 +25,11 @@
  * **Concurrency is per worker, and the queue decides what it gets.** Nothing here reserves,
  * balances or waits for a particular session: a request whose session is busy is simply not
  * claimable, so a slow turn delays its own session and nobody else's.
+ *
+ * **Stopping is a drain with a deadline, and the leases stay renewed for the whole of it.** A
+ * worker being taken away waits for its turns rather than killing them, but only for as long as
+ * the platform's grace period allows — and it keeps renewing throughout, or it would spend the
+ * wait having its own progressing work orphaned out from under it.
  */
 
 import { LEASE_RENEWAL_INTERVAL_MS } from "@nap/shared/lease-windows";
@@ -74,22 +80,62 @@ export type TurnWorkerOptions = {
   pollIntervalMs?: number;
   /** How often a held lease is renewed. Defaults to the shared interval. */
   renewIntervalMs?: number;
+  /**
+   * How long an aborted turn is given to actually stop before this worker gives up on it.
+   *
+   * Exists to be turned down in a test: a turn that ignores its signal is what it guards against,
+   * and there is no other way to produce one on demand.
+   */
+  abortGraceMs?: number;
+  /**
+   * How long a drain waits for turns already in flight before aborting them.
+   *
+   * A worker asked to stop is a worker whose process is being taken away, and the platform's
+   * grace period is the real deadline: a drain that outlasts it is not a graceful shutdown but a
+   * kill, which leaves every lease it held to expire and every job it opened for somebody to
+   * continue by hand. So the default is `docs/scaling-design.md` §15's 600s, comfortably inside
+   * the 900s grace — long enough for a job with verification and three repairs, short enough that
+   * the abort happens on our terms rather than SIGKILL's.
+   */
+  drainTimeoutMs?: number;
   credentialsFor?: CredentialsFor;
   running?: RunningTurns;
 };
 
 export type TurnWorker = {
   /**
-   * Stops claiming and waits for whatever is already running to finish.
+   * Stops claiming and waits for whatever is already running to finish, up to `drainTimeoutMs`.
    *
-   * Turns in flight are *not* aborted: they hold leases nothing else can take, and killing them
-   * would leave a Job open for a human to continue when it was about to close on its own.
+   * Turns in flight are *not* aborted while there is still time: they hold leases nothing else can
+   * take, and killing one would leave a Job open for a human to continue when it was about to
+   * close on its own. Their leases keep being renewed throughout, or this worker's own drain would
+   * hand its work to the janitor.
+   *
+   * Past the deadline they are aborted, which is a clean stop rather than a kill — the runtime
+   * commits nothing and closes the job `abandoned` — and each request is still settled here.
    */
   stop(): Promise<void>;
 };
 
 /** Short, because it is the delay between a turn being accepted and its first event. */
 const DEFAULT_POLL_INTERVAL_MS = 100;
+
+/**
+ * `docs/scaling-design.md` §15: inside the 900s grace period, with room for the tail.
+ *
+ * The number a deployment actually runs on is `NAP_DRAIN_TIMEOUT_SECONDS`, which the composition
+ * passes in; this is only what a caller that named none gets.
+ */
+const DEFAULT_DRAIN_TIMEOUT_MS = 600_000;
+
+/**
+ * How long an aborted turn has to actually stop.
+ *
+ * Seconds rather than minutes: everything a turn is waiting on is already cancelled by this point,
+ * so anything still running is not honouring its signal, and no amount of further waiting inside a
+ * grace period that is nearly over will change that.
+ */
+const ABORT_GRACE_MS = 10_000;
 
 export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
   const {
@@ -99,12 +145,21 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
     owner = crypto.randomUUID(),
     pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
     renewIntervalMs = LEASE_RENEWAL_INTERVAL_MS,
+    drainTimeoutMs = DEFAULT_DRAIN_TIMEOUT_MS,
+    abortGraceMs = ABORT_GRACE_MS,
     credentialsFor,
     running,
   } = options;
 
   const logger = getLogger();
   const inFlight = new Set<Promise<void>>();
+  /**
+   * The controller of every turn running here, so a drain that runs out of time can end them.
+   *
+   * Kept beside `inFlight` rather than derived from it: a promise says when a turn finished and
+   * nothing about how to stop it.
+   */
+  const controllers = new Set<AbortController>();
   let stopped = false;
   let idle = Promise.resolve();
 
@@ -118,6 +173,7 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
   async function run(request: LeasedTurnRequest): Promise<void> {
     const controller = new AbortController();
     running?.adopt(request.sessionId, controller);
+    controllers.add(controller);
 
     const renewal = setInterval(() => {
       void renew(request, controller);
@@ -144,6 +200,7 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
       });
     } finally {
       clearInterval(renewal);
+      controllers.delete(controller);
       running?.release(request.sessionId, controller);
     }
   }
@@ -256,11 +313,63 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
 
   idle = loop();
 
+  /**
+   * The drain: wait for what is running, and end it if the wait runs out.
+   *
+   * The renewal timers are deliberately untouched — each one lives inside its own `run`, so every
+   * turn being waited for keeps its lease for as long as the wait lasts. A drain that let them
+   * lapse would have the janitor orphan this worker's own progressing turns and hand their
+   * sessions to somebody else while this process was still writing to them.
+   */
+  async function drain(): Promise<void> {
+    if (inFlight.size === 0) return;
+    const draining = Promise.all([...inFlight]);
+
+    let expiry: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<"expired">((resolve) => {
+      expiry = setTimeout(() => resolve("expired"), drainTimeoutMs);
+    });
+
+    const outcome = await Promise.race([draining.then(() => "drained" as const), deadline]);
+    clearTimeout(expiry);
+    if (outcome === "drained") return;
+
+    // Out of time. Aborting is a clean stop rather than a kill: the runtime commits nothing and
+    // closes the job `abandoned`, and each `run` still settles its own request on the way out —
+    // which is what releases the lease before this process disappears.
+    logger.warn(
+      { inFlight: controllers.size, drainTimeoutMs },
+      "the drain timed out; aborting the turns still running",
+    );
+    for (const controller of controllers) {
+      controller.abort(new Error("the worker is shutting down"));
+    }
+
+    // Bounded, not `await draining`. An abort is a request, and a runtime that does not honour one
+    // would otherwise leave `stop()` pending for ever — which means the caller's `process.exit`
+    // never runs and the platform reaches for SIGKILL, the exact ending the deadline exists to
+    // prevent. Giving up here loses the settle for those requests; the janitor closes them out
+    // once their leases expire, which is what it is for.
+    let abandonment: ReturnType<typeof setTimeout> | undefined;
+    const abandoned = new Promise<"abandoned">((resolve) => {
+      abandonment = setTimeout(() => resolve("abandoned"), abortGraceMs);
+    });
+
+    const ending = await Promise.race([draining.then(() => "drained" as const), abandoned]);
+    clearTimeout(abandonment);
+    if (ending === "abandoned") {
+      logger.error(
+        { inFlight: controllers.size },
+        "turns did not stop when aborted; leaving them to the janitor",
+      );
+    }
+  }
+
   return {
     async stop() {
       stopped = true;
       await idle;
-      await Promise.all([...inFlight]);
+      await drain();
     },
   };
 }

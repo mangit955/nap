@@ -264,8 +264,34 @@ const BaseSchema = z.object({
    * for at a time, and the number to turn down when a pod is the bottleneck rather than the bill.
    * A turn that cannot be claimed waits in `turn_requests` rather than being refused, so this
    * changes latency and never who gets in.
+   *
+   * The default is measured rather than guessed: `docs/scaling-baseline.md` derives 25 per worker
+   * across four workers from the ramp's own arrival rate and mean turn, and deliberately sits
+   * *below* what that run licenses — its turns cost no CPU and no vendor quota, so a real worker
+   * is bounded by E2B sandboxes and model rate limits long before it is bounded by anything that
+   * run measured. Raising it wants a real-vendor run behind it.
    */
-  NAP_WORKER_CONCURRENCY: z.coerce.number().int().positive().default(10),
+  NAP_WORKER_CONCURRENCY: z.coerce.number().int().positive().default(25),
+
+  /**
+   * How long a draining worker waits for the turns it is already running before aborting them.
+   *
+   * The platform's grace period is the real deadline — 600s inside a 900s grace, per
+   * `docs/scaling-design.md` §15. A drain that outlasts it is not a graceful shutdown but a kill,
+   * which leaves every lease to expire and every job open for somebody to continue by hand.
+   */
+  NAP_DRAIN_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(600),
+
+  /**
+   * How many thumbnails one worker photographs at once.
+   *
+   * Not the worker's concurrency, and that is the whole point: every committed turn is
+   * photographed, so at 25 turns in flight this would otherwise be 25 simultaneous Chromium page
+   * loads in one container. A thumbnail is best-effort and nobody waits on it, so queueing costs
+   * a card that appears a few seconds later while the alternative is an OOMKill that costs every
+   * turn in flight. One until measurement says more is safe — `docs/scaling-design.md` §17 (B-6).
+   */
+  NAP_CAPTURE_CONCURRENCY: z.coerce.number().int().positive().default(1),
 
   /**
    * A Chrome or Chromium binary to photograph finished turns with, for the dashboard's cards.

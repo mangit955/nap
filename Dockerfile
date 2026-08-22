@@ -1,4 +1,10 @@
-# The API, as Railway runs it.
+# The API, as Railway runs it — and the worker, which is the same image with another command.
+#
+# One image for both halves of the deployment (docs/scaling-design.md §4). They are composed from
+# the same code and need the same credentials, so two images would be two things to build, two to
+# scan and two to get out of step; the entrypoint is the only difference and a start command says
+# it. `bun apps/api/src/worker.ts` is the worker, and there is no default because a worker service
+# is a deliberate second service rather than a mode this image guesses at.
 #
 # There is no build step: every workspace package exports raw TypeScript ("./*": "./src/*.ts"),
 # which Bun runs directly. So this image is the repository plus its dependencies, and the
@@ -48,4 +54,8 @@ EXPOSE 3001
 
 # Not `bun run dev` — that is `--watch`, which is a filesystem watcher on a read-only image
 # and a second process to no purpose.
+#
+# The default is the API, since that is the service that has to answer a healthcheck. A worker
+# service overrides it with `bun apps/api/src/worker.ts` and needs no healthcheck path: it serves
+# nothing, and whether it is working is a question about queue depth. See docs/DEPLOY.md.
 CMD ["bun", "apps/api/src/index.ts"]
