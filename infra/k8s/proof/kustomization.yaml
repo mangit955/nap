@@ -1,0 +1,58 @@
+# The same three deployments, on a laptop, with nothing behind them that costs money.
+#
+# It is the base's Deployments, Service and Ingress — the same probes, the same grace periods, the
+# same rollout strategies — with three deliberate differences, each of which is the overlay's whole
+# reason to exist:
+#
+#   1. **The command runs `cluster-proof.ts` instead of the real entrypoint.** Same `composeNap`,
+#      same queue, same durable log, same `pg_notify` fanout; a scripted model and an in-memory
+#      sandbox instead of OpenRouter and E2B. A turn can therefore *complete* without a vendor key,
+#      which is what makes "submitted to one pod, streamed from another" observable rather than
+#      inferred.
+#   2. **Postgres is in the cluster.** The real one is Neon. See postgres.yaml.
+#   3. **Three objects are removed** — the ScaledObject, the HPA and the NetworkPolicy — because
+#      this cluster has neither KEDA, nor Prometheus, nor a CNI that enforces a policy. See
+#      patch-remove-unsupported.yaml, which says so out loud rather than quietly omitting them.
+#
+# Driven by `infra/k8s/proof/run.sh`, which builds the image, loads it, migrates, applies this, and
+# then runs the checks in `apps/api/scripts/cluster-proof-check.ts`.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: nap
+resources:
+  - ../base
+  - postgres.yaml
+
+images:
+  - name: ghcr.io/mangit955/nap
+    newName: nap
+    newTag: proof
+
+# The credentials the pods mount. Every one is a dummy: `cluster-proof.ts` reaches no vendor, and
+# `DATABASE_URL` points at the Postgres next door. Generated rather than checked in as a Secret
+# manifest, so nothing in this repository is ever a filled-in `kind: Secret`.
+secretGenerator:
+  - name: nap-secrets
+    literals:
+      - DATABASE_URL=postgres://nap:nap@nap-postgres:5432/nap
+      - E2B_API_KEY=proof-not-a-key
+      - OPENROUTER_API_KEY=proof-not-a-key
+      - BETTER_AUTH_SECRET=GENERATED_AT_RUN_TIME
+      - NAP_KEY_ENCRYPTION_SECRET=GENERATED_AT_RUN_TIME
+      - R2_ACCOUNT_ID=proof
+      - R2_BUCKET=proof
+      - R2_ACCESS_KEY_ID=proof
+      - R2_SECRET_ACCESS_KEY=proof
+
+generatorOptions:
+  # The pods name `nap-config` and `nap-secrets` through `envFrom`, so the generated names must not
+  # be suffixed with a hash.
+  disableNameSuffixHash: true
+
+patches:
+  - path: patch-config.yaml
+  - path: patch-command-api.yaml
+  - path: patch-command-worker.yaml
+  - path: patch-command-reaper.yaml
+  - path: patch-ingress-host.yaml
+  - path: patch-remove-unsupported.yaml

@@ -218,6 +218,14 @@ export type NapDeps = {
    * for the same reason. Absent means ready. See `AppDeps.readiness`.
    */
   readiness?: HealthProbe;
+  /**
+   * How a worker pod says its claim loop is still going round, if anything is asking.
+   *
+   * A dep rather than a setting, because the answer is a side effect on a filesystem and this file
+   * decides no policy and touches no infrastructure. Only a role that claims ever calls it; absent
+   * means nothing is watching, which is every test and every single-container deployment.
+   */
+  onClaimTick?: () => void;
 };
 
 /**
@@ -546,6 +554,8 @@ export function composeNap(deps: NapDeps): ComposedNap {
         // the asker pays, so this is where their key is re-opened, once the request is claimed.
         credentialsFor: openCallerKey,
         running: registry,
+        // A worker has no port, so this loop coming round is the only liveness signal there is.
+        ...(deps.onClaimTick === undefined ? {} : { onClaimTick: deps.onClaimTick }),
       });
 
   /**

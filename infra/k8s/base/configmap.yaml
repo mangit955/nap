@@ -1,0 +1,69 @@
+# Every NAP_* tunable, and nothing anybody could spend.
+#
+# The split between this and the Secret is not tidiness: this file is in git, is read by anyone
+# with `get configmap`, and is what a reviewer diffs to see what a deployment was set to. Anything
+# that opens an account belongs in the Secret next door, which is why no key, URL with a password
+# in it, or signing secret appears here.
+#
+# The three deployments all mount the whole of this, because the same composition boots all three
+# (apps/api/src/boot.ts) and a per-role subset would be three lists to keep in step. A worker
+# reading NAP_WEB_ORIGIN and never using it costs nothing; a worker missing the one variable its
+# role needed would refuse to boot at three in the morning.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nap-config
+  namespace: nap
+  labels:
+    app.kubernetes.io/name: nap
+data:
+  NODE_ENV: "production"
+  LOG_LEVEL: "info"
+  PORT: "3001"
+
+  # The two origins refer to each other, and CORS compares NAP_WEB_ORIGIN verbatim — no trailing
+  # slash, and https. Replace both with this deployment's own domains.
+  NAP_API_URL: "https://api.nap.example.com"
+  NAP_WEB_ORIGIN: "https://nap.example.com"
+
+  # Not optional here, and the workers and the reaper refuse to boot without it. A worker
+  # publishing to a bus inside itself announces a turn to nobody: every socket watching that
+  # session is on an API pod, so the turn would run perfectly and no browser would see it.
+  NAP_EVENT_BUS: "postgres"
+
+  NAP_PLATFORM: "openrouter"
+  NAP_MODEL: "openai/gpt-5.6-luna"
+  NAP_FREE_MODEL: "openai/gpt-5.6-luna"
+  NAP_EFFORT: "medium"
+  NAP_MAX_STEPS: "24"
+  NAP_CONTEXT_BUDGET_TOKENS: "80000"
+
+  # What bounds the bill. NAP_MAX_SANDBOXES_TOTAL is everybody together across every pod — a count
+  # of rows in Postgres — and it is the number the worker autoscaler's ceiling is derived from, so
+  # no scaling decision can outrun it. See scaledobject.yaml.
+  NAP_MAX_SANDBOXES_TOTAL: "10"
+  NAP_MAX_SANDBOXES_PER_USER: "2"
+  NAP_TURNS_PER_HOUR: "15"
+  NAP_ALLOW_DEMO: "true"
+  NAP_FREE_TURNS_PER_HOUR: "5"
+  NAP_FREE_MAX_SANDBOXES_PER_USER: "1"
+
+  # NAP_REAP_IDLE_MINUTES must stay below NAP_SANDBOX_TTL_MINUTES or boot refuses: whichever
+  # expires first decides whether an idle project is snapshotted away or simply deleted.
+  NAP_REAP_IDLE_MINUTES: "10"
+  NAP_REAP_INTERVAL_SECONDS: "60"
+  NAP_SANDBOX_TTL_MINUTES: "30"
+  NAP_JANITOR_INTERVAL_SECONDS: "15"
+
+  # How many queued turns one worker runs at once — a property of the pod, not a ceiling on spend.
+  # Deliberately below the 25 a single container was measured at (docs/scaling-baseline.md): here
+  # the answer to a busy pod is another pod, and a lower number per pod is what makes the queue
+  # depth a scaling signal rather than a latency the autoscaler cannot see.
+  NAP_WORKER_CONCURRENCY: "5"
+  # Not the worker's concurrency, deliberately: every committed turn is photographed, and five
+  # simultaneous Chromiums in one container is an OOM kill that costs every turn in flight.
+  NAP_CAPTURE_CONCURRENCY: "1"
+  # How long a worker being taken away waits for the turns it is already running. It must stay
+  # inside the pod's terminationGracePeriodSeconds, or the drain ends in a SIGKILL — which is the
+  # one ending it exists to prevent. See deployment-worker.yaml.
+  NAP_DRAIN_TIMEOUT_SECONDS: "600"

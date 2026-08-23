@@ -59,3 +59,60 @@ export function findUnanchoredPatterns(contents: string): IgnoreViolation[] {
 
   return violations;
 }
+
+/**
+ * Whether an ignore file excludes a given path — enough of the syntax to answer that honestly.
+ *
+ * Written for `.dockerignore`, where the question is not stylistic but "does this file end up
+ * inside the image?". It was worth writing because the answer was *no* for `.env.local` and
+ * nobody knew: the file is Vercel's, it holds an OIDC token, `bun` loads it at startup, and it was
+ * being copied into every deployment because the patterns named `.env` and stopped there.
+ *
+ * Supported, because it is all our ignore files use: a leading `!` to re-include, a leading `/` to
+ * anchor, a leading double-star to mean every depth, a bare name which also means every depth, and
+ * `*` as a wildcard within one segment. Last match wins, as in gitignore.
+ */
+export function isIgnored(contents: string, path: string): boolean {
+  let ignored = false;
+
+  for (const rawLine of contents.split("\n")) {
+    const line = rawLine.trim();
+    if (line === "" || line.startsWith("#")) continue;
+
+    const negated = line.startsWith("!");
+    const pattern = negated ? line.slice(1) : line;
+    if (pattern === "") continue;
+
+    if (matches(pattern, path)) ignored = !negated;
+  }
+
+  return ignored;
+}
+
+function matches(pattern: string, path: string): boolean {
+  // A pattern that is anchored, or that contains a slash of its own, is relative to the file.
+  if (pattern.startsWith("/")) return segmentMatch(pattern.slice(1), path);
+  if (pattern.startsWith("**/")) return anyDepth(pattern.slice(3), path);
+  if (pattern.includes("/")) return segmentMatch(pattern, path);
+  // A bare name means every depth, which is the reading that surprises people.
+  return anyDepth(pattern, path);
+}
+
+/** The pattern against the whole path, or against any directory prefix of it. */
+function segmentMatch(pattern: string, path: string): boolean {
+  const parts = path.split("/");
+  for (let end = 1; end <= parts.length; end += 1) {
+    if (globMatch(pattern, parts.slice(0, end).join("/"))) return true;
+  }
+  return false;
+}
+
+/** The pattern against any single segment, which is what a bare name means. */
+function anyDepth(pattern: string, path: string): boolean {
+  return path.split("/").some((segment) => globMatch(pattern, segment));
+}
+
+function globMatch(pattern: string, value: string): boolean {
+  const escaped = pattern.replaceAll(/[.+^${}()|[\]\\]/g, String.raw`\$&`).replaceAll("*", "[^/]*");
+  return new RegExp(`^${escaped}$`).test(value);
+}

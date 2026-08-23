@@ -1,0 +1,57 @@
+# API pods scale on open sockets first and CPU second.
+#
+# CPU alone is the wrong signal here: an idle WebSocket costs a file descriptor and a subscription,
+# so several hundred of them can sit near zero CPU while the pod is at its practical limit. The
+# primary metric is `nap_ws_connections` — a per-pod gauge scraped by Prometheus and exposed to the
+# autoscaler by prometheus-adapter — with CPU kept as a secondary trigger for the case where the
+# sockets are few and busy rather than many and quiet.
+#
+# **Nothing exports `nap_ws_connections` yet**, and this file is the honest place to say so: the API
+# has no `/metrics` route and holds no such gauge, so today the metric is unavailable in every
+# cluster and this HPA is the CPU trigger alone. That is a known gap rather than a claim — the
+# target is written down because the number is a decision (roughly 200 sockets a pod), and it takes
+# effect the day the gauge and prometheus-adapter exist.
+#
+# An unavailable metric degrades rather than fails: the HPA keeps scaling on what it can read, just
+# later than it should. Which is also what happens in a cluster that has the gauge but not the
+# adapter.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: nap-api
+  namespace: nap
+  labels:
+    app.kubernetes.io/name: nap
+    app.kubernetes.io/component: api
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: nap-api
+  minReplicas: 3
+  maxReplicas: 12
+  metrics:
+    - type: Pods
+      pods:
+        metric:
+          name: nap_ws_connections
+        target:
+          type: AverageValue
+          averageValue: "200"
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+  behavior:
+    scaleUp:
+      # A burst of arrivals is exactly when the pods are needed, so the way up is quick.
+      stabilizationWindowSeconds: 60
+    scaleDown:
+      # And the way down is slow, because scaling in costs every socket on the pod a reconnect.
+      stabilizationWindowSeconds: 600
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120

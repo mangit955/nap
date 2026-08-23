@@ -59,6 +59,7 @@ import { type ComposedNap, composeNap, type NapRole } from "./compose.ts";
 import { type Env, EnvValidationError, parseEnv } from "./env.ts";
 import { createHealthProbe } from "./health.ts";
 import { createLogger } from "./logger.ts";
+import { createHeartbeatWriter } from "./worker-heartbeat.ts";
 
 export type NapProcess = {
   env: Env;
@@ -337,6 +338,12 @@ export async function bootNap(role: NapRole): Promise<NapProcess> {
     verifyKey: createKeyVerifier(),
     createProject: (options) => createProjectSession(db, options),
     upgradeWebSocket,
+    // The file a worker pod's liveness probe reads. Built here rather than in the composition
+    // because writing to a filesystem is a thing a *process* does, and skipped entirely when
+    // nothing set the variable — `bun run dev:worker` has nobody watching it.
+    ...(env.NAP_WORKER_HEARTBEAT_FILE === undefined
+      ? {}
+      : { onClaimTick: createHeartbeatWriter(env.NAP_WORKER_HEARTBEAT_FILE) }),
     // The two things a turn cannot happen without: the database holds every project and every
     // event, and the sandbox is where the user's app actually runs. An API that answers while
     // either is unreachable will accept a message and then fail the turn, which is exactly the

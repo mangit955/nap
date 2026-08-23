@@ -298,6 +298,38 @@ its project id. So the way to tell which state you are in is the boot line: `bun
 startup carries `screenshots: "on" | "off"`. If it says `off`, the image lost its Chromium —
 nothing else will tell you, because every layer below is designed to shrug.
 
+## The other deployment: Kubernetes
+
+`infra/k8s/base/` is the same three processes as manifests — API pods behind a Service and an
+Ingress, worker pods behind nothing, and one reaper — with `infra/k8s/README.md` as the map and
+each file's own header as the reason it is shaped that way. It is where a deployment goes when one
+Railway replica per process stops being enough; Railway remains what is live today.
+
+Four things there are easy to get wrong, and every one of them fails without an error:
+
+- **Probes go to `/livez` and `/readyz`, never `/health`.** `/health` answers 200 while degraded on
+  purpose, so a probe on it never takes a broken pod out of the rotation.
+- **The ingress must be more patient than the application.** The socket pings every 30s and gives
+  up at 150. A proxy that expires first cuts healthy connections from the middle, silently — on a
+  kind cluster a 10s timeout kills an idle socket in ten seconds. ingress-nginx's 60s default
+  survives, but only on the back of that 30s ping: the margin is one missed ping, and the
+  application's window is what should decide.
+- **The worker's grace period must comfortably exceed `NAP_DRAIN_TIMEOUT_SECONDS`** — 900 around
+  600 — or a rolling restart is a kill, and every turn in flight costs a human a reopen.
+- **Migrations are a Job you run, never a pod's boot.** A dozen replicas racing one schema change
+  is the reason nothing here migrates at startup.
+
+Those four, and the reaper being singular, and no credential appearing in a manifest, are asserted
+in `test/k8s.test.ts` rather than left to review — each one against a synthetic manifest that
+breaks it, since a check nobody has watched fail is not known to work.
+
+Two claims a file cannot make are checked by running it: `infra/k8s/proof/run.sh` brings up a kind
+cluster at API 3 / workers 2 / reaper 1 and confirms that a turn submitted to one pod completes and
+streams to a socket on another, and that a rolling restart of the API loses no events. The pods
+there run `apps/api/scripts/cluster-proof.ts` — the same composition and the same Postgres fanout,
+with a scripted model and an in-memory sandbox — so the run costs nothing and proves nothing about
+E2B or OpenRouter, which is what `bun run acceptance` is for.
+
 ## Things that are not deployed, deliberately
 
 - **The integration suite.** It spends real money and stays a manual, local step.

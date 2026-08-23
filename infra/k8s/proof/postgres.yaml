@@ -1,0 +1,71 @@
+# A Postgres for the proof cluster, and for nothing else.
+#
+# The real deployment's database is Neon and is not in Kubernetes: a single-replica Postgres with
+# no backups, no failover and an `emptyDir` for storage would be a worse database than the managed
+# one and a whole second thing to operate. This exists so that a local cluster can be brought up
+# without an account, and it is deliberately in the proof overlay rather than in `base/`, where
+# somebody might apply it to something that matters.
+apiVersion: v1
+kind: Service
+metadata:
+  name: nap-postgres
+  namespace: nap
+  labels:
+    app.kubernetes.io/name: nap
+    app.kubernetes.io/component: postgres
+spec:
+  selector:
+    app.kubernetes.io/name: nap
+    app.kubernetes.io/component: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nap-postgres
+  namespace: nap
+  labels:
+    app.kubernetes.io/name: nap
+    app.kubernetes.io/component: postgres
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nap
+      app.kubernetes.io/component: postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nap
+        app.kubernetes.io/component: postgres
+    spec:
+      containers:
+        - name: postgres
+          # The tag the development compose file and the db suite's container both pin. Three
+          # places agreeing about what Postgres does is the point.
+          image: postgres:17-alpine
+          env:
+            - name: POSTGRES_USER
+              value: nap
+            - name: POSTGRES_PASSWORD
+              value: nap
+            - name: POSTGRES_DB
+              value: nap
+          ports:
+            - containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "nap", "-d", "nap"]
+            periodSeconds: 2
+          # The proof's data is a few dozen rows that exist for the length of one run.
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          emptyDir: {}

@@ -284,6 +284,19 @@ const BaseSchema = z.object({
   NAP_DRAIN_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(600),
 
   /**
+   * Where a worker's claim loop leaves its mark, for a liveness probe to `stat`.
+   *
+   * Optional, and absent means no heartbeat is written — which is right for `bun run dev:worker`
+   * and for a single-container deployment, where nothing is asking. It is set on the worker pods
+   * alone: the other two roles never claim anything, so the file would never be written and a
+   * probe reading it would restart a healthy process every two minutes.
+   *
+   * See `worker-heartbeat.ts` for why a worker needs one at all — it serves nothing, so "is this
+   * pod alive?" cannot be an HTTP request.
+   */
+  NAP_WORKER_HEARTBEAT_FILE: z.string().min(1).optional(),
+
+  /**
    * How many thumbnails one worker photographs at once.
    *
    * Not the worker's concurrency, and that is the whole point: every committed turn is

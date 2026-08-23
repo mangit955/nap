@@ -1,0 +1,54 @@
+# The schema change, as a thing somebody decides to run.
+#
+# **Never at pod boot.** Three deployments and a dozen replicas all starting at once would race the
+# same migration, and the losers would either crash-loop or apply half of one — which is why
+# apps/api/src/boot.ts migrates nothing and why this is a Job rather than an initContainer. A
+# schema change is a decision; a restart is not.
+#
+# Run it before rolling out an image that needs it:
+#
+#   kubectl -n nap delete job nap-migrate --ignore-not-found
+#   kubectl -n nap apply -f job-migrate.yaml
+#   kubectl -n nap wait --for=condition=complete job/nap-migrate --timeout=300s
+#
+# The delete is not ceremony: a Job's pod template is immutable, so applying over a finished one
+# with a new image is rejected rather than re-run.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nap-migrate
+  namespace: nap
+  labels:
+    app.kubernetes.io/name: nap
+    app.kubernetes.io/component: migrate
+spec:
+  # A migration that failed is a migration to look at, not one to run four more times against a
+  # schema it may have half-applied.
+  backoffLimit: 0
+  # Cleaned up on its own an hour later, so the next apply does not need the delete above to have
+  # been remembered.
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nap
+        app.kubernetes.io/component: migrate
+    spec:
+      restartPolicy: Never
+      serviceAccountName: nap
+      containers:
+        - name: migrate
+          image: ghcr.io/mangit955/nap:latest
+          command: ["bun", "run", "packages/db/scripts/migrate.ts"]
+          envFrom:
+            - configMapRef:
+                name: nap-config
+            - secretRef:
+                name: nap-secrets
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi

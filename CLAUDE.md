@@ -10,7 +10,8 @@ Nap is a Lovable-style AI app builder: the user describes an app in chat, an age
 | `CLAUDE.md` (this file) | *How* to work here — commands, conventions, gates | Auto-loaded |
 | `docs/GOTCHAS.md` | *Why* the code is shaped this way — hard-won constraints, per area | The section for whatever you are about to touch |
 | `PROGRESS.md` | *Where v1 got to* — status and deps per v1 task, and the running-a-checkout notes. Frozen | For the checkout notes, and v1 history |
-| `docs/DEPLOY.md` | *How it is deployed* — the two services, the one-replica rule, the env list | Before touching anything that runs in production |
+| `docs/DEPLOY.md` | *How it is deployed* — the two Railway/Vercel services, the one-replica rule, the env list, and the four silent mistakes the Kubernetes manifests exist to avoid | Before touching anything that runs in production |
+| `infra/k8s/README.md` | *What the multi-pod deployment is made of* — the objects, what each one guards, and the kind cluster that proves the two claims a manifest cannot | Before touching a manifest, or scaling past one replica |
 | `CONTEXT.md` | *What things are called* — one concept, one name | Before naming a concept in code, a test or an issue |
 | `docs/NAPBENCH.md` | *How the agent is measured* — the benchmark's architecture, scoring, how to add a task, what needs a sandbox or a browser | Before touching `packages/bench` or `apps/napbench`, or quoting a score |
 | `docs/napbench-*.md` | *What funded runs found* — one write-up per run that spent money, each recording something no dry run could have caught | Before spending on a real benchmark run, or quoting one |
@@ -42,6 +43,10 @@ bun run loadgen:ramp      # the k6 ramp to 100 concurrent turns — fakes, free;
                           # ~20 minutes. --profile=smoke (3m), extended (to 400), saturate (to
                           # 1200), realism. Exits non-zero when no degradation was found — see §23
                           # Results land in napload-results/; see docs/scaling-baseline.md
+infra/k8s/proof/run.sh    # the three processes on a kind cluster, at API 3 / workers 2 / reaper 1 —
+                          # fakes, free; needs Docker and kind, and takes several minutes. Checks the
+                          # two claims a manifest cannot make: a turn crossing pods, and a rolling
+                          # restart losing no events. `--down` deletes the cluster. See infra/k8s
 bun run napbench <task-id>        # one benchmark run — fakes, free; scores mean nothing
 bun run napbench --suite=all      # the four tasks, serially, same fakes — frozen, see docs/NAPBENCH.md
 bun run napbench --suite=hard     # the tasks built to separate two models

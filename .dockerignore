@@ -15,8 +15,15 @@ node_modules
 
 # The one that would do real damage: a dev `.env` copied in outranks the platform's own
 # variables, so the deployment would quietly run against the development database.
+#
+# `.env.*` matters as much as `.env` itself and was missed until an image was built and read: Bun
+# loads `.env.local` too, and this repository has one — Vercel's CLI writes an OIDC token there —
+# so the image was shipping a credential nothing in it needs. A pattern per suffix rather than a
+# bare `.env*`, so `.env.example` can be excepted by name.
 .env
 **/.env
+.env.*
+**/.env.*
 !**/.env.example
 
 # Nothing in the image runs the suite, and the fixtures are the bulk of it.

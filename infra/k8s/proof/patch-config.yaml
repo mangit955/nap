@@ -1,0 +1,16 @@
+# What this cluster differs from production in, and nothing else: the base's ConfigMap is the one
+# being exercised, so every value it does not name here is the deployed one.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nap-config
+  namespace: nap
+data:
+  # This cluster is reached through localhost, and the auth cookie and CORS both compare these
+  # verbatim.
+  NAP_API_URL: "http://localhost:8080"
+  NAP_WEB_ORIGIN: "http://localhost:3000"
+  # Shorter than production's ten minutes: the proof restarts the workers on purpose, and waiting
+  # the real drain out would make the run fifteen minutes long. The relationship the base's test
+  # asserts — a grace period comfortably past the drain — is only widened by this.
+  NAP_DRAIN_TIMEOUT_SECONDS: "30"

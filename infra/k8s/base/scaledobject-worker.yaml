@@ -1,0 +1,71 @@
+# Workers scale on queue depth, because CPU is a lie about this workload.
+#
+# A turn is almost entirely waiting — on the model, on the sandbox, on a dev server coming up — so
+# five concurrent turns can sit at 15% CPU while the pod is exactly as full as it is allowed to be.
+# The honest signal is how many requests are queued or leased, and a plain HPA cannot read
+# Postgres; KEDA's built-in `postgresql` scaler can.
+#
+# **`maxReplicaCount` is derived from the sandbox ceiling and must stay that way.** It is
+# ceil(NAP_MAX_SANDBOXES_TOTAL / NAP_WORKER_CONCURRENCY) = ceil(10 / 5): the number of workers it
+# takes to fill the ceiling that bounds this deployment's E2B bill. Kubernetes must not be able to
+# outrun the thing that bounds the bill — past that point extra pods would only queue behind a
+# capacity refusal, so the money is spent on pods instead of on turns. Raising it is a decision to
+# raise NAP_MAX_SANDBOXES_TOTAL, made in the ConfigMap first.
+#
+# **At the ConfigMap's current numbers that arithmetic gives 2, which is also the floor — so this
+# scaler cannot presently move anything, and that is correct rather than broken.** Ten concurrent
+# sandboxes is the demo deployment's whole budget, and two workers can already run it dry; the
+# queue absorbs the rest, which costs latency rather than refusals. `docs/scaling-design.md` §13's
+# "KEDA 2–25" is what the same formula gives at a ceiling somebody is paying for. The number to
+# change is the ceiling, and this one follows it.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: nap-worker
+  namespace: nap
+  labels:
+    app.kubernetes.io/name: nap
+    app.kubernetes.io/component: worker
+spec:
+  scaleTargetRef:
+    name: nap-worker
+  minReplicaCount: 2
+  maxReplicaCount: 2
+  pollingInterval: 15
+  # Scale-down is lazy on purpose: a worker scaled in mid-turn is the same event as a crash, and
+  # that costs a human a reopen. Five minutes of quiet before anything is taken away — and the
+  # drain in deployment-worker.yaml is what makes even that safe.
+  cooldownPeriod: 300
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 600
+  triggers:
+    - type: postgresql
+      metadata:
+        # Both states count. `queued` is work nobody has taken; `leased` is work in flight, and
+        # excluding it would make the queue look empty the instant every request was claimed —
+        # scaling in on top of the turns that are still running.
+        query: "select count(*) from turn_requests where state in ('queued','leased')"
+        # One pod's worth of work. KEDA divides the query's answer by this to get the replica
+        # count, so it is NAP_WORKER_CONCURRENCY and nothing else.
+        targetQueryValue: "5"
+      # KEDA reads the connection string from the same Secret the pods do, through the
+      # TriggerAuthentication below, so there is one credential rather than a second copy of it.
+      authenticationRef:
+        name: nap-postgres
+---
+# What lets the trigger above read the connection string out of `nap-secrets`.
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: nap-postgres
+  namespace: nap
+  labels:
+    app.kubernetes.io/name: nap
+spec:
+  secretTargetRef:
+    - parameter: connection
+      name: nap-secrets
+      key: DATABASE_URL

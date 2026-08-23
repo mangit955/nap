@@ -1,0 +1,12 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nap-worker
+  namespace: nap
+spec:
+  template:
+    spec:
+      containers:
+        - name: worker
+          command: ["bun", "apps/api/scripts/cluster-proof.ts", "worker"]
+          imagePullPolicy: Never

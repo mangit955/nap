@@ -120,6 +120,7 @@ function start(
     running?: RunningTurns;
     drainTimeoutMs?: number;
     abortGraceMs?: number;
+    onClaimTick?: () => void;
   } = {},
 ): TurnWorker {
   const worker = startTurnWorker({
@@ -133,6 +134,7 @@ function start(
     ...(overrides.running === undefined ? {} : { running: overrides.running }),
     ...(overrides.drainTimeoutMs === undefined ? {} : { drainTimeoutMs: overrides.drainTimeoutMs }),
     ...(overrides.abortGraceMs === undefined ? {} : { abortGraceMs: overrides.abortGraceMs }),
+    ...(overrides.onClaimTick === undefined ? {} : { onClaimTick: overrides.onClaimTick }),
   });
   workers.push(worker);
   return worker;
@@ -501,6 +503,32 @@ describe("concurrency", () => {
 
     runtime.complete();
     await vi.waitFor(() => expect(runtime.turns).toHaveLength(3));
+  });
+});
+
+describe("the claim tick", () => {
+  // A worker has no port, so "is this process alive?" cannot be asked over HTTP: the only honest
+  // question is whether the claim loop is still going round. A wedged loop leaves a pod that is
+  // up, holds no leases and runs nothing — invisible to every other kind of probe.
+  it("reports a tick even when the queue had nothing", async () => {
+    const queue = new InMemoryTurnQueue();
+    const runtime = new RecordingRuntime();
+    let ticks = 0;
+    start(queue, runtime, { onClaimTick: () => ticks++ });
+
+    // The point of the assertion: nothing was enqueued, so a heartbeat driven by claimed work
+    // would never fire and an idle worker would be restarted every two minutes.
+    await vi.waitFor(() => expect(ticks).toBeGreaterThan(1));
+  });
+
+  it("reports a tick when claiming threw, because a database blip is not a wedged loop", async () => {
+    const queue = new InMemoryTurnQueue();
+    const runtime = new RecordingRuntime();
+    let ticks = 0;
+    vi.spyOn(queue, "claim").mockRejectedValue(new Error("the database is unreachable"));
+    start(queue, runtime, { onClaimTick: () => ticks++ });
+
+    await vi.waitFor(() => expect(ticks).toBeGreaterThan(1));
   });
 });
 

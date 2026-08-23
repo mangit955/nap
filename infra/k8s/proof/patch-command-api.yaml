@@ -1,0 +1,14 @@
+# The fake-infrastructure entrypoint, and an image that is loaded into the cluster rather than
+# pulled from a registry that has never heard of it.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nap-api
+  namespace: nap
+spec:
+  template:
+    spec:
+      containers:
+        - name: api
+          command: ["bun", "apps/api/scripts/cluster-proof.ts", "api"]
+          imagePullPolicy: Never

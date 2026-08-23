@@ -1,0 +1,23 @@
+# localhost, and no TLS: the proof cluster has no DNS and no cert-manager. The annotations that
+# matter — the WebSocket timeouts — are the base's own and are deliberately untouched, because
+# they are the thing being exercised.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: nap
+  namespace: nap
+  annotations:
+    cert-manager.io/cluster-issuer: null
+spec:
+  tls: null
+  rules:
+    - host: localhost
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: nap-api
+                port:
+                  name: http

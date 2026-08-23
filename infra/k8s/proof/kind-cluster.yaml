@@ -1,0 +1,20 @@
+# A one-node cluster that can actually be reached from the laptop it runs on.
+#
+# The port mapping and the `ingress-ready` label are what let ingress-nginx run here: without them
+# the Ingress object would be applied, admitted, and never take a request — which would leave the
+# one thing it is here to prove (that the proxy holds an idle WebSocket open) untested while
+# looking green.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    extraPortMappings:
+      - containerPort: 80
+        hostPort: 8080
+        protocol: TCP

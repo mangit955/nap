@@ -107,6 +107,24 @@ export type TurnWorkerOptions = {
   drainTimeoutMs?: number;
   credentialsFor?: CredentialsFor;
   running?: RunningTurns;
+  /**
+   * Called every time round the claim loop, whether or not there was anything to claim.
+   *
+   * What it exists for is liveness. A worker has no port, so "is this process alive?" cannot be
+   * asked over HTTP, and the only honest question is whether this loop is still going round: a
+   * wedged one — a pool deadlock, a promise that never settles — leaves a pod that is up, holds no
+   * leases and runs nothing, which no other kind of probe can see.
+   *
+   * *Whether or not* is the load-bearing half. A heartbeat driven by claimed work would stop
+   * during every quiet spell, so an idle deployment would restart its workers on a timer; and one
+   * that skipped a failed claim would restart them during a database blip, which is when losing
+   * the turns in flight helps least. This says "the loop is going round", nothing more.
+   *
+   * Deliberately synchronous and deliberately unawaited: it is called on the hot path of a loop
+   * that polls several times a second, and a slow one should show up as a slow loop rather than
+   * quietly holding up the next claim.
+   */
+  onClaimTick?: () => void;
 };
 
 export type TurnWorker = {
@@ -156,6 +174,7 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
     abortGraceMs = ABORT_GRACE_MS,
     credentialsFor,
     running,
+    onClaimTick,
   } = options;
 
   const logger = getLogger();
@@ -316,6 +335,14 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
         // A queue that cannot be read is a database problem, not this loop's. Log and come back:
         // exiting would leave the process alive and permanently deaf to new turns.
         logger.error({ err: error }, "could not claim a turn request");
+      }
+      // After the claim rather than before it, and outside the `try` so a failed claim still
+      // counts: what this reports is that the loop came round, which is true either way.
+      try {
+        onClaimTick?.();
+      } catch (error) {
+        // A liveness heartbeat that can kill the loop it reports on would be worse than none.
+        logger.error({ err: error }, "the claim tick handler threw");
       }
       if (stopped) break;
       await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));

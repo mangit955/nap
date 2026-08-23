@@ -1,0 +1,124 @@
+# The pods that execute turns, and serve nothing.
+#
+# `bun apps/api/src/worker.ts`: no Service, no port, no route in. It claims requests off
+# `turn_requests`, leases the session, runs the turn, and settles the row. The only thing it shares
+# with an API pod is the database.
+#
+# Two numbers here are the interesting ones, and they are a pair. `NAP_DRAIN_TIMEOUT_SECONDS` (600,
+# in the ConfigMap) is how long a worker being taken away waits for the turns it is already
+# running, renewing their leases throughout; `terminationGracePeriodSeconds` below is how long
+# Kubernetes waits before SIGKILL. **The grace must comfortably exceed the drain**, or the drain
+# never finishes on its own terms: a killed worker leaves its leases to expire, its jobs open for
+# somebody to continue by hand, and — since a turn is one human's minutes of waiting — costs a
+# person a reopen. A turn is 8–43 seconds, but a Job with verification and three repairs is
+# minutes, which is what the 600 covers and the 900 leaves room past.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nap-worker
+  namespace: nap
+  labels:
+    app.kubernetes.io/name: nap
+    app.kubernetes.io/component: worker
+spec:
+  # The floor KEDA scales from; see scaledobject-worker.yaml. Two rather than one so that a worker
+  # being replaced does not mean nothing is claiming.
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nap
+      app.kubernetes.io/component: worker
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      # A worker that is going away spends up to ten minutes draining. Taking one out before its
+      # replacement is claiming would leave the queue with less capacity for the whole of it.
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nap
+        app.kubernetes.io/component: worker
+    spec:
+      serviceAccountName: nap
+      # 900 against a 600 second drain. See the note above: this is the number that decides
+      # whether a rollout finishes turns or kills them.
+      terminationGracePeriodSeconds: 900
+      containers:
+        - name: worker
+          image: ghcr.io/mangit955/nap:latest
+          command: ["bun", "apps/api/src/worker.ts"]
+          envFrom:
+            - configMapRef:
+                name: nap-config
+            - secretRef:
+                name: nap-secrets
+          env:
+            # Where the claim loop leaves its mark, for the liveness probe below. Only the worker
+            # sets it — the other two roles never claim anything, so the file would never be
+            # written and a probe on it would restart a healthy pod every two minutes.
+            - name: NAP_WORKER_HEARTBEAT_FILE
+              value: /tmp/nap-worker-alive
+          # A worker has no port, so liveness is a question about the claim loop rather than about
+          # a socket: has this process asked the queue for work recently? A wedged loop — a pool
+          # deadlock, a promise that never settles — leaves a pod that is up, holds no leases, and
+          # runs nothing, which is invisible to every other kind of probe.
+          #
+          # The loop ticks several times a second when idle, so 120 seconds is enormous slack and
+          # this only fires on something genuinely stuck.
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - test $(( $(date +%s) - $(stat -c %Y /tmp/nap-worker-alive) )) -lt 120
+            periodSeconds: 30
+            failureThreshold: 2
+          # Until the first tick the file does not exist and the liveness probe would fail, so the
+          # startup probe holds it off rather than restarting a pod that is merely booting.
+          startupProbe:
+            exec:
+              command: ["/bin/sh", "-c", "test -f /tmp/nap-worker-alive"]
+            periodSeconds: 2
+            failureThreshold: 30
+          # Larger than an API pod's, and the memory limit is the load-bearing half: this is the
+          # process that opens Chromium to photograph a finished turn. NAP_CAPTURE_CONCURRENCY=1 is
+          # what keeps that to one browser at a time; without it this limit would be an OOM kill
+          # that costs every turn in flight rather than a thumbnail.
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 3Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: nap
+              app.kubernetes.io/component: worker
+---
+# One worker at a time may be disrupted. Each one taken away is up to ten minutes of drain, and two
+# at once is a node drain quietly halving throughput for the duration.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: nap-worker
+  namespace: nap
+  labels:
+    app.kubernetes.io/name: nap
+    app.kubernetes.io/component: worker
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nap
+      app.kubernetes.io/component: worker

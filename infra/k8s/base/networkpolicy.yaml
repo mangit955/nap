@@ -1,0 +1,58 @@
+# What a Nap pod may talk to, which is the internet and nothing inside this cluster.
+#
+# Every dependency is external — Neon, E2B, OpenRouter, R2 — so the useful shape is not an
+# allowlist of vendors, whose addresses change, but a denial of everything *inside*: no pod here
+# has any reason to reach another service in the cluster, and a compromised one should not be able
+# to look. The private ranges are excluded from the egress rule for exactly that; DNS is allowed
+# back in as the one in-cluster exception, because without it nothing can resolve a vendor at all.
+#
+# A cluster with no NetworkPolicy controller silently applies none of this. That is worth knowing
+# before treating it as a boundary: it is defence in depth, not the thing standing between a
+# credential and the world.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: nap
+  namespace: nap
+  labels:
+    app.kubernetes.io/name: nap
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: nap
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # Port 3001 from anywhere, and the *anywhere* is not laziness — it is what the probes need.
+    #
+    # The obvious rule here is "from the ingress-nginx namespace only", and it takes every API pod
+    # out of the rotation on a CNI that really enforces ingress: the kubelet's `/livez` and
+    # `/readyz` requests come from the node, not from a pod in any namespace, so they match no
+    # selector and are dropped. The pod is healthy, the probe fails, and the deployment empties —
+    # with nothing in any log saying why. Restricting the *source* of this port would need the
+    # cluster's own node CIDR, which is not a thing a manifest in a repository can know.
+    #
+    # Little is given up: the pods that answer here are the ones behind a public ingress anyway,
+    # and the boundary that matters is the egress rule below.
+    - ports:
+        - protocol: TCP
+          port: 3001
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              # Link-local, which on a managed cluster is the node's metadata service — the
+              # classic way a request that leaves a pod comes back as cloud credentials.
+              - 169.254.0.0/16
