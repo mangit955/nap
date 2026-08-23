@@ -3,10 +3,11 @@ import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { FAKE_OWNER } from "@nap/db/testing/in-memory-project-store";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { VERSION } from "@nap/shared/version";
-import type { WSEvents } from "hono/ws";
+import { WSContext, type WSEvents } from "hono/ws";
 import { describe, expect, it } from "vitest";
 import { type AppDeps, createApp } from "./app.ts";
 import { createLogger } from "./logger.ts";
+import { createMetrics, WS_CONNECTIONS_METRIC } from "./metrics.ts";
 
 /**
  * `app.request()` dispatches straight into the router, so nothing here opens a socket — the
@@ -29,6 +30,11 @@ class FakeUpgrader {
     // is not even constructible outside Bun.
     return new Response(null);
   };
+}
+
+/** What Bun hands the handlers, with nothing behind it — the gauge never touches the socket. */
+function fakeSocket(): WSContext {
+  return new WSContext({ send: () => {}, close: () => {}, readyState: 1 });
 }
 
 function app(overrides: Partial<AppDeps> = {}) {
@@ -235,6 +241,54 @@ describe("GET /ws", () => {
     expect(res.status).toBe(400);
     await expect(res.json()).resolves.toMatchObject({ error: expect.any(String) });
     expect(upgrader.calls).toEqual([]);
+  });
+});
+
+describe("GET /metrics", () => {
+  it("exposes the socket gauge, unauthenticated, in the exposition format", async () => {
+    const metrics = createMetrics();
+    // No `authenticate`, which means refuse — so a 200 here is the public-path list working
+    // rather than an accident of the test's wiring.
+    const res = await app({ metrics }).request("/metrics");
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/plain");
+    await expect(res.text()).resolves.toContain(`${WS_CONNECTIONS_METRIC} 0`);
+  });
+
+  it("does not exist at all when nothing is counting", async () => {
+    // A 404 is a scrape failure, which somebody sees. An empty body would be read as a pod
+    // holding no sockets, which is the same shape as the answer and scales the wrong way.
+    expect((await app().request("/metrics")).status).toBe(404);
+  });
+
+  it("counts an upgraded stream, and stops counting it once", async () => {
+    const metrics = createMetrics();
+    const upgrader = new FakeUpgrader();
+    const stream = {
+      store: new InMemoryEventStore(),
+      bus: new InMemoryEventBus(),
+      sessions: new InMemorySessionStore([{ sessionId: SESSION, projectId: "project-1" }]),
+      upgradeWebSocket: upgrader.upgrade,
+    };
+
+    const instance = app({ metrics, stream });
+    await instance.request(`/ws?sessionId=${SESSION}`);
+    await instance.request(`/ws?sessionId=${SESSION}`);
+    const [first, second] = upgrader.calls;
+
+    // Upgrading is not connecting: the gauge counts sockets that opened, not routes that
+    // agreed to. Both of these are only the handshake.
+    expect(metrics.wsConnections()).toBe(0);
+
+    first?.onOpen?.(new Event("open"), fakeSocket());
+    second?.onOpen?.(new Event("open"), fakeSocket());
+    expect(metrics.wsConnections()).toBe(2);
+
+    // An errored socket reaches both handlers, and each one closes the stream.
+    first?.onError?.(new Event("error"), fakeSocket());
+    first?.onClose?.(new CloseEvent("close"), fakeSocket());
+    expect(metrics.wsConnections()).toBe(1);
   });
 });
 

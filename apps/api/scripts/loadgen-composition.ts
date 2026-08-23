@@ -174,6 +174,11 @@ export async function bootLoadgenApi(options: BootOptions): Promise<BootedLoadge
       webOrigin: "http://localhost:3000",
       // The door the whole journey goes through.
       allowAnonymous: true,
+      // Every simulated user arrives from one address, so the library's per-IP allowance would
+      // refuse most of the sign-ins. It happens to be off here anyway — better-auth enables it
+      // only under `NODE_ENV=production` — and relying on that would make this harness's result
+      // depend on an environment variable nobody set on purpose.
+      authRequestsPerWindow: 100_000,
     }),
     encryptionKey: encryptionKeyFrom(
       Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64"),

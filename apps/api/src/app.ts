@@ -21,6 +21,7 @@ import { type AuthVariables, requireUser } from "./auth/require-user.ts";
 import { type FileRouteDeps, registerFileRoutes } from "./files/routes.ts";
 import type { HealthProbe, HealthReport } from "./health.ts";
 import { idsFromRequest } from "./log-ids.ts";
+import { METRICS_CONTENT_TYPE, type Metrics } from "./metrics.ts";
 import { type ModelRouteDeps, registerModelRoutes } from "./models/routes.ts";
 import { type ProjectRouteDeps, registerProjectRoutes } from "./projects/routes.ts";
 import { registerTurnRoutes, type TurnRouteDeps } from "./turns/routes.ts";
@@ -79,6 +80,15 @@ export type AppDeps = {
    * unready for, and answering 503 forever would be a lie about a working process.
    */
   readiness?: HealthProbe;
+  /**
+   * What this pod is holding, for `/metrics` to expose and the API's autoscaler to read.
+   *
+   * Optional, and absent means the route does not exist rather than answering an empty body: a
+   * scrape target that returns nothing is indistinguishable from a pod with no sockets, and an
+   * autoscaler reading a spurious zero from every replica scales the deployment to its floor.
+   * A 404 is a scrape failure, which is visible.
+   */
+  metrics?: Metrics;
   /** Everything `/ws` needs. The store supplies the replay, the bus the live tail. */
   stream: {
     store: EventStore;
@@ -229,6 +239,21 @@ export function createApp(deps: AppDeps): Hono<{ Variables: AuthVariables }> {
   });
 
   /**
+   * What this pod is holding, for whatever is scraping it.
+   *
+   * Public for the same reason the probes are — the scraper is a sidecar or a Prometheus in
+   * another namespace, and neither has a session — and safe to be: the body is a count of open
+   * sockets, which names no user, no project and no session. The NetworkPolicy is what keeps it
+   * inside the cluster.
+   */
+  if (deps.metrics !== undefined) {
+    const { metrics } = deps;
+    app.get("/metrics", (c) =>
+      c.text(metrics.render(), 200, { "content-type": METRICS_CONTENT_TYPE }),
+    );
+  }
+
+  /**
    * The session's event stream: everything after `seq`, then the live tail.
    *
    * A bad query is refused *before* the upgrade, while an ordinary HTTP response can still
@@ -252,9 +277,18 @@ export function createApp(deps: AppDeps): Hono<{ Variables: AuthVariables }> {
 
     const { sessionId, afterSeq } = query.value;
     let stream: ReturnType<typeof openEventStream> | undefined;
+    // Counted here rather than inside `openEventStream`, because the gauge is about the socket
+    // rather than about the replay: a stream that fails to start still holds a connection, and
+    // that is exactly the pod-level cost the autoscaler is reading.
+    let released: (() => void) | undefined;
+    const close = () => {
+      released?.();
+      stream?.onClose();
+    };
 
     const events: WSEvents = {
       onOpen: (_event, ws) => {
+        released = deps.metrics?.connectionOpened();
         stream = openEventStream({
           store: deps.stream.store,
           bus: deps.stream.bus,
@@ -265,10 +299,11 @@ export function createApp(deps: AppDeps): Hono<{ Variables: AuthVariables }> {
         });
       },
       onMessage: (event) => stream?.onMessage(event.data),
-      onClose: () => stream?.onClose(),
+      onClose: close,
       // A socket error is a closed socket as far as this end is concerned; without this the
-      // subscription and the heartbeat would outlive the connection.
-      onError: () => stream?.onClose(),
+      // subscription and the heartbeat would outlive the connection. Both paths run for an
+      // errored socket, which is why the release above is idempotent.
+      onError: close,
     };
 
     return await deps.stream.upgradeWebSocket(c, events);

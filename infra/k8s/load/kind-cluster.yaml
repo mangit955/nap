@@ -1,0 +1,23 @@
+# A one-node cluster that can actually be reached from the laptop it runs on.
+#
+# The port mapping and the `ingress-ready` label are what let ingress-nginx run here: without them
+# the Ingress object would be applied, admitted, and never take a request — and a load run would
+# have nothing to point k6 at.
+#
+# **8081, where the proof cluster uses 8080**, so both can exist at once. They are separate
+# clusters answering different questions, and a run that had to delete the other one first would
+# make comparing them a matter of remembering rather than of looking.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    extraPortMappings:
+      - containerPort: 80
+        hostPort: 8081
+        protocol: TCP

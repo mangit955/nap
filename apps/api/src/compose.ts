@@ -58,6 +58,7 @@ import type { Authenticate, AuthInstance } from "./auth/auth.ts";
 import type { AuthVariables } from "./auth/require-user.ts";
 import type { Env } from "./env.ts";
 import type { HealthProbe } from "./health.ts";
+import { createMetrics, type Metrics } from "./metrics.ts";
 import type { CreatedProject } from "./projects/routes.ts";
 import { TurnRegistry } from "./turns/registry.ts";
 
@@ -261,6 +262,13 @@ export type ComposedNap = {
    * to be put away, and a chat pane waiting on a turn that will never finish cannot.
    */
   janitor: { stop: () => void };
+  /**
+   * What this process is holding, exposed at `/metrics` by whichever role serves.
+   *
+   * Returned as well as wired, because the API's autoscaler reads it out of a scrape and a test
+   * has to be able to read it without one. See `infra/k8s/base/hpa-api.yaml`.
+   */
+  metrics: Metrics;
 };
 
 export function composeNap(deps: NapDeps): ComposedNap {
@@ -328,8 +336,14 @@ export function composeNap(deps: NapDeps): ComposedNap {
     return { platform: stored.platform, apiKey: opened.value };
   };
 
+  // Built for every role, and served by whichever one serves. A worker's copy counts nothing
+  // because a worker holds no sockets, which is the honest reading of that pod rather than a
+  // missing series — and one composition means nobody has to remember which roles have a gauge.
+  const metrics = createMetrics();
+
   const app = createApp({
     logger,
+    metrics,
     ...(deps.health === undefined ? {} : { health: deps.health }),
     ...(deps.readiness === undefined ? {} : { readiness: deps.readiness }),
     // The browser app is on another port, so every request it makes is cross-origin and every
@@ -610,5 +624,5 @@ export function composeNap(deps: NapDeps): ComposedNap {
         onError: (error) => logger.error({ err: error }, "janitor sweep threw"),
       });
 
-  return { app, runtime, registry, worker, reaper, janitor };
+  return { app, runtime, registry, worker, reaper, janitor, metrics };
 }

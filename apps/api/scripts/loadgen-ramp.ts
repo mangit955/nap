@@ -25,10 +25,15 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { loadavg } from "node:os";
 import { join, resolve } from "node:path";
-import { type DegradationRule, firstDegradation } from "@nap/loadgen/degradation";
+import { firstDegradation } from "@nap/loadgen/degradation";
 import { parseK6Summary, rollupOf, stageRollups } from "@nap/loadgen/k6-summary";
 import { hashCollisions, pollCost } from "@nap/loadgen/probes";
-import { evaluateThresholds, type Threshold } from "@nap/loadgen/report";
+import {
+  RAMP_DEGRADATION,
+  RAMP_SUBMIT_THRESHOLDS,
+  RAMP_THRESHOLDS,
+} from "@nap/loadgen/ramp-thresholds";
+import { evaluateThresholds } from "@nap/loadgen/report";
 import { rollupSamples, type SampleWindow, type ServerSample } from "@nap/loadgen/server-samples";
 import { recommendWorkerConcurrency } from "@nap/loadgen/worker-concurrency";
 import postgres from "postgres";
@@ -90,79 +95,6 @@ const { profile: PROFILE, port: PORT, out: RESULTS_ROOT } = parsedArguments.data
 const SAMPLE_INTERVAL_MS = 5_000;
 /** How the sampler's own connections identify themselves, so it can leave them out. */
 const PROBE_APPLICATION_NAME = "nap-loadgen-probe";
-
-/**
- * What counts as the system getting materially worse.
- *
- * Each trend rule carries a floor as well as a multiple, because a fourfold rise from two
- * milliseconds is not a finding — see `@nap/loadgen/degradation`. The counters and rates need
- * neither: a dropped event or a turn that never finished is degradation at any scale.
- */
-const DEGRADATION: readonly DegradationRule[] = [
-  { kind: "counter", metric: "event_seq_gaps", maxValue: 0 },
-  { kind: "counter", metric: "event_duplicates", maxValue: 0 },
-  { kind: "counter", metric: "ws_connect_failures", maxValue: 0 },
-  { kind: "counter", metric: "errors_5xx", maxValue: 0 },
-  { kind: "counter", metric: "errors_timeout", maxValue: 0 },
-  { kind: "rate", metric: "turn_completion_rate", minValue: 0.99 },
-  { kind: "rate", metric: "job_completion_rate", minValue: 0.99 },
-  { kind: "rate", metric: "verification_completion_rate", minValue: 0.99 },
-  // Admission is the route's own work — the rate-limit and quota queries and the write that
-  // accepts the turn — and the one latency a fake-backed run measures honestly.
-  {
-    kind: "trend",
-    metric: "admission_latency",
-    statistic: "p95",
-    multipleOfBaseline: 3,
-    floor: 100,
-  },
-  // How long a turn waited before anything ran it. The queue's own depth, felt by a person.
-  { kind: "trend", metric: "queue_wait", statistic: "p95", multipleOfBaseline: 3, floor: 2_000 },
-  {
-    kind: "trend",
-    metric: "time_to_first_event",
-    statistic: "p95",
-    multipleOfBaseline: 3,
-    floor: 1_000,
-  },
-  // Append to delivery. This is fanout, and it is the number the whole scaling design is about.
-  {
-    kind: "trend",
-    metric: "event_delivery_latency",
-    statistic: "p95",
-    multipleOfBaseline: 3,
-    floor: 500,
-  },
-];
-
-/** §23's thresholds, restated here so the report says whether they held as well as k6 does. */
-const THRESHOLDS: readonly Threshold[] = [
-  { metric: "ws_connect_failures", statistic: "count", op: "==", value: 0 },
-  { metric: "event_seq_gaps", statistic: "count", op: "==", value: 0 },
-  { metric: "event_duplicates", statistic: "count", op: "==", value: 0 },
-  { metric: "reconnect_seq_gaps", statistic: "count", op: "==", value: 0 },
-  { metric: "reconnect_duplicates", statistic: "count", op: "==", value: 0 },
-  { metric: "turn_completion_rate", statistic: "rate", op: ">", value: 0.99 },
-  { metric: "verification_completion_rate", statistic: "rate", op: ">", value: 0.99 },
-  { metric: "admission_latency", statistic: "p95", op: "<", value: 300 },
-  { metric: "queue_wait", statistic: "p95", op: "<", value: 5_000 },
-  { metric: "time_to_first_event", statistic: "p95", op: "<", value: 2_000 },
-  { metric: "event_delivery_latency", statistic: "p95", op: "<", value: 1_000 },
-  { metric: "http_req_failed", statistic: "rate", op: "<", value: 0.01 },
-  { metric: "dropped_iterations", statistic: "count", op: "==", value: 0 },
-];
-
-/**
- * §23's two thresholds on the submission request itself.
- *
- * Separate because they are stated on a *tagged* sub-metric — `http_req_duration{name:submit_turn}`
- * — and the untagged rollup deliberately leaves those out, or one stage's samples would be counted
- * a second time as though they were the whole run.
- */
-const SUBMIT_THRESHOLDS: readonly Threshold[] = [
-  { metric: "http_req_duration", statistic: "p95", op: "<", value: 500 },
-  { metric: "http_req_duration", statistic: "p99", op: "<", value: 1_500 },
-];
 
 /** Samples the process and its database on a timer, and hands back everything it took. */
 function startSampling(sql: postgres.Sql): { samples: ServerSample[]; stop: () => void } {
@@ -367,14 +299,15 @@ async function main(): Promise<void> {
   // `ramp` is what the script tags samples taken while the load was still changing. A stage's
   // numbers should describe a steady load, so it is dropped rather than ranked among them.
   const stages = stageRollups(parsed.value, "stage").filter((stage) => Number.isFinite(stage.vus));
-  const degradation = firstDegradation(stages, DEGRADATION);
+  const degradation = firstDegradation(stages, RAMP_DEGRADATION);
   const thresholds = [
-    ...evaluateThresholds(overall, THRESHOLDS),
+    ...evaluateThresholds(overall, RAMP_THRESHOLDS),
     // Renamed on the way out, or the report shows two rows called `http_req_duration` that are
     // about different requests.
-    ...evaluateThresholds(rollupOf(parsed.value, { name: "submit_turn" }), SUBMIT_THRESHOLDS).map(
-      (result) => ({ ...result, metric: "http_req_duration{name:submit_turn}" }),
-    ),
+    ...evaluateThresholds(
+      rollupOf(parsed.value, { name: "submit_turn" }),
+      RAMP_SUBMIT_THRESHOLDS,
+    ).map((result) => ({ ...result, metric: "http_req_duration{name:submit_turn}" })),
   ];
 
   // The samples, cut at the same boundaries k6 tagged its own by — so a stage's CPU and its

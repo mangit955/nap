@@ -11,12 +11,13 @@ Nap is a Lovable-style AI app builder: the user describes an app in chat, an age
 | `docs/GOTCHAS.md` | *Why* the code is shaped this way — hard-won constraints, per area | The section for whatever you are about to touch |
 | `PROGRESS.md` | *Where v1 got to* — status and deps per v1 task, and the running-a-checkout notes. Frozen | For the checkout notes, and v1 history |
 | `docs/DEPLOY.md` | *How it is deployed* — the two Railway/Vercel services, the one-replica rule, the env list, and the four silent mistakes the Kubernetes manifests exist to avoid | Before touching anything that runs in production |
-| `infra/k8s/README.md` | *What the multi-pod deployment is made of* — the objects, what each one guards, and the kind cluster that proves the two claims a manifest cannot | Before touching a manifest, or scaling past one replica |
+| `infra/k8s/README.md` | *What the multi-pod deployment is made of* — the objects, what each one guards, and the two kind clusters: one that proves the claims a manifest cannot, one that runs the ramp against the autoscalers | Before touching a manifest, or scaling past one replica |
 | `CONTEXT.md` | *What things are called* — one concept, one name | Before naming a concept in code, a test or an issue |
 | `docs/NAPBENCH.md` | *How the agent is measured* — the benchmark's architecture, scoring, how to add a task, what needs a sandbox or a browser | Before touching `packages/bench` or `apps/napbench`, or quoting a score |
 | `docs/napbench-*.md` | *What funded runs found* — one write-up per run that spent money, each recording something no dry run could have caught | Before spending on a real benchmark run, or quoting one |
 | `docs/scaling-design.md` | *What V2 is being built to* — the queue's semantics, the state machines, the invariants, the tests required. Sections are cited from shipped source | Before changing anything the queue, the leases or the fanout rest on |
 | `docs/scaling-baseline.md` | *What the system did before it was changed* — the k6 ramp's numbers, and the three §24 questions it answered | Before changing anything on the admission hot path, or quoting a load figure |
+| `docs/scaling-cluster.md` | *What the system does now* — the same ramp against a multi-pod cluster with both autoscalers running, compared stage by stage against the baseline, and the §21 invariants each marked demonstrated or not | Before quoting a scaled figure, or claiming an invariant holds |
 | `docs/adr/` | *What was decided and why* — choices expensive to reverse | The ADRs touching whatever you are about to change |
 | `apps/web/src/docs/` | *What the public is told about how it works* — the `/docs` page, eight sections over the same ground as the README | Before changing any mechanism a reader was promised, or adding architecture prose to `README.md` |
 
@@ -47,6 +48,16 @@ infra/k8s/proof/run.sh    # the three processes on a kind cluster, at API 3 / wo
                           # fakes, free; needs Docker and kind, and takes several minutes. Checks the
                           # two claims a manifest cannot make: a turn crossing pods, and a rolling
                           # restart losing no events. `--down` deletes the cluster. See infra/k8s
+infra/k8s/load/run.sh     # the same ramp, against a cluster with the autoscalers running — fakes,
+                          # free; needs Docker, kind and k6, and installs KEDA, metrics-server and a
+                          # Prometheus so both autoscalers have something to read. ~40 minutes for the
+                          # headline profile. --profile=smoke (3m), realism. --down deletes it.
+                          # Results land in napload-results/; see docs/scaling-cluster.md
+bun run loadgen:teardown --older-than-minutes=60   # what it would delete: the demo identities a
+                          # deployed run left behind, and the sandboxes they still name. Reports and
+                          # exits; --confirm is what deletes. DATABASE_URL says which deployment, and
+                          # this cannot tell a load run's identity from a real visitor's — read the
+                          # script before pointing it at anything shared
 bun run napbench <task-id>        # one benchmark run — fakes, free; scores mean nothing
 bun run napbench --suite=all      # the four tasks, serially, same fakes — frozen, see docs/NAPBENCH.md
 bun run napbench --suite=hard     # the tasks built to separate two models

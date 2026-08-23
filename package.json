@@ -21,6 +21,8 @@
     "ws:smoke": "bun run apps/api/scripts/ws-smoke.ts",
     "loadgen": "bun run apps/api/scripts/loadgen.ts",
     "loadgen:ramp": "bun run apps/api/scripts/loadgen-ramp.ts",
+    "loadgen:cluster": "bun run apps/api/scripts/loadgen-cluster.ts",
+    "loadgen:teardown": "bun run apps/api/scripts/loadgen-teardown.ts",
     "lint": "biome check .",
     "format": "biome check --write .",
     "prepare": "lefthook install",

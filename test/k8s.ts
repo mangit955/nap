@@ -493,3 +493,104 @@ export function heartbeatThresholdSeconds(manifests: Manifest[]): number | undef
   }
   return undefined;
 }
+
+/**
+ * The API's autoscaler must read a gauge something actually exports.
+ *
+ * An HPA naming a metric no pod publishes does not fail — it degrades, silently, to whatever
+ * other trigger it has, which here is CPU. And CPU is precisely the signal this deployment
+ * cannot use: an idle WebSocket costs a file descriptor and a subscription, so a pod can be full
+ * of sockets at near-zero CPU. So three things have to agree, and none of them errors when they
+ * do not: the series name in `apps/api/src/metrics.ts`, the metric the HPA asks for, and the
+ * scrape annotations that get one to the other.
+ *
+ * The name is passed in rather than written here, so renaming the gauge in code fails this test
+ * instead of quietly disconnecting the autoscaler.
+ */
+export function socketMetricViolations(
+  manifests: Manifest[],
+  expected: { metric: string; path: string },
+): string[] {
+  const hpa = byName(manifests, "HorizontalPodAutoscaler", "nap-api");
+  const api = byName(manifests, "Deployment", "nap-api");
+  if (hpa === undefined) return ["no HorizontalPodAutoscaler named nap-api"];
+  if (api === undefined) return ["no Deployment named nap-api"];
+
+  const violations: string[] = [];
+  const metrics = list(at(hpa.doc, "spec.metrics"));
+  const names = metrics.map((metric) => str(at(metric, "pods.metric.name")));
+  if (!names.includes(expected.metric)) {
+    violations.push(
+      `${hpa.file}: nap-api does not scale on ${expected.metric}, which is the gauge the API exports`,
+    );
+  }
+  // CPU second, and named: sockets that are few and busy are the case the gauge cannot see, and
+  // an adapter-less cluster has nothing else to read.
+  if (!metrics.some((metric) => str(at(metric, "resource.name")) === "cpu")) {
+    violations.push(`${hpa.file}: nap-api has no CPU trigger behind the socket gauge`);
+  }
+
+  const annotations = at(api.doc, "spec.template.metadata.annotations");
+  const annotation = (key: string) => (isRecord(annotations) ? str(annotations[key]) : undefined);
+  if (annotation("prometheus.io/scrape") !== "true") {
+    violations.push(
+      `${api.file}: the API pods are not annotated for scraping, so nothing collects ${expected.metric}`,
+    );
+  }
+  if (annotation("prometheus.io/path") !== expected.path) {
+    violations.push(
+      `${api.file}: the scrape path is ${annotation("prometheus.io/path") ?? "unset"}, and the API serves ${expected.path}`,
+    );
+  }
+  // The port has to be the one the container really listens on, or the scrape hits nothing. It is
+  // read off the container rather than repeated, for the reason the metric name is.
+  const port = containers(api)
+    .flatMap((container) => list(container.ports))
+    .map((entry) => num(at(entry, "containerPort")))
+    .find((value) => value !== undefined);
+  if (annotation("prometheus.io/port") !== String(port)) {
+    violations.push(
+      `${api.file}: the scrape port is ${annotation("prometheus.io/port") ?? "unset"}, and the container listens on ${String(port)}`,
+    );
+  }
+
+  return violations;
+}
+
+/**
+ * A worker must not be taken away faster than one can put its turns down.
+ *
+ * Scaling in is the same event as a crash for whoever's turn was running: the drain in
+ * `deployment-worker.yaml` is what makes it survivable, and it takes up to
+ * `NAP_DRAIN_TIMEOUT_SECONDS`. If the autoscaler's stabilization window is shorter than that, a
+ * dip in queue depth removes a pod, the pod spends ten minutes draining, and the queue that
+ * refilled in the meantime is served by one fewer worker for the whole of it — which reads as
+ * latency nobody can attribute to a scaling decision made minutes earlier.
+ *
+ * So the window is derived from the drain, not chosen beside it.
+ */
+export function scaleDownViolations(manifests: Manifest[]): string[] {
+  const config = byName(manifests, "ConfigMap", "nap-config");
+  const scaled = byName(manifests, "ScaledObject", "nap-worker");
+  if (config === undefined) return ["no ConfigMap named nap-config"];
+  if (scaled === undefined) return ["no ScaledObject named nap-worker"];
+
+  const data = at(config.doc, "data");
+  const drain = Number(isRecord(data) ? str(data.NAP_DRAIN_TIMEOUT_SECONDS) : undefined);
+  if (!Number.isFinite(drain)) return ["nap-config must set NAP_DRAIN_TIMEOUT_SECONDS"];
+
+  const violations: string[] = [];
+  const window = num(
+    at(
+      scaled.doc,
+      "spec.advanced.horizontalPodAutoscalerConfig.behavior.scaleDown.stabilizationWindowSeconds",
+    ),
+  );
+  if (window === undefined || window < drain) {
+    violations.push(
+      `${scaled.file}: scale-down stabilizes for ${String(window)}s, which is less than the ${drain}s a worker spends draining`,
+    );
+  }
+
+  return violations;
+}

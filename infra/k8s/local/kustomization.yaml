@@ -1,0 +1,31 @@
+# The deployment as it runs on a laptop: everything two local overlays share, and nothing either
+# of them differs in.
+#
+# `proof/` asks whether a turn crosses pods. `load/` asks what happens when a hundred people type
+# at once. Both need the same four things, and this is where they live rather than in two copies
+# that would drift the first time somebody fixed one of them:
+#
+#   1. **The three commands run `cluster-proof.ts`** instead of the real entrypoints — the same
+#      `composeNap`, the same queue, the same durable log and the same `pg_notify` fanout, with a
+#      scripted model and an in-memory sandbox in place of OpenRouter and E2B. A turn can
+#      therefore *complete* without a vendor key, which is what makes anything observable.
+#   2. **`imagePullPolicy: Never`**, because the image is loaded into kind rather than pulled from
+#      a registry that has never heard of it.
+#   3. **Postgres is in the cluster.** The real one is Neon. See postgres.yaml.
+#   4. **The Ingress is localhost with no TLS**, since neither cluster has DNS or cert-manager.
+#      The annotations that matter — the WebSocket timeouts — are the base's own and untouched.
+#
+# Nothing here is applied directly; both leaves set their own image tag, their own ConfigMap
+# values, and their own answer to which of the base's objects this cluster can run.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: nap
+resources:
+  - ../base
+  - postgres.yaml
+
+patches:
+  - path: patch-command-api.yaml
+  - path: patch-command-worker.yaml
+  - path: patch-command-reaper.yaml
+  - path: patch-ingress-host.yaml

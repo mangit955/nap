@@ -6,15 +6,20 @@
 # autoscaler by prometheus-adapter — with CPU kept as a secondary trigger for the case where the
 # sockets are few and busy rather than many and quiet.
 #
-# **Nothing exports `nap_ws_connections` yet**, and this file is the honest place to say so: the API
-# has no `/metrics` route and holds no such gauge, so today the metric is unavailable in every
-# cluster and this HPA is the CPU trigger alone. That is a known gap rather than a claim — the
-# target is written down because the number is a decision (roughly 200 sockets a pod), and it takes
-# effect the day the gauge and prometheus-adapter exist.
+# **The gauge exists.** `apps/api/src/metrics.ts` holds it, `/metrics` exposes it in the Prometheus
+# exposition format, and `deployment-api.yaml` carries the scrape annotations that point a
+# Prometheus at it. `test/k8s.test.ts` reads the metric name out of that module rather than
+# repeating it here, so renaming the series in code and leaving this file behind fails a test
+# rather than an autoscaler.
 #
-# An unavailable metric degrades rather than fails: the HPA keeps scaling on what it can read, just
-# later than it should. Which is also what happens in a cluster that has the gauge but not the
-# adapter.
+# What is still a cluster's own responsibility is the *adapter*: an HPA cannot read Prometheus, so
+# `nap_ws_connections` reaches it through prometheus-adapter's custom-metrics API. Without one the
+# metric is unavailable, which degrades rather than fails — the HPA keeps scaling on the CPU
+# trigger below, just later than it should.
+#
+# 200 sockets a pod is a decision rather than a measurement: at 1 CPU and 1Gi a pod is nowhere
+# near a file-descriptor limit there, and the number is set low enough that the deployment adds a
+# pod before anybody's stream is competing for one.
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:

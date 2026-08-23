@@ -4,12 +4,12 @@
 # same rollout strategies — with three deliberate differences, each of which is the overlay's whole
 # reason to exist:
 #
-#   1. **The command runs `cluster-proof.ts` instead of the real entrypoint.** Same `composeNap`,
-#      same queue, same durable log, same `pg_notify` fanout; a scripted model and an in-memory
-#      sandbox instead of OpenRouter and E2B. A turn can therefore *complete* without a vendor key,
-#      which is what makes "submitted to one pod, streamed from another" observable rather than
-#      inferred.
-#   2. **Postgres is in the cluster.** The real one is Neon. See postgres.yaml.
+#   1. **The command runs `cluster-proof.ts` instead of the real entrypoint**, and Postgres is in
+#      the cluster — both of which come from `../local`, which is everything this overlay and
+#      `../load` have in common.
+#   2. **The fakes answer instantly**, which `../load` is the overlay that does not: this one asks
+#      whether a turn crosses pods, and waiting out a calibrated 43-second turn to find out would
+#      cost a minute per check.
 #   3. **Three objects are removed** — the ScaledObject, the HPA and the NetworkPolicy — because
 #      this cluster has neither KEDA, nor Prometheus, nor a CNI that enforces a policy. See
 #      patch-remove-unsupported.yaml, which says so out loud rather than quietly omitting them.
@@ -20,8 +20,7 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: nap
 resources:
-  - ../base
-  - postgres.yaml
+  - ../local
 
 images:
   - name: ghcr.io/mangit955/nap
@@ -51,8 +50,4 @@ generatorOptions:
 
 patches:
   - path: patch-config.yaml
-  - path: patch-command-api.yaml
-  - path: patch-command-worker.yaml
-  - path: patch-command-reaper.yaml
-  - path: patch-ingress-host.yaml
   - path: patch-remove-unsupported.yaml

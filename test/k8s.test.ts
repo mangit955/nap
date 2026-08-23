@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { WS_CONNECTIONS_METRIC } from "../apps/api/src/metrics.ts";
 import { HEARTBEAT_WRITE_INTERVAL_MS } from "../apps/api/src/worker-heartbeat.ts";
 import { DEFAULT_HEARTBEAT } from "../apps/api/src/ws/event-stream.ts";
 import {
@@ -16,7 +17,9 @@ import {
   parseManifests,
   probeViolations,
   reaperViolations,
+  scaleDownViolations,
   secretViolations,
+  socketMetricViolations,
   workerCeilingViolations,
 } from "./k8s.ts";
 
@@ -34,6 +37,7 @@ import {
  */
 
 const BASE = join(import.meta.dirname, "..", "infra", "k8s", "base");
+const LOAD = join(import.meta.dirname, "..", "infra", "k8s", "load");
 
 function loadBase(): Manifest[] {
   const files = readdirSync(BASE)
@@ -53,6 +57,24 @@ function kustomizationResources(): string[] {
   const [document] = parseManifests([{ file: "kustomization.yaml", contents }]);
   const resources = document?.doc.resources;
   return Array.isArray(resources) ? resources.filter((entry) => typeof entry === "string") : [];
+}
+
+/**
+ * The load overlay's own ConfigMap and ScaledObject patches.
+ *
+ * Read as plain manifests rather than through kustomize, which is enough for the one rule that
+ * has to hold here: both patches name every field `workerCeilingViolations` reads, so the
+ * derived relation between the sandbox ceiling and the worker maximum can be checked without
+ * building the overlay. An overlay that raised the ceiling and left the scaler behind would be a
+ * cluster spending on pods that can only queue behind a capacity refusal.
+ */
+function loadOverlay(): Manifest[] {
+  return parseManifests(
+    ["patch-config.yaml", "patch-scale.yaml"].map((file) => ({
+      file,
+      contents: readFileSync(join(LOAD, file), "utf8"),
+    })),
+  );
 }
 
 function synthetic(contents: string): Manifest[] {
@@ -444,5 +466,130 @@ spec:
 `),
     );
     expect(violations[0]).toContain("not told where to write");
+  });
+});
+
+describe("the load overlay", () => {
+  it("re-derives the worker ceiling from its own raised sandbox cap", () => {
+    // The numbers differ from the base's — 200 sandboxes and 25 a worker rather than 10 and 5 —
+    // and the *relation* between them is what must not.
+    expect(workerCeilingViolations(loadOverlay())).toEqual([]);
+  });
+
+  it("stabilizes scale-down past its own shorter drain", () => {
+    // The overlay lowers the drain and does not touch the stabilization window, so the rule is
+    // checked against its ConfigMap and the base's ScaledObject — which is what kustomize will
+    // merge. Assembled by hand rather than by shelling out to kustomize, which would put a
+    // binary between this suite and a rule it can read directly.
+    const scaled = byName(loadBase(), "ScaledObject", "nap-worker");
+    const config = byName(loadOverlay(), "ConfigMap", "nap-config");
+    expect(scaled).toBeDefined();
+    expect(config).toBeDefined();
+    expect(scaleDownViolations([scaled, config].filter((m) => m !== undefined))).toEqual([]);
+  });
+});
+
+describe("the API autoscaler", () => {
+  it("scales on a gauge the API really exports, and scrapes where it is served", () => {
+    // The name comes from the module that publishes it, so renaming the series in code and
+    // leaving this manifest behind is a failing test rather than an HPA on CPU alone.
+    expect(
+      socketMetricViolations(loadApplied(), { metric: WS_CONNECTIONS_METRIC, path: "/metrics" }),
+    ).toEqual([]);
+  });
+
+  it("catches an HPA on a metric nothing publishes, scraped from nowhere", () => {
+    const violations = socketMetricViolations(
+      synthetic(`
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: { name: nap-api }
+spec:
+  metrics:
+    - type: Pods
+      pods:
+        metric: { name: nap_sockets_open }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: nap-api }
+spec:
+  template:
+    spec:
+      containers:
+        - name: api
+          ports: [{ containerPort: 3001 }]
+`),
+      { metric: WS_CONNECTIONS_METRIC, path: "/metrics" },
+    );
+    // The wrong series, no CPU behind it, and no annotations at all: five ways for an autoscaler
+    // to read nothing, none of which errors in a cluster.
+    expect(violations).toHaveLength(5);
+    expect(violations.join("\n")).toContain(WS_CONNECTIONS_METRIC);
+  });
+
+  it("catches a scrape pointed at a port the container does not listen on", () => {
+    const violations = socketMetricViolations(
+      synthetic(`
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: { name: nap-api }
+spec:
+  metrics:
+    - type: Pods
+      pods:
+        metric: { name: ${WS_CONNECTIONS_METRIC} }
+    - type: Resource
+      resource: { name: cpu }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: nap-api }
+spec:
+  template:
+    metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /metrics
+        prometheus.io/port: "9090"
+    spec:
+      containers:
+        - name: api
+          ports: [{ containerPort: 3001 }]
+`),
+      { metric: WS_CONNECTIONS_METRIC, path: "/metrics" },
+    );
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toContain("listens on 3001");
+  });
+});
+
+describe("scaling in", () => {
+  it("stabilizes for at least as long as a worker takes to drain", () => {
+    expect(scaleDownViolations(loadApplied())).toEqual([]);
+  });
+
+  it("catches a window shorter than the drain it has to outlast", () => {
+    const violations = scaleDownViolations(
+      synthetic(`
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: nap-config }
+data:
+  NAP_DRAIN_TIMEOUT_SECONDS: "600"
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata: { name: nap-worker }
+spec:
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 60
+`),
+    );
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toContain("600s a worker spends draining");
   });
 });

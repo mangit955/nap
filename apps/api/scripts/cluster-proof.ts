@@ -30,7 +30,9 @@ import { PostgresTurnQueue } from "@nap/db/postgres-turn-queue";
 import { PostgresTurnRateLimiter } from "@nap/db/postgres-turn-rate-limiter";
 import { PostgresUserKeyStore } from "@nap/db/postgres-user-key-store";
 import { createProjectSession } from "@nap/db/session-bootstrap";
+import { seededRandom } from "@nap/loadgen/calibration";
 import { loopingLLMProvider } from "@nap/loadgen/looping-llm-provider";
+import { slowLLMProvider, slowSandboxManager } from "@nap/loadgen/slow-ports";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import { upgradeWebSocket, websocket } from "hono/bun";
 import { encryptionKeyFrom } from "../src/account/secret-box.ts";
@@ -61,6 +63,18 @@ function required(key: string): string {
   return value;
 }
 
+/** A `NAP_*` number from the pod's environment, or the proof's own default. */
+function tunable(key: string, fallback: number): number {
+  const raw = process.env[key];
+  if (raw === undefined || raw === "") return fallback;
+  const value = Number(raw);
+  if (!Number.isFinite(value)) {
+    console.error(`${key} is not a number: ${raw}`);
+    process.exit(1);
+  }
+  return value;
+}
+
 /**
  * Ceilings wide enough that the proof measures the deployment rather than its own configuration —
  * and sweeps slow enough that nothing is taken away mid-run.
@@ -68,6 +82,12 @@ function required(key: string): string {
  * Production's numbers are deliberately not used: at `NAP_MAX_SANDBOXES_TOTAL=10` a proof that
  * happened to run eleven turns would be reporting a quota refusal, which is a different assertion
  * with its own test.
+ *
+ * The four that a load run has to move are read from the environment. They are the ones the
+ * autoscalers are derived from — the sandbox ceiling and a worker's concurrency — plus the drain
+ * that scaling in has to wait for, and a run at a hundred users needs all of them larger than a
+ * three-pod proof does. Everything else stays fixed here, because a knob nothing turns is a way
+ * for two runs to differ for a reason nobody wrote down.
  */
 const CONFIG: NapConfig = {
   NAP_WEB_ORIGIN: "http://localhost:3000",
@@ -76,17 +96,17 @@ const CONFIG: NapConfig = {
   NAP_ALLOWED_MODELS: ["proof/fake"],
   NAP_MAX_STEPS: 8,
   NAP_CONTEXT_BUDGET_TOKENS: 80_000,
-  NAP_MAX_SANDBOXES_PER_USER: 10,
-  NAP_FREE_MAX_SANDBOXES_PER_USER: 10,
-  NAP_MAX_SANDBOXES_TOTAL: 50,
+  NAP_MAX_SANDBOXES_PER_USER: tunable("NAP_MAX_SANDBOXES_PER_USER", 10),
+  NAP_FREE_MAX_SANDBOXES_PER_USER: tunable("NAP_FREE_MAX_SANDBOXES_PER_USER", 10),
+  NAP_MAX_SANDBOXES_TOTAL: tunable("NAP_MAX_SANDBOXES_TOTAL", 50),
   NAP_SANDBOX_TTL_MINUTES: 30,
   NAP_REAP_IDLE_MINUTES: 29,
   NAP_REAP_INTERVAL_SECONDS: 60,
   // The one sweep that matters here, and it is left fast: a rolling restart of the workers is
   // exactly when a turn's worker disappears, and the janitor is what tells the socket about it.
   NAP_JANITOR_INTERVAL_SECONDS: 15,
-  NAP_WORKER_CONCURRENCY: 5,
-  NAP_DRAIN_TIMEOUT_SECONDS: 30,
+  NAP_WORKER_CONCURRENCY: tunable("NAP_WORKER_CONCURRENCY", 5),
+  NAP_DRAIN_TIMEOUT_SECONDS: tunable("NAP_DRAIN_TIMEOUT_SECONDS", 30),
   NAP_CAPTURE_CONCURRENCY: 1,
 };
 
@@ -115,6 +135,22 @@ await bus.start();
 const model = loopingLLMProvider(scriptedTurn());
 const heartbeatFile = process.env.NAP_WORKER_HEARTBEAT_FILE;
 
+/**
+ * Whether the fakes answer instantly or at the speeds a funded run recorded.
+ *
+ * Instant is right for the proof: it asks whether a turn crosses pods, and waiting 43 seconds to
+ * find out wastes a minute per check. It is wrong for a load run, and by more than a factor —
+ * instant fakes finish each turn before the next user has connected, so nothing is ever
+ * concurrent and a ramp to a hundred measures a system that never had two turns at once. Same
+ * argument as `loadgen-composition.ts`, and the same `@nap/loadgen` calibration behind it, so
+ * that a cluster run and the single-process baseline are comparable.
+ */
+const calibrated = process.env.NAP_PROOF_CALIBRATED_LATENCY === "true";
+// One seeded stream, so two runs of this pod draw the same turn durations. Per pod rather than
+// per deployment: nothing can share a stream across processes, and what matters is that a
+// rerun of the same shape sees the same dice.
+const random = seededRandom(tunable("NAP_PROOF_SEED", 1));
+
 const { app, worker, reaper, janitor } = composeNap({
   config: CONFIG,
   role: which,
@@ -135,15 +171,20 @@ const { app, worker, reaper, janitor } = composeNap({
   userKeys: new PostgresUserKeyStore(db),
   events,
   bus,
-  sandbox: fakeSandbox(),
+  sandbox: calibrated ? slowSandboxManager(fakeSandbox()) : fakeSandbox(),
   objects: new InMemoryObjectStore(),
-  provider: model,
+  provider: calibrated ? slowLLMProvider(model, { random }) : model,
   auth: createAuth(db, {
     secret: "GENERATED_AT_RUN_TIME",
     baseUrl: process.env.NAP_API_URL ?? "http://localhost:3001",
     webOrigin: CONFIG.NAP_WEB_ORIGIN,
     // The door the proof's client goes through: it has no account and needs none.
     allowAnonymous: true,
+    // Wide, because every simulated user arrives from one address — the k6 process behind the
+    // ingress — and the library's per-IP allowance would refuse ninety of a hundred sign-ins
+    // before the run had started. §24 item 6: this is the tenancy question, and the answer for
+    // a deployed run is the same shape but a decision somebody has to make on purpose.
+    authRequestsPerWindow: 100_000,
   }),
   encryptionKey: encryptionKeyFrom(
     Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64"),

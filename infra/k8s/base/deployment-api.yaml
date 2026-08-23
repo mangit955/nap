@@ -33,6 +33,16 @@ spec:
       labels:
         app.kubernetes.io/name: nap
         app.kubernetes.io/component: api
+      # What tells a Prometheus to scrape `nap_ws_connections` off each pod — the gauge the HPA
+      # next door scales on. Annotations rather than a ServiceMonitor so this works with a
+      # scrape-config Prometheus as well as with the operator, and on the pod rather than the
+      # Service because the HPA needs a value *per pod*: scraping through the Service would land
+      # on whichever replica the load balancer picked and report one pod's sockets as the whole
+      # deployment's.
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3001"
+        prometheus.io/path: /metrics
     spec:
       serviceAccountName: nap
       # The API's own shutdown closes every socket with a normal close code and exits; clients

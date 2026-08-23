@@ -1,0 +1,63 @@
+# The deployment as it really is — autoscalers included — sized for a hundred concurrent turns.
+#
+# `proof/` answers "does a turn cross pods?" and deliberately deletes the three objects a laptop
+# cluster cannot run. This overlay answers the other one: what happens to admission, the queue,
+# the log and the fanout when a hundred people are typing at once, and whether the deployment
+# grows to meet them. So it sits beside `proof/` rather than on top of it — the ScaledObject and
+# the HPA are the whole point here, and an overlay cannot un-delete what a lower one removed.
+#
+# What the two have in common is `../local`, which both build on: the in-cluster Postgres, the
+# three command patches, the localhost Ingress. Two copies of those would drift, and the run's
+# value depends on it being the same deployment.
+#
+# Three differences from `base/`, each of which is this overlay's reason to exist:
+#
+#   1. **The fakes are slowed to the speeds a funded run recorded.** Instant ones would finish
+#      each turn before the next user connected and nothing would ever be concurrent — see
+#      `@nap/loadgen/calibration`, and `NAP_PROOF_CALIBRATED_LATENCY` in patch-config.yaml.
+#   2. **The ceilings are sized for the load, and the autoscalers follow them.** See
+#      patch-config.yaml and patch-scale.yaml: the worker maximum is still
+#      ceil(NAP_MAX_SANDBOXES_TOTAL / NAP_WORKER_CONCURRENCY), which is the coupling the whole
+#      ticket is about, and `test/k8s.test.ts` asserts it here as well as in the base.
+#   3. **The NetworkPolicy is removed**, because kind's default CNI enforces none — applying it
+#      would look exercised when it had not been.
+#
+# Driven by `infra/k8s/load/run.sh`.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: nap
+resources:
+  - ../local
+
+images:
+  - name: ghcr.io/mangit955/nap
+    newName: nap
+    newTag: load
+
+# Dummies, every one: nothing here reaches a vendor. `DATABASE_URL` is the Postgres next door, and
+# KEDA's TriggerAuthentication reads the same key, so the scaler and the pods cannot disagree
+# about which database the queue is in.
+secretGenerator:
+  - name: nap-secrets
+    literals:
+      # Fully qualified, and that is not decoration: KEDA reads this same Secret from the
+      # *operator's* namespace, where the bare `nap-postgres` resolves to nothing. The scaler
+      # then reports `no such host` and the ScaledObject never becomes ready — while every pod,
+      # which resolves it in its own namespace, is perfectly happy. One string, two resolvers.
+      - DATABASE_URL=postgres://nap:nap@nap-postgres.nap.svc.cluster.local:5432/nap
+      - E2B_API_KEY=load-not-a-key
+      - OPENROUTER_API_KEY=load-not-a-key
+      - BETTER_AUTH_SECRET=GENERATED_AT_RUN_TIME
+      - NAP_KEY_ENCRYPTION_SECRET=GENERATED_AT_RUN_TIME
+      - R2_ACCOUNT_ID=load
+      - R2_BUCKET=load
+      - R2_ACCESS_KEY_ID=load
+      - R2_SECRET_ACCESS_KEY=load
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+patches:
+  - path: patch-config.yaml
+  - path: patch-scale.yaml
+  - path: patch-remove-unsupported.yaml
