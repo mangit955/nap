@@ -141,6 +141,11 @@ export class InMemoryTurnQueue implements TurnQueue {
     return true;
   }
 
+  async anyLeased(sessionIds: readonly string[]): Promise<boolean> {
+    const asked = new Set(sessionIds);
+    return this.#rows.some((row) => asked.has(row.sessionId) && this.#isLeased(row));
+  }
+
   async requestCancel(sessionId: string): Promise<CancelOutcome> {
     // Already-cancelled rows still match, as they do in Postgres: a second click on a turn that
     // is still running must not be told there is nothing to cancel.

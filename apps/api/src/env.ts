@@ -106,9 +106,10 @@ const BaseSchema = z.object({
    */
   NAP_EVENT_BUS: z.enum(["in-process", "postgres"]).default("in-process"),
   /**
-   * Where the `LISTEN` connection goes, when it cannot go where everything else does — which is
-   * any deployment behind a transaction pooler. `createListenerConnection` in `@nap/db` says why
-   * that is not optional.
+   * Where the connections that need *session* mode go, when they cannot go where everything else
+   * does — which is any deployment behind a transaction pooler. There are two: the `LISTEN` socket
+   * every API pod holds, and the reaper's advisory lock. `createListenerConnection` and
+   * `createLockConnection` in `@nap/db` each say why that is not optional for them.
    *
    * Absent means `DATABASE_URL`, which is right for a local Postgres and anything unpooled.
    */

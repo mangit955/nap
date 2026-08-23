@@ -4,70 +4,78 @@
 <https://nap-api-production.up.railway.app>.
 
 Two services and four accounts. The web app is on Vercel, the API on Railway, and the
-API is the one that holds all the state, spends all the money, and must not be scaled.
+API is the one that holds all the state and spends all the money.
 
 | Piece | Where | Notes |
 |---|---|---|
 | `apps/web` | Vercel | Next 16, root directory `apps/web` |
-| `apps/api` | Railway | This repo's `Dockerfile`, **one replica** |
+| `apps/api` | Railway | This repo's `Dockerfile`, **one replica as deployed** — see below |
 | `apps/api`'s worker | Railway | The *same image*, started as `bun apps/api/src/worker.ts` |
+| `apps/api`'s reaper | Railway | The same image again, `bun apps/api/src/reaper.ts`, **exactly one replica** |
 | Postgres | Neon | A database of its own, not the development one |
 | Object storage | Cloudflare R2 | Snapshots of projects nobody is using |
 | Sandboxes | E2B | Created per project, billed by the second |
 | Model | OpenRouter | `openai/gpt-5.6-luna` by default |
 
-## Two entrypoints, one image
+## Three entrypoints, one image
 
-The binary is split (`docs/scaling-design.md` §4). One image, two commands:
+The binary is split (`docs/scaling-design.md` §4 and §13). One image, three commands:
 
-| | Command | Serves | Executes |
-|---|---|---|---|
-| API | `bun apps/api/src/index.ts` (the Dockerfile's default) | HTTP, WebSockets, auth, admission | nothing |
-| Worker | `bun apps/api/src/worker.ts` | nothing | turns, plus the reaper and the janitor |
+| | Command | Serves | Executes | Replicas |
+|---|---|---|---|---|
+| API | `bun apps/api/src/index.ts` (the Dockerfile's default) | HTTP, WebSockets, auth, admission | nothing | one here; see the replica rule below |
+| Worker | `bun apps/api/src/worker.ts` | nothing | turns | one here; see the replica rule below |
+| Reaper | `bun apps/api/src/reaper.ts` | nothing | the idle sweep, capacity reconciliation, the rate-event sweep, the janitor | **exactly one** |
 
-Both call `bootNap` in `apps/api/src/boot.ts` and differ only by the role they pass, so there
-is one composition rather than two that drift. A turn reaches a worker through
-`turn_requests` and nothing else; there is no call between the two processes.
+All three call `bootNap` in `apps/api/src/boot.ts` and differ only by the role they pass, so
+there is one composition rather than three that drift. A turn reaches a worker through
+`turn_requests` and nothing else; there is no call between any of the processes.
 
-**Deploying this needs a second Railway service, and the API stops running turns without
-it.** Same repo, same Dockerfile, same variables — set the start command to
-`bun apps/api/src/worker.ts` and leave its healthcheck path empty, because it serves nothing
-and whether it is working is a question about queue depth. Two things must be true first:
+**Deploying this needs a Railway service each, and the API stops running turns without the
+worker.** Same repo, same Dockerfile, same variables — set the start command and leave the
+healthcheck path empty for the two that serve nothing, because whether a worker is working is
+a question about queue depth. One thing must be true first:
 
 - **`NAP_EVENT_BUS=postgres`.** A worker publishing to an in-process bus announces a turn to
   nobody: every socket watching it is on the API pod. Turns would run perfectly while every
-  chat pane sat still, so **the worker refuses to boot without it** rather than letting that
-  be discovered from the browser. See below for the `LISTEN` pooler caveat.
-- **Closing or deleting a project mid-turn is not yet refused across processes.** "Is this
-  session busy?" is still a map in whichever process claimed the turn, so an API pod asks
-  itself and hears no. Making that a lease read in Postgres is the next ticket, and until it
-  lands a split deployment can tear a sandbox down under a running turn.
+  chat pane sat still, so **the worker and the reaper both refuse to boot without it** rather
+  than letting that be discovered from the browser — the reaper publishes too, when it stops a
+  preview or closes out an interrupted turn. See below for the `LISTEN` pooler caveat.
 
-Locally, `bun run dev` is the API and `bun run dev:worker` is the worker, against one
+**The reaper is one replica and says so twice.** Set `numReplicas: 1` *and* leave it alone: a
+second one would snapshot and destroy the same project at the same moment, the second teardown
+landing on a sandbox that is already gone. A rolling update runs two for a few seconds whatever
+the replica count says, so the process also takes a `pg_try_advisory_lock` on a connection of
+its own and skips any tick it does not hold. That lock is session state, so behind a pooler it
+needs `NAP_LISTEN_DATABASE_URL` for the same reason `LISTEN` does.
+
+Locally, `bun run dev`, `bun run dev:worker` and `bun run dev:reaper` are the three, against one
 database and one `apps/api/.env`.
 
 ## The rule that matters most: one replica
 
-**Never scale the API past one instance.** It is not stateless and is not meant to be:
+**Do not scale the API past one instance while `NAP_EVENT_BUS` is `in-process`**, which is
+the default and what is deployed:
 
 - `InProcessEventBus` (`packages/db/src/in-process-event-bus.ts`) fans out events to
   WebSocket subscribers *inside one process*. A browser connected to instance A would never
-  see a turn that ran on B — the chat would simply stop moving. **This one now has a fix, and
+  see a turn that ran on B — the chat would simply stop moving. **This one has a fix, and
   it is off by default** — see below.
-- `TurnRegistry` (cancellation, and the "is this session busy?" that close and delete ask) is
-  in memory, and now lives in the worker rather than beside the routes that read it. See the
-  second bullet above.
-- The reaper runs in the worker process, because the only thing that knows a project is busy
-  is the process holding its turns. It is what snapshots an idle project and destroys its
-  sandbox, and it is the only thing standing between an abandoned tab and an E2B bill. It is
-  also what reconciles the sandbox ceiling — reclaiming slots held by a process that died
-  mid-creation, and destroying sandboxes E2B is running that no project references. **Two
-  worker replicas would each sweep**, which is why the worker service is one replica too
-  until the reaper becomes its own advisory-locked process.
+- `TurnRegistry` is in memory and lives in the worker. It is now only a *fast path* for
+  cancelling a turn that happens to be running in the process the request landed on;
+  cancellation itself is a row, and reaches a turn on any pod within one lease renewal. Nothing
+  else reads it: "is this session busy?", which close, delete and the idle sweep ask, is a
+  `state = 'leased'` query against `turn_requests` and means the same thing everywhere.
 
-That last point also rules out anything that sleeps an idle *worker*: a sleeping process is
-a reaper that is not reaping while the sandboxes it should have cleaned up keep billing.
-`railway.json` pins `numReplicas: 1`; leave app sleeping off on both services.
+**The reaper is the piece that must be exactly one**, whatever else scales. It is what
+snapshots an idle project and destroys its sandbox — the only thing standing between an
+abandoned tab and an E2B bill — and it also reconciles the sandbox ceiling, reclaiming slots
+held by a process that died mid-creation and destroying sandboxes E2B is running that no
+project references. Two of them would do all of that twice.
+
+That also rules out anything that sleeps the *reaper*: a sleeping one is not reaping while the
+sandboxes it should have cleaned up keep billing. `railway.json` pins `numReplicas: 1`; leave
+app sleeping off on every service.
 
 The event log itself is durable and ordered in Postgres, so a *restart* loses nothing — a
 client reconnects with `?afterSeq=` and gets exactly the gap. It is concurrency that breaks
@@ -77,10 +85,12 @@ this, not restarts.
 
 `NAP_EVENT_BUS=postgres` swaps `InProcessEventBus` for `PostgresNotifyEventBus`, which
 announces `{sessionId, seq}` through `pg_notify` and lets every process read the events out of
-the durable log. That removes the first bullet above and **none of the others** — the registry
-and the reaper are still per-process (the sandbox ceiling and the turn allowance are not: one is
-reserved in Postgres and the other is counted there), so this is a prerequisite for a second
-replica rather than permission for one. `railway.json` still pins `numReplicas: 1`.
+the durable log. That is the last of the per-process assumptions on the API and worker paths — the
+sandbox ceiling is reserved in Postgres, the turn allowance is counted there, "busy" is a lease and
+the sweeps live in a process of their own — so it is what a second API or worker replica waits on.
+**Nothing here has run more than one, and this document is not the permission to**: that is #62's
+call, made against a load run rather than a paragraph. `railway.json` pins `numReplicas: 1` on
+every service, and the reaper's pin is the one that is permanent.
 
 Two things to get right when you do turn it on:
 
@@ -88,7 +98,8 @@ Two things to get right when you do turn it on:
   pooler hands the next statement to whichever backend is free — so the `LISTEN` lands on a
   connection that is returned to the pool, and the process hears nothing while every query it
   runs keeps working. Behind Neon's pooled endpoint (or PgBouncer in transaction mode), set
-  `NAP_LISTEN_DATABASE_URL` to the **direct** endpoint. Omit it otherwise.
+  `NAP_LISTEN_DATABASE_URL` to the **direct** endpoint. Omit it otherwise. The reaper's advisory
+  lock is session state too and uses the same variable.
 - **`/readyz` gains a `listener` check and fails on it**, so a pod whose fanout has degraded to
   the 2s catch-up poll leaves the rotation while another pod's has not. `/livez` does not: the
   connection reconnects on its own, and restarting the process would only drop the sockets it
@@ -233,6 +244,9 @@ is affordable, and they are worth setting deliberately rather than inheriting:
   flight rather than a thumbnail. Nobody waits on a card, so queueing costs nothing visible.
 - `NAP_DRAIN_TIMEOUT_SECONDS=600` — how long a worker being taken away waits for the turns it
   is already running before aborting them. Keep it inside the platform's grace period.
+- `NAP_REAP_INTERVAL_SECONDS=60` — how often the reaper looks. The idle sweep and the janitor
+  tick separately, on purpose: an idle project can wait a minute to be put away and a chat pane
+  waiting on a turn that will never finish cannot.
 - `NAP_JANITOR_INTERVAL_SECONDS=15` — how often to look for turns whose worker died holding
   their lease. Not a ceiling on anything: it is how long somebody watching an interrupted turn
   waits to be told, on top of the lease and its grace window. The grace itself is a fence and is

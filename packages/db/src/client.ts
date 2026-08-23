@@ -48,6 +48,23 @@ export function createListenerConnection(url: string): postgres.Sql {
 }
 
 /**
+ * A connection for a session-level advisory lock, and nothing else.
+ *
+ * Separate from the pool for the reason a listener is, and it is worth stating in its own terms: a
+ * session lock belongs to the *backend* that took it. Taken through the pool, it would be held by
+ * a connection the holder may never be handed again, and released by one that never had it — so
+ * `pg_advisory_unlock` would warn and return false while the lock sat there until the pool
+ * happened to recycle that connection.
+ *
+ * `max: 1` for the same reason as well: one socket that stays put is the entire point, and a pool
+ * behind it would be connections nothing may use. A deployment behind a transaction pooler has to
+ * point this at the direct endpoint, exactly as the listener does.
+ */
+export function createLockConnection(url: string): postgres.Sql {
+  return postgres(url, { max: 1 });
+}
+
+/**
  * A round trip to the database, for a health check to wait on.
  *
  * `select 1` rather than a query against a real table: this asks whether the database is

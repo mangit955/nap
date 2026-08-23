@@ -103,11 +103,23 @@ the request *orphaned* and writes the terminal event the interrupted Turn never 
 request's own id. **It never requeues and never closes the Job**: re-executing with nobody watching
 is what *Continue* forbids, so the work waits for a human to reopen the project.
 
-**Role** — which half of the deployment a process is: an **API pod** serves HTTP, WebSockets, auth
-and admission and executes nothing, and a **worker** claims leases and executes turns and serves
-nothing. Both are the same composition given a different role, so it names a *process's job* and
-never a build, an image or a code path. `all` is the two in one process, which is what tests and the
-load harness compose and what no entrypoint offers.
+**Role** — which part of the deployment a process is: an **API pod** serves HTTP, WebSockets, auth
+and admission and executes nothing, a **worker** claims leases and executes turns and serves
+nothing, and the **reaper** runs the periodic sweeps and does neither. All three are the same
+composition given a different role, so it names a *process's job* and never a build, an image or a
+code path. `all` is the three in one process, which is what tests and the load harness compose.
+
+**Sweep lock** — what makes the reaper one sweeper rather than one replica. A session-level advisory
+lock, asked at the top of every idle-sweep tick and held on a connection of its own; a process that
+does not hold it does nothing that tick. It exists for the seconds of a rolling update when two
+reapers are running, and it guards the idle sweep alone — the **janitor** beside it is safe to run
+twice over and deliberately unguarded.
+
+**Busy** — whether any of a project's sessions holds a *lease* right now. One question with one
+answer for the whole cluster (`TurnQueue.anyLeased`), asked by closing a project, deleting one, and
+the idle sweep. It is a **filter, not a lock**: it describes the instant it was asked, and a turn
+starting immediately afterwards loses its sandbox and is restored from the snapshot the sweep just
+took. Holding a lock across a teardown instead would let a wedged sweep block turns.
 
 **Drain** — what a worker does between `SIGTERM` and exiting: stop claiming, keep renewing the
 leases it holds, and wait for the turns already running. Bounded by the **drain timeout**, past

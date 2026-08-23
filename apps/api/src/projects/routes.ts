@@ -9,9 +9,10 @@
  * **Close and delete both refuse while a turn is running**, with a 409. The agent is midway
  * through writing files and its events are still being appended; taking the sandbox away under
  * it produces a half-finished project and a transcript that stops mid-sentence. Waiting is the
- * user's call to make — they can cancel the turn if they mean it. The check is the same
- * `TurnRegistry` the reaper consults, asked across the project's sessions, because a sandbox
- * belongs to the project those sessions share.
+ * user's call to make — they can cancel the turn if they mean it. The check is the same lease in
+ * the queue the reaper consults, asked across the project's sessions, because a sandbox belongs to
+ * the project those sessions share — and because turns run in another process, so the only place
+ * that knows one is running is the database.
  *
  * Deleting is the one destructive operation here, so it reports what it removed rather than an
  * empty 204: how many objects went with it is the only evidence anyone gets that the bytes were
@@ -96,10 +97,13 @@ export type ProjectRouteDeps = {
     sandboxes: SandboxLimits;
   };
   /**
-   * True while a turn is running for any of these sessions. Injected because turns are tracked
-   * by whatever is serving requests, and a route module has no business knowing how.
+   * True while a turn is running for any of these sessions.
+   *
+   * A query rather than a lookup, because nothing in this process runs a turn any more: the
+   * authoritative answer is a leased row in the queue, which every replica can see. Injected all
+   * the same — a route module has no business knowing where that is kept.
    */
-  isBusy: (sessionIds: string[]) => boolean;
+  isBusy: (sessionIds: string[]) => Promise<boolean>;
 };
 
 const CreateProjectSchema = z.object({ name: z.string().optional() });
@@ -287,7 +291,7 @@ export function registerProjectRoutes(
     const project = await found(c.req.param("projectId"), c.get("userId"), deps);
     if (!project.ok) return c.json({ error: project.error.message }, project.error.status);
 
-    if (deps.isBusy(project.value.sessionIds)) {
+    if (await deps.isBusy(project.value.sessionIds)) {
       return c.json({ error: "a turn is running in this project" }, 409);
     }
 
@@ -322,7 +326,7 @@ export function registerProjectRoutes(
     const project = await deps.projects.get(projectId.value, c.get("userId"));
     if (project === null) return c.json({ error: "no such project" }, 404);
 
-    if (deps.isBusy(project.sessionIds)) {
+    if (await deps.isBusy(project.sessionIds)) {
       return c.json({ error: "a turn is running in this project" }, 409);
     }
 

@@ -1,5 +1,5 @@
 /**
- * The line a process prints when it starts, for both of the processes Nap runs.
+ * The line a process prints when it starts, for each of the processes Nap runs.
  *
  * A module of its own rather than part of `boot.ts` for two reasons, one of which is only a
  * reason because of the other. It changes for different causes — what an operator needs to read
@@ -13,7 +13,7 @@ import type { NapRole } from "./compose.ts";
 import type { Env } from "./env.ts";
 
 /**
- * What a boot line is written from: the settings it names, which half of the deployment this is,
+ * What a boot line is written from: the settings it names, which part of the deployment this is,
  * and where to write it. Narrower than the whole process on purpose — what gets printed is not a
  * question about the connection pool or the claiming loop.
  */
@@ -27,9 +27,9 @@ export type Announcing = {
  * What this process is about to spend money on, said out loud at startup.
  *
  * Every message a user sends spends money on whatever is named here — that is not something anyone
- * should first learn from an invoice. Shared by both entrypoints so that the two lines can be read
- * side by side in one log stream and compared: two pods disagreeing about the model or the event
- * bus is the sort of thing a deploy does quietly.
+ * should first learn from an invoice. Shared by every entrypoint so that the lines can be read side
+ * by side in one log stream and compared: two pods disagreeing about the model or the event bus is
+ * the sort of thing a deploy does quietly.
  */
 export function announce(nap: Announcing, message: string, extra: Record<string, unknown>): void {
   const { env, logger } = nap;

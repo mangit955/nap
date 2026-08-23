@@ -221,7 +221,7 @@ export function fullyWiredDeps(seeded?: SeededSandbox): Omit<AppDeps, "logger"> 
         defaultModel: "openai/gpt-5.6-luna",
       },
       events: { events: new InMemoryEventStore(), bus: new InMemoryEventBus() },
-      isBusy: () => false,
+      isBusy: async () => false,
     },
     auth: {
       handler: async () => new Response(null),

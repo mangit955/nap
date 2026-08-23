@@ -99,7 +99,7 @@ function app() {
       objects,
       sandbox,
       createProject: async () => created,
-      isBusy: (sessionIds) => sessionIds.some((id) => running.has(id)),
+      isBusy: async (sessionIds) => sessionIds.some((id) => running.has(id)),
       events: { events, bus: new InMemoryEventBus() },
       queue,
       models,

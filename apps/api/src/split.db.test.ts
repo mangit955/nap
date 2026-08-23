@@ -1,5 +1,6 @@
 import { ScriptedLLMProvider } from "@nap/agent/testing/scripted-llm-provider";
 import { createDatabase } from "@nap/db/client";
+import { PostgresAdvisoryLock } from "@nap/db/postgres-advisory-lock";
 import { PostgresEventStore } from "@nap/db/postgres-event-store";
 import { PostgresProjectSandboxStore } from "@nap/db/postgres-project-sandbox-store";
 import { PostgresProjectStore } from "@nap/db/postgres-project-store";
@@ -15,9 +16,11 @@ import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { TEMPLATE_DEV_PORT } from "@nap/sandbox/template";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
+import type { TurnRateLimiter } from "@nap/shared/ports/turn-rate-limit";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { WSEvents } from "hono/ws";
+import postgres from "postgres";
 import { afterAll, afterEach, beforeAll, describe, expect, inject, it } from "vitest";
 import { encryptionKeyFrom } from "./account/secret-box.ts";
 import { type ComposedNap, composeNap, type NapDeps } from "./compose.ts";
@@ -41,6 +44,15 @@ import { createLogger } from "./logger.ts";
  */
 
 const stopping: ComposedNap[] = [];
+/** The reapers' lock connections: one each, and none of them from the pool. See `SweepLock`. */
+const lockConnections: postgres.Sql[] = [];
+/**
+ * This run's suffix for the sweep lock's name.
+ *
+ * The container is shared across the `db` project, and an advisory lock is global to the database:
+ * a fixed name would have this file contending with anything else that ever takes one.
+ */
+const run = crypto.randomUUID();
 let db: PostgresJsDatabase;
 let close: () => Promise<void>;
 
@@ -61,6 +73,9 @@ afterEach(async () => {
     composed.janitor.stop();
     await composed.worker.stop();
   }
+  // The locks go with them: a connection left open holds its advisory lock until the database
+  // notices the socket is gone, and the next test would find the lock taken.
+  for (const connection of lockConnections.splice(0)) await connection.end();
 });
 
 afterAll(async () => {
@@ -117,7 +132,11 @@ function turnableSandbox(): InMemorySandboxManager {
  * a helper that handed the same instances to both would be testing the arrangement this ticket
  * exists to stop being.
  */
-function pod(role: "api" | "worker", userId: string): ComposedNap {
+function pod(
+  role: "api" | "worker" | "reaper",
+  userId: string,
+  overrides: Partial<NapDeps> = {},
+): ComposedNap {
   const composed = composeNap({
     config: CONFIG,
     role,
@@ -150,6 +169,7 @@ function pod(role: "api" | "worker", userId: string): ComposedNap {
     createProject: async () => ({ projectId: crypto.randomUUID(), sessionId: crypto.randomUUID() }),
     authenticate: async () => ({ userId, isAnonymous: false }),
     upgradeWebSocket: async (_c: unknown, _events: WSEvents) => new Response(null),
+    ...overrides,
   });
 
   stopping.push(composed);
@@ -180,6 +200,71 @@ describe("an API pod and a worker pod over one database", () => {
         interval: 200,
       })
       .toContain("turn.completed");
+  });
+
+  it("refuses to close a project a worker on another pod is running a turn in", async () => {
+    // "Busy" has to mean one thing across the cluster, and this is the arrangement where a
+    // per-process answer was wrong: the lease belongs to a worker the API pod has never heard of,
+    // and closing the project would take the sandbox away mid-turn.
+    const userId = await seedUser();
+    const { projectId, sessionId } = await createProjectSession(db, { userId });
+
+    const api = pod("api", userId);
+    const elsewhere = new PostgresTurnQueue(db);
+    await elsewhere.enqueue({
+      sessionId,
+      userId,
+      kind: "turn",
+      message: "add a dark mode toggle",
+      model: CONFIG.NAP_MODEL,
+      billsToUser: false,
+    });
+    await elsewhere.claim("a-worker-on-another-pod");
+
+    expect((await api.app.request(`/projects/${projectId}/close`, { method: "POST" })).status).toBe(
+      409,
+    );
+    expect((await api.app.request(`/projects/${projectId}`, { method: "DELETE" })).status).toBe(
+      409,
+    );
+  });
+
+  it("lets exactly one of two reapers started together sweep", async () => {
+    // What `replicas: 1` cannot promise on its own: a rolling update runs the new reaper while the
+    // old one is still shutting down. Two real advisory locks over two connections, because that
+    // is the whole mechanism — a lock taken through a pool would be held by a backend the holder
+    // may never be handed again, and both processes would sweep.
+    //
+    // Counted through the rate-limit sweep, which is the first thing a tick does once it is past
+    // the lock. This test deliberately reaps *no* project — the idle window is set beyond anything
+    // in the shared container — because every db suite's rows are visible to `idleSince`.
+    const userId = await seedUser();
+    const ticks = [0, 0];
+    const ticking = (which: number): TurnRateLimiter => ({
+      check: async () => ({ allowed: true }),
+      sweep: async () => {
+        ticks[which] = (ticks[which] ?? 0) + 1;
+        return 0;
+      },
+    });
+
+    const config = { ...CONFIG, NAP_REAP_INTERVAL_SECONDS: 0.05, NAP_REAP_IDLE_MINUTES: 100_000 };
+    for (const which of [0, 1]) {
+      const connection = postgres(inject("postgresUrl"), { max: 1 });
+      lockConnections.push(connection);
+      pod("reaper", userId, {
+        config,
+        sweepLock: new PostgresAdvisoryLock(connection, `nap:split-test-sweep-${run}`),
+        rateLimits: { rate: ticking(which), freeRate: ticking(which) },
+      });
+    }
+
+    await expect.poll(() => Math.max(...ticks), { timeout: 5_000 }).toBeGreaterThan(1);
+    // Several more intervals before asking about the loser. Asserting the moment the winner is
+    // seen would pass whether or not the lock works, because the other process's first tick has
+    // not landed yet — which is exactly how this test passed for the wrong reason once already.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(ticks.filter((count) => count === 0)).toHaveLength(1);
   });
 
   it("leaves the request queued when no worker is composed beside it", async () => {

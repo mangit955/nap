@@ -16,11 +16,11 @@
  * What deliberately stays in `boot.ts`: reading and validating the environment, constructing the
  * real clients, the boot log line, and the signal handlers. Those are things a *process* does.
  *
- * **One composition, two processes.** `role` is what an API pod and a worker pod differ by, and it
- * is a switch on what is *started* rather than on what is built: both assemble the same system
- * from the same parts, and one of them never turns the claiming loop on while the other never
- * serves the app it holds. A second composition function would have been two copies of six hundred
- * lines of wiring, and the copies would have drifted the first time somebody changed one.
+ * **One composition, three processes.** `role` is what an API pod, a worker pod and the reaper
+ * differ by, and it is a switch on what is *started* rather than on what is built: all three
+ * assemble the same system from the same parts, and each turns on only the loops that are its job.
+ * A composition function per role would have been three copies of six hundred lines of wiring, and
+ * the copies would have drifted the first time somebody changed one.
  */
 
 import { NapAgentService } from "@nap/agent/agent-service";
@@ -46,6 +46,7 @@ import type { SandboxInventory } from "@nap/shared/ports/sandbox-inventory";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SessionStore } from "@nap/shared/ports/session-store";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
+import type { SweepLock } from "@nap/shared/ports/sweep-lock";
 import type { TurnQueue } from "@nap/shared/ports/turn-queue";
 import type { TurnRateLimiter } from "@nap/shared/ports/turn-rate-limit";
 import type { UserKeyStore } from "@nap/shared/ports/user-key-store";
@@ -88,18 +89,26 @@ export type NapConfig = Pick<
 >;
 
 /**
- * Which half of the deployment this process is.
+ * Which part of the deployment this process is.
  *
- * `docs/scaling-design.md` §4: an API pod owns HTTP, WebSockets, auth and admission and executes
- * nothing; a worker pod owns executing turns and serves nothing. `all` is both in one process,
- * which is what a single-container deployment, the load harness and every test compose.
+ * `docs/scaling-design.md` §4 and §13: an API pod owns HTTP, WebSockets, auth and admission and
+ * executes nothing; a worker pod owns executing turns and serves nothing; the reaper owns the
+ * periodic tidying — idle projects, orphaned requests, leaked capacity, expired rate events — and
+ * neither serves nor executes. `all` is the three in one process, which is what a
+ * single-container deployment, the load harness and every test compose.
+ *
+ * **The reaper is one replica and the others are many**, which is the reason it is a role of its
+ * own rather than a job the workers share: several sweeps at once would each snapshot and destroy
+ * the same project, and the second one would do it to a sandbox that is already gone. One replica
+ * is not quite enough on its own either — a rolling update runs two for a few seconds — so the
+ * sweep is additionally guarded by `sweepLock`.
  *
  * It gates the *loops*, never the objects: a worker still builds the Hono app it never serves and
- * an API still builds the runtime it never drives, because the alternative is two composition
- * functions and two sets of assumptions about which dependencies each half is allowed to skip.
- * Nothing here has a side effect until something starts it.
+ * an API still builds the runtime it never drives, because the alternative is a composition
+ * function per role and three sets of assumptions about which dependencies each is allowed to
+ * skip. Nothing here has a side effect until something starts it.
  */
-export type NapRole = "api" | "worker" | "all";
+export type NapRole = "api" | "worker" | "reaper" | "all";
 
 export type NapDeps = {
   config: NapConfig;
@@ -155,6 +164,14 @@ export type NapDeps = {
    * failed is billed until somebody notices.
    */
   reconcile?: { reconciler: CapacityReconciler; inventory: SandboxInventory };
+  /**
+   * What stops two reapers sweeping at once, if this composition was given one.
+   *
+   * Only the idle sweep asks it, and only in a process whose role sweeps. Absent means "sweep
+   * whenever the timer says so", which is right for a single-container deployment and for every
+   * test, and wrong for a deployment where a rollout briefly runs two reapers — see `SweepLock`.
+   */
+  sweepLock?: SweepLock;
   snapshots: SnapshotStore;
   userKeys: UserKeyStore;
   /**
@@ -216,7 +233,10 @@ const NOT_CLAIMING: TurnWorker = { stop: async () => {} };
 export type ComposedNap = {
   app: Hono<{ Variables: AuthVariables }>;
   runtime: SingleAgentRuntime;
-  /** Which turns are running here — read by the routes, the reaper and anything draining. */
+  /**
+   * Which turns are running *in this process* — the fast path for a cancel that lands on the pod
+   * holding the turn, and nothing else now that "busy" is a lease.
+   */
   registry: TurnRegistry;
   /**
    * Already claiming, unless the role is `api`, in which case it never claims anything. The caller
@@ -238,8 +258,10 @@ export type ComposedNap = {
 export function composeNap(deps: NapDeps): ComposedNap {
   const { config, logger } = deps;
   const role = deps.role ?? "all";
-  /** The half that executes: the claiming loop, and the sweeps that clean up after it. */
-  const executes = role !== "api";
+  /** The part that executes: the claiming loop, and nothing else. */
+  const executes = role === "worker" || role === "all";
+  /** The part that tidies: both timers, and nothing else. */
+  const sweeps = role === "reaper" || role === "all";
 
   const registry = new TurnRegistry();
   // Absent means refuse, not allow — see `requireUser`. Boot always has an auth instance, and a
@@ -392,40 +414,46 @@ export function composeNap(deps: NapDeps): ComposedNap {
           total: config.NAP_MAX_SANDBOXES_TOTAL,
         },
       },
-      // The same registry the worker writes to and the reaper reads, so "busy" means one thing
-      // in this process: closing or deleting a project mid-turn is refused for the same reason
-      // the reaper skips it.
-      //
-      // **Per-process, and that is now a known gap rather than the design.** The authoritative
-      // answer is a `leased` row in `turn_requests`, which every replica can see; this map only
-      // knows about turns claimed here, so an API pod composed apart from its workers reads every
-      // busy session as idle and would let somebody close a project mid-turn.
-      //
-      // Which is why the split entrypoints exist but the deployed arrangement is still one
-      // process: `role: "all"` keeps the worker and these routes sharing a registry, and moving
-      // to two pods waits on this becoming a lease read rather than a map lookup.
-      isBusy: (sessionIds) => sessionIds.some((id) => registry.isRunning(id)),
+      // The lease in the queue, which is what "busy" means everywhere now: the same rows the
+      // reaper's sweep filters on, and the same rows a worker on another pod is holding. The
+      // in-memory registry this replaced knew only about turns claimed in *this* process, so an
+      // API pod composed apart from its workers read every busy session as idle and would happily
+      // close a project mid-turn.
+      isBusy: (sessionIds) => deps.queue.anyLeased(sessionIds),
     },
   });
 
   /**
    * Sweeps up sandboxes nobody is using, snapshotting each one before destroying it.
    *
-   * The busy check reuses the registry the turn routes already write to, which is the only
-   * thing in this process that knows a turn is running. It reads across a project's sessions
-   * because a sandbox belongs to the project they share.
+   * **It is a process of its own now**, and no longer travels with the turns. It used to have to:
+   * the busy check was an in-memory registry, so only the process holding the turns could answer
+   * it. Reading the lease instead frees the sweep to run anywhere — and it must run in exactly
+   * one place, because several replicas would each snapshot and destroy the same project, the
+   * second one against a sandbox that is already gone.
    *
-   * **It runs with the worker rather than with the API**, and that is a consequence of that
-   * registry: "is this project busy?" can only be answered by the process holding the turns, so a
-   * reaper in an API pod would read every busy project as idle and tear one down mid-turn. The
-   * proper answer is the lease in Postgres and a reaper process of its own, which is the next
-   * ticket; until then, sitting beside the turns is the arrangement that is not wrong.
+   * **One replica is not the guarantee; `sweepLock` is.** A rolling update runs the new reaper
+   * while the old one is still shutting down, so each tick asks the lock first and does nothing
+   * if another process holds it. A composition with no lock sweeps unguarded, which is right for
+   * a single container and for tests.
+   *
+   * The busy check stays a *filter* rather than becoming a lock over the project, which is the
+   * character `sweepIdleProjects` was written with: a turn that starts in the moment between the
+   * check and the destroy loses its sandbox and is restored from the snapshot this just took,
+   * while a lock held across a teardown means a wedged sweep blocks turns.
    */
-  const reaper = !executes
+  const reaper = !sweeps
     ? NOT_STARTED
     : startSweeping({
         intervalMs: config.NAP_REAP_INTERVAL_SECONDS * 1000,
+        // In the reaper process this timer is the only thing referencing the event loop; see
+        // `SweepSchedule`. Harmless in a composition that also serves or claims.
+        holdProcessOpen: role === "reaper",
         sweep: async () => {
+          // Before anything with a cost. Whoever holds the lock is mid-sweep or about to be, and
+          // a second process doing this work would be tearing down projects underneath them.
+          if (deps.sweepLock !== undefined && !(await deps.sweepLock.held())) return;
+
           // Turns recorded long enough ago that no window can still count them. Cheap, unrelated to
           // the projects below, and here for the reason reconciliation is: this is the deployment's
           // "come past occasionally and put things right" schedule, and without it the table keeps a
@@ -452,7 +480,9 @@ export function composeNap(deps: NapDeps): ComposedNap {
             // an id nothing in the database ever recorded. See `reconcileCapacity`.
             ...(deps.reconcile === undefined ? {} : { reconcile: deps.reconcile }),
             idleMs: config.NAP_REAP_IDLE_MINUTES * 60 * 1000,
-            isBusy: (project) => project.sessionIds.some((id) => registry.isRunning(id)),
+            // The same question the close and delete routes ask, of the same rows: a project is
+            // busy while any of its sessions holds a lease, wherever the worker holding it is.
+            isBusy: (project) => deps.queue.anyLeased(project.sessionIds),
             // A swept project's tabs are still open on it, showing an address that is about to stop
             // answering. Same store and bus as everything else, for the same reason.
             announce: { events: deps.events, bus: deps.bus },
@@ -501,7 +531,7 @@ export function composeNap(deps: NapDeps): ComposedNap {
    * An API composition does not start it, which is the single line that makes an API pod execute
    * nothing: everything above is built the same way either half is composed, and turns reach a
    * worker through the durable queue rather than through anything in this process. Started after
-   * the app so the registry it writes to is the same one the cancel route and the reaper read.
+   * the app so the registry it writes to is the same one the cancel route reads.
    */
   const worker = !executes
     ? NOT_CLAIMING
@@ -522,20 +552,28 @@ export function composeNap(deps: NapDeps): ComposedNap {
    * The other half of a worker dying: the request it was holding, and the chat pane waiting on a
    * turn that will never finish.
    *
-   * It runs with the workers. `docs/scaling-design.md` §5 puts it in the reaper pod and §24.3
-   * leaves whether the two share a process open — either way it is a composition's choice, and
-   * moving it later changes nothing about what it does. Several replicas sweeping at once is safe
-   * rather than merely tolerated: the reclaim holds each row with `for update skip locked`, so two
-   * janitors never close out the same request. What it must not do is run *only* where no turns
-   * do, which is why it is on this side of the split rather than the API's.
+   * **It lives in the reaper process, on a ticker of its own, and is not under the sweep lock.**
+   * That is `docs/scaling-design.md` §24 item 3 answered rather than left open, and each half of
+   * it is a separate argument:
    *
-   * On its own interval, and that is the point of the separate schedule: an idle project can wait
-   * a minute to be put away, and a chat pane waiting on a turn that will never finish cannot.
+   *   - *Same process*, because it is a timer over one table with no sandbox, no object store and
+   *     no browser behind it. A process of its own would be a third deployment to run and pay for
+   *     in order to hold one query.
+   *   - *Its own ticker*, because the two answer to different clocks: an idle project can wait a
+   *     minute to be put away, and a chat pane waiting on a turn that will never finish cannot.
+   *     `NAP_JANITOR_INTERVAL_SECONDS` is deliberately the tighter of the two.
+   *   - *Not under the lock*, because unlike the sweep it is safe to run twice over — the reclaim
+   *     holds each row with `for update skip locked`, so two janitors never close out the same
+   *     request — and because the moment two of them exist is a rolling update, which is exactly
+   *     when a worker is being taken away and its turns are being orphaned. Making the new process
+   *     wait for the old one's lock would delay the announcements at the only time they are
+   *     needed in bulk.
    */
-  const janitor = !executes
+  const janitor = !sweeps
     ? NOT_STARTED
     : startSweeping({
         intervalMs: config.NAP_JANITOR_INTERVAL_SECONDS * 1000,
+        holdProcessOpen: role === "reaper",
         sweep: async () => {
           const result = await sweepOrphanedRequests({
             queue: deps.queue,

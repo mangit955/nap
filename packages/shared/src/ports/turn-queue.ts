@@ -137,6 +137,26 @@ export interface TurnQueue {
   settle(requestId: string, owner: string, state: TurnRequestSettlement): Promise<boolean>;
 
   /**
+   * Whether any of these sessions has a turn executing right now.
+   *
+   * The cluster-wide answer to "is this project busy?", which closing a project, deleting one and
+   * the idle sweep all ask before they take a sandbox away. It reads the same `state = 'leased'`
+   * rows the partial unique index is over, so there is exactly one notion of busy in the deployment
+   * — the in-memory registry it replaces knew only about turns claimed in its own process, and an
+   * API pod composed apart from its workers read every busy session as idle.
+   *
+   * **A filter, not a lock.** It answers about the instant it was asked, and a turn that starts in
+   * the moment after still finds its sandbox gone. Holding a lock across a teardown instead would
+   * mean a wedged sweep blocks turns; losing this race costs a restore. See `sweepIdleProjects`.
+   *
+   * **A queued request is not busy**, only a leased one, and that follows from the same reasoning:
+   * nothing is running yet, nothing has a sandbox, and a project closed a moment before its request
+   * is claimed simply restores when the worker picks it up. The state a caller may not interrupt is
+   * a turn that is executing.
+   */
+  anyLeased(sessionIds: readonly string[]): Promise<boolean>;
+
+  /**
    * Asks for whatever is in flight on this session to stop.
    *
    * A `queued` request is failed here and now, so it can never be claimed — the alternative, a row

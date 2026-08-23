@@ -49,7 +49,7 @@ beforeEach(async () => {
 
 function sweep(
   overrides: {
-    isBusy?: (project: IdleProject) => boolean;
+    isBusy?: (project: IdleProject) => Promise<boolean>;
     capacity?: InMemorySandboxCapacity;
     reconcile?: InMemoryCapacityReconciler;
   } = {},
@@ -64,7 +64,7 @@ function sweep(
     ...(overrides.reconcile === undefined
       ? {}
       : { reconcile: { reconciler: overrides.reconcile, inventory: sandbox } }),
-    isBusy: overrides.isBusy ?? (() => false),
+    isBusy: overrides.isBusy ?? (async () => false),
     now: () => NOW,
     announce: { events, bus: new InMemoryEventBus() },
   });
@@ -128,7 +128,7 @@ describe("a project with a turn in flight", () => {
   it("is never reaped, however idle the log says it is", async () => {
     // The assertion `docs/PLAN.md` §4 calls this task's reason to exist. Destroying a sandbox
     // mid-turn takes the workspace out from under an agent that is writing to it.
-    const result = await sweep({ isBusy: () => true });
+    const result = await sweep({ isBusy: async () => true });
 
     expect(result.reaped).toEqual([]);
     expect(result.skipped).toEqual([PROJECT]);
@@ -141,7 +141,7 @@ describe("a project with a turn in flight", () => {
     const asked: string[][] = [];
 
     await sweep({
-      isBusy: (project) => {
+      isBusy: async (project) => {
         asked.push(project.sessionIds);
         return false;
       },
@@ -151,7 +151,7 @@ describe("a project with a turn in flight", () => {
   });
 
   it("takes no snapshot at all, rather than one it then keeps", async () => {
-    await sweep({ isBusy: () => true });
+    await sweep({ isBusy: async () => true });
 
     expect(objects.keys()).toEqual([]);
     expect(snapshots.all()).toEqual([]);

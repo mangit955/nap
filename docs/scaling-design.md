@@ -1074,6 +1074,8 @@ Open questions that do not block starting at step 0, but must be answered before
 3. **Whether the reaper should hold the janitor at all.** It is a third responsibility in a process
    that already has two, and its timing requirements (30s grace) are tighter than the idle sweep's
    (60s). A separate ticker inside the same pod is probably right; confirm at step 8.
+   **Answered at step 8: same pod, own ticker, and not under the sweep lock.** The reasoning is in
+   `apps/api/src/compose.ts` beside the janitor it decides.
 4. **`hashtext` collisions.** `pg_advisory_xact_lock(hashtext(session_id))` maps uuids into int4, so
    two unrelated sessions can serialize on one lock. Contention, not corruption — noted so nobody
    "fixes" it in a panic, but worth measuring at 100 concurrent sessions in step 0.

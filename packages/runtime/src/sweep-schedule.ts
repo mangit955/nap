@@ -20,6 +20,16 @@ export type SweepSchedule = {
   /** What to run on each tick — normally a closure over one of the package's sweeps. */
   sweep: () => Promise<unknown>;
   onError?: (error: unknown) => void;
+  /**
+   * Whether this timer is reason enough for the process to stay running.
+   *
+   * False everywhere a server or a claiming loop is what keeps the process alive, which is why it
+   * is the default: an unreferenced timer never delays an exit that everything else is ready for.
+   * True in the reaper process, where the ticks *are* the work — an unreferenced timer there would
+   * leave a process with nothing referencing the event loop, and it would exit before its first
+   * sweep.
+   */
+  holdProcessOpen?: boolean;
 };
 
 export function startSweeping(schedule: SweepSchedule): { stop: () => void } {
@@ -37,8 +47,9 @@ export function startSweeping(schedule: SweepSchedule): { stop: () => void } {
       });
   }, schedule.intervalMs);
 
-  // Never a reason to hold the process open by itself; the server is what keeps it alive.
-  timer.unref?.();
+  // Normally not a reason to hold the process open by itself; the server or the claiming loop is
+  // what keeps it alive. A process whose only job is sweeping asks for the opposite.
+  if (schedule.holdProcessOpen !== true) timer.unref?.();
 
   return {
     stop: () => clearInterval(timer),

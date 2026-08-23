@@ -373,6 +373,58 @@ describe("settle", () => {
   });
 });
 
+describe("anyLeased", () => {
+  it("is false for sessions with nothing in flight", async () => {
+    const seed = await seedSession();
+
+    expect(await queue.anyLeased([seed.sessionId])).toBe(false);
+    // And for a request nobody has claimed yet: a queued turn creates no sandbox and holds
+    // nothing, so a project whose only request is waiting for a worker is closable.
+    await enqueueTurn(seed);
+    expect(await queue.anyLeased([seed.sessionId])).toBe(false);
+  });
+
+  it("is true while another process holds the lease", async () => {
+    // The whole point of moving this off the in-memory registry: nothing in *this* object claimed
+    // the request, and it still reads as busy.
+    const seed = await seedSession();
+    await enqueueTurn(seed);
+    await new PostgresTurnQueue(db).claim("some-other-pod");
+
+    expect(await queue.anyLeased([seed.sessionId])).toBe(true);
+  });
+
+  it("goes quiet again once the turn is settled", async () => {
+    const seed = await seedSession();
+    const { id } = await enqueueTurn(seed);
+    await queue.claim("worker-1");
+    await queue.settle(id, "worker-1", "done");
+
+    expect(await queue.anyLeased([seed.sessionId])).toBe(false);
+  });
+
+  it("answers across a project's sessions, and about those alone", async () => {
+    // A sandbox belongs to the project a set of sessions share, so the question is asked about all
+    // of them at once — and a busy session elsewhere in the cluster must not make them all busy.
+    const busy = await seedSession();
+    const quiet = await seedSession();
+    const stranger = await seedSession();
+    await enqueueTurn(busy);
+    await enqueueTurn(stranger);
+    await queue.claim("worker-1");
+    await queue.claim("worker-2");
+
+    expect(await queue.anyLeased([quiet.sessionId, busy.sessionId])).toBe(true);
+    expect(await queue.anyLeased([quiet.sessionId])).toBe(false);
+  });
+
+  it("is false for no sessions at all", async () => {
+    // A project with no sessions is not busy. Asked because `= any('{}')` is the sort of thing
+    // that quietly becomes `in ()` and fails to parse.
+    expect(await queue.anyLeased([])).toBe(false);
+  });
+});
+
 describe("requestCancel", () => {
   it("fails a queued request outright, so it can never be claimed", async () => {
     const seed = await seedSession();

@@ -59,6 +59,28 @@ describe("a sweep on a timer", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it("unreferences its timer, unless the process has nothing else to live for", () => {
+    // The reaper process serves nothing and claims nothing, so its ticks are the only thing
+    // referencing the event loop: unreferenced there, it would exit before its first sweep. Spied
+    // on the timer rather than observed through an exit, which a test runner cannot do.
+    const unref = vi.fn();
+    const setInterval = vi
+      .spyOn(globalThis, "setInterval")
+      .mockReturnValue({ unref } as unknown as ReturnType<typeof globalThis.setInterval>);
+
+    startSweeping({ intervalMs: 60_000, sweep: counting().sweep }).stop();
+    expect(unref).toHaveBeenCalledTimes(1);
+
+    startSweeping({
+      intervalMs: 60_000,
+      sweep: counting().sweep,
+      holdProcessOpen: true,
+    }).stop();
+    expect(unref).toHaveBeenCalledTimes(1);
+
+    setInterval.mockRestore();
+  });
+
   it("skips a tick that lands while the previous sweep is still running", async () => {
     // A sweep talks to sandboxes and an object store over the network; two overlapping would
     // try to tear the same project down twice.

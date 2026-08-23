@@ -55,8 +55,11 @@ bun run lint              # biome check
 bun run format            # biome check --write — Biome owns formatting, don't hand-format
 bun run build             # turbo build
 bun run dev               # turbo dev — api on :3001, web on :3000; copy apps/api/.env.example to .env first
-bun run dev:worker        # the other half: claims queued turns and serves nothing. Same database,
+bun run dev:worker        # the second process: claims queued turns and serves nothing. Same database,
                           # same .env; it refuses to boot if the settings are wrong — docs/DEPLOY.md
+bun run dev:reaper        # the third: sweeps idle projects, reconciles capacity and closes out
+                          # interrupted turns. Serves and claims nothing; exactly one, ever. It
+                          # refuses to boot on the wrong settings for the reason the worker does
 ```
 
 > ⚠️ **Always `bun run test`, never `bun test`.** `test` is a Bun built-in command that shadows the package.json script; bare `bun test` runs Bun's own runner over our Vitest files and reports nonsense.
@@ -97,7 +100,7 @@ packages/  shared  db  sandbox  storage  capture  agent  context  runtime  verif
 apps/      web (Next.js)   api (Hono, runs on Bun)   napbench (the benchmark CLI)
 ```
 
-**`apps/api` is two processes, not one.** `src/index.ts` serves and executes nothing; `src/worker.ts` executes and serves nothing. Both call `bootNap` in `src/boot.ts`, which builds the real clients and hands them to the one `composeNap` — the role it passes decides which loops start. Adding a dependency means touching `boot.ts` once, never twice. See `docs/DEPLOY.md`.
+**`apps/api` is three processes, not one.** `src/index.ts` serves and executes nothing; `src/worker.ts` executes and serves nothing; `src/reaper.ts` sweeps and does neither, as **exactly one replica** guarded by an advisory lock. All three call `bootNap` in `src/boot.ts`, which builds the real clients and hands them to the one `composeNap` — the role it passes decides which loops start. Adding a dependency means touching `boot.ts` once, never three times. See `docs/DEPLOY.md`.
 
 **Dependency direction, enforced:** `runtime` → {`context`, `agent`, `sandbox`, `storage`, `capture`, `db`, `verify`} → `shared`. `agent` imports the `SandboxManager` *interface*, never the E2B adapter.
 
@@ -119,7 +122,7 @@ Drift here is the most expensive kind of mistake. Before adding code to a compon
 
 | Component | Owns | Never does |
 |---|---|---|
-| `TurnQueue` | The durable queue of turn requests and the per-session leases that make one exclusive: enqueue, claim, renew, settle, cancel. **One in-flight request per session cluster-wide, enforced by a partial unique index** rather than by any caller remembering | Running anything. Holding a credential — it records *whether* the asker pays, never their key. Deciding who may start a turn, which is the route's |
+| `TurnQueue` | The durable queue of turn requests and the per-session leases that make one exclusive: enqueue, claim, renew, settle, cancel. **One in-flight request per session cluster-wide, enforced by a partial unique index** rather than by any caller remembering. Also the one answer to **"is this session busy?"** — `anyLeased`, which close, delete and the idle sweep all ask, so busy means the same thing in every process | Running anything. Holding a credential — it records *whether* the asker pays, never their key. Deciding who may start a turn, which is the route's |
 | `TurnWorker` | Claiming a request, renewing its lease, running it through the `Runtime`, settling the row — and **aborting the turn the moment a renewal says the lease is gone**. Draining on shutdown: stop claiming, wait, keep renewing throughout, abort what is left at the deadline. It is what `apps/api/src/worker.ts` is | Admission, ceilings, model access. Deciding *what* a turn does — it drives the `Runtime` and owns none of it. Serving anything |
 | `Runtime` | Turn lifecycle: acquire sandbox → build context → run agent → persist → publish → commit → verify → snapshot → photograph. Budgets, cancellation, recovery. **Reserving sandbox capacity at the point of creation** — the authoritative ceiling, since a queued turn may not create anything for a minute — and **reconciling it on the reaper's tick**, so a slot no path gave back comes back in minutes rather than never. Opening and closing the **job** a turn belongs to, arbitrating the turn's claim against the project's own checks, and continuing a job an open found still open (ADR-0006) | Prompt content, model params, tool implementations. Deciding *which* checks exist or how to run one — that is `@nap/verify`'s. Deciding *what* the ceiling is — the limits belong to the composition. Continuing a job nobody asked to see |
 | `ContextEngine` | Assembling context and owning the token budget + truncation order | Calling the model; deciding when a turn ends |
@@ -154,7 +157,7 @@ The hard-won constraints live in `docs/GOTCHAS.md`, grouped by area, because mos
 | types, schemas, the event contract, env parsing | Types and data contracts |
 | `packages/agent`, prompts, caching, streaming, OpenRouter, cost | Model and provider |
 | `packages/sandbox`, `packages/storage`, snapshots, the reaper | Sandbox and storage |
-| `apps/api` — routes, auth, limits, logging, `/health`; the turn queue and leases; the two entrypoints and what each one starts | API, auth and logging |
+| `apps/api` — routes, auth, limits, logging, `/health`; the turn queue and leases; the three entrypoints and what each one starts | API, auth and logging |
 | `apps/web` — components, the landing page, browser checks | Web and UI |
 | writing tests, fakes, mutation checks | Testing |
 | `packages/loadgen`, `apps/api/k6`, the ramp, a baseline run | Load testing |

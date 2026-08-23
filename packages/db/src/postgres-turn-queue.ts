@@ -250,6 +250,25 @@ export class PostgresTurnQueue implements TurnQueue {
     return rows.length > 0;
   }
 
+  async anyLeased(sessionIds: readonly string[]): Promise<boolean> {
+    // No sessions is not busy, and asking anyway would send an empty array into a `= any` for no
+    // reason. A project with nothing under it cannot have a turn running in it.
+    if (sessionIds.length === 0) return false;
+
+    const [row] = await this.#db
+      .select({ id: turnRequests.id })
+      .from(turnRequests)
+      // `state = 'leased'` and nothing about the clock, exactly as the partial unique index is: a
+      // lease past its expiry still occupies its session until the janitor closes it out, and a
+      // worker that has not yet learned it is a zombie may still be writing.
+      .where(
+        and(inArray(turnRequests.sessionId, [...sessionIds]), eq(turnRequests.state, "leased")),
+      )
+      .limit(1);
+
+    return row !== undefined;
+  }
+
   async requestCancel(sessionId: string): Promise<CancelOutcome> {
     const rows = await this.#db
       .update(turnRequests)

@@ -222,7 +222,7 @@ beforeAll(async () => {
     objects,
     snapshots,
     idleMs: 0,
-    isBusy: () => false,
+    isBusy: async () => false,
   });
 
   snapshotKey = (await snapshots.latestFor(projectId))?.key ?? "";

@@ -71,15 +71,4 @@ describe("TurnRegistry", () => {
 
     expect(mine.signal.aborted).toBe(false);
   });
-
-  it("knows whether a session has a turn in flight here", () => {
-    const registry = new TurnRegistry();
-    const controller = new AbortController();
-
-    expect(registry.isRunning(SESSION)).toBe(false);
-    registry.adopt(SESSION, controller);
-    expect(registry.isRunning(SESSION)).toBe(true);
-    registry.release(SESSION, controller);
-    expect(registry.isRunning(SESSION)).toBe(false);
-  });
 });

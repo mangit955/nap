@@ -1,21 +1,22 @@
 /**
- * What a *process* does, for either of the two processes Nap runs.
+ * What a *process* does, for each of the three processes Nap runs.
  *
  * `composeNap` assembles everything above the infrastructure from parts somebody else chose; this
  * is where those parts are made. It reads and validates the environment, builds the real clients —
  * E2B, R2, OpenRouter, Postgres, a browser — hands them over, and returns the pieces along with
  * the shutdown sequence that puts them down again.
  *
- * **One function for the API and the worker, deliberately.** `docs/scaling-design.md` §4 splits
- * the deployment in two: an API pod that serves HTTP and WebSockets and executes nothing, and a
- * worker pod that claims leases and executes turns and serves nothing. The temptation is a second
- * boot file with the half of this that a worker needs — and the copies would have drifted the
- * first time somebody added a store. So both entrypoints call this with a different `role`, and
- * the difference between them is which loops `composeNap` starts and whether anything is served.
+ * **One function for all three processes, deliberately.** `docs/scaling-design.md` §4 and §13 split
+ * the deployment three ways: an API pod that serves HTTP and WebSockets and executes nothing, a
+ * worker pod that claims leases and executes turns and serves nothing, and a single reaper that
+ * tidies and does neither. The temptation is a boot file per role with the part of this each one
+ * needs — and the copies would have drifted the first time somebody added a store. So every
+ * entrypoint calls this with a different `role`, and the difference between them is which loops
+ * `composeNap` starts and whether anything is served.
  *
  * A worker builds an app it never serves, and an API builds a runtime it never drives. Neither
  * costs anything: nothing here has a side effect until something starts it, and a shared boot that
- * builds one object too many is a much cheaper mistake than two boots that disagree.
+ * builds one object too many is a much cheaper mistake than three boots that disagree.
  *
  * There are no top-level side effects in this file, unlike the entrypoints that call it — which is
  * what makes it importable, and therefore typechecked, by things that are not a running process.
@@ -25,8 +26,14 @@ import { createBedrockClient, toBedrockModel } from "@nap/agent/bedrock";
 import { ClaudeProvider } from "@nap/agent/claude-provider";
 import { createOpenRouterClient, toOpenRouterModel } from "@nap/agent/openrouter";
 import { ChromePageCapture } from "@nap/capture/chrome-page-capture";
-import { createDatabase, createListenerConnection, pingDatabase } from "@nap/db/client";
+import {
+  createDatabase,
+  createListenerConnection,
+  createLockConnection,
+  pingDatabase,
+} from "@nap/db/client";
 import { InProcessEventBus } from "@nap/db/in-process-event-bus";
+import { PostgresAdvisoryLock } from "@nap/db/postgres-advisory-lock";
 import { PostgresCapacityReconciler } from "@nap/db/postgres-capacity-reconciler";
 import { PostgresEventStore } from "@nap/db/postgres-event-store";
 import { PostgresNotifyEventBus } from "@nap/db/postgres-notify-event-bus";
@@ -55,7 +62,7 @@ import { createLogger } from "./logger.ts";
 
 export type NapProcess = {
   env: Env;
-  /** Which half of the deployment this is, so the boot line says it. */
+  /** Which part of the deployment this is, so the boot line says it. */
   role: NapRole;
   logger: Logger;
   composed: ComposedNap;
@@ -102,18 +109,20 @@ const TURN_RATE_WINDOW_MS = 60 * 60 * 1000;
  * Refused at boot rather than warned about, because a warning here is one line in a healthy-looking
  * log and the thing it warns about looks exactly like a bug in the browser.
  *
- * **On the worker only, and that is enough.** Both processes read the same variable, so the worker
- * refusing is what makes an operator fix it for the pair. An API started alone on the in-process
- * bus is a perfectly ordinary thing to want — it is what somebody working on the front end runs,
- * and with no worker anywhere there is nothing to stream regardless.
+ * **On the two processes that publish, and that is enough.** A worker announces turns; the reaper
+ * announces that a swept project's preview has stopped, and the terminal events of turns whose
+ * worker never came back. Every process reads the same variable, so either of them refusing is
+ * what makes an operator fix it for the set. An API started alone on the in-process bus is a
+ * perfectly ordinary thing to want — it is what somebody working on the front end runs, and with
+ * nothing publishing anywhere there is nothing to stream regardless.
  */
 function refuseSilentFanout(role: NapRole, eventBus: Env["NAP_EVENT_BUS"]): void {
-  if (role !== "worker" || eventBus === "postgres") return;
+  if ((role !== "worker" && role !== "reaper") || eventBus === "postgres") return;
 
   console.error(
-    `NAP_EVENT_BUS=${eventBus} cannot serve a worker process.\n` +
-      "  The sockets watching a turn are on the API, so a bus inside this process reaches none\n" +
-      "  of them: every turn would run correctly and no browser would see anything happen.\n" +
+    `NAP_EVENT_BUS=${eventBus} cannot serve a ${role} process.\n` +
+      "  The sockets watching a session are on the API, so a bus inside this process reaches none\n" +
+      "  of them: everything would run correctly and no browser would see anything happen.\n" +
       "  Set NAP_EVENT_BUS=postgres. See docs/DEPLOY.md.",
   );
   process.exit(1);
@@ -226,6 +235,23 @@ export async function bootNap(role: NapRole): Promise<NapProcess> {
     return new ClaudeProvider({ model: env.NAP_MODEL, effort: env.NAP_EFFORT });
   }
 
+  /**
+   * What stops two reapers sweeping at once, and only the reaper has one.
+   *
+   * The deployment runs a single reaper replica; this covers the seconds of a rolling update when
+   * it runs two. Built here rather than in the composition because it needs a connection of its
+   * own — see `createLockConnection` — and a connection is a process's thing to own.
+   *
+   * **Deliberately absent from `all`.** That role is the single-container arrangement, where there
+   * is one process by construction and a lock would only be something else to get wrong.
+   */
+  const lockConnection =
+    role === "reaper"
+      ? createLockConnection(env.NAP_LISTEN_DATABASE_URL ?? env.DATABASE_URL)
+      : undefined;
+  const sweepLock =
+    lockConnection === undefined ? undefined : new PostgresAdvisoryLock(lockConnection);
+
   const auth = createAuth(db, {
     secret: env.BETTER_AUTH_SECRET,
     baseUrl: env.NAP_API_URL,
@@ -269,6 +295,8 @@ export async function bootNap(role: NapRole): Promise<NapProcess> {
     // `SandboxManager`, for the reason `ping` is — it is a question about the deployment rather
     // than about one project's workspace.
     reconcile: { reconciler: new PostgresCapacityReconciler(db), inventory: sandbox },
+    // What makes "one reaper" true during the seconds of a rolling update when there are two.
+    ...(sweepLock === undefined ? {} : { sweepLock }),
     // The other ceiling that bounds the bill, and in rows for the same reason: a limiter held in
     // this process would give each replica its own allowance, so "5 free turns an hour" would
     // quietly become five times the replica count. Two instances rather than two numbers on one —
@@ -367,11 +395,12 @@ export async function bootNap(role: NapRole): Promise<NapProcess> {
    * looks. Then the drain, which is the long part — a worker waits for the turns it is running so
    * a rolling restart finishes them rather than leaving their leases to expire and their jobs open
    * for somebody to continue by hand. The listener goes last, so a restart does not leave a
-   * `LISTEN` connection holding a backend open until the database notices the socket is gone.
+   * `LISTEN` connection holding a backend open until the database notices the socket is gone — and
+   * neither does the reaper's lock connection, which is holding a lock the next one is waiting for.
    *
    * On an API composition every one of these is a no-op except the listener, which is the point of
    * the composition returning stubs rather than `undefined`: the sequence does not have to know
-   * which half it is.
+   * which part of the deployment it is.
    */
   let shuttingDown: Promise<void> | undefined;
 
@@ -383,7 +412,13 @@ export async function bootNap(role: NapRole): Promise<NapProcess> {
       composed.reaper.stop();
       composed.janitor.stop();
       await composed.worker.stop();
+      // Handed over explicitly rather than left to the connection dropping: the next reaper is
+      // already starting, and waiting for the database to notice this socket is gone is exactly
+      // the overlap the lock exists to cover.
+      await sweepLock?.release();
       await notifyBus?.stop();
+      // The other connection that is not the pool's, closed for the reason the listener is stopped.
+      await lockConnection?.end();
     })();
 
     return shuttingDown;

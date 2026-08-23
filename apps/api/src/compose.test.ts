@@ -7,12 +7,14 @@ import { FAKE_OWNER, InMemoryProjectStore } from "@nap/db/testing/in-memory-proj
 import { InMemorySandboxCapacity } from "@nap/db/testing/in-memory-sandbox-capacity";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
+import { InMemorySweepLock } from "@nap/db/testing/in-memory-sweep-lock";
 import { InMemoryTurnQueue } from "@nap/db/testing/in-memory-turn-queue";
 import { InMemoryTurnRateLimiter } from "@nap/db/testing/in-memory-turn-rate-limiter";
 import { InMemoryUserKeyStore } from "@nap/db/testing/in-memory-user-key-store";
 import { TEMPLATE_DEV_PORT } from "@nap/sandbox/template";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
+import type { TurnQueue } from "@nap/shared/ports/turn-queue";
 import type { TurnRateLimiter } from "@nap/shared/ports/turn-rate-limit";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import type { WSEvents } from "hono/ws";
@@ -335,14 +337,15 @@ describe("composeNap", () => {
     expect(queue.inFlight).toBe(1);
   });
 
-  it("sweeps nothing when it is composed as an API", async () => {
-    // The other half of "executes nothing". Both sweeps go with the turns: the reaper's busy check
-    // is the in-process registry, so a reaper in an API pod reads every busy project as idle and
-    // tears one down mid-turn. Same fixture as the sweeping test below, same fast tick — the only
-    // difference is the role, so a gate that only covered the worker loop fails here.
+  it.each(["api", "worker"] as const)("sweeps nothing when it is composed as %s", async (role) => {
+    // The other half of "executes nothing", and now also the other half of "executes everything":
+    // the sweeps belong to the reaper alone, because several replicas running the idle sweep would
+    // each snapshot and destroy the same project. Same fixture as the sweeping test below, same
+    // fast tick — the only difference is the role, so a gate that only covered the worker loop
+    // fails here.
     const projectSandboxes = new InMemoryProjectSandboxStore([
       {
-        projectId: "idle-project-api-role",
+        projectId: `idle-project-${role}-role`,
         sandboxId: "sandbox-2",
         sessionIds: ["session-2"],
         lastActiveAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
@@ -350,13 +353,194 @@ describe("composeNap", () => {
     ]);
 
     compose({
-      role: "api",
+      role,
       projectSandboxes,
       config: { ...CONFIG, NAP_REAP_INTERVAL_SECONDS: 0.01 },
     });
 
     await new Promise((resolve) => setTimeout(resolve, 200));
-    expect(projectSandboxes.get("idle-project-api-role")?.sandboxId).toBe("sandbox-2");
+    expect(projectSandboxes.get(`idle-project-${role}-role`)?.sandboxId).toBe("sandbox-2");
+  });
+
+  it.each(["api", "worker"] as const)("runs no janitor when it is composed as %s", async (role) => {
+    // The janitor is on the *other* timer, so the idle-sweep assertion above says nothing about
+    // it: a gate that regressed for the janitor alone would leave every replica sweeping the same
+    // expired leases and pass every other test in this file.
+    const queue = new InMemoryTurnQueue();
+    let looks = 0;
+    const counting: TurnQueue = {
+      orphanExpired: async (limit) => {
+        looks += 1;
+        return await queue.orphanExpired(limit);
+      },
+      // Delegated one by one rather than spread off the instance: these are class methods over
+      // private fields, and a spread copies them detached from the `this` they read.
+      enqueue: (request) => queue.enqueue(request),
+      claim: (owner) => queue.claim(owner),
+      renew: (requestId, owner) => queue.renew(requestId, owner),
+      settle: (requestId, owner, state) => queue.settle(requestId, owner, state),
+      requestCancel: (sessionId) => queue.requestCancel(sessionId),
+      anyLeased: (sessionIds) => queue.anyLeased(sessionIds),
+      unannouncedOrphans: (limit) => queue.unannouncedOrphans(limit),
+      markOrphanAnnounced: (requestId) => queue.markOrphanAnnounced(requestId),
+    };
+
+    compose({
+      role,
+      queue: counting,
+      config: { ...CONFIG, NAP_JANITOR_INTERVAL_SECONDS: 0.01, NAP_REAP_INTERVAL_SECONDS: 0.01 },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(looks).toBe(0);
+  });
+
+  it("sweeps when it is composed as a reaper, and serves and claims nothing", async () => {
+    const projectSandboxes = new InMemoryProjectSandboxStore([
+      {
+        projectId: "idle-project-reaper-role",
+        sandboxId: "sandbox-3",
+        sessionIds: [SESSION],
+        lastActiveAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      },
+    ]);
+    const queue = new InMemoryTurnQueue();
+    const sessions = new InMemorySessionStore([{ sessionId: SESSION, projectId: PROJECT }]);
+    const { app } = compose({
+      role: "reaper",
+      queue,
+      sessions,
+      projects: projectHolding(SESSION),
+      projectSandboxes,
+      sandbox: turnableSandbox(),
+      config: { ...CONFIG, NAP_REAP_INTERVAL_SECONDS: 0.01 },
+    });
+
+    await expect
+      .poll(() => projectSandboxes.get("idle-project-reaper-role")?.sandboxId, { timeout: 2000 })
+      .toBeNull();
+
+    // And it is not quietly a worker as well: a request admitted through the app it built sits
+    // there, because this process claims nothing.
+    const accepted = await app.request(`/sessions/${SESSION}/turns`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: "add a dark mode toggle" }),
+    });
+    expect(accepted.status).toBe(202);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(queue.inFlight).toBe(1);
+  });
+
+  it("announces a swept project's stopped preview on the bus the sockets are on", async () => {
+    // The reaper is a process of its own now, so the tabs open on the project it just put away are
+    // all on other pods: the announcement has to go through the bus rather than be assumed local.
+    // That the bus crosses processes is `PostgresNotifyEventBus`'s own claim; what is asserted here
+    // is that the sweep publishes to the one it was handed at all.
+    const bus = new InMemoryEventBus();
+    const heard: string[] = [];
+    const unsubscribe = bus.subscribe(SESSION, (event) => {
+      heard.push(event.type);
+    });
+
+    compose({
+      role: "reaper",
+      bus,
+      sandbox: turnableSandbox(),
+      projectSandboxes: new InMemoryProjectSandboxStore([
+        {
+          projectId: "announcing-project",
+          sandboxId: "sandbox-5",
+          sessionIds: [SESSION],
+          lastActiveAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+        },
+      ]),
+      config: { ...CONFIG, NAP_REAP_INTERVAL_SECONDS: 0.01 },
+    });
+
+    await expect.poll(() => heard, { timeout: 2000 }).toContain("preview.stopped");
+    unsubscribe();
+  });
+
+  it("lets exactly one of two reapers sweep", async () => {
+    // What `replicas: 1` cannot promise on its own: a rolling update runs the new reaper while the
+    // old one is still going, and two sweeps would tear the same project down twice — the second
+    // against a sandbox that is already gone.
+    const lock = new InMemorySweepLock();
+    const projectSandboxes = new InMemoryProjectSandboxStore([
+      {
+        projectId: "contended-project",
+        sandboxId: "sandbox-4",
+        sessionIds: ["session-4"],
+        lastActiveAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      },
+    ]);
+
+    // Counted through the rate-limit sweep, which runs at the top of every tick that gets past the
+    // lock: asserting on the teardown instead would prove nothing, since the project the loser
+    // would have swept is already put away by the time it looks.
+    const ticks = [0, 0];
+    const ticking = (which: number): TurnRateLimiter => ({
+      check: async () => ({ allowed: true }),
+      sweep: async () => {
+        ticks[which] = (ticks[which] ?? 0) + 1;
+        return 0;
+      },
+    });
+
+    const shared = {
+      role: "reaper" as const,
+      projectSandboxes,
+      sandbox: turnableSandbox(),
+      config: { ...CONFIG, NAP_REAP_INTERVAL_SECONDS: 0.01 },
+    };
+    compose({
+      ...shared,
+      sweepLock: lock,
+      rateLimits: { rate: ticking(0), freeRate: ticking(0) },
+    });
+    compose({
+      ...shared,
+      sweepLock: lock.contender(),
+      rateLimits: { rate: ticking(1), freeRate: ticking(1) },
+    });
+
+    // The one holding the lock does the work, including the teardown.
+    await expect
+      .poll(() => projectSandboxes.get("contended-project")?.sandboxId, { timeout: 2000 })
+      .toBeNull();
+    // Many ticks later the other one has still done nothing at all.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(ticks.filter((count) => count === 0)).toHaveLength(1);
+    expect(Math.max(...ticks)).toBeGreaterThan(1);
+  });
+
+  it("refuses to close a project whose session holds a lease", async () => {
+    // Cluster-wide, and that is the point: nothing in *this* composition is running the turn — the
+    // lease was taken by a worker that exists only as a name in the queue.
+    const queue = new InMemoryTurnQueue();
+    const projects = projectHolding(SESSION);
+    const { app } = compose({
+      role: "api",
+      queue,
+      projects,
+      sessions: new InMemorySessionStore([{ sessionId: SESSION, projectId: PROJECT }]),
+    });
+
+    await queue.enqueue({
+      sessionId: SESSION,
+      userId: FAKE_OWNER,
+      kind: "turn",
+      message: "add a dark mode toggle",
+      model: CONFIG.NAP_MODEL,
+      billsToUser: false,
+    });
+    await queue.claim("a-worker-on-another-pod");
+
+    expect((await app.request(`/projects/${PROJECT}/close`, { method: "POST" })).status).toBe(409);
+    expect((await app.request(`/projects/${PROJECT}`, { method: "DELETE" })).status).toBe(409);
+    // And the project is still there to be closed later, rather than half torn down.
+    expect(await projects.list(FAKE_OWNER)).toHaveLength(1);
   });
 
   it("runs a turn the API admitted, composed as a worker beside it", async () => {

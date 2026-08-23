@@ -5,10 +5,10 @@
  * no `fetch` export and no `Bun.serve`: nothing can reach this process from outside, and the only
  * thing it shares with the API is the queue. `docs/scaling-design.md` §4.
  *
- * **What keeps it alive is the claiming loop**, not a listening socket. The worker polls, the
- * reaper and the janitor tick, and each of those is a timer the runtime will not exit under. A
- * process whose loops had all been stopped would exit on its own, which is the right behaviour: a
- * drained worker has nothing left to do.
+ * **What keeps it alive is the claiming loop**, not a listening socket and not a timer: the sweeps
+ * live in the reaper process now, and a worker starts neither of them. A process whose claiming
+ * loop has been stopped exits on its own, which is the right behaviour — a drained worker has
+ * nothing left to do.
  *
  * Shutdown is `boot.ts`'s, and it is the interesting half of this file even though none of it is
  * written here. On `SIGTERM` the loop stops claiming, the turns already running are waited for —
@@ -32,7 +32,8 @@ announce(nap, "worker claiming", {
   // is photographed, and this is how many browsers may be open at once while it happens.
   captureConcurrency: nap.env.NAP_CAPTURE_CONCURRENCY,
   screenshots: nap.env.NAP_CHROME_PATH === undefined ? "off" : "on",
-  reapIdleMinutes: nap.env.NAP_REAP_IDLE_MINUTES,
+  // Not the reaper's idle threshold, which this process no longer acts on: this is how long the
+  // sandboxes it creates live before the provider's own timer takes them.
   sandboxTtlMinutes: nap.env.NAP_SANDBOX_TTL_MINUTES,
   maxSandboxesTotal: nap.env.NAP_MAX_SANDBOXES_TOTAL,
 });

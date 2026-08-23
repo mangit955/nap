@@ -81,10 +81,13 @@ export type SweepOptions = {
    */
   capacity?: SandboxCapacity;
   /**
-   * Whether a turn is running for any of the project's sessions. Injected because turns are
-   * tracked by whatever is serving requests, and this package has no idea what that is.
+   * Whether a turn is running for any of the project's sessions.
+   *
+   * Asynchronous because the answer is a query now rather than a map lookup: turns execute in
+   * another process, so the only place that knows one is running is the lease in the database.
+   * Injected all the same — which store that is, is the composition's business.
    */
-  isBusy: (project: IdleProject) => boolean;
+  isBusy: (project: IdleProject) => Promise<boolean>;
   /** Injected so a test can place "an hour ago" exactly rather than waiting for one. */
   now?: () => number;
   /**
@@ -113,7 +116,7 @@ export async function sweepIdleProjects(options: SweepOptions): Promise<SweepRes
   const candidates = await options.projects.idleSince(cutoff);
 
   for (const project of candidates) {
-    if (options.isBusy(project)) {
+    if (await options.isBusy(project)) {
       result.skipped.push(project.projectId);
       continue;
     }

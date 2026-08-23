@@ -4,8 +4,10 @@
  * It used to be the whole of cancellation: a route started a turn, held its `AbortController` here
  * so a later request from another tab could find it, and cleared it when the turn settled. That is
  * no longer where a turn comes from — the queue is, and the worker that claimed a request owns the
- * controller for it. So this is now written to by the worker and read by three things: the cancel
- * route, the reaper, and the project routes' "is this busy?".
+ * controller for it. So this is now written to by the worker and read by exactly one thing: the
+ * cancel route. It used to answer "is this session busy?" for the project routes and the reaper as
+ * well, and that was wrong the moment turns moved to another process — the cluster-wide answer is
+ * `TurnQueue.anyLeased`.
  *
  * **It is a fast path, not the mechanism.** The durable answer to "stop this turn" is
  * `cancel_requested` on the turn request, which any pod can set and the worker holding the lease
@@ -46,9 +48,5 @@ export class TurnRegistry {
   release(sessionId: string, controller: AbortController): void {
     if (this.#running.get(sessionId) !== controller) return;
     this.#running.delete(sessionId);
-  }
-
-  isRunning(sessionId: string): boolean {
-    return this.#running.has(sessionId);
   }
 }

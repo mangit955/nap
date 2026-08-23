@@ -370,11 +370,12 @@ async function main(): Promise<void> {
   // ── Step 5 ────────────────────────────────────────────────────────────────
   heading("step 5 — close and reopen, files and history intact");
   const before = (await alice.json(`/sessions/${sessionId}/files`)) as { files?: unknown[] };
-  // Retried, because the client learns a turn is over before the server does: `turn.completed`
-  // is published from the runtime, while the route clears its `TurnRegistry` entry in a
-  // `.finally` that runs after `runTurn` resolves. A close issued the instant the turn visibly
-  // ends can land in that window and is answered 409. Worth knowing about rather than
-  // designing around — the fix belongs in the UI, which should not offer close mid-turn anyway.
+  // Retried, because the client learns a turn is over before the queue does: `turn.completed`
+  // is published from the runtime, and the worker settles its request — releasing the session's
+  // lease, which is what "busy" means — only once `runTurn` has resolved. A close issued the
+  // instant the turn visibly ends can land in that window and is answered 409. Worth knowing
+  // about rather than designing around — the fix belongs in the UI, which should not offer close
+  // mid-turn anyway.
   const closed = await closeWithRetry(alice, projectId);
   if (closed.closed === true) pass("closed", `snapshot ${String(closed.key ?? "").slice(-12)}`);
   else fail("closed", JSON.stringify(closed));
