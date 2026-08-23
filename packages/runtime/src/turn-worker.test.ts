@@ -1,3 +1,4 @@
+import { enqueueRequest } from "@nap/db/testing/enqueue-request";
 import { InMemoryTurnQueue } from "@nap/db/testing/in-memory-turn-queue";
 import type { ModelCredentials } from "@nap/shared/ports/llm-provider";
 import type {
@@ -7,7 +8,7 @@ import type {
   TurnOutcome,
   TurnRequest,
 } from "@nap/shared/ports/runtime";
-import type { EnqueueTurnRequest, TurnQueue } from "@nap/shared/ports/turn-queue";
+import type { TurnQueue } from "@nap/shared/ports/turn-queue";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type RunningTurns, startTurnWorker, type TurnWorker } from "./turn-worker.ts";
 
@@ -39,7 +40,7 @@ afterEach(async () => {
 /** A runtime whose turns hang until the test ends them, and that records what it was given. */
 class RecordingRuntime implements Runtime {
   readonly turns: TurnRequest[] = [];
-  readonly resumes: { sessionId: string; options: ContinueOptions | undefined }[] = [];
+  readonly resumes: { sessionId: string; options: ContinueOptions }[] = [];
   #finish: ((outcome: TurnOutcome) => void)[] = [];
   #finishResume: ((outcome: ResumeOutcome) => void)[] = [];
   #throws = false;
@@ -78,12 +79,12 @@ class RecordingRuntime implements Runtime {
   }
 
   /** Hangs like a turn does, because a resume that continues a job takes just as long. */
-  resumeSession(sessionId: string, options?: ContinueOptions): Promise<ResumeOutcome> {
+  resumeSession(sessionId: string, options: ContinueOptions): Promise<ResumeOutcome> {
     this.resumes.push({ sessionId, options });
 
     return new Promise<ResumeOutcome>((resolve) => {
       this.#finishResume.push(resolve);
-      options?.signal?.addEventListener("abort", () => {
+      options.signal?.addEventListener("abort", () => {
         resolve({ ok: false, reason: "internal", message: "aborted" });
       });
     });
@@ -137,26 +138,11 @@ function start(
   return worker;
 }
 
-/**
- * What admission does, in a test: allocate the turn id first, then write the row down.
- *
- * The id is the caller's because it is the first Turn's id — see `EnqueueTurnRequest.id` — so a
- * test standing in for the API pod has to stand in for that too.
- */
-async function enqueue(
-  queue: InMemoryTurnQueue,
-  request: Omit<EnqueueTurnRequest, "id">,
-): Promise<{ id: string }> {
-  const id = crypto.randomUUID();
-  await queue.enqueue({ id, ...request });
-  return { id };
-}
-
 function enqueueTurn(
   queue: InMemoryTurnQueue,
   overrides: { sessionId?: string; message?: string; billsToUser?: boolean } = {},
 ) {
-  return enqueue(queue, {
+  return enqueueRequest(queue, {
     sessionId: overrides.sessionId ?? "session-a",
     userId: "user-1",
     kind: "turn",
@@ -203,7 +189,7 @@ describe("running a claimed request", () => {
     const queue = new InMemoryTurnQueue();
     const runtime = new RecordingRuntime();
     start(queue, runtime);
-    const { id } = await enqueue(queue, {
+    const { id } = await enqueueRequest(queue, {
       sessionId: "session-a",
       userId: "user-1",
       kind: "resume",
@@ -268,7 +254,7 @@ describe("running a claimed request", () => {
     const queue = new InMemoryTurnQueue();
     const runtime = new RecordingRuntime();
     start(queue, runtime);
-    const { id } = await enqueue(queue, {
+    const { id } = await enqueueRequest(queue, {
       sessionId: "session-a",
       userId: "user-1",
       kind: "resume",
@@ -290,7 +276,7 @@ describe("running a claimed request", () => {
     const queue = new InMemoryTurnQueue();
     const runtime = new RecordingRuntime();
     start(queue, runtime);
-    const { id } = await enqueue(queue, {
+    const { id } = await enqueueRequest(queue, {
       sessionId: "session-a",
       userId: "user-1",
       kind: "resume",
@@ -315,7 +301,7 @@ describe("running a claimed request", () => {
     const runtime = new RecordingRuntime();
     start(queue, runtime, { concurrency: 4 });
     await enqueueTurn(queue, { sessionId: "session-a" });
-    await enqueue(queue, {
+    await enqueueRequest(queue, {
       sessionId: "session-a",
       userId: "user-1",
       kind: "resume",

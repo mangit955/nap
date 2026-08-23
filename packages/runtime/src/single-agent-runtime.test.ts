@@ -852,7 +852,9 @@ describe("opening a project that has been put away", () => {
       // belongs to a turn may appear, or the transcript grows a conversation nobody had.
       const agent = new ScriptedAgent(HAPPY_SCRIPT, true);
 
-      const outcome = await restoringRuntime(agent).resumeSession(SESSION_ID);
+      const outcome = await restoringRuntime(agent).resumeSession(SESSION_ID, {
+        turnId: crypto.randomUUID(),
+      });
 
       expect(outcome).toMatchObject({ ok: true, created: true });
       expect(agent.calls).toBe(0);
@@ -865,7 +867,7 @@ describe("opening a project that has been put away", () => {
       // started — and the preview pane treats a sandbox failure as a state a retry clears.
       const outcome = await runtime(new ScriptedAgent(), {
         sandbox: new UncreatableSandboxManager(),
-      }).resumeSession(SESSION_ID);
+      }).resumeSession(SESSION_ID, { turnId: crypto.randomUUID() });
 
       expect(outcome).toMatchObject({ ok: false, reason: "sandbox_unavailable" });
       const stored = await events.readFrom(SESSION_ID, 0);
@@ -883,7 +885,7 @@ describe("opening a project that has been put away", () => {
 
       const outcome = await restoringRuntime(new ScriptedAgent(), {
         sessions: running,
-      }).resumeSession(SESSION_ID);
+      }).resumeSession(SESSION_ID, { turnId: crypto.randomUUID() });
 
       expect(outcome).toMatchObject({ ok: true, created: false, sandboxId: created.value.id });
       expect(await loggedTypes()).toEqual([]);
@@ -905,7 +907,7 @@ describe("opening a project that has been put away", () => {
       });
 
       await Promise.all([
-        subject.resumeSession(SESSION_ID),
+        subject.resumeSession(SESSION_ID, { turnId: crypto.randomUUID() }),
         subject.runTurn({
           turnId: crypto.randomUUID(),
           sessionId: SESSION_ID,
@@ -919,6 +921,7 @@ describe("opening a project that has been put away", () => {
     it("refuses a session that does not exist", async () => {
       const outcome = await restoringRuntime(new ScriptedAgent()).resumeSession(
         "00000000-0000-4000-8000-000000000000",
+        { turnId: crypto.randomUUID() },
       );
 
       expect(outcome).toMatchObject({ ok: false, reason: "internal" });

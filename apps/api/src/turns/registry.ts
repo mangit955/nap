@@ -27,10 +27,10 @@ export class TurnRegistry {
    * Records that this process is running a turn on this session, and how to stop it.
    *
    * **It does not abort whatever was here before, and there is nothing to abort.** It used to,
-   * defensively. Three rules now make a second live entry for one session unreachable rather than
-   * unlikely: `turn_requests_one_leased_per_session` allows one leased request per session in the
-   * whole cluster, a worker holds the controller for exactly the request it claimed, and the
-   * fencing window means the previous holder has already aborted before anyone else can claim
+   * defensively. This map is keyed by session, and two live entries for one session would need two
+   * turns running on it at once — which `turn_requests_one_leased_per_session` makes impossible,
+   * since a worker only adopts a controller for a request it holds the session's lease on, and the
+   * fencing window means the previous holder aborted before anyone else could claim
    * (`docs/scaling-design.md` §5, §17 B-5). A guard nobody can trigger is worse than no guard: it
    * has never been observed working, so it is not known to work, and it tells the next reader that
    * a race exists which the schema has already made impossible.

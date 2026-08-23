@@ -193,21 +193,11 @@ describe("a check that says no", () => {
     expect(agent.requests.map((request) => request.turnId)).toEqual(turnIds);
   });
 
-  it("counts the repair budget from the log rather than from the id it was given", async () => {
-    // Why a repair may take a fresh id without costing anything: what bounds the loop is
-    // `verification.started` in the log, not a counter held beside the turn that started it. So a
-    // job that spans a worker's death resumes with its budget already spent rather than reset.
-    alwaysRed();
-
-    await run();
-
-    const state = await jobs();
-    expect(state.jobs[0]?.attemptsUsed).toBe(MAX_REPAIR_ATTEMPTS);
-    expect(await promptSources()).toEqual([
-      "user",
-      ...Array.from({ length: MAX_REPAIR_ATTEMPTS }, () => "verification" as const),
-    ]);
-  });
+  // Why a repair may take a fresh id without costing anything is that the budget is folded from
+  // `verification.started` in the log rather than held beside the turn that started it — but that
+  // cannot be seen from here. Within one uninterrupted process the loop is bounded by `run.repairs`
+  // in memory, so anything asserted here passes whether the budget is log-derived or not. The claim
+  // is only observable across a death, and `continue-on-open.test.ts` is where it is tested.
 
   it("checkpoints the repair's own commit once the checks agree", async () => {
     redUntil(2);

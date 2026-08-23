@@ -89,10 +89,12 @@ export type ContinueOptions = {
    * The id the resume's own events are written under — the same rule a turn's `turnId` follows,
    * and for the same reason: a resume is a queued request too, and its row's id is this.
    *
-   * Optional only because `resumeSession` is reachable from places no queue admitted, such as a
-   * test or a script. A resume that came off the queue always carries one.
+   * Required, like a turn's. Making it optional would leave the runtime a second place that
+   * invents Turn identity, which is the thing this port exists to have exactly one of — and the
+   * fallback would be reached only by callers who forgot, since every caller that means it has an
+   * id to hand.
    */
-  turnId?: string | undefined;
+  turnId: string;
   model?: string | undefined;
   credentials?: ModelCredentials | undefined;
   /**
@@ -130,5 +132,5 @@ export interface Runtime {
    * session, because a restore, and anything it continues, outlasts the request that asked for
    * it.
    */
-  resumeSession(sessionId: string, options?: ContinueOptions): Promise<ResumeOutcome>;
+  resumeSession(sessionId: string, options: ContinueOptions): Promise<ResumeOutcome>;
 }

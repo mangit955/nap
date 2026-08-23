@@ -130,7 +130,7 @@ describe("a project coming back up", () => {
       ...(withCapture ? { capture } : {}),
     });
 
-    return runtime.resumeSession(SESSION_ID);
+    return runtime.resumeSession(SESSION_ID, { turnId: crypto.randomUUID() });
   }
 
   it("photographs it, without any turn having run", async () => {

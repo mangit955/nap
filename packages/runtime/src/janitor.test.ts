@@ -1,3 +1,4 @@
+import { enqueueRequest } from "@nap/db/testing/enqueue-request";
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { InMemoryTurnQueue } from "@nap/db/testing/in-memory-turn-queue";
@@ -41,11 +42,9 @@ function sweep() {
 }
 
 async function enqueue(sessionId = SESSION, kind: "turn" | "resume" = "turn") {
-  // Allocated here as admission allocates it: the request's id is the turn id its events go under,
-  // which is the whole reason the janitor below can close out a turn it never ran.
-  const id = crypto.randomUUID();
-  await queue.enqueue({
-    id,
+  // Through admission's own helper: the request's id is the turn id its events go under, which is
+  // the whole reason the janitor below can close out a turn it never ran.
+  return await enqueueRequest(queue, {
     sessionId,
     userId: "user-1",
     kind,
@@ -53,7 +52,6 @@ async function enqueue(sessionId = SESSION, kind: "turn" | "resume" = "turn") {
     model: "openai/gpt-5-mini",
     billsToUser: false,
   });
-  return { id };
 }
 
 /** A request a worker claimed and then died holding. */

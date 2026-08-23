@@ -234,8 +234,9 @@ export type SingleAgentRuntimeOptions = {
   /**
    * Injected for the same reason: a turn id a test can predict.
    *
-   * **Repairs only.** A turn's own id arrives with the request — see `TurnRequest.turnId` — so the
-   * only ids this runtime still allocates are the ones for Turns nobody asked for by name.
+   * **Repairs only, and that is now literally true.** Both entry points take their turn id from
+   * the caller — `TurnRequest.turnId` and `ContinueOptions.turnId` — so the only Turns this
+   * runtime still names are the ones nobody asked for by name: a repair the verifier prompted.
    */
   newTurnId?: () => string;
   /** The port the project's dev server listens on. Defaults to the template's. */
@@ -289,7 +290,7 @@ export class SingleAgentRuntime implements Runtime {
    * that spends tokens with nobody watching is a bill, and a crash loop plus auto-continue is a
    * large one. Somebody opening the project is the signal that a person is there.
    */
-  resumeSession(sessionId: string, options: ContinueOptions = {}): Promise<ResumeOutcome> {
+  resumeSession(sessionId: string, options: ContinueOptions): Promise<ResumeOutcome> {
     return this.#queue.run(sessionId, () => this.#resume(sessionId, options));
   }
 
@@ -311,7 +312,7 @@ export class SingleAgentRuntime implements Runtime {
 
   /** The same log context a turn gets, around a lifecycle operation that has no turn id. */
   async #resume(sessionId: string, options: ContinueOptions): Promise<ResumeOutcome> {
-    const turnId = options.turnId ?? this.#newTurnId();
+    const { turnId } = options;
     return await withLogContext(getLogger(), { sessionId, turnId }, () =>
       this.#resumeLogged(sessionId, turnId, options),
     );

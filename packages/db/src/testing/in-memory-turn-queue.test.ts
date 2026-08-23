@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { enqueueRequest } from "./enqueue-request.ts";
 import { InMemoryTurnQueue } from "./in-memory-turn-queue.ts";
 
 /**
@@ -16,10 +17,7 @@ beforeEach(() => {
 });
 
 async function enqueue(sessionId: string, message = "do a thing") {
-  // Admission's job, done here: the id names the first Turn and exists before the row does.
-  const id = crypto.randomUUID();
-  await queue.enqueue({
-    id,
+  return await enqueueRequest(queue, {
     sessionId,
     userId: "user-1",
     kind: "turn",
@@ -27,7 +25,6 @@ async function enqueue(sessionId: string, message = "do a thing") {
     model: "openai/gpt-5-mini",
     billsToUser: false,
   });
-  return { id };
 }
 
 describe("claim", () => {

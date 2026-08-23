@@ -170,25 +170,44 @@ describe("a job whose turn died before it committed", () => {
     expect(state.jobs.at(-1)?.phase).toBe("unverified");
   });
 
-  it("opens no second job for it, however many times the project is opened", async () => {
-    // The at-most-once execution guarantee, seen from the log. Delivery may be at-least-once and
-    // a human may click open as often as they like; what must never happen is the same objective
-    // becoming two jobs, which is two verification budgets and two of somebody's commits under
-    // one request. Nothing requeues the dead request, and a continuation folds the log and asks
-    // what the *job* still needs rather than re-running anything.
+  it("writes its closing event under the resume's id, not the dead turn's", async () => {
+    // The dead turn and the request that cleaned up after it are two Turns, and the log has to say
+    // which is which — that is the whole point of the request's id being the turn id. Note what is
+    // *not* being claimed here: `job.started` is only ever emitted on the turn path, so "a resume
+    // opened no second job" is true by construction rather than by this assertion. The load-bearing
+    // line is the one about `turnId`.
     await seedLog(started(), { type: "turn.started", payload: { source: "user" } });
 
     await open();
+
+    expect(agent.calls).toBe(0);
+    const closing = (await log()).filter((event) => event.type === "job.completed");
+    expect(closing.map((event) => event.turnId)).toEqual([RESUME_TURN]);
+  });
+
+  it("does not run the job again when the project is opened a second time", async () => {
+    // The at-most-once guarantee where it can actually be violated: a continuation that *runs a
+    // turn*. The first open finds a job left mid-repair and finishes it; the second must find the
+    // work done and spend nothing. A human may click open as often as they like, and the log — not
+    // a counter in some process — is what stops the second click paying for the first click's job
+    // over again.
+    await seedLog(started(), committed(COMMIT_SHA), ...redRound());
+    green();
+
+    await open();
+    const afterFirst = agent.calls;
     await open("d2f0a1b2-3333-4444-8555-666677778888");
+
+    // The first open ran the repair the crash interrupted; the second ran nothing at all.
+    expect(afterFirst).toBe(1);
+    expect(agent.calls).toBe(1);
 
     const types = (await log()).map((event) => event.type);
     expect(countOf(types, "job.started")).toBe(1);
-    expect(countOf(types, "turn.started")).toBe(1);
-    expect(agent.calls).toBe(0);
-    // And what the first open wrote is attributable to the request that asked for it, rather
-    // than to the turn that died — which is how the two are told apart at all.
-    const closing = (await log()).filter((event) => event.type === "job.completed");
-    expect(closing.map((event) => event.turnId)).toEqual([RESUME_TURN]);
+    expect(countOf(types, "job.completed")).toBe(1);
+    const state = await jobs();
+    expect(state.jobs).toHaveLength(1);
+    expect(state.checkpointSha).toBe(COMMIT_SHA);
   });
 });
 

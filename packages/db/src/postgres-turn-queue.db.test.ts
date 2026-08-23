@@ -5,6 +5,7 @@ import postgres from "postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, inject, it } from "vitest";
 import { PostgresTurnQueue } from "./postgres-turn-queue.ts";
 import { projects, sessions, turnRequests, users } from "./schema.ts";
+import { enqueueRequest } from "./testing/enqueue-request.ts";
 
 /**
  * The queue against a real Postgres, because the thing being tested cannot be observed anywhere
@@ -70,10 +71,7 @@ async function enqueueTurn(
   seed: { sessionId: string; userId: string },
   message = "build me a thing",
 ) {
-  // The id is admission's to allocate, so a test standing in for admission allocates one too.
-  const id = randomUUID();
-  await queue.enqueue({
-    id,
+  return await enqueueRequest(queue, {
     sessionId: seed.sessionId,
     userId: seed.userId,
     kind: "turn",
@@ -81,7 +79,6 @@ async function enqueueTurn(
     model: "openai/gpt-5-mini",
     billsToUser: false,
   });
-  return { id };
 }
 
 async function rowOf(id: string) {
