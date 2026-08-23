@@ -19,7 +19,7 @@ import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { TEMPLATE_DEV_PORT } from "@nap/sandbox/template";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
-import { scriptGit } from "@nap/sandbox/testing/script-git";
+import { FAKE_COMMIT_SHA, scriptGit } from "@nap/sandbox/testing/script-git";
 import type { NapEvent, NapEventType, PromptSource } from "@nap/shared/events";
 import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
 import { foldJobs, MAX_REPAIR_ATTEMPTS } from "@nap/shared/job-state";
@@ -30,8 +30,12 @@ import { SingleAgentRuntime } from "./single-agent-runtime.ts";
 const SESSION_ID = "2a3f8a24-6c1b-4e0e-9b6f-3a5c0a1d9e77";
 const PROJECT_ID = "4d5e6f70-1a2b-4c3d-8e9f-0a1b2c3d4e5f";
 const JOB_ID = "3f9a1c2d-5e6b-4f7a-8b9c-0d1e2f3a4b5c";
+const OLDER_JOB = "8c7b6a59-4d3e-4f21-9a8b-7c6d5e4f3a2b";
 const DEAD_TURN = "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f";
-const COMMIT_SHA = "9e107d9d372bb6826bd81d3542a419d6c2b0f5a1";
+/** `scriptGit`'s own sha, so a workspace nobody re-scripts is sitting on the log's commit. */
+const COMMIT_SHA = FAKE_COMMIT_SHA;
+/** A commit that only the workspace knows about — the sha no `turn.completed` ever carried. */
+const LOST_SHA = "1f3e5d7c9b8a6f4e2d0c1b3a5978d6c4e2b0a1f3";
 
 /** One check, so a failure has exactly one cause and the assertions have one thing to watch. */
 const MANIFEST = JSON.stringify({ scripts: { typecheck: "tsc --noEmit" } });
@@ -68,9 +72,17 @@ async function seedLog(
   }
 }
 
-const started = (objective = "add a delete button") => ({
+const started = (objective = "add a delete button", jobId = JOB_ID) => ({
   type: "job.started" as const,
-  payload: { jobId: JOB_ID, objective },
+  payload: { jobId, objective },
+});
+const checkpointed = (commitSha: string, jobId = JOB_ID) => ({
+  type: "job.checkpointed" as const,
+  payload: { jobId, commitSha },
+});
+const closed = (jobId = JOB_ID) => ({
+  type: "job.completed" as const,
+  payload: { jobId, outcome: "verified" },
 });
 const verifying = () => ({ type: "verification.started" as const, payload: { jobId: JOB_ID } });
 const verified = (...checks: { name: string; outcome: string; output: string | null }[]) => ({
@@ -95,6 +107,21 @@ function alwaysRed(): void {
 /** Typecheck says yes, every time it is asked. */
 function green(): void {
   sandbox.script(/bun run typecheck/, { exitCode: 0, stdout: "", stderr: "" });
+}
+
+/** What the restored workspace answers `git rev-parse HEAD` with, in place of the default. */
+function headAt(sha: string): void {
+  sandbox.script(/git rev-parse HEAD/, { exitCode: 0, stdout: `${sha}\n` });
+}
+
+/**
+ * A workspace that cannot say what it is sitting on.
+ *
+ * A repository that is not there, which is what a project whose sandbox went away and whose
+ * snapshot could not be restored comes back as. The log is then the only evidence there is.
+ */
+function headUnreadable(): void {
+  sandbox.script(/git rev-parse HEAD/, { exitCode: 128, stderr: "fatal: not a git repository" });
 }
 
 /**
@@ -162,6 +189,8 @@ describe("an open with no job to continue", () => {
 describe("a job whose turn died before it committed", () => {
   it("closes it rather than leaving it open or calling a model", async () => {
     await seedLog(started());
+    // Nothing in the log and nothing in the workspace: the two agree that no commit exists.
+    headUnreadable();
 
     await open();
 
@@ -177,6 +206,7 @@ describe("a job whose turn died before it committed", () => {
     // opened no second job" is true by construction rather than by this assertion. The load-bearing
     // line is the one about `turnId`.
     await seedLog(started(), { type: "turn.started", payload: { source: "user" } });
+    headUnreadable();
 
     await open();
 
@@ -238,6 +268,60 @@ describe("a job whose turn committed and was never checked", () => {
     const state = await jobs();
     expect(state.jobs.at(-1)?.phase).toBe("verified");
     expect(state.jobs.at(-1)?.attemptsUsed).toBe(0);
+  });
+});
+
+describe("a commit the restart left in the workspace but not in the log", () => {
+  // The turn commits inside `finalize` and the sha reaches the log only with `turn.completed`.
+  // A worker dying in that gap leaves a real commit in the sandbox that nothing will ever check
+  // — the work survives in the snapshot and sits permanently outside the verification loop.
+
+  it("verifies the commit HEAD is on rather than closing the job unverified", async () => {
+    await seedLog(started());
+    headAt(LOST_SHA);
+    green();
+
+    await open();
+
+    expect(agent.calls).toBe(0);
+    expect(await written()).toContain("verification.started");
+    const state = await jobs();
+    expect(state.jobs.at(-1)?.phase).toBe("verified");
+    expect(state.checkpointSha).toBe(LOST_SHA);
+  });
+
+  it("verifies nothing when HEAD is still the checkpoint an earlier job left", async () => {
+    // The other half: a job that really did die before committing, in a project that has been
+    // verified before. HEAD has not moved, so there is nothing new to check.
+    await seedLog(
+      started("add a delete button", OLDER_JOB),
+      committed(COMMIT_SHA),
+      checkpointed(COMMIT_SHA, OLDER_JOB),
+      closed(OLDER_JOB),
+      started(),
+    );
+    headAt(COMMIT_SHA);
+
+    await open();
+
+    expect(agent.calls).toBe(0);
+    expect(await written()).not.toContain("verification.started");
+    expect((await jobs()).jobs.at(-1)?.phase).toBe("unverified");
+  });
+
+  it("keeps the budget the log already spent", async () => {
+    // An interrupted second round, with the commit it was checking known only to the workspace.
+    // One repair has run, so an always-red project has exactly two turns left.
+    await seedLog(started(), committed(COMMIT_SHA), ...redRound(), verifying());
+    headAt(LOST_SHA);
+    alwaysRed();
+
+    await open();
+
+    expect(agent.calls).toBe(MAX_REPAIR_ATTEMPTS - 1);
+    const job = (await jobs()).jobs.at(-1);
+    expect(job?.phase).toBe("exhausted");
+    expect(job?.attemptsUsed).toBe(MAX_REPAIR_ATTEMPTS);
   });
 });
 

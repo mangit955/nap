@@ -692,6 +692,15 @@ On resume the worker restores the project and reads `git rev-parse HEAD`. If the
 continuation returns `kind:'verify'` **against the real HEAD**. No new event type, no change to the
 event contract, and it stays a pure function testable with a literal array. Regression tests in §20.
 
+> **As shipped, HEAD wins wherever it could be read** — not only where the log records no commit.
+> The narrower rule leaves a second copy of the same bug one level down: a repair turn that commits
+> and dies before saying so has a `headSha` in the log from the turn *before* it, so continuation
+> would checkpoint that older sha while the checks ran against the newer tree. A checkpoint is a
+> commit verification agreed with, and verification runs in the workspace, so the workspace's HEAD
+> is the only sha that claim can honestly name. The cost of the wider rule is that a project
+> restored from a snapshot older than a recorded commit checkpoints the older sha — which is, again,
+> the one that was checked. `workspaceHeadSha === null` falls back to the log in both readings.
+
 ### B-3 — `EventSink` append failure is sticky and fatal
 
 `#failure` is sticky and `drain()` throws (`event-sink.ts:66–74`). On one replica against Neon that

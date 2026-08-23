@@ -25,6 +25,11 @@
  *
  * **Nothing is verified twice.** A job sitting at a commit that is already a checkpoint has
  * nothing left to ask, and one whose turn never committed has nothing to ask about.
+ *
+ * **The log is not the only evidence about the commit, and cannot be.** A turn commits before it
+ * says so, so a process dying in between leaves a real commit the log has never heard of. The
+ * workspace's own HEAD closes that gap — passed in as evidence the caller has already read, which
+ * is what keeps this pure while still letting it answer about the sandbox.
  */
 
 import type { JobOutcome } from "@nap/shared/events";
@@ -72,7 +77,19 @@ export type JobContinuation =
       attempts: readonly FailedAttempt[];
     };
 
-export function continuationFor(state: SessionJobs): JobContinuation {
+/**
+ * What the project itself says, as against what its log remembers.
+ *
+ * One field, and it is deliberately the *restored* workspace's HEAD rather than anything derived:
+ * the checks are about to run in that workspace, so it is the commit they will actually be
+ * checking. `null` means nobody could be asked — no sandbox, or a repository with no commits —
+ * and the log is then all there is.
+ */
+export type WorkspaceEvidence = {
+  workspaceHeadSha: string | null;
+};
+
+export function continuationFor(state: SessionJobs, evidence: WorkspaceEvidence): JobContinuation {
   const job = openJob(state);
   if (job === undefined) return { kind: "none" };
 
@@ -98,13 +115,20 @@ export function continuationFor(state: SessionJobs): JobContinuation {
     };
   }
 
-  const commitSha = state.headSha;
+  // HEAD wins wherever it could be read: the log's `headSha` is the newest commit some turn
+  // *finished announcing*, and one that died mid-announcement is exactly the case this exists
+  // for. Where they agree this changes nothing; where they differ, the workspace is what the
+  // checks are about to run against, so checkpointing anything else would record a verdict on a
+  // commit nobody looked at.
+  const commitSha = evidence.workspaceHeadSha ?? state.headSha;
 
   // Nothing was committed, so there is no claim to arbitrate — the same reading a turn that
   // changed no files gets, and the same word for it.
   if (commitSha === null) return { kind: "close", jobId, outcome: "unverified" };
 
-  if (state.atCheckpoint) {
+  // Not `state.atCheckpoint`, which answers this about the log's HEAD rather than about the one
+  // above. The two agree in every case where the log was written through to the end.
+  if (commitSha === state.checkpointSha) {
     // HEAD is a commit verification already agreed with. For a job still `verifying` that is
     // its own round, answered; for one still `working` the checkpoint predates it and its turn
     // moved nothing. Either way the project has been checked and re-running would re-run

@@ -136,7 +136,7 @@ describe("orphaning an abandoned request", () => {
 
     // What a human reopening the project would be offered. `none` here would mean the work was
     // silently dropped rather than waiting.
-    const continuation = continuationFor(foldJobs(await logOf()));
+    const continuation = continuationFor(foldJobs(await logOf()), { workspaceHeadSha: null });
     expect(continuation.kind).not.toBe("none");
   });
 

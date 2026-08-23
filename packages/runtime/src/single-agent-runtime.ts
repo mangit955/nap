@@ -35,10 +35,10 @@
  * checkpoint, which is a state the user can usually close with one sentence.
  */
 
-import { commitAll } from "@nap/sandbox/git";
+import { commitAll, currentSha } from "@nap/sandbox/git";
 import { TEMPLATE_DEV_PORT } from "@nap/sandbox/template";
 import type { JobOutcome, NapEvent, NapEventOf, PromptSource } from "@nap/shared/events";
-import { foldJobs, MAX_REPAIR_ATTEMPTS } from "@nap/shared/job-state";
+import { foldJobs, MAX_REPAIR_ATTEMPTS, openJob } from "@nap/shared/job-state";
 import { addLogContext, getLogger, withLogContext } from "@nap/shared/logging";
 import type { AgentService } from "@nap/shared/ports/agent-service";
 import type { ContextEngine, FailedAttempt, JobContext } from "@nap/shared/ports/context-engine";
@@ -413,10 +413,15 @@ export class SingleAgentRuntime implements Runtime {
   /**
    * Picking a job back up where a process restart left it.
    *
-   * The log is the only state there is, so this folds it and acts on what `continue-job.ts`
+   * The log is where the state is kept, so this folds it and acts on what `continue-job.ts`
    * makes of the result — no supervisor, no scan, no jobs index. Three of its four answers cost
    * nothing: an unfinished job with no commit behind it is closed, a job already sitting at a
    * checkpoint is closed, and a session with nothing open does nothing at all.
+   *
+   * **The restored workspace's HEAD goes in alongside it.** A turn commits before it announces
+   * the commit, so a log that stops in that gap describes a project that committed nothing while
+   * the sandbox holds the commit. Reading HEAD here is what stops that work being closed out
+   * unverified and left there.
    *
    * **A throw here never fails the resume, and never leaves the job open.** The project is up
    * either way, and reporting the open as broken because a continuation fell over would take the
@@ -426,7 +431,16 @@ export class SingleAgentRuntime implements Runtime {
   async #continue(scope: TurnScope, sandboxId: string, options: ContinueOptions): Promise<void> {
     const { session, sink } = scope;
     const history = await this.#options.events.readFrom(session.sessionId, 0);
-    const continuation = continuationFor(foldJobs(history));
+    const state = foldJobs(history);
+
+    // Asked before HEAD is read, because reading it is a round trip into the sandbox and most
+    // opens have nothing open to continue. `continuationFor` answers `none` for these anyway —
+    // this only decides whether the evidence is worth fetching.
+    if (openJob(state) === undefined) return;
+
+    const continuation = continuationFor(state, {
+      workspaceHeadSha: await this.#workspaceHead(sandboxId),
+    });
 
     if (continuation.kind === "none") return;
 
@@ -494,6 +508,27 @@ export class SingleAgentRuntime implements Runtime {
         await sink.drain().catch(() => {});
       }
     }
+  }
+
+  /**
+   * What the restored project is actually sitting on, for the continuation to weigh against
+   * what its log remembers.
+   *
+   * Read here rather than inside `continue-job.ts` so that decision stays a pure function of its
+   * inputs. A failure is not one: a repository with no commits and a sandbox that will not answer
+   * both mean "nothing to say", and the log is then the whole of the evidence.
+   */
+  async #workspaceHead(sandboxId: string): Promise<string | null> {
+    const head = await currentSha(this.#options.sandbox, sandboxId);
+    // An empty answer is no answer. `currentSha` trims, and a blank sha passed on as evidence
+    // would beat the log's own `headSha` with nothing at all.
+    if (head.ok) return head.value === "" ? null : head.value;
+
+    getLogger().warn(
+      { reason: head.error.code },
+      "could not read the workspace HEAD; continuing on the log alone",
+    );
+    return null;
   }
 
   async #runTurnLogged(request: TurnRequest, turnId: string): Promise<TurnOutcome> {

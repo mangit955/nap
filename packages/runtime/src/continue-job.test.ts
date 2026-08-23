@@ -62,8 +62,20 @@ const FAILED: VerifiedCheck = { name: "typecheck", outcome: "failed", output: "1
 const SILENT: VerifiedCheck = { name: "build", outcome: "failed", output: null };
 const UNASKED: VerifiedCheck = { name: "test", outcome: "absent", output: null };
 
+/**
+ * The log alone, with nothing to say about the workspace.
+ *
+ * The fallback every case below the evidence block reads against: a sandbox that could not be
+ * asked is the state this decision was made in before there was anything to ask.
+ */
 const decide = (...events: readonly { type: NapEvent["type"]; payload: unknown }[]) =>
-  continuationFor(foldJobs(log(...events)));
+  decideAt(null, ...events);
+
+/** The log, plus what `git rev-parse HEAD` said in the restored workspace. */
+const decideAt = (
+  workspaceHeadSha: string | null,
+  ...events: readonly { type: NapEvent["type"]; payload: unknown }[]
+) => continuationFor(foldJobs(log(...events)), { workspaceHeadSha });
 
 /** One round of checks that said no. */
 const redRound = (jobId: string) => [verifying(jobId), verified(jobId, FAILED)];
@@ -177,6 +189,89 @@ describe("a job interrupted with work committed and unverified", () => {
     expect(decision).toMatchObject({
       kind: "verify",
       attempts: [{ check: "typecheck", output: "1 error" }],
+    });
+  });
+});
+
+describe("a commit the log never recorded", () => {
+  // A turn commits inside `finalize` and the sha reaches the log only when `turn.completed` is
+  // appended. A process dying in that gap leaves a real commit in the sandbox and a log saying
+  // nothing was committed — so the workspace's own HEAD is the evidence that settles it.
+
+  it("verifies the commit in the workspace rather than closing the job unverified", () => {
+    expect(decideAt(SHA, started(JOB_A))).toMatchObject({
+      kind: "verify",
+      jobId: JOB_A,
+      commitSha: SHA,
+      announce: true,
+      attemptsUsed: 0,
+    });
+  });
+
+  it("verifies it even when an earlier job left a checkpoint behind", () => {
+    // The session's `headSha` is the *previous* job's, and it is a checkpoint — which is what
+    // made this read as "this job committed nothing" before HEAD was evidence.
+    const decision = decideAt(
+      LATER_SHA,
+      started(JOB_A),
+      committed(SHA),
+      verifying(JOB_A),
+      verified(JOB_A, PASSED),
+      checkpoint(JOB_A, SHA),
+      closed(JOB_A, "verified"),
+      started(JOB_B),
+    );
+    expect(decision).toMatchObject({ kind: "verify", jobId: JOB_B, commitSha: LATER_SHA });
+  });
+
+  it("verifies nothing when HEAD is still the last checkpoint", () => {
+    const decision = decideAt(
+      SHA,
+      started(JOB_A),
+      committed(SHA),
+      verifying(JOB_A),
+      verified(JOB_A, PASSED),
+      checkpoint(JOB_A, SHA),
+      closed(JOB_A, "verified"),
+      started(JOB_B),
+    );
+    expect(decision).toEqual({ kind: "close", jobId: JOB_B, outcome: "unverified" });
+  });
+
+  it("falls back to the log when there is no workspace to ask", () => {
+    expect(decideAt(null, started(JOB_A))).toEqual({
+      kind: "close",
+      jobId: JOB_A,
+      outcome: "unverified",
+    });
+  });
+
+  it("checks what is actually in the workspace when the two disagree", () => {
+    // A repair committed and died before saying so. Verifying the sha the log kept would
+    // checkpoint a commit that is not the one the checks just ran against.
+    const decision = decideAt(LATER_SHA, started(JOB_A), committed(SHA), verifying(JOB_A));
+    expect(decision).toMatchObject({ kind: "verify", commitSha: LATER_SHA, announce: false });
+  });
+
+  it("leaves the repair budget where the log put it", () => {
+    // An interrupted second verification: one repair has run, so two attempts are left whether
+    // or not the sha came from the workspace.
+    const decision = decideAt(
+      LATER_SHA,
+      started(JOB_A),
+      committed(SHA),
+      ...redRound(JOB_A),
+      verifying(JOB_A),
+    );
+    expect(decision).toMatchObject({ kind: "verify", commitSha: LATER_SHA, attemptsUsed: 1 });
+  });
+
+  it("repairs from the recorded failure rather than re-verifying what HEAD says", () => {
+    // A red round is already answered, so the commit's state is known. HEAD being unrecorded
+    // changes nothing about that, and re-running the checks would spend an attempt.
+    expect(decideAt(LATER_SHA, started(JOB_A), committed(SHA), ...redRound(JOB_A))).toMatchObject({
+      kind: "repair",
+      attemptsUsed: 0,
     });
   });
 });
