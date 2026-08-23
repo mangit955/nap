@@ -49,16 +49,22 @@ describe("TurnRegistry", () => {
     expect(second.signal.aborted).toBe(true);
   });
 
-  it("aborts the turn it replaces rather than orphaning it", () => {
-    // The queue's per-session lease means there should never be a second one; if there ever is,
-    // the first must not be left running with nothing able to stop it.
+  it("takes the later turn on a session without touching the earlier one", () => {
+    // The replaced controller used to be aborted here, defensively. It is not any more, and this
+    // asserts the absence rather than leaving it untested: with one leased request per session in
+    // the whole cluster and a fencing window that makes the previous holder abort before anyone
+    // else can claim, two live entries for one session is unreachable — and a branch nobody can
+    // reach has never been observed working. See `docs/scaling-design.md` §17 (B-5).
     const registry = new TurnRegistry();
     const first = new AbortController();
     registry.adopt(SESSION, first);
 
-    registry.adopt(SESSION, new AbortController());
+    const second = new AbortController();
+    registry.adopt(SESSION, second);
 
-    expect(first.signal.aborted).toBe(true);
+    expect(first.signal.aborted).toBe(false);
+    expect(registry.cancel(SESSION)).toBe(true);
+    expect(second.signal.aborted).toBe(true);
   });
 
   it("keeps sessions apart", () => {

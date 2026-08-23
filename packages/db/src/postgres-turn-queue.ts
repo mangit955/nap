@@ -86,23 +86,18 @@ export class PostgresTurnQueue implements TurnQueue {
     this.#db = db;
   }
 
-  async enqueue(request: EnqueueTurnRequest): Promise<{ id: string }> {
-    const [row] = await this.#db
-      .insert(turnRequests)
-      .values({
-        sessionId: request.sessionId,
-        userId: request.userId,
-        kind: request.kind,
-        message: request.message,
-        model: request.model,
-        billsToUser: request.billsToUser,
-      })
-      .returning({ id: turnRequests.id });
-
-    // Postgres cannot return zero rows from a single-row insert; a missing row here would mean the
-    // driver contract changed under us.
-    if (row === undefined) throw new Error("insert into turn_requests returned no row");
-    return { id: row.id };
+  async enqueue(request: EnqueueTurnRequest): Promise<void> {
+    await this.#db.insert(turnRequests).values({
+      // The caller's, not the column's — `turn_requests.id` carries no default, so that the
+      // Turn's identity exists before the row and therefore before any execution of it.
+      id: request.id,
+      sessionId: request.sessionId,
+      userId: request.userId,
+      kind: request.kind,
+      message: request.message,
+      model: request.model,
+      billsToUser: request.billsToUser,
+    });
   }
 
   async claim(owner: string): Promise<LeasedTurnRequest | null> {

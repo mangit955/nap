@@ -208,7 +208,11 @@ beforeAll(async () => {
     }),
   });
 
-  firstOutcome = await runtime.runTurn({ sessionId, message: FIRST_MESSAGE });
+  firstOutcome = await runtime.runTurn({
+    turnId: crypto.randomUUID(),
+    sessionId,
+    message: FIRST_MESSAGE,
+  });
   firstSandboxId = (await sessions.get(sessionId))?.sandboxId ?? "";
   if (firstSandboxId === "") throw new Error("the first turn recorded no sandbox");
   created.push(firstSandboxId);
@@ -227,7 +231,11 @@ beforeAll(async () => {
 
   snapshotKey = (await snapshots.latestFor(projectId))?.key ?? "";
 
-  secondOutcome = await runtime.runTurn({ sessionId, message: SECOND_MESSAGE });
+  secondOutcome = await runtime.runTurn({
+    turnId: crypto.randomUUID(),
+    sessionId,
+    message: SECOND_MESSAGE,
+  });
   secondSandboxId = (await sessions.get(sessionId))?.sandboxId ?? "";
   if (secondSandboxId === "") throw new Error("the second turn recorded no sandbox");
   created.push(secondSandboxId);

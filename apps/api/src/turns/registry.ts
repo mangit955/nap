@@ -26,11 +26,16 @@ export class TurnRegistry {
   /**
    * Records that this process is running a turn on this session, and how to stop it.
    *
-   * The queue's per-session lease means there should never be a second one — but a controller
-   * dropped on the floor is a turn nothing can stop, and that is worse than a turn that ends early.
+   * **It does not abort whatever was here before, and there is nothing to abort.** It used to,
+   * defensively. Three rules now make a second live entry for one session unreachable rather than
+   * unlikely: `turn_requests_one_leased_per_session` allows one leased request per session in the
+   * whole cluster, a worker holds the controller for exactly the request it claimed, and the
+   * fencing window means the previous holder has already aborted before anyone else can claim
+   * (`docs/scaling-design.md` §5, §17 B-5). A guard nobody can trigger is worse than no guard: it
+   * has never been observed working, so it is not known to work, and it tells the next reader that
+   * a race exists which the schema has already made impossible.
    */
   adopt(sessionId: string, controller: AbortController): void {
-    this.#running.get(sessionId)?.abort();
     this.#running.set(sessionId, controller);
   }
 

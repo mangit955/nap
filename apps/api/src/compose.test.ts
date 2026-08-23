@@ -528,6 +528,7 @@ describe("composeNap", () => {
     });
 
     await queue.enqueue({
+      id: crypto.randomUUID(),
       sessionId: SESSION,
       userId: FAKE_OWNER,
       kind: "turn",

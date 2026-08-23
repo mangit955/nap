@@ -61,7 +61,11 @@ function runtime(script: AgentScript, durable = true) {
 }
 
 const run = (script: AgentScript = () => completedTurn(COMMIT_SHA), durable = true) =>
-  runtime(script, durable).runTurn({ sessionId: SESSION_ID, message: "add a delete button" });
+  runtime(script, durable).runTurn({
+    turnId: crypto.randomUUID(),
+    sessionId: SESSION_ID,
+    message: "add a delete button",
+  });
 
 describe("a turn that changed something", () => {
   it("puts its work in storage before it returns", async () => {

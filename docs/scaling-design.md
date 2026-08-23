@@ -278,8 +278,8 @@ admission, durable before any execution.
 
 | Question | Answer |
 |---|---|
-| **When is Turn identity created?** | At admission on the API pod, before the `INSERT`. Today it is created inside the runtime (`this.#newTurnId()`, `single-agent-runtime.ts:290`) and is therefore unknowable to anything that did not run the turn. |
-| **How does it map?** | `turn_requests.id == events.turn_id` of the request's *first* Turn. Requires adding `turnId` to `TurnRequest` and `ContinueOptions` and threading it through the runtime entry points. `newTurnId` remains, for repairs only. |
+| **When is Turn identity created?** | At admission on the API pod, before the `INSERT` — and `turn_requests.id` carries **no database default**, so a caller that forgot to allocate one gets a not-null violation rather than a row naming a Turn no log contains. It used to be created inside the runtime (`this.#newTurnId()`) and was therefore unknowable to anything that did not run the turn. |
+| **How does it map?** | `turn_requests.id == events.turn_id` of the request's *first* Turn. `turnId` is a field on `TurnRequest` and on `ContinueOptions`, threaded through the runtime entry points. `newTurnId` remains, for repairs only. |
 | **Worker dies after appending events, before settling?** | The log holds `turn.started` / `user.message` / `job.started` under that turnId. The row stays `leased` until expiry, then `orphaned`. **Never requeued**, so a second execution of that request is unreachable by construction. |
 | **How does a continuation know the Turn already exists?** | It does not need to. Continuation never re-runs a request; it folds the log and asks `continuationFor` what the *Job* needs. The turnId is used by the janitor, to close the right Turn. |
 | **Repair Turns?** | Distinct `crypto.randomUUID()` per repair, still generated in the worker. A repair is a distinct Turn (ADR-0006); it shares the request's lease, not its id. The repair budget is counted from `verification.started` in the log (`job-state.ts:99`), so it survives worker death without resetting. |
@@ -723,12 +723,13 @@ and `docs/DEPLOY.md`'s "What a public URL costs" section all need correcting at 
 
 ### B-5 — `TurnRegistry.start()`'s defensive abort becomes unreachable
 
-It aborts a pre-existing controller for the same session (`registry.ts:27`). On a worker keyed by
+It aborted a pre-existing controller for the same session. On a worker keyed by
 **request id**, with `turn_requests_one_leased_per_session` guaranteeing one leased request per
 session and the fencing rule (§5) guaranteeing the previous worker has aborted, that branch cannot be
 entered.
 
-**Remove it at step 9**, and document why: the repo's own rule is that a check which has never been
+**Removed**, and documented in `registry.ts` — with a test that asserts the *absence*, since the
+repo's own rule is that a check which has never been
 observed failing is not known to work, and a guard nobody can trigger is worse than no guard — it
 implies a race that the schema has already made impossible.
 

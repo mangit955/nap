@@ -1,0 +1,1 @@
+ALTER TABLE "turn_requests" ALTER COLUMN "id" DROP DEFAULT;

@@ -76,6 +76,14 @@ function redUntil(attempt: number): void {
   });
 }
 
+/**
+ * The turn id the caller hands in — admission's, in a deployment.
+ *
+ * Fixed rather than random so a test can say which of the log's turns is the one that was asked
+ * for and which the runtime went and started on its own.
+ */
+const REQUEST_TURN_ID = "c0ffee00-1111-4222-8333-444455556666";
+
 function run(options: { signal?: AbortSignal } = {}) {
   return new SingleAgentRuntime({
     sessions,
@@ -86,6 +94,7 @@ function run(options: { signal?: AbortSignal } = {}) {
     bus: new InMemoryEventBus(),
     memory: new NoopMemoryProvider(),
   }).runTurn({
+    turnId: REQUEST_TURN_ID,
     sessionId: SESSION_ID,
     message: "add a delete button",
     ...(options.signal === undefined ? {} : { signal: options.signal }),
@@ -168,16 +177,36 @@ describe("a check that says no", () => {
     ]);
   });
 
-  it("runs each repair under a turn id of its own", async () => {
-    // Two turns sharing one id would collapse into one turn for every reader of the log —
-    // the transcript, the metrics, and anything reconstructing a turn from log lines.
+  it("runs each repair under a turn id of its own, and not the request's", async () => {
+    // Two turns sharing one id would collapse into one turn for every reader of the log — the
+    // transcript, the metrics, and anything reconstructing a turn from log lines. The first id is
+    // the caller's because that is the Turn somebody asked for; a repair is a distinct Turn
+    // (docs/adr/0006) that shares the request's lease rather than its identity, so it gets its own.
     redUntil(2);
 
     await run();
 
-    const turnIds = new Set((await log()).map((event) => event.turnId));
-    expect(turnIds.size).toBe(2);
-    expect(agent.requests.map((request) => request.turnId)).toEqual([...turnIds]);
+    const turnIds = [...new Set((await log()).map((event) => event.turnId))];
+    expect(turnIds).toHaveLength(2);
+    expect(turnIds[0]).toBe(REQUEST_TURN_ID);
+    expect(turnIds[1]).not.toBe(REQUEST_TURN_ID);
+    expect(agent.requests.map((request) => request.turnId)).toEqual(turnIds);
+  });
+
+  it("counts the repair budget from the log rather than from the id it was given", async () => {
+    // Why a repair may take a fresh id without costing anything: what bounds the loop is
+    // `verification.started` in the log, not a counter held beside the turn that started it. So a
+    // job that spans a worker's death resumes with its budget already spent rather than reset.
+    alwaysRed();
+
+    await run();
+
+    const state = await jobs();
+    expect(state.jobs[0]?.attemptsUsed).toBe(MAX_REPAIR_ATTEMPTS);
+    expect(await promptSources()).toEqual([
+      "user",
+      ...Array.from({ length: MAX_REPAIR_ATTEMPTS }, () => "verification" as const),
+    ]);
   });
 
   it("checkpoints the repair's own commit once the checks agree", async () => {

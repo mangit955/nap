@@ -65,11 +65,11 @@ export class InMemoryTurnQueue implements TurnQueue {
     this.#leaseGraceMs = options.leaseGraceMs ?? LEASE_GRACE_MS;
   }
 
-  async enqueue(request: EnqueueTurnRequest): Promise<{ id: string }> {
-    const id = crypto.randomUUID();
+  async enqueue(request: EnqueueTurnRequest): Promise<void> {
     this.#sequence += 1;
     this.#rows.push({
-      id,
+      // The caller's, as in Postgres: it is the first Turn's id and had to exist before this row.
+      id: request.id,
       sessionId: request.sessionId,
       userId: request.userId,
       kind: request.kind,
@@ -85,7 +85,6 @@ export class InMemoryTurnQueue implements TurnQueue {
       // order, and a test that injected a frozen clock would otherwise have none.
       createdAt: this.#sequence,
     });
-    return { id };
   }
 
   async claim(owner: string): Promise<LeasedTurnRequest | null> {
@@ -222,6 +221,7 @@ export class InMemoryTurnQueue implements TurnQueue {
    */
   get enqueued(): readonly EnqueueTurnRequest[] {
     return this.#rows.map((row) => ({
+      id: row.id,
       sessionId: row.sessionId,
       userId: row.userId,
       kind: row.kind,

@@ -16,10 +16,15 @@
  *   - **One in-flight request per session, cluster-wide**, enforced by a partial unique index over
  *     `state = 'leased'`. Application logic cannot enforce it, because the two callers are in
  *     different processes.
- *   - **At-most-once execution.** There is no path back to `queued`: a request is claimed at most
- *     once, so a worker that dies mid-turn leaves a partial log rather than a turn that runs twice.
- *     A partial log is already a first-class input — `foldJobs` reads one — and a duplicated turn
- *     is not. See `docs/scaling-design.md` §6.
+ *   - **Queue delivery may be at-least-once; logical Turn execution is at-most-once.** This is the
+ *     one people get backwards, so it is worth stating in both halves. Delivery is best-effort in
+ *     the ordinary way — a claim can be lost, a worker can die holding one, a renewal can fail on a
+ *     healthy turn. *Execution* is not: there is no path back to `queued` and no attempt counter, so
+ *     a request is claimed at most once and a worker that dies mid-turn leaves a partial log rather
+ *     than a turn that runs twice. That is affordable only because a partial log is a first-class
+ *     input here — `foldJobs` reads one and `continuationFor` decides what it still needs — where a
+ *     duplicated turn would be two charges, two commits and two of somebody's messages.
+ *     See `docs/scaling-design.md` §6.
  *   - **Losing the lease is fatal to the turn.** A worker can outlive its lease through a GC pause
  *     or a network blip, and would then keep appending to a session another worker may claim.
  *     `renew` returning `held: false` is the signal to abort immediately, which is why it is a
@@ -40,6 +45,20 @@ export const TURN_REQUEST_STATES = ["queued", "leased", "done", "failed", "orpha
 export type TurnRequestState = (typeof TURN_REQUEST_STATES)[number];
 
 export type EnqueueTurnRequest = {
+  /**
+   * The request's id, **and the turn id of the first Turn it becomes.**
+   *
+   * Allocated by whoever admits the request, before the row is written, so that the identity of
+   * the work exists before any execution of it does. Generating it inside the runtime instead —
+   * which is where it used to happen — makes it unknowable to anything that did not run the turn,
+   * and the two things that most need it never run one: the janitor, which can only close the
+   * right Turn if it knows which Turn the request became, and anyone asking "did this request
+   * ever start?".
+   *
+   * Repair Turns are *not* this id. A repair is a distinct Turn (docs/adr/0006) that shares the
+   * request's lease rather than its identity, and gets a fresh id of its own.
+   */
+  id: string;
   sessionId: string;
   /** Who asked, which is also whose stored key a billed turn is re-opened from. */
   userId: string;
@@ -60,11 +79,11 @@ export type EnqueueTurnRequest = {
 /**
  * A request this worker now holds the session's lease for, and everything it needs to run it.
  *
- * Exactly what was enqueued, plus the id it was given. Written as an intersection rather than as
- * a second list of the same seven fields, because the two being identical is the point: what a
- * worker runs is what admission wrote down and nothing else it went and looked up.
+ * Exactly what was enqueued and nothing more. An alias rather than a second list of the same
+ * fields, because the two being identical is the point: what a worker runs is what admission wrote
+ * down, including the turn id it will write its events under, and nothing it went and looked up.
  */
-export type LeasedTurnRequest = EnqueueTurnRequest & { id: string };
+export type LeasedTurnRequest = EnqueueTurnRequest;
 
 /**
  * What a renewal found.
@@ -101,12 +120,16 @@ export type CancelOutcome =
 
 export interface TurnQueue {
   /**
-   * Records the intent to execute, durably, and answers with the request's id.
+   * Records the intent to execute, durably.
    *
    * Called at admission on whichever process took the HTTP request. It does not wait for the work
-   * and cannot report on it: what the caller gets is "written down", not "started".
+   * and cannot report on it: what the caller learns is "written down", not "started".
+   *
+   * It answers nothing, deliberately. The id is the caller's — it allocated one before calling so
+   * that the Turn's identity is durable ahead of any execution — and handing the same value back
+   * would suggest the queue had a say in it.
    */
-  enqueue(request: EnqueueTurnRequest): Promise<{ id: string }>;
+  enqueue(request: EnqueueTurnRequest): Promise<void>;
 
   /**
    * Takes the oldest claimable request and leases its session to `owner`, or answers `null`.

@@ -362,7 +362,15 @@ export const turnRequestKind = pgEnum("turn_request_kind", TURN_REQUEST_KINDS);
 export const turnRequests = pgTable(
   "turn_requests",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    /**
+     * Also the turn id of the first Turn this request becomes.
+     *
+     * **No default, deliberately.** Admission allocates the id before the insert, because the
+     * identity of the work has to be durable ahead of any execution of it; a database-side default
+     * would let a caller that forgot silently get a row whose id names no Turn in the event log.
+     * Without one, forgetting is a not-null violation. See `docs/scaling-design.md` §6.
+     */
+    id: uuid("id").primaryKey(),
     sessionId: uuid("session_id")
       .notNull()
       .references(() => sessions.id, { onDelete: "cascade" }),

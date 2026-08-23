@@ -231,7 +231,12 @@ export type SingleAgentRuntimeOptions = {
   verification?: "arbitrate" | "trust";
   /** Injected so a test can assert on whole events rather than on everything but the clock. */
   now?: () => string;
-  /** Injected for the same reason: a turn id a test can predict. */
+  /**
+   * Injected for the same reason: a turn id a test can predict.
+   *
+   * **Repairs only.** A turn's own id arrives with the request — see `TurnRequest.turnId` — so the
+   * only ids this runtime still allocates are the ones for Turns nobody asked for by name.
+   */
   newTurnId?: () => string;
   /** The port the project's dev server listens on. Defaults to the template's. */
   previewPort?: number;
@@ -298,7 +303,7 @@ export class SingleAgentRuntime implements Runtime {
    * every `await`, including the ones that outlive the request that started it.
    */
   async #runTurn(request: TurnRequest): Promise<TurnOutcome> {
-    const turnId = this.#newTurnId();
+    const { turnId } = request;
     return await withLogContext(getLogger(), { sessionId: request.sessionId, turnId }, () =>
       this.#runTurnLogged(request, turnId),
     );
@@ -306,7 +311,7 @@ export class SingleAgentRuntime implements Runtime {
 
   /** The same log context a turn gets, around a lifecycle operation that has no turn id. */
   async #resume(sessionId: string, options: ContinueOptions): Promise<ResumeOutcome> {
-    const turnId = this.#newTurnId();
+    const turnId = options.turnId ?? this.#newTurnId();
     return await withLogContext(getLogger(), { sessionId, turnId }, () =>
       this.#resumeLogged(sessionId, turnId, options),
     );
@@ -437,8 +442,12 @@ export class SingleAgentRuntime implements Runtime {
       return;
     }
 
+    // Everything the continuation inherits except the resume's own turn id, which named the Turn
+    // that opened the project and names nothing this loop goes on to run.
+    const { turnId: _resumeTurnId, ...inherited } = options;
+
     const run: JobRun = {
-      settings: { sessionId: session.sessionId, ...options },
+      settings: { sessionId: session.sessionId, ...inherited },
       session,
       sink,
       sandboxId,
@@ -688,6 +697,11 @@ export class SingleAgentRuntime implements Runtime {
 
       run.repairs += 1;
       const attempt = run.repairs;
+      // A fresh id, and the only kind this runtime still allocates. A repair is a distinct Turn
+      // (docs/adr/0006) that shares the request's *lease* rather than its identity — the request
+      // id names the Turn it began, and a repair is not that Turn. Nothing outside needs to
+      // predict this one: the budget is counted from the log, so it survives a worker's death
+      // without a caller having had to hand these ids out in advance.
       const repairTurnId = this.#newTurnId();
       run.turn = this.#scopeFor(session, sink, settings.sessionId, repairTurnId);
       const repaired = failed;

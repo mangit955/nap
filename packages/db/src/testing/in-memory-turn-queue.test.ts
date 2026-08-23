@@ -15,8 +15,11 @@ beforeEach(() => {
   queue = new InMemoryTurnQueue({ now: () => now, leaseTtlMs: 60_000 });
 });
 
-function enqueue(sessionId: string, message = "do a thing") {
-  return queue.enqueue({
+async function enqueue(sessionId: string, message = "do a thing") {
+  // Admission's job, done here: the id names the first Turn and exists before the row does.
+  const id = crypto.randomUUID();
+  await queue.enqueue({
+    id,
     sessionId,
     userId: "user-1",
     kind: "turn",
@@ -24,6 +27,7 @@ function enqueue(sessionId: string, message = "do a thing") {
     model: "openai/gpt-5-mini",
     billsToUser: false,
   });
+  return { id };
 }
 
 describe("claim", () => {

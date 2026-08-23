@@ -7,7 +7,7 @@ import type {
   TurnOutcome,
   TurnRequest,
 } from "@nap/shared/ports/runtime";
-import type { TurnQueue } from "@nap/shared/ports/turn-queue";
+import type { EnqueueTurnRequest, TurnQueue } from "@nap/shared/ports/turn-queue";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type RunningTurns, startTurnWorker, type TurnWorker } from "./turn-worker.ts";
 
@@ -137,11 +137,26 @@ function start(
   return worker;
 }
 
+/**
+ * What admission does, in a test: allocate the turn id first, then write the row down.
+ *
+ * The id is the caller's because it is the first Turn's id — see `EnqueueTurnRequest.id` — so a
+ * test standing in for the API pod has to stand in for that too.
+ */
+async function enqueue(
+  queue: InMemoryTurnQueue,
+  request: Omit<EnqueueTurnRequest, "id">,
+): Promise<{ id: string }> {
+  const id = crypto.randomUUID();
+  await queue.enqueue({ id, ...request });
+  return { id };
+}
+
 function enqueueTurn(
   queue: InMemoryTurnQueue,
   overrides: { sessionId?: string; message?: string; billsToUser?: boolean } = {},
 ) {
-  return queue.enqueue({
+  return enqueue(queue, {
     sessionId: overrides.sessionId ?? "session-a",
     userId: "user-1",
     kind: "turn",
@@ -167,6 +182,38 @@ describe("running a claimed request", () => {
     expect(runtime.turns[0]?.signal).toBeInstanceOf(AbortSignal);
     // Nobody paid for this one themselves, so nothing was opened and nothing is passed.
     expect(runtime.turns[0]?.credentials).toBeUndefined();
+  });
+
+  it("runs the turn under the request's own id", async () => {
+    // The identity of the work is allocated at admission and never re-invented here. Without this
+    // the janitor could not close out a turn its worker died holding: the row would name one thing
+    // and the events another, and nothing outside the dead process would know which.
+    const queue = new InMemoryTurnQueue();
+    const runtime = new RecordingRuntime();
+    start(queue, runtime);
+    const { id } = await enqueueTurn(queue);
+
+    await vi.waitFor(() => expect(runtime.turns).toHaveLength(1));
+    expect(runtime.turns[0]?.turnId).toBe(id);
+  });
+
+  it("runs a resume under the request's own id too", async () => {
+    // Same rule, different kind: a resume may continue a job and write events of its own, so it
+    // needs to be as nameable from outside as a turn is.
+    const queue = new InMemoryTurnQueue();
+    const runtime = new RecordingRuntime();
+    start(queue, runtime);
+    const { id } = await enqueue(queue, {
+      sessionId: "session-a",
+      userId: "user-1",
+      kind: "resume",
+      message: null,
+      model: "openai/gpt-5-mini",
+      billsToUser: false,
+    });
+
+    await vi.waitFor(() => expect(runtime.resumes).toHaveLength(1));
+    expect(runtime.resumes[0]?.options?.turnId).toBe(id);
   });
 
   it("settles the request done when the turn completes", async () => {
@@ -221,7 +268,7 @@ describe("running a claimed request", () => {
     const queue = new InMemoryTurnQueue();
     const runtime = new RecordingRuntime();
     start(queue, runtime);
-    const { id } = await queue.enqueue({
+    const { id } = await enqueue(queue, {
       sessionId: "session-a",
       userId: "user-1",
       kind: "resume",
@@ -243,7 +290,7 @@ describe("running a claimed request", () => {
     const queue = new InMemoryTurnQueue();
     const runtime = new RecordingRuntime();
     start(queue, runtime);
-    const { id } = await queue.enqueue({
+    const { id } = await enqueue(queue, {
       sessionId: "session-a",
       userId: "user-1",
       kind: "resume",
@@ -268,7 +315,7 @@ describe("running a claimed request", () => {
     const runtime = new RecordingRuntime();
     start(queue, runtime, { concurrency: 4 });
     await enqueueTurn(queue, { sessionId: "session-a" });
-    await queue.enqueue({
+    await enqueue(queue, {
       sessionId: "session-a",
       userId: "user-1",
       kind: "resume",

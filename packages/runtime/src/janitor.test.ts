@@ -41,7 +41,11 @@ function sweep() {
 }
 
 async function enqueue(sessionId = SESSION, kind: "turn" | "resume" = "turn") {
-  return await queue.enqueue({
+  // Allocated here as admission allocates it: the request's id is the turn id its events go under,
+  // which is the whole reason the janitor below can close out a turn it never ran.
+  const id = crypto.randomUUID();
+  await queue.enqueue({
+    id,
     sessionId,
     userId: "user-1",
     kind,
@@ -49,6 +53,7 @@ async function enqueue(sessionId = SESSION, kind: "turn" | "resume" = "turn") {
     model: "openai/gpt-5-mini",
     billsToUser: false,
   });
+  return { id };
 }
 
 /** A request a worker claimed and then died holding. */

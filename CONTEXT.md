@@ -86,6 +86,10 @@ an API pod at admission, claimed by exactly one worker, terminal exactly once �
 may drive a job through several turns — the prompt and its repairs. It carries *whether* the asker
 pays, never their key, so no credential is ever in that table. A request is claimed at most once,
 which is what makes queue delivery at-least-once and logical turn execution at-most-once.
+**Its id is also the turn id of the first Turn it becomes**, allocated at admission before the row
+is inserted — which is how the janitor, on a pod that never ran the turn, can close out the right
+one. A *repair* is a distinct Turn with an id of its own: it shares the request's lease, not its
+identity.
 
 **Lease** — a worker's time-bounded, exclusive claim on a session, and what replaces the in-process
 `SessionQueue`. Held by at most one worker per session cluster-wide, enforced by the partial unique

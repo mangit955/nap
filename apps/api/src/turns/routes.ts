@@ -165,9 +165,16 @@ export function registerTurnRoutes(
     // and leave the bar saying "Untitled project" until something else refreshed it.
     await nameFromFirstPrompt(deps, found.value, c.get("userId"), body.data.message);
 
+    // The turn's identity, allocated here and durable a line later. It is the request's id *and*
+    // the turn id every event of this turn is written under, which is what lets the janitor close
+    // out a turn whose worker died without it, on a pod that never ran one. See
+    // `docs/scaling-design.md` §6.
+    const id = crypto.randomUUID();
+
     // Where admission ends. Durable before the response is written, so a pod that dies in the next
     // millisecond costs the turn a delay rather than the turn itself.
-    const { id } = await deps.queue.enqueue({
+    await deps.queue.enqueue({
+      id,
       sessionId,
       userId: c.get("userId"),
       kind: "turn",

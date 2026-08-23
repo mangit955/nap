@@ -24,6 +24,9 @@ import { projects, sessions, turnRequests, users } from "./schema.ts";
  * own rows.
  */
 
+/** Postgres's not-null violation, asserted on by code rather than by message text. */
+const NOT_NULL_VIOLATION = "23502";
+
 let sql: postgres.Sql;
 let db: PostgresJsDatabase;
 let queue: PostgresTurnQueue;
@@ -67,7 +70,10 @@ async function enqueueTurn(
   seed: { sessionId: string; userId: string },
   message = "build me a thing",
 ) {
-  return await queue.enqueue({
+  // The id is admission's to allocate, so a test standing in for admission allocates one too.
+  const id = randomUUID();
+  await queue.enqueue({
+    id,
     sessionId: seed.sessionId,
     userId: seed.userId,
     kind: "turn",
@@ -75,6 +81,7 @@ async function enqueueTurn(
     model: "openai/gpt-5-mini",
     billsToUser: false,
   });
+  return { id };
 }
 
 async function rowOf(id: string) {
@@ -91,11 +98,12 @@ async function expireLease(id: string): Promise<void> {
 }
 
 describe("enqueue", () => {
-  it("writes a queued request and answers with its id", async () => {
+  it("writes a queued request under the id it was given", async () => {
     const seed = await seedSession();
     const { id } = await enqueueTurn(seed);
 
     const row = await rowOf(id);
+    expect(row?.id).toBe(id);
     expect(row).toMatchObject({
       sessionId: seed.sessionId,
       userId: seed.userId,
@@ -108,6 +116,20 @@ describe("enqueue", () => {
       startedAt: null,
       finishedAt: null,
     });
+  });
+
+  it("refuses a row with no id, because the column has no default to fall back on", async () => {
+    // The whole point of dropping the default. The id is the first Turn's turn id and has to be
+    // allocated before the insert, so that the identity of the work is durable ahead of any
+    // execution of it. With a `defaultRandom()` here, a caller that forgot would get a perfectly
+    // good row whose id names no Turn in the event log — and the janitor would close the wrong
+    // thing, or nothing. Without one, forgetting is a not-null violation.
+    const seed = await seedSession();
+
+    await expect(
+      sql`insert into turn_requests (session_id, user_id, kind, model)
+          values (${seed.sessionId}::uuid, ${seed.userId}::uuid, 'turn', 'openai/gpt-5-mini')`,
+    ).rejects.toMatchObject({ code: NOT_NULL_VIOLATION });
   });
 });
 

@@ -97,7 +97,15 @@ function green(): void {
   sandbox.script(/bun run typecheck/, { exitCode: 0, stdout: "", stderr: "" });
 }
 
-function open() {
+/**
+ * The turn id the resume request carries — the id of the row `POST /projects/:id/open` inserted.
+ *
+ * A resume is a queued request like any other, so its events are written under its own id and not
+ * under the dead turn's. That is what makes the two distinguishable in the log at all.
+ */
+const RESUME_TURN = "b1e5c0de-2222-4333-8444-555566667777";
+
+function open(turnId = RESUME_TURN) {
   return new SingleAgentRuntime({
     sessions,
     sandbox,
@@ -106,7 +114,7 @@ function open() {
     events,
     bus: new InMemoryEventBus(),
     memory: new NoopMemoryProvider(),
-  }).resumeSession(SESSION_ID);
+  }).resumeSession(SESSION_ID, { turnId });
 }
 
 async function log(): Promise<StoredEvent[]> {
@@ -160,6 +168,27 @@ describe("a job whose turn died before it committed", () => {
     expect(agent.calls).toBe(0);
     const state = await jobs();
     expect(state.jobs.at(-1)?.phase).toBe("unverified");
+  });
+
+  it("opens no second job for it, however many times the project is opened", async () => {
+    // The at-most-once execution guarantee, seen from the log. Delivery may be at-least-once and
+    // a human may click open as often as they like; what must never happen is the same objective
+    // becoming two jobs, which is two verification budgets and two of somebody's commits under
+    // one request. Nothing requeues the dead request, and a continuation folds the log and asks
+    // what the *job* still needs rather than re-running anything.
+    await seedLog(started(), { type: "turn.started", payload: { source: "user" } });
+
+    await open();
+    await open("d2f0a1b2-3333-4444-8555-666677778888");
+
+    const types = (await log()).map((event) => event.type);
+    expect(countOf(types, "job.started")).toBe(1);
+    expect(countOf(types, "turn.started")).toBe(1);
+    expect(agent.calls).toBe(0);
+    // And what the first open wrote is attributable to the request that asked for it, rather
+    // than to the turn that died — which is how the two are told apart at all.
+    const closing = (await log()).filter((event) => event.type === "job.completed");
+    expect(closing.map((event) => event.turnId)).toEqual([RESUME_TURN]);
   });
 });
 

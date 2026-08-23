@@ -8,7 +8,14 @@
  * same system with this loop not started. Nothing here knows which, and that is the point — the
  * queue is the only thing the two halves share.
  *
- * Four things here are load-bearing.
+ * Five things here are load-bearing.
+ *
+ * **Queue delivery may be at-least-once; logical Turn execution is at-most-once.** Nothing here
+ * retries a request and nothing puts one back on the queue, so a worker that dies mid-turn leaves a
+ * partial log rather than a turn that ran twice — and the request's own id is the turn id its events
+ * were written under, which is how the janitor closes out a Turn it never ran. That trade is only
+ * affordable because a partial log is a first-class input: `foldJobs` reads one and a human
+ * reopening the project continues from it. See `docs/scaling-design.md` §6.
  *
  * **A lease is renewed, and losing it is fatal.** A worker can outlive its lease through a GC
  * pause, a Postgres blip or a partition, and would then keep appending to a session another worker
@@ -227,6 +234,9 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
 
     if (request.kind === "resume") {
       const outcome = await runtime.resumeSession(request.sessionId, {
+        // The request's id *is* the turn id its events go under, so a janitor closing this out
+        // later can name the same Turn without having run it.
+        turnId: request.id,
         model: request.model,
         // A resume that continues a job runs turns, so it answers to the lease exactly as a turn
         // does. Without the signal the `AbortController` above would be wired to nothing on this
@@ -247,6 +257,7 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
 
     const outcome = await runtime.runTurn({
       sessionId: request.sessionId,
+      turnId: request.id,
       message: request.message,
       signal,
       model: request.model,

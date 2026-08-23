@@ -17,6 +17,17 @@ import type { ModelCredentials } from "./llm-provider.ts";
 
 export type TurnRequest = {
   sessionId: string;
+  /**
+   * The id this turn's events are written under, allocated by the caller.
+   *
+   * Passed in rather than generated here, because the turn's identity has to exist before the
+   * turn does: the queue row admission writes *is* this id, so the janitor can close the right
+   * Turn for a worker that died without ever having run one. Anything driving the runtime
+   * directly — the harness, the benchmark — allocates its own.
+   *
+   * It names the turn this request *begins*. A repair is a distinct Turn and takes a fresh id.
+   */
+  turnId: string;
   message: string;
   signal?: AbortSignal;
   /** Which model to run on. Absent is the deployment's default; the route validates it. */
@@ -74,6 +85,14 @@ export type ResumeOutcome =
  * quietly pay for the repair loop of a user who brought their own key.
  */
 export type ContinueOptions = {
+  /**
+   * The id the resume's own events are written under — the same rule a turn's `turnId` follows,
+   * and for the same reason: a resume is a queued request too, and its row's id is this.
+   *
+   * Optional only because `resumeSession` is reachable from places no queue admitted, such as a
+   * test or a script. A resume that came off the queue always carries one.
+   */
+  turnId?: string | undefined;
   model?: string | undefined;
   credentials?: ModelCredentials | undefined;
   /**

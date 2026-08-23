@@ -212,6 +212,7 @@ describe("an API pod and a worker pod over one database", () => {
     const api = pod("api", userId);
     const elsewhere = new PostgresTurnQueue(db);
     await elsewhere.enqueue({
+      id: crypto.randomUUID(),
       sessionId,
       userId,
       kind: "turn",

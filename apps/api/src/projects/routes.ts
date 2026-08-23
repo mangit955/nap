@@ -238,7 +238,13 @@ export function registerProjectRoutes(
       return c.json({ error: access.message, code: access.code }, refusalStatus(access.code));
     }
 
-    const { id } = await deps.queue.enqueue({
+    // The same rule a turn follows: the request's id is the turn id its events go under, allocated
+    // before the row exists. A resume is a Turn like any other here — it may continue a job, and
+    // whatever it writes has to be attributable to something the janitor can name.
+    const id = crypto.randomUUID();
+
+    await deps.queue.enqueue({
+      id,
       sessionId,
       userId: c.get("userId"),
       kind: "resume",

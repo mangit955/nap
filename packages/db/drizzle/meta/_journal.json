@@ -50,6 +50,13 @@
       "when": 1787241163470,
       "tag": "0006_heavy_xavin",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1787448830005,
+      "tag": "0007_early_molten_man",
+      "breakpoints": true
     }
   ]
 }

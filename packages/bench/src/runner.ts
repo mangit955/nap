@@ -271,7 +271,14 @@ export async function runBenchTask(
   // failure would measure the agent against a workspace the prompt does not describe — and pay
   // for the turn to do it.
   for (const prompt of task.prompts) {
-    const outcome = await runtime.runTurn({ sessionId, message: prompt, model: deps.model });
+    // Allocated here because nothing queued this: a benchmark drives the runtime directly, so it
+    // stands in for the admission that would otherwise have named the turn.
+    const outcome = await runtime.runTurn({
+      sessionId,
+      turnId: crypto.randomUUID(),
+      message: prompt,
+      model: deps.model,
+    });
     turnId = outcome.turnId;
 
     if (!outcome.ok) {
