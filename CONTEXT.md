@@ -89,15 +89,18 @@ which is what makes queue delivery at-least-once and logical turn execution at-m
 **Its id is also the turn id of the first Turn it becomes**, allocated at admission before the row
 is inserted — which is how the janitor, on a pod that never ran the turn, can close out the right
 one. A *repair* is a distinct Turn with an id of its own: it shares the request's lease, not its
-identity.
+identity. Why the queue is a table rather than a broker is `docs/adr/0009`.
 
-**Lease** — a worker's time-bounded, exclusive claim on a session, and what replaces the in-process
-`SessionQueue`. Held by at most one worker per session cluster-wide, enforced by the partial unique
-index `unique (session_id) where state = 'leased'` rather than by application logic — two callers in
+**Lease** — a worker's time-bounded, exclusive claim on a session, and what took over from the
+in-process `SessionQueue` as the thing that makes a session's turns serial. The `SessionQueue` is
+still there and is now a *second, in-process line* rather than the only rope: it serialises two
+turns that happen to land in one process, and it could never have serialised two processes. Held by
+at most one worker per session cluster-wide, enforced by the partial unique index `unique (session_id) where state = 'leased'` rather than by application logic — two callers in
 two processes cannot agree about anything a database is not adjudicating. Renewed on a timer, and
 **renewal is conditional on the request id, the owner and the state**: renewing is how a worker asks
 whether it is still allowed to run, and zero rows back means the lease is gone and the turn must be
-aborted at once. Losing a lease never requeues the request.
+aborted at once. Losing a lease never requeues the request — see `docs/adr/0009` for why there is
+no requeue path at all.
 
 **Janitor** — what closes out a turn request whose worker never came back, as distinct from the
 **reaper**, which puts away projects nobody is looking at. It waits past the lease's **grace
@@ -134,7 +137,8 @@ somebody asking for one turn to stop.
 **Fanout** — delivery of an already-persisted event to whichever API pods hold subscribers for its
 session. Strictly after the append, as it has always been. **A notification is a wake-up signal; the
 durable log is the delivery** — a lost notification costs latency and never costs an event, because
-the catch-up read is what actually hands anything to a socket.
+the catch-up read is what actually hands anything to a socket. The notification carries
+`{sessionId, seq}` and never a payload; see `docs/adr/0010`.
 
 **Event** — one durable, ordered fact about a session, identified by its `seq`. Appended to the
 store *before* it is published to the bus, never the other way round.

@@ -100,9 +100,10 @@ const BaseSchema = z.object({
    * every process reads the events from the durable log, which works whatever the replica count
    * is.
    *
-   * **Defaults to `in-process`, deliberately**, so the deployment that exists keeps working
-   * exactly as it did while the other one is proven. Turning it on is a prerequisite for
-   * retiring the one-replica rule in `docs/DEPLOY.md`, not a substitute for the rest of it.
+   * **Defaults to `in-process`, deliberately**, so the single-container deployment that exists
+   * keeps working exactly as it did. Scaling a deployment past one replica means setting this
+   * *and* raising the replica count; doing only the second is the failure `docs/DEPLOY.md` used to
+   * forbid outright. The Kubernetes manifests set it. See `docs/adr/0010`.
    */
   NAP_EVENT_BUS: z.enum(["in-process", "postgres"]).default("in-process"),
   /**

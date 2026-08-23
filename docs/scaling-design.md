@@ -1,12 +1,28 @@
 # Scaling Nap to 100 concurrent turns
 
-**Status: design resolved, reviewed, and settled. Nothing is built.** No Kubernetes manifests, no
-migrations, no runtime changes. §19 is the migration sequence that turns this into code, and step 0
-of it has not started.
+**Status: delivered.** Every step of §20 is built, including step 12 — this document is now the
+*record of the design*, not a plan. It is still cited from shipped source and is still the place the
+queue's semantics, the state machines and the invariants are written down; read it for those.
 
-The goal is not "run Nap on Kubernetes". It is: horizontally scale Nap while preserving durable
+The goal was not "run Nap on Kubernetes". It was: horizontally scale Nap while preserving durable
 event ordering, Job correctness, checkpoint semantics, sandbox isolation, cancellation and bounded
-spend — and then prove it with a reproducible 100-concurrent k6 run.
+spend — and then prove it with a reproducible 100-concurrent k6 run. What that run measured, and
+which of the §21 invariants it did and did not demonstrate, is `docs/scaling-cluster.md`.
+
+**Where a section and the code disagree, the code won and an ADR says why.** Three things changed on
+the way, and each is recorded rather than edited over:
+
+- **The queue is a table and not a broker**, and there is no requeue path — `docs/adr/0009`, which
+  also has the alternatives §5 does not.
+- **Fanout is notify-then-read, with the poll as a durability backstop rather than an
+  optimisation** — `docs/adr/0010`, which is §8's trade-off table plus what the cluster run made of
+  it.
+- **`docs/DEPLOY.md`'s one-replica rule is retired**, which was the point of the whole exercise;
+  what replaced each of its four reasons is in that document, under *Scaling*.
+
+Smaller corrections are marked in place: §5's single-statement claim (the shipped claim is two
+statements in one transaction, for a reason the source states), §15's `NAP_DRAIN_TIMEOUT` naming,
+§24's answered questions.
 
 ---
 
@@ -64,8 +80,10 @@ the sandbox directly (`apps/api/src/files/routes.ts:94`). Stateless does not mea
 ### Deployment today
 
 One Railway container, `numReplicas: 1` pinned in `railway.json`, Neon Postgres, R2, E2B,
-OpenRouter. `docs/DEPLOY.md` documents the one-replica rule and *why* — every reason in it is one of
-the rows above, and retiring that rule is the last step of §19.
+OpenRouter. `docs/DEPLOY.md` documented the one-replica rule and *why* — every reason in it is one
+of the rows above, and retiring it was the last step of §20. *(Retired. That document now records
+what replaced each of the four reasons; Railway still runs one replica per process, as a sizing
+choice.)*
 
 ---
 
@@ -213,6 +231,13 @@ returning *;
 A unique violation (`23505`) on `turn_requests_one_leased_per_session` means another worker holds
 that session — skip it, try the next candidate. **The constraint is the mechanism, not a backstop**,
 the same posture the repo already takes with `unique(session_id, seq)`.
+
+**Shipped as two statements in one transaction, not the one above.** "Try the next candidate" needs
+to know which candidate it was about to take, and the single-statement form aborts the transaction
+without ever saying. Selecting the candidate first — still `for update skip locked`, so the row is
+held for the transaction — makes the id known before the update that may violate the index. The lock
+and the index behave identically; `packages/db/src/postgres-turn-queue.ts` states it beside the
+code.
 
 There is **no `attempts` column and no requeue path.** A request is claimed at most once. That is
 §6's at-most-once execution guarantee, expressed in the schema.
@@ -854,8 +879,8 @@ Steps 1–9 all ship to the current Railway deployment unchanged.
 | 12 | Retire the one-replica rule in `docs/DEPLOY.md`; write both ADRs | — | The docs describe reality |
 
 **Two ADRs at step 12** — each is hard to reverse, surprising without context, and the result of a
-real trade-off: *turns execute on workers behind a Postgres queue*, and *event fanout is
-notify-then-read with the log as the delivery*.
+real trade-off: *turns execute on workers behind a Postgres queue* (`docs/adr/0009`), and *event
+fanout is notify-then-read with the log as the delivery* (`docs/adr/0010`).
 
 ---
 
@@ -1072,15 +1097,20 @@ it is found.** If nothing degrades by 100 VUs, the ramp continues until somethin
 
 ---
 
-## 24. Unresolved
+## 24. Unresolved — all six now answered
 
-Open questions that do not block starting at step 0, but must be answered before the step they name.
+These were open questions that did not block starting at step 0 but had to be answered before the
+step they name. **Each is answered below**, in place and where the answer was found; none was
+answered by this section being edited to agree with the code.
 
 1. **`NAP_WORKER_CONCURRENCY`'s real value** — 5 is a guess. Step 0's baseline sets it. *(Before step
-   10.)*
+   10.)* **Answered at step 0**, in `docs/scaling-baseline.md` — the shipped default is 25, and
+   deliberately below what that run licenses.
 2. **Catch-up poll cost at 100 sessions.** 2s × 100 sessions is 50 queries/second of pure overhead if
    every session is polled independently. It should be one batched query per pod per tick, not one
-   per session — measured at step 2.
+   per session — measured at step 2. **Answered, and built that way**: the poll is one query for
+   every session a process is streaming, which is what `EventTailReader` exists for. Measured in
+   `docs/scaling-baseline.md`.
 3. **Whether the reaper should hold the janitor at all.** It is a third responsibility in a process
    that already has two, and its timing requirements (30s grace) are tighter than the idle sweep's
    (60s). A separate ticker inside the same pod is probably right; confirm at step 8.
@@ -1088,11 +1118,21 @@ Open questions that do not block starting at step 0, but must be answered before
    `apps/api/src/compose.ts` beside the janitor it decides.
 4. **`hashtext` collisions.** `pg_advisory_xact_lock(hashtext(session_id))` maps uuids into int4, so
    two unrelated sessions can serialize on one lock. Contention, not corruption — noted so nobody
-   "fixes" it in a panic, but worth measuring at 100 concurrent sessions in step 0.
+   "fixes" it in a panic, but worth measuring at 100 concurrent sessions in step 0. **Measured at
+   step 0** (`docs/scaling-baseline.md`): no measurable contention, and none expected — at 1,200
+   sessions a collision is predicted once in every ~6,000 runs and costs two sessions ~0.2ms.
 5. **Whether `/readyz` should fail on a lost LISTEN connection or merely warn.** Failing it removes a
    pod that can still serve HTTP and can still replay from the log — the poll covers fanout. Leaning
    toward: fail, because a pod with a dead LISTEN has 2s-latency streaming and another pod does not.
-   Decide at step 2.
+   Decide at step 2. **Decided as the lean: it fails.** `/livez` deliberately does not, and the
+   listener proves itself by hearing its own notifications rather than by assumption — three missed
+   intervals, not one. See `docs/adr/0010` and `docs/DEPLOY.md`.
 6. **k6 authentication against a deployed cluster.** The demo door works, but a deployed confirmation
    run creates 100 anonymous users and 100 projects per run. Needs a teardown path or a test-only
-   tenancy. *(Before step 11.)*
+   tenancy. *(Before step 11.)* **Answered as a teardown path, and the test-only tenancy was
+   deliberately rejected**: the value of the demo door is that k6 goes through the real admission
+   path, and a load-test-only branch in it is the one path a load test would never exercise.
+   `bun run loadgen:teardown` is it, and it cannot tell a load run's identity from a real visitor's
+   — which is why it needs `--confirm` and an explicit window. Step 11 also found the *real* obstacle
+   this question was circling, which nobody predicted: the demo door is rate-limited per IP and a
+   load generator is one IP. See `docs/scaling-cluster.md`.

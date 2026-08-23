@@ -9,8 +9,8 @@ API is the one that holds all the state and spends all the money.
 | Piece | Where | Notes |
 |---|---|---|
 | `apps/web` | Vercel | Next 16, root directory `apps/web` |
-| `apps/api` | Railway | This repo's `Dockerfile`, **one replica as deployed** — see below |
-| `apps/api`'s worker | Railway | The *same image*, started as `bun apps/api/src/worker.ts` |
+| `apps/api` | Railway | This repo's `Dockerfile`, **one replica as deployed, which is a choice and no longer a rule** — see below |
+| `apps/api`'s worker | Railway | The *same image*, started as `bun apps/api/src/worker.ts`. Also one as deployed, also scalable |
 | `apps/api`'s reaper | Railway | The same image again, `bun apps/api/src/reaper.ts`, **exactly one replica** |
 | Postgres | Neon | A database of its own, not the development one |
 | Object storage | Cloudflare R2 | Snapshots of projects nobody is using |
@@ -23,8 +23,8 @@ The binary is split (`docs/scaling-design.md` §4 and §13). One image, three co
 
 | | Command | Serves | Executes | Replicas |
 |---|---|---|---|---|
-| API | `bun apps/api/src/index.ts` (the Dockerfile's default) | HTTP, WebSockets, auth, admission | nothing | one here; see the replica rule below |
-| Worker | `bun apps/api/src/worker.ts` | nothing | turns | one here; see the replica rule below |
+| API | `bun apps/api/src/index.ts` (the Dockerfile's default) | HTTP, WebSockets, auth, admission | nothing | as many as you like; one on Railway today |
+| Worker | `bun apps/api/src/worker.ts` | nothing | turns | as many as you like; one on Railway today |
 | Reaper | `bun apps/api/src/reaper.ts` | nothing | the idle sweep, capacity reconciliation, the rate-event sweep, the janitor | **exactly one** |
 
 All three call `bootNap` in `apps/api/src/boot.ts` and differ only by the role they pass, so
@@ -42,57 +42,56 @@ a question about queue depth. One thing must be true first:
   than letting that be discovered from the browser — the reaper publishes too, when it stops a
   preview or closes out an interrupted turn. See below for the `LISTEN` pooler caveat.
 
-**The reaper is one replica and says so twice.** Set `numReplicas: 1` *and* leave it alone: a
-second one would snapshot and destroy the same project at the same moment, the second teardown
-landing on a sandbox that is already gone. A rolling update runs two for a few seconds whatever
-the replica count says, so the process also takes a `pg_try_advisory_lock` on a connection of
-its own and skips any tick it does not hold. That lock is session state, so behind a pooler it
-needs `NAP_LISTEN_DATABASE_URL` for the same reason `LISTEN` does.
+**The reaper is one replica and says so twice** — `numReplicas: 1` *and* an advisory lock, for the
+reasons below.
 
 Locally, `bun run dev`, `bun run dev:worker` and `bun run dev:reaper` are the three, against one
 database and one `apps/api/.env`.
 
-## The rule that matters most: one replica
+## Scaling: the rule that used to be here, and what replaced it
 
-**Do not scale the API past one instance while `NAP_EVENT_BUS` is `in-process`**, which is
-the default and what is deployed:
+This document forbade scaling the API past one instance, and gave four reasons: the in-process bus,
+the in-memory registry and queue, the per-process rate limiter, and the in-process reaper. **Four of
+the five things in that list were retired outright; the fifth was moved rather than removed.** The
+reaper is still exactly one — what changed is that it is now a process of its own instead of a
+`setInterval` inside every API pod, which is what let the other four go. None of them was retired by
+somebody deciding the risk was acceptable. The proof is a run, not a paragraph: `docs/scaling-cluster.md` is the k6 ramp to 100
+concurrent turns against three API pods, two-to-four workers and one reaper, with both autoscalers
+live. **Its figures live there and are not repeated here.**
 
-- `InProcessEventBus` (`packages/db/src/in-process-event-bus.ts`) fans out events to
-  WebSocket subscribers *inside one process*. A browser connected to instance A would never
-  see a turn that ran on B — the chat would simply stop moving. **This one has a fix, and
-  it is off by default** — see below.
-- `TurnRegistry` is in memory and lives in the worker. It is now only a *fast path* for
-  cancelling a turn that happens to be running in the process the request landed on;
-  cancellation itself is a row, and reaches a turn on any pod within one lease renewal. Nothing
-  else reads it: "is this session busy?", which close, delete and the idle sweep ask, is a
-  `state = 'leased'` query against `turn_requests` and means the same thing everywhere.
+| The old reason | What replaced it |
+|---|---|
+| **The in-process bus** — `InProcessEventBus` fanned events out to sockets inside one process, so a browser on pod A never saw a turn that ran on B | `PostgresNotifyEventBus`, under `NAP_EVENT_BUS=postgres`. The notification carries `{sessionId, seq}` and the pod reads the events out of the durable log; a 2s catch-up poll makes the notification optional for correctness. See `docs/adr/0010` |
+| **The in-memory registry** — `TurnRegistry` meant a cancel landing on pod A could not reach a turn on pod B, and `isBusy` went blind | Cancellation is a row. `cancel_requested` on `turn_requests` reaches an executing turn on any pod within one lease renewal (≤15s); the registry survives only as the same-process fast path. **Busy** is `TurnQueue.anyLeased` — a `state = 'leased'` query — so close, delete and the idle sweep all get the same answer cluster-wide |
+| **The in-memory queue** — `SessionQueue` serialised a session's turns inside one process, so two pods would run two turns for one session and the project would end up with two sandboxes | `turn_requests` plus per-session **leases**, exclusive by the partial unique index `unique (session_id) where state = 'leased'`. One in-flight turn per session cluster-wide, adjudicated by Postgres rather than by every caller remembering. See `docs/adr/0009` |
+| **The per-process rate limiter** — N pods meant N times the free-tier allowance | `turn_rate_events`: one row per accepted turn, counted over a rolling hour in Postgres. `NAP_FREE_TURNS_PER_HOUR=5` means five whether one process is running or twelve. The sandbox ceiling moved the same way, to `sandbox_reservations` taken *before* creation |
+| **The in-process reaper** — N pods meant N concurrent sweeps tearing the same project down twice | **Not retired: moved.** The sweeps left the API process entirely and became `apps/api/src/reaper.ts`, of which there is exactly one. That is what makes the row above it safe to scale — see below |
 
-**The reaper is the piece that must be exactly one**, whatever else scales. It is what
-snapshots an idle project and destroys its sandbox — the only thing standing between an
-abandoned tab and an E2B bill — and it also reconciles the sandbox ceiling, reclaiming slots
-held by a process that died mid-creation and destroying sandboxes E2B is running that no
-project references. Two of them would do all of that twice.
+**The reaper is still exactly one, and that pin is permanent.** It is what snapshots an idle
+project and destroys its sandbox — the only thing standing between an abandoned tab and an E2B
+bill — and it also reconciles the sandbox ceiling, reclaiming slots held by a process that died
+mid-creation and destroying sandboxes E2B is running that no project references. Two of them would
+do all of that twice, the second teardown landing on a sandbox that is already gone. A rolling
+update runs two for a few seconds whatever the replica count says, so it also takes a
+`pg_try_advisory_lock` and skips any tick it does not hold.
 
 That also rules out anything that sleeps the *reaper*: a sleeping one is not reaping while the
-sandboxes it should have cleaned up keep billing. `railway.json` pins `numReplicas: 1`; leave
-app sleeping off on every service.
+sandboxes it should have cleaned up keep billing. Leave app sleeping off on every service.
 
-The event log itself is durable and ordered in Postgres, so a *restart* loses nothing — a
-client reconnects with `?afterSeq=` and gets exactly the gap. It is concurrency that breaks
-this, not restarts.
+**What is deployed is still one API and one worker, and that is now a sizing choice.**
+`railway.json` pins `numReplicas: 1`, and `NAP_EVENT_BUS` still defaults to `in-process` — so
+scaling *this* deployment is two edits, not one. **Raising the replica count without setting the
+event bus is exactly the failure the old rule described**, and nothing will tell you: the turns run
+and the chat panes stop moving. The multi-pod shape lives in `infra/k8s/`, where both are set in the
+manifests.
 
-### The fanout half of it, and how to turn it on
+The event log is durable and ordered in Postgres, so a restart loses nothing either: a client
+reconnects with `?afterSeq=` and gets exactly the gap.
 
-`NAP_EVENT_BUS=postgres` swaps `InProcessEventBus` for `PostgresNotifyEventBus`, which
-announces `{sessionId, seq}` through `pg_notify` and lets every process read the events out of
-the durable log. That is the last of the per-process assumptions on the API and worker paths — the
-sandbox ceiling is reserved in Postgres, the turn allowance is counted there, "busy" is a lease and
-the sweeps live in a process of their own — so it is what a second API or worker replica waits on.
-**Nothing here has run more than one, and this document is not the permission to**: that is #62's
-call, made against a load run rather than a paragraph. `railway.json` pins `numReplicas: 1` on
-every service, and the reaper's pin is the one that is permanent.
+### Turning it on
 
-Two things to get right when you do turn it on:
+`NAP_EVENT_BUS=postgres` swaps `InProcessEventBus` for `PostgresNotifyEventBus`. Two things to get
+right when you do:
 
 - **`LISTEN` cannot go through a connection pooler.** It is session state, and a transaction
   pooler hands the next statement to whichever backend is free — so the `LISTEN` lands on a
@@ -106,6 +105,45 @@ Two things to get right when you do turn it on:
   still had. A `503` from `/readyz` with `{"checks":{"database":"ok","listener":"down"}}` means
   exactly this, and usually means the listener is going through the pooler.
 
+### What each process scales on
+
+Not CPU, for either of them, and for the same reason in two shapes: a turn is almost entirely
+waiting on the model and the sandbox, and an idle socket costs a file descriptor.
+
+| | Signal | Bound |
+|---|---|---|
+| Worker | **Queue depth** — `count(*) from turn_requests where state in ('queued','leased')`, divided by one pod's worth of work. KEDA's `postgresql` scaler, because a plain HPA cannot read Postgres | `maxReplicaCount` is derived from `NAP_MAX_SANDBOXES_TOTAL`, so **no autoscaler decision can outrun the thing that bounds the bill**. At the base ConfigMap's ceiling that derivation puts min and max both at 2, so the scaler is correctly wired and has nothing to move until the ceiling is raised |
+| API | **Open sockets** — `nap_ws_connections`, through Prometheus and prometheus-adapter, with CPU as a secondary trigger | Nothing but the replica count; API pods spend no money |
+
+`infra/k8s/base/scaledobject-worker.yaml` and `hpa-api.yaml` are those two, they carry the actual
+targets and windows, and `infra/k8s/README.md` says what each one guards — **read the values there
+rather than from a copy here.** The shape worth knowing without opening them: the way up is quick
+and the way down is slow, because removing a worker mid-turn is the same event as losing one and
+scaling in an API pod costs every socket on it a reconnect.
+
+### What happens when a pod goes away
+
+A worker between `SIGTERM` and exit **drains**: it stops claiming, keeps renewing the leases it
+already holds so the janitor does not orphan progressing work, and waits out
+`NAP_DRAIN_TIMEOUT_SECONDS` for the turns in flight. Past that the rest are aborted through their
+`AbortController` — a clean stop that commits nothing and closes each job *abandoned*, never a
+kill.
+
+**The platform's grace period must comfortably exceed that timeout**, or the drain is a kill and
+every turn in flight costs a human a reopen. The Kubernetes manifests set
+`terminationGracePeriodSeconds: 900` around a 600-second drain, and the pairing is asserted in
+`test/k8s.test.ts` rather than left to whoever edits one of them. The load run demonstrated the
+*mechanism* at a much shorter drain than the manifests' — it scaled workers away mid-plateau with
+turns in flight and lost none of them — which is evidence that draining works, and not evidence
+about the 900-around-600 arithmetic itself.
+
+An API pod is cheaper: stop accepting, close each socket with a normal close code, exit. Clients
+reconnect with `?afterSeq=` and lose nothing, because the log is the delivery.
+
+A worker that dies *without* a `SIGTERM` is the janitor's: past the lease's grace window it marks
+the request `orphaned` and writes the terminal event the interrupted turn never got, so the chat
+pane is told rather than spinning. It never requeues — nothing re-executes with nobody watching.
+
 ## First deployment
 
 ### 1. A production database
@@ -117,8 +155,10 @@ which still holds pre-authorization rows that belong to nobody.
 DATABASE_URL='<prod url>' bun run db:migrate
 ```
 
-Migrations are deliberately not run at boot: one replica per process would race, and a
-schema change is a decision rather than a side effect of a restart.
+Migrations are deliberately not run at boot: three processes racing one schema change is bad
+enough at one replica each and worse at a dozen, and a schema change is a decision rather than a
+side effect of a restart. On Kubernetes it is `infra/k8s/base/job-migrate.yaml`, for the same
+reason.
 
 ### 2. The API on Railway
 
@@ -267,9 +307,10 @@ for a 200 first. On Luna it costs a few cents.
 decides to restart or de-register a process, and neither helps when the thing that is down
 is Postgres. Read the body, not the status.
 
-That is the right answer for a human and for this one replica, and the wrong one for an
-orchestrator with other pods to send traffic to. Two endpoints exist for that case, and
-nothing polls them here — Railway's healthcheck stays on `/health`:
+That is the right answer for a human, and for a Railway service with nowhere else to send the
+traffic. It is the wrong one for an orchestrator with other pods to hand it to, which is why two
+other endpoints exist — the Kubernetes probes use them, and Railway's healthcheck stays on
+`/health`:
 
 | Endpoint | Answers | Meant for |
 |---|---|---|
@@ -289,8 +330,9 @@ variable: the binary and the path to it are one fact, and a variable can drift f
 that has to satisfy it.
 
 It costs about a gigabyte of image — chromium is ~370MB and drags in mesa and libllvm for a GPU
-stack it never uses. Runtime memory only moves while a capture is in flight, which is a second
-or two per turn on the one replica, but it is the reason this was off at first.
+stack it never uses. Runtime memory only moves while a capture is in flight, which is a second or
+two per turn, and `NAP_CAPTURE_CONCURRENCY` is what stops a worker running twenty-five of them at
+once — but it is the reason this was off at first.
 
 **A missing browser is not an error anywhere.** Capture returns a typed failure, the turn
 succeeds regardless, the thumbnail route 404s and each card falls back to a colour hashed from
@@ -329,6 +371,10 @@ streams to a socket on another, and that a rolling restart of the API loses no e
 there run `apps/api/scripts/cluster-proof.ts` — the same composition and the same Postgres fanout,
 with a scripted model and an in-memory sandbox — so the run costs nothing and proves nothing about
 E2B or OpenRouter, which is what `bun run acceptance` is for.
+
+`infra/k8s/load/run.sh` is the same cluster with both autoscalers live and the k6 ramp against it;
+what that run measured, and which of the design's invariants it did and did not demonstrate, is
+`docs/scaling-cluster.md`. **Quote a scaled figure from there and nowhere else.**
 
 ## Things that are not deployed, deliberately
 
