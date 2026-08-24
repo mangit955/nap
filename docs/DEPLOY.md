@@ -255,8 +255,9 @@ way once and found by trying to sign in with GitHub.
 Chrome and Firefox are fine. This is a known, accepted limitation of running the two halves
 on free subdomains, and the fix is to stop being cross-site: put both behind one registrable
 domain (`nap.example.com` and `api.example.com`), at which point `isCrossSite` returns
-`false` on its own and the cookie goes back to `SameSite=Lax` with no code change. DNS on
-both dashboards, update the four URL variables, redeploy.
+`false` on its own and the cookie goes back to `SameSite=Lax` with no code change: it
+compares registrable domains rather than hosts, and `cross-site.ts` says how far that
+comparison is trusted. DNS on both dashboards, update the four URL variables, redeploy.
 
 ## What a public URL costs
 
