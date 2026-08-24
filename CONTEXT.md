@@ -67,6 +67,14 @@ exactly when the turn that stated the objective has fallen out of the window. Ha
 `ContextEngine` like `history` is, because the component that owns the token budget performs no
 I/O. `renderJobBrief` in `@nap/context` writes it.
 
+**Stale** — of a past turn in the assembled conversation: old enough that its tool traffic is
+emptied whether or not the budget needs the room. What survives is prose on both sides and each
+call's small arguments — which tool, against which path — so the turn still reads as something that
+happened; what goes is any argument large enough to be a file's contents, and everything the call
+printed. Distinct from **truncation**, which is the ladder `ContextEngine` climbs when a context
+does not *fit*: staleness runs first and runs always, because a turn re-sends its whole transcript
+on every round trip and a thing that fits can still be a thing not worth ten copies. See ADR-0011.
+
 **Checkpoint** — a *verified* commit, and the answer to "is this project in a valid state right
 now", which is `HEAD == last checkpoint` rather than a judgement anybody renders. Distinct from a
 **Snapshot**, which is a filesystem archived because a sandbox went away: a checkpoint is about

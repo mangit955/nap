@@ -6,6 +6,7 @@ import type { FileNode } from "@nap/shared/ports/sandbox-manager";
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_BUDGET_TOKENS,
+  ELIDED_TOOL_INPUT,
   ELIDED_TOOL_OUTPUT,
   MIN_BUDGET_TOKENS,
   NapContextEngine,
@@ -57,6 +58,26 @@ const toolResult = (turn: number, id: string, output: string, ok = true) =>
 /** A turn made of prose alone, so it can only be reclaimed by dropping the whole turn. */
 function wordyTurn(turn: number, size: number): NapEvent[] {
   return [userMessage(turn, `change number ${turn}`), agentMessage(turn, "w".repeat(size))];
+}
+
+/** A turn that writes a whole file — the shape that dominates a real session's transcript. */
+function writingTurn(turn: number, contentSize: number): NapEvent[] {
+  const id = `wc_${turn}`;
+  return [
+    userMessage(turn, `change number ${turn}`),
+    event("tool.call", turn, {
+      toolCallId: id,
+      toolName: "write_file",
+      input: { path: "src/App.tsx", content: "c".repeat(contentSize) },
+    }),
+    event("tool.result", turn, {
+      toolCallId: id,
+      toolName: "write_file",
+      ok: true,
+      output: "y".repeat(contentSize),
+    }),
+    agentMessage(turn, `done with ${turn}`),
+  ];
 }
 
 /** A project big enough that its listing is the largest thing in the prompt. */
@@ -461,8 +482,15 @@ describe("NapContextEngine", () => {
   describe("truncation", () => {
     const heavy = () => Array.from({ length: 6 }, (_, i) => toolTurn(i + 1, 4_000)).flat();
 
+    /**
+     * An engine that keeps every past turn word for word, so the ladder is what is under
+     * test. Under the default the staleness pass has already emptied all but the newest turn
+     * before the budget is consulted, and each step below would be pinned on nothing.
+     */
+    const ladder = (overrides = {}) => engine({ verbatimTurns: 99, ...overrides });
+
     it("elides tool output oldest first", async () => {
-      const context = await engine({ budgetTokens: 4_000 }).build(request({ history: heavy() }));
+      const context = await ladder({ budgetTokens: 4_000 }).build(request({ history: heavy() }));
       const elided = toolResults(context.messages).map((r) => r.content === ELIDED_TOOL_OUTPUT);
 
       // Some had to go, but not all — otherwise the ordering claim is unobservable.
@@ -477,7 +505,7 @@ describe("NapContextEngine", () => {
       // deletes a result produces a request that fails rather than a smaller one. Eliding
       // the *content* keeps the pair; dropping a turn removes both halves together.
       for (const budgetTokens of [MIN_BUDGET_TOKENS, 2_000, 4_000, 8_000, 20_000]) {
-        const context = await engine({ budgetTokens }).build(request({ history: heavy() }));
+        const context = await ladder({ budgetTokens }).build(request({ history: heavy() }));
 
         const callIds = toolUses(context.messages).map((b) => b.id);
         const answeredIds = toolResults(context.messages).map((b) => b.toolCallId);
@@ -490,7 +518,7 @@ describe("NapContextEngine", () => {
       // Prose, so step one has nothing to reclaim and the drop is what is being measured.
       const history = [1, 2, 3, 4, 5, 6].flatMap((n) => wordyTurn(n, 4_000));
 
-      const context = await engine({ budgetTokens: 2_000 }).build(request({ history }));
+      const context = await ladder({ budgetTokens: 2_000 }).build(request({ history }));
       const rendered = texts(context.messages).join("\n");
 
       expect(rendered).toContain("change number 6");
@@ -500,7 +528,7 @@ describe("NapContextEngine", () => {
     it("gives up the file listing rather than the turn's own message", async () => {
       // The listing is a convenience the agent can rebuild with a single tool call. What
       // the user just asked for is not recoverable by any means.
-      const context = await engine({ budgetTokens: MIN_BUDGET_TOKENS }).build(
+      const context = await ladder({ budgetTokens: MIN_BUDGET_TOKENS }).build(
         request({ sandbox: stubSandbox(hugeTree(400)), history: heavy() }),
       );
 
@@ -523,6 +551,90 @@ describe("NapContextEngine", () => {
 
       expect(context.systemPrompt).not.toContain("<project_files>");
       expect(context.systemPrompt).toContain("the user prefers tabs");
+    });
+  });
+
+  describe("staleness", () => {
+    // The budget here is never in danger — that is the point. Everything below happens
+    // because carrying an old turn's file contents through every round trip of the next turn
+    // is not worth what it costs, not because the context failed to fit.
+    const roomy = () => engine({ budgetTokens: DEFAULT_BUDGET_TOKENS });
+    const threeWrites = () => [1, 2, 3].flatMap((n) => writingTurn(n, 4_000));
+
+    it("drops what an older turn wrote, while the budget is nowhere near binding", async () => {
+      const context = await roomy().build(request({ history: threeWrites() }));
+
+      expect(context.estimatedTokens).toBeLessThan(DEFAULT_BUDGET_TOKENS);
+      const written = toolUses(context.messages).map((b) => b.input.content);
+      expect(written.slice(0, -1)).toEqual([ELIDED_TOOL_INPUT, ELIDED_TOOL_INPUT]);
+    });
+
+    it("keeps the most recent past turn word for word", async () => {
+      const context = await roomy().build(request({ history: threeWrites() }));
+
+      expect(toolUses(context.messages).at(-1)?.input.content).toBe("c".repeat(4_000));
+      expect(toolResults(context.messages).at(-1)?.content).toBe("y".repeat(4_000));
+    });
+
+    it("keeps the small arguments that say what an old call was about", async () => {
+      // A path is what makes an elided call still readable as an event that happened. Losing
+      // it would leave the model a call it cannot attribute to anything.
+      const context = await roomy().build(request({ history: threeWrites() }));
+
+      expect(toolUses(context.messages).map((b) => b.input.path)).toEqual([
+        "src/App.tsx",
+        "src/App.tsx",
+        "src/App.tsx",
+      ]);
+    });
+
+    it("keeps what was asked and what was answered", async () => {
+      // Prose is 2% of a real transcript and the only part of an old turn that is not
+      // recoverable from the workspace, so nothing here may touch it.
+      const context = await roomy().build(request({ history: threeWrites() }));
+
+      expect(texts(context.messages)).toEqual([
+        "change number 1",
+        "done with 1",
+        "change number 2",
+        "done with 2",
+        "change number 3",
+        "done with 3",
+        "add a dark mode toggle",
+      ]);
+    });
+
+    it("still answers every call it kept", async () => {
+      const context = await roomy().build(request({ history: threeWrites() }));
+
+      expect(toolResults(context.messages).map((b) => b.toolCallId)).toEqual(
+        toolUses(context.messages).map((b) => b.id),
+      );
+    });
+
+    it("can be turned off, and then the old contents are still there", async () => {
+      // The guard's own failure case: with staleness disabled the assertions above invert,
+      // which is what makes them evidence that the pass is doing the work.
+      const context = await engine({ verbatimTurns: 99 }).build(
+        request({ history: threeWrites() }),
+      );
+
+      expect(toolUses(context.messages).map((b) => b.input.content)).toEqual([
+        "c".repeat(4_000),
+        "c".repeat(4_000),
+        "c".repeat(4_000),
+      ]);
+    });
+
+    it("leaves the caller's history untouched", async () => {
+      // The turns are mutated in place, so a history array shared with anything else would
+      // come back emptied. `toTurns` copies; this is what says so.
+      const history = threeWrites();
+      const before = JSON.stringify(history);
+
+      await roomy().build(request({ history }));
+
+      expect(JSON.stringify(history)).toBe(before);
     });
   });
 
