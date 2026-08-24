@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { JobOutcome, NapEvent, VerifiedCheck } from "./events.ts";
-import { foldJobs, isJobOpen, MAX_REPAIR_ATTEMPTS, openJob } from "./job-state.ts";
+import { foldJobs, isJobFailed, isJobOpen, MAX_REPAIR_ATTEMPTS, openJob } from "./job-state.ts";
 import type { StoredEvent } from "./ports/event-store.ts";
 
 const SESSION = "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f";
@@ -14,15 +14,17 @@ const JOB_B = "8c7b6a59-4d3e-4f21-9a8b-7c6d5e4f3a2b";
  * container, no clock. `turnId` is one per event because nothing here reads it: a job is a run
  * of events, not a set of turns.
  */
-function log(...events: readonly { type: NapEvent["type"]; payload: unknown }[]): StoredEvent[] {
+function log(
+  ...events: readonly { type: NapEvent["type"]; payload: unknown; createdAt?: string }[]
+): StoredEvent[] {
   return events.map(
     (event, index) =>
       ({
+        createdAt: "2026-08-16T12:00:00.000Z",
         ...event,
         sessionId: SESSION,
         turnId: "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f",
         seq: index,
-        createdAt: "2026-08-16T12:00:00.000Z",
       }) as StoredEvent,
   );
 }
@@ -46,6 +48,10 @@ const checkpoint = (jobId: string, commitSha: string) => ({
 const closed = (jobId: string, outcome: JobOutcome) => ({
   type: "job.completed" as const,
   payload: { jobId, outcome },
+});
+const changed = (path: string) => ({
+  type: "file.changed" as const,
+  payload: { path, changeType: "modified", diff: "" },
 });
 const committed = (commitSha: string | null) => ({
   type: "turn.completed" as const,
@@ -234,6 +240,127 @@ describe("foldJobs checkpoints", () => {
   it("does not move HEAD for a turn that committed nothing", () => {
     const state = foldJobs(log(started(JOB_A), committed("abc123"), committed(null)));
     expect(state.headSha).toBe("abc123");
+  });
+});
+
+/**
+ * The three facts a job carries for its own sake rather than for the strip's.
+ *
+ * Everything above describes the project *now*, which is one job's worth of question. These
+ * three exist so a list of past jobs can be read without a second fold beside this one: when it
+ * happened, what it left behind, and how much of the project it touched.
+ */
+describe("isJobFailed", () => {
+  const phased = (outcome: JobOutcome) =>
+    foldJobs(log(started(JOB_A), closed(JOB_A, outcome))).jobs[0];
+
+  it("is true for the two endings that leave work undone", () => {
+    expect(isJobFailed(phased("exhausted")!)).toBe(true);
+    expect(isJobFailed(phased("abandoned")!)).toBe(true);
+  });
+
+  it("is false for a job that ended well, and for one still going", () => {
+    // Not the negation of `isJobOpen`: `unverified` is neither open nor a failure.
+    expect(isJobFailed(phased("verified")!)).toBe(false);
+    expect(isJobFailed(phased("unverified")!)).toBe(false);
+    expect(isJobFailed(foldJobs(log(started(JOB_A))).jobs[0]!)).toBe(false);
+  });
+});
+
+describe("foldJobs per-job facts", () => {
+  it("keeps each job's own checkpoint, not just the session's newest", () => {
+    // The session-wide sha answers "is the project valid"; this answers "what did *this* job
+    // leave behind", and a history entry cannot borrow the first for the second.
+    const state = foldJobs(
+      log(
+        started(JOB_A),
+        committed("abc123"),
+        checkpoint(JOB_A, "abc123"),
+        closed(JOB_A, "verified"),
+        started(JOB_B),
+        committed("def456"),
+        checkpoint(JOB_B, "def456"),
+        closed(JOB_B, "verified"),
+      ),
+    );
+
+    expect(state.jobs.map((job) => job.checkpointSha)).toEqual(["abc123", "def456"]);
+    expect(state.checkpointSha).toBe("def456");
+  });
+
+  it("leaves a job that reached no checkpoint without one", () => {
+    const state = foldJobs(log(started(JOB_A), committed("abc123"), closed(JOB_A, "abandoned")));
+
+    expect(state.jobs[0]?.checkpointSha).toBeNull();
+  });
+
+  it("does not give a job the checkpoint of the job before it", () => {
+    // The session-wide value survives a failure, deliberately. Copying it onto the failed job
+    // would draw a sha under a row marked as having produced nothing.
+    const state = foldJobs(
+      log(
+        started(JOB_A),
+        checkpoint(JOB_A, "abc123"),
+        closed(JOB_A, "verified"),
+        started(JOB_B),
+        closed(JOB_B, "exhausted"),
+      ),
+    );
+
+    expect(state.jobs[1]?.checkpointSha).toBeNull();
+    expect(state.checkpointSha).toBe("abc123");
+  });
+
+  it("stamps a job with the moment it opened", () => {
+    const state = foldJobs(
+      log({ ...started(JOB_A), createdAt: "2026-08-24T11:09:20.656Z" }, committed("abc123")),
+    );
+
+    expect(state.jobs[0]?.startedAt).toBe("2026-08-24T11:09:20.656Z");
+  });
+
+  it("counts the files a job touched, once each", () => {
+    // Distinct paths rather than events: a file written four times is one file changed, and
+    // "8 files" over a project with two in it reads as the agent having done more than it did.
+    const state = foldJobs(
+      log(
+        started(JOB_A),
+        changed("src/App.tsx"),
+        changed("src/App.tsx"),
+        changed("src/main.tsx"),
+        committed("abc123"),
+      ),
+    );
+
+    expect(state.jobs[0]?.filesChanged).toBe(2);
+  });
+
+  it("counts a repair turn's files against the job that prompted it", () => {
+    // A job is a run of turns, and the repairs are part of what it cost.
+    const state = foldJobs(
+      log(
+        started(JOB_A),
+        changed("src/App.tsx"),
+        ...failedRound(JOB_A),
+        changed("src/fix.ts"),
+        verified(JOB_A, PASSED),
+        closed(JOB_A, "verified"),
+      ),
+    );
+
+    expect(state.jobs[0]?.filesChanged).toBe(2);
+  });
+
+  it("charges nothing to a job that has already closed", () => {
+    const state = foldJobs(log(started(JOB_A), closed(JOB_A, "verified"), changed("src/App.tsx")));
+
+    expect(state.jobs[0]?.filesChanged).toBe(0);
+  });
+
+  it("does not attribute a file change to a job whose opening is outside the window", () => {
+    const state = foldJobs(log(changed("src/App.tsx"), started(JOB_A), changed("src/main.tsx")));
+
+    expect(state.jobs[0]?.filesChanged).toBe(1);
   });
 });
 

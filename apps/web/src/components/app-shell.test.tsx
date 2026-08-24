@@ -1,7 +1,8 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { PROJECT_ID, SESSION_ID } from "../testing/events.ts";
 import { sockets } from "../testing/fake-socket.ts";
+import { JOB_ID, jobLog } from "../testing/job-events.ts";
 import { AppShell } from "./app-shell.tsx";
 
 /**
@@ -24,8 +25,11 @@ const fetchJson = async (url: string): Promise<Response> => {
     ? { files: ["src/App.tsx"], ready: true }
     : {
         projectId: PROJECT_ID,
+        // `ready`, not `running`: the record's own vocabulary, and the schema refuses anything
+        // else — a record that fails to parse leaves the whole shell in its error state, which
+        // is a workspace none of the assertions below meant to be describing.
         name: "Todo app",
-        status: "running",
+        status: "ready",
         sandboxId: "sbx_1",
         updatedAt: "2026-08-09T12:30:00.000Z",
         sessionIds: [SESSION_ID],
@@ -76,6 +80,37 @@ describe("AppShell", () => {
 
     expect(screen.queryByRole("region", { name: "Chat" })).toBeNull();
     expect(screen.getByRole("button", { name: /show chat/i })).toBeInTheDocument();
+  });
+
+  it("keeps where the job stands on screen once the chat is hidden", async () => {
+    // The strip that carries it lives inside the chat pane, so collapsing the chat used to take
+    // the one signal saying whether the project works off the screen — precisely when the
+    // preview is most dominant. The bar mirrors it for that reason.
+    const net = sockets();
+    const log = jobLog();
+    render(
+      <AppShell projectId={PROJECT_ID} fetchJson={fetchJson} createSocket={net.createSocket} />,
+    );
+
+    await waitFor(() => expect(net.opened).toHaveLength(1));
+    await act(async () => {
+      net.latest.open();
+      net.latest.deliver({ type: "event", event: log.opened() });
+      net.latest.deliver({
+        type: "event",
+        event: log.at("verification.started", { jobId: JOB_ID }),
+      });
+      net.latest.deliver({ type: "ready" });
+    });
+
+    const bar = () =>
+      within(screen.getByRole("banner")).getByRole("status", { name: /job phase/i });
+    expect(bar()).toHaveTextContent(/verifying/i);
+
+    fireEvent.click(screen.getByRole("button", { name: /hide chat/i }));
+
+    expect(screen.queryByRole("region", { name: "Chat" })).toBeNull();
+    expect(bar()).toHaveTextContent(/verifying/i);
   });
 
   it("lets the divider be moved without a mouse", () => {

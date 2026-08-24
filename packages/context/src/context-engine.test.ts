@@ -9,6 +9,9 @@ import {
   ELIDED_TOOL_OUTPUT,
   MIN_BUDGET_TOKENS,
   NapContextEngine,
+  type NapContextEngineOptions,
+  STALE_TOOL_INPUT,
+  STALE_TOOL_OUTPUT,
 } from "./context-engine.ts";
 import { NoopMemoryProvider } from "./noop-memory-provider.ts";
 import { SYSTEM_PROMPT } from "./system-prompt.ts";
@@ -57,6 +60,26 @@ const toolResult = (turn: number, id: string, output: string, ok = true) =>
 /** A turn made of prose alone, so it can only be reclaimed by dropping the whole turn. */
 function wordyTurn(turn: number, size: number): NapEvent[] {
   return [userMessage(turn, `change number ${turn}`), agentMessage(turn, "w".repeat(size))];
+}
+
+/** A turn that writes a whole file — the shape that dominates a real session's transcript. */
+function writingTurn(turn: number, contentSize: number): NapEvent[] {
+  const id = `wc_${turn}`;
+  return [
+    userMessage(turn, `change number ${turn}`),
+    event("tool.call", turn, {
+      toolCallId: id,
+      toolName: "write_file",
+      input: { path: "src/App.tsx", content: "c".repeat(contentSize) },
+    }),
+    event("tool.result", turn, {
+      toolCallId: id,
+      toolName: "write_file",
+      ok: true,
+      output: "y".repeat(contentSize),
+    }),
+    agentMessage(turn, `done with ${turn}`),
+  ];
 }
 
 /** A project big enough that its listing is the largest thing in the prompt. */
@@ -146,7 +169,13 @@ function request(overrides: Partial<ContextRequest> = {}): ContextRequest {
   };
 }
 
-function engine(overrides = {}) {
+/**
+ * More past turns than any fixture here has, so staleness reaches none of them. Named because
+ * a bare 99 reads as "off", and it is not — it is "off for a history this short".
+ */
+const KEEP_EVERY_TURN = 99;
+
+function engine(overrides: Partial<NapContextEngineOptions> = {}) {
   return new NapContextEngine({ root: ROOT, ...overrides });
 }
 
@@ -461,8 +490,16 @@ describe("NapContextEngine", () => {
   describe("truncation", () => {
     const heavy = () => Array.from({ length: 6 }, (_, i) => toolTurn(i + 1, 4_000)).flat();
 
+    /**
+     * An engine that keeps every past turn word for word, so the ladder is what is under
+     * test. Under the default the staleness pass has already emptied all but the newest turn
+     * before the budget is consulted, and each step below would be pinned on nothing.
+     */
+    const ladder = (overrides: Partial<NapContextEngineOptions> = {}) =>
+      engine({ verbatimTurns: KEEP_EVERY_TURN, ...overrides });
+
     it("elides tool output oldest first", async () => {
-      const context = await engine({ budgetTokens: 4_000 }).build(request({ history: heavy() }));
+      const context = await ladder({ budgetTokens: 4_000 }).build(request({ history: heavy() }));
       const elided = toolResults(context.messages).map((r) => r.content === ELIDED_TOOL_OUTPUT);
 
       // Some had to go, but not all — otherwise the ordering claim is unobservable.
@@ -477,7 +514,7 @@ describe("NapContextEngine", () => {
       // deletes a result produces a request that fails rather than a smaller one. Eliding
       // the *content* keeps the pair; dropping a turn removes both halves together.
       for (const budgetTokens of [MIN_BUDGET_TOKENS, 2_000, 4_000, 8_000, 20_000]) {
-        const context = await engine({ budgetTokens }).build(request({ history: heavy() }));
+        const context = await ladder({ budgetTokens }).build(request({ history: heavy() }));
 
         const callIds = toolUses(context.messages).map((b) => b.id);
         const answeredIds = toolResults(context.messages).map((b) => b.toolCallId);
@@ -490,7 +527,7 @@ describe("NapContextEngine", () => {
       // Prose, so step one has nothing to reclaim and the drop is what is being measured.
       const history = [1, 2, 3, 4, 5, 6].flatMap((n) => wordyTurn(n, 4_000));
 
-      const context = await engine({ budgetTokens: 2_000 }).build(request({ history }));
+      const context = await ladder({ budgetTokens: 2_000 }).build(request({ history }));
       const rendered = texts(context.messages).join("\n");
 
       expect(rendered).toContain("change number 6");
@@ -500,7 +537,7 @@ describe("NapContextEngine", () => {
     it("gives up the file listing rather than the turn's own message", async () => {
       // The listing is a convenience the agent can rebuild with a single tool call. What
       // the user just asked for is not recoverable by any means.
-      const context = await engine({ budgetTokens: MIN_BUDGET_TOKENS }).build(
+      const context = await ladder({ budgetTokens: MIN_BUDGET_TOKENS }).build(
         request({ sandbox: stubSandbox(hugeTree(400)), history: heavy() }),
       );
 
@@ -523,6 +560,133 @@ describe("NapContextEngine", () => {
 
       expect(context.systemPrompt).not.toContain("<project_files>");
       expect(context.systemPrompt).toContain("the user prefers tabs");
+    });
+  });
+
+  describe("staleness", () => {
+    // The budget here is never in danger — that is the point. Everything below happens
+    // because carrying an old turn's file contents through every round trip of the next turn
+    // is not worth what it costs, not because the context failed to fit.
+    const roomy = () => engine({ budgetTokens: DEFAULT_BUDGET_TOKENS });
+    const threeWrites = () => [1, 2, 3].flatMap((n) => writingTurn(n, 4_000));
+
+    it("drops what an older turn wrote, while the budget is nowhere near binding", async () => {
+      const context = await roomy().build(request({ history: threeWrites() }));
+
+      expect(context.estimatedTokens).toBeLessThan(DEFAULT_BUDGET_TOKENS);
+      const written = toolUses(context.messages).map((b) => b.input.content);
+      expect(written.slice(0, -1)).toEqual([STALE_TOOL_INPUT, STALE_TOOL_INPUT]);
+    });
+
+    it("keeps the most recent past turn word for word", async () => {
+      const context = await roomy().build(request({ history: threeWrites() }));
+
+      expect(toolUses(context.messages).at(-1)?.input.content).toBe("c".repeat(4_000));
+      expect(toolResults(context.messages).at(-1)?.content).toBe("y".repeat(4_000));
+    });
+
+    it("keeps the small arguments that say what an old call was about", async () => {
+      // A path is what makes an elided call still readable as an event that happened. Losing
+      // it would leave the model a call it cannot attribute to anything.
+      const context = await roomy().build(request({ history: threeWrites() }));
+
+      expect(toolUses(context.messages).map((b) => b.input.path)).toEqual([
+        "src/App.tsx",
+        "src/App.tsx",
+        "src/App.tsx",
+      ]);
+    });
+
+    it("keeps what was asked and what was answered", async () => {
+      // Prose is 2% of a real transcript and the only part of an old turn that is not
+      // recoverable from the workspace, so nothing here may touch it.
+      const context = await roomy().build(request({ history: threeWrites() }));
+
+      expect(texts(context.messages)).toEqual([
+        "change number 1",
+        "done with 1",
+        "change number 2",
+        "done with 2",
+        "change number 3",
+        "done with 3",
+        "add a dark mode toggle",
+      ]);
+    });
+
+    it("says the removal was about age, not about room", async () => {
+      // The budget's marker would tell the model there was no space, on a turn with 100,000
+      // tokens of it. Which reason the model reads is the whole distinction this pass draws
+      // against truncation, so the two markers are not interchangeable.
+      const context = await roomy().build(request({ history: threeWrites() }));
+      const marks = [
+        ...toolResults(context.messages)
+          .slice(0, -1)
+          .map((b) => b.content),
+        ...toolUses(context.messages)
+          .slice(0, -1)
+          .map((b) => b.input.content),
+      ];
+
+      expect(marks).not.toContain(ELIDED_TOOL_OUTPUT);
+      expect(new Set(marks)).toEqual(new Set([STALE_TOOL_OUTPUT, STALE_TOOL_INPUT]));
+    });
+
+    it("measures an argument that is not a string", async () => {
+      // Every tool takes strings today. A rule that looked at `typeof value === "string"`
+      // would let the first array-valued argument through in full and silently.
+      const id = "tc_list";
+      const history = [
+        userMessage(1, "rewrite them all"),
+        event("tool.call", 1, {
+          toolCallId: id,
+          toolName: "write_file",
+          input: { paths: Array.from({ length: 200 }, (_, i) => `src/component-${i}.tsx`) },
+        }),
+        event("tool.result", 1, { toolCallId: id, toolName: "write_file", ok: true, output: "" }),
+        ...writingTurn(2, 100),
+      ];
+
+      const context = await roomy().build(request({ history }));
+
+      expect(toolUses(context.messages)[0]?.input.paths).toBe(STALE_TOOL_INPUT);
+    });
+
+    it("still answers every call it kept", async () => {
+      const context = await roomy().build(request({ history: threeWrites() }));
+
+      expect(toolResults(context.messages).map((b) => b.toolCallId)).toEqual(
+        toolUses(context.messages).map((b) => b.id),
+      );
+    });
+
+    it("reaches nothing when every turn is asked for verbatim", async () => {
+      // The guard's own failure case: with no turn stale the assertions above invert, which
+      // is what makes them evidence that the pass is doing the work.
+      const context = await engine({ verbatimTurns: KEEP_EVERY_TURN }).build(
+        request({ history: threeWrites() }),
+      );
+
+      expect(toolUses(context.messages).map((b) => b.input.content)).toEqual([
+        "c".repeat(4_000),
+        "c".repeat(4_000),
+        "c".repeat(4_000),
+      ]);
+    });
+
+    it("refuses a negative count rather than clamping it", () => {
+      // A wiring mistake, not an outcome — and a silent clamp would look like a decision.
+      expect(() => engine({ verbatimTurns: -1 })).toThrow(/verbatim turns/);
+    });
+
+    it("leaves the caller's history untouched", async () => {
+      // The turns are mutated in place, so a history array shared with anything else would
+      // come back emptied. `toTurns` copies; this is what says so.
+      const history = threeWrites();
+      const before = JSON.stringify(history);
+
+      await roomy().build(request({ history }));
+
+      expect(JSON.stringify(history)).toBe(before);
     });
   });
 

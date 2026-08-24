@@ -67,12 +67,34 @@ exactly when the turn that stated the objective has fallen out of the window. Ha
 `ContextEngine` like `history` is, because the component that owns the token budget performs no
 I/O. `renderJobBrief` in `@nap/context` writes it.
 
+**Stale** — of a past turn in the assembled conversation: old enough that its tool traffic is
+emptied whether or not the budget needs the room. What survives is prose on both sides and each
+call's small arguments — which tool, against which path — so the turn still reads as something that
+happened; what goes is any argument large enough to be a file's contents, and everything the call
+printed. Distinct from **truncation**, which is the ladder `ContextEngine` climbs when a context
+does not *fit*: staleness runs first and runs always, because a turn re-sends its whole transcript
+on every round trip and a thing that fits can still be a thing not worth ten copies. See ADR-0011.
+
 **Checkpoint** — a *verified* commit, and the answer to "is this project in a valid state right
 now", which is `HEAD == last checkpoint` rather than a judgement anybody renders. Distinct from a
 **Snapshot**, which is a filesystem archived because a sandbox went away: a checkpoint is about
 whether the work is sound, a snapshot about where the work is kept. Every completed turn commits;
 only a verified one checkpoints, which is what makes a failed verification unable to corrupt the
-last known-good state by construction rather than by care.
+last known-good state by construction rather than by care. **The word keeps that strength in the
+UI**: the panel behind the job strip is a history of *jobs*, failures included, because a list of
+checkpoints is a list with every failure deleted from it — "Checkpoint" appears only against a sha
+a verification agreed with, on the line inside a history entry (`apps/web/src/chat/job-history.tsx`)
+and on the card that says what was decided in your absence (`apps/web/src/chat/unseen-card.tsx`).
+
+**Unseen** — the events in a session that *this browser* has never displayed, computed against a
+persisted **seen cursor**: `localStorage`, keyed by session, advanced only while the document is
+visible. Deliberately not "away" — away names the user's state, which nothing can observe, and
+what is computed is a property of the log against a cursor; "While you were away" is copy and may
+differ. **Distinct from the replay `seq`** that `use-event-stream.ts` keeps and `/ws?seq=N`
+resumes from, which is per-connection and in memory where this is per-browser and durable. Two
+cursors, two lifetimes, and they must not share a word or somebody eventually persists the wrong
+one. The **seam** is where the two meet on screen: a line through the transcript with everything
+below it unseen, and where the transcript opens (`apps/web/src/chat/unseen.ts`).
 
 **Continue** — what happens to an open job when its project is next opened, as distinct from
 **resume**, which already means bringing a put-away project's sandbox back up (`resumeSession`). A

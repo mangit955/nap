@@ -1,5 +1,6 @@
 /**
- * What the strip above the chat says about the job in front of you.
+ * What the workspace says about the job in front of you — in the strip above the chat, and in
+ * the bar overhead that keeps saying it once the chat is collapsed.
  *
  * A job's phase, its checks and where its commits stand are *status*, not chronology — they
  * describe the project right now, and every one of them is answered again by the next event.
@@ -17,7 +18,14 @@
  */
 
 import type { VerifiedCheck } from "@nap/shared/events";
-import { type JobPhase, MAX_REPAIR_ATTEMPTS, type SessionJobs } from "@nap/shared/job-state";
+import {
+  foldJobs,
+  isJobOpen,
+  type JobPhase,
+  MAX_REPAIR_ATTEMPTS,
+  type SessionJobs,
+} from "@nap/shared/job-state";
+import type { StoredEvent } from "@nap/shared/ports/event-store";
 
 export type JobSummary = {
   phase: JobPhase;
@@ -33,7 +41,13 @@ export type JobSummary = {
   state: string;
 };
 
-const PHASE_LABELS: Record<JobPhase, string> = {
+/**
+ * The phase in a word, shared with the history below the strip.
+ *
+ * Exported so there is one vocabulary rather than two: a job reading `Out of repairs` in the
+ * strip must not read `Exhausted` one line down in the list of past jobs.
+ */
+export const PHASE_LABELS: Record<JobPhase, string> = {
   working: "Working",
   verifying: "Verifying",
   repairing: "Repairing",
@@ -43,7 +57,25 @@ const PHASE_LABELS: Record<JobPhase, string> = {
   abandoned: "Abandoned",
 };
 
-const OPEN_PHASES: readonly JobPhase[] = ["working", "verifying", "repairing"];
+/**
+ * What the workspace knows about this session's jobs: all of them, and the newest one described.
+ *
+ * The pair travels as one value because two surfaces read it — the strip inside the chat pane,
+ * and the bar above it that stays when the chat is collapsed. Handing them the fold and letting
+ * each describe the newest job for itself would work only for as long as the description stayed
+ * pure; one value cannot disagree with itself at all.
+ */
+export type SessionJobView = {
+  state: SessionJobs;
+  /** The newest job, or `null` for a session nothing has been asked of. */
+  summary: JobSummary | null;
+};
+
+/** Derived once, above both panes that read it. See `useSessionLog`. */
+export function jobView(events: readonly StoredEvent[]): SessionJobView {
+  const state = foldJobs(events);
+  return { state, summary: jobSummary(state) };
+}
 
 export function jobSummary(state: SessionJobs): JobSummary | null {
   const job = state.jobs.at(-1);
@@ -52,13 +84,39 @@ export function jobSummary(state: SessionJobs): JobSummary | null {
   return {
     phase: job.phase,
     phaseLabel: PHASE_LABELS[job.phase],
-    open: OPEN_PHASES.includes(job.phase),
+    open: isJobOpen(job),
     checks: job.checks,
-    attemptsLabel:
-      job.attemptsUsed === 0 ? null : `${job.attemptsUsed} of ${MAX_REPAIR_ATTEMPTS} repairs used`,
+    attemptsLabel: repairsLabel(job.attemptsUsed),
     state: stateLine(state, job.checks),
   };
 }
+
+/**
+ * Repairs spent, or `null` when none have been.
+ *
+ * Out of the total rather than alone: "1 repair" is a number with nothing to read it against,
+ * where "1 of 3" says both what has happened and how much room is left. Shared with the history
+ * for the reason `PHASE_LABELS` is.
+ */
+export function repairsLabel(attemptsUsed: number): string | null {
+  if (attemptsUsed === 0) return null;
+  return `${attemptsUsed} of ${MAX_REPAIR_ATTEMPTS} repairs used`;
+}
+
+/**
+ * A commit as somebody would type it, or nothing at all.
+ *
+ * Git's own abbreviation, and here beside the other shared wording for the reason `PHASE_LABELS`
+ * is: three places now show one — a history entry, the control that expands the history, and the
+ * card that says what was decided in your absence — and two of them abbreviating the same commit
+ * differently would read as two commits.
+ */
+export function shortSha(sha: string | null): string | null {
+  return sha === null ? null : sha.slice(0, SHORT_SHA);
+}
+
+/** Git's own abbreviation. */
+const SHORT_SHA = 7;
 
 /**
  * Whether this project is in a state something has checked.
@@ -73,20 +131,27 @@ export function jobSummary(state: SessionJobs): JobSummary | null {
  *
  * A short-circuited run cannot reach this case: the check that stopped it is `failed`, so a run
  * with any red in it has a non-absent outcome and lands on the last line instead.
+ *
+ * **Every sentence names its subject before it judges anything**, because the strip stacks the
+ * phase directly over this line and the two describe different things — the phase is the job in
+ * flight, this is HEAD. A real session read `Working` above "At a verified state", which is true
+ * of the last commit and reads as a claim about the unfinished turn. Naming the commit first
+ * costs two words and holds on every path: the same sentence under `Abandoned` is the "your work
+ * is safe" reassurance, which was always about HEAD and is only clearer for saying so.
  */
 function stateLine(state: SessionJobs, checks: readonly VerifiedCheck[]): string {
   if (state.headSha === null) return "Nothing committed yet.";
 
   if (state.atCheckpoint) {
     if (checks.length > 0 && checks.every((check) => check.outcome === "absent")) {
-      return "This project declares no checks, so nothing was verified.";
+      return "This project declares no checks, so nothing about your last commit was verified.";
     }
-    return "At a verified state — the last commit passed the project's checks.";
+    return "Your last commit is verified — it passed the project's checks.";
   }
 
   if (state.checkpointSha === null) {
-    return "Not verified — nothing committed here has passed the project's checks yet.";
+    return "Your last commit is not verified — nothing here has passed the project's checks yet.";
   }
 
-  return "Not verified — the last commit is ahead of the last checkpoint.";
+  return "Your last commit is not verified — it is ahead of the last checkpoint.";
 }

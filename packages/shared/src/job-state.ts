@@ -52,6 +52,25 @@ export type JobState = {
   attemptsUsed: number;
   /** Repair turns still permitted. Zero of these plus red checks is what `exhausted` means. */
   attemptsRemaining: number;
+  /**
+   * The commit *this* job checkpointed, or `null` if it reached none.
+   *
+   * Beside `SessionJobs.checkpointSha` rather than instead of it, because the two answer
+   * different questions and the session-wide one is deliberately sticky: it survives a job that
+   * failed, since the project is still sitting on the last good commit. Read that way for a
+   * per-job answer, every job after the first checkpoint inherits a sha it never produced — a
+   * failed job drawn with a commit under it.
+   */
+  checkpointSha: string | null;
+  /** When `job.started` was written, from the envelope. ISO 8601. */
+  startedAt: string;
+  /**
+   * Distinct paths the job's turns wrote, repairs included.
+   *
+   * Distinct rather than a count of `file.changed` events: a file rewritten four times is one
+   * file changed, and the larger number claims more work than happened.
+   */
+  filesChanged: number;
 };
 
 export type SessionJobs = {
@@ -75,6 +94,18 @@ export function isJobOpen(job: JobState): boolean {
 }
 
 /**
+ * Closed with work left undone.
+ *
+ * Here rather than at each surface that marks one, because "which endings are bad" is a fact
+ * about the domain and every reader of it has to agree: a fifth `JobPhase` added with this
+ * spelled out in three components is a phase that quietly renders as a success in two of them.
+ * Not the negation of `isJobOpen` — an open job has not failed, and `verified` is neither.
+ */
+export function isJobFailed(job: Pick<JobState, "phase">): boolean {
+  return job.phase === "exhausted" || job.phase === "abandoned";
+}
+
+/**
  * The job still being worked on, if there is one.
  *
  * Only the newest can be open, because a session runs one turn at a time and a job is a run of
@@ -90,6 +121,10 @@ export function openJob(state: SessionJobs): JobState | undefined {
 type Tally = {
   jobId: string;
   objective: string;
+  startedAt: string;
+  checkpointSha: string | null;
+  /** Paths rather than a count, so a file written twice is not two files. */
+  paths: Set<string>;
   checks: readonly VerifiedCheck[];
   /**
    * Verifications begun and verifications answered, counted apart.
@@ -128,11 +163,28 @@ export function foldJobs(events: readonly StoredEvent[]): SessionJobs {
       continue;
     }
 
+    // No `jobId` on it, so it is attributed by position: the newest job open at the time is the
+    // one whose turn wrote the file. Jobs are serial, so there is never a second candidate — and
+    // a change arriving before any `job.started` in this window belongs to a job that is not
+    // being folded, so it is dropped rather than charged to the next one.
+    if (event.type === "file.changed") {
+      const writing = tallies.at(-1);
+      // Nothing after a job closed is charged to it, the same rule every event below obeys: a
+      // change arriving after `job.completed` belongs to whatever comes next, not to the job
+      // whose account is already settled.
+      if (writing !== undefined && writing.outcome === undefined)
+        writing.paths.add(event.payload.path);
+      continue;
+    }
+
     // Taken whether or not the job it belongs to is in this window, and whether or not that job
     // has since closed: the sha is a fact about the project rather than about the job, and it
     // is the one half of "is this project in a valid state".
     if (event.type === "job.checkpointed") {
       checkpointSha = event.payload.commitSha;
+      // And on the job that produced it, which is a different fact — see `JobState`.
+      const checkpointed = byId.get(event.payload.jobId);
+      if (checkpointed !== undefined) checkpointed.checkpointSha = event.payload.commitSha;
       // A checkpoint is a commit that verification agreed with, so it is also evidence that a
       // commit happened — evidence a window opening between the `turn.completed` that made it
       // and this event would otherwise lack. Without this, a verified project read from that
@@ -148,6 +200,9 @@ export function foldJobs(events: readonly StoredEvent[]): SessionJobs {
       const tally: Tally = {
         jobId: event.payload.jobId,
         objective: event.payload.objective,
+        startedAt: event.createdAt,
+        checkpointSha: null,
+        paths: new Set(),
         checks: [],
         started: 0,
         completed: 0,
@@ -200,6 +255,9 @@ function toJobState(tally: Tally): JobState {
     checks: tally.checks,
     attemptsUsed,
     attemptsRemaining: MAX_REPAIR_ATTEMPTS - attemptsUsed,
+    checkpointSha: tally.checkpointSha,
+    startedAt: tally.startedAt,
+    filesChanged: tally.paths.size,
   };
 }
 

@@ -15,6 +15,13 @@
  * The one thing that is never dropped is the system prompt. An agent that has forgotten which
  * framework it is writing against produces confidently wrong code, which is worse than an
  * agent that has forgotten the conversation and asks.
+ *
+ * Above that order sits a pass that is not part of it, and reading the two as one thing is the
+ * mistake to avoid. Truncation asks *does this fit*; staleness asks *is this worth sending*,
+ * and answers no for an old turn's tool traffic whether or not the room is needed. The second
+ * question exists because the first cannot see the multiplier: a turn re-sends its whole
+ * transcript on every round trip, so a kilobyte that fits comfortably is charged ten to forty
+ * times against a ceiling this class does not own. See `DEFAULT_VERBATIM_TURNS` and ADR-0011.
  */
 
 import type { NapEvent } from "@nap/shared/events";
@@ -45,6 +52,47 @@ export const DEFAULT_BUDGET_TOKENS = 120_000;
 /** Marks output removed to fit the budget, so the model reads a gap rather than a fact. */
 export const ELIDED_TOOL_OUTPUT = "[output removed to fit the context budget]";
 
+/**
+ * What staleness leaves behind, for an argument and for what the call printed.
+ *
+ * Separate strings from `ELIDED_TOOL_OUTPUT` because they say something different and true:
+ * that one means *there was no room*, these mean *this is out of date*. Handing the model the
+ * budget's reason for a removal the budget did not ask for would be a small lie in the one
+ * place the whole design turns on the difference. See ADR-0011.
+ */
+export const STALE_TOOL_INPUT = "[argument omitted; the workspace has moved on since]";
+export const STALE_TOOL_OUTPUT = "[output omitted; the workspace has moved on since]";
+
+/** Every marker, so the ladder can tell what it has already reclaimed from what it has not. */
+const ELISIONS: ReadonlySet<string> = new Set([
+  ELIDED_TOOL_OUTPUT,
+  STALE_TOOL_INPUT,
+  STALE_TOOL_OUTPUT,
+]);
+
+/**
+ * How many past turns keep their tool traffic word for word.
+ *
+ * One, and the reason is arithmetic rather than taste. A turn is many model round trips and
+ * every one re-sends the whole transcript, so a turn's bill is roughly the assembled size
+ * *times* its step count. Fitting is therefore not the same as being worth sending, and on the
+ * session this was measured against the ladder below never ran once. ADR-0011 has the numbers
+ * and `packages/context/scripts/measure-audit-session.ts` reproduces them for free.
+ *
+ * What an old turn is actually consulted for is what was asked and what the agent said back;
+ * the file it wrote is on disk, one `read_file` away, and the command it ran can be run again.
+ */
+const DEFAULT_VERBATIM_TURNS = 1;
+
+/**
+ * How large an argument may be before staleness reaches it.
+ *
+ * Small enough that a path, a command or a search string survives — losing those would make an
+ * old call unreadable, which is the opposite of the point — and far below anything that could
+ * be a file's contents or a patch.
+ */
+const STALE_ARGUMENT_TOKENS = 32;
+
 /** Room for the turn's own message once the contract is paid for. */
 const USER_MESSAGE_FLOOR_TOKENS = 256;
 
@@ -62,6 +110,8 @@ export type NapContextEngineOptions = {
   maxTurns?: number;
   root?: string;
   maxFileEntries?: number;
+  /** How many of the most recent past turns keep their tool traffic in full. */
+  verbatimTurns?: number;
 };
 
 /** A past turn, kept whole so a tool call and its answer can only leave together. */
@@ -184,6 +234,43 @@ function blockTokens(block: LLMContentBlock): number {
   }
 }
 
+/**
+ * Strips the bulk out of a turn that is no longer the one being continued.
+ *
+ * The call stays, with its shape intact — which tool, against which path — so the transcript
+ * still reads as a sequence of things that happened. What goes is everything large enough to
+ * be a file's contents, an argument at a time, and whatever the call printed back. Both are
+ * facts about a workspace that has since been committed over, and the model can re-read the
+ * current one for a fraction of what carrying the old one across every remaining round trip
+ * costs.
+ */
+function makeStale(turn: Turn): void {
+  for (const block of blocksOf(turn.messages)) {
+    if (block.type === "tool_result") {
+      block.content = STALE_TOOL_OUTPUT;
+      continue;
+    }
+    if (block.type !== "tool_use") continue;
+    block.input = Object.fromEntries(
+      Object.entries(block.input).map(([key, value]) => [
+        key,
+        argumentTokens(value) > STALE_ARGUMENT_TOKENS ? STALE_TOOL_INPUT : value,
+      ]),
+    );
+  }
+}
+
+/**
+ * What one argument costs, measured on what actually travels.
+ *
+ * Not `typeof value === "string"`: every tool takes strings today, and a rule written against
+ * that would let the first array-valued argument through silently — the size is the reason
+ * this exists, and the size does not care what shape it arrives in.
+ */
+function argumentTokens(value: unknown): number {
+  return estimateTokens(typeof value === "string" ? value : JSON.stringify(value ?? null));
+}
+
 function messagesTokens(messages: LLMMessage[]): number {
   return blocksOf(messages).reduce((total, block) => total + blockTokens(block), 0);
 }
@@ -193,6 +280,7 @@ export class NapContextEngine implements ContextEngine {
   readonly #maxTurns: number;
   readonly #root: string | undefined;
   readonly #maxFileEntries: number | undefined;
+  readonly #verbatimTurns: number;
 
   constructor(opts: NapContextEngineOptions = {}) {
     const budgetTokens = opts.budgetTokens ?? DEFAULT_BUDGET_TOKENS;
@@ -209,6 +297,13 @@ export class NapContextEngine implements ContextEngine {
     this.#maxTurns = opts.maxTurns ?? DEFAULT_MAX_TURNS;
     this.#root = opts.root;
     this.#maxFileEntries = opts.maxFileEntries;
+    this.#verbatimTurns = opts.verbatimTurns ?? DEFAULT_VERBATIM_TURNS;
+
+    // Thrown for the reason the budget above is: a negative count is a wiring mistake, and
+    // silently clamping it would hide the caller's bug behind behaviour that looks deliberate.
+    if (this.#verbatimTurns < 0) {
+      throw new Error(`verbatim turns must not be negative, got ${this.#verbatimTurns}`);
+    }
   }
 
   async build(request: ContextRequest): Promise<BuiltContext> {
@@ -222,6 +317,15 @@ export class NapContextEngine implements ContextEngine {
     // The window before the budget is consulted at all: a cap on how far back the agent
     // looks, independent of whether the tokens happen to be available.
     let turns = toTurns(request.history).slice(-this.#maxTurns);
+
+    // Staleness, before the budget is consulted at all. Everything below this point reclaims
+    // tokens because the context does not fit; this reclaims them because carrying an old
+    // turn's file contents is not worth what it costs even when it does. See
+    // `DEFAULT_VERBATIM_TURNS`.
+    for (const turn of turns.slice(0, Math.max(turns.length - this.#verbatimTurns, 0))) {
+      makeStale(turn);
+    }
+
     let remembered: Memory[] = memories;
     let userMessage = request.userMessage;
     let attempts: readonly FailedAttempt[] = request.job?.attempts ?? [];
@@ -253,6 +357,9 @@ export class NapContextEngine implements ContextEngine {
 
     // --- Truncation, in order. Each step is exhausted before the next begins. -----------
     //
+    // This ladder runs only when the context does not fit, which on a short session is never.
+    // The staleness pass above is what a four-turn session actually meets.
+    //
     // The order is the design. Tool output goes first because it is the biggest thing in
     // the transcript by a wide margin and the least irreplaceable — the model can re-read a
     // file. Whole turns go next, oldest first, because a conversation degrades from the far
@@ -271,7 +378,8 @@ export class NapContextEngine implements ContextEngine {
       if (cost() <= this.#budgetTokens) break;
       for (const block of blocksOf(turn.messages)) {
         if (block.type !== "tool_result") continue;
-        if (block.content === ELIDED_TOOL_OUTPUT) continue;
+        // Anything already marked — by an earlier pass of this loop, or by staleness above.
+        if (ELISIONS.has(block.content)) continue;
         block.content = ELIDED_TOOL_OUTPUT;
         if (cost() <= this.#budgetTokens) break;
       }

@@ -18,6 +18,7 @@
  * unusable for the person who most needs to know the agent is still working.
  */
 
+import { Fragment } from "react";
 import { NapMark } from "../brand/nap-mark.tsx";
 import { turnFailureCopy } from "../errors/failure-copy.ts";
 import { AlertIcon, CopyIcon } from "../ui/icons.tsx";
@@ -28,6 +29,8 @@ import { StreamingText } from "./streaming-text.tsx";
 
 export function ChatTranscript({
   items,
+  seam,
+  seamRef,
   onRetry,
 }: {
   /**
@@ -38,6 +41,17 @@ export function ChatTranscript({
    * turn. `groupSteps(buildTranscript(events))` is the whole derivation; see `transcript.ts`.
    */
   items: readonly DisplayItem[];
+  /**
+   * The key of the first item this browser has never displayed, and where the seam is drawn.
+   *
+   * The *key*, not the cursor: the caller has the folded items already and `seamAt` in
+   * `unseen.ts` is where the rule for turning one into the other lives — including the part
+   * about an item that straddles the cursor. Undefined is the ordinary case, and a key nothing
+   * matches draws nothing, which is what a windowed log eventually hands over.
+   */
+  seam?: number | undefined;
+  /** Put on the marker, so the scroller can open at it. See `use-stick-to-bottom.ts`. */
+  seamRef?: React.RefObject<HTMLElement | null> | undefined;
   /** Re-sends a failed turn's message. Absent means no retry is offered, not a broken button. */
   onRetry?: ((message: string) => void) | undefined;
 }) {
@@ -61,16 +75,18 @@ export function ChatTranscript({
       className="flex flex-col gap-3 px-4 py-4"
     >
       {items.map((item, index) => (
-        <Item
-          key={item.key}
-          item={item}
-          live={item.key === liveKey}
-          // Whether the agent has already spoken since the last thing the user said. Its prose
-          // is labelled once per block rather than once per paragraph, the way a chat names a
-          // speaker only when the speaker changes.
-          opensBlock={opensBlock(items, index)}
-          onRetry={onRetry}
-        />
+        <Fragment key={item.key}>
+          {item.key === seam && <UnseenSeam seamRef={seamRef} />}
+          <Item
+            item={item}
+            live={item.key === liveKey}
+            // Whether the agent has already spoken since the last thing the user said. Its prose
+            // is labelled once per block rather than once per paragraph, the way a chat names a
+            // speaker only when the speaker changes.
+            opensBlock={opensBlock(items, index)}
+            onRetry={onRetry}
+          />
+        </Fragment>
       ))}
     </div>
   );
@@ -249,6 +265,41 @@ function Item({
         <TurnFailure item={item} onRetry={onRetry} />
       );
   }
+}
+
+/**
+ * Where this browser's reading stopped.
+ *
+ * The honest primitive, and it works for every case including "you were gone eight seconds":
+ * a line through the transcript with everything below it unseen. Whatever sits *above* it as a
+ * summary is additive and can be cut without leaving a hole here.
+ *
+ * Drawn like the turn boundary — a rule with a word on it — but in the accent rather than in the
+ * edge colour, because this one is about the reader rather than about the log. And it is a word
+ * as well as a line: a hairline in a different colour is nothing at all to somebody listening,
+ * and "you have not read from here down" is exactly what they need told.
+ *
+ * The copy is not the domain term. What is computed is `Unseen` — a property of the log against
+ * a cursor — and what is said is a sentence about a person, the same split `working-state.ts`
+ * and `failure-copy.ts` already make.
+ */
+function UnseenSeam({ seamRef }: { seamRef?: React.RefObject<HTMLElement | null> | undefined }) {
+  return (
+    <p
+      // Filled through a callback rather than handed the object directly. The caller asks for
+      // an `HTMLElement` because it only ever reads an offset off it, and a `RefObject` of the
+      // wider type is not a `RefObject` of this one — assigning into it is, and it needs no
+      // cast promising that this element is always a paragraph.
+      ref={(node) => {
+        if (seamRef !== undefined) seamRef.current = node;
+      }}
+      className="flex items-center gap-2.5 pt-1 font-mono text-[11px] text-accent-ink"
+    >
+      <span aria-hidden="true" className="h-px flex-1 bg-accent/40" />
+      <span className="min-w-0 truncate">New since you were last here</span>
+      <span aria-hidden="true" className="h-px flex-1 bg-accent/40" />
+    </p>
+  );
 }
 
 /**

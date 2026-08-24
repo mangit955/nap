@@ -24,6 +24,7 @@
 
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { useMemo } from "react";
+import { jobView, type SessionJobView } from "../chat/job-summary.ts";
 import { changedPaths } from "../files/changed-paths.ts";
 import { type PreviewState, previewState } from "../preview/preview-state.ts";
 import { type CreateSocket, type StreamStatus, useEventStream } from "./use-event-stream.ts";
@@ -39,6 +40,14 @@ export type SessionLog = {
   preview: PreviewState;
   /** Project-relative paths this session has written. */
   changed: ReadonlySet<string>;
+  /**
+   * Where this session's jobs stand, and what the newest one is doing.
+   *
+   * Here rather than in the strip that draws it, because the strip is no longer its only
+   * reader: the bar across the top carries the phase too, so that collapsing the chat does not
+   * take it off the screen.
+   */
+  jobs: SessionJobView;
 };
 
 export function useSessionLog(options: {
@@ -58,6 +67,7 @@ export function useSessionLog(options: {
   // new array for every event, so identity changes exactly when the answers could have.
   const preview = useMemo(() => previewState(events), [events]);
   const changed = useMemo(() => changedPaths(events), [events]);
+  const jobs = useMemo(() => jobView(events), [events]);
 
-  return { events, status, lastSeq, replayed, preview, changed };
+  return { events, status, lastSeq, replayed, preview, changed, jobs };
 }

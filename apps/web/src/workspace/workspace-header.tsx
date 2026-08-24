@@ -10,12 +10,17 @@
  *
  * **Nothing here is decoration.** There is no Share, Publish or Upgrade: this deployment has no
  * such features, and a button that does nothing teaches people that the other buttons might not
- * work either.
+ * work either. Which is the test the job phase passes: the strip that otherwise carries it lives
+ * *inside the chat pane*, and the button two elements to its left collapses that pane — so
+ * hiding the chat to give the preview the whole window used to take the one signal saying
+ * whether the project works off the screen with it.
  */
 
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { NapMark } from "../brand/nap-mark.tsx";
+import { PhaseDot } from "../chat/job-marks.tsx";
+import type { JobSummary } from "../chat/job-summary.ts";
 import { EditableTitle } from "../ui/editable-title.tsx";
 import { ExternalIcon, PanelIcon, ReloadIcon } from "../ui/icons.tsx";
 import { normaliseRoute, previewUrlFor } from "./route-path.ts";
@@ -28,6 +33,7 @@ export function WorkspaceHeader({
   chatOpen,
   route,
   previewUrl,
+  job,
   onTabChange,
   onReload,
   onRouteChange,
@@ -42,6 +48,12 @@ export function WorkspaceHeader({
   route: string;
   /** The sandbox's address, or absent while nothing is serving the project. */
   previewUrl: string | undefined;
+  /**
+   * The newest job as the strip below says it, or `null` for a project nobody has asked anything
+   * of yet. The same fold and the same wording as the strip's, derived once above both — see
+   * `useSessionLog`.
+   */
+  job: JobSummary | null;
   onTabChange: (tab: WorkbenchTab) => void;
   onReload: () => void;
   onRouteChange: (route: string) => void;
@@ -90,6 +102,8 @@ export function WorkspaceHeader({
             inputClassName="text-sm w-44"
           />
         )}
+
+        <JobPhase job={job} />
       </div>
 
       <div
@@ -137,6 +151,43 @@ export function WorkspaceHeader({
         )}
       </div>
     </header>
+  );
+}
+
+/**
+ * Where the job stands, mirrored from the strip.
+ *
+ * **Mirrored rather than moved.** The strip still says this while the chat is open, and says
+ * three further things beside it — the checks, the repairs spent, the history. What the bar
+ * carries is the one fact that must survive the pane being collapsed.
+ *
+ * **And this is the copy that announces.** `role="status"` is here rather than on the strip's
+ * because this bar is the only surface in the workspace that is never unmounted: a live region
+ * inside the chat pane goes silent the moment somebody hides the chat, and two of them would
+ * announce the same change twice while the chat is open. The strip's phase is drawn, not spoken.
+ * Rendered even with nothing to say, for the same reason — a region that appears along with its
+ * first message is a region that misses it.
+ *
+ * The palette has one alarm colour and no success colour on purpose (`globals.css`), so this is
+ * the word plus a neutral dot rather than a green tick — `phaseTone` marks only the outcomes
+ * that leave work undone, and the word carries the meaning either way.
+ */
+function JobPhase({ job }: { job: JobSummary | null }) {
+  return (
+    <p
+      role="status"
+      // Named, though a live region is announced by its content: without a name this is the
+      // one thing in the bar a test can only reach by being the only `status` on screen.
+      aria-label="Job phase"
+      className="flex min-w-0 shrink-0 items-center gap-1.5 font-medium text-[11.5px] text-ink-2"
+    >
+      {job !== null && (
+        <>
+          <PhaseDot job={job} />
+          <span className="truncate">{job.phaseLabel}</span>
+        </>
+      )}
+    </p>
   );
 }
 

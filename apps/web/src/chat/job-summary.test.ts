@@ -123,7 +123,24 @@ describe("whether the project is at a verified state", () => {
       log.at("job.checkpointed", { jobId: JOB, commitSha: "abc123" }),
     );
 
-    expect(summary?.state).toMatch(/at a verified state/i);
+    expect(summary?.state).toMatch(/your last commit is verified/i);
+  });
+
+  it("keeps describing the last commit while the next job is still working", () => {
+    // The phase above says the job is unfinished while this says the commit under it is fine,
+    // and the two are only distinguishable if the sentence names what it is about. See
+    // `stateLine`.
+    const summary = summarise(
+      log.opened(JOB),
+      log.committed("abc123"),
+      log.at("verification.completed", { jobId: JOB, checks: [check("test", "passed")] }),
+      log.at("job.checkpointed", { jobId: JOB, commitSha: "abc123" }),
+      log.at("job.completed", { jobId: JOB, outcome: "verified" }),
+      log.opened(OTHER_JOB, "add a dark mode"),
+    );
+
+    expect(summary?.phase).toBe("working");
+    expect(summary?.state).toMatch(/your last commit is verified/i);
   });
 
   it("never claims a verification for a job whose checks were all absent", () => {
@@ -141,14 +158,16 @@ describe("whether the project is at a verified state", () => {
     );
 
     expect(summary?.phase).toBe("verified");
-    expect(summary?.state).toMatch(/declares no checks/i);
+    expect(summary?.state).toMatch(/^this project declares no checks/i);
+    expect(summary?.state).toMatch(/your last commit/i);
     expect(summary?.state).not.toMatch(/passed/i);
   });
 
   it("says nothing has passed yet when a commit has never been checkpointed", () => {
     const summary = summarise(log.opened(), log.committed("abc123"));
 
-    expect(summary?.state).toMatch(/nothing committed here has passed/i);
+    expect(summary?.state).toMatch(/^your last commit is not verified/i);
+    expect(summary?.state).toMatch(/nothing here has passed/i);
   });
 
   it("says HEAD has moved on when a later commit is not the checkpoint", () => {
@@ -161,6 +180,7 @@ describe("whether the project is at a verified state", () => {
       log.committed("def456"),
     );
 
+    expect(summary?.state).toMatch(/^your last commit is not verified/i);
     expect(summary?.state).toMatch(/ahead of the last checkpoint/i);
   });
 });
