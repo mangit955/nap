@@ -165,7 +165,7 @@ describe("whether the project is at a verified state", () => {
     );
 
     expect(screen.getByRole("region", { name: /job status/i })).toHaveTextContent(
-      /at a verified state/i,
+      /your last commit is verified/i,
     );
   });
 
@@ -184,7 +184,7 @@ describe("whether the project is at a verified state", () => {
 
     const strip = screen.getByRole("region", { name: /job status/i });
     expect(strip).toHaveTextContent(/declares no checks/i);
-    expect(strip).not.toHaveTextContent(/at a verified state/i);
+    expect(strip).not.toHaveTextContent(/your last commit is verified/i);
     // The checks still appear, saying what each of them was — the sentence explains the shape,
     // and the list is the evidence for it.
     expect(screen.getByRole("list", { name: /checks/i })).toHaveTextContent(/typecheck\s*absent/);

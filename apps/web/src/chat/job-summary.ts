@@ -131,20 +131,27 @@ const SHORT_SHA = 7;
  *
  * A short-circuited run cannot reach this case: the check that stopped it is `failed`, so a run
  * with any red in it has a non-absent outcome and lands on the last line instead.
+ *
+ * **Every sentence names its subject before it judges anything**, because the strip stacks the
+ * phase directly over this line and the two describe different things — the phase is the job in
+ * flight, this is HEAD. A real session read `Working` above "At a verified state", which is true
+ * of the last commit and reads as a claim about the unfinished turn. Naming the commit first
+ * costs two words and holds on every path: the same sentence under `Abandoned` is the "your work
+ * is safe" reassurance, which was always about HEAD and is only clearer for saying so.
  */
 function stateLine(state: SessionJobs, checks: readonly VerifiedCheck[]): string {
   if (state.headSha === null) return "Nothing committed yet.";
 
   if (state.atCheckpoint) {
     if (checks.length > 0 && checks.every((check) => check.outcome === "absent")) {
-      return "This project declares no checks, so nothing was verified.";
+      return "This project declares no checks, so nothing about your last commit was verified.";
     }
-    return "At a verified state — the last commit passed the project's checks.";
+    return "Your last commit is verified — it passed the project's checks.";
   }
 
   if (state.checkpointSha === null) {
-    return "Not verified — nothing committed here has passed the project's checks yet.";
+    return "Your last commit is not verified — nothing here has passed the project's checks yet.";
   }
 
-  return "Not verified — the last commit is ahead of the last checkpoint.";
+  return "Your last commit is not verified — it is ahead of the last checkpoint.";
 }
