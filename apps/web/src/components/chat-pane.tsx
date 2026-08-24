@@ -13,11 +13,14 @@ import { groupSteps } from "../chat/step-group.ts";
 import { buildTranscript, type TranscriptItem } from "../chat/transcript.ts";
 import { TranscriptSkeleton } from "../chat/transcript-skeleton.tsx";
 import { seamAt } from "../chat/unseen.ts";
+import { UnseenCard } from "../chat/unseen-card.tsx";
+import type { UnseenSummary } from "../chat/unseen-summary.ts";
 import { useFirstPrompt } from "../chat/use-first-prompt.ts";
 import { useModels } from "../chat/use-models.ts";
 import { useSeenCursor } from "../chat/use-seen-cursor.ts";
 import { useStickToBottom } from "../chat/use-stick-to-bottom.ts";
 import { useTurnSubmission } from "../chat/use-turn-submission.ts";
+import { useUnseenCard } from "../chat/use-unseen-card.ts";
 import { WorkingIndicator } from "../chat/working-indicator.tsx";
 import { turnStartedAt, workingLabel } from "../chat/working-state.ts";
 import { EXAMPLE_PROMPTS } from "../dashboard/example-prompts.ts";
@@ -51,6 +54,8 @@ export function ChatPane({
   onModelChange,
   onAddKey,
   seen,
+  card,
+  onDismissCard = () => {},
 }: {
   events: readonly StoredEvent[];
   /**
@@ -81,6 +86,17 @@ export function ChatPane({
    * not subscribed to a session — the tests, and the landing page's scripted demo.
    */
   seen?: number | undefined;
+  /**
+   * What was decided while nobody was watching, from `useUnseenCard`, or `null` when nothing
+   * was — which is most of the time, by design. Worked out above rather than here because it is
+   * a fact about a moment that has passed, and this pane re-renders on every event.
+   */
+  card?: UnseenSummary | null | undefined;
+  /**
+   * Optional for the same reason `card` is — the many render tests supply neither — and paired
+   * with it: a caller passing one without the other draws a card whose only control does nothing.
+   */
+  onDismissCard?: (() => void) | undefined;
 }) {
   const empty = events.length === 0 && pending === undefined;
   // Folded once, read twice: the transcript renders it and the working indicator reads the last
@@ -110,6 +126,26 @@ export function ChatPane({
           during the exact minute it matters.
         */}
         <JobStrip events={events} />
+
+        {/*
+          Over the seam, and above the scroller for the reason the strip is: a summary of what
+          happened in your absence that scrolls away with the conversation is one somebody has
+          to go looking for. The seam stays where it is either way — this is additive to it,
+          and dismissing this leaves the transcript exactly as it was.
+        */}
+        {card != null && (
+          <UnseenCard
+            card={card}
+            onDismiss={() => {
+              // Dismissing means "read", so it drops the reader at the live state rather than
+              // leaving them parked at a marker they have just finished with. Set before the
+              // card unmounts; the browser clamps to whatever the new bottom turns out to be.
+              const box = scroller.current;
+              if (box !== null) box.scrollTop = box.scrollHeight;
+              onDismissCard();
+            }}
+          />
+        )}
 
         <div
           ref={scroller} // `overflow-x-hidden`, not `auto`: tool output is arbitrary text, and a long line
@@ -251,6 +287,11 @@ export function LiveChatPane({
   // in the workspace that is not a fold over the log at all — it is a fact about this browser,
   // and only this pane draws it.
   const seen = useSeenCursor(sessionId, lastSeq);
+  // Beside the cursor, and for the same reason: it is a fact about this browser rather than a
+  // fold over the log, and only this pane draws it. Worked out here rather than in the pane
+  // below because it needs `replayed` — a card decided before the log arrived would be a card
+  // decided over an empty one.
+  const { card, dismiss } = useUnseenCard(events, seen, replayed);
   const injected = fetchJson === undefined ? {} : { fetchJson };
   const { submit, cancel, pending, running, error } = useTurnSubmission({
     sessionId,
@@ -302,6 +343,8 @@ export function LiveChatPane({
         onModelChange={setModel}
         onAddKey={() => setKeyPanelOpen(true)}
         seen={seen}
+        card={card}
+        onDismissCard={dismiss}
       />
     </>
   );

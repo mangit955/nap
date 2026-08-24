@@ -74,8 +74,9 @@ whether the work is sound, a snapshot about where the work is kept. Every comple
 only a verified one checkpoints, which is what makes a failed verification unable to corrupt the
 last known-good state by construction rather than by care. **The word keeps that strength in the
 UI**: the panel behind the job strip is a history of *jobs*, failures included, because a list of
-checkpoints is a list with every failure deleted from it — "Checkpoint" appears only on the
-verified-commit line inside an entry (`apps/web/src/chat/job-history.tsx`).
+checkpoints is a list with every failure deleted from it — "Checkpoint" appears only against a sha
+a verification agreed with, on the line inside a history entry (`apps/web/src/chat/job-history.tsx`)
+and on the card that says what was decided in your absence (`apps/web/src/chat/unseen-card.tsx`).
 
 **Unseen** — the events in a session that *this browser* has never displayed, computed against a
 persisted **seen cursor**: `localStorage`, keyed by session, advanced only while the document is

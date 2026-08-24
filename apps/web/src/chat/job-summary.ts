@@ -81,6 +81,21 @@ export function repairsLabel(attemptsUsed: number): string | null {
 }
 
 /**
+ * A commit as somebody would type it, or nothing at all.
+ *
+ * Git's own abbreviation, and here beside the other shared wording for the reason `PHASE_LABELS`
+ * is: three places now show one — a history entry, the control that expands the history, and the
+ * card that says what was decided in your absence — and two of them abbreviating the same commit
+ * differently would read as two commits.
+ */
+export function shortSha(sha: string | null): string | null {
+  return sha === null ? null : sha.slice(0, SHORT_SHA);
+}
+
+/** Git's own abbreviation. */
+const SHORT_SHA = 7;
+
+/**
  * Whether this project is in a state something has checked.
  *
  * Four sentences, and the *third* is the one this function exists for. A verification whose

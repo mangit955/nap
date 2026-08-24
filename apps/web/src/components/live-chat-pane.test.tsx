@@ -127,4 +127,34 @@ describe("LiveChatPane", () => {
     expect(await screen.findByText(/build me a todo list/)).toBeInTheDocument();
     expect(screen.queryByText(/new since you were last here/i)).toBeNull();
   });
+
+  it("says what was decided in an absence, and stops saying it when dismissed", async () => {
+    // Same wiring gap as the seam above, one layer further on: the rule, the freeze and the card
+    // are each tested alone, and none of that says this pane subscribes to any of them. The turn
+    // failed below the cursor, which is a conclusion — so there is something to report.
+    window.localStorage.setItem(`nap.seen.${SESSION_ID}`, "2");
+
+    render(<LiveChatPane sessionId={SESSION_ID} log={failedTurn()} fetchJson={fetchJson} />);
+
+    const card = await screen.findByRole("region", { name: /while you were away/i });
+    expect(card).toHaveTextContent("The workspace couldn't start.");
+
+    fireEvent.click(screen.getByRole("button", { name: /dismiss/i }));
+
+    expect(screen.queryByRole("region", { name: /while you were away/i })).toBeNull();
+    // And the transcript is left exactly as it was: the card is additive to the seam, not a
+    // replacement for it, so dismissing one does not take the other away.
+    expect(screen.getByText(/new since you were last here/i)).toBeInTheDocument();
+  });
+
+  it("says nothing about an absence in which nothing was decided", async () => {
+    // The four-hours-away case, through the real pane: the cursor is already past the failure,
+    // so there is a full log to read and nothing at all to be told about it.
+    window.localStorage.setItem(`nap.seen.${SESSION_ID}`, "3");
+
+    render(<LiveChatPane sessionId={SESSION_ID} log={failedTurn()} fetchJson={fetchJson} />);
+
+    expect(await screen.findByText(/build me a todo list/)).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: /while you were away/i })).toBeNull();
+  });
 });

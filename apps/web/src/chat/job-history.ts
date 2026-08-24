@@ -27,10 +27,7 @@ import {
   type JobState,
   type SessionJobs,
 } from "@nap/shared/job-state";
-import { PHASE_LABELS, repairsLabel } from "./job-summary.ts";
-
-/** Git's own abbreviation, so a sha here is the one somebody would type. */
-const SHORT_SHA = 7;
+import { PHASE_LABELS, repairsLabel, shortSha } from "./job-summary.ts";
 
 export type JobHistoryEntry = {
   jobId: string;
@@ -89,7 +86,7 @@ function toEntry(job: JobState, index: number): JobHistoryEntry {
     failed: isJobFailed(job),
     checks: job.checks,
     attemptsLabel: repairsLabel(job.attemptsUsed),
-    checkpoint: job.checkpointSha === null ? null : job.checkpointSha.slice(0, SHORT_SHA),
+    checkpoint: shortSha(job.checkpointSha),
     filesLabel: filesLabel(job.filesChanged),
     startedAt: job.startedAt,
     clock: clockTime(job.startedAt),
@@ -115,7 +112,7 @@ export function historyLabel(state: SessionJobs): string | null {
   const newest = checkpointed.at(-1);
   if (newest?.checkpointSha == null) return `${state.jobs.length} jobs`;
 
-  return `Checkpoint ${checkpointed.length} · ${newest.checkpointSha.slice(0, SHORT_SHA)}`;
+  return `Checkpoint ${checkpointed.length} · ${shortSha(newest.checkpointSha)}`;
 }
 
 function filesLabel(count: number): string | null {
