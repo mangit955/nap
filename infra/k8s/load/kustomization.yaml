@@ -37,6 +37,10 @@ images:
 # Dummies, every one: nothing here reaches a vendor. `DATABASE_URL` is the Postgres next door, and
 # KEDA's TriggerAuthentication reads the same key, so the scaler and the pods cannot disagree
 # about which database the queue is in.
+#
+# `NAP_KEY_ENCRYPTION_SECRET` has to decode to exactly 32 bytes, and the plaintext repeats on
+# purpose: any 32 random bytes, base64'd, reads as a live credential to an entropy scanner, and a
+# dummy that trips one costs somebody a triage every time this file is in a diff.
 secretGenerator:
   - name: nap-secrets
     literals:

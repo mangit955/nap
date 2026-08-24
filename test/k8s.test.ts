@@ -195,6 +195,13 @@ stringData:
     ).toEqual([]);
   });
 
+  /*
+   * The host is a reserved `.invalid` one (RFC 2606) rather than something that looks like a real
+   * provider. The rule under test is "the host is not this cluster's", so the flavour of the
+   * hostname changes nothing here — but a fixture shaped like live Neon credentials is one every
+   * secret scanner reports, and a test that exists to catch pasted credentials is a silly place
+   * to spend somebody's triage.
+   */
   it("catches a real database or a vendor key pasted into that overlay", () => {
     const violations = generatedSecretViolations(
       [
@@ -224,7 +231,7 @@ spec:
       containers:
         - name: worker
           env:
-            - { name: DATABASE_URL, value: "postgres://nap:placeholder@db/nap" }
+            - { name: DATABASE_URL, value: "postgres://nap:placeholder@db.example.invalid/nap" }
 `),
     );
     expect(violations).toHaveLength(1);
