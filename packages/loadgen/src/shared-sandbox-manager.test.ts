@@ -8,6 +8,7 @@
  * fake's declared cold start rather than the deployment — see `docs/scaling-cluster.md`.
  */
 
+import { describeSandboxManagerConformance } from "@nap/sandbox/testing/conformance";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import { describe, expect, it } from "vitest";
@@ -41,16 +42,24 @@ class InMemorySharedSandboxStore implements SharedSandboxStore {
   }
 }
 
+/** The two commands the conformance suite needs, in the only dialect the fake speaks. */
+const STREAMS_OUTPUT = "printf 'one\\n'; printf 'two\\n' >&2";
+const FAILS_WITH_CODE_3 = "exit 3";
+
+/** The wrapped manager, as every test here builds it. */
+function scriptedManager(): InMemorySandboxManager {
+  return new InMemorySandboxManager({
+    defaultExec: () => ({ exitCode: 0, stdout: "" }),
+    serves: [5173],
+    seed: { "/home/user/app/package.json": "{}" },
+  })
+    .script(STREAMS_OUTPUT, { stdout: "one\n", stderr: "two\n" })
+    .script(FAILS_WITH_CODE_3, { exitCode: 3 });
+}
+
 /** One worker pod: its own in-memory sandboxes, the shared store underneath. */
 function pod(store: SharedSandboxStore): SandboxManager {
-  return sharedSandboxManager(
-    new InMemorySandboxManager({
-      defaultExec: () => ({ exitCode: 0, stdout: "" }),
-      serves: [5173],
-      seed: { "/home/user/app/package.json": "{}" },
-    }),
-    store,
-  );
+  return sharedSandboxManager(scriptedManager(), store);
 }
 
 async function created(manager: SandboxManager, projectId = "project-1"): Promise<string> {
@@ -58,6 +67,25 @@ async function created(manager: SandboxManager, projectId = "project-1"): Promis
   if (!sandbox.ok) throw new Error(`create failed: ${sandbox.error.message}`);
   return sandbox.value.id;
 }
+
+/**
+ * The wrapper's whole defence is that it delegates, so the contract the thing it wraps is held
+ * to is the contract it has to keep. Run over one process's manager, because that is what the
+ * suite can express; everything cross-process is below.
+ */
+describeSandboxManagerConformance({
+  name: "sharedSandboxManager",
+  root: "/home/user",
+  commands: { streamsOutput: STREAMS_OUTPUT, failsWithCode3: FAILS_WITH_CODE_3 },
+  // Any string is well-formed here: neither the fake nor the store validates an id's shape.
+  unknownSandboxId: () => `unknown-${crypto.randomUUID()}`,
+  createManager: async () => ({
+    manager: sharedSandboxManager(scriptedManager(), new InMemorySharedSandboxStore()),
+    cleanup: async () => {
+      // Nothing to release: the sandboxes and the store both go with the instance.
+    },
+  }),
+});
 
 describe("sharedSandboxManager", () => {
   it("reattaches to a sandbox another process created, under the same id", async () => {
@@ -160,6 +188,28 @@ describe("sharedSandboxManager", () => {
       ok: true,
       value: "two\n",
     });
+  });
+
+  it("destroys the record from a process that never held the sandbox", async () => {
+    const store = new InMemorySharedSandboxStore();
+    const sandboxId = await created(pod(store));
+
+    // The reaper is exactly this process: it sweeps idle projects and has attached nothing.
+    await expect(pod(store).destroy(sandboxId)).resolves.toMatchObject({ ok: true });
+
+    await expect(pod(store).resume(sandboxId)).resolves.toMatchObject({ ok: false });
+  });
+
+  it("does not hand back a sandbox another process destroyed, even to the one that made it", async () => {
+    const store = new InMemorySharedSandboxStore();
+    const first = pod(store);
+    const sandboxId = await created(first);
+
+    await pod(store).destroy(sandboxId);
+
+    // The whole reason the runtime restores from a snapshot: a sandbox that is gone has to
+    // read as gone everywhere, or the turn runs in one nobody else can see.
+    await expect(first.resume(sandboxId)).resolves.toMatchObject({ ok: false });
   });
 
   it("costs a reattach rather than a cold start, which is the whole point", async () => {

@@ -20,6 +20,9 @@ export default defineConfig({
           // `scripts/` as well as `src/`: the harnesses there are real code with real
           // logic — the load composition's shared sandbox store is what a whole cluster
           // run rests on — and a test written beside one is otherwise never collected.
+          // Every project below globs it too, `types` through `tsconfig.test-d.json` as
+          // well, because a suite that covers `scripts` in one project and not the next
+          // is the silent-miss trap in a new place.
           include: [
             "{packages,apps}/*/src/**/*.test.ts",
             "{packages,apps}/*/scripts/**/*.test.ts",
@@ -39,7 +42,10 @@ export default defineConfig({
           name: "types",
           typecheck: {
             enabled: true,
-            include: ["{packages,apps}/*/src/**/*.test-d.ts"],
+            include: [
+              "{packages,apps}/*/src/**/*.test-d.ts",
+              "{packages,apps}/*/scripts/**/*.test-d.ts",
+            ],
             tsconfig: "./tsconfig.test-d.json",
           },
           // The type tests *are* the suite here; there are no runtime tests to run.
@@ -76,7 +82,10 @@ export default defineConfig({
       {
         test: {
           name: "integration",
-          include: ["{packages,apps}/*/src/**/*.integration.test.ts"],
+          include: [
+            "{packages,apps}/*/src/**/*.integration.test.ts",
+            "{packages,apps}/*/scripts/**/*.integration.test.ts",
+          ],
           // Real credentials live in apps/api/.env. Bun loads that for the API; Vitest
           // runs under Node, which does not — so the suite loads it explicitly.
           setupFiles: ["./test/integration-setup.ts"],

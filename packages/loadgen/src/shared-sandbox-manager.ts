@@ -95,6 +95,21 @@ export function sharedSandboxManager(
     await store.saveFiles(sandboxId, Object.fromEntries(attachment.files));
   }
 
+  /**
+   * A preview address composed from the local sandbox, rewritten to the shared id.
+   *
+   * A real provider derives the address from the sandbox's own id, so it survives a reattach.
+   * One that changed per pod would be a fake nobody could follow — and the address is in the
+   * event log, where somebody reading a run afterwards has only the shared id to match it to.
+   */
+  function atSharedId(
+    sandboxId: string,
+    url: Result<string, SandboxError>,
+  ): Result<string, SandboxError> {
+    if (!url.ok) return url;
+    return { ok: true, value: url.value.replaceAll(local(sandboxId), sandboxId) };
+  }
+
   /** Builds a local sandbox holding what the record says, and binds the shared id to it. */
   async function attach(record: SharedSandboxRecord): Promise<Result<Sandbox, SandboxError>> {
     const opened = await inner.create(record.projectId);
@@ -123,24 +138,53 @@ export function sharedSandboxManager(
       return opened;
     },
 
+    /**
+     * The store is asked every time, including when this process is already holding the
+     * sandbox: it is the only thing that knows whether some *other* process has destroyed it
+     * since, and a sandbox that is gone has to read as gone everywhere or a turn runs in one
+     * nobody else can see. One primary-key lookup per turn, which is what it is worth.
+     */
     resume: async (sandboxId) => {
+      const record = await store.find(sandboxId);
       const attached = attachments.get(sandboxId);
-      if (attached !== undefined) {
-        const resumed = await inner.resume(attached.localId);
-        if (!resumed.ok) return resumed;
-        return { ok: true, value: { id: sandboxId, projectId: resumed.value.projectId } };
+
+      if (record === null) {
+        // Dropped locally as well, so the answer is the fake's own — "destroyed" for a sandbox
+        // that existed, "no such sandbox" for an id nobody ever created. The runtime tells those
+        // apart nowhere, but a person reading a failed run does.
+        if (attached !== undefined) {
+          attachments.delete(sandboxId);
+          await inner.destroy(attached.localId);
+          return await inner.resume(attached.localId);
+        }
+        return await inner.resume(sandboxId);
       }
 
-      const record = await store.find(sandboxId);
-      // Not the store's word for it: a sandbox no process ever created and one that was
-      // destroyed read differently, and the wrapped manager is the thing that knows which.
-      if (record === null) return await inner.resume(sandboxId);
+      if (attached === undefined) return await attach(record);
 
-      return await attach(record);
+      const resumed = await inner.resume(attached.localId);
+      if (!resumed.ok) return resumed;
+      return { ok: true, value: { id: sandboxId, projectId: resumed.value.projectId } };
     },
 
+    /**
+     * Destroying is vendor-side in the real thing, so it happens here whether or not this
+     * process is the one holding the sandbox. **The reaper is always the other process** — it
+     * sweeps idle projects and has attached nothing — and a destroy that only dropped a local
+     * object would leave the record behind for a worker to reattach to something gone.
+     */
     destroy: async (sandboxId) => {
-      const destroyed = await inner.destroy(local(sandboxId));
+      const attached = attachments.get(sandboxId);
+      if (attached === undefined) {
+        const record = await store.find(sandboxId);
+        // Nothing to forget: let the fake say whether this id was destroyed or never existed.
+        if (record === null) return await inner.destroy(sandboxId);
+
+        await store.forget(sandboxId);
+        return { ok: true, value: undefined };
+      }
+
+      const destroyed = await inner.destroy(attached.localId);
       if (!destroyed.ok) return destroyed;
 
       attachments.delete(sandboxId);
@@ -172,17 +216,11 @@ export function sharedSandboxManager(
       onOutput?: ExecOutputHandler,
     ): Promise<Result<ExecResult, SandboxError>> => inner.exec(local(sandboxId), command, onOutput),
 
-    getPreviewUrl: async (sandboxId, port) => {
-      const url = await inner.getPreviewUrl(local(sandboxId), port);
-      if (!url.ok) return url;
-      return { ok: true, value: url.value.replaceAll(local(sandboxId), sandboxId) };
-    },
+    getPreviewUrl: async (sandboxId, port) =>
+      atSharedId(sandboxId, await inner.getPreviewUrl(local(sandboxId), port)),
 
-    waitForPreview: async (sandboxId, port, opts) => {
-      const url = await inner.waitForPreview(local(sandboxId), port, opts);
-      if (!url.ok) return url;
-      return { ok: true, value: url.value.replaceAll(local(sandboxId), sandboxId) };
-    },
+    waitForPreview: async (sandboxId, port, opts) =>
+      atSharedId(sandboxId, await inner.waitForPreview(local(sandboxId), port, opts)),
   };
 
   return shared;
