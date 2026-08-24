@@ -72,7 +72,10 @@ now", which is `HEAD == last checkpoint` rather than a judgement anybody renders
 **Snapshot**, which is a filesystem archived because a sandbox went away: a checkpoint is about
 whether the work is sound, a snapshot about where the work is kept. Every completed turn commits;
 only a verified one checkpoints, which is what makes a failed verification unable to corrupt the
-last known-good state by construction rather than by care.
+last known-good state by construction rather than by care. **The word keeps that strength in the
+UI**: the panel behind the job strip is a history of *jobs*, failures included, because a list of
+checkpoints is a list with every failure deleted from it — "Checkpoint" appears only on the
+verified-commit line inside an entry (`apps/web/src/chat/job-history.tsx`).
 
 **Continue** — what happens to an open job when its project is next opened, as distinct from
 **resume**, which already means bringing a put-away project's sandbox back up (`resumeSession`). A

@@ -11,9 +11,9 @@
  */
 
 import type { StoredEvent } from "@nap/shared/ports/event-store";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
-import { check, JOB_ID as JOB, jobLog } from "../testing/job-events.ts";
+import { check, JOB_ID as JOB, jobLog, OTHER_JOB_ID as OTHER_JOB } from "../testing/job-events.ts";
 import { JobStrip } from "./job-strip.tsx";
 
 let log = jobLog();
@@ -96,6 +96,50 @@ describe("repairs used", () => {
     );
 
     expect(screen.getByRole("region", { name: /job status/i })).not.toHaveTextContent(/repairs/i);
+  });
+});
+
+describe("the history behind it", () => {
+  /** Two jobs, the first verified and the second still going. */
+  const twoJobs = () => [
+    log.opened(JOB, "build a finance dashboard"),
+    log.committed("841f4d74962d8f3078f092b8873324f176acbe0b"),
+    log.checkpointed("841f4d74962d8f3078f092b8873324f176acbe0b", JOB),
+    log.at("job.completed", { jobId: JOB, outcome: "verified" }),
+    log.opened(OTHER_JOB, "add a dark mode toggle"),
+  ];
+
+  it("offers nothing to expand while there has only been one job", () => {
+    show(log.opened(), log.at("verification.completed", { jobId: JOB, checks: [] }));
+
+    expect(screen.queryByRole("button", { name: /checkpoint|jobs/i })).not.toBeInTheDocument();
+  });
+
+  it("carries the newest checkpoint on its face once a second job exists", () => {
+    // A strip that expands is a strip nobody clicks, so the control is the fact people want
+    // most rather than a chevron labelled "History".
+    show(...twoJobs());
+
+    expect(screen.getByRole("button", { name: /checkpoint 1 · 841f4d7/i })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+  });
+
+  it("shows the past jobs once it is pressed, and hides them again", () => {
+    show(...twoJobs());
+    const toggle = screen.getByRole("button", { name: /checkpoint 1/i });
+
+    expect(screen.queryByRole("list", { name: /job history/i })).not.toBeInTheDocument();
+
+    fireEvent.click(toggle);
+    const history = screen.getByRole("list", { name: /job history/i });
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    // The finished job is reachable from here and nowhere else in the workspace.
+    expect(history).toHaveTextContent(/build a finance dashboard/i);
+
+    fireEvent.click(toggle);
+    expect(screen.queryByRole("list", { name: /job history/i })).not.toBeInTheDocument();
   });
 });
 

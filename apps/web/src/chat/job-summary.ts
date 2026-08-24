@@ -17,7 +17,12 @@
  */
 
 import type { VerifiedCheck } from "@nap/shared/events";
-import { type JobPhase, MAX_REPAIR_ATTEMPTS, type SessionJobs } from "@nap/shared/job-state";
+import {
+  isJobOpen,
+  type JobPhase,
+  MAX_REPAIR_ATTEMPTS,
+  type SessionJobs,
+} from "@nap/shared/job-state";
 
 export type JobSummary = {
   phase: JobPhase;
@@ -33,7 +38,13 @@ export type JobSummary = {
   state: string;
 };
 
-const PHASE_LABELS: Record<JobPhase, string> = {
+/**
+ * The phase in a word, shared with the history below the strip.
+ *
+ * Exported so there is one vocabulary rather than two: a job reading `Out of repairs` in the
+ * strip must not read `Exhausted` one line down in the list of past jobs.
+ */
+export const PHASE_LABELS: Record<JobPhase, string> = {
   working: "Working",
   verifying: "Verifying",
   repairing: "Repairing",
@@ -43,8 +54,6 @@ const PHASE_LABELS: Record<JobPhase, string> = {
   abandoned: "Abandoned",
 };
 
-const OPEN_PHASES: readonly JobPhase[] = ["working", "verifying", "repairing"];
-
 export function jobSummary(state: SessionJobs): JobSummary | null {
   const job = state.jobs.at(-1);
   if (job === undefined) return null;
@@ -52,12 +61,23 @@ export function jobSummary(state: SessionJobs): JobSummary | null {
   return {
     phase: job.phase,
     phaseLabel: PHASE_LABELS[job.phase],
-    open: OPEN_PHASES.includes(job.phase),
+    open: isJobOpen(job),
     checks: job.checks,
-    attemptsLabel:
-      job.attemptsUsed === 0 ? null : `${job.attemptsUsed} of ${MAX_REPAIR_ATTEMPTS} repairs used`,
+    attemptsLabel: repairsLabel(job.attemptsUsed),
     state: stateLine(state, job.checks),
   };
+}
+
+/**
+ * Repairs spent, or `null` when none have been.
+ *
+ * Out of the total rather than alone: "1 repair" is a number with nothing to read it against,
+ * where "1 of 3" says both what has happened and how much room is left. Shared with the history
+ * for the reason `PHASE_LABELS` is.
+ */
+export function repairsLabel(attemptsUsed: number): string | null {
+  if (attemptsUsed === 0) return null;
+  return `${attemptsUsed} of ${MAX_REPAIR_ATTEMPTS} repairs used`;
 }
 
 /**
