@@ -58,6 +58,53 @@ class UncreatableSandboxManager extends InMemorySandboxManager {
   }
 }
 
+/** The same store, one timer slower per append — a database that is not in this process. */
+function slowAppend(store: EventStore): EventStore {
+  return {
+    async append(event: PendingEvent, options?: AppendOptions) {
+      await delay(1);
+      return await store.append(event, options);
+    },
+    readFrom: (sessionId, afterSeq) => store.readFrom(sessionId, afterSeq),
+  };
+}
+
+function deferred() {
+  let release!: () => void;
+  const done = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return { done, release };
+}
+
+/**
+ * A sandbox that takes exactly as long to create as the test wants it to.
+ *
+ * For the one question a fast fake cannot ask: what has reached the client while the workspace
+ * is still coming up. A real create is seconds, and everything a turn does before it is what
+ * somebody stares at meanwhile.
+ */
+class GatedSandboxManager extends InMemorySandboxManager {
+  readonly #asked = deferred();
+  readonly #gate = deferred();
+
+  /** Resolves once a sandbox has been asked for. */
+  get asked(): Promise<void> {
+    return this.#asked.done;
+  }
+
+  override async create(projectId: string) {
+    this.#asked.release();
+    await this.#gate.done;
+    return await super.create(projectId);
+  }
+
+  /** Lets the sandbox finish coming up. */
+  release(): void {
+    this.#gate.release();
+  }
+}
+
 /** Counts sandboxes rather than inspecting them, for the "two callers, one sandbox" case. */
 class CountingSandboxManager extends InMemorySandboxManager {
   creates = 0;
@@ -328,6 +375,36 @@ describe("SingleAgentRuntime", () => {
     expect(outcome).toStrictEqual({ ok: true, turnId: expect.any(String), commitSha: null });
   });
 
+  it("logs the user's message before it goes looking for a sandbox", async () => {
+    // A project's first turn waits seconds for a workspace, and nothing used to reach the client
+    // until it existed: somebody who had just described their app watched an empty pane for all
+    // of them. Their own words are the first thing back, and they are durable before the wait.
+    const gated = new GatedSandboxManager();
+    scriptGit(gated);
+    // What the client has, not just what the store has. Both are asserted against a store whose
+    // append takes a real round trip rather than a microtask: emitting is not awaiting, so
+    // without the drain the acquisition starts while the message is still in flight — which is
+    // what a Postgres away from this process would do and an in-memory fake would hide.
+    const delivered: NapEventType[] = [];
+    bus.subscribe(SESSION_ID, (event) => delivered.push(event.type));
+
+    const turn = runtime(new ScriptedAgent(HAPPY_SCRIPT, true), {
+      sandbox: gated,
+      events: slowAppend(events),
+    }).runTurn({
+      turnId: crypto.randomUUID(),
+      sessionId: SESSION_ID,
+      message: "build me a todo list",
+    });
+
+    await gated.asked;
+    expect(await loggedTypes()).toEqual(["user.message"]);
+    expect(delivered).toEqual(["user.message"]);
+
+    gated.release();
+    await turn;
+  });
+
   it("fails the turn without invoking the agent when the sandbox cannot be created", async () => {
     const agent = new ScriptedAgent();
 
@@ -338,7 +415,10 @@ describe("SingleAgentRuntime", () => {
     });
 
     expect(agent.calls).toBe(0);
-    expect(await loggedTypes()).toEqual(["turn.failed"]);
+    // The message stays: it is what was asked, the transcript is the record of what was asked,
+    // and a refusal that erased it left somebody looking at a failure with no question above it.
+    // Nothing was committed and no job was opened — a turn that could never run opens neither.
+    expect(await loggedTypes()).toEqual(["user.message", "turn.failed"]);
     expect(outcome).toMatchObject({ ok: false, reason: "sandbox_unavailable" });
   });
 

@@ -148,16 +148,19 @@ in every ~6,000 runs, and a collision costs two sessions ~0.2ms of serialization
 
 ## Findings worth acting on
 
-**Nothing reaches the client until the sandbox exists, and it is ~3.1s.** `SingleAgentRuntime`
-acquires the sandbox *before* it emits `user.message`, so on a project's first turn the chat pane
-has nothing at all for the length of a cold start. Every run shows it as the same signature: a
+**Nothing reaches the client until the sandbox exists, and it is ~3.1s.** *(Fixed on 24 August
+2026; every figure in this document predates that and includes it. See `docs/scaling-cluster.md`.)*
+`SingleAgentRuntime` acquired the sandbox *before* it emitted `user.message`, so on a project's
+first turn the chat pane had nothing at all for the length of a cold start. Every run shows it as
+the same signature: a
 `time_to_first_event` p50 of 7–31ms with a p99 of ~3,100ms, and a `queue_wait` p99 of ~5,500ms —
 which is exactly the calibrated create (3,074ms) plus the preview wait (2,400ms). §23's 2s
 threshold on `time_to_first_event` cannot be met on a first turn however fast the queue is. This is
 the one place the `realism` profile disagreed with the ramp, and only because it is 100 cold starts
 spread over 506 turns rather than 39,183: its p95 lands *inside* the cold-start band (3,275ms)
 instead of below it. **Emitting `user.message` before acquiring would cost nothing and would put
-something on screen immediately** — worth its own ticket.
+something on screen immediately** — worth its own ticket. It got one, and that is the fix noted
+above.
 
 **The connection pool is the first thing that will actually run out.** It reached 10 of 10 at 400
 VUs and stayed there, with database round trips still at 0.2ms — so every connection was in use
