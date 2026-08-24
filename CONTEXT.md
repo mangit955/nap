@@ -167,7 +167,9 @@ the sandbox exists and released when it stops existing. *Reserved* while the pro
 asked, *active* once there is a sandbox to name; both occupy capacity, because a creation in flight
 has already been paid for. It is the authoritative ceiling — the count the API route does at
 admission is a cheap refusal and nothing more. Never called a quota: a quota is what a route
-answers with, a reservation is what a slot *is*.
+answers with, a reservation is what a slot *is*. A sandbox whose reservation was reclaimed while it
+was being created is **uncounted** — running and billed, with no row holding a slot for it — which
+is the one state the ceiling cannot see, and why it is destroyed rather than kept.
 
 **Turn allowance** — how many turns one person may start inside a rolling hour, counted as one row
 per *accepted* turn in `turn_rate_events`. Sliding rather than fixed, so `Retry-After` is the exact

@@ -22,7 +22,7 @@
  * creation is inside the runtime, which has no business knowing a deployment's budget.
  */
 
-import type { Result } from "../result.ts";
+import type { Result, VoidResult } from "../result.ts";
 
 /** A reservation to hand back to `activate` or `release`. */
 export type Reservation = { id: string };
@@ -43,6 +43,20 @@ export type CapacityRefusal = {
   message: string;
 };
 
+/**
+ * The one way activating can fail: the reservation is no longer there to activate.
+ *
+ * A reservation expires while it is still `reserved`, because a caller that dies between reserving
+ * and creating must not hold a slot forever — so a creation slower than the TTL comes back to find
+ * its row reclaimed. An answer rather than an exception, because by then the caller is holding a
+ * real, running, billed sandbox that this deployment's ceiling is not counting, and it has to be
+ * told so it can do something about it.
+ */
+export type ActivationFailure = {
+  reason: "reservation_reclaimed";
+  message: string;
+};
+
 export interface SandboxCapacity {
   /**
    * Claims capacity for a project's sandbox, atomically, before anything is created.
@@ -55,8 +69,14 @@ export interface SandboxCapacity {
     userId: string;
   }): Promise<Result<Reservation, CapacityRefusal>>;
 
-  /** Records that the reservation became this sandbox, so it is no longer waiting on a creation. */
-  activate(reservationId: string, sandboxId: string): Promise<void>;
+  /**
+   * Records that the reservation became this sandbox, so it is no longer waiting on a creation.
+   *
+   * Reports whether there was still a reservation to record it against. Silence on finding no row
+   * would leave the caller believing a sandbox is counted when nothing counts it, which is a
+   * sandbox running outside the ceiling that bounds this deployment's bill.
+   */
+  activate(reservationId: string, sandboxId: string): Promise<VoidResult<ActivationFailure>>;
 
   /** Gives back capacity a creation never used. */
   release(reservationId: string): Promise<void>;

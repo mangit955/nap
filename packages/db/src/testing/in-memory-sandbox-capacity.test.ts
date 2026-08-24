@@ -58,11 +58,27 @@ describe("InMemorySandboxCapacity", () => {
 
     const reserved = await capacity.reserve({ projectId: "p-1", userId: USER });
     if (!reserved.ok) throw new Error("expected the reservation to be admitted");
-    await capacity.activate(reserved.value.id, "sb-1");
 
+    expect(await capacity.activate(reserved.value.id, "sb-1")).toMatchObject({ ok: true });
     expect(capacity.held()).toEqual([
       { id: reserved.value.id, projectId: "p-1", userId: USER, state: "active", sandboxId: "sb-1" },
     ]);
+  });
+
+  it("reports a reservation that is no longer there to activate", async () => {
+    // The rule the real one holds against a reaper that reclaimed the row mid-create: whoever is
+    // holding the sandbox has to be told nothing counts it. Reproduced here by releasing, because
+    // nothing in the fake expires — what a caller sees is the same either way.
+    const capacity = new InMemorySandboxCapacity();
+    const reserved = await capacity.reserve({ projectId: "p-1", userId: USER });
+    if (!reserved.ok) throw new Error("expected the reservation to be admitted");
+    await capacity.release(reserved.value.id);
+
+    const activated = await capacity.activate(reserved.value.id, "sb-1");
+
+    expect(activated).toMatchObject({ ok: false, error: { reason: "reservation_reclaimed" } });
+    // And the row stays gone: re-creating it would count a slot that was already given back.
+    expect(capacity.held()).toEqual([]);
   });
 
   it("releases by project, whatever state the reservation is in", async () => {

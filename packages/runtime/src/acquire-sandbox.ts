@@ -10,11 +10,15 @@
 
 import { getLogger } from "@nap/shared/logging";
 import type { ObjectStore } from "@nap/shared/ports/object-store";
-import type { Reservation, SandboxCapacity } from "@nap/shared/ports/sandbox-capacity";
+import type {
+  ActivationFailure,
+  Reservation,
+  SandboxCapacity,
+} from "@nap/shared/ports/sandbox-capacity";
 import type { SandboxError, SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SessionRecord, SessionStore } from "@nap/shared/ports/session-store";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
-import type { Result } from "@nap/shared/result";
+import type { Result, VoidResult } from "@nap/shared/result";
 import { openProject } from "./restore.ts";
 
 /** A sandbox to work in, whether this call created it, and anything the user should be told. */
@@ -44,6 +48,18 @@ export type AcquireOptions = {
    */
   capacity?: SandboxCapacity;
 };
+
+/**
+ * What somebody is told when their sandbox took so long to create that its reservation expired.
+ *
+ * The sandbox really was made and is then destroyed unused, which sounds wasteful and is the
+ * honest outcome: it is counted by nothing, so keeping it would run the turn on capacity nobody
+ * granted and leave the ceiling that bounds the bill under-counting for as long as it lives.
+ * Nothing is lost by refusing — no turn has run in it, and a restore still has its snapshot.
+ */
+export const UNCOUNTED_SANDBOX_REFUSAL =
+  "This project's sandbox took too long to start, so it was shut down rather than left running. " +
+  "Try again.";
 
 export const LOST_SANDBOX_WARNING =
   "This project's sandbox was no longer available, so it was restored from its last " +
@@ -93,6 +109,11 @@ export async function acquireSandbox(
  * Reserved, created, activated — and released on every path where the sandbox did not come into
  * existence, immediately rather than by a sweep, because a slot held by a creation that already
  * failed is one somebody else could have had.
+ *
+ * The one path that runs the other way is a creation that outlived its reservation: the row was
+ * reclaimed while the provider was still working, so the sandbox that arrives is real and counted
+ * by nothing. There the sandbox is destroyed and the turn refused, because the alternative is
+ * running it on capacity nobody granted.
  */
 async function open(
   options: AcquireOptions,
@@ -108,12 +129,15 @@ async function open(
     return opened;
   }
 
-  // Activated before the session is told, and neither step may fail the turn once the sandbox
-  // exists. The order is what decides how a half-finished acquire looks to whatever cleans up
-  // later: an *active* row naming a sandbox no session references is a sandbox that can be found
-  // and destroyed, while a *reserved* row over a live one expires in two minutes and leaves
-  // something running that nothing is counting.
-  await activateQuietly(options, reservation, opened.value.id);
+  // Activated before the session is told. The order is what decides how a half-finished acquire
+  // looks to whatever cleans up later: an *active* row naming a sandbox no session references is a
+  // sandbox that can be found and destroyed, while a *reserved* row over a live one expires in two
+  // minutes and leaves something running that nothing is counting.
+  const activated = await recordActivation(options, reservation, opened.value.id);
+  if (!activated.ok) {
+    await destroyQuietly(options, opened.value.id);
+    return { ok: false, error: { code: "unavailable", message: UNCOUNTED_SANDBOX_REFUSAL } };
+  }
 
   // A sandbox nobody wrote down is one the next turn cannot find and the reaper cannot sweep.
   await options.sessions.setSandboxId(session.sessionId, opened.value.id);
@@ -145,27 +169,62 @@ async function releaseQuietly(
 }
 
 /**
- * Records that the reservation became this sandbox, and never fails the turn over it.
+ * Records that the reservation became this sandbox — and tells the caller when there was no
+ * reservation left to record it against.
  *
- * The sandbox exists and is about to be recorded against the session, so the work can go ahead.
- * What is lost is only the bookkeeping: the row stays `reserved`, expires, and stops counting a
- * sandbox that is really there — under-counting a ceiling, rather than losing somebody's turn.
+ * **A failure to *reach* the store and a definite "that row is gone" are different answers.** A
+ * thrown error means the bookkeeping could not be done and nothing is known: the sandbox exists,
+ * the session is about to be told where it is, and the row expires on its own, so the turn goes
+ * ahead and a ceiling loses some accuracy for a couple of minutes. A returned failure means the
+ * reservation was reclaimed while the sandbox was being created — a create slower than the
+ * two-minute TTL needs no crash and no concurrency — and the sandbox in hand is running, billed
+ * and counted by nothing. That one the caller has to act on.
  */
-async function activateQuietly(
+async function recordActivation(
   options: AcquireOptions,
   reservation: Reservation | null,
   sandboxId: string,
-): Promise<void> {
-  if (reservation === null) return;
+): Promise<VoidResult<ActivationFailure>> {
+  if (reservation === null) return { ok: true, value: undefined };
 
   try {
-    await options.capacity?.activate(reservation.id, sandboxId);
+    return (
+      (await options.capacity?.activate(reservation.id, sandboxId)) ?? {
+        ok: true,
+        value: undefined,
+      }
+    );
   } catch (error) {
     getLogger().warn(
       { sandboxId, err: error },
       "could not record the sandbox against its reservation; it stays counted only until the " +
         "reservation expires",
     );
+    return { ok: true, value: undefined };
+  }
+}
+
+/**
+ * Puts back a sandbox that may not be kept, and never replaces the refusal with its own failure.
+ *
+ * A destroy that fails leaves the very thing being refused — a sandbox nothing counts — so this is
+ * the one path where the reaper's inventory sweep is the backstop rather than the belt: it finds
+ * sandboxes no project references and destroys them, minutes later.
+ */
+async function destroyQuietly(options: AcquireOptions, sandboxId: string): Promise<void> {
+  const failed = (reason: unknown): void => {
+    getLogger().warn(
+      { sandboxId, err: reason },
+      "could not destroy a sandbox nothing is counting; the reaper's inventory sweep is what " +
+        "finds it now",
+    );
+  };
+
+  try {
+    const destroyed = await options.sandbox.destroy(sandboxId);
+    if (!destroyed.ok) failed(destroyed.error);
+  } catch (error) {
+    failed(error);
   }
 }
 
