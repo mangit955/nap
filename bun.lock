@@ -17,6 +17,7 @@
         "turbo": "2.10.8",
         "typescript": "7.0.2",
         "vitest": "4.1.10",
+        "yaml": "^2.9.0",
       },
     },
     "apps/api": {
@@ -37,8 +38,10 @@
         "zod": "4.4.3",
       },
       "devDependencies": {
+        "@nap/loadgen": "workspace:*",
         "@types/bun": "1.3.14",
         "drizzle-orm": "0.45.2",
+        "postgres": "3.4.9",
       },
     },
     "apps/napbench": {
@@ -130,10 +133,22 @@
         "@nap/shared": "workspace:*",
         "drizzle-orm": "0.45.2",
         "postgres": "3.4.9",
+        "zod": "4.4.3",
       },
       "devDependencies": {
         "@testcontainers/postgresql": "12.1.0",
         "drizzle-kit": "0.31.10",
+      },
+    },
+    "packages/loadgen": {
+      "name": "@nap/loadgen",
+      "version": "0.0.0",
+      "dependencies": {
+        "@nap/shared": "workspace:*",
+        "zod": "4.4.3",
+      },
+      "devDependencies": {
+        "@nap/sandbox": "workspace:*",
       },
     },
     "packages/runtime": {
@@ -469,6 +484,8 @@
     "@nap/context": ["@nap/context@workspace:packages/context"],
 
     "@nap/db": ["@nap/db@workspace:packages/db"],
+
+    "@nap/loadgen": ["@nap/loadgen@workspace:packages/loadgen"],
 
     "@nap/napbench": ["@nap/napbench@workspace:apps/napbench"],
 

@@ -91,7 +91,7 @@ function runTurn(script = A_WHOLE_TURN, sessionId = SESSION_ID) {
     events: new InMemoryEventStore(),
     bus: new InMemoryEventBus(),
     memory: new NoopMemoryProvider(),
-  }).runTurn({ sessionId, message: "make the build pass" });
+  }).runTurn({ turnId: crypto.randomUUID(), sessionId, message: "make the build pass" });
 }
 
 describe("a turn's logs", () => {

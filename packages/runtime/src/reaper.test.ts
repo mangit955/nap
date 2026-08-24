@@ -1,22 +1,26 @@
+import { InMemoryCapacityReconciler } from "@nap/db/testing/in-memory-capacity-reconciler";
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { InMemoryProjectSandboxStore } from "@nap/db/testing/in-memory-project-sandbox-store";
+import { InMemorySandboxCapacity } from "@nap/db/testing/in-memory-sandbox-capacity";
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { scriptGit } from "@nap/sandbox/testing/script-git";
 import type { IdleProject } from "@nap/shared/ports/project-sandbox-store";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { startReaper, sweepIdleProjects } from "./reaper.ts";
+import { beforeEach, describe, expect, it } from "vitest";
+import { sweepIdleProjects } from "./reaper.ts";
 
 const PROJECT = "3e0fbc41-6f5d-4a8e-ab9c-4d5e6f708192";
 const SESSION = "2a3f8a24-6c1b-4e0e-9b6f-3a5c0a1d9e77";
 const SHA = "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f80912";
+const USER = "8f0a1b2c-3d4e-4f50-9a6b-7c8d9e0f1a2b";
 
 /** The clock every test reads, so "an hour ago" is a fixed number rather than a real wait. */
 const NOW = Date.UTC(2026, 7, 9, 12, 0, 0);
 const IDLE_MS = 10 * 60 * 1000;
-const HOUR_AGO = new Date(NOW - 60 * 60 * 1000).toISOString();
+const HOUR_AGO_MS = NOW - 60 * 60 * 1000;
+const HOUR_AGO = new Date(HOUR_AGO_MS).toISOString();
 const MINUTE_AGO = new Date(NOW - 60 * 1000).toISOString();
 
 let sandbox: InMemorySandboxManager;
@@ -27,7 +31,9 @@ let events: InMemoryEventStore;
 let sandboxId: string;
 
 beforeEach(async () => {
-  sandbox = scriptGit(new InMemorySandboxManager(), { sha: SHA });
+  // Every sandbox in this file starts an hour before the sweep's clock, so nothing is caught by
+  // the reconciliation pass's grace window for creations still in flight.
+  sandbox = scriptGit(new InMemorySandboxManager({ now: () => HOUR_AGO_MS }), { sha: SHA });
   objects = new InMemoryObjectStore();
   snapshots = new InMemorySnapshotStore();
   events = new InMemoryEventStore();
@@ -41,20 +47,42 @@ beforeEach(async () => {
   ]);
 });
 
-function sweep(overrides: { isBusy?: (project: IdleProject) => boolean } = {}) {
+function sweep(
+  overrides: {
+    isBusy?: (project: IdleProject) => Promise<boolean>;
+    capacity?: InMemorySandboxCapacity;
+    reconcile?: InMemoryCapacityReconciler;
+  } = {},
+) {
   return sweepIdleProjects({
     projects,
     sandbox,
     objects,
     snapshots,
     idleMs: IDLE_MS,
-    isBusy: overrides.isBusy ?? (() => false),
+    ...(overrides.capacity === undefined ? {} : { capacity: overrides.capacity }),
+    ...(overrides.reconcile === undefined
+      ? {}
+      : { reconcile: { reconciler: overrides.reconcile, inventory: sandbox } }),
+    isBusy: overrides.isBusy ?? (async () => false),
     now: () => NOW,
     announce: { events, bus: new InMemoryEventBus() },
   });
 }
 
 describe("reaping an idle project", () => {
+  it("gives back the capacity its sandbox was occupying", async () => {
+    // The sweep is where most sandboxes end, so it is the main way capacity ever comes back: a
+    // ceiling nothing released would count every project this cluster had ever opened.
+    const capacity = new InMemorySandboxCapacity();
+    const reserved = await capacity.reserve({ projectId: PROJECT, userId: USER });
+    if (reserved.ok) await capacity.activate(reserved.value.id, sandboxId);
+
+    await sweep({ capacity });
+
+    expect(capacity.held()).toEqual([]);
+  });
+
   it("snapshots it and destroys the sandbox", async () => {
     const result = await sweep();
 
@@ -100,7 +128,7 @@ describe("a project with a turn in flight", () => {
   it("is never reaped, however idle the log says it is", async () => {
     // The assertion `docs/PLAN.md` §4 calls this task's reason to exist. Destroying a sandbox
     // mid-turn takes the workspace out from under an agent that is writing to it.
-    const result = await sweep({ isBusy: () => true });
+    const result = await sweep({ isBusy: async () => true });
 
     expect(result.reaped).toEqual([]);
     expect(result.skipped).toEqual([PROJECT]);
@@ -113,7 +141,7 @@ describe("a project with a turn in flight", () => {
     const asked: string[][] = [];
 
     await sweep({
-      isBusy: (project) => {
+      isBusy: async (project) => {
         asked.push(project.sessionIds);
         return false;
       },
@@ -123,7 +151,7 @@ describe("a project with a turn in flight", () => {
   });
 
   it("takes no snapshot at all, rather than one it then keeps", async () => {
-    await sweep({ isBusy: () => true });
+    await sweep({ isBusy: async () => true });
 
     expect(objects.keys()).toEqual([]);
     expect(snapshots.all()).toEqual([]);
@@ -212,107 +240,60 @@ describe("a sandbox that is already gone", () => {
   });
 });
 
-describe("the schedule", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
+describe("reconciling capacity", () => {
+  it("does not reconcile at all unless the composition asked for it", async () => {
+    // "Nothing was stranded" and "nothing looked" are different answers, and a deployment
+    // reading a steady zero it never asked for would draw the happier of the two conclusions.
+    const result = await sweep();
+
+    expect(result.reconciled).toBeUndefined();
   });
 
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  /**
-   * The schedule takes the sweep as a dependency rather than building one, so these tests are
-   * about ticking and nothing else — no sandbox, no store, and no back door into the reaper
-   * that production does not use.
-   */
-  function counting(): { sweep: () => Promise<void>; calls: () => number } {
-    let calls = 0;
-    return {
-      calls: () => calls,
-      sweep: async () => {
-        calls += 1;
-      },
-    };
-  }
-
-  it("does not sweep the moment it starts", () => {
-    const { sweep, calls } = counting();
-
-    const reaper = startReaper({ intervalMs: 60_000, sweep });
-
-    expect(calls()).toBe(0);
-    reaper.stop();
-  });
-
-  it("sweeps on every tick", async () => {
-    const { sweep, calls } = counting();
-    const reaper = startReaper({ intervalMs: 60_000, sweep });
-
-    await vi.advanceTimersByTimeAsync(60_000);
-    expect(calls()).toBe(1);
-    await vi.advanceTimersByTimeAsync(60_000);
-    expect(calls()).toBe(2);
-
-    reaper.stop();
-  });
-
-  it("leaves no timer behind when stopped", () => {
-    // Asserted on the resource rather than on a flag: a `stopped` boolean that suppresses the
-    // work still leaks the interval, and the process never exits.
-    const reaper = startReaper({ intervalMs: 60_000, sweep: counting().sweep });
-
-    reaper.stop();
-
-    expect(vi.getTimerCount()).toBe(0);
-  });
-
-  it("skips a tick that lands while the previous sweep is still running", async () => {
-    // A sweep talks to sandboxes and an object store over the network; two overlapping would
-    // try to tear the same project down twice.
-    let release = () => {};
-    const blocked = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    let calls = 0;
-    const reaper = startReaper({
-      intervalMs: 60_000,
-      sweep: () => {
-        calls += 1;
-        return blocked;
-      },
+  it("reports the slots the database reclaimed", async () => {
+    const reconcile = new InMemoryCapacityReconciler({
+      reclaimed: { expired: ["r-died-mid-creation"], orphaned: ["r-sandbox-vanished"] },
+      referenced: [sandboxId],
     });
 
-    await vi.advanceTimersByTimeAsync(60_000);
-    await vi.advanceTimersByTimeAsync(60_000);
-    expect(calls).toBe(1);
+    const result = await sweep({ reconcile });
 
-    release();
-    await vi.advanceTimersByTimeAsync(60_000);
-    expect(calls).toBe(2);
-
-    reaper.stop();
+    expect(result.reconciled).toMatchObject({
+      expired: ["r-died-mid-creation"],
+      orphaned: ["r-sandbox-vanished"],
+    });
   });
 
-  it("keeps sweeping after one fails, and reports it", async () => {
-    // An unhandled rejection ends the Bun process, which would turn one bad sweep into an
-    // outage for every open tab.
-    const failures: unknown[] = [];
-    let calls = 0;
-    const reaper = startReaper({
-      intervalMs: 60_000,
-      sweep: () => {
-        calls += 1;
-        return Promise.reject(new Error("the database went away"));
-      },
-      onError: (error) => failures.push(error),
-    });
+  it("destroys a sandbox the provider is running that nothing references", async () => {
+    // The failure boundary that needs the provider: creation succeeded and recording it did
+    // not, so this sandbox is billed under an id that appears in no row anywhere.
+    const leaked = await sandbox.create("6b7c8d9e-0f1a-4b2c-8d3e-4f5a6b7c8d9e");
+    if (!leaked.ok) throw new Error("could not create a sandbox");
 
-    await vi.advanceTimersByTimeAsync(60_000);
-    await vi.advanceTimersByTimeAsync(60_000);
+    const result = await sweep({ reconcile: new InMemoryCapacityReconciler({ referenced: [] }) });
 
-    expect(calls).toBe(2);
-    expect(failures).toHaveLength(2);
-    reaper.stop();
+    expect(result.reconciled?.destroyed).toEqual([leaked.value.id]);
+  });
+
+  it("still reconciles after a project could not be put away", async () => {
+    // They are two jobs on one timer, and the expensive one is the sweep. A leaked slot must
+    // not wait on a project whose snapshot upload keeps failing.
+    objects.failWith({ code: "unavailable", message: "R2 is not answering" });
+    const reconcile = new InMemoryCapacityReconciler({ referenced: [sandboxId] });
+
+    const result = await sweep({ reconcile });
+
+    expect(result.failed).toHaveLength(1);
+    expect(reconcile.reclaimCalls()).toBe(1);
+  });
+
+  it("reconciles after the projects, not before", async () => {
+    // Putting a project away is what releases its reservation and clears the sandbox it named,
+    // so reconciling first would be reading the state of the previous tick.
+    const swept = await sweep({ reconcile: new InMemoryCapacityReconciler({ referenced: [] }) });
+
+    // The project's own sandbox was destroyed by the sweep, so the provider no longer lists it
+    // and the pass that would otherwise have found it unreferenced has nothing to do.
+    expect(swept.reaped).toEqual([PROJECT]);
+    expect(swept.reconciled?.destroyed).toEqual([]);
   });
 });

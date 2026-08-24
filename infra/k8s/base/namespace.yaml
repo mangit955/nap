@@ -1,0 +1,24 @@
+# Everything Nap runs lives in one namespace, and nothing else does.
+#
+# The ServiceAccount has no RBAC and needs none: nothing in this deployment asks Kubernetes a
+# question. The one thing that would normally want the API — "am I the single reaper?" — is a
+# `pg_try_advisory_lock` in Postgres rather than a k8s Lease, because the database is already the
+# one source of truth about what is running and a second one is the thing docs/scaling-design.md
+# was written to avoid.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nap
+  labels:
+    app.kubernetes.io/name: nap
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nap
+  namespace: nap
+  labels:
+    app.kubernetes.io/name: nap
+# No token is mounted: nothing here talks to the API server, so a token in every pod would be a
+# credential with no use and a blast radius.
+automountServiceAccountToken: false

@@ -8,6 +8,17 @@
  *
  * **The lock is per session, not per process.** Different sessions run at the same time; a queue
  * that serialized everything would make one slow turn everybody's problem.
+ *
+ * **It is per process, though, and that is why it is being retired.** A second replica has its own
+ * copy of this map and the two agree about nothing, so the failure above returns in full the
+ * moment there are two of anything. The durable replacement is the per-session lease in
+ * `turn_requests` — see `turn-worker.ts` and `CONTEXT.md`, *Lease*.
+ *
+ * **Both entry points now go through that lease**: a turn is a queued request, and so is a
+ * project-open, which used to call `resumeSession` inside the request that asked for it. So this
+ * map no longer holds the only rope. It is kept as a second, in-process line: a worker running
+ * several requests at once is one process away from the same race, and the lease is enforced in
+ * a database this class cannot see.
  */
 
 export class SessionQueue {

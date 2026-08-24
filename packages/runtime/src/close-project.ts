@@ -23,6 +23,7 @@ import type { EventBus } from "@nap/shared/ports/event-bus";
 import type { EventStore, PendingEvent } from "@nap/shared/ports/event-store";
 import type { ObjectStore } from "@nap/shared/ports/object-store";
 import type { ProjectSandboxStore } from "@nap/shared/ports/project-sandbox-store";
+import type { SandboxCapacity } from "@nap/shared/ports/sandbox-capacity";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
 import { EventSink } from "./event-sink.ts";
@@ -60,6 +61,15 @@ export type CloseProjectOptions = {
   projectId: string;
   sandboxId: string;
   announce?: CloseAnnouncement;
+  /**
+   * Where the capacity this project's sandbox was occupying goes back to.
+   *
+   * Absent means the deployment is uncapped, as in the harness and the benchmark. Present, this
+   * is the *other half* of the reservation taken when the sandbox was created: without it a
+   * ceiling of ten stops admitting anybody after the tenth project this cluster has ever opened,
+   * however many are still running.
+   */
+  capacity?: SandboxCapacity;
 };
 
 /**
@@ -80,6 +90,7 @@ export async function putProjectAway(options: CloseProjectOptions): Promise<Clos
   });
 
   if (!torn.ok && torn.error.reason === "sandbox_gone") {
+    await releaseCapacity(options);
     const outcome = await release(projects, projectId, null, () => ({ outcome: "abandoned" }));
     await announceStopped(options);
     return outcome;
@@ -91,12 +102,35 @@ export async function putProjectAway(options: CloseProjectOptions): Promise<Clos
     return { outcome: "failed", reason: torn.error.reason, message: torn.error.message };
   }
 
+  await releaseCapacity(options);
   const outcome = await release(projects, projectId, torn.value.key, () => ({
     outcome: "put_away",
     key: torn.value.key,
   }));
   await announceStopped(options);
   return outcome;
+}
+
+/**
+ * Hands the project's slot back, on both paths where its sandbox is gone.
+ *
+ * **A failure here never fails the close**, for the reason announcing does not: the snapshot is
+ * safe and the sandbox is destroyed, and reporting `failed` would invite a caller to run the
+ * whole sequence again against something that no longer exists. A slot left counted is a project
+ * somebody has to wait to open, and until a reconciling sweep exists — nothing reclaims these
+ * rows yet — it stays counted; the work itself is safe either way.
+ */
+async function releaseCapacity(options: CloseProjectOptions): Promise<void> {
+  if (options.capacity === undefined) return;
+
+  try {
+    await options.capacity.releaseForProject(options.projectId);
+  } catch (error) {
+    getLogger().warn(
+      { projectId: options.projectId, err: error },
+      "could not release the project's sandbox capacity; it stays counted until it is reconciled",
+    );
+  }
 }
 
 /**

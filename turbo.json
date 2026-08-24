@@ -25,6 +25,40 @@
         "NAP_MODEL",
         "NAP_EFFORT"
       ]
+    },
+    "dev:worker": {
+      "cache": false,
+      "persistent": true,
+      "passThroughEnv": [
+        "DATABASE_URL",
+        "LOG_LEVEL",
+        "NODE_ENV",
+        "NAP_PLATFORM",
+        "NAP_MODEL",
+        "NAP_EFFORT",
+        "NAP_EVENT_BUS",
+        "NAP_WORKER_CONCURRENCY",
+        "NAP_DRAIN_TIMEOUT_SECONDS",
+        "NAP_CAPTURE_CONCURRENCY",
+        "NAP_CHROME_PATH"
+      ]
+    },
+    "dev:reaper": {
+      "cache": false,
+      "persistent": true,
+      "passThroughEnv": [
+        "DATABASE_URL",
+        "NAP_LISTEN_DATABASE_URL",
+        "LOG_LEVEL",
+        "NODE_ENV",
+        "NAP_PLATFORM",
+        "NAP_MODEL",
+        "NAP_EFFORT",
+        "NAP_EVENT_BUS",
+        "NAP_REAP_INTERVAL_SECONDS",
+        "NAP_REAP_IDLE_MINUTES",
+        "NAP_JANITOR_INTERVAL_SECONDS"
+      ]
     }
   }
 }

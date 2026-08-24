@@ -1,0 +1,62 @@
+# API pods scale on open sockets first and CPU second.
+#
+# CPU alone is the wrong signal here: an idle WebSocket costs a file descriptor and a subscription,
+# so several hundred of them can sit near zero CPU while the pod is at its practical limit. The
+# primary metric is `nap_ws_connections` — a per-pod gauge scraped by Prometheus and exposed to the
+# autoscaler by prometheus-adapter — with CPU kept as a secondary trigger for the case where the
+# sockets are few and busy rather than many and quiet.
+#
+# **The gauge exists.** `apps/api/src/metrics.ts` holds it, `/metrics` exposes it in the Prometheus
+# exposition format, and `deployment-api.yaml` carries the scrape annotations that point a
+# Prometheus at it. `test/k8s.test.ts` reads the metric name out of that module rather than
+# repeating it here, so renaming the series in code and leaving this file behind fails a test
+# rather than an autoscaler.
+#
+# What is still a cluster's own responsibility is the *adapter*: an HPA cannot read Prometheus, so
+# `nap_ws_connections` reaches it through prometheus-adapter's custom-metrics API. Without one the
+# metric is unavailable, which degrades rather than fails — the HPA keeps scaling on the CPU
+# trigger below, just later than it should.
+#
+# 200 sockets a pod is a decision rather than a measurement: at 1 CPU and 1Gi a pod is nowhere
+# near a file-descriptor limit there, and the number is set low enough that the deployment adds a
+# pod before anybody's stream is competing for one.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: nap-api
+  namespace: nap
+  labels:
+    app.kubernetes.io/name: nap
+    app.kubernetes.io/component: api
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: nap-api
+  minReplicas: 3
+  maxReplicas: 12
+  metrics:
+    - type: Pods
+      pods:
+        metric:
+          name: nap_ws_connections
+        target:
+          type: AverageValue
+          averageValue: "200"
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+  behavior:
+    scaleUp:
+      # A burst of arrivals is exactly when the pods are needed, so the way up is quick.
+      stabilizationWindowSeconds: 60
+    scaleDown:
+      # And the way down is slow, because scaling in costs every socket on the pod a reconnect.
+      stabilizationWindowSeconds: 600
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120

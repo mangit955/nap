@@ -13,6 +13,8 @@ import postgres from "postgres";
 
 export type Database = {
   db: PostgresJsDatabase;
+  /** The driver underneath, for the things drizzle has no verb for — `pg_notify`, `LISTEN`. */
+  client: postgres.Sql;
   close: () => Promise<void>;
 };
 
@@ -23,7 +25,43 @@ export type CreateDatabaseOptions = {
 
 export function createDatabase(url: string, options: CreateDatabaseOptions = {}): Database {
   const connection = postgres(url, { max: options.max ?? 10 });
-  return { db: drizzle(connection), close: () => connection.end() };
+  return { db: drizzle(connection), client: connection, close: () => connection.end() };
+}
+
+/**
+ * A connection for `LISTEN`, and nothing else.
+ *
+ * Separate from the pool because a listener is *session* state: a transaction pooler hands the
+ * next statement to whichever backend is free, so a `LISTEN` issued through one lands on a
+ * connection that is then returned to the pool — and the process hears nothing while every
+ * query it runs keeps working. Neon's pooled endpoint and PgBouncer in transaction mode are
+ * both this, which is why the URL is separate too: a deployment behind a pooler has to point
+ * this at the direct endpoint.
+ *
+ * One connection: postgres.js opens its own `max: 1` socket for a listener anyway, and a pool
+ * behind it would only be connections nothing ever uses. It reconnects and re-issues the
+ * `LISTEN` on its own — silently, which is why `PostgresNotifyEventBus` carries a heartbeat
+ * rather than trusting the socket to say when it has stopped delivering.
+ */
+export function createListenerConnection(url: string): postgres.Sql {
+  return postgres(url, { max: 1 });
+}
+
+/**
+ * A connection for a session-level advisory lock, and nothing else.
+ *
+ * Separate from the pool for the reason a listener is, and it is worth stating in its own terms: a
+ * session lock belongs to the *backend* that took it. Taken through the pool, it would be held by
+ * a connection the holder may never be handed again, and released by one that never had it — so
+ * `pg_advisory_unlock` would warn and return false while the lock sat there until the pool
+ * happened to recycle that connection.
+ *
+ * `max: 1` for the same reason as well: one socket that stays put is the entire point, and a pool
+ * behind it would be connections nothing may use. A deployment behind a transaction pooler has to
+ * point this at the direct endpoint, exactly as the listener does.
+ */
+export function createLockConnection(url: string): postgres.Sql {
+  return postgres(url, { max: 1 });
 }
 
 /**

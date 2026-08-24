@@ -82,7 +82,11 @@ const run = (
     bus: new InMemoryEventBus(),
     memory: new NoopMemoryProvider(),
     verification,
-  }).runTurn({ sessionId: SESSION_ID, message: "add a delete button" });
+  }).runTurn({
+    turnId: crypto.randomUUID(),
+    sessionId: SESSION_ID,
+    message: "add a delete button",
+  });
 
 async function loggedTypes(): Promise<NapEventType[]> {
   return (await events.readFrom(SESSION_ID, 0)).map((event) => event.type);

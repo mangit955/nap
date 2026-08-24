@@ -1,0 +1,53 @@
+# The way in, and the one object in this directory whose defaults are actively wrong for us.
+#
+# **The ingress must be more patient than the application.** A Nap socket is idle by design between
+# turns: the chat pane holds it open, the server pings every 30 seconds and gives up on a client
+# that has been silent for 150 (`DEFAULT_HEARTBEAT` in apps/api/src/ws/event-stream.ts). A proxy
+# whose read timeout expires first closes a *healthy* connection from the middle, and it does it
+# silently — from the pod's side the socket simply ends, and from the browser's side the chat
+# reconnects for no reason anybody can see. Watched happening on a kind cluster: at a 10-second
+# timeout the socket dies 1006 after ten idle seconds, and at 3600 it is still open.
+#
+# ingress-nginx's own default is 60 seconds, which *appears* to work only because the ping is every
+# 30 — the proxy's clock is reset by our own heartbeat, and the margin is one missed ping. That is
+# the failure to design out: the application's 150-second window is what should decide a connection
+# is dead, so the proxy has to outlast it rather than survive on a coincidence. An hour rather than
+# "a little past 150s" for the same reason — the number that matters is not this one.
+#
+# WebSocket upgrade itself needs no annotation on ingress-nginx — it proxies `Upgrade` on HTTP/1.1
+# by default — but the timeouts do, and forgetting them is the failure above.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: nap
+  namespace: nap
+  labels:
+    app.kubernetes.io/name: nap
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    # HTTP/1.1 upstream: the Upgrade handshake does not exist in 1.0, and nginx defaults to 1.0
+    # when proxying.
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+    # The whole point of the socket is that events arrive as they happen. Buffering an event
+    # stream holds each frame until the buffer is worth flushing, which is a chat pane that
+    # updates in bursts.
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - api.nap.example.com
+      secretName: nap-api-tls
+  rules:
+    - host: api.nap.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: nap-api
+                port:
+                  name: http

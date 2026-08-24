@@ -1,12 +1,28 @@
 # Scaling Nap to 100 concurrent turns
 
-**Status: design resolved, reviewed, and settled. Nothing is built.** No Kubernetes manifests, no
-migrations, no runtime changes. §19 is the migration sequence that turns this into code, and step 0
-of it has not started.
+**Status: delivered.** Every step of §20 is built, including step 12 — this document is now the
+*record of the design*, not a plan. It is still cited from shipped source and is still the place the
+queue's semantics, the state machines and the invariants are written down; read it for those.
 
-The goal is not "run Nap on Kubernetes". It is: horizontally scale Nap while preserving durable
+The goal was not "run Nap on Kubernetes". It was: horizontally scale Nap while preserving durable
 event ordering, Job correctness, checkpoint semantics, sandbox isolation, cancellation and bounded
-spend — and then prove it with a reproducible 100-concurrent k6 run.
+spend — and then prove it with a reproducible 100-concurrent k6 run. What that run measured, and
+which of the §21 invariants it did and did not demonstrate, is `docs/scaling-cluster.md`.
+
+**Where a section and the code disagree, the code won and an ADR says why.** Three things changed on
+the way, and each is recorded rather than edited over:
+
+- **The queue is a table and not a broker**, and there is no requeue path — `docs/adr/0009`, which
+  also has the alternatives §5 does not.
+- **Fanout is notify-then-read, with the poll as a durability backstop rather than an
+  optimisation** — `docs/adr/0010`, which is §8's trade-off table plus what the cluster run made of
+  it.
+- **`docs/DEPLOY.md`'s one-replica rule is retired**, which was the point of the whole exercise;
+  what replaced each of its four reasons is in that document, under *Scaling*.
+
+Smaller corrections are marked in place: §5's single-statement claim (the shipped claim is two
+statements in one transaction, for a reason the source states), §15's `NAP_DRAIN_TIMEOUT` naming,
+§24's answered questions.
 
 ---
 
@@ -39,7 +55,9 @@ This is more than the brief assumed, and it is why the change is smaller than it
 - **Replay and dedupe.** `openEventStream` (`apps/api/src/ws/event-stream.ts`) subscribes, buffers,
   reads history, flushes, then tails; every outbound event passes one `lastSentSeq` gate. A client
   reconnecting with `?seq=N` gets exactly the gap.
-- **Sandbox ownership** is a Postgres column (`projects.sandbox_id`, `sessions.sandbox_id`).
+- **Sandbox ownership** is a Postgres column, `projects.sandbox_id`. (There is no
+  `sessions.sandbox_id`: `PostgresSessionStore.setSandboxId` writes the *project's* column,
+  reached through the session's `project_id`. Corrected when §7 was built.)
 - **The global sandbox count** already reads from Postgres, so it is cluster-wide — though not
   atomic. See §7.
 
@@ -51,8 +69,8 @@ This is more than the brief assumed, and it is why the change is smaller than it
 | `SessionQueue` | `packages/runtime/src/session-queue.ts` | **The expensive one.** Two pods run two turns for one session; each calls `acquireSandbox`; the project ends up with two sandboxes, one of which nobody can find and nobody stops paying for. |
 | `TurnRegistry` | `apps/api/src/turns/registry.ts` | Cancel on pod A cannot reach a turn on pod B. Also feeds `isBusy` for project close/delete and the reaper, so both go blind. |
 | `TurnRateLimiter` ×2 | `apps/api/src/turns/rate-limiter.ts` | N pods = N× the limit. Free-tier spend multiplies by replica count. |
-| Reaper `setInterval` | `apps/api/src/index.ts:322` | N pods = N concurrent sweeps tearing the same project down twice. |
-| `ChromePageCapture` | `apps/api/src/index.ts:102` | One Chromium per process; ~1GB of image and a RAM spike per capture. |
+| Reaper `setInterval` | `apps/api/src/compose.ts:283` | N pods = N concurrent sweeps tearing the same project down twice. |
+| `ChromePageCapture` | `apps/api/src/boot.ts` | One Chromium per process; ~1GB of image and a RAM spike per capture. Bounded by `BoundedPageCapture` since B-6. |
 | DB pool `max: 10` | `packages/db/src/client.ts:25` | Sized for one process doing everything. |
 | Sandbox quota TOCTOU | `apps/api/src/turns/sandbox-quota.ts` | Count-then-create. At 100 concurrent admissions the global cap is guaranteed to overshoot. |
 
@@ -62,8 +80,10 @@ the sandbox directly (`apps/api/src/files/routes.ts:94`). Stateless does not mea
 ### Deployment today
 
 One Railway container, `numReplicas: 1` pinned in `railway.json`, Neon Postgres, R2, E2B,
-OpenRouter. `docs/DEPLOY.md` documents the one-replica rule and *why* — every reason in it is one of
-the rows above, and retiring that rule is the last step of §19.
+OpenRouter. `docs/DEPLOY.md` documented the one-replica rule and *why* — every reason in it is one
+of the rows above, and retiring it was the last step of §20. *(Retired. That document now records
+what replaced each of the four reasons; Railway still runs one replica per process, as a sizing
+choice.)*
 
 ---
 
@@ -212,6 +232,13 @@ A unique violation (`23505`) on `turn_requests_one_leased_per_session` means ano
 that session — skip it, try the next candidate. **The constraint is the mechanism, not a backstop**,
 the same posture the repo already takes with `unique(session_id, seq)`.
 
+**Shipped as two statements in one transaction, not the one above.** "Try the next candidate" needs
+to know which candidate it was about to take, and the single-statement form aborts the transaction
+without ever saying. Selecting the candidate first — still `for update skip locked`, so the row is
+held for the transaction — makes the id known before the update that may violate the index. The lock
+and the index behave identically; `packages/db/src/postgres-turn-queue.ts` states it beside the
+code.
+
 There is **no `attempts` column and no requeue path.** A request is claimed at most once. That is
 §6's at-most-once execution guarantee, expressed in the schema.
 
@@ -254,6 +281,14 @@ the request's own `turnId`, appends:
 **The Job is left open. No `job.completed` is written.** Recovery is §6's continuation path,
 triggered by a human.
 
+**Orphaning and announcing are two steps, because they are two systems.** One is a row in
+Postgres and the other is an append plus a fanout, and no transaction spans them. The row is taken
+first — an `update … where state = 'leased' and lease_expires_at < now() - grace … for update skip
+locked`, which is what makes it exclusive between janitors — and `finished_at` is set only once
+the events are durable. An `orphaned` row with a null `finished_at` is a request whose terminal
+events are still owed, and the next tick finds it and finishes. The other order would leave, on a
+crash in between, exactly the state invariant 15 forbids.
+
 ---
 
 ## 6. Turn-request identity, and the execution guarantee
@@ -268,8 +303,8 @@ admission, durable before any execution.
 
 | Question | Answer |
 |---|---|
-| **When is Turn identity created?** | At admission on the API pod, before the `INSERT`. Today it is created inside the runtime (`this.#newTurnId()`, `single-agent-runtime.ts:290`) and is therefore unknowable to anything that did not run the turn. |
-| **How does it map?** | `turn_requests.id == events.turn_id` of the request's *first* Turn. Requires adding `turnId` to `TurnRequest` and `ContinueOptions` and threading it through the runtime entry points. `newTurnId` remains, for repairs only. |
+| **When is Turn identity created?** | At admission on the API pod, before the `INSERT` — and `turn_requests.id` carries **no database default**, so a caller that forgot to allocate one gets a not-null violation rather than a row naming a Turn no log contains. It used to be created inside the runtime (`this.#newTurnId()`) and was therefore unknowable to anything that did not run the turn. |
+| **How does it map?** | `turn_requests.id == events.turn_id` of the request's *first* Turn. `turnId` is a field on `TurnRequest` and on `ContinueOptions`, threaded through the runtime entry points. `newTurnId` remains, for repairs only. |
 | **Worker dies after appending events, before settling?** | The log holds `turn.started` / `user.message` / `job.started` under that turnId. The row stays `leased` until expiry, then `orphaned`. **Never requeued**, so a second execution of that request is unreachable by construction. |
 | **How does a continuation know the Turn already exists?** | It does not need to. Continuation never re-runs a request; it folds the log and asks `continuationFor` what the *Job* needs. The turnId is used by the janitor, to close the right Turn. |
 | **Repair Turns?** | Distinct `crypto.randomUUID()` per repair, still generated in the worker. A repair is a distinct Turn (ADR-0006); it shares the request's lease, not its id. The repair budget is counted from `verification.started` in the log (`job-state.ts:99`), so it survives worker death without resetting. |
@@ -306,6 +341,11 @@ leased ──renewal returns 0 rows──► worker self-aborts (≤ expiry+15s)
 principle and `single-agent-runtime.ts:270` — *"an autonomous loop that spends tokens with nobody
 watching is a bill, and a crash loop plus auto-continue is a large one"* — carried into a
 distributed system unchanged.
+
+Two consequences the design did not anticipate, both recorded in `docs/GOTCHAS.md` (API section):
+the row carries a concrete model, so **an open can now be refused for a model nobody asked for**;
+and an orphaned `resume` is announced with the `system.notice` alone, since opening a project
+starts no turn for a `turn.failed` to close.
 
 ---
 
@@ -379,7 +419,7 @@ it matches the reasoning already in `sandbox-quota.ts:19`.
 |---|---|---|
 | Reserved, E2B create fails | TXN 3 deletes the row; turn fails `sandbox_unavailable` | immediate |
 | **Process dies after TXN 1, before create** | Row stays `reserved`; capacity held | reaper deletes `reserved` rows past `expires_at` — ≤2 min |
-| **Create succeeds, TXN 2 fails** | Sandbox exists; `sessions.sandbox_id` null; row still `reserved`. **A sandbox nobody can find.** | reaper lists E2B sandboxes and destroys any whose id appears in no `sessions.sandbox_id` — new machinery, required |
+| **Create succeeds, TXN 2 fails** | Sandbox exists; the project names no sandbox; row still `reserved`. **A sandbox nobody can find.** | reaper lists E2B sandboxes and destroys any whose id appears in no `projects.sandbox_id` — new machinery, required |
 | Sandbox destroyed out-of-band (E2B reclaim, provider TTL) | Row stays `active`; capacity held | reaper deletes `active` rows whose `sandbox_id` is absent from `projects.sandbox_id` |
 
 ### Consequence for component ownership
@@ -613,7 +653,8 @@ human a reopen — so scale-down should be lazy and rare.
 Worker, on `SIGTERM`:
 
 1. Stop claiming. The claim loop exits immediately.
-2. Let in-flight turns finish, up to `NAP_DRAIN_TIMEOUT` (600s), inside the 900s grace period.
+2. Let in-flight turns finish, up to `NAP_DRAIN_TIMEOUT_SECONDS` (600s), inside the 900s grace
+   period. (Shipped under that name; this section said `NAP_DRAIN_TIMEOUT` before it was built.)
 3. **Keep renewing leases** of turns still running, so the janitor does not orphan progressing work.
 4. On completion, settle each request and release its lease.
 5. If the drain timeout expires: abort remaining turns via their `AbortController`. A cancelled turn
@@ -625,7 +666,8 @@ three repairs is minutes. 900s covers the tail.
 API, on `SIGTERM`: stop accepting, close sockets with a normal close code, exit within 30s. Clients
 reconnect with `?seq=` and lose nothing.
 
-The reaper's existing signal handler (`apps/api/src/index.ts:350`) carries over unchanged.
+The signal handler is `bootNap`'s (`apps/api/src/boot.ts`), so both processes shut down through
+one sequence and neither can forget a piece the other stops.
 
 ---
 
@@ -675,6 +717,15 @@ On resume the worker restores the project and reads `git rev-parse HEAD`. If the
 continuation returns `kind:'verify'` **against the real HEAD**. No new event type, no change to the
 event contract, and it stays a pure function testable with a literal array. Regression tests in §20.
 
+> **As shipped, HEAD wins wherever it could be read** — not only where the log records no commit.
+> The narrower rule leaves a second copy of the same bug one level down: a repair turn that commits
+> and dies before saying so has a `headSha` in the log from the turn *before* it, so continuation
+> would checkpoint that older sha while the checks ran against the newer tree. A checkpoint is a
+> commit verification agreed with, and verification runs in the workspace, so the workspace's HEAD
+> is the only sha that claim can honestly name. The cost of the wider rule is that a project
+> restored from a snapshot older than a recorded commit checkpoints the older sha — which is, again,
+> the one that was checked. `workspaceHeadSha === null` falls back to the log in both readings.
+
 ### B-3 — `EventSink` append failure is sticky and fatal
 
 `#failure` is sticky and `drain()` throws (`event-sink.ts:66–74`). On one replica against Neon that
@@ -706,12 +757,13 @@ and `docs/DEPLOY.md`'s "What a public URL costs" section all need correcting at 
 
 ### B-5 — `TurnRegistry.start()`'s defensive abort becomes unreachable
 
-It aborts a pre-existing controller for the same session (`registry.ts:27`). On a worker keyed by
+It aborted a pre-existing controller for the same session. On a worker keyed by
 **request id**, with `turn_requests_one_leased_per_session` guaranteeing one leased request per
 session and the fencing rule (§5) guaranteeing the previous worker has aborted, that branch cannot be
 entered.
 
-**Remove it at step 9**, and document why: the repo's own rule is that a check which has never been
+**Removed**, and documented in `registry.ts` — with a test that asserts the *absence*, since the
+repo's own rule is that a check which has never been
 observed failing is not known to work, and a guard nobody can trigger is worse than no guard — it
 implies a race that the schema has already made impossible.
 
@@ -827,8 +879,8 @@ Steps 1–9 all ship to the current Railway deployment unchanged.
 | 12 | Retire the one-replica rule in `docs/DEPLOY.md`; write both ADRs | — | The docs describe reality |
 
 **Two ADRs at step 12** — each is hard to reverse, surprising without context, and the result of a
-real trade-off: *turns execute on workers behind a Postgres queue*, and *event fanout is
-notify-then-read with the log as the delivery*.
+real trade-off: *turns execute on workers behind a Postgres queue* (`docs/adr/0009`), and *event
+fanout is notify-then-read with the log as the delivery* (`docs/adr/0010`).
 
 ---
 
@@ -860,7 +912,9 @@ New, and specific to this design:
 13. **`turn_requests.id` equals the `turn_id` of the request's first logical Turn**, and is allocated
     before the row is inserted.
 14. **Every `turn_request` reaches a terminal state** (`done`, `failed`, `orphaned`) within
-    `lease_ttl + grace`.
+    `lease_ttl + grace`. Of a request that was *claimed*: a `queued` row has been interrupted by
+    nothing and is waiting for a worker, which is the queue working rather than a request stuck,
+    and the janitor deliberately leaves it alone.
 15. **Every `orphaned` request has a terminal `turn.*` event and a `system.notice` in its session's
     log**, under its own `turnId`. No Turn is permanently invisible; no chat pane spins forever.
 16. **Global live sandboxes never exceed `NAP_MAX_SANDBOXES_TOTAL`** — enforced at reservation,
@@ -1043,25 +1097,42 @@ it is found.** If nothing degrades by 100 VUs, the ramp continues until somethin
 
 ---
 
-## 24. Unresolved
+## 24. Unresolved — all six now answered
 
-Open questions that do not block starting at step 0, but must be answered before the step they name.
+These were open questions that did not block starting at step 0 but had to be answered before the
+step they name. **Each is answered below**, in place and where the answer was found; none was
+answered by this section being edited to agree with the code.
 
 1. **`NAP_WORKER_CONCURRENCY`'s real value** — 5 is a guess. Step 0's baseline sets it. *(Before step
-   10.)*
+   10.)* **Answered at step 0**, in `docs/scaling-baseline.md` — the shipped default is 25, and
+   deliberately below what that run licenses.
 2. **Catch-up poll cost at 100 sessions.** 2s × 100 sessions is 50 queries/second of pure overhead if
    every session is polled independently. It should be one batched query per pod per tick, not one
-   per session — measured at step 2.
+   per session — measured at step 2. **Answered, and built that way**: the poll is one query for
+   every session a process is streaming, which is what `EventTailReader` exists for. Measured in
+   `docs/scaling-baseline.md`.
 3. **Whether the reaper should hold the janitor at all.** It is a third responsibility in a process
    that already has two, and its timing requirements (30s grace) are tighter than the idle sweep's
    (60s). A separate ticker inside the same pod is probably right; confirm at step 8.
+   **Answered at step 8: same pod, own ticker, and not under the sweep lock.** The reasoning is in
+   `apps/api/src/compose.ts` beside the janitor it decides.
 4. **`hashtext` collisions.** `pg_advisory_xact_lock(hashtext(session_id))` maps uuids into int4, so
    two unrelated sessions can serialize on one lock. Contention, not corruption — noted so nobody
-   "fixes" it in a panic, but worth measuring at 100 concurrent sessions in step 0.
+   "fixes" it in a panic, but worth measuring at 100 concurrent sessions in step 0. **Measured at
+   step 0** (`docs/scaling-baseline.md`): no measurable contention, and none expected — at 1,200
+   sessions a collision is predicted once in every ~6,000 runs and costs two sessions ~0.2ms.
 5. **Whether `/readyz` should fail on a lost LISTEN connection or merely warn.** Failing it removes a
    pod that can still serve HTTP and can still replay from the log — the poll covers fanout. Leaning
    toward: fail, because a pod with a dead LISTEN has 2s-latency streaming and another pod does not.
-   Decide at step 2.
+   Decide at step 2. **Decided as the lean: it fails.** `/livez` deliberately does not, and the
+   listener proves itself by hearing its own notifications rather than by assumption — three missed
+   intervals, not one. See `docs/adr/0010` and `docs/DEPLOY.md`.
 6. **k6 authentication against a deployed cluster.** The demo door works, but a deployed confirmation
    run creates 100 anonymous users and 100 projects per run. Needs a teardown path or a test-only
-   tenancy. *(Before step 11.)*
+   tenancy. *(Before step 11.)* **Answered as a teardown path, and the test-only tenancy was
+   deliberately rejected**: the value of the demo door is that k6 goes through the real admission
+   path, and a load-test-only branch in it is the one path a load test would never exercise.
+   `bun run loadgen:teardown` is it, and it cannot tell a load run's identity from a real visitor's
+   — which is why it needs `--confirm` and an explicit window. Step 11 also found the *real* obstacle
+   this question was circling, which nobody predicted: the demo door is rate-limited per IP and a
+   load generator is one IP. See `docs/scaling-cluster.md`.

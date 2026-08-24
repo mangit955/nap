@@ -138,6 +138,102 @@ describe("concurrent appends", () => {
   });
 });
 
+describe("a retried append", () => {
+  it("returns the row the lost attempt wrote rather than writing a second one", async () => {
+    // The case the retry exists to survive: the transaction committed and the acknowledgement
+    // never arrived, so the caller cannot tell it from a failure before the commit. A second
+    // insert here is a duplicated message in somebody's chat.
+    const sessionId = await seedSession();
+    const event = message(sessionId, randomUUID(), "committed, then the connection dropped");
+    const first = await store.append(event);
+
+    // Nothing was durable before the attempt, so the watermark is 0 and the row at seq 1 is
+    // a candidate.
+    const retried = await store.append(event, { retryAfterSeq: 0 });
+
+    expect(retried).toStrictEqual(first);
+    expect(await store.readFrom(sessionId, 0)).toHaveLength(1);
+  });
+
+  it("writes the event when the lost attempt really did not commit", async () => {
+    const sessionId = await seedSession();
+    const turnId = randomUUID();
+    await store.append(message(sessionId, turnId, "one"));
+
+    const second = await store.append(message(sessionId, turnId, "two"), { retryAfterSeq: 1 });
+
+    expect(second.seq).toBe(2);
+    expectEventSequence(await store.readFrom(sessionId, 0), ["agent.message", "agent.message"]);
+  });
+
+  it("writes a genuine repeat that arrives after something else", async () => {
+    // An identical event at or below the watermark was durable before the attempt began, so
+    // it cannot be what the attempt wrote — it is a real event of its own.
+    const sessionId = await seedSession();
+    const turnId = randomUUID();
+    const repeated = message(sessionId, turnId, "same again");
+    await store.append(repeated);
+    await store.append(message(sessionId, turnId, "something else"));
+
+    const third = await store.append(repeated, { retryAfterSeq: 2 });
+
+    expect(third.seq).toBe(3);
+  });
+
+  it("writes the second of two identical events, when the first is below the watermark", async () => {
+    // The case a content-only comparison gets wrong. A turn emits the same event twice running
+    // — two `command.output` chunks with the same text in the same millisecond — and the second
+    // one's attempt fails before committing. Matching on content alone finds the *first* event,
+    // drops the second and hands back a seq that was already published.
+    const sessionId = await seedSession();
+    const turnId = randomUUID();
+    const repeated = message(sessionId, turnId, "building...");
+    const first = await store.append(repeated);
+
+    const second = await store.append(repeated, { retryAfterSeq: first.seq });
+
+    expect(second.seq).toBe(2);
+    expect(await store.readFrom(sessionId, 0)).toHaveLength(2);
+  });
+
+  it("writes normally when nothing says an attempt was lost", async () => {
+    const sessionId = await seedSession();
+    const event = message(sessionId, randomUUID(), "twice on purpose");
+    await store.append(event);
+
+    await store.append(event);
+
+    expect(await store.readFrom(sessionId, 0)).toHaveLength(2);
+  });
+
+  it("recognises its own row through the timestamp normalization", async () => {
+    // `created_at` is timestamptz, so what comes back is not string-identical to what went in.
+    // Comparing the two raw would find no match and write the event a second time.
+    const sessionId = await seedSession();
+    const event: PendingEvent = {
+      type: "agent.message",
+      sessionId,
+      turnId: randomUUID(),
+      createdAt: "2026-08-09T12:00:00Z",
+      payload: { text: "hi" },
+    };
+    const first = await store.append(event);
+
+    expect(await store.append(event, { retryAfterSeq: 0 })).toStrictEqual(first);
+    expect(await store.readFrom(sessionId, 0)).toHaveLength(1);
+  });
+
+  it("is the first event of a session, when that is what was lost", async () => {
+    const sessionId = await seedSession();
+
+    const only = await store.append(message(sessionId, randomUUID(), "the very first"), {
+      retryAfterSeq: 0,
+    });
+
+    expect(only.seq).toBe(1);
+  });
+});
+
 describe("readFrom", () => {
   it("returns exactly the events after the given seq, in order", async () => {
     const sessionId = await seedSession();
@@ -325,5 +421,55 @@ describe("every event type survives the round trip", () => {
     expect(read?.type).toBe(type);
     expect(read?.payload).toEqual(payload);
     expect(read).toStrictEqual(appended);
+  });
+});
+
+/**
+ * The batched read the notify bus polls with, and the head query a subscription starts from.
+ *
+ * Separate from `readFrom` because the shape is what matters: a hundred live sessions on a 2s
+ * tick has to be one query rather than a hundred, so this asks for several sessions at once and
+ * the assertions are about grouping and ordering rather than about any one row.
+ */
+describe("reading several sessions' tails at once", () => {
+  it("returns everything above each session's own cursor, in seq order", async () => {
+    const [first, second] = [await seedSession(), await seedSession()];
+    const turnId = randomUUID();
+
+    for (const text of ["a1", "a2", "a3"]) await store.append(message(first!, turnId, text));
+    for (const text of ["b1", "b2"]) await store.append(message(second!, turnId, text));
+
+    const tail = await store.readTails(
+      new Map([
+        [first!, 1],
+        [second!, 0],
+      ]),
+    );
+
+    expect(tail.filter((e) => e.sessionId === first).map((e) => e.seq)).toEqual([2, 3]);
+    expect(tail.filter((e) => e.sessionId === second).map((e) => e.seq)).toEqual([1, 2]);
+  });
+
+  it("reads nothing at all for an empty set of cursors", async () => {
+    // Not a micro-optimisation, and the reason it has a test of its own: `or()` over nothing is
+    // `undefined`, which drizzle reads as *no filter* — so without the guard a process with no
+    // subscribers would select every event in the table, every tick, forever.
+    const sessionId = await seedSession();
+    await store.append(message(sessionId, randomUUID(), "somebody else's event"));
+
+    expect(await store.readTails(new Map())).toEqual([]);
+  });
+
+  it("gives the head of a session's log, and 0 for one with no events", async () => {
+    const empty = await seedSession();
+    expect(await store.headSeq(empty!)).toBe(0);
+
+    const sessionId = await seedSession();
+    const turnId = randomUUID();
+    for (const text of ["one", "two"]) await store.append(message(sessionId, turnId, text));
+
+    expect(await store.headSeq(sessionId!)).toBe(2);
+    // Untouched by another session's log, which is what makes it a per-session cursor at all.
+    expect(await store.headSeq(empty!)).toBe(0);
   });
 });

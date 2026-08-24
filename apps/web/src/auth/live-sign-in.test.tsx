@@ -16,6 +16,7 @@ const signInEmail = vi.fn();
 const signUpEmail = vi.fn();
 const signInSocial = vi.fn();
 const signInAnonymous = vi.fn();
+const getSession = vi.fn();
 /** What `/auth/providers` answers with, per test. */
 const ways = { socialProviders: [] as string[], demo: false };
 
@@ -29,6 +30,7 @@ vi.mock("./client.ts", () => ({
   returnTo: (path: string) => new URL(path, window.location.origin).toString(),
   authClient: {
     useSession: () => useSession(),
+    getSession: (...args: unknown[]) => getSession(...args),
     signIn: {
       email: (...args: unknown[]) => signInEmail(...args),
       social: (...args: unknown[]) => signInSocial(...args),
@@ -55,6 +57,8 @@ function submit(email = "ada@example.com", password = "a good password") {
 beforeEach(() => {
   vi.clearAllMocks();
   useSession.mockReturnValue({ data: null, isPending: false });
+  // The cookie stuck, which is every browser but the ones below. Tests that care say otherwise.
+  getSession.mockResolvedValue({ data: { user: { id: "u1" } } });
   ways.socialProviders = [];
   ways.demo = false;
   window.history.replaceState(null, "", "/sign-in");
@@ -186,6 +190,84 @@ describe("the way in with no account", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("couldn't reach the server");
     expect(push).not.toHaveBeenCalled();
+  });
+});
+
+describe("when the browser accepts the sign-in and drops the cookie", () => {
+  /*
+   * Safari and Brave block third-party cookies outright, and the API is on a different site from
+   * this app — so the request *succeeds*, the identity is created, and the browser silently
+   * refuses to store what came back. Nothing on this page can see that: `result.error` is null,
+   * so the old code redirected, and every request after it was a 401 that bounced straight back
+   * here. To the person pressing the button, the app does nothing at all.
+   *
+   * Asking the server who we are is what turns that into something readable. A browser that kept
+   * the cookie answers with a session; one that dropped it answers with nothing, which is the
+   * condition itself rather than a guess from the user agent — and a guess is what this must not
+   * be, since Brave fails this way while reporting itself as Chrome.
+   */
+  it("says why, rather than bouncing off the dashboard in silence", async () => {
+    ways.demo = true;
+    signInAnonymous.mockResolvedValue({});
+    getSession.mockResolvedValue({ data: null });
+    render(<LiveSignIn />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Try for free" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/blocked/i);
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("names a way out that the person can actually take", async () => {
+    // A message that only says "blocked" leaves somebody stuck on the page it happened on.
+    ways.demo = true;
+    signInAnonymous.mockResolvedValue({});
+    getSession.mockResolvedValue({ data: null });
+    render(<LiveSignIn />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Try for free" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/chrome|firefox/i);
+  });
+
+  it("does not blame the credentials for it", async () => {
+    // The same rule the unreachable-server case follows: this is not a rejected password, and
+    // saying so sends somebody off to reset one that was fine.
+    signInEmail.mockResolvedValue({});
+    getSession.mockResolvedValue({ data: null });
+    render(<LiveSignIn />);
+
+    submit();
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).not.toMatch(/password/i);
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("frees the button, since pressing it again is not the answer", async () => {
+    ways.demo = true;
+    signInAnonymous.mockResolvedValue({});
+    getSession.mockResolvedValue({ data: null });
+    render(<LiveSignIn />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Try for free" }));
+
+    await screen.findByRole("alert");
+    expect(screen.getByRole("button", { name: "Try for free" })).toBeEnabled();
+  });
+
+  it("treats a check it could not make as a working sign-in", async () => {
+    // The check is a guard against one specific browser behaviour, not a second gate on getting
+    // in. A network blip while asking must not strand somebody whose cookie was stored fine —
+    // if it really was dropped, the destination bounces them back here anyway.
+    ways.demo = true;
+    signInAnonymous.mockResolvedValue({});
+    getSession.mockRejectedValue(new TypeError("Failed to fetch"));
+    render(<LiveSignIn />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Try for free" }));
+
+    await vi.waitFor(() => expect(push).toHaveBeenCalledWith("/dashboard"));
   });
 });
 

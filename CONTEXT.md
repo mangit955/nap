@@ -79,6 +79,67 @@ last known-good state by construction rather than by care.
 process restart leaves a job open rather than failing it; nothing continues a job while nobody is
 watching.
 
+**Turn request** — a durable, queued intent to execute, and one row in `turn_requests`. Created by
+an API pod at admission, claimed by exactly one worker, terminal exactly once — *queued*, then
+*leased*, then one of *done*, *failed* or *orphaned*, with **no path back to queued**. Its *kind* is
+`turn` or `resume`. **Not a Job**: a job is one objective folded from the event log, and one request
+may drive a job through several turns — the prompt and its repairs. It carries *whether* the asker
+pays, never their key, so no credential is ever in that table. A request is claimed at most once,
+which is what makes queue delivery at-least-once and logical turn execution at-most-once.
+**Its id is also the turn id of the first Turn it becomes**, allocated at admission before the row
+is inserted — which is how the janitor, on a pod that never ran the turn, can close out the right
+one. A *repair* is a distinct Turn with an id of its own: it shares the request's lease, not its
+identity. Why the queue is a table rather than a broker is `docs/adr/0009`.
+
+**Lease** — a worker's time-bounded, exclusive claim on a session, and what took over from the
+in-process `SessionQueue` as the thing that makes a session's turns serial. The `SessionQueue` is
+still there and is now a *second, in-process line* rather than the only rope: it serialises two
+turns that happen to land in one process, and it could never have serialised two processes. Held by
+at most one worker per session cluster-wide, enforced by the partial unique index `unique (session_id) where state = 'leased'` rather than by application logic — two callers in
+two processes cannot agree about anything a database is not adjudicating. Renewed on a timer, and
+**renewal is conditional on the request id, the owner and the state**: renewing is how a worker asks
+whether it is still allowed to run, and zero rows back means the lease is gone and the turn must be
+aborted at once. Losing a lease never requeues the request — see `docs/adr/0009` for why there is
+no requeue path at all.
+
+**Janitor** — what closes out a turn request whose worker never came back, as distinct from the
+**reaper**, which puts away projects nobody is looking at. It waits past the lease's **grace
+window** — a *fence*, not a timeout: renewal is conditional, so the previous worker has certainly
+aborted by then, and reclaiming earlier is what would put two writers on one session — then marks
+the request *orphaned* and writes the terminal event the interrupted Turn never got, under the
+request's own id. **It never requeues and never closes the Job**: re-executing with nobody watching
+is what *Continue* forbids, so the work waits for a human to reopen the project.
+
+**Role** — which part of the deployment a process is: an **API pod** serves HTTP, WebSockets, auth
+and admission and executes nothing, a **worker** claims leases and executes turns and serves
+nothing, and the **reaper** runs the periodic sweeps and does neither. All three are the same
+composition given a different role, so it names a *process's job* and never a build, an image or a
+code path. `all` is the three in one process, which is what tests and the load harness compose.
+
+**Sweep lock** — what makes the reaper one sweeper rather than one replica. A session-level advisory
+lock, asked at the top of every idle-sweep tick and held on a connection of its own; a process that
+does not hold it does nothing that tick. It exists for the seconds of a rolling update when two
+reapers are running, and it guards the idle sweep alone — the **janitor** beside it is safe to run
+twice over and deliberately unguarded.
+
+**Busy** — whether any of a project's sessions holds a *lease* right now. One question with one
+answer for the whole cluster (`TurnQueue.anyLeased`), asked by closing a project, deleting one, and
+the idle sweep. It is a **filter, not a lock**: it describes the instant it was asked, and a turn
+starting immediately afterwards loses its sandbox and is restored from the snapshot the sweep just
+took. Holding a lock across a teardown instead would let a wedged sweep block turns.
+
+**Drain** — what a worker does between `SIGTERM` and exiting: stop claiming, keep renewing the
+leases it holds, and wait for the turns already running. Bounded by the **drain timeout**, past
+which the rest are aborted — a clean stop, committing nothing and closing each Job *abandoned*,
+never a kill. Draining is a property of a process going away; it is not cancellation, which is
+somebody asking for one turn to stop.
+
+**Fanout** — delivery of an already-persisted event to whichever API pods hold subscribers for its
+session. Strictly after the append, as it has always been. **A notification is a wake-up signal; the
+durable log is the delivery** — a lost notification costs latency and never costs an event, because
+the catch-up read is what actually hands anything to a socket. The notification carries
+`{sessionId, seq}` and never a payload; see `docs/adr/0010`.
+
 **Event** — one durable, ordered fact about a session, identified by its `seq`. Appended to the
 store *before* it is published to the bus, never the other way round.
 
@@ -100,6 +161,28 @@ is a fact about the log rather than a third party to the conversation. `chat/tra
 **Sandbox** — the isolated machine a project's code is written into and served from. Reclaimable at
 any time, by the reaper or by the provider's own timer, which is why no view may treat "there is a
 `preview.ready` in the log" as "something is running".
+
+**Sandbox reservation** — a row claiming one slot of the deployment's sandbox ceiling, taken before
+the sandbox exists and released when it stops existing. *Reserved* while the provider is being
+asked, *active* once there is a sandbox to name; both occupy capacity, because a creation in flight
+has already been paid for. It is the authoritative ceiling — the count the API route does at
+admission is a cheap refusal and nothing more. Never called a quota: a quota is what a route
+answers with, a reservation is what a slot *is*.
+
+**Turn allowance** — how many turns one person may start inside a rolling hour, counted as one row
+per *accepted* turn in `turn_rate_events`. Sliding rather than fixed, so `Retry-After` is the exact
+moment the oldest row leaves the window; a refused attempt records nothing, so a retrying client's
+recovery never recedes. There are two of them, told apart by *tier* — *free* for turns this
+deployment pays for, *paid* for turns billed to whoever brought a key — and they are never one
+shared count. An allowance is what a person may spend; a *ceiling* is what the deployment may run
+at once. Different words for different limits, deliberately.
+
+**Reconciliation** — the reaper's second job, on the same tick as the sweep: putting back capacity
+no ordinary path gave back. Three things it finds — a reservation whose process died before it
+created anything, a reservation whose sandbox the provider has since reclaimed, and a sandbox the
+provider is running that nothing in the database references. Only the third destroys anything, and
+only outside a grace window, because a sandbox seconds old and referenced by nothing is far more
+likely to be a creation in flight than a leak.
 
 **Put away** — a project whose sandbox has been destroyed on purpose, its work preserved in a
 snapshot. Not an error and not an empty project: its files are safe, and starting it back up takes
@@ -304,3 +387,25 @@ declined to grade is still one, and guessing a severity for it would understate 
 *code* rather than *browser*, because a category is a property of what a check measures rather than
 of how it measures it: the audit drives nothing and asserts no behaviour, and what it reports is the
 quality of the markup.
+
+## Load-generation glossary
+
+The vocabulary of the load harness. Kept separate for the same reason NapBench's is: it describes
+something *driving* the system rather than anything a user encounters. See
+`docs/scaling-design.md` §23.
+
+**Journey** — one scripted user's whole path through the system, start to finish: sign in through
+the demo door, create a project, open a socket, wait to be told the replay is over, submit a turn,
+read frames until `job.completed`. The unit a load run is made of — a hundred concurrent users is
+a hundred journeys, not one journey repeated. A step that fails ends the journey, because a turn
+that was never admitted has no duration worth reporting.
+
+**Calibration** — how slow the fakes pretend to be, and where those numbers came from. Every
+figure is from a funded run recorded in `docs/napbench-*.md`, never chosen to make a run finish
+sooner: instant fakes would complete each turn before the next user connected, and nothing would
+ever be concurrent. **This word is not a synonym for configuration** — a calibration figure
+changes only when another funded run records something different.
+
+**Threshold** — one condition a run is held to, as a metric, a statistic of it, a comparison and a
+number. A threshold whose metric was never recorded **fails**, rather than passing vacuously: a
+harness that quietly stopped measuring something must not report a green run.

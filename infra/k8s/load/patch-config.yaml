@@ -1,0 +1,39 @@
+# What a hundred concurrent turns need that the demo deployment does not, and nothing else: every
+# value this file does not name is the deployed one, so the run measures the real configuration
+# wherever it can.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nap-config
+  namespace: nap
+data:
+  # This cluster is reached through localhost, and the auth cookie and CORS both compare these
+  # verbatim.
+  NAP_API_URL: "http://localhost:8080"
+  NAP_WEB_ORIGIN: "http://localhost:3000"
+
+  # Instant fakes finish each turn before the next user has connected, so nothing is ever
+  # concurrent and a ramp to a hundred measures a system that never had two turns at once. This
+  # is the switch that makes the sandbox and the model answer at the speeds
+  # `docs/napbench-first-real-run.md` recorded — the same calibration the single-process baseline
+  # ran against, which is what makes the two comparable.
+  NAP_PROOF_CALIBRATED_LATENCY: "true"
+
+  # Two per user at a hundred users, sized exactly as `loadgen-composition.ts` sizes it: a run
+  # that spent itself reporting quota refusals would be measuring its own configuration. The
+  # demo deployment's 10 is a budget decision, not a limit of the design.
+  NAP_MAX_SANDBOXES_TOTAL: "200"
+  NAP_MAX_SANDBOXES_PER_USER: "2"
+  NAP_FREE_MAX_SANDBOXES_PER_USER: "2"
+
+  # 25, which is what `docs/scaling-baseline.md` measured a single container carrying — §24.1.
+  # The base's 5 is deliberately lower, because there the answer to a busy pod is another pod;
+  # here the run has to be able to reach a hundred concurrent turns on a laptop's worth of pods,
+  # and ceil(200 / 25) = 8 workers is a ceiling this cluster can actually schedule. The coupling
+  # is unchanged and still asserted: patch-scale.yaml derives its maximum from these two numbers.
+  NAP_WORKER_CONCURRENCY: "25"
+
+  # Shorter than production's ten minutes for the reason the proof's is: a run that ends by
+  # deleting the cluster should not wait out a real drain. The relationship the base's test
+  # asserts — a grace period comfortably past the drain — is only widened by this.
+  NAP_DRAIN_TIMEOUT_SECONDS: "60"

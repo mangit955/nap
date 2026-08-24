@@ -8,7 +8,9 @@
  * somebody's work rather than merely failing their turn.
  */
 
+import { getLogger } from "@nap/shared/logging";
 import type { ObjectStore } from "@nap/shared/ports/object-store";
+import type { Reservation, SandboxCapacity } from "@nap/shared/ports/sandbox-capacity";
 import type { SandboxError, SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SessionRecord, SessionStore } from "@nap/shared/ports/session-store";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
@@ -35,6 +37,12 @@ export type AcquireOptions = {
   restore: RestoreDeps | null;
   /** How long to push a resumed sandbox's deadline out by. */
   ttlMs: number;
+  /**
+   * The ceiling on how many sandboxes may exist at once, claimed here because here is the only
+   * place one is created. Absent means uncapped, which is what a fake, a benchmark or the harness
+   * wants and what no deployment does — see `composeNap`, which always supplies one.
+   */
+  capacity?: SandboxCapacity;
 };
 
 export const LOST_SANDBOX_WARNING =
@@ -71,16 +79,126 @@ export async function acquireSandbox(
   return reopened;
 }
 
-/** A new sandbox for this session's project, holding whatever could be restored into it. */
+/**
+ * A new sandbox for this session's project, holding whatever could be restored into it — and the
+ * capacity it costs, claimed before it exists and given back if it never does.
+ *
+ * **The reservation is the authoritative ceiling, and this is the only place it is taken.** The
+ * HTTP route's quota check is a fast refusal for the obvious case and nothing more: a request can
+ * sit queued for a minute, so capacity claimed at admission would either expire unused or be held
+ * for work that has not started. Claiming it here means the count and the creation are one
+ * decision, which is what stops a hundred simultaneous turns each finding themselves under a cap
+ * of ten.
+ *
+ * Reserved, created, activated — and released on every path where the sandbox did not come into
+ * existence, immediately rather than by a sweep, because a slot held by a creation that already
+ * failed is one somebody else could have had.
+ */
 async function open(
+  options: AcquireOptions,
+  session: SessionRecord,
+): Promise<Result<AcquiredSandbox, SandboxError>> {
+  const reserved = await reserve(options, session);
+  if (!reserved.ok) return reserved;
+  const reservation = reserved.value;
+
+  const opened = await create(options, session);
+  if (!opened.ok) {
+    await releaseQuietly(options, reservation);
+    return opened;
+  }
+
+  // Activated before the session is told, and neither step may fail the turn once the sandbox
+  // exists. The order is what decides how a half-finished acquire looks to whatever cleans up
+  // later: an *active* row naming a sandbox no session references is a sandbox that can be found
+  // and destroyed, while a *reserved* row over a live one expires in two minutes and leaves
+  // something running that nothing is counting.
+  await activateQuietly(options, reservation, opened.value.id);
+
+  // A sandbox nobody wrote down is one the next turn cannot find and the reaper cannot sweep.
+  await options.sessions.setSandboxId(session.sessionId, opened.value.id);
+
+  return opened;
+}
+
+/**
+ * Gives the slot back, and never turns a failed acquire into a thrown one.
+ *
+ * The turn has already failed for a reason worth reporting; replacing it with "the database
+ * refused a delete" would hide that reason behind the bookkeeping for it. The row is left holding
+ * a slot until it expires, which costs one sandbox's worth of headroom for a couple of minutes.
+ */
+async function releaseQuietly(
+  options: AcquireOptions,
+  reservation: Reservation | null,
+): Promise<void> {
+  if (reservation === null) return;
+
+  try {
+    await options.capacity?.release(reservation.id);
+  } catch (error) {
+    getLogger().warn(
+      { err: error },
+      "could not release the capacity a failed sandbox creation reserved",
+    );
+  }
+}
+
+/**
+ * Records that the reservation became this sandbox, and never fails the turn over it.
+ *
+ * The sandbox exists and is about to be recorded against the session, so the work can go ahead.
+ * What is lost is only the bookkeeping: the row stays `reserved`, expires, and stops counting a
+ * sandbox that is really there — under-counting a ceiling, rather than losing somebody's turn.
+ */
+async function activateQuietly(
+  options: AcquireOptions,
+  reservation: Reservation | null,
+  sandboxId: string,
+): Promise<void> {
+  if (reservation === null) return;
+
+  try {
+    await options.capacity?.activate(reservation.id, sandboxId);
+  } catch (error) {
+    getLogger().warn(
+      { sandboxId, err: error },
+      "could not record the sandbox against its reservation; it stays counted only until the " +
+        "reservation expires",
+    );
+  }
+}
+
+/** The capacity this creation will cost, or the refusal that stops it happening. */
+async function reserve(
+  options: AcquireOptions,
+  session: SessionRecord,
+): Promise<Result<Reservation | null, SandboxError>> {
+  if (options.capacity === undefined) return { ok: true, value: null };
+
+  const reserved = await options.capacity.reserve({
+    projectId: session.projectId,
+    userId: session.userId,
+  });
+
+  // Flattened to the one code a turn can report, keeping the refusal's own words: "close a
+  // project" and "try again in a few minutes" are different instructions, and the person reading
+  // them is the only one who can act on either.
+  if (!reserved.ok) {
+    return { ok: false, error: { code: "unavailable", message: reserved.error.message } };
+  }
+
+  return reserved;
+}
+
+/** The sandbox itself, from the template or from the project's last snapshot. */
+async function create(
   options: AcquireOptions,
   session: SessionRecord,
 ): Promise<Result<AcquiredSandbox, SandboxError>> {
   if (options.restore === null) {
     const created = await options.sandbox.create(session.projectId);
     if (!created.ok) return created;
-
-    await options.sessions.setSandboxId(session.sessionId, created.value.id);
     return { ok: true, value: { id: created.value.id, created: true, notices: [] } };
   }
 
@@ -96,9 +214,6 @@ async function open(
     return { ok: false, error: { code: "unavailable", message: opened.error.message } };
   }
 
-  // Recorded here rather than by the caller: a sandbox nobody wrote down is one the next turn
-  // cannot find and the reaper cannot sweep.
-  await options.sessions.setSandboxId(session.sessionId, opened.value.sandboxId);
   return {
     ok: true,
     value: {

@@ -1,0 +1,19 @@
+{
+  "name": "@nap/loadgen",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@nap/shared": "workspace:*",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@nap/sandbox": "workspace:*"
+  }
+}

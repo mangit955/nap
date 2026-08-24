@@ -9,6 +9,8 @@
   ],
   "scripts": {
     "dev": "turbo run dev",
+    "dev:worker": "turbo run dev:worker",
+    "dev:reaper": "turbo run dev:reaper",
     "build": "turbo run build",
     "test": "vitest run --project unit --project types --project web --project db",
     "test:fast": "vitest run --project unit --project types --project web",
@@ -17,6 +19,10 @@
     "harness": "bun run packages/runtime/scripts/harness.ts",
     "db:migrate": "bun run packages/db/scripts/migrate.ts",
     "ws:smoke": "bun run apps/api/scripts/ws-smoke.ts",
+    "loadgen": "bun run apps/api/scripts/loadgen.ts",
+    "loadgen:ramp": "bun run apps/api/scripts/loadgen-ramp.ts",
+    "loadgen:cluster": "bun run apps/api/scripts/loadgen-cluster.ts",
+    "loadgen:teardown": "bun run apps/api/scripts/loadgen-teardown.ts",
     "lint": "biome check .",
     "format": "biome check --write .",
     "prepare": "lefthook install",
@@ -35,6 +41,7 @@
     "lefthook": "2.1.10",
     "turbo": "2.10.8",
     "typescript": "7.0.2",
-    "vitest": "4.1.10"
+    "vitest": "4.1.10",
+    "yaml": "^2.9.0"
   }
 }

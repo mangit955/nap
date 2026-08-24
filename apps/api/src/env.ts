@@ -91,6 +91,31 @@ const BaseSchema = z.object({
     .refine((value) => Buffer.from(value, "base64").length === 32, {
       message: "must be 32 bytes of base64 — try `openssl rand -base64 32`",
     }),
+  /**
+   * How a turn's events reach the sockets watching them.
+   *
+   * `in-process` is an emitter keyed by session id: correct for exactly one replica, and
+   * silently wrong for two — a socket on one process never sees a turn run by another and the
+   * chat simply stops moving. `postgres` announces `{sessionId, seq}` through `pg_notify` and
+   * every process reads the events from the durable log, which works whatever the replica count
+   * is.
+   *
+   * **Defaults to `in-process`, deliberately**, so the single-container deployment that exists
+   * keeps working exactly as it did. Scaling a deployment past one replica means setting this
+   * *and* raising the replica count; doing only the second is the failure `docs/DEPLOY.md` used to
+   * forbid outright. The Kubernetes manifests set it. See `docs/adr/0010`.
+   */
+  NAP_EVENT_BUS: z.enum(["in-process", "postgres"]).default("in-process"),
+  /**
+   * Where the connections that need *session* mode go, when they cannot go where everything else
+   * does — which is any deployment behind a transaction pooler. There are two: the `LISTEN` socket
+   * every API pod holds, and the reaper's advisory lock. `createListenerConnection` and
+   * `createLockConnection` in `@nap/db` each say why that is not optional for them.
+   *
+   * Absent means `DATABASE_URL`, which is right for a local Postgres and anything unpooled.
+   */
+  NAP_LISTEN_DATABASE_URL: z.string().min(1).optional(),
+
   /** Environments are all strings; the rest of the app should not have to remember that. */
   PORT: z.coerce.number().int().positive().default(3001),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
@@ -167,9 +192,11 @@ const BaseSchema = z.object({
    * ten messages, so fifteen an hour is room to work rather than a wall, and two running
    * projects is more than anybody uses at once.
    *
-   * `NAP_MAX_SANDBOXES_TOTAL` is the process-wide ceiling and is the only one of the three that
-   * bounds what *everybody together* can spend. Per-user limits alone multiply by the number of
-   * users, which is the arithmetic that matters the first time this is shown to strangers.
+   * `NAP_MAX_SANDBOXES_TOTAL` is the **cluster-wide** ceiling — it is counted in Postgres and
+   * reserved under a lock there, so it means the same number however many processes are running —
+   * and it is the only one of the three that bounds what *everybody together* can spend. Per-user
+   * limits alone multiply by the number of users, which is the arithmetic that matters the first
+   * time this is shown to strangers.
    */
   NAP_TURNS_PER_HOUR: z.coerce.number().int().positive().default(15),
   NAP_MAX_SANDBOXES_PER_USER: z.coerce.number().int().positive().default(2),
@@ -218,6 +245,68 @@ const BaseSchema = z.object({
   NAP_REAP_IDLE_MINUTES: z.coerce.number().int().positive().default(10),
   NAP_REAP_INTERVAL_SECONDS: z.coerce.number().int().positive().default(60),
   NAP_SANDBOX_TTL_MINUTES: z.coerce.number().int().positive().default(30),
+
+  /**
+   * How often to look for turns whose worker died holding their lease.
+   *
+   * On a schedule of its own rather than the reaper's, because the two answer to different
+   * clocks: a project can wait a minute to be put away, and a chat pane waiting on a turn that
+   * will never finish cannot. A worker's death is visible within the lease, its grace window and
+   * one of these — so this is the only part of that sum a deployment can shorten. It never moves
+   * the grace itself, which is a fence rather than a delay; see `@nap/shared/lease-windows`.
+   */
+  NAP_JANITOR_INTERVAL_SECONDS: z.coerce.number().int().positive().default(15),
+
+  /**
+   * How many queued turns this process runs at once.
+   *
+   * A property of the *worker*, not a ceiling on the deployment: what a person may spend is the
+   * rate limiters' business and how many sandboxes may exist at once is
+   * `NAP_MAX_SANDBOXES_TOTAL`'s. This is how much of the queue one process takes responsibility
+   * for at a time, and the number to turn down when a pod is the bottleneck rather than the bill.
+   * A turn that cannot be claimed waits in `turn_requests` rather than being refused, so this
+   * changes latency and never who gets in.
+   *
+   * The default is measured rather than guessed: `docs/scaling-baseline.md` derives 25 per worker
+   * across four workers from the ramp's own arrival rate and mean turn, and deliberately sits
+   * *below* what that run licenses — its turns cost no CPU and no vendor quota, so a real worker
+   * is bounded by E2B sandboxes and model rate limits long before it is bounded by anything that
+   * run measured. Raising it wants a real-vendor run behind it.
+   */
+  NAP_WORKER_CONCURRENCY: z.coerce.number().int().positive().default(25),
+
+  /**
+   * How long a draining worker waits for the turns it is already running before aborting them.
+   *
+   * The platform's grace period is the real deadline — 600s inside a 900s grace, per
+   * `docs/scaling-design.md` §15. A drain that outlasts it is not a graceful shutdown but a kill,
+   * which leaves every lease to expire and every job open for somebody to continue by hand.
+   */
+  NAP_DRAIN_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(600),
+
+  /**
+   * Where a worker's claim loop leaves its mark, for a liveness probe to `stat`.
+   *
+   * Optional, and absent means no heartbeat is written — which is right for `bun run dev:worker`
+   * and for a single-container deployment, where nothing is asking. It is set on the worker pods
+   * alone: the other two roles never claim anything, so the file would never be written and a
+   * probe reading it would restart a healthy process every two minutes.
+   *
+   * See `worker-heartbeat.ts` for why a worker needs one at all — it serves nothing, so "is this
+   * pod alive?" cannot be an HTTP request.
+   */
+  NAP_WORKER_HEARTBEAT_FILE: z.string().min(1).optional(),
+
+  /**
+   * How many thumbnails one worker photographs at once.
+   *
+   * Not the worker's concurrency, and that is the whole point: every committed turn is
+   * photographed, so at 25 turns in flight this would otherwise be 25 simultaneous Chromium page
+   * loads in one container. A thumbnail is best-effort and nobody waits on it, so queueing costs
+   * a card that appears a few seconds later while the alternative is an OOMKill that costs every
+   * turn in flight. One until measurement says more is safe — `docs/scaling-design.md` §17 (B-6).
+   */
+  NAP_CAPTURE_CONCURRENCY: z.coerce.number().int().positive().default(1),
 
   /**
    * A Chrome or Chromium binary to photograph finished turns with, for the dashboard's cards.

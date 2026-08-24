@@ -316,8 +316,8 @@ NapBench, the harness that measures the agent. Its spec is frozen in [`docs/PLAN
 work since then is GitHub issues.
 
 Ceilings exist on everything that costs money, because an unattended agent with an open-ended budget
-is a bill with no ceiling: per-user turn rate limits, per-user and process-wide sandbox quotas, a
-token budget per turn, and a step budget per agent loop.
+is a bill with no ceiling: per-user turn rate limits, per-user and deployment-wide sandbox
+quotas, a token budget per turn, and a step budget per agent loop.
 
 ### Deliberately not built
 
@@ -327,7 +327,7 @@ roadmap:
 | Not built | Seam that exists today |
 |---|---|
 | Kubernetes sandbox pods | `SandboxManager`, plus a conformance suite in `packages/sandbox/src/testing/conformance.ts` that any implementation must pass |
-| Redis Streams event bus | `EventBus`; the shipped one is in-process |
+| Redis Streams event bus | `EventBus`; two implementations ship — in-process, and one over Postgres `LISTEN`/`NOTIFY` that crosses process boundaries |
 | Long-term memory | `MemoryProvider` — `NoopMemoryProvider` today, with real call sites in `ContextEngine` |
 | Multi-agent | `Runtime` — fan out to several `AgentService` runs, join their event streams |
 | Billing | Per-turn usage already accumulated by `LLMProvider` |

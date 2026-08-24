@@ -1,0 +1,84 @@
+# The autoscalers, re-derived for this cluster's ceilings — and the requests that let a laptop
+# schedule what they ask for.
+#
+# **The coupling is the point and it is unchanged.** `maxReplicaCount` is still
+# ceil(NAP_MAX_SANDBOXES_TOTAL / NAP_WORKER_CONCURRENCY), and `targetQueryValue` is still one
+# worker's concurrency — ceil(200 / 25) = 8. `test/k8s.test.ts` runs the same rule over this
+# overlay that it runs over the base, so an overlay that raised the ceiling and left the scaler
+# behind is a failing test rather than a cluster spending on pods that can only queue.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: nap-worker
+  namespace: nap
+spec:
+  maxReplicaCount: 8
+  triggers:
+    - type: postgresql
+      metadata:
+        query: "select count(*) from turn_requests where state in ('queued','leased')"
+        targetQueryValue: "25"
+      authenticationRef:
+        name: nap-postgres
+---
+# Twelve API pods do not fit on one kind node beside eight workers, a Postgres, an ingress
+# controller and the k6 process driving all of it. Six is what this machine can schedule; the
+# behaviour under test — that the deployment grows on load and shrinks slowly — is the same at
+# either number, and the run's report says which was in force.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: nap-api
+  namespace: nap
+spec:
+  maxReplicas: 6
+---
+# Requests, not limits. A request is what the scheduler subtracts from the node, and the base's
+# are sized for a node pool rather than for one laptop: at 500m a worker, eight of them reserve
+# four cores before anything runs. The limits are deliberately left alone — what a pod is allowed
+# to *use* is part of what the run is measuring, and lowering that would be measuring a different
+# deployment.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nap-worker
+  namespace: nap
+spec:
+  template:
+    spec:
+      containers:
+        - name: worker
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nap-api
+  namespace: nap
+spec:
+  template:
+    spec:
+      containers:
+        - name: api
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nap-reaper
+  namespace: nap
+spec:
+  template:
+    spec:
+      containers:
+        - name: reaper
+          resources:
+            requests:
+              cpu: 50m
+              memory: 256Mi

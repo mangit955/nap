@@ -1,0 +1,22 @@
+# The deployment, minus the two things that must not be applied by a `kubectl apply -k`.
+#
+# `secret.example.yaml` is absent because it holds placeholders: applying it would replace real
+# credentials with empty strings and every pod would refuse to boot on the next restart. The
+# migration Job is absent because a schema change is a decision — see job-migrate.yaml.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: nap
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - deployment-api.yaml
+  - service-api.yaml
+  - ingress-api.yaml
+  - hpa-api.yaml
+  - deployment-worker.yaml
+  - scaledobject-worker.yaml
+  - deployment-reaper.yaml
+  - networkpolicy.yaml
+images:
+  - name: ghcr.io/mangit955/nap
+    newTag: latest

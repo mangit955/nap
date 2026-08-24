@@ -54,7 +54,11 @@ function run(script: AgentScript = () => completedTurn(COMMIT_SHA), withCapture 
     ...(withCapture ? { capture } : {}),
   });
 
-  return runtime.runTurn({ sessionId: SESSION_ID, message: "add a delete button" });
+  return runtime.runTurn({
+    turnId: crypto.randomUUID(),
+    sessionId: SESSION_ID,
+    message: "add a delete button",
+  });
 }
 
 describe("a turn that changed something", () => {
@@ -126,7 +130,7 @@ describe("a project coming back up", () => {
       ...(withCapture ? { capture } : {}),
     });
 
-    return runtime.resumeSession(SESSION_ID);
+    return runtime.resumeSession(SESSION_ID, { turnId: crypto.randomUUID() });
   }
 
   it("photographs it, without any turn having run", async () => {

@@ -2,7 +2,12 @@ import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import type { NapEvent } from "@nap/shared/events";
 import type { EventBus, EventHandler, Unsubscribe } from "@nap/shared/ports/event-bus";
-import type { EventStore, PendingEvent, StoredEvent } from "@nap/shared/ports/event-store";
+import type {
+  AppendOptions,
+  EventStore,
+  PendingEvent,
+  StoredEvent,
+} from "@nap/shared/ports/event-store";
 import { type ServerFrame, ServerFrameSchema, WS_CLOSE } from "@nap/shared/ws-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { openEventStream } from "./event-stream.ts";
@@ -107,8 +112,8 @@ class SlowStore implements EventStore {
     });
   }
 
-  append(event: PendingEvent): Promise<StoredEvent> {
-    return this.inner.append(event);
+  append(event: PendingEvent, options?: AppendOptions): Promise<StoredEvent> {
+    return this.inner.append(event, options);
   }
 
   async readFrom(sessionId: string, afterSeq: number): Promise<StoredEvent[]> {

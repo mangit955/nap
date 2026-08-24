@@ -35,10 +35,10 @@
  * checkpoint, which is a state the user can usually close with one sentence.
  */
 
-import { commitAll } from "@nap/sandbox/git";
+import { commitAll, currentSha } from "@nap/sandbox/git";
 import { TEMPLATE_DEV_PORT } from "@nap/sandbox/template";
 import type { JobOutcome, NapEvent, NapEventOf, PromptSource } from "@nap/shared/events";
-import { foldJobs, MAX_REPAIR_ATTEMPTS } from "@nap/shared/job-state";
+import { foldJobs, MAX_REPAIR_ATTEMPTS, openJob } from "@nap/shared/job-state";
 import { addLogContext, getLogger, withLogContext } from "@nap/shared/logging";
 import type { AgentService } from "@nap/shared/ports/agent-service";
 import type { ContextEngine, FailedAttempt, JobContext } from "@nap/shared/ports/context-engine";
@@ -55,6 +55,7 @@ import type {
   TurnOutcome,
   TurnRequest,
 } from "@nap/shared/ports/runtime";
+import type { SandboxCapacity } from "@nap/shared/ports/sandbox-capacity";
 import type { SandboxError, SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SessionRecord, SessionStore } from "@nap/shared/ports/session-store";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
@@ -204,6 +205,16 @@ export type SingleAgentRuntimeOptions = {
    */
   capture?: PageCapture;
   /**
+   * The ceiling on how many sandboxes exist at once, claimed at the moment one is created.
+   *
+   * **This is the authoritative one**, and the route's quota check is an advisory refusal in
+   * front of it: a turn may wait before it runs, so capacity claimed at admission would be held
+   * for work that has not started. Absent means uncapped — the harness and the benchmark, which
+   * create one sandbox at a time and pay for it either way. Every deployment supplies one, and
+   * `compose.test.ts` is what says so.
+   */
+  capacity?: SandboxCapacity;
+  /**
    * Whether a completed turn's claim is arbitrated, or simply believed. Defaults to arbitrating.
    *
    * **This exists for one caller and it is not a deployment.** NapBench measures a difference by
@@ -220,7 +231,13 @@ export type SingleAgentRuntimeOptions = {
   verification?: "arbitrate" | "trust";
   /** Injected so a test can assert on whole events rather than on everything but the clock. */
   now?: () => string;
-  /** Injected for the same reason: a turn id a test can predict. */
+  /**
+   * Injected for the same reason: a turn id a test can predict.
+   *
+   * **Repairs only, and that is now literally true.** Both entry points take their turn id from
+   * the caller — `TurnRequest.turnId` and `ContinueOptions.turnId` — so the only Turns this
+   * runtime still names are the ones nobody asked for by name: a repair the verifier prompted.
+   */
   newTurnId?: () => string;
   /** The port the project's dev server listens on. Defaults to the template's. */
   previewPort?: number;
@@ -273,7 +290,7 @@ export class SingleAgentRuntime implements Runtime {
    * that spends tokens with nobody watching is a bill, and a crash loop plus auto-continue is a
    * large one. Somebody opening the project is the signal that a person is there.
    */
-  resumeSession(sessionId: string, options: ContinueOptions = {}): Promise<ResumeOutcome> {
+  resumeSession(sessionId: string, options: ContinueOptions): Promise<ResumeOutcome> {
     return this.#queue.run(sessionId, () => this.#resume(sessionId, options));
   }
 
@@ -287,7 +304,7 @@ export class SingleAgentRuntime implements Runtime {
    * every `await`, including the ones that outlive the request that started it.
    */
   async #runTurn(request: TurnRequest): Promise<TurnOutcome> {
-    const turnId = this.#newTurnId();
+    const { turnId } = request;
     return await withLogContext(getLogger(), { sessionId: request.sessionId, turnId }, () =>
       this.#runTurnLogged(request, turnId),
     );
@@ -295,7 +312,7 @@ export class SingleAgentRuntime implements Runtime {
 
   /** The same log context a turn gets, around a lifecycle operation that has no turn id. */
   async #resume(sessionId: string, options: ContinueOptions): Promise<ResumeOutcome> {
-    const turnId = this.#newTurnId();
+    const { turnId } = options;
     return await withLogContext(getLogger(), { sessionId, turnId }, () =>
       this.#resumeLogged(sessionId, turnId, options),
     );
@@ -396,10 +413,15 @@ export class SingleAgentRuntime implements Runtime {
   /**
    * Picking a job back up where a process restart left it.
    *
-   * The log is the only state there is, so this folds it and acts on what `continue-job.ts`
+   * The log is where the state is kept, so this folds it and acts on what `continue-job.ts`
    * makes of the result — no supervisor, no scan, no jobs index. Three of its four answers cost
    * nothing: an unfinished job with no commit behind it is closed, a job already sitting at a
    * checkpoint is closed, and a session with nothing open does nothing at all.
+   *
+   * **The restored workspace's HEAD goes in alongside it.** A turn commits before it announces
+   * the commit, so a log that stops in that gap describes a project that committed nothing while
+   * the sandbox holds the commit. Reading HEAD here is what stops that work being closed out
+   * unverified and left there.
    *
    * **A throw here never fails the resume, and never leaves the job open.** The project is up
    * either way, and reporting the open as broken because a continuation fell over would take the
@@ -409,7 +431,16 @@ export class SingleAgentRuntime implements Runtime {
   async #continue(scope: TurnScope, sandboxId: string, options: ContinueOptions): Promise<void> {
     const { session, sink } = scope;
     const history = await this.#options.events.readFrom(session.sessionId, 0);
-    const continuation = continuationFor(foldJobs(history));
+    const state = foldJobs(history);
+
+    // Asked before HEAD is read, because reading it is a round trip into the sandbox and most
+    // opens have nothing open to continue. `continuationFor` answers `none` for these anyway —
+    // this only decides whether the evidence is worth fetching.
+    if (openJob(state) === undefined) return;
+
+    const continuation = continuationFor(state, {
+      workspaceHeadSha: await this.#workspaceHead(sandboxId),
+    });
 
     if (continuation.kind === "none") return;
 
@@ -426,8 +457,12 @@ export class SingleAgentRuntime implements Runtime {
       return;
     }
 
+    // Everything the continuation inherits except the resume's own turn id, which named the Turn
+    // that opened the project and names nothing this loop goes on to run.
+    const { turnId: _resumeTurnId, ...inherited } = options;
+
     const run: JobRun = {
-      settings: { sessionId: session.sessionId, ...options },
+      settings: { sessionId: session.sessionId, ...inherited },
       session,
       sink,
       sandboxId,
@@ -473,6 +508,27 @@ export class SingleAgentRuntime implements Runtime {
         await sink.drain().catch(() => {});
       }
     }
+  }
+
+  /**
+   * What the restored project is actually sitting on, for the continuation to weigh against
+   * what its log remembers.
+   *
+   * Read here rather than inside `continue-job.ts` so that decision stays a pure function of its
+   * inputs. A failure is not one: a repository with no commits and a sandbox that will not answer
+   * both mean "nothing to say", and the log is then the whole of the evidence.
+   */
+  async #workspaceHead(sandboxId: string): Promise<string | null> {
+    const head = await currentSha(this.#options.sandbox, sandboxId);
+    // An empty answer is no answer. `currentSha` trims, and a blank sha passed on as evidence
+    // would beat the log's own `headSha` with nothing at all.
+    if (head.ok) return head.value === "" ? null : head.value;
+
+    getLogger().warn(
+      { reason: head.error.code },
+      "could not read the workspace HEAD; continuing on the log alone",
+    );
+    return null;
   }
 
   async #runTurnLogged(request: TurnRequest, turnId: string): Promise<TurnOutcome> {
@@ -677,6 +733,11 @@ export class SingleAgentRuntime implements Runtime {
 
       run.repairs += 1;
       const attempt = run.repairs;
+      // A fresh id, and the only kind this runtime still allocates. A repair is a distinct Turn
+      // (docs/adr/0006) that shares the request's *lease* rather than its identity — the request
+      // id names the Turn it began, and a repair is not that Turn. Nothing outside needs to
+      // predict this one: the budget is counted from the log, so it survives a worker's death
+      // without a caller having had to hand these ids out in advance.
       const repairTurnId = this.#newTurnId();
       run.turn = this.#scopeFor(session, sink, settings.sessionId, repairTurnId);
       const repaired = failed;
@@ -1041,6 +1102,7 @@ export class SingleAgentRuntime implements Runtime {
         sessions: this.#options.sessions,
         restore: this.#restore,
         ttlMs: this.#sandboxTtlMs,
+        ...(this.#options.capacity === undefined ? {} : { capacity: this.#options.capacity }),
       },
       session,
     );

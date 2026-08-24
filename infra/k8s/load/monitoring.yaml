@@ -1,0 +1,286 @@
+# What gives `hpa-api.yaml`'s socket metric something to read.
+#
+# An HPA cannot read Prometheus. A custom `Pods` metric reaches it through the aggregated
+# `custom.metrics.k8s.io` API, which means two things have to exist: something scraping
+# `nap_ws_connections` off each API pod, and an adapter registering that API and answering it. A
+# cluster with neither degrades rather than fails — the HPA falls back to its CPU trigger — which
+# is why the base manifests do not carry this and a run that wants to *watch* the socket trigger
+# work has to install it.
+#
+# Deliberately not part of `kustomization.yaml`: this is cluster infrastructure, like KEDA and
+# metrics-server, rather than part of Nap. `run.sh` applies it, and a real deployment would use
+# kube-prometheus-stack instead of these two pods.
+#
+# Both are single replicas with no persistence and no alerting. A run lasts twenty minutes.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus
+  namespace: monitoring
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus
+rules:
+  - apiGroups: [""]
+    resources: [nodes, nodes/metrics, services, endpoints, pods]
+    verbs: [get, list, watch]
+  - nonResourceURLs: ["/metrics"]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus
+subjects:
+  - kind: ServiceAccount
+    name: prometheus
+    namespace: monitoring
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus
+  namespace: monitoring
+data:
+  prometheus.yml: |
+    global:
+      # Fast, because the HPA's own sync is every 15 seconds and a scrape interval above that
+      # means the autoscaler repeatedly acts on the same sample.
+      scrape_interval: 10s
+    scrape_configs:
+      - job_name: nap-pods
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          # Only the pods that asked to be scraped — the annotations in deployment-api.yaml.
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: "true"
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          # `namespace` and `pod` are not decoration: they are the labels the adapter joins on to
+          # answer "this metric, for these pods", and without them every sample is unattributable
+          # and the custom metric is reported as unavailable.
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: prometheus }
+  template:
+    metadata:
+      labels: { app: prometheus }
+    spec:
+      serviceAccountName: prometheus
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v3.2.1
+          args:
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --storage.tsdb.path=/prometheus
+            - --storage.tsdb.retention.time=1h
+          ports:
+            - containerPort: 9090
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus
+            - name: data
+              mountPath: /prometheus
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+      volumes:
+        - name: config
+          configMap: { name: prometheus }
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: monitoring
+spec:
+  selector: { app: prometheus }
+  ports:
+    - port: 9090
+      targetPort: 9090
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus-adapter
+  namespace: monitoring
+---
+# The adapter answers an aggregated API, so the API server has to be allowed to delegate
+# authentication and authorization to it, and it has to be allowed to read that configuration.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus-adapter-auth-delegator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+  - kind: ServiceAccount
+    name: prometheus-adapter
+    namespace: monitoring
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: prometheus-adapter-auth-reader
+  namespace: kube-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: extension-apiserver-authentication-reader
+subjects:
+  - kind: ServiceAccount
+    name: prometheus-adapter
+    namespace: monitoring
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus-adapter-resources
+rules:
+  - apiGroups: [""]
+    resources: [pods, nodes, namespaces]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus-adapter-resources
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus-adapter-resources
+subjects:
+  - kind: ServiceAccount
+    name: prometheus-adapter
+    namespace: monitoring
+---
+# The HPA reads a *Pods* metric, which the adapter answers by matching the series' `namespace` and
+# `pod` labels to the pods behind the deployment. One rule, for the one gauge Nap exports.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-adapter
+  namespace: monitoring
+data:
+  config.yaml: |
+    rules:
+      - seriesQuery: 'nap_ws_connections{namespace!="",pod!=""}'
+        resources:
+          overrides:
+            namespace: { resource: namespace }
+            pod: { resource: pod }
+        name:
+          # The series is already named exactly what the HPA asks for, so nothing is renamed.
+          matches: "^(.*)$"
+          as: "$1"
+        # A gauge, so the value is the last sample rather than a rate. The 2-minute window is
+        # slack for a missed scrape: without it a single failed scrape makes the metric
+        # unavailable and the HPA silently falls back to CPU.
+        metricsQuery: 'max_over_time(<<.Series>>{<<.LabelMatchers>>}[2m])'
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus-adapter
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: prometheus-adapter }
+  template:
+    metadata:
+      labels: { app: prometheus-adapter }
+    spec:
+      serviceAccountName: prometheus-adapter
+      containers:
+        - name: adapter
+          image: registry.k8s.io/prometheus-adapter/prometheus-adapter:v0.12.0
+          args:
+            - --config=/etc/adapter/config.yaml
+            - --prometheus-url=http://prometheus.monitoring.svc:9090
+            - --secure-port=6443
+            # The default is ten minutes, and the adapter discovers nothing until the first
+            # relist: for the first ten minutes of a cluster's life `custom.metrics.k8s.io`
+            # answers with an empty resource list and every HPA on it reads `<unknown>`. A run
+            # that brings the cluster up and starts loading it immediately would spend its whole
+            # ramp scaling on CPU alone and never know why.
+            - --metrics-relist-interval=1m
+            # No cert is supplied, so it generates a self-signed one here at startup. The
+            # APIService below is what says the API server should accept it.
+            - --cert-dir=/tmp/cert
+          ports:
+            - containerPort: 6443
+          volumeMounts:
+            - name: config
+              mountPath: /etc/adapter
+            - name: cert
+              mountPath: /tmp/cert
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+      volumes:
+        - name: config
+          configMap: { name: prometheus-adapter }
+        - name: cert
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-adapter
+  namespace: monitoring
+spec:
+  selector: { app: prometheus-adapter }
+  ports:
+    - port: 443
+      targetPort: 6443
+---
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  name: v1beta1.custom.metrics.k8s.io
+spec:
+  service:
+    name: prometheus-adapter
+    namespace: monitoring
+    port: 443
+  group: custom.metrics.k8s.io
+  version: v1beta1
+  # The adapter's certificate is self-signed and generated at startup, so there is no CA to
+  # supply. Acceptable in a cluster that exists for twenty minutes; a real one uses cert-manager.
+  insecureSkipTLSVerify: true
+  groupPriorityMinimum: 100
+  versionPriority: 100

@@ -27,9 +27,32 @@ export type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omi
 /** An event on its way in, before the store has assigned its sequence number. */
 export type PendingEvent = DistributiveOmit<NapEvent, "seq">;
 
+/** What the caller knows about this append that the store cannot see for itself. */
+export interface AppendOptions {
+  /**
+   * The highest `seq` this caller has seen durably appended for the session, set **only** when
+   * an earlier attempt at *this same event* failed without a knowable outcome.
+   *
+   * A connection lost between commit and acknowledgement looks exactly like a connection lost
+   * before the commit, and a caller retrying the second case blindly writes the first one twice
+   * — a fresh `seq` for an event already in the log, and a duplicated message in somebody's
+   * chat. An implementation given this must look for the event *above* the stated `seq`, under
+   * whatever serialization it appends with, and return the stored row rather than write a
+   * second one.
+   *
+   * It is a watermark rather than a flag because content alone cannot answer the question. A
+   * turn legitimately emits the same event twice running — two `command.output` chunks carrying
+   * the same text in the same millisecond — and a store comparing against the whole log would
+   * read the *previous* event as this one's lost append, drop the new event and publish the
+   * previous `seq` twice. Everything at or below the watermark is known to be somebody else's,
+   * so only what came after it can be the interrupted attempt's.
+   */
+  readonly retryAfterSeq?: number;
+}
+
 export interface EventStore {
   /** Persists the event and returns it with the assigned `seq`. */
-  append(event: PendingEvent): Promise<StoredEvent>;
+  append(event: PendingEvent, options?: AppendOptions): Promise<StoredEvent>;
 
   /** Events for a session with `seq` strictly greater than `afterSeq`, in order. */
   readFrom(sessionId: string, afterSeq: number): Promise<StoredEvent[]>;

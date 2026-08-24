@@ -1,0 +1,69 @@
+# The single process that tidies up after the other two, and neither serves nor executes.
+#
+# It puts away the sandboxes of projects nobody is looking at, gives back capacity no path
+# released, deletes rate-limit rows past their window, and closes out turn requests whose worker
+# never came back.
+#
+# **Exactly one, and it says so twice.** Two reapers would snapshot and destroy the same project at
+# the same moment, the second teardown landing on a sandbox that is already gone. `replicas: 1`
+# with `strategy: Recreate` is the first half: a RollingUpdate would deliberately run the old pod
+# and the new one together, which is the precise thing that must not happen. The second half is in
+# the process itself — the reaper role takes a `pg_try_advisory_lock` on a connection of its own
+# and skips any tick it does not hold — because a Deployment cannot actually promise one pod: a
+# node partition can leave the old one running while the replacement schedules elsewhere, and
+# `Recreate` only stops the overlap Kubernetes itself creates.
+#
+# There is no Service and no probe port. Whether the reaper is working is a question about how old
+# the oldest idle project is, which is a metric rather than a probe.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nap-reaper
+  namespace: nap
+  labels:
+    app.kubernetes.io/name: nap
+    app.kubernetes.io/component: reaper
+spec:
+  replicas: 1
+  # Not RollingUpdate. See above: overlap is the failure mode, so the old pod is stopped before the
+  # new one starts, and a few seconds with nothing sweeping costs nothing — a sandbox that should
+  # have been reaped is reaped on the next tick.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nap
+      app.kubernetes.io/component: reaper
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nap
+        app.kubernetes.io/component: reaper
+    spec:
+      serviceAccountName: nap
+      # Its shutdown stops the sweeps synchronously and closes two connections. There is nothing
+      # long-running to wait for — a tick that has not started must not start while the process is
+      # leaving, and whatever it would have closed out is still expired when the next pod looks.
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: reaper
+          image: ghcr.io/mangit955/nap:latest
+          command: ["bun", "apps/api/src/reaper.ts"]
+          envFrom:
+            - configMapRef:
+                name: nap-config
+            - secretRef:
+                name: nap-secrets
+          # Modest: it holds two connections and runs a query a minute. It destroys sandboxes
+          # rather than creating them, and it photographs nothing.
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]

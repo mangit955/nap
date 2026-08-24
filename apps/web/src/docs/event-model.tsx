@@ -73,6 +73,18 @@ export function EventModel() {
             term: "A second view is another fold",
             body: "Not another copy. Anything that wanted a different reading of the same session derives it from the log rather than keeping its own.",
           },
+          {
+            term: "The notification is not the event",
+            body: (
+              <>
+                Across several server processes, publishing is a Postgres <Code>NOTIFY</Code>{" "}
+                carrying a session and a <Code>seq</Code> and nothing else; each process then reads
+                the events themselves out of the log. So a wake-up that never arrives costs latency
+                rather than an event — a poll asks the same question every two seconds anyway — and
+                the socket you are on need not be the process running your turn.
+              </>
+            ),
+          },
         ]}
       />
 

@@ -26,7 +26,12 @@ import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store"
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { scriptGit } from "@nap/sandbox/testing/script-git";
 import { NapEventSchema, type NapEventType } from "@nap/shared/events";
-import type { EventStore, PendingEvent, StoredEvent } from "@nap/shared/ports/event-store";
+import type {
+  AppendOptions,
+  EventStore,
+  PendingEvent,
+  StoredEvent,
+} from "@nap/shared/ports/event-store";
 import type { ObjectStore } from "@nap/shared/ports/object-store";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
@@ -87,8 +92,8 @@ class OrderRecorder {
   wrap(store: EventStore, bus: InMemoryEventBus): { store: EventStore; bus: InMemoryEventBus } {
     const recorder = this;
     const wrappedStore: EventStore = {
-      async append(event: PendingEvent) {
-        const stored = await store.append(event);
+      async append(event: PendingEvent, options?: AppendOptions) {
+        const stored = await store.append(event, options);
         recorder.calls.push(["append", stored.type]);
         return stored;
       },
@@ -162,7 +167,11 @@ describe("SingleAgentRuntime", () => {
       events: wrapped.store,
       bus: wrapped.bus,
       memory: new NoopMemoryProvider(),
-    }).runTurn({ sessionId: SESSION_ID, message: "add a dark mode toggle" });
+    }).runTurn({
+      turnId: crypto.randomUUID(),
+      sessionId: SESSION_ID,
+      message: "add a dark mode toggle",
+    });
 
     // Alternating, one pair per event, append first — anything else is a client seeing
     // history that was not written.
@@ -177,10 +186,12 @@ describe("SingleAgentRuntime", () => {
 
   it("assigns seq monotonically with no gaps", async () => {
     await runtime(new ScriptedAgent(HAPPY_SCRIPT, true)).runTurn({
+      turnId: crypto.randomUUID(),
       sessionId: SESSION_ID,
       message: "first",
     });
     await runtime(new ScriptedAgent(HAPPY_SCRIPT, true)).runTurn({
+      turnId: crypto.randomUUID(),
       sessionId: SESSION_ID,
       message: "second",
     });
@@ -193,6 +204,7 @@ describe("SingleAgentRuntime", () => {
 
   it("logs the user's message before the turn opens", async () => {
     await runtime(new ScriptedAgent(HAPPY_SCRIPT, true)).runTurn({
+      turnId: crypto.randomUUID(),
       sessionId: SESSION_ID,
       message: "add a dark mode toggle",
     });
@@ -213,6 +225,7 @@ describe("SingleAgentRuntime", () => {
 
   it("writes a log every consumer can parse", async () => {
     await runtime(new ScriptedAgent(HAPPY_SCRIPT, true)).runTurn({
+      turnId: crypto.randomUUID(),
       sessionId: SESSION_ID,
       message: "hello",
     });
@@ -224,6 +237,7 @@ describe("SingleAgentRuntime", () => {
 
   it("produces exactly one commit on a successful turn", async () => {
     const outcome = await runtime(new ScriptedAgent(HAPPY_SCRIPT, true)).runTurn({
+      turnId: crypto.randomUUID(),
       sessionId: SESSION_ID,
       message: "add a dark mode toggle",
     });
@@ -248,6 +262,7 @@ describe("SingleAgentRuntime", () => {
       bus,
       memory: new NoopMemoryProvider(),
     }).runTurn({
+      turnId: crypto.randomUUID(),
       sessionId: SESSION_ID,
       message: "add a dark mode toggle",
       model: "anthropic/claude-opus-5",
@@ -267,7 +282,11 @@ describe("SingleAgentRuntime", () => {
       events,
       bus,
       memory: new NoopMemoryProvider(),
-    }).runTurn({ sessionId: SESSION_ID, message: "add a dark mode toggle" });
+    }).runTurn({
+      turnId: crypto.randomUUID(),
+      sessionId: SESSION_ID,
+      message: "add a dark mode toggle",
+    });
 
     expect(agent.requests[0]).not.toHaveProperty("model");
   });
@@ -281,7 +300,11 @@ describe("SingleAgentRuntime", () => {
       true,
     );
 
-    const outcome = await runtime(failing).runTurn({ sessionId: SESSION_ID, message: "no" });
+    const outcome = await runtime(failing).runTurn({
+      turnId: crypto.randomUUID(),
+      sessionId: SESSION_ID,
+      message: "no",
+    });
 
     const sandboxId = await onlySandboxId();
     expect(commitCommands(sandbox, sandboxId)).toEqual([]);
@@ -297,6 +320,7 @@ describe("SingleAgentRuntime", () => {
     sandbox = scriptGit(new InMemorySandboxManager(), { dirty: false });
 
     const outcome = await runtime(new ScriptedAgent(HAPPY_SCRIPT, true), { sandbox }).runTurn({
+      turnId: crypto.randomUUID(),
       sessionId: SESSION_ID,
       message: "what does App.tsx render?",
     });
@@ -308,6 +332,7 @@ describe("SingleAgentRuntime", () => {
     const agent = new ScriptedAgent();
 
     const outcome = await runtime(agent, { sandbox: new UncreatableSandboxManager() }).runTurn({
+      turnId: crypto.randomUUID(),
       sessionId: SESSION_ID,
       message: "build me an app",
     });
@@ -327,6 +352,7 @@ describe("SingleAgentRuntime", () => {
     const agent = new ScriptedAgent();
 
     const outcome = await runtime(agent, { sessions }).runTurn({
+      turnId: crypto.randomUUID(),
       sessionId: SESSION_ID,
       message: "carry on",
     });
@@ -350,8 +376,8 @@ describe("SingleAgentRuntime", () => {
 
     const subject = runtime(agent);
     await Promise.all([
-      subject.runTurn({ sessionId: SESSION_ID, message: "one" }),
-      subject.runTurn({ sessionId: SESSION_ID, message: "two" }),
+      subject.runTurn({ turnId: crypto.randomUUID(), sessionId: SESSION_ID, message: "one" }),
+      subject.runTurn({ turnId: crypto.randomUUID(), sessionId: SESSION_ID, message: "two" }),
     ]);
 
     expect(order.map((entry) => entry.split(":")[0])).toEqual(["enter", "exit", "enter", "exit"]);
@@ -393,10 +419,10 @@ describe("SingleAgentRuntime", () => {
     const subject = runtime(agent, { sessions });
     const finished: string[] = [];
     const slow = subject
-      .runTurn({ sessionId: SESSION_ID, message: "one" })
+      .runTurn({ turnId: crypto.randomUUID(), sessionId: SESSION_ID, message: "one" })
       .then(() => finished.push("slow"));
     const otherTurn = subject
-      .runTurn({ sessionId: other, message: "two" })
+      .runTurn({ turnId: crypto.randomUUID(), sessionId: other, message: "two" })
       .then(() => finished.push("other"));
 
     await Promise.all([slow, otherTurn]);
@@ -407,8 +433,12 @@ describe("SingleAgentRuntime", () => {
 
   it("hands the context engine the history so far, without the current message", async () => {
     const subject = runtime(new ScriptedAgent(HAPPY_SCRIPT, true));
-    await subject.runTurn({ sessionId: SESSION_ID, message: "first" });
-    await subject.runTurn({ sessionId: SESSION_ID, message: "second" });
+    await subject.runTurn({ turnId: crypto.randomUUID(), sessionId: SESSION_ID, message: "first" });
+    await subject.runTurn({
+      turnId: crypto.randomUUID(),
+      sessionId: SESSION_ID,
+      message: "second",
+    });
 
     const [, latest] = context.requests;
     expect(latest?.userMessage).toBe("second");
@@ -424,10 +454,10 @@ describe("SingleAgentRuntime", () => {
 
   it("resumes the sandbox it created rather than creating a second one", async () => {
     const subject = runtime(new ScriptedAgent(HAPPY_SCRIPT, true));
-    await subject.runTurn({ sessionId: SESSION_ID, message: "one" });
+    await subject.runTurn({ turnId: crypto.randomUUID(), sessionId: SESSION_ID, message: "one" });
     const sandboxId = await onlySandboxId();
 
-    await subject.runTurn({ sessionId: SESSION_ID, message: "two" });
+    await subject.runTurn({ turnId: crypto.randomUUID(), sessionId: SESSION_ID, message: "two" });
 
     expect(await onlySandboxId()).toBe(sandboxId);
   });
@@ -439,6 +469,7 @@ describe("SingleAgentRuntime", () => {
       .script(/git .*commit -m/, { exitCode: 128, stderr: "fatal: unable to write" });
 
     const outcome = await runtime(new ScriptedAgent(HAPPY_SCRIPT, true), { sandbox }).runTurn({
+      turnId: crypto.randomUUID(),
       sessionId: SESSION_ID,
       message: "change something",
     });
@@ -460,7 +491,11 @@ describe("SingleAgentRuntime", () => {
       throw new Error("provider exploded");
     };
 
-    const outcome = await runtime(throwing).runTurn({ sessionId: SESSION_ID, message: "hi" });
+    const outcome = await runtime(throwing).runTurn({
+      turnId: crypto.randomUUID(),
+      sessionId: SESSION_ID,
+      message: "hi",
+    });
 
     expect(await loggedTypes()).toEqual([
       "user.message",
@@ -474,7 +509,11 @@ describe("SingleAgentRuntime", () => {
   it("closes the turn when the agent ends without reporting an outcome", async () => {
     const silent = new ScriptedAgent(() => [{ type: "turn.started", payload: {} }]);
 
-    const outcome = await runtime(silent).runTurn({ sessionId: SESSION_ID, message: "hi" });
+    const outcome = await runtime(silent).runTurn({
+      turnId: crypto.randomUUID(),
+      sessionId: SESSION_ID,
+      message: "hi",
+    });
 
     expect(await loggedTypes()).toEqual([
       "user.message",
@@ -490,7 +529,11 @@ describe("SingleAgentRuntime", () => {
     const unknown = "0a1b2c3d-4e5f-4a6b-8c7d-8e9f0a1b2c3d";
     const agent = new ScriptedAgent();
 
-    const outcome = await runtime(agent).runTurn({ sessionId: unknown, message: "hi" });
+    const outcome = await runtime(agent).runTurn({
+      turnId: crypto.randomUUID(),
+      sessionId: unknown,
+      message: "hi",
+    });
 
     expect(agent.calls).toBe(0);
     // No event: a row referencing a session that does not exist is a foreign key violation
@@ -504,6 +547,7 @@ describe("SingleAgentRuntime", () => {
     const agent = new ScriptedAgent(HAPPY_SCRIPT, true);
 
     await runtime(agent).runTurn({
+      turnId: crypto.randomUUID(),
       sessionId: SESSION_ID,
       message: "hi",
       signal: controller.signal,
@@ -527,7 +571,11 @@ describe("SingleAgentRuntime", () => {
       memory: new NoopMemoryProvider(),
     });
 
-    const outcome = await subject.runTurn({ sessionId: SESSION_ID, message: "what is in App?" });
+    const outcome = await subject.runTurn({
+      turnId: crypto.randomUUID(),
+      sessionId: SESSION_ID,
+      message: "what is in App?",
+    });
 
     expect(outcome).toMatchObject({ ok: true, commitSha: COMMIT_SHA });
     expectEventSequence(await events.readFrom(SESSION_ID, 0), [
@@ -574,6 +622,7 @@ describe("telling the client where the preview is", () => {
     const agent = new ScriptedAgent(HAPPY_SCRIPT);
 
     await runtime(agent, { sandbox: serving }).runTurn({
+      turnId: crypto.randomUUID(),
       sessionId: SESSION_ID,
       message: "build a todo list",
     });
@@ -610,7 +659,11 @@ describe("telling the client where the preview is", () => {
       sessions: new InMemorySessionStore([
         { sessionId: SESSION_ID, projectId: PROJECT_ID, sandboxId: created.value.id },
       ]),
-    }).runTurn({ sessionId: SESSION_ID, message: "add a delete button" });
+    }).runTurn({
+      turnId: crypto.randomUUID(),
+      sessionId: SESSION_ID,
+      message: "add a delete button",
+    });
 
     expect(await loggedTypes()).not.toContain("preview.ready");
   });
@@ -621,6 +674,7 @@ describe("telling the client where the preview is", () => {
     const agent = new ScriptedAgent(HAPPY_SCRIPT);
 
     const outcome = await runtime(agent).runTurn({
+      turnId: crypto.randomUUID(),
       sessionId: SESSION_ID,
       message: "build a todo list",
     });
@@ -652,7 +706,11 @@ describe("telling the client where the preview is", () => {
       bus,
       memory: new NoopMemoryProvider(),
       previewPort: port,
-    }).runTurn({ sessionId: SESSION_ID, message: "build a todo list" });
+    }).runTurn({
+      turnId: crypto.randomUUID(),
+      sessionId: SESSION_ID,
+      message: "build a todo list",
+    });
 
     const stored = await events.readFrom(SESSION_ID, 0);
     expect(stored.find((event) => event.type === "preview.ready")?.payload).toMatchObject({ port });
@@ -700,6 +758,7 @@ describe("opening a project that has been put away", () => {
     const agent = new ScriptedAgent(HAPPY_SCRIPT, true);
 
     const outcome = await restoringRuntime(agent).runTurn({
+      turnId: crypto.randomUUID(),
       sessionId: SESSION_ID,
       message: "carry on where we left off",
     });
@@ -713,6 +772,7 @@ describe("opening a project that has been put away", () => {
     // A notice on every open is a notice nobody reads. This one is reserved for the cases
     // where the project is not what the user left behind.
     await restoringRuntime(new ScriptedAgent(HAPPY_SCRIPT, true)).runTurn({
+      turnId: crypto.randomUUID(),
       sessionId: SESSION_ID,
       message: "carry on",
     });
@@ -725,6 +785,7 @@ describe("opening a project that has been put away", () => {
     const agent = new ScriptedAgent(HAPPY_SCRIPT, true);
 
     const outcome = await restoringRuntime(agent).runTurn({
+      turnId: crypto.randomUUID(),
       sessionId: SESSION_ID,
       message: "carry on",
     });
@@ -755,6 +816,7 @@ describe("opening a project that has been put away", () => {
     const agent = new ScriptedAgent(HAPPY_SCRIPT, true);
 
     const outcome = await restoringRuntime(agent, { sessions: withDeadSandbox }).runTurn({
+      turnId: crypto.randomUUID(),
       sessionId: SESSION_ID,
       message: "carry on",
     });
@@ -774,7 +836,7 @@ describe("opening a project that has been put away", () => {
 
     await restoringRuntime(new ScriptedAgent(HAPPY_SCRIPT, true), {
       sessions: withDeadSandbox,
-    }).runTurn({ sessionId: SESSION_ID, message: "carry on" });
+    }).runTurn({ turnId: crypto.randomUUID(), sessionId: SESSION_ID, message: "carry on" });
 
     const stored = await events.readFrom(SESSION_ID, 0);
     const notice = stored.find((event) => event.type === "system.notice");
@@ -790,7 +852,9 @@ describe("opening a project that has been put away", () => {
       // belongs to a turn may appear, or the transcript grows a conversation nobody had.
       const agent = new ScriptedAgent(HAPPY_SCRIPT, true);
 
-      const outcome = await restoringRuntime(agent).resumeSession(SESSION_ID);
+      const outcome = await restoringRuntime(agent).resumeSession(SESSION_ID, {
+        turnId: crypto.randomUUID(),
+      });
 
       expect(outcome).toMatchObject({ ok: true, created: true });
       expect(agent.calls).toBe(0);
@@ -803,7 +867,7 @@ describe("opening a project that has been put away", () => {
       // started — and the preview pane treats a sandbox failure as a state a retry clears.
       const outcome = await runtime(new ScriptedAgent(), {
         sandbox: new UncreatableSandboxManager(),
-      }).resumeSession(SESSION_ID);
+      }).resumeSession(SESSION_ID, { turnId: crypto.randomUUID() });
 
       expect(outcome).toMatchObject({ ok: false, reason: "sandbox_unavailable" });
       const stored = await events.readFrom(SESSION_ID, 0);
@@ -821,7 +885,7 @@ describe("opening a project that has been put away", () => {
 
       const outcome = await restoringRuntime(new ScriptedAgent(), {
         sessions: running,
-      }).resumeSession(SESSION_ID);
+      }).resumeSession(SESSION_ID, { turnId: crypto.randomUUID() });
 
       expect(outcome).toMatchObject({ ok: true, created: false, sandboxId: created.value.id });
       expect(await loggedTypes()).toEqual([]);
@@ -843,8 +907,12 @@ describe("opening a project that has been put away", () => {
       });
 
       await Promise.all([
-        subject.resumeSession(SESSION_ID),
-        subject.runTurn({ sessionId: SESSION_ID, message: "carry on" }),
+        subject.resumeSession(SESSION_ID, { turnId: crypto.randomUUID() }),
+        subject.runTurn({
+          turnId: crypto.randomUUID(),
+          sessionId: SESSION_ID,
+          message: "carry on",
+        }),
       ]);
 
       expect(counting.creates).toBe(1);
@@ -853,6 +921,7 @@ describe("opening a project that has been put away", () => {
     it("refuses a session that does not exist", async () => {
       const outcome = await restoringRuntime(new ScriptedAgent()).resumeSession(
         "00000000-0000-4000-8000-000000000000",
+        { turnId: crypto.randomUUID() },
       );
 
       expect(outcome).toMatchObject({ ok: false, reason: "internal" });
@@ -889,7 +958,7 @@ describe("keeping a resumed sandbox alive", () => {
       sessions: new InMemorySessionStore([
         { sessionId: SESSION_ID, projectId: PROJECT_ID, sandboxId: created.value.id },
       ]),
-    }).runTurn({ sessionId: SESSION_ID, message: "carry on" });
+    }).runTurn({ turnId: crypto.randomUUID(), sessionId: SESSION_ID, message: "carry on" });
 
     expect(sandbox.timeoutOf(created.value.id)).toBe(30 * 60 * 1000);
   });
@@ -909,7 +978,7 @@ describe("keeping a resumed sandbox alive", () => {
       bus,
       memory: new NoopMemoryProvider(),
       sandboxTtlMs: 90_000,
-    }).runTurn({ sessionId: SESSION_ID, message: "carry on" });
+    }).runTurn({ turnId: crypto.randomUUID(), sessionId: SESSION_ID, message: "carry on" });
 
     expect(sandbox.timeoutOf(created.value.id)).toBe(90_000);
   });

@@ -1,0 +1,119 @@
+# The pods that serve HTTP and WebSockets, and execute nothing.
+#
+# `bun apps/api/src/index.ts` — the image's default command, spelled out anyway so all three
+# deployments read the same way and none of them depends on which entrypoint the Dockerfile
+# happened to pick. A turn typed into one of these pods is written to `turn_requests` and answered
+# 202; the worker that runs it is a different pod, and the socket streaming it may be a third.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nap-api
+  namespace: nap
+  labels:
+    app.kubernetes.io/name: nap
+    app.kubernetes.io/component: api
+spec:
+  # The floor the HPA scales from; see hpa-api.yaml. Three rather than two so that losing one pod
+  # to a node drain still leaves the PodDisruptionBudget satisfiable.
+  replicas: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nap
+      app.kubernetes.io/component: api
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # Never fewer pods than are already serving: an API pod holds long-lived sockets, and every
+      # one it sheds is a browser reconnecting. Surge one at a time and let the old ones go only
+      # once the new one is ready.
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nap
+        app.kubernetes.io/component: api
+      # What tells a Prometheus to scrape `nap_ws_connections` off each pod — the gauge the HPA
+      # next door scales on. Annotations rather than a ServiceMonitor so this works with a
+      # scrape-config Prometheus as well as with the operator, and on the pod rather than the
+      # Service because the HPA needs a value *per pod*: scraping through the Service would land
+      # on whichever replica the load balancer picked and report one pod's sockets as the whole
+      # deployment's.
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3001"
+        prometheus.io/path: /metrics
+    spec:
+      serviceAccountName: nap
+      # The API's own shutdown closes every socket with a normal close code and exits; clients
+      # reconnect with `?afterSeq=` and get exactly the gap they missed, so 30s is generous.
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: api
+          image: ghcr.io/mangit955/nap:latest
+          command: ["bun", "apps/api/src/index.ts"]
+          ports:
+            - name: http
+              containerPort: 3001
+          envFrom:
+            - configMapRef:
+                name: nap-config
+            - secretRef:
+                name: nap-secrets
+          # Not `/health`, and this is the whole reason those two endpoints exist. `/health`
+          # answers 200 while degraded on purpose — it is for a human with curl — so a probe on it
+          # would never take a broken pod out of the rotation.
+          #
+          # `/livez` never touches Postgres: a Neon blip must not restart every pod at once, and
+          # restarting one would only throw away the sockets it still had.
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          # `/readyz` does, and also fails on a lost LISTEN connection: such a pod can still serve,
+          # but only two seconds behind, because its fanout has degraded to the catch-up poll.
+          # Another pod is streaming properly — send the traffic there.
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+            failureThreshold: 2
+          # A slow start must not be read as a crash loop: boot opens a pool and a LISTEN
+          # connection before it serves anything.
+          startupProbe:
+            httpGet:
+              path: /livez
+              port: http
+            periodSeconds: 2
+            failureThreshold: 30
+          lifecycle:
+            preStop:
+              exec:
+                # Endpoint removal and SIGTERM race, and kube-proxy loses. Without this pause the
+                # pod stops accepting while some node is still sending it new connections, which
+                # arrives in a browser as a failed request during every deploy.
+                command: ["sleep", "5"]
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+      # Spread across nodes where possible, so one node going away is one pod rather than all of
+      # them. `ScheduleAnyway`: a cluster with fewer nodes than replicas should still schedule.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: nap
+              app.kubernetes.io/component: api

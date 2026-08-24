@@ -13,7 +13,8 @@
   "dependencies": {
     "@nap/shared": "workspace:*",
     "drizzle-orm": "0.45.2",
-    "postgres": "3.4.9"
+    "postgres": "3.4.9",
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "@testcontainers/postgresql": "12.1.0",

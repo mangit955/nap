@@ -19,8 +19,9 @@ import type { Authenticate, AuthInstance } from "./auth/auth.ts";
 import { findOwnedSession } from "./auth/owned-session.ts";
 import { type AuthVariables, requireUser } from "./auth/require-user.ts";
 import { type FileRouteDeps, registerFileRoutes } from "./files/routes.ts";
-import type { HealthReport } from "./health.ts";
+import type { HealthProbe, HealthReport } from "./health.ts";
 import { idsFromRequest } from "./log-ids.ts";
+import { METRICS_CONTENT_TYPE, type Metrics } from "./metrics.ts";
 import { type ModelRouteDeps, registerModelRoutes } from "./models/routes.ts";
 import { type ProjectRouteDeps, registerProjectRoutes } from "./projects/routes.ts";
 import { registerTurnRoutes, type TurnRouteDeps } from "./turns/routes.ts";
@@ -62,11 +63,32 @@ export type AppDeps = {
   /**
    * Whether the dependencies a turn needs are reachable, for `/health` to report.
    *
-   * Optional, and its absence means the endpoint answers liveness only — which is what it did
-   * before any of this existed, and the right answer for an app assembled with no database
-   * and no sandbox provider to ask about.
+   * Optional, and its absence means the endpoint reports `ok` with nothing named — which is
+   * what it said before any of this existed, and the right answer for an app assembled with no
+   * database and no sandbox provider to ask about.
    */
-  health?: () => Promise<HealthReport>;
+  health?: HealthProbe;
+  /**
+   * Whether this process should be *sent traffic*, for `/readyz` to answer with a status code.
+   *
+   * Deliberately a second probe rather than a reading of `health`, and narrower: readiness is
+   * about the things only this pod can be wrong about, so an unreachable database belongs here
+   * and an unreachable sandbox provider does not — every replica shares that one, and taking
+   * them all out of the load balancer over it turns a partial outage into a total one.
+   *
+   * Optional, and absent means ready: an app assembled with no database has nothing to be
+   * unready for, and answering 503 forever would be a lie about a working process.
+   */
+  readiness?: HealthProbe;
+  /**
+   * What this pod is holding, for `/metrics` to expose and the API's autoscaler to read.
+   *
+   * Optional, and absent means the route does not exist rather than answering an empty body: a
+   * scrape target that returns nothing is indistinguishable from a pod with no sockets, and an
+   * autoscaler reading a spurious zero from every replica scales the deployment to its floor.
+   * A 404 is a scrape failure, which is visible.
+   */
+  metrics?: Metrics;
   /** Everything `/ws` needs. The store supplies the replay, the bus the live tail. */
   stream: {
     store: EventStore;
@@ -109,6 +131,18 @@ export type AppDeps = {
    */
   projects?: ProjectRouteDeps;
 };
+
+/**
+ * What all three probe endpoints say, so that the *status code* is the only thing that differs
+ * between them — which is the one difference a reader has to notice.
+ *
+ * No report means nothing was wired to ask, which is reported as `ok`: an app assembled without
+ * a database has nothing to be degraded or unready about.
+ */
+function probeBody(report?: HealthReport) {
+  if (report === undefined) return { status: "ok", version: VERSION };
+  return { status: report.status, version: VERSION, checks: report.checks };
+}
 
 export function createApp(deps: AppDeps): Hono<{ Variables: AuthVariables }> {
   const app = new Hono<{ Variables: AuthVariables }>();
@@ -166,19 +200,58 @@ export function createApp(deps: AppDeps): Hono<{ Variables: AuthVariables }> {
   app.use("*", requireUser(deps.authenticate));
 
   /**
-   * Liveness, and readiness when there is anything to be ready for.
+   * What is reachable from here, for a person to read. The endpoint the other two are not.
    *
    * **Always 200, even when degraded.** A non-2xx here is how an orchestrator decides to
    * restart or de-register the process, and neither helps: the database being unreachable is
    * not something this process can fix by dying, and taking every instance out of rotation
    * during a shared-dependency outage turns a partial failure into a total one. The body is
    * what carries the verdict, and it is machine-readable so an alert can read it.
+   *
+   * Answering an automated probe is `/livez` and `/readyz` below — a status code is the only
+   * thing either of those callers reads, and this one deliberately never varies it.
    */
-  app.get("/health", async (c) => {
-    if (deps.health === undefined) return c.json({ status: "ok", version: VERSION });
-    const report = await deps.health();
-    return c.json({ status: report.status, version: VERSION, checks: report.checks });
+  app.get("/health", async (c) => c.json(probeBody(await deps.health?.())));
+
+  /**
+   * Liveness: is this process still a process?
+   *
+   * **Never touches a dependency, and that is the entire design.** Whatever a liveness probe
+   * consults becomes a reason for an orchestrator to kill the container, so pointing one at a
+   * check that includes the database means a database blip restarts every replica at once —
+   * the pods that were fine included. Answering at all is the whole signal.
+   */
+  app.get("/livez", (c) => c.json(probeBody()));
+
+  /**
+   * Readiness: should this process be sent traffic?
+   *
+   * The one endpoint here that answers with a **status code**, because that is the only thing
+   * a load balancer reads. A pod that cannot reach Postgres cannot serve a request, and should
+   * leave the rotation so that one which can takes it — the opposite of the liveness call
+   * above, and the reason the two cannot be one endpoint.
+   *
+   * The body still names what is unready, for whoever is reading rather than probing.
+   */
+  app.get("/readyz", async (c) => {
+    const report = await deps.readiness?.();
+    return c.json(probeBody(report), report === undefined || report.status === "ok" ? 200 : 503);
   });
+
+  /**
+   * What this pod is holding, for whatever is scraping it.
+   *
+   * Public for the same reason the probes are — the scraper is a sidecar or a Prometheus in
+   * another namespace, and neither has a session — and safe to be: the body is a count of open
+   * sockets, which names no user, no project and no session. The NetworkPolicy is what keeps it
+   * inside the cluster.
+   */
+  if (deps.metrics !== undefined) {
+    const { metrics } = deps;
+    app.get("/metrics", (c) =>
+      c.text(metrics.render(), 200, { "content-type": METRICS_CONTENT_TYPE }),
+    );
+  }
 
   /**
    * The session's event stream: everything after `seq`, then the live tail.
@@ -204,9 +277,18 @@ export function createApp(deps: AppDeps): Hono<{ Variables: AuthVariables }> {
 
     const { sessionId, afterSeq } = query.value;
     let stream: ReturnType<typeof openEventStream> | undefined;
+    // Counted here rather than inside `openEventStream`, because the gauge is about the socket
+    // rather than about the replay: a stream that fails to start still holds a connection, and
+    // that is exactly the pod-level cost the autoscaler is reading.
+    let released: (() => void) | undefined;
+    const close = () => {
+      released?.();
+      stream?.onClose();
+    };
 
     const events: WSEvents = {
       onOpen: (_event, ws) => {
+        released = deps.metrics?.connectionOpened();
         stream = openEventStream({
           store: deps.stream.store,
           bus: deps.stream.bus,
@@ -217,10 +299,11 @@ export function createApp(deps: AppDeps): Hono<{ Variables: AuthVariables }> {
         });
       },
       onMessage: (event) => stream?.onMessage(event.data),
-      onClose: () => stream?.onClose(),
+      onClose: close,
       // A socket error is a closed socket as far as this end is concerned; without this the
-      // subscription and the heartbeat would outlive the connection.
-      onError: () => stream?.onClose(),
+      // subscription and the heartbeat would outlive the connection. Both paths run for an
+      // errored socket, which is why the release above is idempotent.
+      onError: close,
     };
 
     return await deps.stream.upgradeWebSocket(c, events);

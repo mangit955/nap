@@ -1,0 +1,41 @@
+# The only Service in the deployment, and it points at the only pods anything connects to.
+#
+# There is deliberately none for the worker or the reaper: nothing calls them. Work reaches a
+# worker through `turn_requests` and reaches nobody else at all, which is what makes "no Redis, no
+# service mesh, no second source of truth about what is running" true rather than aspirational.
+apiVersion: v1
+kind: Service
+metadata:
+  name: nap-api
+  namespace: nap
+  labels:
+    app.kubernetes.io/name: nap
+    app.kubernetes.io/component: api
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: nap
+    app.kubernetes.io/component: api
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+# What keeps a voluntary disruption — a node drain, a cluster upgrade — from emptying the API.
+#
+# `minAvailable: 2` against three replicas: one pod may go at a time. Every pod taken away is a
+# roomful of sockets reconnecting, and they all reconnect at once.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: nap-api
+  namespace: nap
+  labels:
+    app.kubernetes.io/name: nap
+    app.kubernetes.io/component: api
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nap
+      app.kubernetes.io/component: api

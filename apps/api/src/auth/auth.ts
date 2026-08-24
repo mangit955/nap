@@ -107,6 +107,20 @@ export type AuthConfig = {
    * ceilings than a signed-in person. See `apps/api/src/turns/model-access.ts`.
    */
   allowAnonymous: boolean;
+  /**
+   * How many requests one address may make to `/api/auth/*` in ten seconds.
+   *
+   * The library's own default — 100 per 10s per IP, and only in production — is right for the
+   * public deployment: it is the thing standing between the demo door and somebody minting a
+   * thousand throwaway identities. It is exactly wrong for a load generator, which arrives from
+   * one address by definition: a hundred simulated users signing in at once exhaust it before
+   * the run starts, every one of them gets a 429 from the sign-in, and the run reports the
+   * system as broken rather than the harness as untenanted.
+   *
+   * So it is a number the *composition* sets, and only the two fake-infrastructure entrypoints
+   * ever raise it. Absent means the library's default, which is what boot passes.
+   */
+  authRequestsPerWindow?: number;
 };
 
 /**
@@ -131,6 +145,32 @@ export function createAuth(db: Db, config: AuthConfig): AuthInstance {
     // so a failed OAuth round trip ends on `{"error":"not signed in"}` at an address the
     // person never typed. The app's sign-in page can at least say what happened.
     onAPIError: { errorURL: `${config.webOrigin}/sign-in` },
+
+    // Left entirely to the library unless a caller says otherwise — see
+    // `authRequestsPerWindow`. Naming the window as well as the maximum because the library's
+    // default for it is 10 seconds and a maximum without the window it applies to is a number
+    // nobody can check.
+    //
+    // **`customRules` is the load-bearing half, and `max` alone does nothing.** The library
+    // ships a default *special* rule capping every path under `/sign-in`, `/sign-up`,
+    // `/change-password` and `/change-email` at 3 requests per 10 seconds per IP — which is a
+    // good default for a sign-in form and refuses ninety-seven of a hundred simulated users
+    // however wide the global maximum is. Only a custom rule overrides it, because custom rules
+    // are resolved last.
+    //
+    // `/**`, not `/*`: the library's glob treats `*` as one path segment, so `/*` matches
+    // `/sign-in` and not `/sign-in/anonymous` — which is the one path a load run uses. The rule
+    // is applied, matches nothing, and the 3-per-10-seconds default stands.
+    ...(config.authRequestsPerWindow === undefined
+      ? {}
+      : {
+          rateLimit: {
+            enabled: true,
+            window: 10,
+            max: config.authRequestsPerWindow,
+            customRules: { "/**": { window: 10, max: config.authRequestsPerWindow } },
+          },
+        }),
 
     database: drizzleAdapter(db, {
       provider: "pg",

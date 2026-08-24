@@ -15,11 +15,22 @@ import { type AuthVariables, isPublicPath, requireUser } from "./require-user.ts
 const signedIn: Authenticate = async () => ({ userId: "user-a", isAnonymous: false });
 const signedOut: Authenticate = async () => null;
 
-/** Two routes: one public by path, one not. Enough to see the middleware decide. */
+/**
+ * The three endpoints a probe polls, which is what `PUBLIC_PATHS` is mostly made of.
+ *
+ * Stated once here and asserted twice below. `route-table.ts` is the list that has to stay in
+ * step with the app's actual routes and is checked against them; this one only needs to be the
+ * same in both tests in this file.
+ */
+const PROBE_PATHS = ["/health", "/livez", "/readyz"];
+
+/** The public paths and one guarded route. Enough to see the middleware decide. */
 function appWith(authenticate: Authenticate | undefined): Hono<{ Variables: AuthVariables }> {
   const app = new Hono<{ Variables: AuthVariables }>();
   app.use("*", requireUser(authenticate));
-  app.get("/health", (c) => c.json({ status: "ok" }));
+  for (const path of PROBE_PATHS) {
+    app.get(path, (c) => c.json({ status: "ok" }));
+  }
   // Both, because both are set here and nowhere else: a handler that read `isAnonymous` and
   // found it undefined would treat a demo visitor as a full account.
   app.get("/projects", (c) =>
@@ -29,10 +40,10 @@ function appWith(authenticate: Authenticate | undefined): Hono<{ Variables: Auth
 }
 
 describe("isPublicPath", () => {
-  it("lets through the three paths that cannot require a session", () => {
-    // Liveness is polled by things that never sign in; the auth routes are how you *get* a
-    // session, so requiring one to reach them is a locked door with the key inside.
-    expect(isPublicPath("/health")).toBe(true);
+  it("lets through the paths that cannot require a session", () => {
+    // The three probes are polled by things that never sign in; the auth routes are how you
+    // *get* a session, so requiring one to reach them is a locked door with the key inside.
+    for (const path of PROBE_PATHS) expect(isPublicPath(path)).toBe(true);
     expect(isPublicPath("/auth/providers")).toBe(true);
     expect(isPublicPath("/api/auth/sign-in/email")).toBe(true);
     expect(isPublicPath("/api/auth/callback/github")).toBe(true);
@@ -69,7 +80,9 @@ describe("requireUser", () => {
 
   it("leaves the public paths alone whether or not anyone is signed in", async () => {
     for (const authenticate of [signedIn, signedOut, undefined]) {
-      expect((await appWith(authenticate).request("/health")).status).toBe(200);
+      for (const path of PROBE_PATHS) {
+        expect((await appWith(authenticate).request(path)).status).toBe(200);
+      }
     }
   });
 

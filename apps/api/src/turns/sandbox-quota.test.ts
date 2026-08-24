@@ -69,10 +69,11 @@ describe("at the cap", () => {
   });
 });
 
-describe("the process-wide ceiling", () => {
-  it("refuses a user who is under their own cap but the machine is full", async () => {
-    // Beyond what the task asks for, and the only thing that bounds the total bill: per-user
-    // limits alone mean N strangers cost N times the cap.
+describe("the cluster-wide ceiling", () => {
+  it("refuses a user who is under their own cap but the deployment is full", async () => {
+    // Beyond what the task asks for, and the number that bounds the total bill: per-user limits
+    // alone mean N strangers cost N times the cap. Refusing here is the cheap answer; the one
+    // that actually holds is taken when the sandbox is created.
     const running = [
       project("a", "sbx-a", STRANGER),
       project("b", "sbx-b", STRANGER),

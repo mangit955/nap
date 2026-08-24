@@ -22,6 +22,7 @@
  * and no network.
  */
 
+import type { SandboxInventory, SandboxListing } from "@nap/shared/ports/sandbox-inventory";
 import type {
   ExecOutputHandler,
   ExecResult,
@@ -68,9 +69,24 @@ export type E2BEntry = { name: string; path: string; type?: FileType };
 
 export type E2BCommandResult = { exitCode: number; stdout: string; stderr: string };
 
+/** One running sandbox as the provider describes it. `SandboxInfo`, minus the fields we ignore. */
+export type E2BSandboxSummary = {
+  sandboxId: string;
+  metadata: Record<string, string>;
+  startedAt: Date;
+};
+
 export type E2BClient = {
   create(opts: { metadata: Record<string, string>; timeoutMs?: number }): Promise<E2BSandboxHandle>;
   connect(sandboxId: string): Promise<E2BSandboxHandle>;
+  /**
+   * Every sandbox running on this account, every page of it.
+   *
+   * Pagination is resolved here rather than handed upwards: the caller is asking what exists,
+   * and an answer that stopped at the first hundred would quietly under-report exactly when the
+   * account has the most to reconcile.
+   */
+  list(): Promise<E2BSandboxSummary[]>;
   /**
    * The cheapest authenticated round trip the API offers, for a reachability check.
    *
@@ -161,10 +177,31 @@ function realClient(template: string | undefined): E2BClient {
     // round trip only happens on `nextItems` — a probe that stopped at `Sandbox.list()` would
     // pass while the API was unreachable.
     ping: () => Sandbox.list({ limit: 1 }).nextItems(),
+    list: async () => {
+      // Running only. A paused sandbox is not what this is looking for — nothing in this system
+      // pauses one — and destroying somebody else's paused work on the strength of "no project
+      // row names it" is the one mistake here that cannot be undone.
+      const paginator = Sandbox.list({ query: { state: ["running"] } });
+      const sandboxes: E2BSandboxSummary[] = [];
+
+      // `hasNext` starts true and only becomes false after a page has come back, so this always
+      // makes at least one request.
+      while (paginator.hasNext) {
+        for (const info of await paginator.nextItems()) {
+          sandboxes.push({
+            sandboxId: info.sandboxId,
+            metadata: info.metadata,
+            startedAt: info.startedAt,
+          });
+        }
+      }
+
+      return sandboxes;
+    },
   };
 }
 
-export class E2BSandboxManager implements SandboxManager {
+export class E2BSandboxManager implements SandboxManager, SandboxInventory {
   readonly #client: E2BClient;
   readonly #timeoutMs: number | undefined;
   /** Ids this manager killed, so a use-after-destroy is distinguishable from a bad id. */
@@ -206,6 +243,31 @@ export class E2BSandboxManager implements SandboxManager {
       return {
         ok: true,
         value: { id: handle.sandboxId, projectId: metadata[PROJECT_ID_KEY] ?? "" },
+      };
+    } catch (cause) {
+      return { ok: false, error: toSandboxError(cause) };
+    }
+  }
+
+  /**
+   * `SandboxInventory`: what the provider says it is running, whoever asked for it.
+   *
+   * The only question in this file that is not about a sandbox somebody can already name, which
+   * is exactly why it exists — a sandbox created just before the transaction recording it failed
+   * is running and billed and named nowhere else. The project id comes back out of the metadata
+   * `create` put there, and is null rather than empty when absent: something else made it, and a
+   * caller that destroys what nothing references must be able to tell those apart.
+   */
+  async list(): Promise<Result<SandboxListing[], SandboxError>> {
+    try {
+      const sandboxes = await this.#client.list();
+      return {
+        ok: true,
+        value: sandboxes.map((sandbox) => ({
+          id: sandbox.sandboxId,
+          projectId: sandbox.metadata[PROJECT_ID_KEY] ?? null,
+          startedAt: sandbox.startedAt.toISOString(),
+        })),
       };
     } catch (cause) {
       return { ok: false, error: toSandboxError(cause) };

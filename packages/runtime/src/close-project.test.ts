@@ -1,6 +1,7 @@
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { InMemoryProjectSandboxStore } from "@nap/db/testing/in-memory-project-sandbox-store";
+import { InMemorySandboxCapacity } from "@nap/db/testing/in-memory-sandbox-capacity";
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
@@ -10,6 +11,7 @@ import { putProjectAway } from "./close-project.ts";
 const PROJECT = "3e0fbc41-6f5d-4a8e-ab9c-4d5e6f708192";
 const SHA = "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f80912";
 const ACTIVE = "2026-08-09T11:00:00.000Z";
+const USER = "8f0a1b2c-3d4e-4f50-9a6b-7c8d9e0f1a2b";
 /** Two, because a sandbox belongs to the project every one of its sessions shares. */
 const SESSIONS = ["0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f", "1c8f9f2e-4d3b-4e6c-af7a-2b3c4d5e6f70"];
 
@@ -41,7 +43,7 @@ beforeEach(async () => {
   ]);
 });
 
-function close(id = sandboxId) {
+function close(id = sandboxId, capacity?: InMemorySandboxCapacity) {
   return putProjectAway({
     projects,
     sandbox,
@@ -50,7 +52,16 @@ function close(id = sandboxId) {
     projectId: PROJECT,
     sandboxId: id,
     announce: { events, bus, sessionIds: SESSIONS },
+    ...(capacity === undefined ? {} : { capacity }),
   });
+}
+
+/** A project holding an active reservation, as one whose sandbox was created really would. */
+async function holding(): Promise<InMemorySandboxCapacity> {
+  const capacity = new InMemorySandboxCapacity();
+  const reserved = await capacity.reserve({ projectId: PROJECT, userId: USER });
+  if (reserved.ok) await capacity.activate(reserved.value.id, sandboxId);
+  return capacity;
 }
 
 /** Every event this close appended, per session. */
@@ -164,6 +175,51 @@ describe("when the bookkeeping fails", () => {
     expect(result).toMatchObject({ outcome: "failed", reason: "release_failed" });
     // The bytes did land — the next turn restores from them once the row catches up.
     expect(objects.keys()).toHaveLength(1);
+  });
+});
+
+/**
+ * The other half of the reservation taken when the sandbox was created. Without it a ceiling of
+ * ten stops admitting anybody after the tenth project this cluster ever opened, however many are
+ * still running — a cap on projects-ever rather than on sandboxes-now.
+ */
+describe("the capacity the sandbox was occupying", () => {
+  it("goes back when the project is put away", async () => {
+    const capacity = await holding();
+
+    await close(sandboxId, capacity);
+
+    expect(capacity.held()).toEqual([]);
+  });
+
+  it("goes back when the sandbox had already been reclaimed", async () => {
+    // Nothing was snapshotted and there was nothing to destroy, but the slot is just as free.
+    const capacity = await holding();
+    await sandbox.destroy(sandboxId);
+
+    expect(await close(sandboxId, capacity)).toEqual({ outcome: "abandoned" });
+    expect(capacity.held()).toEqual([]);
+  });
+
+  it("stays held when the close failed and the sandbox is still serving", async () => {
+    // It is still running and still being billed; releasing here would let the deployment admit
+    // an eleventh sandbox against a cap of ten.
+    const capacity = await holding();
+    objects.failWith({ code: "unavailable", message: "R2 is not answering" });
+
+    await close(sandboxId, capacity);
+
+    expect(capacity.held()).toHaveLength(1);
+  });
+
+  it("does not fail the close when it cannot be given back", async () => {
+    // The snapshot is safe and the sandbox is gone. Reporting `failed` would invite the caller
+    // to run the whole sequence again against something that no longer exists.
+    const capacity = (await holding()).failWith(new Error("connection terminated"));
+
+    const result = await close(sandboxId, capacity);
+
+    expect(result).toMatchObject({ outcome: "put_away" });
   });
 });
 

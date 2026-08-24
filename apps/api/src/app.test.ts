@@ -3,10 +3,11 @@ import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { FAKE_OWNER } from "@nap/db/testing/in-memory-project-store";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { VERSION } from "@nap/shared/version";
-import type { WSEvents } from "hono/ws";
+import { WSContext, type WSEvents } from "hono/ws";
 import { describe, expect, it } from "vitest";
 import { type AppDeps, createApp } from "./app.ts";
 import { createLogger } from "./logger.ts";
+import { createMetrics, WS_CONNECTIONS_METRIC } from "./metrics.ts";
 
 /**
  * `app.request()` dispatches straight into the router, so nothing here opens a socket — the
@@ -29,6 +30,11 @@ class FakeUpgrader {
     // is not even constructible outside Bun.
     return new Response(null);
   };
+}
+
+/** What Bun hands the handlers, with nothing behind it — the gauge never touches the socket. */
+function fakeSocket(): WSContext {
+  return new WSContext({ send: () => {}, close: () => {}, readyState: 1 });
 }
 
 function app(overrides: Partial<AppDeps> = {}) {
@@ -107,6 +113,92 @@ describe("GET /health", () => {
   });
 });
 
+describe("GET /livez and GET /readyz", () => {
+  it("answers liveness 200 without consulting anything", async () => {
+    // Whatever a liveness probe touches becomes a reason to restart the process. Nothing here
+    // may reach for a dependency, so there is nothing to reach for in the deps.
+    const res = await app().request("/livez");
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({ status: "ok", version: VERSION });
+  });
+
+  it("answers liveness 200 even when the readiness probe says the database is down", async () => {
+    // The acceptance criterion of this split, stated as one test: a Neon blip must take the pod
+    // out of the Service without restarting it. Same request pair, two different answers.
+    const deps = {
+      readiness: async () => ({
+        status: "degraded" as const,
+        checks: { database: "down" as const },
+      }),
+    };
+
+    const live = await app(deps).request("/livez");
+    const ready = await app(deps).request("/readyz");
+
+    expect(live.status).toBe(200);
+    expect(ready.status).toBe(503);
+  });
+
+  it("answers readiness 200 when the database is reachable", async () => {
+    const res = await app({
+      readiness: async () => ({ status: "ok", checks: { database: "ok" } }),
+    }).request("/readyz");
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({
+      status: "ok",
+      version: VERSION,
+      checks: { database: "ok" },
+    });
+  });
+
+  it("names what is unready in the body of the 503", async () => {
+    // A probe reads the status code; a person reads this, and "not ready" alone sends them
+    // looking for which dependency.
+    const res = await app({
+      readiness: async () => ({ status: "degraded", checks: { database: "down" } }),
+    }).request("/readyz");
+
+    expect(res.status).toBe(503);
+    await expect(res.json()).resolves.toEqual({
+      status: "degraded",
+      version: VERSION,
+      checks: { database: "down" },
+    });
+  });
+
+  it("answers readiness 200 when no probe was wired at all", async () => {
+    // An app assembled with no database has nothing to be unready for, and reporting 503
+    // forever would be a lie about a working process — the same reasoning `/health` uses.
+    const res = await app().request("/readyz");
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({ status: "ok", version: VERSION });
+  });
+
+  it("keeps both reachable without being signed in", async () => {
+    // A kubelet has no session and never will. Behind the guard, the only thing a probe would
+    // learn is that authentication works.
+    const signedOut = { authenticate: async () => null };
+
+    expect((await app(signedOut).request("/livez")).status).toBe(200);
+    expect((await app(signedOut).request("/readyz")).status).toBe(200);
+  });
+
+  it("does not let a sandbox outage make the pod unready", async () => {
+    // Readiness answers "should this pod receive traffic", and every other pod shares the same
+    // sandbox provider — de-registering on that turns a partial outage into a total one. It is
+    // `/health` that reports the sandbox, and it is a human who acts on it.
+    const res = await app({
+      health: async () => ({ status: "degraded", checks: { database: "ok", sandbox: "down" } }),
+      readiness: async () => ({ status: "ok", checks: { database: "ok" } }),
+    }).request("/readyz");
+
+    expect(res.status).toBe(200);
+  });
+});
+
 describe("GET /ws", () => {
   it("upgrades a request with a valid session and seq", async () => {
     const upgrader = new FakeUpgrader();
@@ -149,6 +241,54 @@ describe("GET /ws", () => {
     expect(res.status).toBe(400);
     await expect(res.json()).resolves.toMatchObject({ error: expect.any(String) });
     expect(upgrader.calls).toEqual([]);
+  });
+});
+
+describe("GET /metrics", () => {
+  it("exposes the socket gauge, unauthenticated, in the exposition format", async () => {
+    const metrics = createMetrics();
+    // No `authenticate`, which means refuse — so a 200 here is the public-path list working
+    // rather than an accident of the test's wiring.
+    const res = await app({ metrics }).request("/metrics");
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/plain");
+    await expect(res.text()).resolves.toContain(`${WS_CONNECTIONS_METRIC} 0`);
+  });
+
+  it("does not exist at all when nothing is counting", async () => {
+    // A 404 is a scrape failure, which somebody sees. An empty body would be read as a pod
+    // holding no sockets, which is the same shape as the answer and scales the wrong way.
+    expect((await app().request("/metrics")).status).toBe(404);
+  });
+
+  it("counts an upgraded stream, and stops counting it once", async () => {
+    const metrics = createMetrics();
+    const upgrader = new FakeUpgrader();
+    const stream = {
+      store: new InMemoryEventStore(),
+      bus: new InMemoryEventBus(),
+      sessions: new InMemorySessionStore([{ sessionId: SESSION, projectId: "project-1" }]),
+      upgradeWebSocket: upgrader.upgrade,
+    };
+
+    const instance = app({ metrics, stream });
+    await instance.request(`/ws?sessionId=${SESSION}`);
+    await instance.request(`/ws?sessionId=${SESSION}`);
+    const [first, second] = upgrader.calls;
+
+    // Upgrading is not connecting: the gauge counts sockets that opened, not routes that
+    // agreed to. Both of these are only the handshake.
+    expect(metrics.wsConnections()).toBe(0);
+
+    first?.onOpen?.(new Event("open"), fakeSocket());
+    second?.onOpen?.(new Event("open"), fakeSocket());
+    expect(metrics.wsConnections()).toBe(2);
+
+    // An errored socket reaches both handlers, and each one closes the stream.
+    first?.onError?.(new Event("error"), fakeSocket());
+    first?.onClose?.(new CloseEvent("close"), fakeSocket());
+    expect(metrics.wsConnections()).toBe(1);
   });
 });
 

@@ -1,0 +1,1 @@
+CREATE INDEX "turn_requests_unannounced_orphans" ON "turn_requests" USING btree ("lease_expires_at") WHERE "turn_requests"."state" = 'orphaned' and "turn_requests"."finished_at" is null;

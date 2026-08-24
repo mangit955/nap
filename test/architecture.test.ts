@@ -104,6 +104,7 @@ describe("dependency direction", () => {
       "@nap/capture",
       "@nap/context",
       "@nap/db",
+      "@nap/loadgen",
       "@nap/napbench",
       "@nap/runtime",
       "@nap/sandbox",

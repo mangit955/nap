@@ -38,6 +38,50 @@ const UNKNOWN = "That did not work. Try again in a moment.";
  */
 const UNREACHABLE = "We couldn't reach the server. Check your connection and try again.";
 
+/**
+ * What to say when the sign-in worked and the browser threw the session away.
+ *
+ * Deliberately says nothing about credentials, for the reason `UNREACHABLE` does not: the server
+ * accepted these ones and created the identity. What failed is storage, and telling somebody
+ * their password was wrong sends them off to reset one that was fine.
+ *
+ * Names browsers rather than describing the mechanism, because the only useful thing a person can
+ * do with this is open a different one. Turning off "Prevent cross-site tracking" also works and
+ * is offered second, since it is a setting most people should not be talked into changing.
+ */
+const COOKIE_BLOCKED =
+  "Your browser blocked the sign-in cookie, so we couldn't keep you signed in. Safari and Brave " +
+  "block cookies set by another site, and Nap's API is on one. Open Nap in Chrome or Firefox, or " +
+  "turn off “Prevent cross-site tracking” in Safari's privacy settings.";
+
+/**
+ * Whether the identity the server just created survived the trip into the browser.
+ *
+ * The failure this exists for answers **200**: Safari and Brave block third-party cookies
+ * outright, so `POST /api/auth/sign-in/*` succeeds, the row is written, and the `Set-Cookie` is
+ * silently refused. Nothing in the result says so — the redirect fires, every request after it is
+ * a 401, and the page bounces straight back here having apparently done nothing. Asking the
+ * server who we are is the only thing on this side that can tell the difference.
+ *
+ * Detects the *condition* rather than the browser. A user-agent test would be wrong in both
+ * directions: Brave fails this way while reporting itself as Chrome, and a first-party
+ * deployment — one registrable domain across both halves, which is what `docs/DEPLOY.md`
+ * recommends — has no such problem in any browser.
+ *
+ * **Fails open**, which is the important half. This is a guard against one browser behaviour, not
+ * a second gate on getting in: a blip while asking must not strand somebody whose cookie was
+ * stored perfectly well. If it really was dropped, the destination bounces them back here anyway,
+ * which is the behaviour this replaces rather than something worse.
+ */
+async function sessionSurvived(): Promise<boolean> {
+  try {
+    const { data } = await authClient.getSession();
+    return data != null;
+  } catch {
+    return true;
+  }
+}
+
 export function LiveSignIn({
   notice,
   initialMode = "sign-in",
@@ -123,6 +167,15 @@ export function LiveSignIn({
       return;
     }
 
+    // A 200 is not the same as being signed in — see `sessionSurvived`. The button comes back
+    // here, unlike the success path below, because a browser that dropped the cookie will drop
+    // it again and pressing this a second time is not the way out.
+    if (!(await sessionSurvived())) {
+      setError(COOKIE_BLOCKED);
+      setSubmitting(false);
+      return;
+    }
+
     // Not `setSubmitting(false)`: the page is on its way out, and re-enabling the button first
     // invites a second submission during the navigation.
     router.push(AFTER_SIGN_IN);
@@ -157,6 +210,14 @@ export function LiveSignIn({
       }
     } catch {
       setError(UNREACHABLE);
+      setSubmitting(false);
+      return;
+    }
+
+    // The demo door is where this is most visible — one press, no form to blame, an immediate
+    // redirect — but it is not specific to it. See `sessionSurvived`.
+    if (!(await sessionSurvived())) {
+      setError(COOKIE_BLOCKED);
       setSubmitting(false);
       return;
     }

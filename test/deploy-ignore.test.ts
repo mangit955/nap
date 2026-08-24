@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { findUnanchoredPatterns } from "./deploy-ignore.ts";
+import { findUnanchoredPatterns, isIgnored } from "./deploy-ignore.ts";
 
 const repoRoot = join(import.meta.dirname, "..");
 
@@ -71,5 +71,62 @@ describe("the real .vercelignore", () => {
         expect(["**/node_modules", "**/.next", "**/.turbo"]).toContain(pattern);
       }
     }
+  });
+});
+
+describe("the real .dockerignore", () => {
+  const contents = () => readFileSync(join(repoRoot, ".dockerignore"), "utf8");
+
+  // Every one of these ends up inside the image if it is not excluded, and Bun loads all of them
+  // at startup — where they outrank the platform's own variables. The `.local` pair is not
+  // hypothetical: this repository has a `.env.local` holding a Vercel OIDC token, and it was being
+  // copied into every build until an image was opened and read.
+  it.each([
+    ".env",
+    ".env.local",
+    ".env.production",
+    ".env.production.local",
+    "apps/api/.env",
+    "apps/web/.env.local",
+  ])("keeps %s out of the image", (path) => {
+    expect(isIgnored(contents(), path)).toBe(true);
+  });
+
+  it("keeps the example, which is documentation and holds nothing", () => {
+    expect(isIgnored(contents(), "apps/api/.env.example")).toBe(false);
+  });
+
+  it("still excludes the things the image rebuilds for itself", () => {
+    expect(isIgnored(contents(), "node_modules/react/index.js")).toBe(true);
+    expect(isIgnored(contents(), "apps/web/node_modules/react/index.js")).toBe(true);
+  });
+
+  it("does not exclude the source the image is made of", () => {
+    for (const path of [
+      "apps/api/src/index.ts",
+      "apps/api/scripts/cluster-proof.ts",
+      "packages/runtime/src/turn-worker.ts",
+      "packages/sandbox/src/testing/in-memory-sandbox-manager.ts",
+    ]) {
+      expect(isIgnored(contents(), path)).toBe(false);
+    }
+  });
+});
+
+describe("reading an ignore file", () => {
+  it("reads a bare name as every depth, which is the surprising half", () => {
+    expect(isIgnored("docs\n", "apps/web/src/docs/index.ts")).toBe(true);
+    expect(isIgnored("/docs\n", "apps/web/src/docs/index.ts")).toBe(false);
+    expect(isIgnored("/docs\n", "docs/PLAN.md")).toBe(true);
+  });
+
+  it("lets a later negation win, as gitignore does", () => {
+    expect(isIgnored("**/.env.*\n!**/.env.example\n", "apps/api/.env.example")).toBe(false);
+    expect(isIgnored("!**/.env.example\n**/.env.*\n", "apps/api/.env.example")).toBe(true);
+  });
+
+  // The state this file was actually in, and the reason the test above exists.
+  it("would have passed .env.local through when only .env was named", () => {
+    expect(isIgnored(".env\n**/.env\n", ".env.local")).toBe(false);
   });
 });

@@ -17,6 +17,17 @@ import type { ModelCredentials } from "./llm-provider.ts";
 
 export type TurnRequest = {
   sessionId: string;
+  /**
+   * The id this turn's events are written under, allocated by the caller.
+   *
+   * Passed in rather than generated here, because the turn's identity has to exist before the
+   * turn does: the queue row admission writes *is* this id, so the janitor can close the right
+   * Turn for a worker that died without ever having run one. Anything driving the runtime
+   * directly — the harness, the benchmark — allocates its own.
+   *
+   * It names the turn this request *begins*. A repair is a distinct Turn and takes a fresh id.
+   */
+  turnId: string;
   message: string;
   signal?: AbortSignal;
   /** Which model to run on. Absent is the deployment's default; the route validates it. */
@@ -74,8 +85,31 @@ export type ResumeOutcome =
  * quietly pay for the repair loop of a user who brought their own key.
  */
 export type ContinueOptions = {
+  /**
+   * The id the resume's own events are written under — the same rule a turn's `turnId` follows,
+   * and for the same reason: a resume is a queued request too, and its row's id is this.
+   *
+   * Required, like a turn's. Making it optional would leave the runtime a second place that
+   * invents Turn identity, which is the thing this port exists to have exactly one of — and the
+   * fallback would be reached only by callers who forgot, since every caller that means it has an
+   * id to hand.
+   */
+  turnId: string;
   model?: string | undefined;
   credentials?: ModelCredentials | undefined;
+  /**
+   * How to stop the work a continuation turns out to involve.
+   *
+   * A third thing, and unlike the two above it is not about who asked: a resume that continues a
+   * job runs turns, and a worker that has lost its session's lease must be able to stop them at
+   * once. Without it that worker would keep appending to a session another one may already have
+   * claimed — the failure the whole lease exists to prevent, reached through the one entry point
+   * that had no way to be interrupted.
+   *
+   * It does not abort the restore itself, which is a few seconds of provider calls with nothing
+   * to roll back. What it reaches is the continuation, which is the part that takes minutes.
+   */
+  signal?: AbortSignal | undefined;
 };
 
 export interface Runtime {
@@ -98,5 +132,5 @@ export interface Runtime {
    * session, because a restore, and anything it continues, outlasts the request that asked for
    * it.
    */
-  resumeSession(sessionId: string, options?: ContinueOptions): Promise<ResumeOutcome>;
+  resumeSession(sessionId: string, options: ContinueOptions): Promise<ResumeOutcome>;
 }

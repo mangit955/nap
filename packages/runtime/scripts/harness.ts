@@ -179,7 +179,13 @@ const runtime = new SingleAgentRuntime({
 });
 
 const startedAt = Date.now();
-const outcome = await runtime.runTurn({ sessionId, message: options.prompt });
+// Allocated here for the reason admission allocates one: nothing queued this turn, so the harness
+// is what names it.
+const outcome = await runtime.runTurn({
+  sessionId,
+  turnId: crypto.randomUUID(),
+  message: options.prompt,
+});
 const seconds = ((Date.now() - startedAt) / 1000).toFixed(1);
 
 console.log(
