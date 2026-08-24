@@ -33,6 +33,7 @@ import { createProjectSession } from "@nap/db/session-bootstrap";
 import { startDockerPostgres } from "@nap/db/testing/docker-postgres";
 import { seededRandom } from "@nap/loadgen/calibration";
 import { loopingLLMProvider, type ProviderTotals } from "@nap/loadgen/looping-llm-provider";
+import { sharedSandboxManager } from "@nap/loadgen/shared-sandbox-manager";
 import { slowLLMProvider, slowSandboxManager } from "@nap/loadgen/slow-ports";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
@@ -42,6 +43,7 @@ import { createAuth } from "../src/auth/auth.ts";
 import { composeNap, type NapConfig } from "../src/compose.ts";
 import { createLogger } from "../src/logger.ts";
 import { fakeSandbox, scriptedTurn } from "./fake-turn.ts";
+import { createSharedSandboxTable, PostgresSharedSandboxStore } from "./loadgen-sandbox-store.ts";
 
 /**
  * Ceilings wide enough that the run measures the system rather than its own configuration.
@@ -126,6 +128,10 @@ export type BootedLoadgenApi = {
 export async function bootLoadgenApi(options: BootOptions): Promise<BootedLoadgenApi> {
   const postgres = await startDockerPostgres();
   const { db, close } = createDatabase(postgres.url);
+  // The fake sandboxes' own table, which no migration creates because nothing that ships reads
+  // it. One process here, so nothing has to be found across one — but the store is the same one
+  // the cluster run uses, and a harness that composed it differently would be a second system.
+  await createSharedSandboxTable(db);
 
   // Held rather than inlined, because it is the only thing that can say afterwards how many
   // turns ran through it and what they notionally cost.
@@ -165,7 +171,11 @@ export async function bootLoadgenApi(options: BootOptions): Promise<BootedLoadge
     userKeys: new PostgresUserKeyStore(db),
     events: new PostgresEventStore(db),
     bus: new InProcessEventBus(),
-    sandbox: slowSandboxManager(fakeSandbox()),
+    // Slow *outside* shared, and that order is the point: the calibrated cold start belongs to
+    // `create`, so a reattach through the store never pays one.
+    sandbox: slowSandboxManager(
+      sharedSandboxManager(fakeSandbox(), new PostgresSharedSandboxStore(db)),
+    ),
     objects: new InMemoryObjectStore(),
     provider: slowLLMProvider(model, { random }),
     auth: createAuth(db, {

@@ -8,5 +8,10 @@
   // Extends the same base as every package tsconfig, so the compiler options the
   // type tests are checked under cannot drift from the ones the source uses.
   "extends": "./tsconfig.base.json",
-  "include": ["packages/*/src/**/*.test-d.ts", "apps/*/src/**/*.test-d.ts"]
+  "include": [
+    "packages/*/src/**/*.test-d.ts",
+    "apps/*/src/**/*.test-d.ts",
+    "packages/*/scripts/**/*.test-d.ts",
+    "apps/*/scripts/**/*.test-d.ts"
+  ]
 }
