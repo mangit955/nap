@@ -9,6 +9,7 @@ import { NapMark } from "../brand/nap-mark.tsx";
 import { ChatInput } from "../chat/chat-input.tsx";
 import { ChatTranscript } from "../chat/chat-transcript.tsx";
 import { JobStrip } from "../chat/job-strip.tsx";
+import { jobView, type SessionJobView } from "../chat/job-summary.ts";
 import { groupSteps } from "../chat/step-group.ts";
 import { buildTranscript, type TranscriptItem } from "../chat/transcript.ts";
 import { TranscriptSkeleton } from "../chat/transcript-skeleton.tsx";
@@ -28,6 +29,9 @@ import type { FetchJson } from "../files/use-project-files.ts";
 import type { SessionLog } from "../hooks/use-session-log.ts";
 import { Pane } from "./pane.tsx";
 
+/** A session nothing has been asked of yet, for the callers that have no log to derive one from. */
+const NO_JOBS = jobView([]);
+
 /**
  * The transcript pane: what the agent is doing, as it does it — and where you say what to do.
  *
@@ -41,6 +45,7 @@ import { Pane } from "./pane.tsx";
  */
 export function ChatPane({
   events,
+  jobs = NO_JOBS,
   loading = false,
   pending,
   running = false,
@@ -58,6 +63,13 @@ export function ChatPane({
   onDismissCard = () => {},
 }: {
   events: readonly StoredEvent[];
+  /**
+   * Where the session's jobs stand, derived above this pane because the workspace bar reads the
+   * same answer. Defaulted to the empty session — a constant rather than a second derivation, so
+   * the many render tests that are not about jobs need not supply one and none of them can end
+   * up describing a different log from the one they passed.
+   */
+  jobs?: SessionJobView;
   /**
    * The log has not arrived yet, which is *not* the same as there being none.
    *
@@ -125,7 +137,7 @@ export function ChatPane({
           state that scrolls away with the conversation is one somebody has to go looking for
           during the exact minute it matters.
         */}
-        <JobStrip events={events} />
+        <JobStrip jobs={jobs} />
 
         {/*
           Over the seam, and above the scroller for the reason the strip is: a summary of what
@@ -282,7 +294,7 @@ export function LiveChatPane({
   files?: readonly string[] | undefined;
   fetchJson?: FetchJson | undefined;
 }) {
-  const { events, replayed, lastSeq } = log;
+  const { events, replayed, lastSeq, jobs } = log;
   // Subscribed here rather than in `useSessionLog` with the other folds: this is the one answer
   // in the workspace that is not a fold over the log at all — it is a fact about this browser,
   // and only this pane draws it.
@@ -326,6 +338,7 @@ export function LiveChatPane({
 
       <ChatPane
         events={events}
+        jobs={jobs}
         // Nothing has been asked for yet when there is no session: the project record is still on
         // its way, so the log this pane will show has not even been subscribed to.
         loading={sessionId === undefined || (!replayed && events.length === 0)}

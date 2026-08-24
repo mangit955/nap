@@ -5,7 +5,8 @@
  * surfaces draw them.
  *
  * The strip says where the current job stands; the history below it says the same of every past
- * job. Left as two copies they would drift, and the thing that would drift is the pair `absent`
+ * job; the workspace bar says the phase again, for the times the strip's pane is collapsed. Left
+ * as copies they would drift, and the thing that would drift is the pair `absent`
  * and `failed` — one is a check the project never declared, the other is a check that said no,
  * and they are the most expensive pair here to confuse.
  *
@@ -16,6 +17,7 @@
 
 import type { VerifiedCheck } from "@nap/shared/events";
 import { isJobFailed, type JobPhase } from "@nap/shared/job-state";
+import type { JobSummary } from "./job-summary.ts";
 
 export function CheckList({
   checks,
@@ -56,6 +58,21 @@ function CheckDot({ outcome }: { outcome: VerifiedCheck["outcome"] }) {
         : "border border-line-strong";
 
   return <span aria-hidden="true" className={`size-1.5 shrink-0 rounded-full ${tone}`} />;
+}
+
+/**
+ * The job itself as a mark: pulsing while it can still change, `phaseTone` once it cannot.
+ *
+ * Shared because the strip and the workspace bar both draw it, and a dot that pulsed in one
+ * place and sat still in the other would read as two different jobs.
+ */
+export function PhaseDot({ job }: { job: JobSummary }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={`size-1.5 shrink-0 rounded-full ${job.open ? "animate-pulse bg-accent" : phaseTone(job.phase)}`}
+    />
+  );
 }
 
 /**

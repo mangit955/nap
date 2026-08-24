@@ -16,6 +16,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { stashFirstPrompt } from "../chat/first-prompt.ts";
+import { jobView } from "../chat/job-summary.ts";
 import type { SessionLog } from "../hooks/use-session-log.ts";
 import { ev, PROJECT_ID, SESSION_ID } from "../testing/events.ts";
 import { LiveChatPane } from "./chat-pane.tsx";
@@ -63,6 +64,7 @@ function failedTurn(): SessionLog {
     replayed: true,
     preview: { status: "idle" },
     changed: new Set(),
+    jobs: jobView(events),
   };
 }
 

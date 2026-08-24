@@ -15,11 +15,14 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { check, JOB_ID as JOB, jobLog, OTHER_JOB_ID as OTHER_JOB } from "../testing/job-events.ts";
 import { JobStrip } from "./job-strip.tsx";
+import { jobView } from "./job-summary.ts";
 
 let log = jobLog();
 
 function show(...events: StoredEvent[]) {
-  return render(<JobStrip events={events} />);
+  // Derived here rather than by the strip, which now takes the workspace's one answer — see
+  // `useSessionLog`. Still real events, so the strip is checked against what the fold produces.
+  return render(<JobStrip jobs={jobView(events)} />);
 }
 
 beforeEach(() => {
@@ -35,17 +38,26 @@ describe("when there is nothing to say", () => {
 });
 
 describe("the phase", () => {
-  it("is announced rather than only drawn", () => {
-    // It changes while somebody is reading and nothing else on screen says so.
+  it("says what the job is doing", () => {
     show(log.opened(), log.at("verification.started", { jobId: JOB }));
 
-    expect(screen.getByRole("status")).toHaveTextContent(/verifying/i);
+    expect(screen.getByRole("region", { name: /job status/i })).toHaveTextContent(/verifying/i);
   });
 
   it("names the state a job ends in", () => {
     show(log.opened(), log.at("job.completed", { jobId: JOB, outcome: "exhausted" }));
 
-    expect(screen.getByRole("status")).toHaveTextContent(/out of repairs/i);
+    expect(screen.getByRole("region", { name: /job status/i })).toHaveTextContent(
+      /out of repairs/i,
+    );
+  });
+
+  it("does not announce it a second time", () => {
+    // The workspace bar owns the live region: it is the surface that survives this pane being
+    // collapsed, and two announcers would say one change twice.
+    show(log.opened(), log.at("verification.started", { jobId: JOB }));
+
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 });
 

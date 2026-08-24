@@ -25,30 +25,26 @@
  * a chevron: a strip that expands is a strip most people never click, so the affordance is the
  * fact somebody wanted anyway.
  *
- * The fold is here rather than in that hook because this is its only reader — the rule the hook
- * states: a view more than one pane needs is derived above them, so the two cannot disagree,
- * and everything else stays where it is read. The transcript beside it is folded the same way.
+ * The fold arrives already done, from `useSessionLog`, under the rule that hook states: a view
+ * more than one pane needs is derived above them so the two cannot disagree. This *was* the only
+ * reader; the bar across the top now mirrors the phase, so that collapsing this pane does not
+ * take it off the screen — and that bar owns the announcement, which is why the phase below is
+ * drawn and not spoken.
  *
  * The wording is `job-summary.ts`'s. This file is only what it looks like.
  */
 
-import { foldJobs } from "@nap/shared/job-state";
-import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { useMemo, useState } from "react";
 import { historyLabel, jobHistory } from "./job-history.ts";
 import { JobHistory } from "./job-history.tsx";
-import { CheckList, phaseTone } from "./job-marks.tsx";
-import { type JobSummary, jobSummary } from "./job-summary.ts";
+import { CheckList, PhaseDot } from "./job-marks.tsx";
+import type { JobSummary, SessionJobView } from "./job-summary.ts";
 
-export function JobStrip({ events }: { events: readonly StoredEvent[] }) {
-  // Keyed on the array rather than its length, the way the workspace's other folds are: the log
-  // is append-only and a new array arrives for every event, so identity changes exactly when
-  // the answer could have.
-  const state = useMemo(() => foldJobs(events), [events]);
-  // One fold, three readers: the strip describes the newest job, the history lists them all,
-  // and the label on the control is a fact about the session. Folding again per reader would
-  // let two of them disagree about the same log.
-  const summary = useMemo(() => jobSummary(state), [state]);
+export function JobStrip({ jobs }: { jobs: SessionJobView }) {
+  // One fold and one description, arriving from above: the strip says where the newest job
+  // stands, the history lists them all, the label on the control is a fact about the session,
+  // and the bar overhead says the phase again for the times this pane is collapsed.
+  const { state, summary } = jobs;
   const entries = useMemo(() => jobHistory(state), [state]);
   const label = historyLabel(state);
   const [open, setOpen] = useState(false);
@@ -94,20 +90,17 @@ export function JobStrip({ events }: { events: readonly StoredEvent[] }) {
 }
 
 /**
- * What the job is doing, in a live region.
+ * What the job is doing — drawn, not announced.
  *
- * `role="status"` rather than a plain span: the phase changing is the one thing here that
- * happens on its own while somebody is reading, and it is exactly what a person who cannot see
- * the strip would otherwise have to poll for. Polite, so it waits for a gap rather than cutting
- * across the transcript's own announcements.
+ * The phase changing is the one thing here that happens on its own while somebody is reading, so
+ * it is announced; but by the copy in the workspace bar, which is never unmounted. A live region
+ * here as well would say it twice while the chat is open and nothing at all once it is
+ * collapsed, since this pane goes with it. See `workspace-header.tsx`.
  */
 function Phase({ summary }: { summary: JobSummary }) {
   return (
-    <p role="status" className="flex items-center gap-1.5 font-medium text-[12px] text-ink">
-      <span
-        aria-hidden="true"
-        className={`size-1.5 rounded-full ${summary.open ? "animate-pulse bg-accent" : phaseTone(summary.phase)}`}
-      />
+    <p className="flex items-center gap-1.5 font-medium text-[12px] text-ink">
+      <PhaseDot job={summary} />
       {summary.phaseLabel}
     </p>
   );

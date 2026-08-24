@@ -1,5 +1,6 @@
 /**
- * What the strip above the chat says about the job in front of you.
+ * What the workspace says about the job in front of you — in the strip above the chat, and in
+ * the bar overhead that keeps saying it once the chat is collapsed.
  *
  * A job's phase, its checks and where its commits stand are *status*, not chronology — they
  * describe the project right now, and every one of them is answered again by the next event.
@@ -18,11 +19,13 @@
 
 import type { VerifiedCheck } from "@nap/shared/events";
 import {
+  foldJobs,
   isJobOpen,
   type JobPhase,
   MAX_REPAIR_ATTEMPTS,
   type SessionJobs,
 } from "@nap/shared/job-state";
+import type { StoredEvent } from "@nap/shared/ports/event-store";
 
 export type JobSummary = {
   phase: JobPhase;
@@ -53,6 +56,26 @@ export const PHASE_LABELS: Record<JobPhase, string> = {
   exhausted: "Out of repairs",
   abandoned: "Abandoned",
 };
+
+/**
+ * What the workspace knows about this session's jobs: all of them, and the newest one described.
+ *
+ * The pair travels as one value because two surfaces read it — the strip inside the chat pane,
+ * and the bar above it that stays when the chat is collapsed. Handing them the fold and letting
+ * each describe the newest job for itself would work only for as long as the description stayed
+ * pure; one value cannot disagree with itself at all.
+ */
+export type SessionJobView = {
+  state: SessionJobs;
+  /** The newest job, or `null` for a session nothing has been asked of. */
+  summary: JobSummary | null;
+};
+
+/** Derived once, above both panes that read it. See `useSessionLog`. */
+export function jobView(events: readonly StoredEvent[]): SessionJobView {
+  const state = foldJobs(events);
+  return { state, summary: jobSummary(state) };
+}
 
 export function jobSummary(state: SessionJobs): JobSummary | null {
   const job = state.jobs.at(-1);
