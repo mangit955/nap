@@ -363,6 +363,55 @@ describe("reasoning arriving as it is produced", () => {
   });
 });
 
+describe("the seam where you left off", () => {
+  /**
+   * Rendered with a seam at a given item key, which is what `unseen.ts` computes from the
+   * durable cursor. The fold is applied here for the reason `show` applies it — the pane above
+   * folds once and both readers take the result.
+   */
+  function showFrom(seam: number | undefined, ...events: StoredEvent[]) {
+    nextSeq = 1;
+    return render(<ChatTranscript items={groupSteps(buildTranscript(events))} seam={seam} />);
+  }
+
+  const earlier = () => ev("user.message", { text: "build me a dashboard" });
+  const later = () => ev("agent.message", { text: "Added App.tsx." });
+
+  it("draws nothing when there is no seam", () => {
+    // Every ordinary visit: nothing ran while nobody was watching, so there is no line to draw
+    // and a transcript with a marker in it every time would mean nothing by the third one.
+    showFrom(undefined, earlier(), later());
+
+    expect(screen.queryByText(/new since/i)).toBeNull();
+  });
+
+  it("marks the log between what was seen and what was not", () => {
+    showFrom(2, earlier(), later());
+
+    const log = screen.getByRole("log");
+    const text = log.textContent ?? "";
+    expect(text.indexOf("build me a dashboard")).toBeLessThan(text.indexOf("New since"));
+    expect(text.indexOf("New since")).toBeLessThan(text.indexOf("Added App.tsx."));
+  });
+
+  it("says so in words rather than only drawing a line", () => {
+    // A hairline in a different colour is nothing at all to somebody listening to the page, and
+    // "you have not read this part" is exactly the sort of thing they need told.
+    showFrom(2, earlier(), later());
+
+    expect(screen.getByText(/new since you were last here/i)).toBeInTheDocument();
+  });
+
+  it("ignores a seam no item matches", () => {
+    // The cursor is durable and the log is windowed, so a browser that left off at event 900
+    // can come back to a transcript whose items are keyed 1..40. There is no place to put the
+    // line, and inventing one would put it above work the reader had already read.
+    showFrom(999, earlier(), later());
+
+    expect(screen.queryByText(/new since/i)).toBeNull();
+  });
+});
+
 describe("a project opened and closed many times", () => {
   const stop = () => ev("preview.stopped", {});
   const start = (host: string) =>

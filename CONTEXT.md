@@ -77,6 +77,16 @@ UI**: the panel behind the job strip is a history of *jobs*, failures included, 
 checkpoints is a list with every failure deleted from it — "Checkpoint" appears only on the
 verified-commit line inside an entry (`apps/web/src/chat/job-history.tsx`).
 
+**Unseen** — the events in a session that *this browser* has never displayed, computed against a
+persisted **seen cursor**: `localStorage`, keyed by session, advanced only while the document is
+visible. Deliberately not "away" — away names the user's state, which nothing can observe, and
+what is computed is a property of the log against a cursor; "While you were away" is copy and may
+differ. **Distinct from the replay `seq`** that `use-event-stream.ts` keeps and `/ws?seq=N`
+resumes from, which is per-connection and in memory where this is per-browser and durable. Two
+cursors, two lifetimes, and they must not share a word or somebody eventually persists the wrong
+one. The **seam** is where the two meet on screen: a line through the transcript with everything
+below it unseen, and where the transcript opens (`apps/web/src/chat/unseen.ts`).
+
 **Continue** — what happens to an open job when its project is next opened, as distinct from
 **resume**, which already means bringing a put-away project's sandbox back up (`resumeSession`). A
 process restart leaves a job open rather than failing it; nothing continues a job while nobody is

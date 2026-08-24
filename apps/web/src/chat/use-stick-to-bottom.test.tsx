@@ -34,14 +34,21 @@ function grow(node: HTMLElement, scrollHeight: number) {
   Object.defineProperty(node, "scrollHeight", { value: scrollHeight, configurable: true });
 }
 
-function Pane({ count }: { count: number }) {
-  const ref = useStickToBottom<HTMLDivElement>(count);
+function Pane({ count, openAt }: { count: number; openAt?: () => HTMLElement | null }) {
+  const ref = useStickToBottom<HTMLDivElement>(count, openAt);
 
   return (
     <div ref={ref} data-testid="pane">
       {count}
     </div>
   );
+}
+
+/** An element inside the box at a known offset, standing in for the transcript's seam marker. */
+function marker(offsetTop: number): HTMLElement {
+  const node = document.createElement("div");
+  Object.defineProperty(node, "offsetTop", { value: offsetTop, configurable: true });
+  return node;
 }
 
 /** Mounts the pane with a box 400 tall holding 1000 of content, already scrolled to the bottom. */
@@ -119,5 +126,79 @@ describe("following the transcript", () => {
     // A short transcript would otherwise be given a negative offset, which browsers clamp but
     // jsdom faithfully stores.
     expect(pane.scrollTop).toBe(0);
+  });
+});
+
+describe("opening at the seam", () => {
+  /**
+   * The real sequence, which is the whole reason these cases exist: the pane mounts before the
+   * log has replayed, so there is no marker to find on the first pass and one appears later.
+   */
+  function mountWith() {
+    let seam: HTMLElement | null = null;
+    const openAt = () => seam;
+
+    const view = render(<Pane count={0} openAt={openAt} />);
+    const pane = view.getByTestId("pane");
+    fitOut(pane, 1000, 400);
+
+    return {
+      pane,
+      setSeam: (offsetTop: number) => {
+        seam = marker(offsetTop);
+      },
+      show: (count: number) => view.rerender(<Pane count={count} openAt={openAt} />),
+    };
+  }
+
+  it("opens at the seam rather than at the bottom", () => {
+    // Somebody who closed a laptop and came back is returning to work they have not read. The
+    // bottom is where the newest event is; the seam is where *their* reading stopped.
+    const { pane, setSeam, show } = mountWith();
+
+    setSeam(500);
+    show(1);
+
+    expect(pane.scrollTop).toBe(500 - 24);
+  });
+
+  it("waits for the seam to exist rather than for the first render", () => {
+    // A rule keyed to "the first render" would look while the pane was still empty, find
+    // nothing, go to the bottom and never look again — which is every real load of a project.
+    const { pane, setSeam, show } = mountWith();
+
+    show(1);
+    expect(pane.scrollTop).toBe(600);
+
+    setSeam(500);
+    show(2);
+
+    expect(pane.scrollTop).toBe(476);
+  });
+
+  it("goes to the seam once, then follows the turn as usual", () => {
+    // Scrolling back to the marker every time an event lands would pin the reader to the past
+    // while the agent works below them.
+    const { pane, setSeam, show } = mountWith();
+    setSeam(500);
+    show(1);
+
+    pane.scrollTop = 600;
+    grow(pane, 1200);
+    show(2);
+
+    expect(pane.scrollTop).toBe(800);
+  });
+
+  it("never scrolls past what the box can scroll", () => {
+    // A marker near the end of a barely-scrollable transcript would otherwise be given an
+    // offset the browser clamps and jsdom keeps, leaving the box reporting a position it is
+    // not at.
+    const { pane, setSeam, show } = mountWith();
+
+    setSeam(5000);
+    show(1);
+
+    expect(pane.scrollTop).toBe(600);
   });
 });

@@ -2,7 +2,7 @@
 
 import type { ModelChoice } from "@nap/shared/models-protocol";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { ApiKeyPanel } from "../account/api-key-panel.tsx";
 import { useApiKey } from "../account/use-api-key.ts";
 import { NapMark } from "../brand/nap-mark.tsx";
@@ -12,8 +12,10 @@ import { JobStrip } from "../chat/job-strip.tsx";
 import { groupSteps } from "../chat/step-group.ts";
 import { buildTranscript, type TranscriptItem } from "../chat/transcript.ts";
 import { TranscriptSkeleton } from "../chat/transcript-skeleton.tsx";
+import { seamAt } from "../chat/unseen.ts";
 import { useFirstPrompt } from "../chat/use-first-prompt.ts";
 import { useModels } from "../chat/use-models.ts";
+import { useSeenCursor } from "../chat/use-seen-cursor.ts";
 import { useStickToBottom } from "../chat/use-stick-to-bottom.ts";
 import { useTurnSubmission } from "../chat/use-turn-submission.ts";
 import { WorkingIndicator } from "../chat/working-indicator.tsx";
@@ -48,6 +50,7 @@ export function ChatPane({
   model,
   onModelChange,
   onAddKey,
+  seen,
 }: {
   events: readonly StoredEvent[];
   /**
@@ -73,6 +76,11 @@ export function ChatPane({
   onModelChange?: ((model: string) => void) | undefined;
   /** Opening the key form, for a model this caller cannot reach. */
   onAddKey?: (() => void) | undefined;
+  /**
+   * Where this browser's reading stopped, from `useSeenCursor`. Absent for every pane that is
+   * not subscribed to a session — the tests, and the landing page's scripted demo.
+   */
+  seen?: number | undefined;
 }) {
   const empty = events.length === 0 && pending === undefined;
   // Folded once, read twice: the transcript renders it and the working indicator reads the last
@@ -80,9 +88,18 @@ export function ChatPane({
   // walked it twice to answer one question.
   const transcript = useMemo(() => buildTranscript(events), [events]);
   const items = useMemo(() => groupSteps(transcript), [transcript]);
+  // Where the reader left off, as a position in what is drawn rather than in the log. See
+  // `unseen.ts` for why an item straddling the cursor stays above the line.
+  const seam = useMemo(() => seamAt(items, seen), [items, seen]);
+  const seamRef = useRef<HTMLElement>(null);
   // What "there is something new to see" means here. The event count alone would miss a turn
-  // ending, and the running flag alone would miss every event inside it.
-  const scroller = useStickToBottom<HTMLDivElement>(`${events.length}:${pending}:${running}`);
+  // ending, and the running flag alone would miss every event inside it. The seam is in it
+  // because it arrives from an effect a frame after mount, in a commit where nothing else
+  // changed — and a scroller that did not look then would open at the bottom and stay there.
+  const scroller = useStickToBottom<HTMLDivElement>(
+    `${events.length}:${pending}:${running}:${seam}`,
+    () => seamRef.current,
+  );
 
   return (
     <Pane id="chat" title="Chat" chrome="none">
@@ -106,7 +123,9 @@ export function ChatPane({
             <EmptyState onPick={onSubmit} />
           ) : (
             <>
-              {events.length > 0 && <ChatTranscript items={items} onRetry={onRetry} />}
+              {events.length > 0 && (
+                <ChatTranscript items={items} seam={seam} seamRef={seamRef} onRetry={onRetry} />
+              )}
               {pending !== undefined && <PendingMessage text={pending} />}
             </>
           )}
@@ -227,7 +246,11 @@ export function LiveChatPane({
   files?: readonly string[] | undefined;
   fetchJson?: FetchJson | undefined;
 }) {
-  const { events, replayed } = log;
+  const { events, replayed, lastSeq } = log;
+  // Subscribed here rather than in `useSessionLog` with the other folds: this is the one answer
+  // in the workspace that is not a fold over the log at all — it is a fact about this browser,
+  // and only this pane draws it.
+  const seen = useSeenCursor(sessionId, lastSeq);
   const injected = fetchJson === undefined ? {} : { fetchJson };
   const { submit, cancel, pending, running, error } = useTurnSubmission({
     sessionId,
@@ -278,6 +301,7 @@ export function LiveChatPane({
         model={model ?? models?.fallback}
         onModelChange={setModel}
         onAddKey={() => setKeyPanelOpen(true)}
+        seen={seen}
       />
     </>
   );

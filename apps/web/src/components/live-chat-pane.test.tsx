@@ -69,6 +69,7 @@ function failedTurn(): SessionLog {
 beforeEach(() => {
   turns = [];
   window.sessionStorage.clear();
+  window.localStorage.clear();
 });
 
 describe("LiveChatPane", () => {
@@ -104,5 +105,26 @@ describe("LiveChatPane", () => {
     await vi.waitFor(() => expect(turns).toHaveLength(1));
     expect(turns[0]?.model).toBe("anthropic/claude-opus-5");
     expect(await screen.findByRole("button", { name: "Model" })).toHaveTextContent("Claude Opus 5");
+  });
+
+  it("marks the seam from a cursor this browser wrote on an earlier visit", async () => {
+    // The wiring this file exists for, on a second path: the cursor, the fold that turns it into
+    // a position, and the marker are each tested on their own, and none of that says the pane
+    // subscribes to any of them. Deleting the `seen` line leaves every one of those green.
+    window.localStorage.setItem(`nap.seen.${SESSION_ID}`, "2");
+
+    render(<LiveChatPane sessionId={SESSION_ID} log={failedTurn()} fetchJson={fetchJson} />);
+
+    expect(await screen.findByText(/new since you were last here/i)).toBeInTheDocument();
+    // And the cursor moves on to what this visit has now displayed, so closing the tab here
+    // leaves nothing to come back to.
+    await vi.waitFor(() => expect(window.localStorage.getItem(`nap.seen.${SESSION_ID}`)).toBe("3"));
+  });
+
+  it("marks nothing on a session this browser has not opened before", async () => {
+    render(<LiveChatPane sessionId={SESSION_ID} log={failedTurn()} fetchJson={fetchJson} />);
+
+    expect(await screen.findByText(/build me a todo list/)).toBeInTheDocument();
+    expect(screen.queryByText(/new since you were last here/i)).toBeNull();
   });
 });
