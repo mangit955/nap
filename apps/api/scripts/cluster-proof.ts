@@ -175,7 +175,13 @@ const { app, worker, reaper, janitor } = composeNap({
   objects: new InMemoryObjectStore(),
   provider: calibrated ? slowLLMProvider(model, { random }) : model,
   auth: createAuth(db, {
-    secret: "GENERATED_AT_RUN_TIME",
+    /*
+     * The pod already mounts one — `run.sh` generates it into the overlay's Secret — so read it
+     * rather than carrying a second, hardcoded copy that would have to be kept in step. The
+     * fallback is for running this script outside a cluster, where the sessions it signs live as
+     * long as the process does and nothing else can be reached with them.
+     */
+    secret: process.env.BETTER_AUTH_SECRET ?? "cluster-proof-outside-a-cluster",
     baseUrl: process.env.NAP_API_URL ?? "http://localhost:3001",
     webOrigin: CONFIG.NAP_WEB_ORIGIN,
     // The door the proof's client goes through: it has no account and needs none.
