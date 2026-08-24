@@ -86,6 +86,11 @@ docker build -t nap:load "$ROOT"
 kind load docker-image nap:load --name "$CLUSTER"
 
 step "deploy"
+# Fresh per run, and gitignored — the same reason as `proof/run.sh`, which says it in full.
+{
+  printf 'BETTER_AUTH_SECRET=%s\n' "$(openssl rand -base64 24)"
+  printf 'NAP_KEY_ENCRYPTION_SECRET=%s\n' "$(openssl rand -base64 32)"
+} >"$ROOT/infra/k8s/load/generated.env"
 kubectl apply -k "$ROOT/infra/k8s/load"
 kubectl -n "$NAMESPACE" rollout status deployment/nap-postgres --timeout=300s
 

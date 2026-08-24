@@ -45,6 +45,14 @@ docker build -t nap:proof "$ROOT"
 kind load docker-image nap:proof --name "$CLUSTER"
 
 step "deploy"
+# The two values the schema forces to be credential-shaped, made fresh rather than checked in —
+# see the comment over `secretGenerator` in kustomization.yaml. `generated.env` is gitignored, and
+# kustomize needs it to exist before the build, so it is written here rather than lazily.
+{
+  printf 'BETTER_AUTH_SECRET=%s\n' "$(openssl rand -base64 24)"
+  # Exactly 32 bytes once decoded, which `apps/api/src/env.ts` refuses to boot without.
+  printf 'NAP_KEY_ENCRYPTION_SECRET=%s\n' "$(openssl rand -base64 32)"
+} >"$ROOT/infra/k8s/proof/generated.env"
 kubectl apply -k "$ROOT/infra/k8s/proof"
 kubectl -n "$NAMESPACE" rollout status deployment/nap-postgres --timeout=300s
 
