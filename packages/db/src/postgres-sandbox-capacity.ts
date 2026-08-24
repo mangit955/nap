@@ -29,11 +29,12 @@
 
 import { RESERVATION_TTL_MS } from "@nap/shared/capacity-windows";
 import type {
+  ActivationFailure,
   CapacityRefusal,
   Reservation,
   SandboxCapacity,
 } from "@nap/shared/ports/sandbox-capacity";
-import type { Result } from "@nap/shared/result";
+import type { Result, VoidResult } from "@nap/shared/result";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { sandboxReservations } from "./schema.ts";
@@ -185,8 +186,19 @@ export class PostgresSandboxCapacity implements SandboxCapacity {
     });
   }
 
-  async activate(reservationId: string, sandboxId: string): Promise<void> {
-    await this.#db
+  /**
+   * **The rowcount is the whole point.** A creation slower than `RESERVATION_TTL` comes back to
+   * find the reclaiming sweep has already deleted its row — no crash and no concurrency needed,
+   * one slow cold start is enough. The update then matches nothing, and reporting that as success
+   * would leave a real, running, billed sandbox that no row counts: a sandbox outside the ceiling,
+   * which is the only thing bounding this deployment's bill.
+   *
+   * It deliberately does not re-insert. The slot was given back and may already have been handed
+   * to somebody else, so recreating the row would count one slot twice; whoever is holding the
+   * sandbox is the only one who can put it right, which is why this answers rather than throws.
+   */
+  async activate(reservationId: string, sandboxId: string): Promise<VoidResult<ActivationFailure>> {
+    const rows = await this.#db
       .update(sandboxReservations)
       .set({
         state: "active",
@@ -195,7 +207,11 @@ export class PostgresSandboxCapacity implements SandboxCapacity {
         // is released by the teardown that destroys the sandbox it names.
         expiresAt: sql`'infinity'`,
       })
-      .where(eq(sandboxReservations.id, reservationId));
+      .where(eq(sandboxReservations.id, reservationId))
+      .returning({ id: sandboxReservations.id });
+
+    if (rows.length === 0) return reclaimed(sandboxId);
+    return { ok: true, value: undefined };
   }
 
   /**
@@ -228,4 +244,17 @@ function refuse(
   message: string,
 ): Result<never, CapacityRefusal> {
   return { ok: false, error: { reason, message } };
+}
+
+/** Named for whoever reads the log line: it says which sandbox nothing is counting. */
+function reclaimed(sandboxId: string): VoidResult<ActivationFailure> {
+  return {
+    ok: false,
+    error: {
+      reason: "reservation_reclaimed",
+      message:
+        `The reservation this deployment's ceiling was holding for sandbox ${sandboxId} was ` +
+        "reclaimed while it was being created, so nothing is counting it.",
+    },
+  };
 }

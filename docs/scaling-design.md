@@ -421,6 +421,7 @@ it matches the reasoning already in `sandbox-quota.ts:19`.
 | **Process dies after TXN 1, before create** | Row stays `reserved`; capacity held | reaper deletes `reserved` rows past `expires_at` — ≤2 min |
 | **Create succeeds, TXN 2 fails** | Sandbox exists; the project names no sandbox; row still `reserved`. **A sandbox nobody can find.** | reaper lists E2B sandboxes and destroys any whose id appears in no `projects.sandbox_id` — new machinery, required |
 | Sandbox destroyed out-of-band (E2B reclaim, provider TTL) | Row stays `active`; capacity held | reaper deletes `active` rows whose `sandbox_id` is absent from `projects.sandbox_id` |
+| **Create outlives `expires_at`; the reaper reclaims the row mid-create** | TXN 2 matches no row. `activate` reports `reservation_reclaimed` rather than resolving silently, and `acquireSandbox` destroys the sandbox it just created and refuses the turn — the sandbox is counted by nothing, and keeping it would run a turn on capacity nobody granted | immediate; the inventory sweep is the backstop if the destroy itself fails |
 
 ### Consequence for component ownership
 

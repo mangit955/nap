@@ -3,6 +3,7 @@ import { eq, sql as sqlOf } from "drizzle-orm";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, inject, it } from "vitest";
+import { PostgresCapacityReconciler } from "./postgres-capacity-reconciler.ts";
 import { PostgresSandboxCapacity } from "./postgres-sandbox-capacity.ts";
 import { projects, sandboxReservations, users } from "./schema.ts";
 
@@ -303,6 +304,32 @@ describe("activating", () => {
     expect(row?.sandboxId).toBe("sb-42");
     // An active row is released by the teardown that destroys its sandbox, never by a clock.
     expect(row?.neverExpires).toBe(true);
+  });
+
+  it("reports a reservation the reaper reclaimed while the sandbox was being created", async () => {
+    // The whole failure this file exists to stop, in the one shape that needs no crash and no
+    // concurrency: a create slower than the reservation's two-minute TTL. The reaper reclaims the
+    // row, the create then succeeds, and an `activate` that resolved silently would leave a real,
+    // running, billed sandbox that nothing counts — a sandbox outside the ceiling.
+    const userId = await seedUser();
+    const projectId = await seedProject(userId);
+
+    const reserved = await capacity.reserve({ projectId, userId });
+    if (!reserved.ok) throw new Error("expected the reservation to be admitted");
+
+    // A create that ran past the TTL, expressed as the row's own clock rather than by waiting.
+    await db
+      .update(sandboxReservations)
+      .set({ expiresAt: sqlOf`now() - interval '1 second'` })
+      .where(eq(sandboxReservations.id, reserved.value.id));
+    const reclaimed = await new PostgresCapacityReconciler(db).reclaimStranded();
+    expect(reclaimed.expired).toEqual([reserved.value.id]);
+
+    const activated = await capacity.activate(reserved.value.id, "sb-uncounted");
+
+    expect(activated).toMatchObject({ ok: false, error: { reason: "reservation_reclaimed" } });
+    // And nothing was resurrected: an insert here would count a slot the ceiling already gave away.
+    expect(await db.$count(sandboxReservations)).toBe(0);
   });
 
   it("keeps occupying capacity once active", async () => {

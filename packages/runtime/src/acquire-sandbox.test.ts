@@ -6,7 +6,11 @@ import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SessionRecord } from "@nap/shared/ports/session-store";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import { describe, expect, it } from "vitest";
-import { acquireSandbox, LOST_SANDBOX_WARNING } from "./acquire-sandbox.ts";
+import {
+  acquireSandbox,
+  LOST_SANDBOX_WARNING,
+  UNCOUNTED_SANDBOX_REFUSAL,
+} from "./acquire-sandbox.ts";
 
 /**
  * Getting a sandbox to work in — the first step of every turn and every resume, and the one with
@@ -317,6 +321,38 @@ describe("the capacity a new sandbox costs", () => {
     expect(acquired.value.notices[0]).toMatchObject({ text: LOST_SANDBOX_WARNING });
     // One slot before and one after: the project reused what it was already holding.
     expect(capacity.held()).toMatchObject([{ state: "active", sandboxId: acquired.value.id }]);
+  });
+
+  it("destroys the sandbox and refuses when the reservation was reclaimed mid-create", async () => {
+    // A create slower than the reservation's two-minute TTL: the reaper reclaims the row while it
+    // is still running, and the sandbox that then arrives is counted by nothing. Keeping it would
+    // run a turn on capacity nobody granted and leave the ceiling under-counting for as long as
+    // the sandbox lives; nothing is lost by refusing, because nothing has happened in it yet.
+    const manager = new InMemorySandboxManager();
+    const capacity = new InMemorySandboxCapacity();
+    const create = manager.create.bind(manager);
+    const sandbox = wrap(manager, {
+      create: async (projectId: string) => {
+        // Exactly the reservation this acquire is holding, and nothing else: releasing the whole
+        // table would let the test pass for a reason it is not about.
+        const [reservation] = capacity.held();
+        if (reservation !== undefined) await capacity.release(reservation.id);
+        return await create(projectId);
+      },
+    });
+    const options = { ...deps(sandbox), capacity };
+
+    const acquired = await acquireSandbox(options, session(null));
+
+    expect(acquired).toMatchObject({
+      ok: false,
+      error: { code: "unavailable", message: UNCOUNTED_SANDBOX_REFUSAL },
+    });
+    // Nothing left running, nothing left holding a slot, and the session was never told about a
+    // sandbox it cannot use.
+    expect(await manager.list()).toMatchObject({ ok: true, value: [] });
+    expect(capacity.held()).toEqual([]);
+    expect((await options.sessions.get(SESSION_ID))?.sandboxId).toBeNull();
   });
 
   it("does not fail the turn when the slot cannot be written down", async () => {

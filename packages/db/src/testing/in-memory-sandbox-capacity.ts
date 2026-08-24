@@ -13,11 +13,12 @@
  */
 
 import type {
+  ActivationFailure,
   CapacityRefusal,
   Reservation,
   SandboxCapacity,
 } from "@nap/shared/ports/sandbox-capacity";
-import type { Result } from "@nap/shared/result";
+import type { Result, VoidResult } from "@nap/shared/result";
 
 export type FakeCapacityLimits = { perUser?: number; total?: number };
 
@@ -98,12 +99,28 @@ export class InMemorySandboxCapacity implements SandboxCapacity {
     return { ok: true, value: { id } };
   }
 
-  async activate(reservationId: string, sandboxId: string): Promise<void> {
+  /**
+   * The real one's rule about a row that is no longer there, which is what makes it testable here:
+   * a reservation reclaimed while the sandbox was being created leaves a live sandbox nothing
+   * counts, and the caller is the only one who can put that right. Nothing is re-inserted, for the
+   * reason the real one gives — the slot may already belong to somebody else.
+   */
+  async activate(reservationId: string, sandboxId: string): Promise<VoidResult<ActivationFailure>> {
     this.#refuseIfBroken();
 
     const row = this.#rows.get(reservationId);
-    if (row === undefined) return;
+    if (row === undefined) {
+      return {
+        ok: false,
+        error: {
+          reason: "reservation_reclaimed",
+          message: `Nothing is counting sandbox ${sandboxId}: its reservation is gone.`,
+        },
+      };
+    }
+
     this.#rows.set(reservationId, { ...row, state: "active", sandboxId });
+    return { ok: true, value: undefined };
   }
 
   async release(reservationId: string): Promise<void> {
