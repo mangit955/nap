@@ -9,21 +9,28 @@ The model and the sandbox are the same fakes at the same recorded speeds; nothin
 The point of running the same script is that the only variable is the architecture underneath.
 
 **Amended 24 August 2026.** Two of the fifteen thresholds turned out to be measuring the harness
-rather than the cluster, and the runs that say so are folded in below rather than filed separately:
-the tables carry both dates, and *The two thresholds that failed, and what a shared store showed*
-is where the amendment lives. Everything not about those two metrics is the 23 August run and is
+rather than the cluster, and one of those two turned out to be measuring something real in the
+runtime afterwards. The runs that say so are folded in below rather than filed separately: the
+tables carry every date, and *The two thresholds that failed, and what a shared store showed* is
+where the amendment lives. Everything not about those two metrics is the 23 August run and is
 untouched.
 
 ## The headline
 
-**All fifteen §23 thresholds pass at 100 concurrent turns — on the run that shipped, and one of
-them only just.** Thirteen passed on the day. The two that did not were the fake measuring itself:
-its sandboxes lived inside a worker process, so most turns paid a synthetic cold start. With that
-fixed, the **24 August** ramps put `queue_wait` p95 at 2,609 then 1,269ms against a 5,000ms
-threshold, and `time_to_first_event` at 2,596 then 1,256ms against 2,000ms — over on one run and
-under on the next, from a system nothing changed in between. Fifteen of fifteen is therefore the
-result and *marginal* is the caveat, and the thing behind the caveat is the runtime, not the
-queue. See *The two thresholds that failed, and what a shared store showed*.
+**All fifteen §23 thresholds pass at 100 concurrent turns.** Thirteen passed on the day. Of the two
+that did not, one was the fake measuring itself — its sandboxes lived inside a worker process, so
+most turns paid a synthetic cold start — and the other was real: the runtime acquired the sandbox
+before it emitted anything, so a project's first turn showed its author nothing for the length of a
+cold start. Both are fixed, and the **24 August** ramp that carries both fixes puts
+`time_to_first_event` p95 at **124ms** against a 2,000ms threshold — sixteen times inside one that
+was crossed two runs earlier, and the caveat that used to sit here about a coin toss is gone with
+it.
+
+**The cold start did not disappear, though; it moved to `queue_wait`, and that is now the marginal
+one.** 3,319ms against 5,000ms, having been 1,269ms on the run before, with a p99 of 5,963ms — a
+metric made partly of how a stage's arrivals happened to bunch, sitting at two-thirds of its
+threshold. It is honestly green and it is the number to watch. See *The two thresholds that
+failed, and what a shared store showed*.
 
 What did pass is the part the split was for. At 100 VUs the cluster ran **2,310 turns with 100%
 job, turn and verification completion, zero sequence gaps, zero duplicates, zero WebSocket
@@ -54,6 +61,14 @@ shared through Postgres instead of living in one worker:
 | `realism` | 9m54s | 501 | 13 of 15; both crossed, for a reason the ramp does not have |
 | `smoke` | 2m44s | 15 | wiring check; too few turns for either percentile to mean anything |
 | `ramp` (ii) | 19m05s | 2,431 | **15 of 15**, after the store's `destroy` half was fixed |
+| `ramp` (iii) | 19m04s | 2,422 | **15 of 15**, after the runtime stopped waiting for a sandbox before speaking |
+
+`ramp` (iii) is the run this document's headline quotes. There was a fourth attempt between (ii)
+and it, discarded rather than reported: the laptop suspended for exactly 900 seconds inside the
+100-VU plateau, which froze k6, the cluster and the sampler together — 138 event rows in fifteen
+minutes, then everything resuming where it left off. Its thresholds all passed, and the tail of
+every duration metric is a record of a sleeping Mac, so it is not quotable. `caffeinate -dimsu`
+around `run.sh` is the fix, and (iii) ran under it.
 
 One VU is one person: signed in through the demo door, one project, one session, one socket,
 coming back turn after turn, with one in ten dropping the socket mid-turn and rejoining at the
@@ -138,18 +153,18 @@ scale-ups afterwards show the trigger reading depth correctly in the other direc
 On the day, two crossed, and both were the fake measuring itself: **the in-memory sandbox lived
 inside a worker process, so a turn claimed by a pod that had not seen that project before paid a
 synthetic cold start** — `CALIBRATION.sandboxCreateMs`, 3,074ms — and with four workers sharing a
-hundred projects that was most turns. `queue_wait` is 202-until-`turn.started` and the runtime
-acquires the sandbox before it emits anything, so it carried the same three seconds on top of the
-claim.
+hundred projects that was most turns. `queue_wait` is 202-until-`turn.started`, and the runtime
+acquired the sandbox before it emitted anything, so it carried the same three seconds on top of
+the claim.
 
 That is now fixed rather than annotated: `sharedSandboxManager` writes each fake sandbox into a
 table of the run's own Postgres, so any pod reattaches to it by id, which is what a vendor-side
-sandbox really does. The 24 August re-run is the same script against the same cluster.
+sandbox really does. The 24 August re-runs are the same script against the same cluster.
 
-| Threshold | Ramp 23 Aug | Ramp 24 Aug (i) | Ramp 24 Aug (ii) | Realism 23 Aug | Realism 24 Aug |
-|---|---|---|---|---|---|
-| `queue_wait` p95 < 5,000ms | 5,597ms | **2,609ms** ✅ | **1,269ms** ✅ | 5,819ms | 15,159ms |
-| `time_to_first_event` p95 < 2,000ms | 3,193ms | 2,596ms ❌ | **1,256ms** ✅ | 3,415ms | 12,763ms |
+| Threshold | Ramp 23 Aug | Ramp 24 Aug (i) | Ramp 24 Aug (ii) | Ramp 24 Aug (iii) | Realism 23 Aug | Realism 24 Aug |
+|---|---|---|---|---|---|---|
+| `queue_wait` p95 < 5,000ms | 5,597ms | **2,609ms** ✅ | **1,269ms** ✅ | **3,319ms** ✅ | 5,819ms | 15,159ms |
+| `time_to_first_event` p95 < 2,000ms | 3,193ms | 2,596ms ❌ | 1,256ms ✅ | **124ms** ✅ | 3,415ms | 12,763ms |
 
 Two ramps on 24 August, not one: the second is a rerun after review found the store's `destroy`
 half — a sandbox destroyed by a process that never held it, which is always the reaper — and the
@@ -157,7 +172,7 @@ figures had to describe the code that shipped rather than the code that was meas
 same script, the same cluster, 2,431 turns against 2,429.
 
 **The one number that settles what was wrong is the cold-start count.** `sandbox_acquisition` fired
-**719 times for 100 projects** on 23 August and fires **exactly 100 times** on both 24 August runs —
+**719 times for 100 projects** on 23 August and fires **exactly 100 times** on every 24 August run —
 one per project across ~2,430 turns, which is what the single-process baseline recorded (100 across
 2,415) and what a real deployment would. Six hundred and nineteen of those cold starts were the
 harness.
@@ -168,23 +183,47 @@ its p99 9,195 → 5,587ms; `time_to_first_event` p50 88 → 67ms, mean 1,137 →
 18ms, 2,431 turns at 100% job, turn and verification completion, zero gaps, zero duplicates, zero
 5xx, and 221 reconnects each served exactly its gap.
 
-**`time_to_first_event` passes on the second ramp and failed on the first, and the honest reading
-is that it is marginal rather than green.** 2,596ms and 1,256ms are the same system a
-three-quarters of an hour apart; nothing between them touched that path. The metric sits exactly
-where a percentile is least stable. Per plateau it is nowhere near the threshold — p95 is
-**111–115ms at every one of 10, 25, 50, 75 and 100 VUs**, seventeen times inside it — and the
-aggregate is made of the turns that fall *between* plateaus, where new VUs arrive and each one's
-*first* turn waits for a sandbox that does not exist yet. A hundred first turns in 2,431 is 4.1%,
-so the cold tail starts just past p95 and how much of it the percentile catches is a matter of how
-the arrivals happened to bunch.
+### The half that was not the harness: the message came after the sandbox
 
-So: **fifteen of fifteen on the run that shipped**, and a metric one bad bunching away from
-fourteen. What is behind it is `docs/GOTCHAS.md`'s standing entry — `SingleAgentRuntime.runTurn`
-acquires the sandbox before it emits `user.message`, so on a project's first turn nothing reaches
-the client until the workspace exists, around 5.5s with the calibrated fake and no faster with a
-real cold start. That is a finding about the runtime rather than about the queue or the
-deployment, it is what makes this percentile a coin toss, and it has its own ticket. The threshold
-is not being moved to meet it either way.
+**`time_to_first_event` passed on the second ramp and failed on the first, and the honest reading
+at the time was that it was marginal rather than green.** 2,596ms and 1,256ms were the same system
+a three-quarters of an hour apart; nothing between them touched that path. Per plateau it was
+nowhere near the threshold — p95 was **111–115ms at every one of 10, 25, 50, 75 and 100 VUs** — and
+the aggregate was made of the turns that fell *between* plateaus, where new VUs arrive and each
+one's *first* turn waits for a sandbox that does not exist yet. A hundred first turns in 2,431 is
+4.1%, so the cold tail started just past p95 and how much of it the percentile caught was a matter
+of how the arrivals happened to bunch.
+
+**That was not a measurement artefact, and it has been fixed in the runtime rather than argued
+about.** `SingleAgentRuntime.runTurn` acquired the sandbox before it emitted `user.message`, so on
+a project's first turn nothing at all reached the client until the workspace existed — **3.1s**
+with the calibrated fake, which is `CALIBRATION.sandboxCreateMs` and nothing else, and a real E2B
+cold start is no faster. (The 5.5s figure that belongs to a first turn is create *plus* the
+2,400ms preview wait, which is what `sandbox_acquisition` measures — submit to `preview.ready`.
+The preview wait came after `user.message` and was never on this metric.) It was a product
+statement before it was a metric: somebody who had just described their app watched a blank pane
+for three seconds before the transcript showed their own words back. The
+message is now emitted and drained *first*, which also turns the preview pane to *starting* while
+the sandbox comes up, and the sandbox is acquired after it. Nothing is retracted if the
+acquisition then fails — the turn still commits nothing, opens no job, and now reads as a question
+followed by a failure instead of a failure on its own.
+
+Ramp (iii) is that change against the same cluster and the same script. **`time_to_first_event`
+p95 1,256 → 124ms**, sixteen times inside the threshold, with p50 65ms — and the aggregate is now
+the *same* number as each plateau (110–119ms at all five), which is the whole tell: the hundred
+cold starts have left the metric entirely rather than sitting just past its p95. What remains in
+its tail is time-to-claim and nothing else — p99 3,638ms against a `queue_wait` p99 of 5,963ms,
+which is a turn waiting for a worker, not for a workspace.
+
+**The cold start did not vanish; it moved to `queue_wait`, which is where it belongs.** That is
+measured to `turn.started`, which the agent emits once a context has been built in a sandbox that
+has to exist first. So `queue_wait` is the metric that now carries a first turn's 5.5s, and it
+varies between runs for exactly the reason `time_to_first_event` used to: 1,269ms on (ii) and
+3,319ms on (iii), both comfortably inside 5,000ms, both made mostly of how the arrivals bunched.
+`sandbox_acquisition` is unmoved and unmovable at **100 samples, p50 5,575ms** — one per project,
+the honest cost of making a workspace. Nothing else moved either: admission p95 14ms, delivery p95
+20ms, 2,422 turns at **100% turn, job and verification completion**, zero gaps, zero duplicates,
+zero 5xx, 231 reconnects each served exactly its gap, and no stage flagged for degradation.
 
 **The realism profile got better at the median and worse at the tail, and neither is the store.**
 Its `queue_wait` p50 falls **5,552 → 84ms** and `time_to_first_event` p50 **3,148 → 82ms** — the
@@ -279,12 +318,14 @@ All three are now in `docs/GOTCHAS.md`.
 ## Reproducing it
 
 ```bash
-infra/k8s/load/run.sh                  # kind cluster, KEDA, metrics-server, Prometheus, ramp to 100
+caffeinate -dimsu infra/k8s/load/run.sh   # kind cluster, KEDA, metrics-server, Prometheus, ramp to 100
 infra/k8s/load/run.sh --profile=realism
 infra/k8s/load/run.sh --down
 ```
 
 Roughly forty minutes for the headline profile, most of it the image build and the four pulls.
+`caffeinate` because forty minutes with nobody at the keyboard is long enough for the host to
+suspend, and a run that slept through part of its own plateau still passes — see `docs/GOTCHAS.md`.
 Reports, k6 summaries and the cluster samples land in `napload-results/<run-id>/`. The comparison
 comes from `--baseline=napload-results/<a previous run>/report.json`, which is how the tables above
 were produced; it reads two finished reports and runs nothing.

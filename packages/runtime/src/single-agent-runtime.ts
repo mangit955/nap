@@ -560,6 +560,25 @@ export class SingleAgentRuntime implements Runtime {
     getLogger().info({ chars: request.message.length }, "turn started");
 
     try {
+      // Read before the message is logged: the context engine appends the turn's own message
+      // itself, so finding it in the history too would send it to the model twice.
+      const history = await this.#options.events.readFrom(request.sessionId, 0);
+
+      // **Before the sandbox, and durable before it.** Acquiring a workspace takes seconds on a
+      // project's first turn, and this used to sit after it: nothing whatsoever reached the client
+      // until the sandbox existed, so somebody who had just described their app watched an empty
+      // pane for the whole of a cold start. Their own words come back first instead, and the same
+      // event is what turns the preview pane to *starting* (`apps/web/src/preview/preview-state.ts`),
+      // so the wait is something the UI can draw rather than a gap.
+      //
+      // Drained rather than left on the chain, because everything below is slow and a crash in it
+      // would otherwise lose the one thing the person can see. Nothing is retracted if the sandbox
+      // then cannot be had: the message is the record of what was asked, and a refusal that erased
+      // it would leave a failure with no question above it. No job is opened and nothing is
+      // committed on that path, exactly as before.
+      emit("user.message", { text: request.message });
+      await sink.drain();
+
       const sandboxId = await this.#acquire(session);
       if (!sandboxId.ok) {
         emit("turn.failed", { reason: "sandbox_unavailable", message: sandboxId.error.message });
@@ -571,11 +590,6 @@ export class SingleAgentRuntime implements Runtime {
           message: sandboxId.error.message,
         };
       }
-
-      // Read before the message is logged: the context engine appends the turn's own message
-      // itself, so finding it in the history too would send it to the model twice.
-      const history = await this.#options.events.readFrom(request.sessionId, 0);
-      emit("user.message", { text: request.message });
 
       // A job opens on a prompt, and this turn belongs to it. Opened after the sandbox is in
       // hand because a job that could never run is a job nothing will ever close — and the

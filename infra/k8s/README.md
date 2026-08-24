@@ -83,10 +83,14 @@ deleted out loud in `patch-remove-unsupported.yaml` rather than quietly left out
 ## load/
 
 ```bash
-infra/k8s/load/run.sh                   # create a kind cluster, deploy, ramp to 100
+caffeinate -dimsu infra/k8s/load/run.sh # create a kind cluster, deploy, ramp to 100
 infra/k8s/load/run.sh --profile=smoke   # a three-minute wiring check
 infra/k8s/load/run.sh --down            # delete it
 ```
+
+`caffeinate` on the long one: forty minutes with nobody at the keyboard is long enough for the
+host to suspend, which freezes k6, the cluster and the sampler together and produces a run that
+passes every threshold and means nothing. See `docs/GOTCHAS.md`.
 
 The §23 ramp — the same k6 script, the same profiles, the same thresholds as the single-process
 baseline in `docs/scaling-baseline.md` — against the cluster instead of against one process. The
