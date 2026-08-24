@@ -20,8 +20,9 @@ describe("the kept audit session", () => {
   });
 
   it("is in sequence order, with no gaps", () => {
+    // One assertion, not two: "equals 1..n in order" already says both that it is sorted and
+    // that nothing is missing, and a sortedness check beside it only looks like extra coverage.
     const seqs = auditSession().map((event) => event.seq);
-    expect(seqs).toEqual([...seqs].sort((a, b) => a - b));
     expect(seqs).toEqual(seqs.map((_, index) => index + 1));
   });
 

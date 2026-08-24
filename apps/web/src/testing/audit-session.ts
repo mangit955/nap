@@ -33,12 +33,19 @@ import type { StoredEvent } from "@nap/shared/ports/event-store";
 import raw from "./audit-session.json" with { type: "json" };
 
 /**
- * The log, parsed.
+ * The log, cast rather than parsed — and the cast is load-bearing, so read the next paragraph
+ * before trusting it.
  *
- * Validated on the way out rather than trusted, because a fixture that has quietly stopped
- * matching the event contract is worse than no fixture: every test reading it keeps passing
- * while describing a shape the system no longer produces. `audit-session.test.ts` is what
- * makes that failure loud.
+ * Nothing is validated here. 232 rows re-parsed on every import would be a cost every consumer
+ * pays forever to catch a fault that can only be introduced by editing this directory, so the
+ * check lives in `audit-session.test.ts` instead and runs once per suite. That is a real
+ * difference in guarantee: a caller gets `StoredEvent[]` on TypeScript's word, not the
+ * schema's.
+ *
+ * What makes that acceptable is that the test fails loudly when the log drifts. What makes it
+ * worth stating is that TypeScript accepts this cast only because the shapes JSON infers happen
+ * to be assignable today — so a renamed payload field would compile silently here and be caught
+ * only over there.
  */
 export function auditSession(): readonly StoredEvent[] {
   return raw as readonly StoredEvent[];
