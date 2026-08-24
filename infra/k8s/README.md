@@ -69,6 +69,13 @@ composition, queue, log and `pg_notify` fanout, with a scripted model and an in-
 place of OpenRouter and E2B. So it costs nothing, and it proves nothing about a vendor —
 `bun run acceptance` is what does that, against a deployment, on purpose, with money.
 
+The sandbox is in-memory but not per-pod: each one is written into a table of the cluster's own
+Postgres, so a worker that claims a project's next turn *reattaches* to it by id rather than
+building a second one, which is how a vendor-side sandbox behaves. It matters most to `load/`
+below, where per-pod sandboxes made `queue_wait` and `time_to_first_event` unmeasurable — the
+first cluster run was reporting the fake's own cold start. The table is created by the pods
+themselves; no migration ships it, because nothing that ships reads it.
+
 Three of the base's objects are removed here because this cluster cannot run them: the ScaledObject
 (no KEDA), the HPA (no Prometheus) and the NetworkPolicy (kind's CNI enforces none). They are
 deleted out loud in `patch-remove-unsupported.yaml` rather than quietly left out.

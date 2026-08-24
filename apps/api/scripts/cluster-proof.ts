@@ -32,6 +32,7 @@ import { PostgresUserKeyStore } from "@nap/db/postgres-user-key-store";
 import { createProjectSession } from "@nap/db/session-bootstrap";
 import { seededRandom } from "@nap/loadgen/calibration";
 import { loopingLLMProvider } from "@nap/loadgen/looping-llm-provider";
+import { sharedSandboxManager } from "@nap/loadgen/shared-sandbox-manager";
 import { slowLLMProvider, slowSandboxManager } from "@nap/loadgen/slow-ports";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import { upgradeWebSocket, websocket } from "hono/bun";
@@ -41,6 +42,7 @@ import { composeNap, type NapConfig, type NapRole } from "../src/compose.ts";
 import { createLogger } from "../src/logger.ts";
 import { createHeartbeatWriter } from "../src/worker-heartbeat.ts";
 import { fakeSandbox, scriptedTurn } from "./fake-turn.ts";
+import { createSharedSandboxTable, PostgresSharedSandboxStore } from "./loadgen-sandbox-store.ts";
 
 const ROLES: NapRole[] = ["api", "worker", "reaper"];
 
@@ -133,6 +135,21 @@ const bus = new PostgresNotifyEventBus({
 await bus.start();
 
 const model = loopingLLMProvider(scriptedTurn());
+
+/**
+ * The fake sandbox, made findable from the pod that did not create it.
+ *
+ * Unconditional, unlike the calibrated latencies: this is not a speed knob but the fake's
+ * semantics. An in-memory sandbox belongs to one process, so without a shared record a worker
+ * claiming a project's second turn cold-starts a second sandbox for it — which is a per-pod
+ * filesystem, a capacity ceiling counted against work that already had a slot, and (once the
+ * latencies are calibrated) `CALIBRATION.sandboxCreateMs` on most turns of a load run. A real
+ * E2B sandbox is a vendor-side resource that any pod reattaches to by id. See
+ * `docs/scaling-cluster.md`.
+ */
+await createSharedSandboxTable(db);
+// Slow *outside* shared: the cold start belongs to `create`, so a reattach does not pay one.
+const sandbox = sharedSandboxManager(fakeSandbox(), new PostgresSharedSandboxStore(db));
 const heartbeatFile = process.env.NAP_WORKER_HEARTBEAT_FILE;
 
 /**
@@ -171,7 +188,7 @@ const { app, worker, reaper, janitor } = composeNap({
   userKeys: new PostgresUserKeyStore(db),
   events,
   bus,
-  sandbox: calibrated ? slowSandboxManager(fakeSandbox()) : fakeSandbox(),
+  sandbox: calibrated ? slowSandboxManager(sandbox) : sandbox,
   objects: new InMemoryObjectStore(),
   provider: calibrated ? slowLLMProvider(model, { random }) : model,
   auth: createAuth(db, {

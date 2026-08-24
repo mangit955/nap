@@ -17,7 +17,14 @@ export default defineConfig({
           name: "unit",
           // test/ holds repo-wide tests that belong to no single package —
           // currently the dependency-direction check in test/architecture.ts.
-          include: ["{packages,apps}/*/src/**/*.test.ts", "test/**/*.test.ts"],
+          // `scripts/` as well as `src/`: the harnesses there are real code with real
+          // logic — the load composition's shared sandbox store is what a whole cluster
+          // run rests on — and a test written beside one is otherwise never collected.
+          include: [
+            "{packages,apps}/*/src/**/*.test.ts",
+            "{packages,apps}/*/scripts/**/*.test.ts",
+            "test/**/*.test.ts",
+          ],
           // Both of these still match `*.test.ts` — the infix does not stop the glob —
           // so without excluding them here they would be collected twice, and the `db`
           // ones would run a second time with no database behind them.
@@ -46,7 +53,10 @@ export default defineConfig({
         // `bun run test:fast` for the unit + type loop when Docker is not around.
         test: {
           name: "db",
-          include: ["{packages,apps}/*/src/**/*.db.test.ts"],
+          include: [
+            "{packages,apps}/*/src/**/*.db.test.ts",
+            "{packages,apps}/*/scripts/**/*.db.test.ts",
+          ],
           globalSetup: ["./packages/db/src/testing/global-setup.ts"],
           // One shared container; parallel files would contend over the same tables.
           fileParallelism: false,
