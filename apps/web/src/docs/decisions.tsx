@@ -1,5 +1,5 @@
 /**
- * The eight ADRs, as a list of links rather than as re-rendered prose.
+ * The eleven ADRs, as a list of links rather than as re-rendered prose.
  *
  * They are written for somebody with the code open beside them — context, options weighed,
  * consequences accepted — and reproducing that here would make this page the place they get read
@@ -53,13 +53,28 @@ const DECISIONS = [
     title: "The transcript is a derived view, not a chat client",
     body: "Nothing is written into what you read; it is recomputed from the log, which is why three tabs cannot disagree.",
   },
+  {
+    file: "0009-turns-execute-on-workers-behind-a-postgres-queue.md",
+    title: "Turns execute on workers, behind a Postgres queue",
+    body: "A table beats a better queue here, because everything a better queue buys is aimed at redelivery — and a redelivered turn is a model run somebody pays for twice.",
+  },
+  {
+    file: "0010-event-fanout-is-notify-then-read.md",
+    title: "Event fanout is notify-then-read, and the log is the delivery",
+    body: "The notification carries a session and a seq and never a payload, so the events it cannot fit are not the ones it silently drops.",
+  },
+  {
+    file: "0011-an-old-turns-tool-traffic-is-not-worth-carrying.md",
+    title: "An old turn's tool traffic is not worth carrying, even when it fits",
+    body: "A funded session died on a budget while using a fifth of its context window. Fitting is not the test; being worth ten to forty copies is.",
+  },
 ] as const;
 
 export function Decisions() {
   return (
     <>
       <Lede>
-        Eight decisions that would be expensive to reverse, each recorded where it was made rather
+        Eleven decisions that would be expensive to reverse, each recorded where it was made rather
         than reconstructed afterwards.
       </Lede>
 

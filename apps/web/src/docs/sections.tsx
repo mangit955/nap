@@ -1,5 +1,5 @@
 /**
- * The eight sections, in order, as one list.
+ * The nine sections, in order, as one list.
  *
  * The sidebar and the document body are both derived from this, which is the point: an anchor
  * that points at a section that has been renamed is not a thing that can happen here, because
@@ -20,6 +20,7 @@ import { EventModel } from "./event-model.tsx";
 import { HowNapWorks } from "./how-nap-works.tsx";
 import { NapBench } from "./napbench.tsx";
 import { Sandbox } from "./sandbox.tsx";
+import { Scale } from "./scale.tsx";
 import { Verification } from "./verification.tsx";
 
 export type DocSectionSpec = {
@@ -36,6 +37,7 @@ export const SECTIONS: readonly DocSectionSpec[] = [
   { id: "durable-jobs", title: "Durable Jobs", Body: DurableJobs },
   { id: "verification", title: "Verification & Repair", Body: Verification },
   { id: "sandbox", title: "Sandbox & Snapshots", Body: Sandbox },
+  { id: "scale", title: "Scale", Body: Scale },
   { id: "napbench", title: "NapBench", Body: NapBench },
   { id: "decisions", title: "Decisions", Body: Decisions },
 ];

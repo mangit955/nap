@@ -96,6 +96,33 @@ export function Verification() {
         that stated the objective has fallen out of it.
       </P>
 
+      <Sub>What a long job costs, and the ceiling that actually fires</Sub>
+
+      <P>
+        Four turns on one project is where that stops being theoretical. Two ceilings exist and they
+        are not the same ceiling: one caps a <em>single request</em>, the other caps the{" "}
+        <em>sum over a turn&rsquo;s round trips</em> — and a turn re-sends its whole transcript on
+        every round trip, so its bill is roughly the assembled size <em>times</em> its step count.
+        Both factors grow with the session. A real funded session died on the second ceiling while
+        sitting at a fifth of the first, which means the truncation ladder was perfectly correct and
+        had never run.
+      </P>
+
+      <P>
+        So tool traffic from any turn older than the most recent one is emptied{" "}
+        <Term>unconditionally</Term>, before the budget is consulted. The call keeps its shape —
+        which tool, against which path — so the turn still reads as something that happened; what
+        goes is any argument big enough to be a file&rsquo;s contents, and everything the call
+        printed. Prose on both sides is never touched. That is a different question from truncation,
+        which is still the only answer to <em>this does not fit</em>: fitting was never the test,
+        being worth ten to forty copies is.
+      </P>
+
+      <P>
+        The failing session&rsquo;s event log is committed to the repository unedited, so the
+        measurement behind that reproduces for nothing rather than being a number in a paragraph.
+      </P>
+
       <P>
         The whole loop is confined to sandbox commands and a preview probe. Driving a browser stays
         the benchmark&rsquo;s alone — nothing that ships carries Playwright.
@@ -112,6 +139,12 @@ export function Verification() {
           href={`${REPO_URL}/blob/main/docs/adr/0007-the-check-primitive-moves-below-both.md`}
         >
           ADR-0007 — The check primitive moves below both the runtime and the benchmark
+        </Source>
+        {" · "}
+        <Source
+          href={`${REPO_URL}/blob/main/docs/adr/0011-an-old-turns-tool-traffic-is-not-worth-carrying.md`}
+        >
+          ADR-0011 — An old turn&rsquo;s tool traffic is not worth carrying
         </Source>
       </P>
     </>

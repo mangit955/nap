@@ -11,7 +11,11 @@ import { Code, Facts, Figure, Lede, P, Recording, Term } from "./prose.tsx";
 
 const FLOW = `you                 "a todo list with add, complete and delete"
   │
-Runtime             opens a job, acquires a sandbox
+API                 admits it, writes it to the queue, answers — and runs none of it
+  │
+Worker              claims the request and holds a lease on your session
+  │
+Runtime             opens a job, says something, acquires a sandbox
   │
 ContextEngine       assembles the prompt within a token budget
   │
@@ -36,7 +40,7 @@ export function HowNapWorks() {
       {/*
         The recording belongs at the very top of this section: it is the one piece of evidence on
         the page that is not an argument, and a reader who watches it has already been told what
-        the eight sections below go on to explain.
+        the sections below go on to explain.
 
         The README carries a 22s cut of this same run. Both are built by scripts/demo-cuts.sh from
         one master, so the short one is always a subset of what is playing here.
@@ -75,6 +79,24 @@ export function HowNapWorks() {
               <>
                 An idle project is snapshotted to object storage and its sandbox destroyed. Your
                 next message restores it — files and git history intact.
+              </>
+            ),
+          },
+          {
+            term: "The work is not in your request",
+            body: (
+              <>
+                A worker claims the turn and runs it; the socket you were watching from is not the
+                process doing anything. Closing the tab stops the watching and nothing else.
+              </>
+            ),
+          },
+          {
+            term: "Coming back has a place to start",
+            body: (
+              <>
+                The transcript opens at the <Term>seam</Term> your reading stopped at, and one card
+                above it says what was <em>decided</em> in your absence — if anything was.
               </>
             ),
           },

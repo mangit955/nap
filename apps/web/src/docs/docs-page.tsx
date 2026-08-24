@@ -1,9 +1,9 @@
 /**
- * The documentation page: one route, eight sections, a sidebar of anchors.
+ * The documentation page: one route, nine sections, a sidebar of anchors.
  *
- * **One page rather than eight routes.** Somebody arriving here is deciding whether the
+ * **One page rather than nine routes.** Somebody arriving here is deciding whether the
  * engineering is real, and that reader scrolls — a route per topic charges them a navigation per
- * section and shows them two of the eight. A single scroll puts every heading past their eye, and
+ * section and shows them two of the nine. A single scroll puts every heading past their eye, and
  * a link to one heading still lands on it. The sections are separate components all the same, so
  * splitting this into routes later is composition rather than surgery.
  *

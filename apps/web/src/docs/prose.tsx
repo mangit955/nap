@@ -1,5 +1,5 @@
 /**
- * The typographic kit the eight sections are written with.
+ * The typographic kit the nine sections are written with.
  *
  * It exists so the sections are prose rather than markup: a section file should read as an
  * argument somebody wrote, not as a wall of class strings with sentences hidden in it. Nothing
@@ -31,7 +31,7 @@ export function P({ children }: { children: ReactNode }) {
   );
 }
 
-/** A run-in heading inside a section — the level below the eight, and never in the sidebar. */
+/** A run-in heading inside a section — the level below the nine, and never in the sidebar. */
 export function Sub({ children }: { children: ReactNode }) {
   return (
     <h3 className="mt-10 font-medium text-[15px] text-[var(--s-text-primary)] tracking-[-0.01em]">
@@ -119,6 +119,25 @@ export function Recording({
       />
       <figcaption className="mt-2 text-[var(--s-text-subtle)] text-xs">{caption}</figcaption>
     </figure>
+  );
+}
+
+/**
+ * A pointer at another section of this same page.
+ *
+ * Separate from `Source` rather than a prop on it, because the two differ in the one way that
+ * matters to a reader: `Source` opens a new tab, and doing that for a link that scrolls a few
+ * thousand pixels down the page they are already on is how you end up with two copies of the docs
+ * open and no idea which one you were reading.
+ */
+export function Jump({ to, children }: { to: string; children: ReactNode }) {
+  return (
+    <a
+      href={`#${to}`}
+      className="text-[var(--s-text-body)] underline decoration-[var(--s-border-1)] underline-offset-4 transition-colors hover:decoration-[var(--s-text-subtle)] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--s-text-primary)]"
+    >
+      {children}
+    </a>
   );
 }
 
