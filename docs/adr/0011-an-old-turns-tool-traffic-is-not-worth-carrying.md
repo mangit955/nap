@@ -7,19 +7,20 @@
 A funded audit run drove four turns on one project against real E2B and a real model. Three jobs
 verified. The fourth — *add a dark-mode toggle* — died on `budget_exceeded` at **403,478 tokens
 against a 400,000 limit**. Its whole event log is committed as
-`apps/web/src/testing/audit-session.json`, so what happened is reproducible for nothing;
-`packages/context/scripts/measure-audit-session.ts` is the replay.
+`apps/web/src/testing/audit-session.json`, so what happened is reproducible for nothing:
+
+    bun packages/context/scripts/measure-audit-session.ts apps/web/src/testing/audit-session.json
 
 The obvious reading is that a long conversation outgrew the context window and the truncation
 ladder in `NapContextEngine` either ran in the wrong order or ran too late. The measurement says
 neither. **The ladder never ran at all.**
 
-| turn | assembled context | context budget | steps | input re-sent | real usage |
-|---|---|---|---|---|---|
-| 1 | 554 | 80,000 | 7 | 3,878 | 35,614 |
-| 2 | 4,728 | 80,000 | 9 | 42,552 | 111,900 |
-| 3 | 10,313 | 80,000 | 11 | 113,443 | 221,649 |
-| 4 | 15,746 | 80,000 | 14 | 220,444 | 403,478 → abandoned |
+| turn | assembled context | of which history | context budget | steps | input re-sent | real usage |
+|---|---|---|---|---|---|---|
+| 1 | 554 | 0 | 80,000 | 7 | 3,878 | 35,614 |
+| 2 | 4,728 | 4,195 (89%) | 80,000 | 9 | 42,552 | 111,900 |
+| 3 | 10,313 | 9,778 (95%) | 80,000 | 11 | 113,443 | 221,649 |
+| 4 | 15,746 | 15,227 (97%) | 80,000 | 14 | 220,444 | 403,478 → abandoned |
 
 Estimated columns are the local four-characters-per-token approximation and run about half of what
 the provider counted; the ratio is stable across all four turns, so the shape is what to read.
@@ -29,7 +30,8 @@ request**. `TurnBudget`'s `DEFAULT_MAX_TOKENS` caps **the sum over a turn's roun
 round trip re-sends the whole transcript, so a turn's bill is roughly the assembled size *times*
 its step count — and both factors grow with the session. Turn 4 assembled to 20% of its per-request
 budget and still spent five times what turn 1 did, because it was 15,746 tokens re-sent fourteen
-times. Of that, **84% was re-sending turns 1–3.**
+times — and **97% of those 15,746 was turns 1–3**, measured as the difference between assembling
+that turn with its history and assembling it with none.
 
 What is in those re-sent turns is the second half of the finding. At turn 4 the history was
 7,155 tokens of tool-call arguments and 7,706 of tool output — 98% tool traffic, 2% anything a
@@ -62,11 +64,12 @@ is on disk one `read_file` away, and the command it ran can be run again — bot
 
 ## Consequences
 
-**Turn 4 of the audit session assembles to 6,872 estimated tokens instead of 15,746, and its
-re-sent input falls from 220,444 to 96,208** — a 56% cut, on the same log, changing nothing about
+**Turn 4 of the audit session assembles to 6,904 estimated tokens instead of 15,746, and its
+re-sent input falls from 220,444 to 96,656** — a 56% cut, on the same log, changing nothing about
 the model or the ceiling. The more useful number is the one beside it: assembled context grew
-6,508 → 6,872 between turns 3 and 4, against 10,313 → 15,746 before. **It no longer grows with
-session length**, so what is left growing is the step count alone.
+6,524 → 6,904 between turns 3 and 4, against 10,313 → 15,746 before. **What it grows with is now
+prose rather than tool traffic** — 380 tokens a turn against 5,433 — so the session length a
+budget can absorb goes up by an order of magnitude rather than by a constant.
 
 **The agent may ask for a file it already read.** That is the cost, it is a round trip, and it is
 paid only when the old contents actually mattered. The marker says a gap is a gap, so the
@@ -79,8 +82,8 @@ allowance on copies of itself. Whether it is right is now a question that can be
 session whose context does not grow, which is the only condition under which the answer means
 anything.
 
-**`verbatimTurns` is an option, defaulting to one, and the tests that pin the ladder pass a large
-value.** Without that they would assert on turns staleness had already emptied, and each step of
+**`verbatimTurns` is an option, defaulting to one, and the tests that pin the ladder pass a value
+larger than their fixtures.** Without that they would assert on turns staleness had already emptied, and each step of
 the order would be pinned on nothing — the failure mode where a test passes because it has stopped
 testing.
 

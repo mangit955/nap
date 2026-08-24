@@ -6,10 +6,12 @@ import type { FileNode } from "@nap/shared/ports/sandbox-manager";
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_BUDGET_TOKENS,
-  ELIDED_TOOL_INPUT,
   ELIDED_TOOL_OUTPUT,
   MIN_BUDGET_TOKENS,
   NapContextEngine,
+  type NapContextEngineOptions,
+  STALE_TOOL_INPUT,
+  STALE_TOOL_OUTPUT,
 } from "./context-engine.ts";
 import { NoopMemoryProvider } from "./noop-memory-provider.ts";
 import { SYSTEM_PROMPT } from "./system-prompt.ts";
@@ -167,7 +169,13 @@ function request(overrides: Partial<ContextRequest> = {}): ContextRequest {
   };
 }
 
-function engine(overrides = {}) {
+/**
+ * More past turns than any fixture here has, so staleness reaches none of them. Named because
+ * a bare 99 reads as "off", and it is not — it is "off for a history this short".
+ */
+const KEEP_EVERY_TURN = 99;
+
+function engine(overrides: Partial<NapContextEngineOptions> = {}) {
   return new NapContextEngine({ root: ROOT, ...overrides });
 }
 
@@ -487,7 +495,8 @@ describe("NapContextEngine", () => {
      * test. Under the default the staleness pass has already emptied all but the newest turn
      * before the budget is consulted, and each step below would be pinned on nothing.
      */
-    const ladder = (overrides = {}) => engine({ verbatimTurns: 99, ...overrides });
+    const ladder = (overrides: Partial<NapContextEngineOptions> = {}) =>
+      engine({ verbatimTurns: KEEP_EVERY_TURN, ...overrides });
 
     it("elides tool output oldest first", async () => {
       const context = await ladder({ budgetTokens: 4_000 }).build(request({ history: heavy() }));
@@ -566,7 +575,7 @@ describe("NapContextEngine", () => {
 
       expect(context.estimatedTokens).toBeLessThan(DEFAULT_BUDGET_TOKENS);
       const written = toolUses(context.messages).map((b) => b.input.content);
-      expect(written.slice(0, -1)).toEqual([ELIDED_TOOL_INPUT, ELIDED_TOOL_INPUT]);
+      expect(written.slice(0, -1)).toEqual([STALE_TOOL_INPUT, STALE_TOOL_INPUT]);
     });
 
     it("keeps the most recent past turn word for word", async () => {
@@ -604,6 +613,44 @@ describe("NapContextEngine", () => {
       ]);
     });
 
+    it("says the removal was about age, not about room", async () => {
+      // The budget's marker would tell the model there was no space, on a turn with 100,000
+      // tokens of it. Which reason the model reads is the whole distinction this pass draws
+      // against truncation, so the two markers are not interchangeable.
+      const context = await roomy().build(request({ history: threeWrites() }));
+      const marks = [
+        ...toolResults(context.messages)
+          .slice(0, -1)
+          .map((b) => b.content),
+        ...toolUses(context.messages)
+          .slice(0, -1)
+          .map((b) => b.input.content),
+      ];
+
+      expect(marks).not.toContain(ELIDED_TOOL_OUTPUT);
+      expect(new Set(marks)).toEqual(new Set([STALE_TOOL_OUTPUT, STALE_TOOL_INPUT]));
+    });
+
+    it("measures an argument that is not a string", async () => {
+      // Every tool takes strings today. A rule that looked at `typeof value === "string"`
+      // would let the first array-valued argument through in full and silently.
+      const id = "tc_list";
+      const history = [
+        userMessage(1, "rewrite them all"),
+        event("tool.call", 1, {
+          toolCallId: id,
+          toolName: "write_file",
+          input: { paths: Array.from({ length: 200 }, (_, i) => `src/component-${i}.tsx`) },
+        }),
+        event("tool.result", 1, { toolCallId: id, toolName: "write_file", ok: true, output: "" }),
+        ...writingTurn(2, 100),
+      ];
+
+      const context = await roomy().build(request({ history }));
+
+      expect(toolUses(context.messages)[0]?.input.paths).toBe(STALE_TOOL_INPUT);
+    });
+
     it("still answers every call it kept", async () => {
       const context = await roomy().build(request({ history: threeWrites() }));
 
@@ -612,10 +659,10 @@ describe("NapContextEngine", () => {
       );
     });
 
-    it("can be turned off, and then the old contents are still there", async () => {
-      // The guard's own failure case: with staleness disabled the assertions above invert,
-      // which is what makes them evidence that the pass is doing the work.
-      const context = await engine({ verbatimTurns: 99 }).build(
+    it("reaches nothing when every turn is asked for verbatim", async () => {
+      // The guard's own failure case: with no turn stale the assertions above invert, which
+      // is what makes them evidence that the pass is doing the work.
+      const context = await engine({ verbatimTurns: KEEP_EVERY_TURN }).build(
         request({ history: threeWrites() }),
       );
 
@@ -624,6 +671,11 @@ describe("NapContextEngine", () => {
         "c".repeat(4_000),
         "c".repeat(4_000),
       ]);
+    });
+
+    it("refuses a negative count rather than clamping it", () => {
+      // A wiring mistake, not an outcome — and a silent clamp would look like a decision.
+      expect(() => engine({ verbatimTurns: -1 })).toThrow(/verbatim turns/);
     });
 
     it("leaves the caller's history untouched", async () => {

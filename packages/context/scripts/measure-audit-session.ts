@@ -12,7 +12,12 @@
  * caps. Printing only the first would make a turn that costs 400,000 tokens look like one
  * that costs 30,000.
  *
- * Run it with `bun packages/context/scripts/measure-audit-session.ts`.
+ * The log is an argument rather than a path baked in here, because a package reaching across
+ * the tree into an app's fixtures is an import edge that nothing enforces and everybody
+ * inherits. The one this was written against is the audit session kept for the web tests:
+ *
+ *     bun packages/context/scripts/measure-audit-session.ts \
+ *       apps/web/src/testing/audit-session.json
  */
 
 import { readFileSync } from "node:fs";
@@ -22,15 +27,18 @@ import { NoopMemoryProvider } from "../src/noop-memory-provider.ts";
 import { stubSandbox } from "../src/testing/stub-sandbox.ts";
 import { estimateTokens } from "../src/tokens.ts";
 
-const LOG_PATH = new URL("../../../apps/web/src/testing/audit-session.json", import.meta.url);
-
 /** What the deployed composition runs at — `apps/api/src/env.ts`. */
 const DEPLOYED_CONTEXT_BUDGET = 80_000;
 
 type Row = { turn: number; [column: string]: number | string };
 
 function loadLog(): NapEvent[] {
-  return JSON.parse(readFileSync(LOG_PATH, "utf8")) as NapEvent[];
+  const path = process.argv[2];
+  if (path === undefined) {
+    console.error("usage: measure-audit-session.ts <path-to-session-log.json>");
+    process.exit(1);
+  }
+  return JSON.parse(readFileSync(path, "utf8")) as NapEvent[];
 }
 
 /** Round trips through the model, which is what the transcript is re-sent for. */
@@ -109,19 +117,29 @@ async function main(): Promise<void> {
       "tool output %": rawTotal === 0 ? 0 : Math.round((raw.toolOutput / rawTotal) * 100),
     });
 
-    const built = await engine.build({
-      sessionId: prompt.sessionId,
-      sandboxId: "stub",
-      userMessage: prompt.payload.text,
-      history,
-      sandbox,
-      memory,
-    });
+    const assemble = async (events: NapEvent[]) =>
+      engine.build({
+        sessionId: prompt.sessionId,
+        sandboxId: "stub",
+        userMessage: prompt.payload.text,
+        history: events,
+        sandbox,
+        memory,
+      });
+
+    const built = await assemble(history);
+    // The same turn with nothing behind it, so "how much of this is the past" is a measured
+    // difference rather than a subtraction of two things counted different ways.
+    const alone = await assemble([]);
 
     const steps = stepsOf(own);
     assembled.push({
       turn: index + 1,
       "assembled tokens": built.estimatedTokens,
+      "of which history": built.estimatedTokens - alone.estimatedTokens,
+      "history %": Math.round(
+        ((built.estimatedTokens - alone.estimatedTokens) / built.estimatedTokens) * 100,
+      ),
       "steps taken": steps,
       "input re-sent": built.estimatedTokens * steps,
     });

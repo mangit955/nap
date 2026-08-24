@@ -52,23 +52,35 @@ export const DEFAULT_BUDGET_TOKENS = 120_000;
 /** Marks output removed to fit the budget, so the model reads a gap rather than a fact. */
 export const ELIDED_TOOL_OUTPUT = "[output removed to fit the context budget]";
 
-/** The same, for an argument a call was made with — a file's contents, usually. */
-export const ELIDED_TOOL_INPUT = "[argument removed; the workspace has moved on since]";
+/**
+ * What staleness leaves behind, for an argument and for what the call printed.
+ *
+ * Separate strings from `ELIDED_TOOL_OUTPUT` because they say something different and true:
+ * that one means *there was no room*, these mean *this is out of date*. Handing the model the
+ * budget's reason for a removal the budget did not ask for would be a small lie in the one
+ * place the whole design turns on the difference. See ADR-0011.
+ */
+export const STALE_TOOL_INPUT = "[argument omitted; the workspace has moved on since]";
+export const STALE_TOOL_OUTPUT = "[output omitted; the workspace has moved on since]";
+
+/** Every marker, so the ladder can tell what it has already reclaimed from what it has not. */
+const ELISIONS: ReadonlySet<string> = new Set([
+  ELIDED_TOOL_OUTPUT,
+  STALE_TOOL_INPUT,
+  STALE_TOOL_OUTPUT,
+]);
 
 /**
  * How many past turns keep their tool traffic word for word.
  *
  * One, and the reason is arithmetic rather than taste. A turn is many model round trips and
  * every one re-sends the whole transcript, so a turn's bill is roughly the assembled size
- * *times* its step count — and both grow with the session. Measured on the committed log of a
- * funded four-turn run (`packages/context/scripts/measure-audit-session.ts`), 84% of the
- * fourth turn's input was re-sending the first three, and that turn died on the turn budget
- * while the context budget it was assembled against was never within 60,000 tokens of binding.
+ * *times* its step count. Fitting is therefore not the same as being worth sending, and on the
+ * session this was measured against the ladder below never ran once. ADR-0011 has the numbers
+ * and `packages/context/scripts/measure-audit-session.ts` reproduces them for free.
  *
- * So fitting is not the same as being worth sending, and a ladder that only runs under
- * pressure never ran at all. What an old turn is actually consulted for is what was asked and
- * what the agent said back; the file it wrote is on disk, one `read_file` away, and the
- * command it ran can be run again.
+ * What an old turn is actually consulted for is what was asked and what the agent said back;
+ * the file it wrote is on disk, one `read_file` away, and the command it ran can be run again.
  */
 const DEFAULT_VERBATIM_TURNS = 1;
 
@@ -235,19 +247,28 @@ function blockTokens(block: LLMContentBlock): number {
 function makeStale(turn: Turn): void {
   for (const block of blocksOf(turn.messages)) {
     if (block.type === "tool_result") {
-      block.content = ELIDED_TOOL_OUTPUT;
+      block.content = STALE_TOOL_OUTPUT;
       continue;
     }
     if (block.type !== "tool_use") continue;
     block.input = Object.fromEntries(
       Object.entries(block.input).map(([key, value]) => [
         key,
-        typeof value === "string" && estimateTokens(value) > STALE_ARGUMENT_TOKENS
-          ? ELIDED_TOOL_INPUT
-          : value,
+        argumentTokens(value) > STALE_ARGUMENT_TOKENS ? STALE_TOOL_INPUT : value,
       ]),
     );
   }
+}
+
+/**
+ * What one argument costs, measured on what actually travels.
+ *
+ * Not `typeof value === "string"`: every tool takes strings today, and a rule written against
+ * that would let the first array-valued argument through silently — the size is the reason
+ * this exists, and the size does not care what shape it arrives in.
+ */
+function argumentTokens(value: unknown): number {
+  return estimateTokens(typeof value === "string" ? value : JSON.stringify(value ?? null));
 }
 
 function messagesTokens(messages: LLMMessage[]): number {
@@ -276,7 +297,13 @@ export class NapContextEngine implements ContextEngine {
     this.#maxTurns = opts.maxTurns ?? DEFAULT_MAX_TURNS;
     this.#root = opts.root;
     this.#maxFileEntries = opts.maxFileEntries;
-    this.#verbatimTurns = Math.max(opts.verbatimTurns ?? DEFAULT_VERBATIM_TURNS, 0);
+    this.#verbatimTurns = opts.verbatimTurns ?? DEFAULT_VERBATIM_TURNS;
+
+    // Thrown for the reason the budget above is: a negative count is a wiring mistake, and
+    // silently clamping it would hide the caller's bug behind behaviour that looks deliberate.
+    if (this.#verbatimTurns < 0) {
+      throw new Error(`verbatim turns must not be negative, got ${this.#verbatimTurns}`);
+    }
   }
 
   async build(request: ContextRequest): Promise<BuiltContext> {
@@ -351,7 +378,8 @@ export class NapContextEngine implements ContextEngine {
       if (cost() <= this.#budgetTokens) break;
       for (const block of blocksOf(turn.messages)) {
         if (block.type !== "tool_result") continue;
-        if (block.content === ELIDED_TOOL_OUTPUT) continue;
+        // Anything already marked — by an earlier pass of this loop, or by staleness above.
+        if (ELISIONS.has(block.content)) continue;
         block.content = ELIDED_TOOL_OUTPUT;
         if (cost() <= this.#budgetTokens) break;
       }
