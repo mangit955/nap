@@ -59,6 +59,15 @@ export const CORPUS_INTENT =
  * argument to a human reader deciding whether the corpus is fair; what it must *score* is an
  * expectation in `discrimination.ts`, and conflating the two would let a fixture's own description
  * quietly become the thing being asserted.
+ *
+ * It is still what an expectation is *read out of*, and the difference matters. The three
+ * dimensions the two ends of the corpus are asserted to differ on came from `ai-slop-generic`'s
+ * description below, which was written before any of it was measured. A person read that prose
+ * and wrote three expectations; nothing reads it at run time, so a fixture whose description
+ * changed would not silently change what is claimed about it. That is the line between reading
+ * and conflating — and it is worth saying that the reading is a judgement rather than a
+ * derivation, since "a purple hero gradient" could have been filed under `color` as easily as
+ * under `restraint`. See `docs/napbench-corpus-margin.md`.
  */
 export type CorpusFixture = {
   id: string;

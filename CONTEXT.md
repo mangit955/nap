@@ -452,13 +452,16 @@ design is the only variable between two of them. It is not a benchmark task and 
 is generated, no sandbox is acquired and no score reaches a report. It exists because an evaluator
 nobody has watched discriminate is a check that has never been observed failing.
 
-**Discrimination expectation** — one claim about what the corpus's grades must *do*: an **ordering**
-(minimalist beats slop by at least a real margin) or a **grade bound** (`restraint` on
-excessive-gradient is at most `weak`). Never an absolute number — that would be *assert on model
-prose* in numeric form. Each is one half of a pair, so passing it requires telling two fixtures
-apart rather than marking one thing down everywhere. Its three outcomes are **met**, **unmet** and
-**not assessable**; the third is absence, which is neither, for the reason the **product half**
-renormalises rather than scoring zero.
+**Discrimination expectation** — one claim about what the corpus's grades must *do*, in one of
+three shapes: a **pair ordering** on one dimension (minimalist grades better than slop on
+`hierarchy`), a **margin** between two whole product scores (broken-beautiful beats correct-ugly by
+at least a real margin), or a **grade bound** (`responsiveness` on desktop-only-breaks-mobile is at
+most `weak`). Never an absolute score — that would be *assert on model prose* in numeric form. Each
+is one half of a pair, so passing it requires telling two fixtures apart rather than marking one
+thing down everywhere. A margin is the shape for a pair built to differ in everything a photograph
+shows, and there is only one such pair; a pair built to differ in three places is three orderings.
+Its three outcomes are **met**, **unmet** and **not assessable**; the third is absence, which is
+neither, for the reason the **product half** renormalises rather than scoring zero.
 
 **Reference screenshot** — what a browser check's screenshot is *meant* to look like, as a path the
 task declares. Nothing compares against it yet; it is expressible now so that tasks can carry

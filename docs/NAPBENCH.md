@@ -446,8 +446,9 @@ which is what makes the corpus free to keep and cheap to grade. The capture goes
 code path under test rather than by a script with its own opinions about screenshots.
 
 **What is asserted are orderings and bounds, never absolute numbers.** `CORPUS_EXPECTATIONS` in
-`packages/bench/src/product/discrimination.ts` holds seven claims of the form "minimalist beats
-slop by at least a real margin" and "`restraint` on `excessive-gradient` is at most `weak`".
+`packages/bench/src/product/discrimination.ts` holds nine claims of the form "minimalist grades
+better than slop on `hierarchy`" and "`responsiveness` on `desktop-only-breaks-mobile` is at most
+`weak`".
 Asserting that a fixture scores 62 would be this repo's *never assert on model prose* rule broken
 in numeric form: an exact anchor is the judge's phrasing, and a run one grade lower on two
 dimensions would fail a test while having discriminated perfectly well. Each claim is one half of a
@@ -460,28 +461,34 @@ fixture nobody judged and a run with no judge composed all produce nothing to co
 those as failures would make the check loudest exactly where it learned least.
 
 The free suite runs `checkDiscrimination` against scripted judgements, including one that grades
-every fixture identically — which must fail all seven expectations, because that is the failure
+every fixture identically — which must fail all nine expectations, because that is the failure
 mode the corpus exists to catch. The paid suite,
 `apps/napbench/src/corpus-discrimination.integration.test.ts`, runs the identical claims against a
 real judge over the committed images: eighteen images through a vision model, and nothing else. It
 skips, with the reason printed, when there is no `OPENROUTER_API_KEY` to compose one with.
 
-**It is currently red on exactly one expectation, and that is the finding rather than a bug.**
-Four funded arms — two models, two rubric revisions, and one after the expectations were re-shaped
-— meet six of seven. What the judge will not do is open a fifteen-point gap between the top and the
-bottom of the corpus: the margin measured 11, 10 and 13, and `MEANINGFUL_MARGIN` was left at 15
-rather than lowered to whatever had just been observed.
+**It is green, and five of the nine claims are the shape they are because a funded run said so.**
+Six arms have been paid for. Two expectations were re-shaped after the first four and three after
+the fifth; the sixth met all nine. The distinction between what moved and what did not is the
+useful part.
 
-Two expectations *were* re-shaped, and the distinction is the useful part. They asked for `restraint
-at most weak` on the two overuse fixtures; three arms put both at `moderate` and would not go lower,
-while grading their partners above them every time. So the judge could tell the pairs apart and
-simply disagreed about where on the scale the bad one sits — and a `grade_at_most` is an absolute
-claim about a single grade, the shape `discrimination.ts` opens by arguing against. They are
-`grades_better` pair orderings now, and the confirming arm met both by two anchors. The *responsive*
-bounds are the same shape and stayed absolute, because every arm met them: a bound is wrong when the
-corpus cannot demonstrate it, not because it is a bound. Read
-[`napbench-vision-judge.md`](napbench-vision-judge.md) before touching the margin; the numbers are
-there and that argument is not settled.
+The two `restraint` claims asked for `at most weak` on the two overuse fixtures; three arms put
+both at `moderate` and would not go lower, while grading their partners above them every time. So
+the judge could tell the pairs apart and simply disagreed about where on the scale the bad one
+sits — and a `grade_at_most` is an absolute claim about a single grade, the shape
+`discrimination.ts` opens by arguing against. They are `grades_better` pair orderings now.
+
+The corpus's **two ends** were compared by whole-score margin, needing fifteen points and measuring
+11, 10, 13 and 11. `MEANINGFUL_MARGIN` was not lowered to fit; the two ends are three
+`grades_better` claims now, because the pair was built to differ on three dimensions and a mean
+over nine was diluting them. The *other* margin — `broken-beautiful` over `correct-ugly` — stayed a
+margin, which is what makes this a finding about a pair rather than a rule about margins. The
+matrix and the argument are in
+[`napbench-corpus-margin.md`](napbench-corpus-margin.md).
+
+The *responsive* bounds are the same shape as the `restraint` ones and stayed absolute, because
+every arm met them: a bound is wrong when the corpus cannot demonstrate it, not because it is a
+bound. [`napbench-vision-judge.md`](napbench-vision-judge.md) has the four arms before those two.
 
 **Follow-up: harvesting real screenshots.** A hand-written fixture is a designer's idea of slop
 rather than a specimen of it. The next step is to promote screenshots from funded runs into the

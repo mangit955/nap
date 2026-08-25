@@ -38,6 +38,7 @@ import {
   summariseDiscrimination,
   unmetExpectations,
 } from "@nap/bench/product/discrimination";
+import { formatGradeMatrix } from "@nap/bench/product/grade-matrix";
 import type { ProductJudgement } from "@nap/bench/product/judgement";
 import { beforeAll, describe, expect, it } from "vitest";
 import { CORPUS_ROOT, missingCorpusArtefacts } from "./corpus-fixtures.ts";
@@ -94,6 +95,10 @@ describe.skipIf(!judge.ok)("the fixture corpus, judged for real", () => {
     const unmet = unmetExpectations(outcomes).map(
       (outcome) => `${describeExpectation(outcome.expectation)} — ${outcome.detail}`,
     );
+
+    // The grades themselves, before the verdicts — a run's verdicts are not its findings. See
+    // `grade-matrix.ts` for what four funded arms cost by printing only the latter.
+    console.log(formatGradeMatrix(judgements));
 
     // Every outcome, whether or not anything failed. Two reasons, and the second is the one that
     // earns the noise: a run where most expectations were unassessable is green and worthless, and

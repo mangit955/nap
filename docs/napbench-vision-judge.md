@@ -149,9 +149,18 @@ anchor spacing rather than from taste. It is left failing and documented.
   margin, and only that. It is not in `bun run test`; it is a paid integration suite, and its
   failing is the finding rather than a bug to route around. Do not make it pass by editing
   `MEANINGFUL_MARGIN` without a decision recorded beside it.
+
+  **Settled later, by a fifth and sixth arm, and not by editing the threshold.**
+  `MEANINGFUL_MARGIN` is still 15 and the suite is green.
+  [`napbench-corpus-margin.md`](napbench-corpus-margin.md) has the matrix and the argument; the
+  reason it took five arms to get there is the bullet below.
 - The judge and the agent are currently the same model, which is a conflict of interest on any
   funded run that compares two models. Pin the judge to something neither arm is before spending
   on one — that is what `NAP_JUDGE_MODEL` is for.
+- **Each of these four arms reported verdicts and threw the grades away.** Seven met-or-unmet lines
+  is less than an arm buys, and the fifth had to be paid for to read a matrix any of the four could
+  have printed. The paid suite prints one now. If you are about to fund an arm, ask first what it
+  will leave behind besides a pass or a fail.
 - A run of the `product` suite has never been funded. Everything above is the judge alone, over
   static fixtures. What a real generated application scores, and whether the two halves multiply
   to something a person would recognise, is still unbought.

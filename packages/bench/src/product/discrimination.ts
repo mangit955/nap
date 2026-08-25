@@ -2,8 +2,8 @@
  * What the corpus's grades must *do*, and the check that says whether they did it.
  *
  * **Orderings and bounds, never absolute numbers.** `icons-restrained` grades better than
- * `excessive-icon` on `restraint`; `minimalist-professional` beats `ai-slop-generic` by a real
- * margin. What is never asserted is that a fixture scores 62, because that is this repo's "never
+ * `excessive-icon` on `restraint`; `broken-beautiful` beats `correct-ugly` by a real margin. What
+ * is never asserted is that a fixture scores 62, because that is this repo's "never
  * assert on model prose" rule wearing different clothes: an exact grade is the judge's phrasing,
  * and a run that came back one anchor lower on two dimensions would fail a test while having
  * discriminated perfectly well. An ordering is the claim actually being made — *can this
@@ -17,6 +17,33 @@
  * absolute claim about a single grade, which is the shape the paragraph above argues against, and
  * it was the wrong instrument for the claim the corpus was actually making. They are orderings
  * now. See `docs/napbench-vision-judge.md` for the numbers.
+ *
+ * **A whole-score margin only asks a fair question of fixtures built to differ everywhere.** The
+ * corpus's two ends used to be compared that way, and a funded arm that recorded the grade matrix
+ * rather than only the verdicts showed why it could not work: `minimalist-professional` and
+ * `ai-slop-generic` were graded *identically* on six of the nine dimensions and two anchors apart
+ * on two more. That is not a judge failing to discriminate — it is the fixture. Read what
+ * `corpus.ts` says `ai-slop-generic` was built as: a hero gradient, emoji headings, identical
+ * centred cards, and the tasks pushed below the fold by the marketing. Those are failings of
+ * `hierarchy`, `layout` and `restraint`, and of nothing else. Its typography, colour, spacing and
+ * components are competent *on purpose*, because competent execution of the wrong decisions is
+ * what the generated house style actually is. A mean over nine dimensions then divides three real
+ * two-anchor separations by nine and reports the dilution as a small margin. The three claims are
+ * now named dimension by dimension, the same move the `restraint` bounds made.
+ *
+ * Be precise about how much that last step is worth. The *prose* predates every funded arm; the
+ * *reading* of it into three dimension names came after the matrix, and it is a reading rather
+ * than a derivation — "a purple hero gradient" could as honestly have been filed under `color`,
+ * and "emoji headings" under `typography`. What the argument rests on is not the reading, and not
+ * a number coming back lower than a threshold: it is that the two fixtures were built to be alike
+ * on most of the scale, so the mean was never the thing to compare them with. See
+ * `docs/napbench-corpus-margin.md`.
+ *
+ * **The other margin stayed a margin, and that is what makes the distinction a finding rather than
+ * a rule.** `broken-beautiful` against `correct-ugly` was graded differently on *nine* of nine and
+ * came in at 54 points. Those two are not a design pair — they differ in everything a photograph
+ * shows — so the mean is measuring the thing it was derived for. A margin is not wrong for being a
+ * margin; it is wrong when the pair it compares was built to differ in three places.
  *
  * **The responsive bounds stayed absolute, and that is the point of not doing this by rule.** They
  * are the same shape and they were met on every arm — a judge that grades the clipped mobile
@@ -51,8 +78,17 @@ import { scoreProduct } from "./product-score.ts";
  * mean over nine dimensions and the anchors are seventeen to twenty-three points apart, so one
  * dimension differing by a whole grade moves the mean by about two points — well inside the noise
  * of a judge that saw one screenshot differently. Fifteen is reached only when most of the nine
- * disagree, which is what "these are different products" actually looks like, and it is still
- * comfortably below the gap between a fixture built to be good and one built to be slop.
+ * disagree, which is what "these are different products" actually looks like.
+ *
+ * **Unchanged, and now applied only where its own derivation holds.** The number survived a
+ * proposal to lower it to ten, and the reason is in what it assumes rather than in what any run
+ * measured: "most of the nine disagree" is a premise about the *pair*, not about the judge. It is
+ * true of `correct-ugly` against `broken-beautiful`, which a funded arm graded differently on nine
+ * of nine and 54 points apart. It was never true of the corpus's two ends, which differ by design
+ * on three dimensions and were graded identically on six — so the margin there was diluting a real
+ * separation rather than measuring a small one, and lowering the threshold would have been fitting
+ * the constant to a pair the constant does not describe. Those three are asserted dimension by
+ * dimension now. See this file's header and `docs/napbench-corpus-margin.md`.
  */
 export const MEANINGFUL_MARGIN = 15;
 
@@ -115,12 +151,28 @@ export type DiscriminationExpectation =
  */
 export const CORPUS_EXPECTATIONS: readonly DiscriminationExpectation[] = [
   {
-    kind: "beats",
+    kind: "grades_better",
     better: "minimalist-professional",
     worse: "ai-slop-generic",
-    byAtLeast: MEANINGFUL_MARGIN,
+    dimension: "hierarchy",
     because:
-      "the two ends of the corpus. A judge that cannot separate a considered interface from the generated house style is measuring nothing, whatever it says about the seven in between",
+      "the first of the three dimensions the corpus's two ends actually differ on, and the one `ai-slop-generic` was built around: its tasks are pushed below the fold by the marketing, so what reads first is not what the application is for. `corpus.ts` calls that out as the failing rather than as an artefact of photographing a viewport, which is what makes this a pre-registered claim and not a dimension chosen after seeing the grades",
+  },
+  {
+    kind: "grades_better",
+    better: "minimalist-professional",
+    worse: "ai-slop-generic",
+    dimension: "layout",
+    because:
+      "three identical centred cards and everything centred is a page arranged from a template rather than for its content, which is the question `layout` asks. Named in the fixture's own description alongside the other two",
+  },
+  {
+    kind: "grades_better",
+    better: "minimalist-professional",
+    worse: "ai-slop-generic",
+    dimension: "restraint",
+    because:
+      "a purple hero gradient and emoji headings, applied because they were available. The third and last of the differences the fixture was built with — and the reason the two ends are three `grades_better` claims rather than one margin: a mean over nine dimensions divides three real separations by nine, and reports a fixture that is competent on the other six as barely worse",
   },
   {
     kind: "beats",
@@ -216,7 +268,7 @@ export type DiscriminationOutcome = {
 /**
  * One line naming what an expectation claims, without its reasoning.
  *
- * Separate from `because` so a summary can list seven claims and a reader can then go and read
+ * Separate from `because` so a summary can list every claim and a reader can then go and read
  * the one that failed. Both are prose, but only this one is short enough to put in a table.
  */
 export function describeExpectation(expectation: DiscriminationExpectation): string {

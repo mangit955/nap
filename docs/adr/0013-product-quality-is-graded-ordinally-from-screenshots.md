@@ -227,8 +227,24 @@ are the same shape and were deliberately left absolute, because every arm met th
 wrong when the corpus cannot demonstrate it, not because it is a bound, and only measurement says
 which.
 
-One expectation stands unmet: the top-vs-bottom margin, which needs 15 points and measured 11, 10
-and 13. `MEANINGFUL_MARGIN` was **not** lowered to fit, because the number was derived from the
-anchor spacing rather than from taste, and re-deriving it having just seen 10 would be the tuning
-this exercise declined everywhere else. The paid suite is left red on it. The numbers are in
+One expectation stood unmet for four arms: the top-vs-bottom margin, which needs 15 points and
+measured 11, 10 and 13. `MEANINGFUL_MARGIN` was **not** lowered to fit, because the number was
+derived from the anchor spacing rather than from taste, and re-deriving it having just seen 10
+would be the tuning this exercise declined everywhere else. The numbers are in
 [`napbench-vision-judge.md`](../napbench-vision-judge.md).
+
+**A fifth arm settled it, and the threshold is still 15.** It was the first to print the grade
+matrix rather than only the verdicts, and the matrix showed the corpus's two ends graded
+*identically* on six of the nine dimensions — because `ai-slop-generic` was built to fail on
+`hierarchy`, `layout` and `restraint` and to be competent everywhere else, which is what the
+generated house style is. The mean was dividing three genuine separations, two of them a full two
+anchors, by nine. Those three are `grades_better` claims now, named from the fixture's own
+description rather than from the matrix; the `broken-beautiful`-over-`correct-ugly` margin stayed a
+margin, because that pair *is* graded differently on nine of nine and came in at 54. This is the
+third time the corpus found a claim wanting rather than the judge, and the second time the fix was
+to stop asserting a distance the corpus was never built to produce. See
+[`napbench-corpus-margin.md`](../napbench-corpus-margin.md).
+
+It also produced a process finding worth more than the expectation: **four arms were bought before
+anybody noticed that a run's verdicts are not its findings.** A grade matrix is part of what the
+paid suite leaves behind now.

@@ -101,12 +101,27 @@ describe("the corpus expectations", () => {
 
     expect(described).toEqual(
       expect.arrayContaining([
-        expect.stringContaining("minimalist-professional beats ai-slop-generic"),
+        expect.stringContaining("minimalist-professional grades better than ai-slop-generic"),
         expect.stringContaining("minimalist-professional grades better than excessive-gradient"),
         expect.stringContaining("icons-restrained restraint at least good"),
         expect.stringContaining("desktop-only-breaks-mobile responsiveness at most weak"),
       ]),
     );
+  });
+
+  /**
+   * The corpus's two ends are three claims rather than one, and the three are the dimensions
+   * `ai-slop-generic` was *built* to fail on — pinned here so that quietly dropping one to make a
+   * run green would fail rather than pass with a weaker claim. See `discrimination.ts`.
+   */
+  it("separates the corpus's two ends on all three dimensions the slop fixture was built to fail", () => {
+    const ends = CORPUS_EXPECTATIONS.flatMap((expectation) =>
+      expectation.kind === "grades_better" && expectation.worse === "ai-slop-generic"
+        ? [expectation.dimension]
+        : [],
+    );
+
+    expect(new Set(ends)).toEqual(new Set(["hierarchy", "layout", "restraint"]));
   });
 
   it("says why each one is expected, so a failure is readable", () => {
@@ -116,7 +131,7 @@ describe("the corpus expectations", () => {
     expect(new Set(reasons).size).toBe(reasons.length);
   });
 
-  it("describes each one distinctly, so a summary lists seven claims and not fewer", () => {
+  it("describes each one distinctly, so a summary lists every claim and not fewer", () => {
     const described = CORPUS_EXPECTATIONS.map(describeExpectation);
 
     expect(new Set(described).size).toBe(CORPUS_EXPECTATIONS.length);
@@ -182,13 +197,13 @@ describe("checkDiscrimination", () => {
     // gap, which is a rounding difference rather than one product being better than another.
     const outcomes = checkDiscrimination(
       judgeAll({
-        "minimalist-professional": flat("good"),
-        "ai-slop-generic": { ...flat("good"), color: "moderate", restraint: "moderate" },
+        "broken-beautiful": flat("good"),
+        "correct-ugly": { ...flat("good"), color: "moderate", restraint: "moderate" },
       }),
     );
     const margin = outcomes.find(
       (outcome) =>
-        outcome.expectation.kind === "beats" && outcome.expectation.worse === "ai-slop-generic",
+        outcome.expectation.kind === "beats" && outcome.expectation.worse === "correct-ugly",
     );
 
     expect(margin?.status).toBe("unmet");
@@ -290,16 +305,16 @@ describe("absence", () => {
 
   it("is not a failure when a fixture is missing from the judgements entirely", () => {
     const judgements = discriminatingJudgements();
-    judgements.delete("ai-slop-generic");
+    judgements.delete("correct-ugly");
 
     const outcomes = checkDiscrimination(judgements);
     const margin = outcomes.find(
       (outcome) =>
-        outcome.expectation.kind === "beats" && outcome.expectation.worse === "ai-slop-generic",
+        outcome.expectation.kind === "beats" && outcome.expectation.worse === "correct-ugly",
     );
 
     expect(margin?.status).toBe("not_assessable");
-    expect(margin?.detail).toContain("ai-slop-generic");
+    expect(margin?.detail).toContain("correct-ugly");
   });
 
   it("is not a failure when the judge could not assess the dimension asked about", () => {
