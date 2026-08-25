@@ -27,6 +27,7 @@ import { AccessibilityCheckSchema } from "./accessibility-check.ts";
 import { BrowserCheckSchema } from "./browser-check.ts";
 import { type Category, CategorySchema, DEFAULT_CATEGORY_FOR_KIND } from "./category.ts";
 import { describeParseFailure } from "./parse-failure.ts";
+import { MAX_SURFACES_PER_TASK, SurfaceSchema } from "./surface.ts";
 
 /**
  * A command run inside the sandbox, judged on its exit code.
@@ -148,6 +149,15 @@ export const BenchTaskSchema = z
         timeoutMs: z.number().int().positive().optional(),
       })
       .optional(),
+    /**
+     * The views this task wants photographed, at both of the capture pair's viewports.
+     *
+     * Absent means the front door, which is what makes a judge's pair exist for every task
+     * rather than only for the ones somebody remembered. Bounded rather than open, because each
+     * surface is two images and every image is vision-model tokens on a real run — see
+     * `surface.ts` for the ceiling and what it is a ceiling on.
+     */
+    surfaces: z.array(SurfaceSchema).min(1).max(MAX_SURFACES_PER_TASK).optional(),
     /** At least one: a task with nothing to check could never produce a score. */
     checks: z.array(BenchCheckSchema).min(1),
   })
@@ -191,7 +201,37 @@ export const BenchTaskSchema = z
         path: ["preview"],
       });
     }
+
+    // Two surfaces of one name would be photographed to the same filename, so the second would
+    // overwrite the first and the report would carry two references to one image — a judge
+    // handed a pair that is really the same picture twice.
+    const sharedSurfaces = duplicateIds(surfaceIds(task));
+    if (sharedSurfaces.length > 0) {
+      ctx.addIssue({
+        code: "custom",
+        message: `surfaces must have unique ids — duplicated: ${sharedSurfaces.join(", ")}`,
+        path: ["surfaces"],
+      });
+    }
+
+    // The same rule browser checks answer to, for the same reason: a surface is driven against
+    // the running application. Declared without a preview it could never be reached, and the
+    // task would silently produce no images to judge. A task that declares *nothing* is exempt
+    // — its default pair is an intention, not a declaration, and a build-only task legitimately
+    // has nothing to photograph.
+    if (task.preview === undefined && task.surfaces !== undefined) {
+      ctx.addIssue({
+        code: "custom",
+        message: "a task declaring surfaces must declare a preview for them to be reached at",
+        path: ["preview"],
+      });
+    }
   });
+
+/** The ids of whatever surfaces a task declared, and none when it declared none. */
+function surfaceIds(task: { surfaces?: { id: string }[] | undefined }): string[] {
+  return (task.surfaces ?? []).map((surface) => surface.id);
+}
 
 /**
  * Whether this check can only be answered against a running application.

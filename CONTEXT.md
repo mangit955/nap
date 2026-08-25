@@ -347,10 +347,29 @@ cannot supply is absent rather than inferred. **Stored as two files, not one:** 
 trajectory file and the metrics in the report beside it, because the metrics are what everything
 reads and a second copy next to the events could disagree with the first.
 
-**Screenshot** — a picture of the running application taken at the end of a browser check, at the
-viewport that check *actually finished at* rather than the one it declared, since a check may
-resize partway through. Never stored alone: each image has a sidecar naming the task, run, check,
-size, moment and reference, so an image copied out of the results directory still says what it is.
+**Surface** — a named view a task wants photographed, plus the steps that reach a state worth
+looking at: an empty list, a populated one, a detail page. Declared rather than inferred, because
+a **Check** is named for what it asserts and not for what it is looking at — so a check's
+photograph cannot be cited as a view, and nothing about it guarantees the *pair* a judge needs.
+Every surface is captured at **mobile** and **desktop**, which is what makes "was the small
+viewport designed for, or the large one squashed" answerable at all. A task that declares none
+still gets the default pair — `/` at both sizes — so no run ends with nothing to judge. Steps are
+the browser-step vocabulary minus assertions and resizes: a surface is evidence, not a check, so
+it has nowhere to put a failed assertion, and the size belongs to the pass rather than to the view.
+
+**Capture pass** — the deliberate photography, run after every check has had its say and before
+any judge is asked. One browser session per image, for the isolation reason a check gets one. It
+changes no score on any path: an unreachable surface, an absent browser and a full disk each cost
+the run an image and nothing else. Bounded at four surfaces a task, so at most eight images —
+every one of them is vision-model tokens on a real run.
+
+**Screenshot** — a picture of the running application, of **exactly one** of two things: a
+**Check**, taken at the end of one at the viewport that check *actually finished at* rather than
+the one it declared, since a check may resize partway through; or a **Surface**, taken by the
+capture pass because somebody asked for that view at that size. Only the second is comparable, and
+only the second is put in front of a judge. Never stored alone: each image has a sidecar naming the
+task, run, whichever of the check and the surface it is of, size, moment and reference, so an image
+copied out of the results directory still says what it is.
 Referenced from the report by a path **relative to the results directory** — an absolute one is
 wrong the first time somebody moves the directory. Evidence *about* a run rather than an
 observation *of* the application, which is why a screenshot that could not be taken or stored

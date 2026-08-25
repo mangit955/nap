@@ -1,6 +1,10 @@
 /**
  * Turning a declared browser check into calls on the port, and the answers back into a result.
  *
+ * Three callers of one set of moves: a browser check, an accessibility audit, and — the one that
+ * is not a check at all — driving to a surface so the capture pass can photograph it. They differ
+ * only in what happens once the page is open, which is why the opening moves are written once.
+ *
  * This is where every judgement about a running application is made — is that text visible, is
  * that the right count, does the page overflow — and it makes them all out of two numbers and a
  * boolean at a time, so that the whole of it is exercised against a fake in the free suite. The
@@ -21,7 +25,7 @@
  * See docs/adr/0005.
  */
 
-import type { Result } from "@nap/shared/result";
+import type { Result, VoidResult } from "@nap/shared/result";
 import {
   type AccessibilityCheck,
   DEFAULT_FAIL_ON_IMPACT,
@@ -417,6 +421,56 @@ function relativeUrl(url: string): string {
 
 function quote(value: string | null): string {
   return value === null ? "absent" : `"${value}"`;
+}
+
+/**
+ * Drives the browser to a declared surface, so that what happens next can be photographed.
+ *
+ * The third caller of the opening moves, and the one that is not a check. It sizes the viewport
+ * to the size the *pass* asked for — a surface's steps may not resize, so unlike a check the
+ * declared size and the photographed one cannot drift apart — opens the application and performs
+ * the steps that reach the state worth looking at.
+ *
+ * **Every failure is one string, and none of them is the agent's.** A check separates "the
+ * application disappointed an assertion" from "the evaluator could not look", because the first
+ * is scored and the second must not be. A surface is scored either way: it is evidence, and an
+ * unreachable one costs the run an image rather than a mark. So there is nothing here for the
+ * gate ladder to attribute, and the reason exists only for whoever reads why an image is missing.
+ */
+export async function reachSurface(
+  session: BrowserSession,
+  surface: { viewport: ViewportName; steps: readonly BrowserStep[] },
+  context: BrowserCheckContext,
+): Promise<VoidResult<string>> {
+  const open = await openPage(session, {
+    viewport: surface.viewport,
+    url: context.baseUrl,
+    what: "the application",
+  });
+  if (!open.ok) {
+    return {
+      ok: false,
+      error: isBrowserError(open.error)
+        ? `${open.error.code} — ${open.error.message}`
+        : open.error.detail,
+    };
+  }
+
+  for (const [index, step] of surface.steps.entries()) {
+    const outcome = await runStep(session, step, {
+      baseUrl: context.baseUrl,
+      timeoutMs: "timeoutMs" in step ? step.timeoutMs : undefined,
+    });
+
+    const stopped = outcome.driver ?? outcome.failure;
+    if (stopped === undefined) continue;
+
+    // One-based, because it is read against a numbered list a human wrote.
+    const why = typeof stopped === "string" ? stopped : `${stopped.code} — ${stopped.message}`;
+    return { ok: false, error: `step ${index + 1}, ${step.step}: ${why}` };
+  }
+
+  return { ok: true, value: undefined };
 }
 
 /**

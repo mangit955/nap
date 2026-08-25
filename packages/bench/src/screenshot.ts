@@ -56,30 +56,105 @@ export type CapturedViewport = z.infer<typeof CapturedViewportSchema>;
  * `/` or a `..` in one would silently write the image somewhere other than the results directory
  * and leave the report's relative path pointing at nothing. Cheaper to refuse here than to
  * discover it in an archive.
+ *
+ * Exported because a check id is no longer the only thing a filename is built out of: a surface
+ * is named by the task and photographed under that name, and the two must answer to one rule or
+ * the archive gets a hole in exactly the half nobody tested.
  */
-const FilenameSafeIdSchema = z
+export const FilenameSafeIdSchema = z
   .string()
   .min(1)
   .regex(/^[a-zA-Z0-9._-]+$/, "must contain only letters, digits, dots, dashes and underscores")
   .refine((id) => id !== "." && id !== "..", { message: "must not be a path segment" });
 
-/** Everything written beside an image, so the image is interpretable on its own. */
-export const ScreenshotMetadataSchema = z.strictObject({
-  taskId: FilenameSafeIdSchema,
-  runId: z.uuid(),
-  /** Which check produced it. One check, one screenshot, taken after its last step. */
-  checkId: FilenameSafeIdSchema,
-  viewport: CapturedViewportSchema,
-  capturedAt: z.iso.datetime(),
-  /**
-   * The reference image this check declared, or null.
-   *
-   * Recorded with the capture rather than only in the task, because a comparison run months
-   * later needs to know what this was *meant* to look like at the time — a task file edited
-   * since would otherwise silently repoint every historical screenshot at a new reference.
-   */
-  reference: z.string().nullable(),
+/**
+ * The surface a photograph is *of*, as the task named it and at the size it was asked for.
+ *
+ * The requested viewport rather than the measured one, and both are kept: the measurement is in
+ * `viewport` beside this, and it is what the page was actually laid out at. This is what *pairs*
+ * two images. A judge grading responsiveness needs to know that two files are the same view at
+ * two sizes, and it cannot learn that from measurements — a page that resized itself comes back
+ * with a null name, and two images of one surface would stop being a pair at the moment the
+ * comparison became interesting.
+ */
+export const CapturedSurfaceSchema = z.strictObject({
+  id: FilenameSafeIdSchema,
+  viewport: ViewportNameSchema,
 });
+
+export type CapturedSurface = z.infer<typeof CapturedSurfaceSchema>;
+
+/**
+ * Whether a photograph says what it is a picture of — exactly one of a check and a surface.
+ *
+ * Neither is a photograph nobody can attribute; both is a photograph claiming to be two kinds of
+ * evidence at once, which is worse — a judge would be handed a check's incidental image as if
+ * somebody had asked for that view at that size.
+ *
+ * One predicate for both the sidecar and the report's reference, rather than the same comparison
+ * written twice: two encodings of one invariant are two things to keep in step.
+ */
+function namesExactlyOneSubject(capture: {
+  checkId: string | null;
+  surface: CapturedSurface | null;
+}): boolean {
+  return (capture.checkId === null) !== (capture.surface === null);
+}
+
+/**
+ * The message both refines refuse with.
+ *
+ * A function rather than a shared object, for the reason the report's `configuration` default is
+ * one: a single literal handed to two schemas is a single object either of them could edit.
+ */
+function exactlyOneSubject() {
+  return {
+    message: "a capture names exactly one of a check and a surface",
+    path: ["surface"],
+  };
+}
+
+/**
+ * Everything written beside an image, so the image is interpretable on its own.
+ *
+ * **Exactly one of `checkId` and `surface`**, because there are exactly two reasons a photograph
+ * exists and they are read differently. A check's is a by-product — the page as that check left
+ * it, at whatever size it finished at — and is evidence about the check. A surface's is
+ * deliberate: somebody asked for this view at this size, which is what makes it comparable to the
+ * same view at the other size and to the same view on another model's run. Collapsing them into
+ * one nullable label would make a report unable to say which kind of artefact it is holding.
+ */
+export const ScreenshotMetadataSchema = z
+  .strictObject({
+    taskId: FilenameSafeIdSchema,
+    runId: z.uuid(),
+    /**
+     * Which check produced it, or null on a capture the pass took. One check, one screenshot,
+     * taken after its last step.
+     */
+    checkId: FilenameSafeIdSchema.nullable(),
+    /**
+     * Which surface this is a photograph of, or null on a check's by-product.
+     *
+     * Defaulted rather than required for the one reason the archive earns: sidecars written
+     * before surfaces existed must still parse, or a directory stops being readable by the tool
+     * that wrote it. Everything that writes one states it explicitly, on the same terms as
+     * `halves` and `product` in `report.ts`, so the default is only ever reached by an older
+     * file — a report that says what it is beats a parser deciding later.
+     */
+    surface: CapturedSurfaceSchema.nullable().default(null),
+    viewport: CapturedViewportSchema,
+    capturedAt: z.iso.datetime(),
+    /**
+     * The reference image this check declared, or null.
+     *
+     * Recorded with the capture rather than only in the task, because a comparison run months
+     * later needs to know what this was *meant* to look like at the time — a task file edited
+     * since would otherwise silently repoint every historical screenshot at a new reference.
+     */
+    reference: z.string().nullable(),
+  })
+  .refine(namesExactlyOneSubject, exactlyOneSubject());
 
 export type ScreenshotMetadata = z.infer<typeof ScreenshotMetadataSchema>;
 
@@ -111,19 +186,33 @@ export const ResultsRelativePathSchema = z
  * per image would be three copies of one fact and a way for a hand-edited file to contradict
  * itself. The sidecar repeats them because it is read *without* the report beside it.
  */
-export const ScreenshotRefSchema = z.strictObject({
-  checkId: z.string().min(1),
-  viewport: CapturedViewportSchema,
-  /**
-   * Relative to the results directory, and checked rather than merely asserted.
-   *
-   * The rule the whole archival story rests on — see this file's header — so it is a boundary
-   * guarantee rather than a convention four comments repeat. A report validated on the way back
-   * in is untrusted input, and an absolute path in one is a report that stopped being portable.
-   */
-  path: ResultsRelativePathSchema,
-  capturedAt: z.iso.datetime(),
-});
+export const ScreenshotRefSchema = z
+  .strictObject({
+    /** Which check left it behind, or null on one the capture pass asked for. */
+    checkId: z.string().min(1).nullable(),
+    /**
+     * Which surface it is a photograph of, or null on a check's by-product.
+     *
+     * This is what lets a judge be handed like-for-like pairs from the report alone, without
+     * decoding filenames or reading a sidecar per image. Defaulted for the archive's sake, on
+     * the same terms as `halves` and `product` on the report itself: a run recorded before
+     * surfaces existed took none, and must still parse.
+     */
+    surface: CapturedSurfaceSchema.nullable().default(null),
+    viewport: CapturedViewportSchema,
+    /**
+     * Relative to the results directory, and checked rather than merely asserted.
+     *
+     * The rule the whole archival story rests on — see this file's header — so it is a boundary
+     * guarantee rather than a convention four comments repeat. A report validated on the way back
+     * in is untrusted input, and an absolute path in one is a report that stopped being portable.
+     */
+    path: ResultsRelativePathSchema,
+    capturedAt: z.iso.datetime(),
+  })
+  // The sidecar's rule, and literally the same predicate: a report and the sidecars beside it
+  // must not be able to disagree about what a photograph is of.
+  .refine(namesExactlyOneSubject, exactlyOneSubject());
 
 export type ScreenshotRef = z.infer<typeof ScreenshotRefSchema>;
 
@@ -147,14 +236,26 @@ export type CapturedScreenshot = {
 export type ScreenshotStore = (screenshot: CapturedScreenshot) => Promise<Result<string, string>>;
 
 /**
- * The image's name: task, run and check.
+ * The image's name: task, run, and whichever of a check or a surface it is a photograph of.
  *
  * The task id makes a directory listing readable at a glance, the run id keeps two runs of one
- * task apart — the whole point of running one twice — and the check id keeps the several
+ * task apart — the whole point of running one twice — and the last part keeps the several
  * screenshots within a run apart. The same convention the report and trajectory already use.
+ *
+ * A surface's name carries its viewport, because a surface is photographed twice on purpose and
+ * the two images differ in nothing else. The two namespaces are kept apart by `@`, which is the
+ * one thing here a check id cannot contain — `FilenameSafeIdSchema` allows letters, digits, dots,
+ * dashes and underscores and nothing else. So a check called `surface-home-mobile` still cannot
+ * overwrite the mobile capture of the surface `home`; separating them with a character an id may
+ * legally contain would have made that claim wishful rather than true.
  */
 export function screenshotFilename(metadata: ScreenshotMetadata): string {
-  return `${metadata.taskId}-${metadata.runId}-${metadata.checkId}.png`;
+  const subject =
+    metadata.surface === null
+      ? metadata.checkId
+      : `surface@${metadata.surface.id}@${metadata.surface.viewport}`;
+
+  return `${metadata.taskId}-${metadata.runId}-${subject}.png`;
 }
 
 /**
@@ -171,6 +272,7 @@ export function screenshotMetadataFilename(metadata: ScreenshotMetadata): string
 export function refFromMetadata(metadata: ScreenshotMetadata, path: string): ScreenshotRef {
   return {
     checkId: metadata.checkId,
+    surface: metadata.surface,
     viewport: metadata.viewport,
     path,
     capturedAt: metadata.capturedAt,

@@ -31,18 +31,15 @@ import type { AccessibilityCheck } from "./accessibility-check.ts";
 import type { BrowserCheck } from "./browser-check.ts";
 import { runAccessibilityCheck, runBrowserCheck } from "./browser-executor.ts";
 import type { BrowserSession, BrowserSessionFactory } from "./browser-session.ts";
+import { captureScreenshot, runCapturePass } from "./capture.ts";
 import { type CategoryWeights, DEFAULT_CATEGORY_WEIGHTS } from "./category.ts";
 import { applyGates, type BrowserUnavailable, type GateInput } from "./gates.ts";
 import { deriveRunMetrics } from "./metrics.ts";
 import type { BenchReport, CheckResult } from "./report.ts";
 import type { HarnessRecord, TurnBudgetRecord } from "./run-configuration.ts";
 import { scoreRun } from "./score.ts";
-import {
-  type CapturedScreenshot,
-  refFromMetadata,
-  type ScreenshotRef,
-  type ScreenshotStore,
-} from "./screenshot.ts";
+import type { ScreenshotRef, ScreenshotStore } from "./screenshot.ts";
+import { capturePlan } from "./surface.ts";
 import {
   type BenchTask,
   type CommandCheck,
@@ -52,7 +49,6 @@ import {
   weightOf,
 } from "./task.ts";
 import type { BenchTrajectory } from "./trajectory.ts";
-import { viewportNameForSize } from "./viewport.ts";
 import {
   notRunVisualEvaluation,
   VISUAL_NOT_RUN,
@@ -366,13 +362,13 @@ export async function runBenchTask(
       async (session) => {
         // Photographed *after* the check's last step and before the session closes, which is
         // what makes the image show what the agent's application actually did rather than its
-        // starting state. A failure here is swallowed on purpose — see `capture`.
-        const ref = await capture(session, deps.screenshots, {
-          taskId: task.id,
-          runId,
-          check,
-          now,
-        });
+        // starting state. A failure here is swallowed on purpose — see `capture.ts`.
+        const ref = await captureScreenshot(
+          session,
+          deps.screenshots,
+          { check },
+          { taskId: task.id, runId, now },
+        );
         if (ref !== undefined) screenshots.push(ref);
       },
     );
@@ -385,6 +381,28 @@ export async function runBenchTask(
     }
 
     checks.push(attempted.value);
+  }
+
+  // The deliberate half of the photography, after every check has had its say and the
+  // application is in whatever state the run left it.
+  //
+  // **After the checks rather than instead of them**, and it changes no score: a check's
+  // photograph is evidence about that check, and this is evidence about the product. A judge
+  // grading responsiveness needs one view at two sizes, which no check can be relied on to
+  // leave behind. It runs only where there is something to photograph and somewhere to put it;
+  // a task that declares no surfaces still gets the default pair. See `surface.ts`.
+  if (previewUrl !== undefined && deps.browser !== undefined && deps.screenshots !== undefined) {
+    screenshots.push(
+      ...(await runCapturePass({
+        plan: capturePlan(task),
+        baseUrl: previewUrl,
+        browser: deps.browser,
+        store: deps.screenshots,
+        taskId: task.id,
+        runId,
+        now,
+      })),
+    );
   }
 
   // Asked once, after every check, because a judge is shown the run's whole set of screenshots
@@ -443,54 +461,6 @@ async function seedEnvironment(
   }
 
   return { ok: true, value: undefined };
-}
-
-/**
- * Photographs the page a check left behind, stores it, and describes where it went.
- *
- * **Every failure here returns undefined rather than propagating**, and that is the point: a
- * screenshot is evidence *about* a run, not an observation *of* the application. A browser that
- * would not photograph, or a disk with no room on it, must leave the run's score untouched —
- * the alternative is a full disk being recorded as an agent that wrote a broken application,
- * on a run that has already been paid for.
- */
-async function capture(
-  session: BrowserSession,
-  store: ScreenshotStore | undefined,
-  run: {
-    taskId: string;
-    runId: string;
-    /** Only the two fields a capture records — which is why an audit can be photographed too. */
-    check: { id: string; referenceScreenshot?: string | undefined };
-    now: () => Date;
-  },
-): Promise<ScreenshotRef | undefined> {
-  if (store === undefined) return undefined;
-
-  const shot = await session.screenshot();
-  if (!shot.ok) return undefined;
-
-  const captured: CapturedScreenshot = {
-    metadata: {
-      taskId: run.taskId,
-      runId: run.runId,
-      checkId: run.check.id,
-      viewport: {
-        // The measured size decides the name, and nothing else does. A check may resize partway
-        // through, so its declaration is not evidence about the page that was photographed — and
-        // falling back to it for an unrecognised size would produce exactly the mislabelled
-        // capture `viewportNameForSize` returns undefined to avoid. Null is the honest answer.
-        name: viewportNameForSize(shot.value.viewport) ?? null,
-        ...shot.value.viewport,
-      },
-      capturedAt: run.now().toISOString(),
-      reference: run.check.referenceScreenshot ?? null,
-    },
-    bytes: shot.value.bytes,
-  };
-
-  const stored = await store(captured);
-  return stored.ok ? refFromMetadata(captured.metadata, stored.value) : undefined;
 }
 
 /**

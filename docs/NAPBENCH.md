@@ -99,8 +99,14 @@ No event exists to serve evaluation, and none may.
 5. Run the task's checks: commands inside the sandbox, browser checks against the preview from the
    host, each in a browser session of its own.
 6. Photograph the page each browser check and each audit left behind.
-7. Ask the visual evaluator, which today always answers "not run".
-8. Apply the gate ladder, score what is left, read the trajectory back out of the event store, and
+7. Run the **capture pass**: walk the task's declared surfaces and photograph each at mobile and
+   desktop, in a browser session per image. Changes no score, whatever it managed — and runs
+   *after* the checks precisely so that it cannot: a surface's steps drive the application, and a
+   pass that ran first could add the row a check was about to assert was absent. The price is that
+   a surface is photographed as the *checks* leave the application, not as the agent did; a task
+   whose checks persist state should name its surfaces knowing that.
+8. Ask the visual evaluator, which today always answers "not run".
+9. Apply the gate ladder, score what is left, read the trajectory back out of the event store, and
    write the report and the trajectory beside each other.
 
 ---
@@ -125,6 +131,19 @@ export const MY_TASK = defineTask({
   // to the project root, and constrained to stay inside it.
   environment: { files: [{ path: "src/App.tsx", contents: "…" }] },
   preview: { port: TEMPLATE_PREVIEW_PORT, timeoutMs: TEMPLATE_PREVIEW_TIMEOUT_MS },
+  // Optional. The views a judge should be shown, each photographed at mobile and desktop.
+  // Absent gets `/` at both. At most four, because each one is two images and every image is
+  // vision-model tokens. Steps may not assert and may not resize — see the screenshots section.
+  surfaces: [
+    { id: "empty" },
+    {
+      id: "populated",
+      steps: [
+        { step: "fill", selector: { by: "label", text: "Task" }, value: "Buy milk" },
+        { step: "press", key: "Enter" },
+      ],
+    },
+  ],
   checks: [
     {
       id: "build",
@@ -339,10 +358,30 @@ contract marks the model loop's boundaries), provider retries (the provider retr
 and emits nothing) and token usage on a *failed* turn (`turn.failed` carries no usage). Each is left
 off entirely rather than reported as zero — a zero is a measurement, and these are absences.
 
-Screenshots are captured at the end of each browser check, at the viewport the check *actually
-finished at*, each with a sidecar naming the task, run, check, size, moment and reference. They are
-evidence *about* a run rather than an observation *of* the application, so a screenshot that could
-not be taken or stored degrades the report and never changes a score.
+Screenshots come from two places, and a report says which of the two each one is.
+
+The first is a by-product: one at the end of each browser check, at the viewport the check
+*actually finished at*. That is the right evidence about a check and the wrong thing entirely for a
+judge — a check is named for what it asserts rather than for what it is looking at, so nobody can
+say what view its image is of, and a task whose checks are all desktop leaves no pair to compare.
+
+The second is the **capture pass**, which is deliberate. A task declares `surfaces`: named views
+with the steps needed to reach a meaningful state, drawn from the same browser-step vocabulary
+checks use — minus assertions, which a pass has nowhere to put, and minus resizes, which belong to
+the pass rather than to the view. Every surface is photographed at **mobile and desktop**, so
+"was the small viewport designed for, or the large one squashed" is answerable. A task that
+declares none still gets the default pair, `/` at both sizes; no run ends with nothing to judge.
+
+**The image count is bounded and it is worth stating, because every image is vision-model tokens on
+every real run.** A task may declare at most **four** surfaces, so the pass takes at most **eight**
+images — and that, not the checks' by-products, is the whole of what a judge is shown. The bound is
+enforced by the task schema rather than by anybody remembering.
+
+Every image gets a sidecar naming the task, run, whichever of the check and the surface it is of,
+size, moment and reference, so a picture copied out of the directory still says what it is. All of
+it is evidence *about* a run rather than an observation *of* the application, so a screenshot that
+could not be taken — an unreachable surface, an absent browser, a full disk — degrades the report
+and never changes a score.
 
 ---
 

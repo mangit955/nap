@@ -996,15 +996,15 @@ describe("runBenchTask — screenshots and visual evaluation", () => {
       now: () => new Date(CAPTURED_AT),
     });
 
-    expect(saved).toHaveLength(1);
-    expect(report.screenshots).toEqual([
-      {
-        checkId: "shows-the-list",
-        viewport: { name: "mobile", width: 375, height: 667 },
-        path: `todo-${RUN_ID}-shows-the-list.png`,
-        capturedAt: CAPTURED_AT,
-      },
-    ]);
+    // The check's image first, then the default pair the capture pass takes on every task.
+    expect(saved).toHaveLength(3);
+    expect(report.screenshots[0]).toEqual({
+      checkId: "shows-the-list",
+      surface: null,
+      viewport: { name: "mobile", width: 375, height: 667 },
+      path: `todo-${RUN_ID}-shows-the-list.png`,
+      capturedAt: CAPTURED_AT,
+    });
   });
 
   it("records the size the check actually ran at, not the one it declared", async () => {
@@ -1129,7 +1129,11 @@ describe("runBenchTask — screenshots and visual evaluation", () => {
 
     expect(seen).toHaveLength(1);
     expect(seen[0]).toMatchObject({ taskId: "todo", runId: RUN_ID });
-    expect(seen[0]?.screenshots.map((shot) => shot.checkId)).toEqual(["shows-the-list"]);
+    expect(seen[0]?.screenshots.map((shot) => shot.checkId)).toEqual([
+      "shows-the-list",
+      null,
+      null,
+    ]);
   });
 
   it("still reports a visual verdict on a run that never reached a browser", async () => {
@@ -1150,6 +1154,116 @@ describe("runBenchTask — screenshots and visual evaluation", () => {
     expect(report.status).toBe("errored");
     expect(report.visual).toEqual(VISUAL_NOT_RUN);
     expect(report.screenshots).toEqual([]);
+  });
+});
+
+describe("runBenchTask — the deliberate capture pass", () => {
+  const PORT = 5173;
+  const CAPTURED_AT = "2026-08-15T04:05:06.000Z";
+
+  function surfaceTask(surfaces?: unknown) {
+    const parsed = parseBenchTask({
+      id: "todo",
+      name: "A todo list",
+      prompts: ["Build a todo list."],
+      preview: { port: PORT },
+      ...(surfaces === undefined ? {} : { surfaces }),
+      checks: [{ id: "build", kind: "command", command: "bun run build" }],
+    });
+    if (!parsed.ok) throw new Error(parsed.error);
+    return parsed.value;
+  }
+
+  const serving = () =>
+    new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0 }), serves: [PORT] });
+
+  const browserFactory = () => async () => ({
+    ok: true as const,
+    value: new ScriptedBrowserSession({
+      pages: {
+        "/": { elements: [{ text: "Todos" }] },
+        "/settings": { elements: [{ text: "Settings" }] },
+      },
+    }),
+  });
+
+  function recordingStore() {
+    const saved: CapturedScreenshot[] = [];
+    const store: ScreenshotStore = async (screenshot) => {
+      saved.push(screenshot);
+      return { ok: true, value: screenshotFilename(screenshot.metadata) };
+    };
+    return { store, saved };
+  }
+
+  async function screenshotsOf(task: ReturnType<typeof surfaceTask>) {
+    const withSandbox = await deps(scriptedRuntime(completed), serving());
+    const { store } = recordingStore();
+
+    const report = await reportOf(task, {
+      ...withSandbox,
+      browser: browserFactory(),
+      screenshots: store,
+      now: () => new Date(CAPTURED_AT),
+    });
+
+    return report;
+  }
+
+  it("takes the default pair for a task that declares no surfaces", async () => {
+    // The done-when the whole ticket rests on: no task may end up with nothing to judge
+    // because nobody remembered to declare a view.
+    const report = await screenshotsOf(surfaceTask());
+
+    expect(report.screenshots.map((shot) => shot.surface)).toEqual([
+      { id: "home", viewport: "mobile" },
+      { id: "home", viewport: "desktop" },
+    ]);
+  });
+
+  it("photographs every declared surface at both sizes, driving the steps that reach it", async () => {
+    const report = await screenshotsOf(
+      surfaceTask([
+        { id: "empty" },
+        { id: "settings", steps: [{ step: "navigate", path: "/settings" }] },
+      ]),
+    );
+
+    expect(
+      report.screenshots.map((shot) => `${shot.surface?.id}@${shot.surface?.viewport}`),
+    ).toEqual(["empty@mobile", "empty@desktop", "settings@mobile", "settings@desktop"]);
+  });
+
+  it("changes no score, whatever the pass managed to photograph", async () => {
+    const report = await screenshotsOf(surfaceTask());
+
+    expect(report.status).toBe("passed");
+    expect(report.score).toBe(100);
+  });
+
+  it("takes nothing when the application never came up", async () => {
+    // Nothing to photograph, and nothing about that is the agent's to answer for beyond what
+    // the preview gate already said.
+    const notServing = new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 1 }) });
+    const withSandbox = await deps(scriptedRuntime(completed), notServing);
+    const { store } = recordingStore();
+
+    const report = await reportOf(surfaceTask(), {
+      ...withSandbox,
+      browser: browserFactory(),
+      screenshots: store,
+    });
+
+    expect(report.screenshots).toEqual([]);
+  });
+
+  it("takes nothing when nobody supplied somewhere to put images", async () => {
+    const withSandbox = await deps(scriptedRuntime(completed), serving());
+
+    const report = await reportOf(surfaceTask(), { ...withSandbox, browser: browserFactory() });
+
+    expect(report.screenshots).toEqual([]);
+    expect(report.status).toBe("passed");
   });
 });
 
