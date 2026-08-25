@@ -299,8 +299,8 @@ teardown ordering is only expressible if they do.
 ## Stack
 
 TypeScript (strict, no `any`) · Bun · Hono · Next.js · Postgres + Drizzle · Zod at every boundary ·
-E2B · OpenRouter · Cloudflare R2 · Better Auth · Vitest · Playwright (benchmark only) · Biome ·
-Turborepo
+E2B · OpenRouter · Cloudflare R2 · Better Auth · Kubernetes, with KEDA on queue depth and an HPA on
+open sockets · Vitest · Playwright (benchmark only) · k6 · Biome · Turborepo
 
 ## Running it
 
@@ -357,7 +357,11 @@ bun run napbench <task-id>            # one benchmark run against fakes
 bun run loadgen --users=25            # scripted users against the composed API; needs Docker
 bun run loadgen:ramp                  # the k6 ramp to 100 concurrent turns; needs Docker and k6
 infra/k8s/proof/run.sh                # the three processes on a kind cluster, proving a turn
-                                      # crosses pods and a rolling restart loses no events
+                                      # crosses pods and a rolling restart loses no events;
+                                      # needs Docker and kind
+infra/k8s/load/run.sh                 # the same ramp against a cluster with both autoscalers
+                                      # live — this is what produced the cluster figures above.
+                                      # Needs Docker, kind and k6, and runs for ~40 minutes
 ```
 
 Every external dependency sits behind a port with a production-quality fake in
