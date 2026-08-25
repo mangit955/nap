@@ -48,6 +48,7 @@ import {
   type HarnessRecord,
   harnessesDiffer,
 } from "./run-configuration.ts";
+import { scoringModelOf } from "./scoring-model.ts";
 import { carriesScore, type RunStatus } from "./status.ts";
 
 /** How one side of the comparison ended, which is all a comparison needs of a report's head. */
@@ -154,6 +155,12 @@ export function compareRuns(
     };
   }
 
+  // Asked first among the refusals, because it is the widest: two runs scored by different
+  // arithmetic have nothing further worth checking, and every comparison below — categories,
+  // score delta, effective weights — assumes the two numbers mean the same thing.
+  const model = scoringModelRefusal(baseline, candidate);
+  if (model !== null) return { ok: false, error: model };
+
   // Asked before the weights, because it is the wider refusal: this one applies to unscored
   // runs too, and a run with no score has no effective vector for the next check to look at.
   const budget = budgetRefusal(baseline, candidate);
@@ -180,6 +187,37 @@ export function compareRuns(
       sameScoreDifferentRoute: scoreDelta === 0 && routeDiffers(metrics),
     },
   };
+}
+
+/**
+ * Why these two runs were not scored by the same arithmetic, or null if they were.
+ *
+ * A `v1` score is a weighted mean over four categories with nobody having looked at the
+ * result; a `v2` score is an objective half and a judged product half multiplied together.
+ * Both land on 0–100, which is exactly what makes this dangerous: the numbers *look*
+ * comparable and are not, and a reader shown a delta between them would take it for a finding.
+ *
+ * **Refused rather than reported**, which is where this parts company with the harness
+ * identity. A differing harness is printed because "what did V2 do to the score?" is a real
+ * question somebody wants answered. There is no question a v1-against-v2 delta answers: the
+ * two measure different things on purpose, so the delta is an artefact of the change of
+ * instrument and of nothing else.
+ *
+ * **Deliberately not skipped for unscored runs.** Two errored runs still carry categories and
+ * an attribution, and comparing those across models would invite exactly the reading the
+ * refusal exists to prevent.
+ */
+function scoringModelRefusal(baseline: BenchReport, candidate: BenchReport): string | null {
+  const before = scoringModelOf(baseline.scoringModel);
+  const after = scoringModelOf(candidate.scoringModel);
+  if (before === after) return null;
+
+  return (
+    `these runs were scored by different models — ${before} and ${after}. ` +
+    "A v1 score is a weighted mean over four categories; a v2 score multiplies an objective " +
+    "half by a judged product half. Both are on 0–100 and neither is a measurement of the " +
+    "other, so there is no delta between them to read."
+  );
 }
 
 /**

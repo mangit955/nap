@@ -84,6 +84,27 @@ export const ScreenshotMetadataSchema = z.strictObject({
 export type ScreenshotMetadata = z.infer<typeof ScreenshotMetadataSchema>;
 
 /**
+ * A path inside the results directory, checked rather than merely asserted.
+ *
+ * The rule the whole archival story rests on — see this file's header — so it is a boundary
+ * guarantee rather than a convention several comments repeat. Anything validated on the way back
+ * in is untrusted input, and an absolute path in one is a report that stopped being portable.
+ *
+ * Exported because a screenshot reference is no longer the only thing that points at one: a
+ * product judgement cites the image its evidence came from, and the two must agree about what a
+ * legal path is or an archive can be moved and only half of it will still resolve.
+ */
+export const ResultsRelativePathSchema = z
+  .string()
+  .min(1)
+  .refine((value) => !value.startsWith("/") && !/^[a-zA-Z]:[\\/]/.test(value), {
+    message: "must be relative to the results directory, not absolute",
+  })
+  .refine((value) => !value.split(/[\\/]/).includes(".."), {
+    message: "must not climb out of the results directory",
+  });
+
+/**
  * What a report carries per screenshot.
  *
  * Narrower than the sidecar: a report already states its own task and run, so repeating them
@@ -100,15 +121,7 @@ export const ScreenshotRefSchema = z.strictObject({
    * guarantee rather than a convention four comments repeat. A report validated on the way back
    * in is untrusted input, and an absolute path in one is a report that stopped being portable.
    */
-  path: z
-    .string()
-    .min(1)
-    .refine((value) => !value.startsWith("/") && !/^[a-zA-Z]:[\\/]/.test(value), {
-      message: "must be relative to the results directory, not absolute",
-    })
-    .refine((value) => !value.split(/[\\/]/).includes(".."), {
-      message: "must not climb out of the results directory",
-    }),
+  path: ResultsRelativePathSchema,
   capturedAt: z.iso.datetime(),
 });
 

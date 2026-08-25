@@ -30,11 +30,13 @@ import { ErrorKindSchema } from "./error-kind.ts";
 import { GateIdSchema } from "./gates.ts";
 import { type RunMetrics, RunMetricsSchema } from "./metrics.ts";
 import { describeParseFailure } from "./parse-failure.ts";
+import { ProductJudgementSchema } from "./product/judgement.ts";
 import {
   type RunConfiguration,
   RunConfigurationSchema,
   UNRECORDED_CONFIGURATION,
 } from "./run-configuration.ts";
+import { ScoringModelSchema } from "./scoring-model.ts";
 import { ScreenshotRefSchema } from "./screenshot.ts";
 import { carriesScore, RunStatusSchema } from "./status.ts";
 import { VISUAL_NOT_RUN, VisualEvaluationSchema } from "./visual.ts";
@@ -183,6 +185,40 @@ export const BenchReportSchema = z
      * puts every other category on a different denominator. See docs/adr/0002.
      */
     visual: VisualEvaluationSchema,
+    /**
+     * Which arithmetic produced `score`. Absent means `v1`, and the absence is the evidence.
+     *
+     * Optional rather than defaulted for the reason `scoringModelOf` gives: a report written
+     * as `v1` and one that predates the field are different artefacts, and collapsing them in
+     * the parser would lose that distinction on the way back out. Every reader that needs one
+     * answer calls `scoringModelOf`; the file keeps saying what it actually said.
+     */
+    scoringModel: ScoringModelSchema.optional(),
+    /**
+     * The two halves `score` was combined from, or null on a run that was not scored that way.
+     *
+     * Recorded because the report has to stay arithmetically closed: without these, `score`
+     * under `v2` is a square root of two numbers a reader cannot see, and the guarantee that
+     * anybody can recompute the headline from the figures in front of them would be broken.
+     * `product` is null when nobody judged, which is the absence that has the objective half
+     * stand alone rather than being multiplied by zero.
+     */
+    halves: z
+      .strictObject({
+        objective: z.number().int().min(0).max(100),
+        product: z.number().int().min(0).max(100).nullable(),
+      })
+      .nullable()
+      .default(null),
+    /**
+     * What a product judge made of the rendered application, and null when there was no judge.
+     *
+     * Separate from `halves.product` because the two answer different questions: that is the
+     * number, and this is the argument for it — the per-dimension grades, each with the
+     * evidence and the screenshot it was drawn from. A score nobody can interrogate is the
+     * thing this whole half exists not to be.
+     */
+    product: ProductJudgementSchema.nullable().default(null),
   })
   .refine((report) => carriesScore(report.status) === (report.score !== null), {
     // The two must agree in both directions. A scored error is a fabricated number, and an
@@ -208,7 +244,22 @@ export const BenchReportSchema = z
       message: "a score may not exceed the cap recorded beside it",
       path: ["score"],
     },
-  );
+  )
+  .refine((report) => report.halves === null || report.scoringModel === "v2", {
+    // The halves *are* the v2 arithmetic. A report carrying them under v1 would claim a score
+    // was combined in a way it was not, and `compare` decides comparability from the model
+    // rather than from the fields — so a mislabelled report would be compared against the
+    // wrong things.
+    message: "halves are recorded only under the v2 scoring model",
+    path: ["halves"],
+  })
+  .refine((report) => report.product === null || report.halves?.product !== undefined, {
+    // A judgement with no number beside it means the fold was skipped, and the reader is left
+    // holding grades that never reached the score. The reverse — a number with no judgement —
+    // is legal exactly once, on a run whose judge answered `not_run`.
+    message: "a product judgement must be accompanied by the halves it was folded into",
+    path: ["product"],
+  });
 
 export type CheckResult = z.infer<typeof CheckResultSchema>;
 export type CategoryScore = z.infer<typeof CategoryScoreSchema>;
@@ -259,6 +310,12 @@ export function evaluatorErrorReport(input: {
     metrics: input.metrics,
     screenshots: [],
     visual: VISUAL_NOT_RUN,
+    // A run that crashed before it could be scored has no halves to record, whichever model
+    // was going to score it — and no judgement, because the crash is precisely why nobody got
+    // as far as looking. Null on both rather than a zero product half: this is the
+    // unmeasurable case, and `rewardFor` must be able to tell it from a bad one.
+    halves: null,
+    product: null,
   };
 }
 

@@ -239,6 +239,11 @@ export async function runBenchTask(
         metrics: deriveRunMetrics(events, { model: deps.model }),
         screenshots,
         visual,
+        // A run through this path is scored the v1 way — one weighted mean over four
+        // categories — so it records no halves and no product judgement. Stated rather than
+        // left to the schema's defaults, so that a report built here round-trips to itself.
+        halves: null,
+        product: null,
       },
       trajectory: { runId, taskId: task.id, sessionId, events },
     };
