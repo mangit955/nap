@@ -68,6 +68,10 @@ bun run napbench --suite=product  # the tasks scored on both halves — what it 
 bun run napbench --real --suite=all  # real E2B + a real model + real Chrome; this spends money
                           # --real needs NAP_CHROME_PATH as well as the usual credentials.
                           # Results (reports, trajectories, screenshots) land in napbench-results/
+bun run napbench:corpus   # re-photographs the nine fixture applications an evaluator has to be
+                          # able to tell apart — free, needs only a Chrome at NAP_CHROME_PATH.
+                          # The PNGs are committed; run this only after changing a fixture, and
+                          # re-capture the whole corpus at once. See docs/NAPBENCH.md
 bun run napbench --baseline=<run-id|path> --candidate=<run-id|path>
                           # what moved between two finished runs — reads reports, runs nothing
 bun run typecheck         # turbo: tsc --noEmit per workspace, then a root pass for test/ + configs

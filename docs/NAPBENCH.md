@@ -315,6 +315,58 @@ about itself gives a judge nothing to look at, so the runner does not ask one. T
 is the tasks that declare one, kept apart from `all` because the two are scored under different
 arithmetics.
 
+### The fixture corpus, and how the judge is checked
+
+Everything above describes a judge's output being turned into a number. None of it says whether the
+judge *works*, and an evaluator nobody has watched discriminate is a check that has never been
+observed failing — it may be returning `moderate` to everything, and no report would look any
+different.
+
+So there is a corpus: nine hand-written applications in `apps/napbench/fixtures/corpus/`, declared
+in `packages/bench/src/product/corpus.ts`. Every one of them renders **the same task tracker with
+the same content**, so the only variable between two fixtures is the design, and every one is told
+**the same single sentence of intent**. They range from a restrained professional layout through
+the generated house style — purple hero, emoji headings, three identical cards — to a page with no
+stylesheet at all, and they include three deliberate pairs: an icon-drowned interface against a
+two-icon one, a fixed-width layout against a responsive one, and a correct-but-unstyled application
+against a beautiful hollow one.
+
+They are static files with their CSS inline, photographed **once** at mobile and desktop by
+`bun run napbench:corpus` and committed as PNGs. No sandbox, no agent, no model, and no network —
+which is what makes the corpus free to keep and cheap to grade. The capture goes through
+`PlaywrightBrowserSession`, the same adapter a real run drives, so the images are produced by the
+code path under test rather than by a script with its own opinions about screenshots.
+
+**What is asserted are orderings and bounds, never absolute numbers.** `CORPUS_EXPECTATIONS` in
+`packages/bench/src/product/discrimination.ts` holds seven claims of the form "minimalist beats
+slop by at least a real margin" and "`restraint` on `excessive-gradient` is at most `weak`".
+Asserting that a fixture scores 62 would be this repo's *never assert on model prose* rule broken
+in numeric form: an exact anchor is the judge's phrasing, and a run one grade lower on two
+dimensions would fail a test while having discriminated perfectly well. Each claim is one half of a
+*pair*, which is what makes it a test of discrimination rather than of severity — a judge that
+marks every icon down passes the `excessive-icon` bound alone and fails once `icons-restrained` has
+to come back `good`.
+
+Absence is a third outcome, neither pass nor failure. A dimension the judge could not assess, a
+fixture nobody judged and a run with no judge composed all produce nothing to compare, and scoring
+those as failures would make the check loudest exactly where it learned least.
+
+The free suite runs `checkDiscrimination` against scripted judgements, including one that grades
+every fixture identically — which must fail all seven expectations, because that is the failure
+mode the corpus exists to catch. The paid suite,
+`apps/napbench/src/corpus-discrimination.integration.test.ts`, runs the identical claims against a
+real judge over the committed images: eighteen images through a vision model, and nothing else. It
+skips, with the reason printed, while `resolveProductJudge` has nothing to compose.
+
+**Follow-up: harvesting real screenshots.** A hand-written fixture is a designer's idea of slop
+rather than a specimen of it. The next step is to promote screenshots from funded runs into the
+same corpus — a run whose grade a reader disagreed with is exactly the specimen worth keeping — by
+copying the surface captures out of `napbench-results/` into a fixture directory, writing the
+fixture into `CORPUS_FIXTURES`, and adding whatever ordering it is evidence for. Harvested fixtures
+have no `index.html` and cannot be re-photographed, so `missingCorpusArtefacts` will need to learn
+that a fixture may be images-only. They *extend* the hand-written nine rather than replacing them:
+a generated application is a moving target, and something in the corpus has to stay still.
+
 ### Gates
 
 Rules that constrain the outcome regardless of what the checks summed to. An ordered ladder of pure
@@ -445,7 +497,9 @@ Filename decides which suite a test belongs to; see `CLAUDE.md`. For NapBench sp
 | `apps/napbench/src/playwright-browser-session.integration.test.ts` — the adapter against real Chrome, serving its own page on loopback | `bun run test:integration` | **A Chrome or Chromium at `NAP_CHROME_PATH`.** Skips without one. | Free |
 | `apps/napbench/src/browser-driving.integration.test.ts` — the browser steps a task uses, driven against a local application | `bun run test:integration` | **A Chrome at `NAP_CHROME_PATH`.** Skips without one. | Free |
 | `apps/napbench/src/task-commands.integration.test.ts` — every command every task declares, run against an untouched template | `bun run test:integration` | **`E2B_API_KEY` and the network.** Unlike the browser suites it **throws rather than skips** without them. | One sandbox, seconds. No model calls |
+| `apps/napbench/src/corpus-discrimination.integration.test.ts` — can a real judge tell the nine fixtures apart? | `bun run test:integration` | **A composed product judge.** Skips, with the reason printed, while there is none. No sandbox, no agent. | Eighteen images through a vision model |
 | `apps/napbench/scripts/preview-reachability.ts` — can a host-side browser reach an E2B preview? | `bun run napbench:preview-spike` | `E2B_API_KEY`, network, a Chrome | One sandbox |
+| `apps/napbench/scripts/capture-corpus.ts` — re-photographs the fixture corpus | `bun run napbench:corpus` | **A Chrome at `NAP_CHROME_PATH`.** Nothing else. | Free |
 | A dry benchmark run | `bun run napbench --suite=all` | Nothing | Free |
 | A real benchmark run | `bun run napbench --real --suite=all` | `E2B_API_KEY`, a model credential for the chosen platform, `NAP_CHROME_PATH`, network | Sandboxes + model calls |
 

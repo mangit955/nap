@@ -12,7 +12,8 @@
       "!**/.next",
       "!**/dist",
       "!**/.turbo",
-      "!packages/db/drizzle"
+      "!packages/db/drizzle",
+      "!apps/napbench/fixtures"
     ]
   },
   "formatter": {

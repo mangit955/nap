@@ -31,6 +31,8 @@ read the section covering whatever you are about to touch, not the whole file.
 
 - **Hoisting makes an undeclared workspace import work anyway.** Every `@nap/*` package is linked into the root `node_modules`, so a package can import a sibling it never declared and have it resolve, typecheck and pass CI — and because the deployed image is one workspace-wide install from `COPY . .`, it ships. `checkSourceImports` in `test/architecture.ts` is what catches it: it reads the specifiers in each package's `src` and `scripts` rather than its manifest, which is where a layering violation is actually written.
 
+- **Biome lints HTML, which makes it a participant in any corpus of deliberately bad pages.** `apps/napbench/fixtures/` holds nine hand-written applications the product judge has to be able to tell apart, and several are bad on purpose — inline `onchange` handlers, no stylesheet, decorative SVGs with no title. Biome 2.5 parses `.html` and reported 69 errors against them, all of them describing the fixture correctly. The directory is excluded in `biome.json` rather than the rules being relaxed: linting a specimen would make our lint configuration part of the corpus's design, and the benchmark would end up measuring adherence to it. The TypeScript beside them is inside every gate as usual.
+
 - **`apps/web` imports workspace packages only because `next.config.ts` lists them in `transpilePackages`.** They resolve to raw TypeScript source (`"exports": { "./*": "./src/*.ts" }`, no build step), which Next otherwise treats as published JavaScript and fails to parse. `bun run build` is the only gate that catches a missing entry — the vitest projects resolve through Vite and do not care.
 
 ## Types and data contracts

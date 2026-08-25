@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Orbit — Supercharge Your Team</title>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: linear-gradient(180deg, #f5f3ff 0%, #fdf2f8 100%);
+        color: #1f2937;
+        font: 400 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        text-align: center;
+      }
+      .hero {
+        background: linear-gradient(135deg, #7c3aed 0%, #db2777 100%);
+        color: #fff;
+        padding: 72px 24px 88px;
+      }
+      .hero h1 {
+        font-size: 40px; line-height: 1.15; font-weight: 800; margin: 0 auto 16px;
+        max-width: 620px;
+      }
+      .hero p { font-size: 18px; opacity: 0.95; margin: 0 auto 28px; max-width: 520px; }
+      .cta {
+        display: inline-block; padding: 14px 34px; border: none; border-radius: 999px;
+        background: #fff; color: #7c3aed; font: inherit; font-weight: 700; font-size: 16px;
+        box-shadow: 0 12px 30px rgba(0, 0, 0, 0.18); cursor: pointer;
+      }
+      .wrap { max-width: 1080px; margin: -48px auto 0; padding: 0 24px 72px; }
+      .cards { display: flex; gap: 24px; justify-content: center; flex-wrap: wrap; }
+      .card {
+        flex: 1 1 300px; background: #fff; border-radius: 24px; padding: 36px 28px;
+        box-shadow: 0 18px 40px rgba(124, 58, 237, 0.14);
+      }
+      .card .emoji { font-size: 40px; display: block; margin-bottom: 14px; }
+      .card h3 { font-size: 20px; font-weight: 700; margin: 0 0 10px; }
+      .card p { color: #6b7280; margin: 0; font-size: 15px; }
+      h2 { font-size: 30px; font-weight: 800; margin: 64px 0 8px; }
+      .lede { color: #6b7280; margin: 0 0 32px; }
+      .tasks {
+        background: #fff; border-radius: 24px; padding: 12px 8px;
+        box-shadow: 0 18px 40px rgba(219, 39, 119, 0.12); max-width: 640px; margin: 0 auto;
+      }
+      .task {
+        display: flex; align-items: center; justify-content: center; gap: 12px;
+        padding: 18px 20px; border-bottom: 1px solid #f3f4f6; font-size: 16px;
+      }
+      .task:last-child { border-bottom: none; }
+      .pill {
+        border-radius: 999px; padding: 5px 14px; font-size: 13px; font-weight: 700;
+        background: linear-gradient(135deg, #a78bfa, #f472b6); color: #fff;
+      }
+      .adder { margin: 32px auto 0; display: flex; gap: 12px; max-width: 520px; }
+      .adder input {
+        flex: 1; padding: 14px 18px; border-radius: 999px; border: 2px solid #ede9fe;
+        font: inherit; font-size: 15px; text-align: center;
+      }
+      .adder button {
+        padding: 14px 28px; border: none; border-radius: 999px; cursor: pointer;
+        background: linear-gradient(135deg, #7c3aed, #db2777); color: #fff;
+        font: inherit; font-weight: 700;
+      }
+    </style>
+  </head>
+  <body>
+    <section class="hero">
+      <h1>✨ Supercharge Your Team's Productivity 🚀</h1>
+      <p>The all-in-one task platform that empowers modern teams to unlock their full potential.</p>
+      <button class="cta">Get Started Free →</button>
+    </section>
+
+    <div class="wrap">
+      <div class="cards">
+        <div class="card">
+          <span class="emoji">⚡</span>
+          <h3>Lightning Fast</h3>
+          <p>Blazing-fast performance so your team never waits around.</p>
+        </div>
+        <div class="card">
+          <span class="emoji">🎯</span>
+          <h3>Stay Focused</h3>
+          <p>Powerful tools that help everyone focus on what matters most.</p>
+        </div>
+        <div class="card">
+          <span class="emoji">🔒</span>
+          <h3>Secure by Design</h3>
+          <p>Enterprise-grade security you and your team can rely on.</p>
+        </div>
+      </div>
+
+      <h2>🎉 Your Amazing Tasks</h2>
+      <p class="lede">Everything your team is working on, all in one beautiful place.</p>
+
+      <div class="tasks">
+        <div class="task">🔥 Draft the Q3 rollout plan <span class="pill">In Progress</span></div>
+        <div class="task">🐛 Fix the sign-in redirect loop <span class="pill">In Progress</span></div>
+        <div class="task">📝 Review the pricing copy <span class="pill">Todo</span></div>
+        <div class="task">🚧 Migrate the staging database <span class="pill">Blocked</span></div>
+        <div class="task">✅ Ship the onboarding email <span class="pill">Done</span></div>
+      </div>
+
+      <form class="adder" onsubmit="return false">
+        <input placeholder="✏️ What's next?" aria-label="Add a task" />
+        <button type="submit">Add Task 🚀</button>
+      </form>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Orbit — board</title>
+    <style>
+      /* Structurally the same page as `excessive-icon`: the same stylesheet, the same header, meta
+         row, nav, form and list, at the same widths and with the same words. What differs is the
+         glyphs — two here against thirty-odd — and the single row action that a column of four of
+         them had stood in for. A pair that also differed in layout would let a judge satisfy both
+         restraint bounds while grading something else entirely. */
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: #fff; color: #16181d;
+        font: 400 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      }
+      .shell { max-width: 760px; margin: 0 auto; padding: 40px 24px 72px; }
+      .icon { width: 16px; height: 16px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+      header { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+      h1 { margin: 0; font-size: 22px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+      .sub { display: flex; align-items: center; gap: 8px; color: #6b7280; font-size: 13px; margin: 0 0 4px; }
+      .meta { display: flex; gap: 18px; color: #6b7280; font-size: 13px; margin: 10px 0 0; }
+      .meta span { display: inline-flex; align-items: center; gap: 6px; }
+
+      nav { display: flex; gap: 8px; margin: 22px 0; flex-wrap: wrap; }
+      nav a {
+        display: inline-flex; align-items: center; gap: 7px; text-decoration: none; color: #374151;
+        border: 1px solid #e6e8ec; border-radius: 8px; padding: 7px 12px; font-size: 13px;
+      }
+
+      form { display: flex; gap: 8px; margin: 18px 0 6px; }
+      .field { flex: 1; display: flex; align-items: center; gap: 8px; border: 1px solid #e6e8ec; border-radius: 8px; padding: 0 12px; color: #9aa1ab; }
+      input { flex: 1; min-width: 0; border: none; outline: none; padding: 10px 0; font: inherit; font-size: 14px; color: #16181d; }
+      button {
+        display: inline-flex; align-items: center; gap: 7px; padding: 10px 16px; cursor: pointer;
+        font: inherit; font-size: 14px; font-weight: 500; color: #fff;
+        background: #2f45c5; border: 1px solid #2f45c5; border-radius: 8px;
+      }
+
+      ul { list-style: none; margin: 20px 0 0; padding: 0; }
+      li { display: flex; align-items: center; gap: 10px; padding: 14px 2px; border-top: 1px solid #e6e8ec; }
+      li:last-child { border-bottom: 1px solid #e6e8ec; }
+      .title { flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 8px; }
+      .state { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #6b7280; }
+      .who { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #6b7280; }
+      .row-actions { display: inline-flex; gap: 8px; color: #9aa1ab; font-size: 13px; }
+      .row-actions a { color: #9aa1ab; text-decoration: none; }
+      footer { display: flex; align-items: center; gap: 8px; margin-top: 26px; color: #6b7280; font-size: 13px; }
+    </style>
+  </head>
+  <body>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></symbol>
+    </svg>
+
+    <div class="shell">
+      <header>
+        <h1>Board</h1>
+      </header>
+      <p class="sub">Orbit · week of 18 August</p>
+      <div class="meta">
+        <span>5 items</span>
+        <span>1 done</span>
+        <span>2 in progress</span>
+        <span>1 blocked</span>
+      </div>
+
+      <nav>
+        <a href="#">All</a>
+        <a href="#">Active</a>
+        <a href="#">Done</a>
+        <a href="#">Mine</a>
+        <a href="#">Starred</a>
+        <a href="#">Reports</a>
+      </nav>
+
+      <form onsubmit="return false">
+        <span class="field">
+          <!-- One of the two. This box both filters and adds, and the magnifier is what tells a
+               reader that typing in it does something before they have pressed Add. -->
+          <svg class="icon"><use href="#i-search" /></svg>
+          <input placeholder="Add a task" aria-label="Add a task" />
+        </span>
+        <!-- The other. A plus on the primary action is read faster than the word beside it, and
+             it is the only glyph on the page that is repeated nowhere else. -->
+        <button type="submit"><svg class="icon"><use href="#i-plus" /></svg> Add</button>
+      </form>
+
+      <ul>
+        <li>
+          <span class="state">In progress</span>
+          <span class="title">Draft the Q3 rollout plan</span>
+          <span class="who">Priya</span>
+          <span class="row-actions"><a href="#">Edit</a></span>
+        </li>
+        <li>
+          <span class="state">In progress</span>
+          <span class="title">Fix the sign-in redirect loop</span>
+          <span class="who">Sam</span>
+          <span class="row-actions"><a href="#">Edit</a></span>
+        </li>
+        <li>
+          <span class="state">Todo</span>
+          <span class="title">Review the pricing copy</span>
+          <span class="who">Alex</span>
+          <span class="row-actions"><a href="#">Edit</a></span>
+        </li>
+        <li>
+          <span class="state">Blocked</span>
+          <span class="title">Migrate the staging database</span>
+          <span class="who">Priya</span>
+          <span class="row-actions"><a href="#">Edit</a></span>
+        </li>
+        <li>
+          <span class="state">Done</span>
+          <span class="title">Ship the onboarding email</span>
+          <span class="who">Sam</span>
+          <span class="row-actions"><a href="#">Edit</a></span>
+        </li>
+      </ul>
+
+      <footer>1 done · 2 in progress · 1 blocked · 1 todo</footer>
+    </div>
+  </body>
+</html>

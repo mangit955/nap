@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Orbit — board</title>
+    <style>
+      /* Inline SVG rather than an icon font or emoji, so what is photographed does not depend on
+         which fonts the capturing machine happens to have installed. */
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: #fff; color: #16181d;
+        font: 400 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      }
+      .shell { max-width: 760px; margin: 0 auto; padding: 40px 24px 72px; }
+      .icon { width: 16px; height: 16px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+      .icon.lg { width: 22px; height: 22px; }
+
+      header { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+      h1 { margin: 0; font-size: 22px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+      .sub { display: flex; align-items: center; gap: 8px; color: #6b7280; font-size: 13px; margin: 0 0 4px; }
+      .meta { display: flex; gap: 18px; color: #6b7280; font-size: 13px; margin: 10px 0 0; }
+      .meta span { display: inline-flex; align-items: center; gap: 6px; }
+
+      nav { display: flex; gap: 8px; margin: 22px 0; flex-wrap: wrap; }
+      nav a {
+        display: inline-flex; align-items: center; gap: 7px; text-decoration: none; color: #374151;
+        border: 1px solid #e6e8ec; border-radius: 8px; padding: 7px 12px; font-size: 13px;
+      }
+
+      form { display: flex; gap: 8px; margin: 18px 0 6px; }
+      .field { flex: 1; display: flex; align-items: center; gap: 8px; border: 1px solid #e6e8ec; border-radius: 8px; padding: 0 12px; color: #9aa1ab; }
+      input { flex: 1; min-width: 0; border: none; outline: none; padding: 10px 0; font: inherit; font-size: 14px; color: #16181d; }
+      button {
+        display: inline-flex; align-items: center; gap: 7px; padding: 10px 16px; cursor: pointer;
+        font: inherit; font-size: 14px; font-weight: 500; color: #fff;
+        background: #2f45c5; border: 1px solid #2f45c5; border-radius: 8px;
+      }
+
+      ul { list-style: none; margin: 20px 0 0; padding: 0; }
+      li { display: flex; align-items: center; gap: 10px; padding: 14px 2px; border-top: 1px solid #e6e8ec; }
+      li:last-child { border-bottom: 1px solid #e6e8ec; }
+      .title { flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 8px; }
+      .state { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #6b7280; }
+      .who { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #6b7280; }
+      .row-actions { display: inline-flex; gap: 8px; color: #9aa1ab; }
+      footer { display: flex; align-items: center; gap: 8px; margin-top: 26px; color: #6b7280; font-size: 13px; }
+    </style>
+  </head>
+  <body>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" /></symbol>
+      <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></symbol>
+      <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3 2 20h20L12 3z" /><path d="M12 10v4" /><path d="M12 17h.01" /></symbol>
+      <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></symbol>
+      <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3 6.4 20.2l1.1-6.2L3 9.6l6.2-.9z" /></symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></symbol>
+      <symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 16V10a6 6 0 1 0-12 0v6l-2 2h16z" /><path d="M10 21h4" /></symbol>
+      <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" /></symbol>
+      <symbol id="i-tag" viewBox="0 0 24 24"><path d="M3 3h8l10 10-8 8L3 11z" /><circle cx="7.5" cy="7.5" r="1.5" /></symbol>
+      <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M8 3v4M16 3v4M3 10h18" /></symbol>
+      <symbol id="i-dots" viewBox="0 0 24 24"><circle cx="6" cy="12" r="1.4" /><circle cx="12" cy="12" r="1.4" /><circle cx="18" cy="12" r="1.4" /></symbol>
+      <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M4 20h4l11-11a2.8 2.8 0 0 0-4-4L4 16z" /></symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" /></symbol>
+      <symbol id="i-rocket" viewBox="0 0 24 24"><path d="M5 15c-1 3 0 4 0 4s1 1 4 0" /><path d="M14 4c4 2 6 6 5 11l-4 2-6-6 2-4c1-1.6 2-2.6 3-3z" /><circle cx="14.5" cy="9.5" r="1.5" /></symbol>
+    </svg>
+
+    <div class="shell">
+      <header>
+        <svg class="icon lg"><use href="#i-rocket" /></svg>
+        <h1><svg class="icon lg"><use href="#i-folder" /></svg> Board</h1>
+        <svg class="icon lg"><use href="#i-star" /></svg>
+        <svg class="icon lg"><use href="#i-bell" /></svg>
+      </header>
+      <p class="sub">
+        <svg class="icon"><use href="#i-calendar" /></svg> Orbit
+        <svg class="icon"><use href="#i-tag" /></svg> week of 18 August
+      </p>
+      <div class="meta">
+        <span><svg class="icon"><use href="#i-chart" /></svg> 5 items</span>
+        <span><svg class="icon"><use href="#i-check" /></svg> 1 done</span>
+        <span><svg class="icon"><use href="#i-clock" /></svg> 2 in progress</span>
+        <span><svg class="icon"><use href="#i-alert" /></svg> 1 blocked</span>
+      </div>
+
+      <nav>
+        <a href="#"><svg class="icon"><use href="#i-folder" /></svg> All</a>
+        <a href="#"><svg class="icon"><use href="#i-clock" /></svg> Active</a>
+        <a href="#"><svg class="icon"><use href="#i-check" /></svg> Done</a>
+        <a href="#"><svg class="icon"><use href="#i-user" /></svg> Mine</a>
+        <a href="#"><svg class="icon"><use href="#i-star" /></svg> Starred</a>
+        <a href="#"><svg class="icon"><use href="#i-chart" /></svg> Reports</a>
+      </nav>
+
+      <form onsubmit="return false">
+        <span class="field">
+          <svg class="icon"><use href="#i-search" /></svg>
+          <svg class="icon"><use href="#i-pencil" /></svg>
+          <input placeholder="Add a task" aria-label="Add a task" />
+          <svg class="icon"><use href="#i-tag" /></svg>
+        </span>
+        <button type="submit"><svg class="icon"><use href="#i-plus" /></svg> Add <svg class="icon"><use href="#i-rocket" /></svg></button>
+      </form>
+
+      <ul>
+        <li>
+          <svg class="icon"><use href="#i-clock" /></svg>
+          <span class="state">In progress</span>
+          <span class="title"><svg class="icon"><use href="#i-folder" /></svg> Draft the Q3 rollout plan</span>
+          <span class="who"><svg class="icon"><use href="#i-user" /></svg> Priya</span>
+          <span class="row-actions">
+            <svg class="icon"><use href="#i-star" /></svg>
+            <svg class="icon"><use href="#i-pencil" /></svg>
+            <svg class="icon"><use href="#i-trash" /></svg>
+            <svg class="icon"><use href="#i-dots" /></svg>
+          </span>
+        </li>
+        <li>
+          <svg class="icon"><use href="#i-clock" /></svg>
+          <span class="state">In progress</span>
+          <span class="title"><svg class="icon"><use href="#i-alert" /></svg> Fix the sign-in redirect loop</span>
+          <span class="who"><svg class="icon"><use href="#i-user" /></svg> Sam</span>
+          <span class="row-actions">
+            <svg class="icon"><use href="#i-star" /></svg>
+            <svg class="icon"><use href="#i-pencil" /></svg>
+            <svg class="icon"><use href="#i-trash" /></svg>
+            <svg class="icon"><use href="#i-dots" /></svg>
+          </span>
+        </li>
+        <li>
+          <svg class="icon"><use href="#i-tag" /></svg>
+          <span class="state">Todo</span>
+          <span class="title"><svg class="icon"><use href="#i-pencil" /></svg> Review the pricing copy</span>
+          <span class="who"><svg class="icon"><use href="#i-user" /></svg> Alex</span>
+          <span class="row-actions">
+            <svg class="icon"><use href="#i-star" /></svg>
+            <svg class="icon"><use href="#i-pencil" /></svg>
+            <svg class="icon"><use href="#i-trash" /></svg>
+            <svg class="icon"><use href="#i-dots" /></svg>
+          </span>
+        </li>
+        <li>
+          <svg class="icon"><use href="#i-alert" /></svg>
+          <span class="state">Blocked</span>
+          <span class="title"><svg class="icon"><use href="#i-chart" /></svg> Migrate the staging database</span>
+          <span class="who"><svg class="icon"><use href="#i-user" /></svg> Priya</span>
+          <span class="row-actions">
+            <svg class="icon"><use href="#i-star" /></svg>
+            <svg class="icon"><use href="#i-pencil" /></svg>
+            <svg class="icon"><use href="#i-trash" /></svg>
+            <svg class="icon"><use href="#i-dots" /></svg>
+          </span>
+        </li>
+        <li>
+          <svg class="icon"><use href="#i-check" /></svg>
+          <span class="state">Done</span>
+          <span class="title"><svg class="icon"><use href="#i-bell" /></svg> Ship the onboarding email</span>
+          <span class="who"><svg class="icon"><use href="#i-user" /></svg> Sam</span>
+          <span class="row-actions">
+            <svg class="icon"><use href="#i-star" /></svg>
+            <svg class="icon"><use href="#i-pencil" /></svg>
+            <svg class="icon"><use href="#i-trash" /></svg>
+            <svg class="icon"><use href="#i-dots" /></svg>
+          </span>
+        </li>
+      </ul>
+
+      <footer>
+        <svg class="icon"><use href="#i-chart" /></svg> 1 done
+        <svg class="icon"><use href="#i-clock" /></svg> 2 in progress
+        <svg class="icon"><use href="#i-alert" /></svg> 1 blocked
+        <svg class="icon"><use href="#i-tag" /></svg> 1 todo
+      </footer>
+    </div>
+  </body>
+</html>

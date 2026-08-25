@@ -402,6 +402,20 @@ Which arithmetic produced a run's number is recorded on the report as its **scor
 or `v2`, and `compare` refuses to put one beside the other: the scale is the same and the meaning
 is not.
 
+**Fixture corpus** — nine hand-written applications, committed as pages plus photographs, that a
+judge has to be able to tell apart. Nine designs of *one* application with one shared **Intent**, so
+design is the only variable between two of them. It is not a benchmark task and never runs: nothing
+is generated, no sandbox is acquired and no score reaches a report. It exists because an evaluator
+nobody has watched discriminate is a check that has never been observed failing.
+
+**Discrimination expectation** — one claim about what the corpus's grades must *do*: an **ordering**
+(minimalist beats slop by at least a real margin) or a **grade bound** (`restraint` on
+excessive-gradient is at most `weak`). Never an absolute number — that would be *assert on model
+prose* in numeric form. Each is one half of a pair, so passing it requires telling two fixtures
+apart rather than marking one thing down everywhere. Its three outcomes are **met**, **unmet** and
+**not assessable**; the third is absence, which is neither, for the reason the **product half**
+renormalises rather than scoring zero.
+
 **Reference screenshot** — what a browser check's screenshot is *meant* to look like, as a path the
 task declares. Nothing compares against it yet; it is expressible now so that tasks can carry
 references before the judge that reads them exists. Declared per check rather than per task,

@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Orbit — board</title>
+    <!--
+      Carefully designed and functionally hollow. There is no script on this page: the form
+      swallows its submit and adds nothing, the checkboxes are inert, the filter filters nothing,
+      and the summary numbers are typed in rather than counted. None of that is visible in a
+      photograph, which is exactly the point — the judge sees screenshots and no source, so this
+      must grade well on the product half and be caught by the objective one.
+    -->
+    <style>
+      :root {
+        --ink: #1c1917;
+        --muted: #78716c;
+        --line: #eae7e3;
+        --paper: #fbfaf8;
+        --accent: #9a3412;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--paper); color: var(--ink);
+        font: 400 15px/1.6 ui-serif, Georgia, "Times New Roman", serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      .shell { max-width: 760px; margin: 0 auto; padding: 64px 28px 96px; }
+
+      .eyebrow {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        font-size: 11px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase;
+        color: var(--accent); margin: 0 0 10px;
+      }
+      h1 { margin: 0; font-size: 34px; line-height: 1.15; font-weight: 600; letter-spacing: -0.02em; }
+      .lede { color: var(--muted); font-size: 16px; margin: 12px 0 0; max-width: 46ch; }
+
+      .stats { display: flex; gap: 40px; margin: 36px 0 0; padding: 22px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+      .stat .n { display: block; font-size: 28px; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+      .stat .k {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted);
+      }
+
+      form { display: flex; gap: 10px; margin: 32px 0 4px; }
+      input {
+        flex: 1; min-width: 0; padding: 12px 14px; font: inherit; font-size: 15px; color: var(--ink);
+        background: #fff; border: 1px solid var(--line); border-radius: 4px;
+      }
+      input::placeholder { color: #a8a29e; }
+      button {
+        padding: 12px 22px; cursor: pointer; border-radius: 4px; border: 1px solid var(--accent);
+        background: var(--accent); color: #fff;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        font-size: 14px; font-weight: 500;
+      }
+
+      ul { list-style: none; margin: 28px 0 0; padding: 0; }
+      li { display: flex; align-items: baseline; gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--line); }
+      li:first-child { border-top: 1px solid var(--line); }
+      .mark { width: 15px; height: 15px; border: 1px solid #d6d3d1; border-radius: 3px; flex: none; align-self: center; background: #fff; }
+      .done .mark { background: var(--accent); border-color: var(--accent); }
+      .title { flex: 1; min-width: 0; font-size: 16px; }
+      .done .title { color: var(--muted); }
+      .state {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+        width: 96px; text-align: right;
+      }
+      .state.blocked { color: var(--accent); }
+      .who { color: var(--muted); font-size: 14px; width: 52px; text-align: right; }
+
+      @media (max-width: 600px) {
+        .shell { padding: 40px 20px 64px; }
+        h1 { font-size: 28px; }
+        .stats { gap: 28px; }
+        form { flex-direction: column; }
+        li { flex-wrap: wrap; gap: 8px 14px; }
+        .title { flex-basis: 100%; order: -1; }
+        .state, .who { width: auto; text-align: left; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <p class="eyebrow">Orbit · week of 18 August</p>
+      <h1>Board</h1>
+      <p class="lede">Everything the team has in flight this week, and where each piece of it has got to.</p>
+
+      <div class="stats">
+        <div class="stat"><span class="n">5</span><span class="k">Items</span></div>
+        <div class="stat"><span class="n">2</span><span class="k">In flight</span></div>
+        <div class="stat"><span class="n">1</span><span class="k">Blocked</span></div>
+        <div class="stat"><span class="n">1</span><span class="k">Shipped</span></div>
+      </div>
+
+      <form onsubmit="return false">
+        <input placeholder="Add a task" aria-label="Add a task" />
+        <button type="submit">Add</button>
+      </form>
+
+      <ul>
+        <li>
+          <span class="mark"></span>
+          <span class="title">Draft the Q3 rollout plan</span>
+          <span class="state">In progress</span>
+          <span class="who">Priya</span>
+        </li>
+        <li>
+          <span class="mark"></span>
+          <span class="title">Fix the sign-in redirect loop</span>
+          <span class="state">In progress</span>
+          <span class="who">Sam</span>
+        </li>
+        <li>
+          <span class="mark"></span>
+          <span class="title">Review the pricing copy</span>
+          <span class="state">Todo</span>
+          <span class="who">Alex</span>
+        </li>
+        <li>
+          <span class="mark"></span>
+          <span class="title">Migrate the staging database</span>
+          <span class="state blocked">Blocked</span>
+          <span class="who">Priya</span>
+        </li>
+        <li class="done">
+          <span class="mark"></span>
+          <span class="title">Ship the onboarding email</span>
+          <span class="state">Done</span>
+          <span class="who">Sam</span>
+        </li>
+      </ul>
+    </div>
+  </body>
+</html>
