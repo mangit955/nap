@@ -7,8 +7,8 @@
  * advance. An evaluator nobody has watched discriminate is a check that has never been observed
  * failing, and this file is where it is observed.
  *
- * **It asserts orderings and bounds, never absolute numbers.** `restraint` on `excessive-gradient`
- * is at most `weak`; `minimalist-professional` beats `ai-slop-generic` by a real margin. Asserting
+ * **It asserts orderings and bounds, never absolute numbers.** `icons-restrained` out-grades
+ * `excessive-icon` on `restraint`; `minimalist-professional` beats `ai-slop-generic`. Asserting
  * that a fixture scores 62 would be this repo's "never assert on model prose" rule broken in
  * numeric form — an exact anchor is the judge's phrasing, and a run one grade lower on two
  * dimensions would fail while having discriminated perfectly well. The claims live in
@@ -33,6 +33,7 @@ import {
 } from "@nap/bench/product/corpus";
 import {
   checkDiscrimination,
+  type DiscriminationStatus,
   describeExpectation,
   summariseDiscrimination,
   unmetExpectations,
@@ -47,6 +48,13 @@ const judge = resolveProductJudge(process.env, { screenshotRoot: CORPUS_ROOT });
 if (!judge.ok) {
   console.warn(`skipping the corpus discrimination suite: ${judge.error}`);
 }
+
+/** So a scan down the output finds the disagreements without reading every line. */
+const MARKS: Record<DiscriminationStatus, string> = {
+  met: "\u2713",
+  unmet: "\u2717",
+  not_assessable: "?",
+};
 
 /** One run id for the whole pass, so every judgement is attributable to this one sitting. */
 const RUN_ID = `corpus-${new Date().toISOString().replaceAll(/[:.]/g, "-")}`;
@@ -87,8 +95,16 @@ describe.skipIf(!judge.ok)("the fixture corpus, judged for real", () => {
       (outcome) => `${describeExpectation(outcome.expectation)} — ${outcome.detail}`,
     );
 
-    // Printed whether or not anything failed: a run where most expectations were unassessable is
-    // green and worthless, and the summary is the only place that distinction is visible.
+    // Every outcome, whether or not anything failed. Two reasons, and the second is the one that
+    // earns the noise: a run where most expectations were unassessable is green and worthless, and
+    // the counts are the only place that shows; and this run cost real money, so what it observed
+    // — the grades, not just the verdicts — is the artefact, and a suite that printed a pass/fail
+    // would make somebody pay again to find out what the judge actually said.
+    for (const outcome of outcomes) {
+      console.log(
+        `  ${MARKS[outcome.status]} ${describeExpectation(outcome.expectation)} — ${outcome.detail}`,
+      );
+    }
     console.log(summariseDiscrimination(outcomes));
 
     expect(unmet).toEqual([]);

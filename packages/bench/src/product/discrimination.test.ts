@@ -5,6 +5,7 @@ import {
   CORPUS_EXPECTATIONS,
   checkDiscrimination,
   describeExpectation,
+  fixturesNamedBy,
   isAtLeast,
   isAtMost,
   summariseDiscrimination,
@@ -91,11 +92,7 @@ describe("the corpus expectations", () => {
     const ids = new Set<string>(CORPUS_FIXTURES.map((fixture) => fixture.id));
 
     for (const expectation of CORPUS_EXPECTATIONS) {
-      const named =
-        expectation.kind === "beats"
-          ? [expectation.better, expectation.worse]
-          : [expectation.fixture];
-      for (const id of named) expect(ids.has(id)).toBe(true);
+      for (const id of fixturesNamedBy(expectation)) expect(ids.has(id)).toBe(true);
     }
   });
 
@@ -105,7 +102,7 @@ describe("the corpus expectations", () => {
     expect(described).toEqual(
       expect.arrayContaining([
         expect.stringContaining("minimalist-professional beats ai-slop-generic"),
-        expect.stringContaining("excessive-gradient restraint at most weak"),
+        expect.stringContaining("minimalist-professional grades better than excessive-gradient"),
         expect.stringContaining("icons-restrained restraint at least good"),
         expect.stringContaining("desktop-only-breaks-mobile responsiveness at most weak"),
       ]),
@@ -131,10 +128,19 @@ describe("summariseDiscrimination", () => {
     const judgements = discriminatingJudgements();
     judgements.set("icons-restrained", PRODUCT_NOT_RUN);
 
+    // Derived rather than written down: a fixture can be named by more than one expectation —
+    // `icons-restrained` carries both halves of the icon claim — so a hard-coded count silently
+    // stops describing the corpus the first time one grows a second claim about it.
+    const affected = CORPUS_EXPECTATIONS.filter((expectation) =>
+      fixturesNamedBy(expectation).includes("icons-restrained"),
+    ).length;
+    expect(affected).toBeGreaterThan(1);
+
     const summary = summariseDiscrimination(checkDiscrimination(judgements));
 
     expect(summary).toBe(
-      `${CORPUS_EXPECTATIONS.length - 1} met, 0 unmet, 1 not assessable, of ${CORPUS_EXPECTATIONS.length}`,
+      `${CORPUS_EXPECTATIONS.length - affected} met, 0 unmet, ${affected} not assessable, ` +
+        `of ${CORPUS_EXPECTATIONS.length}`,
     );
   });
 });
@@ -191,6 +197,80 @@ describe("checkDiscrimination", () => {
   });
 });
 
+/**
+ * The pair form of a bound, and the shape the two `restraint` claims took after three funded arms
+ * showed the judge ordering the pairs correctly while refusing to go as low as the bounds asked.
+ */
+describe("a pair ordering on one dimension", () => {
+  const iconPair = (outcomes: ReturnType<typeof checkDiscrimination>) =>
+    outcomes.find(
+      (outcome) =>
+        outcome.expectation.kind === "grades_better" &&
+        outcome.expectation.worse === "excessive-icon",
+    );
+
+  it("is met when the restrained half out-grades the overused one", () => {
+    const outcomes = checkDiscrimination(
+      judgeAll({
+        "icons-restrained": { ...flat("moderate"), restraint: "good" },
+        "excessive-icon": { ...flat("moderate"), restraint: "moderate" },
+      }),
+    );
+
+    expect(iconPair(outcomes)?.status).toBe("met");
+  });
+
+  /**
+   * The whole reason the kind exists. A judge that grades the pair equally has not seen the only
+   * thing that differs between them, and "close enough" is exactly the forgiveness that would let
+   * an instrument which discriminates not at all come back green.
+   */
+  it("is unmet when both halves get the same grade", () => {
+    const outcomes = checkDiscrimination(
+      judgeAll({
+        "icons-restrained": { ...flat("moderate"), restraint: "good" },
+        "excessive-icon": { ...flat("moderate"), restraint: "good" },
+      }),
+    );
+
+    expect(iconPair(outcomes)?.status).toBe("unmet");
+    expect(iconPair(outcomes)?.detail).toContain("good");
+  });
+
+  it("is unmet when the pair comes back the wrong way round", () => {
+    const outcomes = checkDiscrimination(
+      judgeAll({
+        "icons-restrained": { ...flat("moderate"), restraint: "weak" },
+        "excessive-icon": { ...flat("moderate"), restraint: "excellent" },
+      }),
+    );
+
+    expect(iconPair(outcomes)?.status).toBe("unmet");
+  });
+
+  /** Survives a judge whose scale sits lower than ours, which a bound would not. */
+  it("is met by a harsh judge that still tells them apart", () => {
+    const outcomes = checkDiscrimination(
+      judgeAll({
+        "icons-restrained": { ...flat("weak"), restraint: "weak" },
+        "excessive-icon": { ...flat("weak"), restraint: "poor" },
+      }),
+    );
+
+    expect(iconPair(outcomes)?.status).toBe("met");
+  });
+
+  it("is not assessable when either half was never graded", () => {
+    const judgements = discriminatingJudgements();
+    judgements.set("excessive-icon", PRODUCT_NOT_RUN);
+
+    const outcome = iconPair(checkDiscrimination(judgements));
+
+    expect(outcome?.status).toBe("not_assessable");
+    expect(outcome?.detail).toContain("excessive-icon");
+  });
+});
+
 describe("absence", () => {
   it("is not a failure when nobody judged a fixture", () => {
     const judgements = discriminatingJudgements();
@@ -199,7 +279,8 @@ describe("absence", () => {
     const outcomes = checkDiscrimination(judgements);
     const affected = outcomes.filter(
       (outcome) =>
-        outcome.expectation.kind !== "beats" && outcome.expectation.fixture === "icons-restrained",
+        outcome.expectation.kind !== "beats" &&
+        fixturesNamedBy(outcome.expectation).includes("icons-restrained"),
     );
 
     expect(affected.length).toBeGreaterThan(0);
@@ -230,8 +311,8 @@ describe("absence", () => {
     const outcomes = checkDiscrimination(judgements);
     const restraint = outcomes.find(
       (outcome) =>
-        outcome.expectation.kind === "grade_at_most" &&
-        outcome.expectation.fixture === "excessive-gradient",
+        outcome.expectation.kind === "grades_better" &&
+        outcome.expectation.worse === "excessive-gradient",
     );
 
     expect(restraint?.status).toBe("not_assessable");

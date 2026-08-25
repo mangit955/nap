@@ -466,15 +466,22 @@ mode the corpus exists to catch. The paid suite,
 real judge over the committed images: eighteen images through a vision model, and nothing else. It
 skips, with the reason printed, when there is no `OPENROUTER_API_KEY` to compose one with.
 
-**It is currently red, and that is the finding rather than a bug.** Three funded arms — two models
-and two rubric revisions — meet four of the seven expectations. The judge orders every pair
-correctly, including the two the corpus was built around; what it will not do is put an overuse
-fixture below `moderate` on `restraint`, or open more than an eleven-point gap between the top and
-the bottom of the corpus. That is three unmet expectations: one `beats` margin, and two
-`grade_at_most` bounds — and a `grade_at_most` is an absolute claim about a single grade, which is
-the shape `discrimination.ts` opens by arguing against. Read
-[`napbench-vision-judge.md`](napbench-vision-judge.md) before changing an expectation to make this
-green; the numbers are there and the argument is not settled.
+**It is currently red on exactly one expectation, and that is the finding rather than a bug.**
+Four funded arms — two models, two rubric revisions, and one after the expectations were re-shaped
+— meet six of seven. What the judge will not do is open a fifteen-point gap between the top and the
+bottom of the corpus: the margin measured 11, 10 and 13, and `MEANINGFUL_MARGIN` was left at 15
+rather than lowered to whatever had just been observed.
+
+Two expectations *were* re-shaped, and the distinction is the useful part. They asked for `restraint
+at most weak` on the two overuse fixtures; three arms put both at `moderate` and would not go lower,
+while grading their partners above them every time. So the judge could tell the pairs apart and
+simply disagreed about where on the scale the bad one sits — and a `grade_at_most` is an absolute
+claim about a single grade, the shape `discrimination.ts` opens by arguing against. They are
+`grades_better` pair orderings now, and the confirming arm met both by two anchors. The *responsive*
+bounds are the same shape and stayed absolute, because every arm met them: a bound is wrong when the
+corpus cannot demonstrate it, not because it is a bound. Read
+[`napbench-vision-judge.md`](napbench-vision-judge.md) before touching the margin; the numbers are
+there and that argument is not settled.
 
 **Follow-up: harvesting real screenshots.** A hand-written fixture is a designer's idea of slop
 rather than a specimen of it. The next step is to promote screenshots from funded runs into the

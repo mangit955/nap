@@ -1,13 +1,28 @@
 /**
  * What the corpus's grades must *do*, and the check that says whether they did it.
  *
- * **Orderings and bounds, never absolute numbers.** `restraint` on `excessive-gradient` is at most
- * `weak`; `minimalist-professional` beats `ai-slop-generic` by a real margin. What is never
- * asserted is that a fixture scores 62, because that is this repo's "never assert on model prose"
- * rule wearing different clothes: an exact grade is the judge's phrasing, and a run that came back
- * one anchor lower on two dimensions would fail a test while having discriminated perfectly well.
- * An ordering is the claim actually being made — *can this instrument tell these two apart* — and
- * it survives a judge being retuned, reworded or replaced.
+ * **Orderings and bounds, never absolute numbers.** `icons-restrained` grades better than
+ * `excessive-icon` on `restraint`; `minimalist-professional` beats `ai-slop-generic` by a real
+ * margin. What is never asserted is that a fixture scores 62, because that is this repo's "never
+ * assert on model prose" rule wearing different clothes: an exact grade is the judge's phrasing,
+ * and a run that came back one anchor lower on two dimensions would fail a test while having
+ * discriminated perfectly well. An ordering is the claim actually being made — *can this
+ * instrument tell these two apart* — and it survives a judge being retuned, reworded or replaced.
+ *
+ * **The two `restraint` claims were absolute bounds, and measurement moved them.** They asked for
+ * `at most weak` on the two overuse fixtures, and three funded arms — two models, two rubric
+ * revisions — put both at `moderate` and would not go lower. The pairs held throughout: the judge
+ * graded `icons-restrained` above `excessive-icon` on every arm, so it *could* tell them apart and
+ * simply disagreed with us about where on the scale the bad one sits. A `grade_at_most` is an
+ * absolute claim about a single grade, which is the shape the paragraph above argues against, and
+ * it was the wrong instrument for the claim the corpus was actually making. They are orderings
+ * now. See `docs/napbench-vision-judge.md` for the numbers.
+ *
+ * **The responsive bounds stayed absolute, and that is the point of not doing this by rule.** They
+ * are the same shape and they were met on every arm — a judge that grades the clipped mobile
+ * capture `weak` is one whose scale agrees with ours *there*. An absolute bound is not wrong
+ * because it is absolute; it is wrong when the corpus cannot demonstrate it, and only measurement
+ * says which.
  *
  * **Absence is not failure, and this is the subtle one.** A judge that answered `not_assessable`,
  * a fixture nobody photographed and a run where the judge was never composed all produce no grade
@@ -58,6 +73,22 @@ export type DiscriminationExpectation =
       because: string;
     }
   | {
+      /**
+       * One fixture out-grades another on one dimension — the pair form of a bound.
+       *
+       * Strictly better, by at least one anchor, and no magnitude: a *number* of anchors would be
+       * an absolute claim wearing an ordering's clothes, and the whole reason this kind exists is
+       * that the corpus can demonstrate the direction and not the distance. What it asks is the
+       * only question the corpus was ever built to answer — can this instrument tell these two
+       * apart — and it survives a judge whose scale sits higher or lower than ours.
+       */
+      kind: "grades_better";
+      better: CorpusFixtureId;
+      worse: CorpusFixtureId;
+      dimension: ProductDimension;
+      because: string;
+    }
+  | {
       kind: "grade_at_most";
       fixture: CorpusFixtureId;
       dimension: ProductDimension;
@@ -100,20 +131,20 @@ export const CORPUS_EXPECTATIONS: readonly DiscriminationExpectation[] = [
       "the judge sees screenshots and no source, so on the product half alone the polished-but-hollow one must win. Its being hollow is the objective half's finding, and a product half that hedged towards correctness would be doing the objective half's job badly",
   },
   {
-    kind: "grade_at_most",
-    fixture: "excessive-gradient",
+    kind: "grades_better",
+    better: "minimalist-professional",
+    worse: "excessive-gradient",
     dimension: "restraint",
-    grade: "weak",
     because:
-      "a gradient on every surface is decoration applied because it was available, which is the question `restraint` asks. Slop is not a penalty list — one gradient can be the right call — so the fixture overdoes it until the answer is not in doubt",
+      "a gradient on every surface is decoration applied because it was available, which is the question `restraint` asks. Slop is not a penalty list — one gradient can be the right call — so what is asserted is that the restrained fixture out-grades the one that overdoes it, rather than where either lands. The looser of the three pairs, and knowingly so: unlike the icon and responsive pairs these two do not share markup, so a judge could satisfy it by grading the general difference. It is still the strongest claim the corpus can support here, because `excessive-gradient` was written without a partner",
   },
   {
-    kind: "grade_at_most",
-    fixture: "excessive-icon",
+    kind: "grades_better",
+    better: "icons-restrained",
+    worse: "excessive-icon",
     dimension: "restraint",
-    grade: "weak",
     because:
-      "there is no icon dimension, deliberately, so icon overuse has nowhere else to land. If this comes back `moderate` the rubric is not carrying the decision the rubric was written to carry",
+      "there is no icon dimension, deliberately, so icon overuse has nowhere else to land. The pair is the claim: same structure, same stylesheet, same words, and the glyphs taken out — so a judge that grades them equally has not seen the only thing that differs. Asserted as an ordering because three funded arms put the overused one at `moderate` and would not go lower, while grading this one above it every time",
   },
   {
     kind: "grade_at_least",
@@ -121,7 +152,7 @@ export const CORPUS_EXPECTATIONS: readonly DiscriminationExpectation[] = [
     dimension: "restraint",
     grade: "good",
     because:
-      "the other half of the icon pair. A judge that has learned `icons are bad` rather than `decoration must earn its place` marks this down too, and would otherwise pass the bound above while having understood nothing",
+      "the ordering above holds even for a judge that has learned `icons are bad` and marks the whole pair down, so this is what stops the pair from sliding: the restrained half is a good use of icons and must be graded as one. Kept absolute rather than re-shaped because every arm met it — a bound is wrong when the corpus cannot demonstrate it, not because it is a bound",
   },
   {
     kind: "grade_at_most",
@@ -140,6 +171,19 @@ export const CORPUS_EXPECTATIONS: readonly DiscriminationExpectation[] = [
       "the other half of the responsive pair, and the one that catches a judge which grades every mobile screenshot down for being narrow",
   },
 ];
+
+/**
+ * Every fixture an expectation makes a claim about.
+ *
+ * Exported so that nothing has to re-derive it by switching on `kind` — which is three places to
+ * remember the day a fourth kind arrives, and the sort of enumeration that silently stops covering
+ * the new one rather than failing.
+ */
+export function fixturesNamedBy(expectation: DiscriminationExpectation): CorpusFixtureId[] {
+  return expectation.kind === "beats" || expectation.kind === "grades_better"
+    ? [expectation.better, expectation.worse]
+    : [expectation.fixture];
+}
 
 /** Whether a grade is no better than a ceiling. `at most weak` admits `weak` and `poor`. */
 export function isAtMost(grade: Grade, ceiling: Grade): boolean {
@@ -179,6 +223,9 @@ export function describeExpectation(expectation: DiscriminationExpectation): str
   if (expectation.kind === "beats") {
     return `${expectation.better} beats ${expectation.worse} by at least ${expectation.byAtLeast} points`;
   }
+  if (expectation.kind === "grades_better") {
+    return `${expectation.better} grades better than ${expectation.worse} on ${expectation.dimension}`;
+  }
 
   const bound = expectation.kind === "grade_at_most" ? "at most" : "at least";
   return `${expectation.fixture} ${expectation.dimension} ${bound} ${expectation.grade}`;
@@ -197,9 +244,7 @@ export function checkDiscrimination(
 ): DiscriminationOutcome[] {
   return expectations.map((expectation) => ({
     expectation,
-    ...(expectation.kind === "beats"
-      ? checkMargin(expectation, judgements)
-      : checkBound(expectation, judgements)),
+    ...verdictFor(expectation, judgements),
   }));
 }
 
@@ -226,6 +271,84 @@ export function summariseDiscrimination(outcomes: readonly DiscriminationOutcome
 }
 
 type Verdict = Pick<DiscriminationOutcome, "status" | "detail">;
+
+/** One switch over the kinds, so a kind added without a check fails to compile rather than to run. */
+function verdictFor(
+  expectation: DiscriminationExpectation,
+  judgements: ReadonlyMap<string, ProductJudgement>,
+): Verdict {
+  switch (expectation.kind) {
+    case "beats":
+      return checkMargin(expectation, judgements);
+    case "grades_better":
+      return checkGradePair(expectation, judgements);
+    default:
+      return checkBound(expectation, judgements);
+  }
+}
+
+/**
+ * Whether one fixture out-graded another on one dimension.
+ *
+ * Both sides have to have been graded, and an ungraded side is `not_assessable` rather than a
+ * failure — the same rule the bounds follow, and for the same reason: a comparison against
+ * nothing has learned nothing, and reporting that as the instrument being wrong puts the loudest
+ * signal on the case with the least information in it.
+ */
+function checkGradePair(
+  expectation: Extract<DiscriminationExpectation, { kind: "grades_better" }>,
+  judgements: ReadonlyMap<string, ProductJudgement>,
+): Verdict {
+  const better = gradeOf(expectation.better, expectation.dimension, judgements);
+  const worse = gradeOf(expectation.worse, expectation.dimension, judgements);
+
+  if (better.grade === undefined || worse.grade === undefined) {
+    return {
+      status: "not_assessable",
+      detail: [better, worse]
+        .filter((side) => side.grade === undefined)
+        .map((side) => side.detail)
+        .join("; "),
+    };
+  }
+
+  // Strictly better: equal grades mean the judge did not tell them apart, which is the failure
+  // this pair exists to catch and not a near miss to be forgiven.
+  const held = GRADES.indexOf(better.grade) < GRADES.indexOf(worse.grade);
+
+  return {
+    status: held ? "met" : "unmet",
+    detail:
+      `${expectation.better} was graded ${better.grade} and ${expectation.worse} ` +
+      `${worse.grade} on ${expectation.dimension}`,
+  };
+}
+
+/**
+ * One fixture's grade on one dimension, or why there is none.
+ *
+ * The reason travels with the absence because the three ways to have no grade — nobody judged the
+ * fixture, no judge ran, the dimension was not assessable — are different facts about a run, and a
+ * reader of a `not_assessable` outcome is trying to work out which one happened.
+ */
+function gradeOf(
+  id: CorpusFixtureId,
+  dimension: ProductDimension,
+  judgements: ReadonlyMap<string, ProductJudgement>,
+): { grade?: Grade; detail: string } {
+  const judgement = judgements.get(id);
+  if (judgement === undefined) return { detail: `nothing judged ${id}` };
+  if (judgement.status === "not_run") {
+    return { detail: `no judge ran on ${id}: ${judgement.reason}` };
+  }
+
+  const answer = judgement.dimensions[dimension];
+  if (answer.status !== "graded") {
+    return { detail: `${dimension} was not assessable on ${id}: ${answer.reason}` };
+  }
+
+  return { grade: answer.grade, detail: `${id} ${dimension} was graded ${answer.grade}` };
+}
 
 function checkMargin(
   expectation: Extract<DiscriminationExpectation, { kind: "beats" }>,

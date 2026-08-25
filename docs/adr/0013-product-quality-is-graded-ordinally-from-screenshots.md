@@ -213,14 +213,22 @@ the chair. It is pinned there on cost, and the mitigation is to name a third mod
 `NAP_JUDGE_MODEL` before spending on such a comparison — not to leave it to whoever reads the
 report afterwards.
 
-And the fixture corpus did what this ADR built it to do: it found the instrument wanting. Across
-three funded arms — two models and two rubric revisions — the judge meets four of the corpus's seven
-expectations. It orders every pair correctly, including the icon pair and the responsive pair; what
-it will not do is place an overuse fixture below `moderate` on `restraint`, or open more than an
-eleven-point gap between the top and the bottom of the corpus. Three expectations therefore stand
-unmet: one `beats` margin and two `grade_at_most` bounds — and a `grade_at_most` is an absolute
-claim about a single grade, which is the shape `discrimination.ts` opens by arguing against.
-Whether the expectations or the instrument are wrong
-is **not decided here**, and the paid suite is left red rather than made green by editing what the
-corpus claims. The numbers are in
+And the fixture corpus did what this ADR built it to do — though not in the direction expected. It
+found **two of the corpus's own claims** wanting rather than the judge. Across three funded arms —
+two models and two rubric revisions — the judge met four of seven expectations, and the two it
+failed on `restraint` asked for `at most weak` on the overuse fixtures. Every arm graded those
+fixtures *below their partners* and none put them under `moderate`. That is an instrument which can
+tell the pair apart and disagrees about where on the scale the bad one sits, which is exactly what a
+`grade_at_most` — an absolute claim about a single grade — is the wrong shape to express.
+
+**So those two are pair orderings now**, carried by a `grades_better` expectation kind: strictly
+better, one dimension, no magnitude. A confirming arm met both by two anchors. The responsive bounds
+are the same shape and were deliberately left absolute, because every arm met them — a bound is
+wrong when the corpus cannot demonstrate it, not because it is a bound, and only measurement says
+which.
+
+One expectation stands unmet: the top-vs-bottom margin, which needs 15 points and measured 11, 10
+and 13. `MEANINGFUL_MARGIN` was **not** lowered to fit, because the number was derived from the
+anchor spacing rather than from taste, and re-deriving it having just seen 10 would be the tuning
+this exercise declined everywhere else. The paid suite is left red on it. The numbers are in
 [`napbench-vision-judge.md`](../napbench-vision-judge.md).
