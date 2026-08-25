@@ -469,6 +469,23 @@ because one task routinely photographs several viewports.
 rather than a single result observed. Reports a mean over completed runs beside an explicit error
 rate, because a run whose turn failed has no score and would otherwise vanish from the average.
 
+**Trial** — one **Run** as an external harness sees it: the same execution, given a directory of its
+own and named by the harness rather than by us. The word is the harness's and is kept because the
+scopes are not identical — a run that ends in a report is a trial that ends in a report *and* a
+verdict on whether that report is worth a **Reward**. Always one task; fan-out across tasks belongs
+to the harness, since a trial covering four would produce four reports and one reward.
+
+**Job directory** — where a trial's artefacts go, under fixed names: `report.json`,
+`trajectory.json` and `trial.log`, with the reward written elsewhere by the verifier. The report is
+written **on every trial, measured or not** — a trial the benchmark itself crashed on gets an
+evaluator-error report — because a directory holding nothing is indistinguishable from a trial that
+never started.
+
+**Reward** — a run's report projected into the numbers an external harness understands: named
+metrics on a 0–1 scale, `overall` beside the halves and the categories. A *projection*, and a lossy
+one on purpose: it exists beside the report, never instead of it. A run that measured nothing yields
+**no reward at all** rather than a zero — see the reward rule in `docs/NAPBENCH.md`.
+
 **Spread** — what a task's repeated runs came to, as mean, median, sample standard deviation and
 range. Reported **per task**, never across a suite: a deviation over different tasks measures how
 much the tasks differ in difficulty, which is a fact about the benchmark rather than about the

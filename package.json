@@ -25,12 +25,16 @@
     "loadgen:cluster": "bun run apps/api/scripts/loadgen-cluster.ts",
     "loadgen:teardown": "bun run apps/api/scripts/loadgen-teardown.ts",
     "lint": "biome check .",
+    "lint:py": "uvx ruff@0.9.10 check harbor && uvx ruff@0.9.10 format --check harbor",
+    "test:py": "uv run --directory harbor --with pytest pytest -q",
     "format": "biome check --write .",
     "prepare": "lefthook install",
     "napbench": "bun run apps/napbench/scripts/napbench.ts",
     "napbench:corpus": "bun run apps/napbench/scripts/capture-corpus.ts",
     "napbench:preview-spike": "bun run apps/napbench/scripts/preview-reachability.ts",
-    "napbench:vision-spike": "bun run apps/napbench/scripts/vision-reachability.ts"
+    "napbench:vision-spike": "bun run apps/napbench/scripts/vision-reachability.ts",
+    "napbench:trial": "bun run apps/napbench/scripts/napbench-trial.ts",
+    "harbor:tasks": "bun run apps/napbench/scripts/harbor-tasks.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.7",

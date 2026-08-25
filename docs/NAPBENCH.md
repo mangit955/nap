@@ -558,6 +558,34 @@ in whatever shell writes the file, per [ADR-0001](adr/0001-napbench-splits-into-
 deciding what a run is worth is evaluation, and writing a file is plumbing — so the rule is
 unit-tested for free and the adapter is a function that writes whatever this returns.
 
+### Running trials under Harbor
+
+The reward rule exists because something outside this repository reads one.
+[Harbor](https://github.com/harbor-framework/harbor) runs agents against tasks in parallel, gives
+each run a job directory and reads a `reward.json` out of it, and `harbor/` is the adapter that
+lets it run NapBench. What it buys is **fan-out, a job layout and a registry** — not isolation, and
+not any part of the evaluation. [ADR-0014](adr/0014-harbor-orchestrates-and-scores-nothing.md)
+records the shape and `harbor/README.md` is how it is run.
+
+Three things are worth knowing here, because they are facts about the benchmark rather than about
+the harness.
+
+**A trial is one task, on the host.** `bun run napbench:trial run --task=<id> --job-dir=<dir>` runs
+exactly one task by shelling out to `napbench` itself — the same composition root, the same flags,
+the same defaults, including that it spends nothing unless `--real` is asked for after `--`. The
+only thing it adds is the job directory: the report, the trajectory, the screenshots and the log
+land there, under fixed names, instead of in the shared results folder. Never a suite: fan-out is
+the harness's job, and a trial that ran four tasks would produce four reports and one reward.
+
+**A trial always leaves a report, including one the benchmark crashed on.** In that case the trial
+entrypoint writes the evaluator-error report itself, so a job directory never holds nothing — a
+directory with no report would be indistinguishable from a trial that never started.
+
+**The verifier projects and computes nothing.** It calls `rewardFor` and writes what comes back, or
+writes nothing and exits non-zero when what comes back is nothing. It is a single-file bundle of
+this repository's own entrypoint rather than a reimplementation, which is what makes "no scoring
+logic in the harness" structural instead of a promise.
+
 ### Suites and comparison
 
 A suite reports the mean over **completed runs only**, with the agent-attributable and

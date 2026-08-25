@@ -40,3 +40,27 @@ jobs:
       # Deliberately NOT run here: `bun run test:integration` hits real E2B and
       # the real Anthropic API. It costs money and needs secrets, so it stays
       # manual at milestone boundaries — docs/PLAN.md §3.
+
+  # The Harbor agent is Python, which none of the gates above can see: Biome does
+  # not read it, `tsc` cannot, and vitest collects nothing from it. Its own job,
+  # rather than steps bolted onto the one above, so a Python failure is legible as
+  # one and so the two toolchains install in parallel. See CLAUDE.md.
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.5"
+
+      - run: uvx ruff@0.9.10 check harbor
+      - run: uvx ruff@0.9.10 format --check harbor
+
+      # Twice, and the first run is the interesting one: it proves the claim that everything
+      # a test drives imports nothing but the standard library, so the suite works on a
+      # checkout with no evaluation framework installed. The second installs Harbor, which is
+      # what makes `agent.py` — the file coupled to somebody else's classes — reachable by any
+      # gate at all. Skipped tests in the first run are expected; see harbor/tests/test_agent.py.
+      - run: uv run --directory harbor --with pytest pytest -q
+      - run: uv run --directory harbor --extra harbor --with pytest pytest -q

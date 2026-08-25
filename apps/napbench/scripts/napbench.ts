@@ -79,7 +79,10 @@ if (!parsedArgs.ok) {
 }
 const command = parsedArgs.value;
 
-const resultsDir = resolveResultsDir(REPO_ROOT);
+// The environment is read here rather than inside the resolver so that "which directory does
+// a run write into" stays a decision a test can drive. It is the shared results folder unless
+// a harness gave this run a job directory of its own — see `napbench-trial.ts`.
+const resultsDir = resolveResultsDir(REPO_ROOT, process.env);
 
 // Comparison reads two files and stops. It creates no session, no sandbox and no model call,
 // which is why it is answered here rather than anywhere near the run wiring below.
@@ -391,18 +394,22 @@ for (const { task, pass } of scheduled) {
     // suite: the remaining tasks are still worth running, and the aggregate has to show that
     // this one produced nothing rather than quietly containing one run fewer.
     console.error(`  the benchmark itself failed: ${messageOf(error)}`);
-    reports.push(
-      evaluatorErrorReport({
-        runId,
-        taskId: task.id,
-        sessionId,
-        weights: DEFAULT_CATEGORY_WEIGHTS,
-        metrics: deriveRunMetrics(await events.readFrom(sessionId, 0), { model: pricedModel }),
-        // A crash is one of the runs somebody most wants to reproduce, and the configuration
-        // is exactly what they would otherwise have to guess at.
-        configuration: { model: pricedModel ?? null, budget: turnBudget, harness },
-      }),
-    );
+    const crashed = evaluatorErrorReport({
+      runId,
+      taskId: task.id,
+      sessionId,
+      weights: DEFAULT_CATEGORY_WEIGHTS,
+      metrics: deriveRunMetrics(await events.readFrom(sessionId, 0), { model: pricedModel }),
+      // A crash is one of the runs somebody most wants to reproduce, and the configuration
+      // is exactly what they would otherwise have to guess at.
+      configuration: { model: pricedModel ?? null, budget: turnBudget, harness },
+    });
+    reports.push(crashed);
+    // Written, not only aggregated. A crash is the run somebody most wants to look at
+    // afterwards, and until this existed the only record of one was a line on a terminal
+    // somebody may not have been watching — a suite would summarise it and leave the results
+    // directory with one file fewer than it had runs.
+    console.log(`  ${await writeBenchReport(resultsDir, crashed)}`);
   }
 
   if (result !== undefined) {

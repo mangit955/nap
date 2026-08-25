@@ -14,6 +14,7 @@ Nap is a Lovable-style AI app builder: the user describes an app in chat, an age
 | `infra/k8s/README.md` | *What the multi-pod deployment is made of* — the objects, what each one guards, and the two kind clusters: one that proves the claims a manifest cannot, one that runs the ramp against the autoscalers | Before touching a manifest, or scaling past one replica |
 | `CONTEXT.md` | *What things are called* — one concept, one name | Before naming a concept in code, a test or an issue |
 | `docs/NAPBENCH.md` | *How the agent is measured* — the benchmark's architecture, scoring, how to add a task, what needs a sandbox or a browser | Before touching `packages/bench` or `apps/napbench`, or quoting a score |
+| `harbor/README.md` | *How the benchmark is run under an external harness* — what a trial leaves behind, what a verifier refuses to write, and the gates the Python answers to | Before touching `harbor/`, or running a suite in parallel |
 | `docs/napbench-*.md` | *What funded runs found* — one write-up per run that spent money, each recording something no dry run could have caught | Before spending on a real benchmark run, or quoting one |
 | `docs/scaling-design.md` | *What V2 was built to* — the queue's semantics, the state machines, the invariants, the tests required. Delivered; sections are cited from shipped source, and where one disagrees with the code an ADR says why | Before changing anything the queue, the leases or the fanout rest on |
 | `docs/scaling-baseline.md` | *What the system did before it was changed* — the k6 ramp's numbers, and the three §24 questions it answered | Before changing anything on the admission hot path, or quoting a load figure |
@@ -77,6 +78,17 @@ bun run napbench:vision-spike --real --model=<id>
                           # image input through the OpenRouter path this repo uses — spends a
                           # fraction of a cent. Nothing may be pinned as the judge before this
                           # says yes about it. Without --real it prints what it would do
+bun run napbench:trial run --task=<id> --job-dir=<dir> [-- <napbench flags>]
+                          # one task into one job directory, for an external harness to drive —
+                          # report.json, trajectory.json and trial.log under fixed names. Shells
+                          # out to napbench, so it is free unless `--real` is passed after `--`
+bun run napbench:trial verify --job-dir=<dir> --reward-dir=<dir>
+                          # projects that report into reward.json, or writes nothing and exits
+                          # non-zero when the run measured nothing. See harbor/README.md
+bun run harbor:tasks      # regenerates harbor/tasks/ from @nap/bench/suite — free, offline.
+                          # Generated, gitignored, and includes a bundled verifier per task
+bun run lint:py           # ruff over harbor/ — the Python no other gate here can see. Needs uv
+bun run test:py           # pytest over harbor/ — no evaluation framework required. Needs uv
 bun run napbench --baseline=<run-id|path> --candidate=<run-id|path>
                           # what moved between two finished runs — reads reports, runs nothing
 bun run typecheck         # turbo: tsc --noEmit per workspace, then a root pass for test/ + configs
@@ -94,6 +106,8 @@ bun run dev:reaper        # the third: sweeps idle projects, reconciles capacity
 > ⚠️ **Always `bun run test`, never `bun test`.** `test` is a Bun built-in command that shadows the package.json script; bare `bun test` runs Bun's own runner over our Vitest files and reports nonsense.
 
 A lefthook pre-commit hook runs `biome check` + `typecheck` + `vitest --changed`. It will block the commit if any fail — fix the cause, don't bypass it. The same three gates run in CI (`.github/workflows/ci.yml`) on every push to `main` and `feat/**`, so `--no-verify` only defers the failure.
+
+**`harbor/` is Python, and none of those three can see it.** Biome does not read it, `tsc` cannot, vitest collects nothing from it — the exact shape of the mistake the definition of done was written after. Its gates are `bun run lint:py` (ruff) and `bun run test:py` (pytest): lefthook runs both on any commit touching a `*.py`, and CI runs them unconditionally in a job of their own. Editing that directory therefore needs [`uv`](https://docs.astral.sh/uv/) installed; nothing else in the repo does. The two claims that span both languages — the task-id marker the TypeScript generator writes and the Python agent reads, and the report field names that agent reads a run's cost out of — are guarded from the TypeScript side, in `apps/napbench/src/harbor-agreement.test.ts`, because neither toolchain alone would see them drift.
 
 ## Definition of done
 
@@ -127,6 +141,7 @@ A lefthook pre-commit hook runs `biome check` + `typecheck` + `vitest --changed`
 ```
 packages/  shared  db  sandbox  storage  capture  agent  context  runtime  verify  bench  loadgen
 apps/      web (Next.js)   api (Hono, runs on Bun)   napbench (the benchmark CLI)
+harbor/    the benchmark as an external harness's agent — Python, outside the workspace
 ```
 
 **`apps/api` is three processes, not one.** `src/index.ts` serves and executes nothing; `src/worker.ts` executes and serves nothing; `src/reaper.ts` sweeps and does neither, as **exactly one replica** guarded by an advisory lock. All three call `bootNap` in `src/boot.ts`, which builds the real clients and hands them to the one `composeNap` — the role it passes decides which loops start. Adding a dependency means touching `boot.ts` once, never three times. See `docs/DEPLOY.md`.
