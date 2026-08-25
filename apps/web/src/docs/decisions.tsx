@@ -1,5 +1,5 @@
 /**
- * The eleven ADRs, as a list of links rather than as re-rendered prose.
+ * The thirteen ADRs, as a list of links rather than as re-rendered prose.
  *
  * They are written for somebody with the code open beside them — context, options weighed,
  * consequences accepted — and reproducing that here would make this page the place they get read
@@ -68,14 +68,24 @@ const DECISIONS = [
     title: "An old turn's tool traffic is not worth carrying, even when it fits",
     body: "A funded session died on a budget while using a fifth of its context window. Fitting is not the test; being worth ten to forty copies is.",
   },
+  {
+    file: "0012-the-score-becomes-two-halves-combined-geometrically.md",
+    title: "The score becomes two halves, combined geometrically",
+    body: "Under a weighted mean, correctness buys the rest and an application that works and looks terrible lands in the eighties. Multiplied, neither half can carry the other.",
+  },
+  {
+    file: "0013-product-quality-is-graded-ordinally-from-screenshots.md",
+    title: "Product quality is graded ordinally, from screenshots alone",
+    body: "Screenshots-only is what stops the judge rewarding a stack it recognises; ordinal grades are what stop the same images coming back 68 one run and 79 the next.",
+  },
 ] as const;
 
 export function Decisions() {
   return (
     <>
       <Lede>
-        Eleven decisions that would be expensive to reverse, each recorded where it was made rather
-        than reconstructed afterwards.
+        Thirteen decisions that would be expensive to reverse, each recorded where it was made
+        rather than reconstructed afterwards.
       </Lede>
 
       <ol className="mt-7 max-w-2xl space-y-6">

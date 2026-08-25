@@ -11,8 +11,11 @@ quietly attributes infrastructure noise to a model is worse than no benchmark.
 Vocabulary is in [`CONTEXT.md`](../CONTEXT.md). The decisions that were expensive to reverse are in
 [`docs/adr/0001`](adr/0001-napbench-splits-into-a-pure-package-and-an-app.md) (the two units),
 [`0002`](adr/0002-absent-scoring-categories-renormalise.md) (renormalisation, error attribution,
-comparison) and [`0003`](adr/0003-metrics-derive-from-the-existing-event-stream.md) (metrics come
-from the existing event stream).
+comparison), [`0003`](adr/0003-unmeasurable-metrics-stay-absent.md) (metrics come from the existing
+event stream), [`0012`](adr/0012-the-score-becomes-two-halves-combined-geometrically.md) (a score is
+two halves, multiplied) and
+[`0013`](adr/0013-product-quality-is-graded-ordinally-from-screenshots.md) (how the second half is
+graded).
 
 ---
 
@@ -95,7 +98,7 @@ an *exclusive external* owned by this app, enforced by `test/architecture.ts`, s
 can never depend on a browser driver.
 
 A run never reimplements the agent loop. It calls the same `Runtime.runTurn` the product calls, and
-reads the same event stream the product writes — see [ADR-0003](adr/0003-metrics-derive-from-the-existing-event-stream.md).
+reads the same event stream the product writes — see [ADR-0003](adr/0003-unmeasurable-metrics-stay-absent.md).
 No event exists to serve evaluation, and none may.
 
 ### What one run does, in order
@@ -114,7 +117,10 @@ No event exists to serve evaluation, and none may.
    pass that ran first could add the row a check was about to assert was absent. The price is that
    a surface is photographed as the *checks* leave the application, not as the agent did; a task
    whose checks persist state should name its surfaces knowing that.
-8. Ask the visual evaluator, which today always answers "not run".
+8. Ask the **judge**, if the task declared an `intent` and a judge was composed — handing it the
+   capture pass's images and that one sentence, and nothing else. A task with no intent is not
+   asked, whatever judge is configured. (The v1 visual evaluator is still called on the same step
+   and still always answers "not run"; see the note under the category table.)
 9. Apply the gate ladder, score what is left, read the trajectory back out of the event store, and
    write the report and the trajectory beside each other.
 
@@ -273,8 +279,12 @@ Weighted by default 50 / 25 / 15 / 10:
 |---|---|---|
 | `functional` | It does what was asked. Commands default here. | 50 |
 | `browser` | It behaves correctly when driven. Browser checks default here. | 25 |
-| `visual` | How it looks. Judged by a visual evaluator, which today reports "not run". | 15 |
+| `visual` | **v1, superseded.** How it looks. Its evaluator never produced a number, and how an application looks is now the product half. | 15 |
 | `code` | Typecheck and the accessibility audit — the quality of what was written. | 10 |
+
+`visual` is kept in the table because every archived report names it, in its categories and in its
+effective weight vector, and removing it would make those files unreadable by the code that wrote
+them. Nothing scores into it, so on any recent report it is simply absent, which renormalises.
 
 A category's score is the weighted proportion of its checks that passed. The overall score is the
 weighted mean over **the categories that actually produced results**, renormalised — so a run with
@@ -292,18 +302,100 @@ checks are recorded as **failed** — treating them as absent would redistribute
 ### The product half
 
 A task that declares an `intent` — one neutral sentence about what the application is for — is
-scored on two halves rather than four categories. The objective half is the weighted mean above.
-The product half is a judge's answer on nine equally weighted dimensions, each graded on an ordinal
-scale and each carrying the evidence and the screenshot it was drawn from; a tenth, `polish`, is
-reported and never scored. The two are combined **geometrically**, so neither half can carry the
-other: an application that does exactly what was asked and looks terrible lands in the forties
-rather than the eighties.
+scored on two halves rather than four categories.
 
-Three properties are worth knowing before reading one of these reports.
+- The **objective half** is the weighted mean above, unchanged: same categories, same weights, same
+  renormalisation. Every number in it comes from a check that ran.
+- The **product half** is a judge's answer on nine equally weighted dimensions.
 
-- **The judge sees screenshots and the intent, and nothing else** — no prompts, no source. A person
-  opening the finished application has no specification, and a judge shown the prompts would start
-  grading feature completion, which the checks already measure and measure better.
+The two are combined **geometrically** — `overall = √(objective × product)` — so neither half can
+carry the other:
+
+```
+correct 95, beautiful 90  →  92
+correct 95, ugly      25  →  49       ← the case this exists for
+broken  30, beautiful 90  →  52, then capped at 40 by the build gate
+broken  30, ugly      25  →  27
+```
+
+Under a weighted mean the second line lands in the eighties, because correctness carries most of the
+weight and buys the rest. The fourth line's direction was already handled before any of this
+existed: the preview gate fails a run that does not serve, and a failed build caps at 40. See
+[ADR-0012](adr/0012-the-score-becomes-two-halves-combined-geometrically.md).
+
+#### The nine dimensions, and the ordinal scale
+
+| Dimension | The question |
+|---|---|
+| `hierarchy` | What reads first, and whether that is the right thing |
+| `typography` | Scale, weight and measure, and whether the steps do work |
+| `spacing` | Rhythm, alignment, and whether whitespace is earned |
+| `color` | Whether colour carries meaning or is decoration |
+| `layout` | Structure and density: arranged for this content, or from a template |
+| `components` | Quality and consistency of the pieces the interface is built from |
+| `interaction` | Affordance, state, and whether a person can tell what happened |
+| `responsiveness` | Whether the small viewport is designed for, not squashed |
+| `restraint` | Whether each visual decision — including every icon — earns its place |
+
+Each is graded on a five-point ordinal scale, mapped to fixed anchors **afterwards, in our code**:
+
+| Grade | `excellent` | `good` | `moderate` | `weak` | `poor` |
+|---|---|---|---|---|---|
+| Anchor | 95 | 78 | 55 | 35 | 12 |
+
+**A judge is never asked for a number.** Asked for `73` it invents precision it does not have, and
+the same screenshots come back 68 the next run — noise a reader cannot tell from a real movement.
+Asked whether typography is `weak` or `moderate`, it is making a judgement that can be checked
+against the evidence it cited. The anchors are deliberately not evenly spaced: `excellent` is 95
+because nothing rendered is beyond criticism, and `poor` is 12 rather than 0 because the *gates*,
+not the scale, are what punish an application that does nothing — a floor of zero would let one bad
+dimension swamp eight good ones.
+
+The product half is the equally-weighted mean of the dimensions that were **graded**. Equal weights
+because any weighting we chose would be our own aesthetic theory compiled into the instrument.
+`not_assessable` is a sixth answer and not a sixth grade: it carries no number, requires a stated
+reason, and renormalises out, so a judge that could not see a surface cannot lower a score by saying
+so. A tenth reading, `polish`, is the judge's holistic take — reported, never scored, and kept out
+of `PRODUCT_DIMENSIONS` structurally rather than by a rule, because every consumer folds over that
+list. Its value is the *disagreement*: a holistic read far below the computed mean says the rubric
+is missing a dimension.
+
+There is deliberately **no icon dimension**. Naming one would bake a component library into the
+rubric. Icon usage is judged under `restraint`, which asks whether a decision earns its place — the
+same question a gradient, a shadow or a card has to answer — and the rubric requires it to be
+*stated* there on every run so it stays visible even when the answer is "fine".
+
+#### What the judge is shown
+
+The images from the **capture pass** and the task's `intent`, and nothing else. A task declares up
+to four **surfaces** — named views with the steps to reach them — and each is photographed at mobile
+and desktop, so at most eight images. A task that declares none gets `/` at both sizes, so no run
+ends with nothing to judge. The screenshots browser checks leave behind are *not* shown: a check is
+named for what it asserts rather than for what it is looking at, so nobody can say what view its
+image is of. See [Metrics](#metrics) for the capture pass itself.
+
+Every graded dimension must carry at least one piece of evidence naming the screenshot and viewport
+it was drawn from — enforced by the schema rather than asked for in the rubric, because a prompt is
+a request and a schema is a refusal. Every dimension must be answered, because a silently missing
+one shrinks the denominator and a shrinking denominator raises the score. And every judgement
+records a **judge identity**: a source, and a rubric version, because the same model against a
+reworded rubric is a different instrument.
+
+**One judge grading nine dimensions carries that judge's aesthetic preferences, and that is an
+accepted, disclosed limitation.** A panel with disagreement reported would be better evidence at
+three times the cost per image. What makes the single judge tolerable rather than fine: ordinal
+grades keep the bias at least stable, the evidence requirement lets a reader disagree with a claim
+about a specific image rather than with a number, the identity makes every score attributable, and
+the fixture corpus below measures whether it discriminates at all. See
+[ADR-0013](adr/0013-product-quality-is-graded-ordinally-from-screenshots.md).
+
+#### Three properties worth knowing before reading one of these reports
+
+- **Which arithmetic produced the number is on the report**, as a `v1` or `v2` scoring model, and
+  `compare` refuses to put one beside the other. Both land on 0–100, which is exactly what makes
+  them dangerous side by side. An unrecorded scoring model reads as `v1` — applied when the report
+  is read rather than by a schema default, so a report written as v1 and one predating the field
+  stay distinguishable.
 - **An unjudged run is scored on its objective half alone**, never on a product half of zero.
   Absence renormalises, exactly as it does for a category. That covers every run of the frozen
   suite, every real run until a vision judge exists, and every run that photographed nothing.
@@ -403,6 +495,35 @@ What NapBench measures is **the model, with Nap held fixed**, which is what deci
 asks whether a failure is evidence about a model, not whose code was at fault. Nap's own machinery
 breaking is `runtime`, and so it is infrastructure. `CONTEXT.md` defines the kinds; `docs/adr/0004`
 records why.
+
+### The reward rule: an unmeasured run yields no reward
+
+A report is also projected into the numbers an external evaluation harness understands — a set of
+named metrics on a 0–1 scale: `overall`, then `objective` and `product` when the run was scored on
+two halves, then one per category. Several rather than one, because a single float throws away the
+decomposition that is the point of the report: `overall` alone cannot tell a reviewer that the
+application worked and looked bad.
+
+**The rule is that a run which measured nothing produces no reward at all.** Harness rewards are
+numeric — a float or an integer, with no null and no "unmeasurable" state — so an errored or
+cancelled run has exactly two honest destinations, zero or nothing, and **zero is a lie**. An E2B
+outage, a browser that would not start, a missing credential and a run somebody stopped are all
+*absences of evidence about the model*, and reporting them as the worst possible score converts our
+bad afternoon into the model's bad result. That is the same thing this whole benchmark refuses to do
+one level up, where an errored run scores `null` rather than 0.
+
+So `rewardFor` returns nothing for those, the caller writes no reward file and exits non-zero — a
+failed *trial* rather than a scored one. **Nothing is lost by it.** The full report, with the status,
+the error kind, every check and the trajectory, is written either way. The reward is a lossy
+projection of a lossless artefact, and it is allowed to be lossy precisely because the artefact is
+not.
+
+The rule is asked of the *status* rather than of the score, so cancellation and error travel the
+same route here as they do everywhere else, and a status added later is caught by the one predicate
+that already decides which statuses carry a result. The logic lives in `packages/bench` rather than
+in whatever shell writes the file, per [ADR-0001](adr/0001-napbench-splits-into-a-pure-package-and-an-app.md):
+deciding what a run is worth is evaluation, and writing a file is plumbing — so the rule is
+unit-tested for free and the adapter is a function that writes whatever this returns.
 
 ### Suites and comparison
 

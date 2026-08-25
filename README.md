@@ -201,6 +201,14 @@ had never run, and what
 as the fixture the job history and the seam were designed against: hand-written events are uniformly
 too tidy to ask a layout question of.
 
+**The benchmark itself changed as a result.** A run used to answer one question — did the model
+implement what was asked? — and an application that did exactly that while looking terrible scored
+in the eighties. It is now scored on two halves, what it does and whether it is a product anybody
+would want to use, combined so that neither half can carry the other. The second half is graded from
+screenshots alone by a judge that is never shown the source or the prompts, and that is checked
+against nine hand-written fixtures rather than trusted. No funded run has been taken under it yet,
+so nothing above has been rescored and nothing below claims it has.
+
 [How the agent is measured →](https://nap-tawny.vercel.app/docs#napbench)
 
 ### And what it does under load

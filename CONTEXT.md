@@ -231,8 +231,8 @@ a project put away and restarted has two announcements and only one live sandbox
 NapBench is the evaluation harness that measures Nap's agent. Its vocabulary is kept separate
 because it describes the thing *observing* the system, not the system — a user never encounters any
 of these words. Where the two vocabularies collide, the collision is named below rather than
-resolved by hoping nobody notices. See `docs/adr/0001`–`0005` and `0007` for the decisions behind
-them.
+resolved by hoping nobody notices. See `docs/adr/0001`–`0005`, `0007` and `0012`–`0013` for the
+decisions behind them.
 
 **Task** — one reproducible unit of work put to the agent: an id, a prompt or short sequence of
 prompts, an environment that may seed files before anything runs, and the checks that decide whether
@@ -290,6 +290,43 @@ sequence can be asserted at two sizes without being written twice.
 Weighted into the overall score, and the weighting renormalises over the categories that actually
 produced results. A check's category defaults from its kind and can be overridden by the task,
 because `npm run build` and `npm run lint` are both commands and are not both functional.
+
+> **`visual` is the v1 name and is superseded.** It was a category with a port behind it and no
+> implementation, and how an application looks is now the **Product half**, graded on
+> **Dimension**s by a **Judge**. The name is kept rather than removed: every archived report names
+> it in its category list and its effective weight vector, and deleting it would make those files
+> unreadable by the code that wrote them. Nothing new scores into it — a task written today gets
+> the product half instead — so on any recent report it is simply absent, which renormalises. See
+> `docs/adr/0012`.
+
+**Dimension** — one axis the **Product half** is graded on, and deliberately not a **Check** and
+not a **Category**. A check asks a question with a yes-or-no answer and is answered by a machine; a
+dimension asks how good something is and is answered by a **Judge** on an ordinal scale. Two words
+because they are two kinds of claim, and one word would let a judgement be read as a measurement.
+There are nine — *hierarchy*, *typography*, *spacing*, *color*, *layout*, *components*,
+*interaction*, *responsiveness*, *restraint* — equally weighted, because any weighting we chose
+would be our own aesthetic theory compiled into the instrument. A tenth, *polish*, is the judge's
+holistic read: reported, never scored, and structurally outside `PRODUCT_DIMENSIONS` so no fold can
+pick it up. Its value is the *disagreement* — a holistic read far below the computed mean says the
+rubric is missing a dimension. A dimension that could not be assessed is **absent**, exactly as a
+category is, and renormalises rather than scoring low.
+
+**Restraint** — the dimension that asks whether each visual decision earns its place, and where
+icon usage is judged. Named for the question rather than for any of its answers: there is
+deliberately **no icon dimension**, because naming one would bake a component library into the
+rubric and make the benchmark measure adherence to our taste. A gradient, a rounded card, a shadow
+and an icon each have to answer the same question, and each can be the right call — so this is not
+a penalty list, and slop is not a rule. The rubric requires icon usage to be *stated* here on every
+run, so it stays visible even when the answer is "fine".
+
+**Judge** — whoever grades the **Product half**: a scripted judgement in a unit test, a vision model
+behind `--real`, or a person filling in a form. A port (`ProductEvaluation`) for the reason
+`BrowserSession` is one, so the scorer never learns how a judgement was made and the free path and
+the paid path drive identical scoring code. Every judgement records the judge's *identity* — a
+source and a **rubric version** — because the same model against a reworded rubric is a different
+instrument, and a score taken under one is not a score taken under the other. It is shown
+**screenshots and the Intent and nothing else**, and it arbitrates nothing: the gates fire before it
+is consulted, so it can never rescue an application that does not work. See `docs/adr/0013`.
 
 **Gate** — a rule that constrains the outcome regardless of what the checks summed to: a declared
 starting state that could not be seeded errors the run before a prompt is ever sent, a failed turn
@@ -375,14 +412,13 @@ wrong the first time somebody moves the directory. Evidence *about* a run rather
 observation *of* the application, which is why a screenshot that could not be taken or stored
 degrades the report and never changes a score.
 
-**Visual evaluation** — what a judge made of how the application looks, as one of two answers:
-*not run*, or a *score* with a `source` naming who produced it. Today it is always not run; the
-interface exists so that a pixel comparison, a VLM judge or a person can be plugged in without
-reshaping the result. **Not run is not zero** — an unevaluated visual category renormalises out of
-the weighting per ADR-0002, so a run nobody judged is scored over what was measured instead of
-being docked fifteen points for a judge that does not exist. And it is never the primary measure:
-visual is 15 against functional's 50, and the build and preview gates cap or fail a run long before
-this is consulted, so a broken application cannot be rescued by something thinking it looks nice.
+**Visual evaluation** — *v1, superseded by the **Product half**.* What a judge made of how the
+application looks, as one of two answers: *not run*, or a *score* with a `source` naming who
+produced it. It never answered anything else — the port shipped with two trivial implementations
+and a `not_run` default, so the `visual` **Category** was weighted 15 and never once produced a
+number. What replaced it grades nine **Dimension**s ordinally and multiplies rather than averaging,
+because a single number for "how it looks" carried at 15% could always be bought by correctness.
+The word stays in the glossary for the reason the category does: archived reports use it.
 
 **Intent** — one neutral sentence saying what an application is *for*, declared by a task and the
 whole of what a product judge is told about it. Never the prompts: a person opening the finished
@@ -392,15 +428,23 @@ round. It is also the switch — a task that declares one is scored on two halve
 declares none is scored on its checks alone whatever judge is composed, which is what keeps the
 frozen `all` suite priced as its funded runs priced it.
 
+**Objective half** — the half of a score that asks whether the application does what was asked, as
+against the **Product half**, which asks whether anybody would want to use it. It is the v1
+four-category weighted mean, unchanged and still renormalising: **the arithmetic of the objective
+half is exactly the arithmetic of a v1 score**, which is what lets the frozen `all` suite go on
+being priced as its funded runs priced it. Deterministic in the strong sense — every number in it
+comes from a **Check** that ran, and no judgement of any kind reaches it. It is also the half that
+can stand alone: a run nobody judged is scored on this and nothing else.
+
 **Product half** — the half of a score that asks whether what was built is a product anybody would
-want to use, as against the **objective half**, which asks whether it does what was asked. Graded
+want to use, as against the **Objective half**, which asks whether it does what was asked. Graded
 by a judge from **Surface** screenshots and the **Intent**, and combined with the objective half
 *geometrically*, so neither can carry the other: correct-and-ugly lands in the forties rather than
 the eighties. Absent when nobody judged, or when a judge looked and had nothing to see — and
 absence renormalises to the objective half alone rather than multiplying by zero, per ADR-0002.
 Which arithmetic produced a run's number is recorded on the report as its **scoring model**, `v1`
 or `v2`, and `compare` refuses to put one beside the other: the scale is the same and the meaning
-is not.
+is not. See `docs/adr/0012` for the arithmetic, and `docs/adr/0013` for how the grades are reached.
 
 **Fixture corpus** — nine hand-written applications, committed as pages plus photographs, that a
 judge has to be able to tell apart. Nine designs of *one* application with one shared **Intent**, so
