@@ -40,12 +40,14 @@ import {
 } from "@nap/bench/cli";
 import { compareRuns, formatComparison } from "@nap/bench/compare";
 import { deriveRunMetrics } from "@nap/bench/metrics";
+import type { ProductEvaluation } from "@nap/bench/product/evaluation";
 import { type BenchReport, evaluatorErrorReport } from "@nap/bench/report";
 import { type BenchRunResult, runBenchTask } from "@nap/bench/runner";
 import { resolveSelection } from "@nap/bench/suite";
 import { formatRunSummary, formatSuiteSummary, summariseSuite } from "@nap/bench/summary";
 import type { BenchTask } from "@nap/bench/task";
 import { ScriptedBrowserSession } from "@nap/bench/testing/scripted-browser-session";
+import { scriptedProductJudge } from "@nap/bench/testing/scripted-judgement";
 import { NapContextEngine } from "@nap/context/context-engine";
 import { NoopMemoryProvider } from "@nap/context/noop-memory-provider";
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
@@ -212,6 +214,19 @@ let browser: BrowserSessionFactory;
 let closeBrowser: () => Promise<void> = async () => undefined;
 /** Absent on a dry run: pricing a scripted model against a real price table is a fiction. */
 let pricedModel: string | undefined;
+/**
+ * Who grades the product half, on the tasks that declare an intent.
+ *
+ * Composed on a dry run and absent on a real one, which is the opposite way round from every
+ * other fake here — and it is honest rather than backwards. A scripted judgement costs nothing
+ * and exercises the whole second half of the scoring: the schema, the fold over the dimensions,
+ * the geometric combination and the report's product section. A *real* judge is a vision model
+ * this repo has not yet verified it can send an image to through the OpenRouter path, so there
+ * is nothing to compose there yet, and a paid run scores its objective half alone until there
+ * is. Both are stated rather than defaulted, because "which judge ran" is the first question
+ * anybody asks of a product score.
+ */
+let product: ProductEvaluation | undefined;
 
 if (options.real) {
   loadEnvFile(ENV_FILE, process.env);
@@ -273,12 +288,14 @@ if (options.real) {
 } else {
   console.log(
     `Dry run of "${selectionName}" (${tasks.length} task(s)) on a scripted model, an in-memory ` +
-      "sandbox and a scripted browser.\nIt is free, and the scores mean nothing — it exercises " +
-      "the machinery, not a model. Pass --real to spend.\n",
+      "sandbox, a scripted browser and a scripted product judge.\nIt is free, and the scores " +
+      "mean nothing — the grades are fixed in advance and describe no image. It exercises the " +
+      "machinery, not a model. Pass --real to spend.\n",
   );
   sandbox = fakeSandbox();
   providerFor = scriptedProvider;
   browser = scriptedBrowser;
+  product = scriptedProductJudge();
 }
 
 const reports: BenchReport[] = [];
@@ -319,6 +336,9 @@ for (const { task, pass } of scheduled) {
       runId,
       browser,
       screenshots: fileScreenshotStore(resultsDir),
+      // Only the tasks that declare an intent are judged, whatever this is — see `runner.ts`.
+      // That is what keeps the frozen suite scored exactly as its funded runs were.
+      ...(product === undefined ? {} : { product }),
       weights: DEFAULT_CATEGORY_WEIGHTS,
       model: pricedModel,
       budget: turnBudget,

@@ -62,6 +62,9 @@ bun run loadgen:teardown --older-than-minutes=60   # what it would delete: the d
 bun run napbench <task-id>        # one benchmark run — fakes, free; scores mean nothing
 bun run napbench --suite=all      # the four tasks, serially, same fakes — frozen, see docs/NAPBENCH.md
 bun run napbench --suite=hard     # the tasks built to separate two models
+bun run napbench --suite=product  # the tasks scored on both halves — what it does, and whether it
+                          # is a product anybody would want. Free: the judge is scripted, and its
+                          # grades mean nothing about any application. See docs/NAPBENCH.md
 bun run napbench --real --suite=all  # real E2B + a real model + real Chrome; this spends money
                           # --real needs NAP_CHROME_PATH as well as the usual credentials.
                           # Results (reports, trajectories, screenshots) land in napbench-results/

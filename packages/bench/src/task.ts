@@ -99,6 +99,17 @@ export const SeededFileSchema = z.strictObject({
 
 export type SeededFile = z.infer<typeof SeededFileSchema>;
 
+/**
+ * How long a task's `intent` may be, and the bound is the point rather than the number.
+ *
+ * A sentence, not a specification. The whole reason a judge is given an intent instead of the
+ * prompts is that a person opening the finished application has no specification — and a field
+ * with no ceiling is one somebody eventually pastes a feature list into, at which point the judge
+ * is grading completeness again and nothing in the schema noticed. Two hundred characters is
+ * comfortably a sentence and uncomfortably a list.
+ */
+export const MAX_INTENT_LENGTH = 200;
+
 export const BenchTaskSchema = z
   .strictObject({
     id: z.string().min(1),
@@ -158,6 +169,23 @@ export const BenchTaskSchema = z
      * `surface.ts` for the ceiling and what it is a ceiling on.
      */
     surfaces: z.array(SurfaceSchema).min(1).max(MAX_SURFACES_PER_TASK).optional(),
+    /**
+     * One neutral sentence about what the application is for — and the thing that makes a task
+     * judgeable at all.
+     *
+     * **A judge is shown this and never the prompts.** What is being asked is the question a
+     * person opening the finished application would ask, and they have no specification in front
+     * of them; handing over the prompts would also have the judge grade feature completion, which
+     * the objective half already measures better because a check cannot be talked round. See
+     * `product/evaluation.ts`.
+     *
+     * Absent on every task scored the v1 way, which is what keeps the frozen suite frozen: with
+     * nothing to tell a judge what it is looking at there is nothing to judge, so the runner
+     * scores those tasks on their checks alone whatever judge it was handed. The switch is this
+     * field rather than a flag, because a task that could be judged but says nothing about
+     * itself is not a configuration anybody should be able to express.
+     */
+    intent: z.string().trim().min(1).max(MAX_INTENT_LENGTH).optional(),
     /** At least one: a task with nothing to check could never produce a score. */
     checks: z.array(BenchCheckSchema).min(1),
   })
@@ -223,6 +251,19 @@ export const BenchTaskSchema = z
       ctx.addIssue({
         code: "custom",
         message: "a task declaring surfaces must declare a preview for them to be reached at",
+        path: ["preview"],
+      });
+    }
+
+    // An intent is a promise that there will be something to judge, and everything a judge looks
+    // at is photographed from the running application. Declared without a preview, the task would
+    // be scored on a product half with no evidence under it — and would say so only in a report
+    // nobody reads until afterwards.
+    if (task.preview === undefined && task.intent !== undefined) {
+      ctx.addIssue({
+        code: "custom",
+        message:
+          "a task declaring an intent must declare a preview for its surfaces to be reached at",
         path: ["preview"],
       });
     }

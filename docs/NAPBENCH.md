@@ -24,6 +24,8 @@ bun run napbench --suite=all               # the four benchmark tasks, serially,
 bun run napbench --suite=hard              # built to separate two models — but see the write-up:
                                            # a strong enough model clears it 3/3 with no spread
 bun run napbench --suite=smoke             # the tracer task alone: "is the machinery joined up?"
+bun run napbench --suite=product           # the tasks scored on both halves — what it does, and
+                                           # whether it is a product anybody would want to use
 
 bun run napbench --real --suite=all        # real E2B, a real model, a real browser. Spends money.
 bun run napbench --real todo-crud --model=anthropic/claude-opus-5 --effort=high
@@ -33,16 +35,23 @@ bun run napbench --baseline=<ref> --candidate=<ref>   # what moved between two f
 
 **Fakes by default; `--real` is the only way to spend.** A dry run drives every stage — seeding,
 turns, the preview probe, the checks, the report and trajectory files, the suite aggregation —
-against a scripted model, an in-memory sandbox and a scripted browser. It costs nothing and needs
-no network. Its scores mean nothing: the scripted model does not attempt the task, so what a dry run
-proves is that the apparatus works, not that an agent does.
+against a scripted model, an in-memory sandbox, a scripted browser and a scripted product judge. It
+costs nothing and needs no network. Its scores mean nothing: the scripted model does not attempt the
+task and the judge's grades are fixed in advance and describe no image, so what a dry run proves is
+that the apparatus works, not that an agent does.
+
+The judge is the one fake composed on a dry run and *absent* on a real one, which is honest rather
+than backwards: a scripted judgement costs nothing and drives the whole product half — the schema,
+the fold over the dimensions, the geometric combination, the report's product section — while a real
+judge is a vision model that does not exist here yet. Until it does, a paid run scores its objective
+half alone, which is exactly what every archived run was scored as.
 
 Unknown flags are refused rather than ignored. A forgiving parser would let `--budget-tokens` be
 mistyped on a paid run and silently use the default.
 
 | Flag | Meaning |
 |---|---|
-| `--suite=<name>` | Run a named suite serially. `all` (the four, frozen), `hard` (built to separate models) or `smoke` (the tracer). |
+| `--suite=<name>` | Run a named suite serially. `all` (the four, frozen), `hard` (built to separate models), `smoke` (the tracer) or `product` (scored on both halves). |
 | `--real` | Real E2B, real model, real Chrome. Also requires `NAP_CHROME_PATH`. |
 | `--platform=<name>` | `openrouter` (default), `anthropic` or `bedrock` — which account pays. |
 | `--model=<id>` | Model for a real run. Also what the cost estimate is priced against. |
@@ -131,6 +140,10 @@ export const MY_TASK = defineTask({
   // to the project root, and constrained to stay inside it.
   environment: { files: [{ path: "src/App.tsx", contents: "…" }] },
   preview: { port: TEMPLATE_PREVIEW_PORT, timeoutMs: TEMPLATE_PREVIEW_TIMEOUT_MS },
+  // Optional, and the only thing that makes a task judged as well as checked. One neutral
+  // sentence about what the application is for — the whole of what a judge is told, and never
+  // the prompts. A task without it is scored on its checks alone, whatever judge is composed.
+  intent: "a place to keep track of what still needs doing",
   // Optional. The views a judge should be shown, each photographed at mobile and desktop.
   // Absent gets `/` at both. At most four, because each one is two images and every image is
   // vision-model tokens. Steps may not assert and may not resize — see the screenshots section.
@@ -245,7 +258,16 @@ Things worth knowing when writing one:
 
 ## Scoring
 
-Four categories, weighted by default 50 / 25 / 15 / 10:
+Two arithmetics, and a report says which one produced its number. **`v1`** is the four-category
+weighted mean below; every archived run and every task that declares no `intent` is scored under it,
+and it is what the frozen `all` suite goes on being scored under. **`v2`** splits a run into that
+objective half and a product half graded by a judge, and combines them — see [the product
+half](#the-product-half). `compare` refuses to put a number from one beside a number from the other:
+the scale is the same 0–100 and the meaning is not.
+
+### The four categories
+
+Weighted by default 50 / 25 / 15 / 10:
 
 | Category | What it means | Default weight |
 |---|---|---|
@@ -266,6 +288,32 @@ which is a property of the agent. Only absent renormalises. If a preview never s
 checks are recorded as **failed** — treating them as absent would redistribute the browser category's
 25% to the categories that did run, and failing to start would *raise* the score. See
 [ADR-0002](adr/0002-absent-scoring-categories-renormalise.md).
+
+### The product half
+
+A task that declares an `intent` — one neutral sentence about what the application is for — is
+scored on two halves rather than four categories. The objective half is the weighted mean above.
+The product half is a judge's answer on nine equally weighted dimensions, each graded on an ordinal
+scale and each carrying the evidence and the screenshot it was drawn from; a tenth, `polish`, is
+reported and never scored. The two are combined **geometrically**, so neither half can carry the
+other: an application that does exactly what was asked and looks terrible lands in the forties
+rather than the eighties.
+
+Three properties are worth knowing before reading one of these reports.
+
+- **The judge sees screenshots and the intent, and nothing else** — no prompts, no source. A person
+  opening the finished application has no specification, and a judge shown the prompts would start
+  grading feature completion, which the checks already measure and measure better.
+- **An unjudged run is scored on its objective half alone**, never on a product half of zero.
+  Absence renormalises, exactly as it does for a category. That covers every run of the frozen
+  suite, every real run until a vision judge exists, and every run that photographed nothing.
+- **The gates arbitrate the combined number.** A judge cannot rescue an application that does not
+  compile; the build cap still applies, after the halves are combined.
+
+`intent` is what makes a task judgeable, rather than a flag on the run: a task that says nothing
+about itself gives a judge nothing to look at, so the runner does not ask one. The `product` suite
+is the tasks that declare one, kept apart from `all` because the two are scored under different
+arithmetics.
 
 ### Gates
 
@@ -315,7 +363,9 @@ have the same mean and are not the same thing to depend on.
 a name for a fixed list precisely so that adding a task cannot silently reprice a result already
 taken under that name. Harder tasks go in `hard`, which is funded separately — `all` is cheap and
 comparable with history; `hard` is where a real model comparison would be bought. `suite.test.ts`
-asserts `all`'s membership exactly, so growing it fails a test rather than passing unnoticed.
+asserts `all`'s membership exactly, so growing it fails a test rather than passing unnoticed. The
+`product` suite is kept apart for a stronger reason still: its runs are scored under a different
+arithmetic, so a task in both would be quoted under two.
 
 **One run is an anecdote.** Two runs of `todo-crud` under one model and one configuration scored 88
 and 74, so a comparison drawn from a single run each is noise presented as a finding. `--repeat=<n>`

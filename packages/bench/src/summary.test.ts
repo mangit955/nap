@@ -4,6 +4,7 @@ import type { BenchReport } from "./report.ts";
 import type { RunStatus } from "./status.ts";
 import { formatRunSummary, formatSuiteSummary, summariseSuite } from "./summary.ts";
 import { benchCheck, benchReport } from "./testing/bench-report.ts";
+import { scriptedJudgement } from "./testing/scripted-judgement.ts";
 
 function scored(status: RunStatus, score: number): BenchReport {
   return benchReport({ status, score });
@@ -279,5 +280,59 @@ describe("formatRunSummary", () => {
 
     expect(text).toMatch(/turn time —/);
     expect(text).toMatch(/tokens —/);
+  });
+});
+
+describe("formatRunSummary — a run scored on both halves", () => {
+  const judged = (grades?: Parameters<typeof scriptedJudgement>[1]) =>
+    benchReport({
+      scoringModel: "v2",
+      score: 79,
+      halves: { objective: 100, product: 63 },
+      product: scriptedJudgement(
+        [{ surfaceId: "home", viewport: "mobile", path: "home-mobile.png" }],
+        grades,
+      ),
+    });
+
+  it("shows both halves, so the headline can be recomputed from what is printed", () => {
+    const text = formatRunSummary(judged());
+
+    expect(text).toMatch(/objective 100/);
+    expect(text).toMatch(/product 63/);
+  });
+
+  it("names who graded, because a scripted judgement is not a measurement", () => {
+    const text = formatRunSummary(judged());
+
+    expect(text).toMatch(/scripted/);
+  });
+
+  it("prints every dimension's grade, and polish apart from them", () => {
+    const text = formatRunSummary(judged({ restraint: "poor" }));
+
+    expect(text).toMatch(/restraint poor/);
+    expect(text).toMatch(/polish .*reported, never scored/);
+  });
+
+  it("says the objective half stood alone when nobody could judge", () => {
+    const text = formatRunSummary(
+      benchReport({
+        scoringModel: "v2",
+        score: 100,
+        halves: { objective: 100, product: null },
+        product: scriptedJudgement([]),
+      }),
+    );
+
+    expect(text).toMatch(/not judged/);
+    // Not a zero, and not a dash that reads like one: absence renormalises.
+    expect(text).not.toMatch(/product 0/);
+  });
+
+  it("prints nothing about halves for a run that was not scored that way", () => {
+    // Every archived report. Implying they were scored on two halves would be the same mistake
+    // `compare` refuses when it will not put a v1 number beside a v2 one.
+    expect(formatRunSummary(benchReport())).not.toMatch(/halves/);
   });
 });

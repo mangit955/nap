@@ -14,6 +14,10 @@ import { describe, expect, it } from "vitest";
 import type { BrowserStep } from "./browser-check.ts";
 import { DEFAULT_CATEGORY_WEIGHTS } from "./category.ts";
 import { BUILD_FAILURE_SCORE_CAP } from "./gates.ts";
+import { PRODUCT_DIMENSIONS } from "./product/dimension.ts";
+import type { ProductEvaluationInput } from "./product/evaluation.ts";
+import type { Grade } from "./product/grade.ts";
+import { parseBenchReport } from "./report.ts";
 import { runBenchTask } from "./runner.ts";
 import { scoreRun } from "./score.ts";
 import { type CapturedScreenshot, type ScreenshotStore, screenshotFilename } from "./screenshot.ts";
@@ -22,6 +26,7 @@ import {
   ScriptedBrowserSession,
   type ScriptedBrowserSessionOptions,
 } from "./testing/scripted-browser-session.ts";
+import { scriptedJudgement, scriptedProductJudge } from "./testing/scripted-judgement.ts";
 import { manualVisualEvaluation, VISUAL_NOT_RUN, type VisualEvaluationInput } from "./visual.ts";
 
 const SESSION_ID = "3f2a1c4e-0000-4000-8000-000000000002";
@@ -1264,6 +1269,212 @@ describe("runBenchTask — the deliberate capture pass", () => {
 
     expect(report.screenshots).toEqual([]);
     expect(report.status).toBe("passed");
+  });
+});
+
+describe("runBenchTask — the product half", () => {
+  const PORT = 5173;
+  const INTENT = "a place to keep track of what still needs doing";
+
+  /** A judgeable task: it says what it is for, and it can be photographed. */
+  function judgeableTask(extras: Record<string, unknown> = {}) {
+    const parsed = parseBenchTask({
+      id: "todo",
+      name: "A todo list",
+      prompts: ["Build a todo list."],
+      preview: { port: PORT },
+      intent: INTENT,
+      checks: [{ id: "build", kind: "command", command: "bun run build" }],
+      ...extras,
+    });
+    if (!parsed.ok) throw new Error(parsed.error);
+    return parsed.value;
+  }
+
+  const serving = () =>
+    new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0 }), serves: [PORT] });
+
+  const browserFactory = () => async () => ({
+    ok: true as const,
+    value: new ScriptedBrowserSession({ pages: { "/": { elements: [{ text: "Todos" }] } } }),
+  });
+
+  const store: ScreenshotStore = async (screenshot) => ({
+    ok: true,
+    value: screenshotFilename(screenshot.metadata),
+  });
+
+  /** One grade across all nine, for the cases that are about the fold rather than a dimension. */
+  const everyDimension = (grade: Grade) =>
+    Object.fromEntries(PRODUCT_DIMENSIONS.map((dimension) => [dimension, grade]));
+
+  async function judgedRun(
+    task = judgeableTask(),
+    overrides: Partial<Parameters<typeof runBenchTask>[1]> = {},
+  ) {
+    const withSandbox = await deps(scriptedRuntime(completed), serving());
+
+    return reportOf(task, {
+      ...withSandbox,
+      browser: browserFactory(),
+      screenshots: store,
+      product: scriptedProductJudge(),
+      now: () => new Date(NOW),
+      ...overrides,
+    });
+  }
+
+  it("scores a judged run on both halves, and records the arithmetic that produced it", async () => {
+    const report = await judgedRun();
+
+    expect(report.scoringModel).toBe("v2");
+    expect(report.halves).toEqual({ objective: 100, product: 63 });
+    // √(100 × 63), which is the whole point: doing exactly what was asked no longer buys a
+    // score in the nineties on its own.
+    expect(report.score).toBe(79);
+  });
+
+  it("keeps the judgement beside the number, so nobody has to take the number on trust", async () => {
+    const report = await judgedRun();
+
+    expect(report.product?.status).toBe("judged");
+    if (report.product?.status !== "judged") throw new Error("expected a judged judgement");
+    expect(report.product.judge.source).toMatch(/scripted/);
+    // Every graded dimension cites an image this run actually took.
+    const paths = new Set(report.screenshots.map((shot) => shot.path));
+    for (const dimension of PRODUCT_DIMENSIONS) {
+      const graded = report.product.dimensions[dimension];
+      if (graded.status !== "graded") throw new Error(`${dimension} was not graded`);
+      for (const evidence of graded.evidence) expect(paths).toContain(evidence.screenshot);
+    }
+  });
+
+  it("hands the judge the surfaces and the task's sentence, and not the prompts", async () => {
+    // The judge is shown what a person opening the application would have: one sentence about
+    // what it is for. Handing over the prompts would have it grade feature completion, which
+    // the objective half already measures and measures better.
+    const seen: ProductEvaluationInput[] = [];
+
+    await judgedRun(judgeableTask(), {
+      product: {
+        evaluate: async (input) => {
+          seen.push(input);
+          return scriptedJudgement(input.screenshots);
+        },
+      },
+    });
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.intent).toBe(INTENT);
+    expect(seen[0]?.taskId).toBe("todo");
+    expect(seen[0]?.screenshots.map((shot) => `${shot.surfaceId}@${shot.viewport}`)).toEqual([
+      "home@mobile",
+      "home@desktop",
+    ]);
+    expect(JSON.stringify(seen[0])).not.toContain("Build a todo list");
+  });
+
+  it("drags a correct application down when it is not one anybody would want to use", async () => {
+    // The direction this whole half exists to supply. The checks are identical to the run
+    // above; only the judgement differs, and a weighted mean would have left it in the eighties.
+    const poorly = await judgedRun(judgeableTask(), {
+      product: scriptedProductJudge(everyDimension("poor")),
+    });
+
+    expect(poorly.halves).toEqual({ objective: 100, product: 12 });
+    expect(poorly.score).toBe(35);
+  });
+
+  it("scores the objective half alone when the judge had nothing to look at", async () => {
+    // Absence renormalises. A run that photographed nothing is not a run that looked bad, and
+    // multiplying by a product half of zero would say it was.
+    // The application never started: the build ran, and the probe found nothing listening —
+    // curl's "could not connect", which is what tells `not_started` from `unreachable`.
+    const notServing = new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0 }) }).script(
+      /curl/,
+      { exitCode: 7 },
+    );
+    const withSandbox = await deps(scriptedRuntime(completed), notServing);
+
+    const report = await reportOf(judgeableTask(), {
+      ...withSandbox,
+      browser: browserFactory(),
+      screenshots: store,
+      product: scriptedProductJudge(),
+    });
+
+    expect(report.screenshots).toEqual([]);
+    expect(report.halves).toEqual({ objective: 100, product: null });
+    expect(report.score).toBe(100);
+    // Still recorded, because "nobody could judge this" is a fact about the run worth keeping.
+    expect(report.product?.status).toBe("judged");
+  });
+
+  it("scores a task that says nothing about itself the v1 way, judge or no judge", async () => {
+    // The switch is the task's intent rather than a flag on the run, which is what keeps the
+    // frozen suite frozen: its four tasks declare none, so composing a judge cannot reprice them.
+    const silent = parseBenchTask({
+      id: "todo",
+      name: "A todo list",
+      prompts: ["Build a todo list."],
+      preview: { port: PORT },
+      checks: [{ id: "build", kind: "command", command: "bun run build" }],
+    });
+    if (!silent.ok) throw new Error(silent.error);
+
+    const report = await judgedRun(silent.value);
+
+    expect(report.scoringModel).toBeUndefined();
+    expect(report.halves).toBeNull();
+    expect(report.product).toBeNull();
+    expect(report.score).toBe(100);
+  });
+
+  it("scores a judgeable task the v1 way when no judge was composed", async () => {
+    const withSandbox = await deps(scriptedRuntime(completed), serving());
+
+    const report = await reportOf(judgeableTask(), {
+      ...withSandbox,
+      browser: browserFactory(),
+      screenshots: store,
+    });
+
+    expect(report.scoringModel).toBeUndefined();
+    expect(report.halves).toBeNull();
+    expect(report.product).toBeNull();
+  });
+
+  it("still lets a gate cap what the two halves came to", async () => {
+    // The gates arbitrate the combined number, not the objective one. A judge cannot rescue an
+    // application that does not compile, which is the mirror case the gate ladder already
+    // handled and must go on handling.
+    const failing = new InMemorySandboxManager({
+      defaultExec: () => ({ exitCode: 0 }),
+      serves: [PORT],
+    }).script(/bun run build/, { exitCode: 1, stderr: "boom" });
+    const withSandbox = await deps(scriptedRuntime(completed), failing);
+
+    const report = await reportOf(
+      judgeableTask({
+        checks: [{ id: "build", kind: "command", command: "bun run build", build: true }],
+      }),
+      {
+        ...withSandbox,
+        browser: browserFactory(),
+        screenshots: store,
+        product: scriptedProductJudge(everyDimension("excellent")),
+      },
+    );
+
+    expect(report.gates).toContain("build_failed");
+    expect(report.scoreCap).toBe(BUILD_FAILURE_SCORE_CAP);
+    expect(report.score).toBeLessThanOrEqual(BUILD_FAILURE_SCORE_CAP);
+  });
+
+  it("writes a report the schema accepts, which is what makes it archivable", async () => {
+    const report = await judgedRun();
+
+    expect(parseBenchReport(JSON.parse(JSON.stringify(report))).ok).toBe(true);
   });
 });
 

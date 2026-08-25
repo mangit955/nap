@@ -18,6 +18,7 @@
  * for each — and nothing that says how it should have been built.
  */
 
+import type { ScreenshotRef } from "../screenshot.ts";
 import type { ViewportName } from "../viewport.ts";
 import { PRODUCT_NOT_RUN, type ProductJudgement } from "./judgement.ts";
 
@@ -58,6 +59,32 @@ export interface ProductEvaluation {
   evaluate(input: ProductEvaluationInput): Promise<ProductJudgement>;
 }
 
+/**
+ * The judge's share of a run's screenshots: the ones somebody asked for, and none of the rest.
+ *
+ * A check's photograph is deliberately excluded even though it is a picture of the same
+ * application. It was taken at whatever size that check finished at, of whatever the check had
+ * driven the page into, and labelled with the assertion rather than the view — so it cannot be
+ * paired with anything, and `responsiveness` is graded on pairs. Including them would also put
+ * the cost up on every real run for images nobody can cite as evidence about a surface.
+ */
+export function surfaceScreenshotsOf(screenshots: readonly ScreenshotRef[]): SurfaceScreenshot[] {
+  const surfaces: SurfaceScreenshot[] = [];
+
+  for (const shot of screenshots) {
+    if (shot.surface === null) continue;
+    surfaces.push({
+      surfaceId: shot.surface.id,
+      // The size the pass *asked for*, not the one measured: it is what pairs two images, and a
+      // page that resized itself comes back with no measured name at all. See `screenshot.ts`.
+      viewport: shot.surface.viewport,
+      path: shot.path,
+    });
+  }
+
+  return surfaces;
+}
+
 /** The default: there is no judge, and saying so is the honest result. */
 export function notRunProductEvaluation(): ProductEvaluation {
   return { evaluate: async () => PRODUCT_NOT_RUN };
@@ -71,6 +98,13 @@ export function notRunProductEvaluation(): ProductEvaluation {
  * renormalisation and the report's product section would all be untested until somebody paid.
  * Its grades mean nothing about any application, which is the same caveat a dry run already
  * carries about its score.
+ *
+ * **Not the same thing as `scriptedProductJudge` in `testing/scripted-judgement.ts`**, and the
+ * difference is what each is for. This answers with a judgement decided entirely in advance,
+ * whatever it is shown — which is what a fixture wants, since the fixture *is* the answer. That
+ * one builds its judgement from the screenshots it was handed, which is what the free path wants,
+ * since a report whose evidence cites images the run never took would not be exercising the thing
+ * a paid run will do.
  */
 export function scriptedProductEvaluation(judgement: ProductJudgement): ProductEvaluation {
   return { evaluate: async () => judgement };

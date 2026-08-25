@@ -54,8 +54,9 @@ export const NAPBENCH_USAGE = [
   "  --baseline=<ref>        Compare two finished runs instead of running anything. Each",
   "  --candidate=<ref>       reference is a run id or a path to a report. Two runs, not three.",
   "",
-  "Without --real it runs on a scripted model, an in-memory sandbox and a scripted browser:",
-  "free, offline, and the scores mean nothing. It exercises the machinery, not a model.",
+  "Without --real it runs on a scripted model, an in-memory sandbox, a scripted browser and a",
+  "scripted product judge: free, offline, and the scores mean nothing — the grades are fixed in",
+  "advance and describe no image. It exercises the machinery, not a model.",
   "",
   `Example: bun run napbench --real --suite=${BENCHMARK_SUITE}`,
 ].join("\n");

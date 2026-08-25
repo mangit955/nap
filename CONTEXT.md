@@ -384,6 +384,24 @@ being docked fifteen points for a judge that does not exist. And it is never the
 visual is 15 against functional's 50, and the build and preview gates cap or fail a run long before
 this is consulted, so a broken application cannot be rescued by something thinking it looks nice.
 
+**Intent** — one neutral sentence saying what an application is *for*, declared by a task and the
+whole of what a product judge is told about it. Never the prompts: a person opening the finished
+application has no specification, and a judge shown the prompts would start grading feature
+completion, which the checks already measure and measure better because a check cannot be talked
+round. It is also the switch — a task that declares one is scored on two halves, and a task that
+declares none is scored on its checks alone whatever judge is composed, which is what keeps the
+frozen `all` suite priced as its funded runs priced it.
+
+**Product half** — the half of a score that asks whether what was built is a product anybody would
+want to use, as against the **objective half**, which asks whether it does what was asked. Graded
+by a judge from **Surface** screenshots and the **Intent**, and combined with the objective half
+*geometrically*, so neither can carry the other: correct-and-ugly lands in the forties rather than
+the eighties. Absent when nobody judged, or when a judge looked and had nothing to see — and
+absence renormalises to the objective half alone rather than multiplying by zero, per ADR-0002.
+Which arithmetic produced a run's number is recorded on the report as its **scoring model**, `v1`
+or `v2`, and `compare` refuses to put one beside the other: the scale is the same and the meaning
+is not.
+
 **Reference screenshot** — what a browser check's screenshot is *meant* to look like, as a path the
 task declares. Nothing compares against it yet; it is expressible now so that tasks can carry
 references before the judge that reads them exists. Declared per check rather than per task,

@@ -1,5 +1,5 @@
 /**
- * The four tasks driven against scripted applications, to prove the checks *discriminate*.
+ * Every task driven against scripted applications, to prove the checks *discriminate*.
  *
  * A task file that parses tells you nothing: a check asserting something always true would
  * validate, run, and pass every model equally. So each task here is run twice — against an
@@ -29,6 +29,7 @@ import {
 import { DEBUG_BROKEN_TASK } from "./debug-broken.ts";
 import { EXPENSE_LEDGER_TASK } from "./expense-ledger.ts";
 import { LANDING_PAGE_TASK } from "./landing-page.ts";
+import { READING_LIST_TASK } from "./reading-list.ts";
 import { RESPONSIVE_LAYOUT_TASK } from "./responsive-layout.ts";
 import { TODO_CRUD_TASK } from "./todo-crud.ts";
 
@@ -865,5 +866,121 @@ describe("expense-ledger", () => {
     };
 
     expect(await auditOutcomeOf(EXPENSE_LEDGER_TASK, "is-accessible", unlabelled)).toBe("failed");
+  });
+});
+
+/**
+ * A reading list, and the ways of shipping one that only looks finished.
+ *
+ * The task's prompt pins no wording, so the fakes below pin none either: the application is a
+ * field and whatever it chose to put on the page. That is the point — every assertion is about
+ * text the check typed in, which is the only thing a task described by outcome is entitled to
+ * assert.
+ */
+function readingList(options: { saves: boolean; echoes?: boolean; overflows?: boolean }) {
+  let typed = "";
+
+  return {
+    pages: {
+      "/": {
+        elements: [{ role: "textbox", label: "Title", value: "" }],
+        ...(options.overflows ? { scrollWidth: { mobile: 500, desktop: 1280 } } : {}),
+      },
+    },
+    on: {
+      fill: (interaction: ScriptedInteraction) => {
+        typed = interaction.value ?? "";
+      },
+      press: ({ key, page }: ScriptedInteraction) => {
+        if (key !== "Enter" || typed === "") return;
+        // The half an agent can ship without: the keystroke is handled and nothing is kept.
+        if (options.echoes === false) return;
+
+        page.add({ role: "listitem", text: typed }, { persists: options.saves });
+        typed = "";
+      },
+    },
+  } satisfies ScriptedBrowserSessionOptions;
+}
+
+describe("reading-list", () => {
+  it("passes an application that keeps what was typed into it", async () => {
+    for (const checkId of ["keeps-what-you-add", "still-there-when-you-come-back"]) {
+      expect(await outcomeOf(READING_LIST_TASK, checkId, readingList({ saves: true }))).toBe(
+        "passed",
+      );
+    }
+  });
+
+  it("fails one whose Enter key does nothing", async () => {
+    // The most likely half-built version: a field that accepts typing, and a list nothing
+    // reaches. Nothing about the page looks wrong until something is saved.
+    expect(
+      await outcomeOf(
+        READING_LIST_TASK,
+        "keeps-what-you-add",
+        readingList({ saves: true, echoes: false }),
+      ),
+    ).toBe("failed");
+  });
+
+  it("fails one that only looked like it saved anything", async () => {
+    // Both applications behave identically until the reload, which is the whole assertion —
+    // and the check that does not reload still passes this one, which is why there are two.
+    const forgetful = () => readingList({ saves: false });
+
+    expect(await outcomeOf(READING_LIST_TASK, "keeps-what-you-add", forgetful())).toBe("passed");
+    expect(await outcomeOf(READING_LIST_TASK, "still-there-when-you-come-back", forgetful())).toBe(
+      "failed",
+    );
+  });
+
+  it("fails one that spills off the side of a phone", async () => {
+    // The objective half of "works on a phone". The judged half — whether the small viewport was
+    // designed for or the large one squashed — is graded under `responsiveness` and is not this.
+    expect(
+      await outcomeOf(READING_LIST_TASK, "fits-on-a-phone", readingList({ saves: true })),
+    ).toBe("passed");
+    expect(
+      await outcomeOf(
+        READING_LIST_TASK,
+        "fits-on-a-phone",
+        readingList({ saves: true, overflows: true }),
+      ),
+    ).toBe("failed");
+  });
+
+  it("fails one that throws while saving, which no visibility assertion would notice", async () => {
+    expect(
+      await outcomeOf(READING_LIST_TASK, "keeps-what-you-add", {
+        ...readingList({ saves: true }),
+        consoleErrors: ["uncaught TypeError: undefined is not a function"],
+      }),
+    ).toBe("failed");
+  });
+
+  it("passes a clean audit of the phone layout and fails an unlabelled field", async () => {
+    expect(
+      await auditOutcomeOf(READING_LIST_TASK, "is-accessible", readingList({ saves: true })),
+    ).toBe("passed");
+
+    const unlabelled: ScriptedBrowserSessionOptions = {
+      pages: {
+        "/": {
+          elements: [{ role: "textbox" }],
+          violations: [
+            {
+              id: "label",
+              impact: "critical",
+              help: "Form elements must have labels",
+              helpUrl: "https://dequeuniversity.com/rules/axe/4.10/label",
+              nodes: 1,
+            },
+          ],
+        },
+      },
+    };
+
+    expect(await auditOutcomeOf(READING_LIST_TASK, "is-accessible", unlabelled)).toBe("failed");
   });
 });

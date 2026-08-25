@@ -99,6 +99,21 @@ export const CategoryScoreSchema = z.strictObject({
   checks: z.number().int().nonnegative(),
 });
 
+/**
+ * The two numbers a v2 score was combined from.
+ *
+ * Named and exported rather than left inline, so that whatever *computes* the halves and whatever
+ * *validates* them are one shape: a runner re-declaring `{ objective, product }` by hand could
+ * drift from this and nothing would notice until a report failed to parse, long after it was
+ * written.
+ */
+export const ReportHalvesSchema = z.strictObject({
+  objective: z.number().int().min(0).max(100),
+  product: z.number().int().min(0).max(100).nullable(),
+});
+
+export type ReportHalves = z.infer<typeof ReportHalvesSchema>;
+
 export const BenchReportSchema = z
   .strictObject({
     /** This run. Not the session, and not a turn. */
@@ -203,13 +218,7 @@ export const BenchReportSchema = z
      * `product` is null when nobody judged, which is the absence that has the objective half
      * stand alone rather than being multiplied by zero.
      */
-    halves: z
-      .strictObject({
-        objective: z.number().int().min(0).max(100),
-        product: z.number().int().min(0).max(100).nullable(),
-      })
-      .nullable()
-      .default(null),
+    halves: ReportHalvesSchema.nullable().default(null),
     /**
      * What a product judge made of the rendered application, and null when there was no judge.
      *

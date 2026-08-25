@@ -12,6 +12,7 @@ import type { BrowserCheck, BrowserStep } from "../browser-check.ts";
 import { type BenchTask, parseBenchTask } from "../task.ts";
 import { DEBUG_BROKEN_TASK } from "./debug-broken.ts";
 import { LANDING_PAGE_TASK } from "./landing-page.ts";
+import { READING_LIST_TASK } from "./reading-list.ts";
 import { RESPONSIVE_LAYOUT_TASK } from "./responsive-layout.ts";
 import { TEMPLATE_PREVIEW_PORT } from "./template.ts";
 import { TODO_CRUD_TASK } from "./todo-crud.ts";
@@ -126,6 +127,59 @@ describe("the four benchmark tasks", () => {
       expect(build).toHaveLength(1);
     },
   );
+});
+
+describe("reading-list — described by outcome, and judged as well as checked", () => {
+  const browserStrings = (task: BenchTask) =>
+    browserChecks(task).flatMap((check) => check.steps.flatMap(assertedStrings));
+
+  it("says what it is for, which is the whole of what a judge is shown", () => {
+    // No prompt, no checks, no specification: one neutral sentence, because that is what a
+    // person opening the finished application has. See `product/evaluation.ts`.
+    expect(READING_LIST_TASK.intent).toBeDefined();
+    for (const prompt of READING_LIST_TASK.prompts) {
+      expect(READING_LIST_TASK.intent).not.toContain(prompt);
+    }
+  });
+
+  it("declares the surfaces the judge is shown, empty and populated", () => {
+    // Both states, because an empty one is where a generated interface is most often
+    // thoughtless and a populated one is the only one that says anything about density.
+    expect(READING_LIST_TASK.surfaces?.map((surface) => surface.id)).toEqual([
+      "empty",
+      "populated",
+    ]);
+  });
+
+  it("asserts nothing the agent was not given, which here means only its own typed text", () => {
+    // The property that makes a task described by outcome fair. The frozen four satisfy it by
+    // quoting every string in a prompt; this one satisfies it by asserting almost nothing —
+    // the article title is the check's own data, typed in and read back.
+    const typedIn = browserChecks(READING_LIST_TASK)
+      .flatMap((check) => check.steps)
+      .filter((step) => step.step === "fill")
+      .map((step) => step.value);
+
+    for (const asserted of browserStrings(READING_LIST_TASK)) {
+      expect(typedIn, `"${asserted}" is asserted but was never typed in`).toContain(asserted);
+    }
+  });
+
+  it("names no wording, layout or component the agent has to guess at", () => {
+    // The check this task would fail if somebody "helpfully" pinned a heading in the prompt:
+    // the moment a string is quoted, the task starts measuring transcription again and the
+    // product half has nothing left to be about.
+    const selectors = browserChecks(READING_LIST_TASK)
+      .flatMap((check) => check.steps)
+      .flatMap((step) =>
+        "selector" in step && step.selector !== undefined ? [step.selector] : [],
+      );
+
+    for (const selector of selectors) {
+      expect(selector.by).toBe("role");
+      expect(selector.by === "role" && selector.name).toBeUndefined();
+    }
+  });
 });
 
 describe("todo-crud — the only task with a follow-up", () => {
