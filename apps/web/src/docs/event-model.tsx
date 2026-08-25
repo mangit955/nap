@@ -88,6 +88,43 @@ export function EventModel() {
         ]}
       />
 
+      <Sub>Two cursors, and why they must not share a word</Sub>
+
+      <P>
+        The <Code>seq</Code> above is a <em>replay</em> cursor: per-connection, held in memory, and
+        gone when the page closes. It answers &ldquo;what have I been sent?&rdquo; The second cursor
+        answers a different question — &ldquo;what has this browser ever <em>displayed</em>?&rdquo;
+        — and it is per-browser and durable, kept in <Code>localStorage</Code> against the session.
+        The events after it are <Term>unseen</Term>, and where they begin is the <Term>seam</Term>:
+        a line through the transcript, and where the transcript opens rather than at the bottom.
+      </P>
+
+      <P>
+        The seen cursor advances <em>only while the document is visible</em>. A background tab keeps
+        its socket open and the worker keeps working, so counting what arrives there as displayed
+        would make the feature fire in every case except the one it exists for. And having received
+        nothing is not a cursor of zero: writing that first zero down turns &ldquo;never
+        opened&rdquo; into &ldquo;seen nothing of it&rdquo; and puts the seam above the first thing
+        anybody said.
+      </P>
+
+      <P>
+        <Term>Unseen</Term> is deliberately not <em>away</em>. Away names the user&rsquo;s state,
+        which nothing can observe; what is computed is a property of the log against a cursor. The
+        copy on screen may well say &ldquo;while you were away&rdquo; — copy is allowed to be warmer
+        than the concept, so long as the concept keeps its name in the source.
+      </P>
+
+      <P>
+        What sits above the seam is one card, and it fires on a <em>conclusion</em> — a job
+        completed, checkpointed or failed among the unseen events — rather than on elapsed time or
+        volume. Both of those fire on activity: gone four hours with nothing decided, and you would
+        be told &ldquo;47 events&rdquo;, which is true and worthless. Most returns show no card, and
+        that is what earns the one that appears its interruption. It is worked out once, when
+        reading resumes, and then held still, because a card recomputed every frame would announce
+        &ldquo;while you were away&rdquo; about the turn its reader is sitting there watching.
+      </P>
+
       <P>
         <Source href={`${REPO_URL}/blob/main/docs/adr/0008-the-transcript-is-a-derived-view.md`}>
           ADR-0008 — The transcript is a derived view, not a chat client

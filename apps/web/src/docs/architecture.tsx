@@ -8,19 +8,25 @@
  */
 
 import { REPO_URL } from "../landing/github-button.tsx";
-import { Code, Figure, Lede, P, Source, Sub, Term } from "./prose.tsx";
+import { Code, Figure, Jump, Lede, P, Source, Sub, Term } from "./prose.tsx";
 
 const PLANES = `Browser (Next.js)                       ← presentation
    │ HTTPS + WebSocket
 API server (Hono on Bun)                ← gateway · sessions · streaming hub
+   │   admits and enqueues; executes nothing
+   ▼
+turn_requests (Postgres)                ← the queue; one leased turn per session
    │
+Worker  claim ─► renew ─► settle        ← executes; serves nothing
    └── Runtime  (turn orchestration)    ← intelligence
          ├── ContextEngine ──► MemoryProvider
          ├── AgentService  ──► LLMProvider
          ├── SandboxManager ────────────► E2B sandbox      ← execution
          ├── EventStore (Postgres)         /workspace (git repo)
          ├── Verifier (@nap/verify)        vite dev :5173 → preview URL
-         └── EventBus (in-process, or Postgres NOTIFY)`;
+         └── EventBus (in-process, or Postgres NOTIFY)
+
+Reaper (exactly one)                    ← idle sweep · capacity · the janitor`;
 
 const DIRECTION = `runtime ──► context · agent · sandbox · storage · capture · db · verify ──► shared
 
@@ -30,6 +36,17 @@ apps/napbench ──► bench            (the shell: Playwright, real infrastruc
 the edge that must never exist:    runtime ──► bench`;
 
 const OWNERSHIP = [
+  {
+    component: "TurnQueue",
+    owns: "The durable queue of turn requests and the per-session leases that make one exclusive. Also the one answer to “is this session busy?”, so close, delete and the idle sweep all mean the same thing by it.",
+    never:
+      "Running anything. Holding a credential — it records whether the asker pays, never their key.",
+  },
+  {
+    component: "TurnWorker",
+    owns: "Claiming a request, renewing its lease, running it through the Runtime, settling the row — and aborting the moment a renewal says the lease is gone. Draining on shutdown.",
+    never: "Admission, ceilings, model access. Deciding what a turn does. Serving anything.",
+  },
   {
     component: "Runtime",
     owns: "The turn lifecycle: acquire sandbox, build context, run agent, persist, publish, commit, verify, snapshot, photograph. Budgets, cancellation, recovery. Opening and closing the job a turn belongs to.",
@@ -71,6 +88,15 @@ export function Architecture() {
       </Lede>
 
       <Figure label="The planes, and what sits in each.">{PLANES}</Figure>
+
+      <P>
+        <Term>Three processes, one image, and no call between them.</Term> The API serves and
+        executes nothing; the worker executes and serves nothing; the reaper does neither and runs
+        as a single replica. All three are built by one <Code>bootNap</Code> and differ only in the
+        role they pass, so a new dependency is one edit rather than three that drift apart. A turn
+        reaches a worker through the <Code>turn_requests</Code> table and nothing else.{" "}
+        <Jump to="scale">Scale</Jump> is what that buys, and what it cost.
+      </P>
 
       <Sub>Who owns what</Sub>
 

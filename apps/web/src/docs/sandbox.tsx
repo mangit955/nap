@@ -27,9 +27,9 @@ export function Sandbox() {
 
       <P>
         A batteries-included agent SDK ships built-in file and shell tools, and those act on the
-        filesystem of the process running the harness — which here is the API server, not the
-        user&rsquo;s sandbox. So <Code>AgentService</Code> drives the model loop itself over an{" "}
-        <Code>LLMProvider</Code> port, and the only tools that exist are these six.
+        filesystem of the process running the harness — which here is one of our own server
+        processes, not the user&rsquo;s sandbox. So <Code>AgentService</Code> drives the model loop
+        itself over an <Code>LLMProvider</Code> port, and the only tools that exist are these six.
       </P>
 
       <Figure label="The whole tool surface.">{TOOLS}</Figure>
@@ -71,6 +71,10 @@ export function Sandbox() {
                 &ldquo;something is running&rdquo;.
               </>
             ),
+          },
+          {
+            term: "The ceiling is claimed where the sandbox is made",
+            body: "A queued turn may not create anything for a minute, so counting sandboxes at admission counts the wrong moment. Capacity is reserved at creation, and the reaper reconciles it against what the provider says it is actually running — which is how a slot no path gave back comes back in minutes rather than never.",
           },
           {
             term: "Somebody else's project answers 404",

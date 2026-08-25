@@ -32,9 +32,30 @@ there is one composition rather than three that drift. A turn reaches a worker t
 `turn_requests` and nothing else; there is no call between any of the processes.
 
 **Deploying this needs a Railway service each, and the API stops running turns without the
-worker.** Same repo, same Dockerfile, same variables — set the start command and leave the
-healthcheck path empty for the two that serve nothing, because whether a worker is working is
-a question about queue depth. One thing must be true first:
+worker.** Same repo, same Dockerfile, same variables — what differs is the start command, and
+**the healthcheck path must be empty for the two that serve nothing**, because whether a worker
+is working is a question about queue depth.
+
+**That last point needs a config file per role, and finding out why cost a broken deployment.**
+Railway applies `railway.json` as config-as-code on every deploy *from that repo*, so a single
+file at the root governs all three services and re-imposes its `healthcheckPath` no matter what
+the service is set to in the dashboard or through the API. A worker inherits `/health`, serves
+nothing, never answers, and the deployment fails at the `HEALTHCHECK` step — **after** the
+process has booted correctly and logged `worker claiming`, which is what makes it confusing:
+the logs show a working worker and the deploy shows a failure. So there are three files, and
+each service points at its own through the *Config-as-code* setting (`railwayConfigFile`):
+
+| Service | Config file | Start command | Healthcheck |
+|---|---|---|---|
+| `nap-api` | `railway.json` | the Dockerfile's default | `/health` |
+| `nap-worker` | `railway.worker.json` | `bun apps/api/src/worker.ts` | none |
+| `nap-reaper` | `railway.reaper.json` | `bun apps/api/src/reaper.ts` | none |
+
+Setting the start command on the service without pointing it at the right config file half-works
+— the command applies, the healthcheck still kills it — which is the failure this table exists to
+stop somebody rediscovering.
+
+One thing must be true first:
 
 - **`NAP_EVENT_BUS=postgres`.** A worker publishing to an in-process bus announces a turn to
   nobody: every socket watching it is on the API pod. Turns would run perfectly while every

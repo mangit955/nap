@@ -57,6 +57,26 @@ export function DurableJobs() {
         glossary keeps them apart on purpose.
       </P>
 
+      <Sub>What you actually see of it</Sub>
+
+      <P>
+        A strip above the transcript says where the current job stands, and it does not scroll away
+        with the conversation — a status somebody goes looking for during the exact minute it
+        matters should not be a thing they have to scroll to find. It is mirrored into the workspace
+        bar, so collapsing the chat to give the preview the whole window does not take the one
+        signal saying whether the project works off the screen with it.
+      </P>
+
+      <P>
+        Behind it is a history of <em>jobs</em>, and that word is the decision worth reading.{" "}
+        <Code>job.checkpointed</Code> is written on the success path only, so a history built from
+        checkpoints is a history with every failure deleted from it: green ticks, and no record that
+        the thing asked for at 14:32 was attempted, repaired three times and abandoned. A panel
+        whose job is to answer &ldquo;what happened?&rdquo; cannot be built that way. So{" "}
+        <Term>Checkpoint</Term> keeps its strong meaning on the verified-commit line <em>inside</em>{" "}
+        an entry, and the entries themselves include the ones that ended badly.
+      </P>
+
       <Facts
         items={[
           {

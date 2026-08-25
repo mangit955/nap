@@ -19,7 +19,7 @@ Nap is a Lovable-style AI app builder: the user describes an app in chat, an age
 | `docs/scaling-baseline.md` | *What the system did before it was changed* — the k6 ramp's numbers, and the three §24 questions it answered | Before changing anything on the admission hot path, or quoting a load figure |
 | `docs/scaling-cluster.md` | *What the system does now* — the same ramp against a multi-pod cluster with both autoscalers running, compared stage by stage against the baseline, and the §21 invariants each marked demonstrated or not | Before quoting a scaled figure, or claiming an invariant holds |
 | `docs/adr/` | *What was decided and why* — choices expensive to reverse | The ADRs touching whatever you are about to change |
-| `apps/web/src/docs/` | *What the public is told about how it works* — the `/docs` page, eight sections over the same ground as the README | Before changing any mechanism a reader was promised, or adding architecture prose to `README.md` |
+| `apps/web/src/docs/` | *What the public is told about how it works* — the `/docs` page, nine sections over the same ground as the README | Before changing any mechanism a reader was promised, or adding architecture prose to `README.md` |
 
 Keep each fact in exactly one of these. This file must never restate a task spec — link to `docs/PLAN.md` §4 instead.
 
@@ -28,8 +28,8 @@ Keep each fact in exactly one of these. This file must never restate a task spec
 ## Commands
 
 ```bash
-bun run test              # unit + type + db suites — deterministic and free; db needs Docker
-bun run test:fast         # unit + type only — the Docker-free inner loop
+bun run test              # unit + type + web + db suites — deterministic and free; db needs Docker
+bun run test:fast         # unit + type + web — the Docker-free inner loop
 bun run test:integration  # needs something external; run at milestone boundaries only
                           # most of it is real E2B + real model calls and costs money — but not
                           # all: the browser suites need only a Chrome at NAP_CHROME_PATH and

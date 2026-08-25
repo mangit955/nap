@@ -11,6 +11,7 @@ bounded repair.
 **[Live demo](https://nap-tawny.vercel.app)** ·
 [Docs](https://nap-tawny.vercel.app/docs) ·
 [Architecture](https://nap-tawny.vercel.app/docs#architecture) ·
+[Scale](https://nap-tawny.vercel.app/docs#scale) ·
 [NapBench](https://nap-tawny.vercel.app/docs#napbench)
 
 [![CI](https://github.com/mangit955/nap/actions/workflows/ci.yml/badge.svg)](https://github.com/mangit955/nap/actions/workflows/ci.yml)
@@ -53,10 +54,19 @@ because one of the four problems above is otherwise unanswerable.
 - **The work is durable, and the transcript is the source of truth.** Events are appended to
   Postgres with a monotonic `seq` before anyone sees them. Close the tab mid-turn and reopening asks
   for everything after the last event it saw — no duplicates, no holes.
+- **Nothing you closed was running in your request.** A turn is admitted, enqueued and claimed by a
+  worker; the socket you were watching from is not the process doing the work, so the tab is
+  genuinely optional. A deploy drains rather than stops — the worker quits claiming, keeps renewing
+  what it holds, and finishes it. A worker that dies outright is a different promise, and a smaller
+  one: the turn is closed out rather than silently retried, and the job it belonged to stays open
+  for whoever opens the project next.
 - **A turn that changed files is committed, then verified** against checks discovered from the
   project's own `package.json`, run cheapest-first and short-circuiting at the first failure.
-- **A failure opens a repair Turn**, bounded at three attempts per job, carrying the failure into
-  the next attempt's context.
+- **A failure opens a repair Turn**, bounded per job, carrying the failure into the next attempt's
+  context.
+- **Coming back is a first-class screen, not a scroll to the bottom.** The transcript opens at the
+  seam where your reading stopped, and if something was *decided* while you were gone — a job
+  verified, a job abandoned — one card above the seam says what. Nothing was decided, no card.
 - **An idle project is put away, not left running.** The workspace is committed, the git repository
   bundled to object storage and the sandbox destroyed. The next message restores it.
 
@@ -109,15 +119,29 @@ commit-on-completion all apply to a repair unchanged, because it is not a new ki
 Browser (Next.js)                         ← Presentation Plane
    │ HTTPS + WebSocket
 API server (Hono on Bun)                  ← API Gateway/BFF + Session Service + Streaming Hub
+   │   admits a turn, enqueues it, holds the socket — and executes nothing
+   ▼
+turn_requests (Postgres)                  ← the durable queue; one leased turn per session
    │
+Worker  claim ─► renew ─► settle          ← executes turns, serves nothing
    └── Runtime  (turn orchestration)      ← Intelligence Plane
          ├── ContextEngine ──► MemoryProvider (no-op today)
          ├── AgentService  ──► LLMProvider
          ├── SandboxManager ──────────────► E2B sandbox   ← Execution / Control Plane
          ├── EventStore (Postgres)                          /workspace (git repo)
-         ├── EventBus (in-process)                          vite dev :5173 → preview URL
+         ├── EventBus (Postgres NOTIFY)                     vite dev :5173 → preview URL
          └── Verifier ─────────────────────► the project's own checks
+
+Reaper (exactly one)                      ← the idle sweep, capacity reconciliation, the janitor
 ```
+
+**Three processes, one image, no call between them.** `apps/api/src/index.ts` serves and executes
+nothing, `worker.ts` executes and serves nothing, `reaper.ts` does neither and runs as a single
+replica behind an advisory lock. All three call one `bootNap`, so a new dependency is one edit
+rather than three. A turn reaches a worker through the `turn_requests` table and nothing else, and
+an event reaches your browser as a `NOTIFY` carrying a session and a `seq` — never a payload — after
+which the pod holding your socket reads the events out of the log it was already going to trust.
+That is what lets the socket you are on and the process running your turn be different machines.
 
 A thin vertical slice through all five planes, and the boundaries are the point. `Runtime` owns the
 turn lifecycle and never owns prompt content. `ContextEngine` owns the token budget and truncation
@@ -168,7 +192,31 @@ NapBench today, deliberately ([ADR-0007](docs/adr/0007-the-check-primitive-moves
 which leaves the observer strictly more capable than the system it observes. Whether that boundary
 should move is a design question rather than a measurement one.
 
+**A third real session paid for something neither of those could.** Four turns of one project
+against real E2B and a real model, the fourth of which died on `budget_exceeded`. Its whole event
+log is committed unedited at `apps/web/src/testing/audit-session.json`, so the failure is now
+reproducible for free — replaying it through the real assembler is what showed the truncation ladder
+had never run, and what
+[ADR-0011](docs/adr/0011-an-old-turns-tool-traffic-is-not-worth-carrying.md) is built on. It doubles
+as the fixture the job history and the seam were designed against: hand-written events are uniformly
+too tidy to ask a layout question of.
+
 [How the agent is measured →](https://nap-tawny.vercel.app/docs#napbench)
+
+### And what it does under load
+
+Separately, and for nothing: the same k6 ramp was run against one process
+([baseline](docs/scaling-baseline.md)) and then against a nine-pod Kubernetes cluster with both
+autoscalers live ([cluster](docs/scaling-cluster.md)) — three API pods, two-to-four workers, one
+reaper, KEDA on queue depth and an HPA on open sockets. At 100 concurrent turns the cluster ran
+**2,310 turns with 100% job, turn and verification completion, zero sequence gaps, zero duplicates
+and zero WebSocket failures**, including 219 mid-turn reconnects that each asked for the gap and got
+exactly it. The model and the sandbox are the same fakes at recorded speeds, so what the ramp
+measures is the architecture and not the vendor — which is the whole reason it costs nothing to run
+again.
+
+Both write-ups say what is still marginal as plainly as what passed; `queue_wait` is the number to
+watch, and it is named as such rather than buried.
 
 ## Decisions worth defending
 
@@ -196,6 +244,30 @@ say which is right. Because the order is fixed, catching up is a single question
 `seq`.
 *Trade-off:* every event pays a database round-trip before anyone sees it. In exchange, a reconnect
 an hour later is the same operation as a reconnect a second later.
+[ADR-0010](docs/adr/0010-event-fanout-is-notify-then-read.md)
+
+**A turn executes on a worker, behind a table — not in the request that asked for it.**
+*Why:* while the API process was the worker, a request's lifetime was the turn's lifetime, so a
+deploy was a lost turn and there was nothing to scale independently. Worse, two API replicas would
+accept two turns for one session, each acquire a sandbox, and leave the project paying for one that
+nothing references. Exclusivity is now a partial unique index rather than a `Map` somebody has to
+remember, so "this session is busy" means the same thing in every process.
+*Trade-off:* Postgres is a worse queue than Redis or JetStream, deliberately. Everything those buy
+is aimed at *redelivery*, and a redelivered turn is a second model run somebody pays for — the
+event log, not the queue, is what makes recovery correct here, so a queue with no path back to
+`queued` is the feature.
+[ADR-0009](docs/adr/0009-turns-execute-on-workers-behind-a-postgres-queue.md)
+
+**An old turn's tool traffic is not worth carrying, even when it fits.**
+*Why:* a funded four-turn session died on the fourth, having assembled to a fifth of its context
+budget. Two ceilings exist and the one that fires is not the one people reach for: a turn re-sends
+its whole transcript on every round trip, so its bill is the assembled size *times* its step count.
+The truncation ladder was perfectly correct and had never run. So tool traffic from any turn older
+than the most recent is emptied unconditionally, before the budget is consulted — the call keeps its
+shape, prose on both sides is untouched, and the file contents from three commits ago go.
+*Trade-off:* an agent cannot re-read what it wrote earlier out of its own history, and must call
+`read_file` again. That is one cheap call against re-sending the file ten to forty times.
+[ADR-0011](docs/adr/0011-an-old-turns-tool-traffic-is-not-worth-carrying.md)
 
 **A job has no table; it is a fold over the log.**
 *Why:* one source of truth. The same events the transcript is folded from answer what was asked, how
@@ -242,7 +314,16 @@ docker compose -f infra/docker-compose.yml up -d   # Postgres
 cp apps/api/.env.example apps/api/.env             # then fill it in
 bun run db:migrate
 bun run dev                                        # web on :3000, api on :3001
+bun run dev:worker                                 # a second terminal — this is what runs turns
+bun run dev:reaper                                 # a third, optional: the idle sweep
 ```
+
+**The worker is not optional if you want a turn to happen.** The API admits a turn and writes it to
+the queue; nothing in that process executes it. Running the API alone gets you a prompt that is
+accepted, a job that opens, and then silence. The worker needs `NAP_EVENT_BUS=postgres` in the same
+`.env` — it refuses to boot otherwise rather than running turns whose events reach no browser, which
+is a bug that looks like a broken front end. The reaper is genuinely optional in development: skip
+it and idle projects simply keep their sandboxes, which on a laptop costs nothing but E2B minutes.
 
 Five variables are required and the API refuses to boot without them, naming every problem at once
 rather than one per restart:
@@ -273,11 +354,16 @@ bun run harness "build a todo list"   # a whole turn against fakes — no networ
 bun run test:fast                     # unit + type suites; no Docker, no credentials
 bun run ws:smoke                      # drives /ws over a real socket, no database
 bun run napbench <task-id>            # one benchmark run against fakes
+bun run loadgen --users=25            # scripted users against the composed API; needs Docker
+bun run loadgen:ramp                  # the k6 ramp to 100 concurrent turns; needs Docker and k6
+infra/k8s/proof/run.sh                # the three processes on a kind cluster, proving a turn
+                                      # crosses pods and a rolling restart loses no events
 ```
 
 Every external dependency sits behind a port with a production-quality fake in
-`packages/*/src/testing/`, which is what makes that possible. Add `--real` to the harness or to
-`napbench` to run against a real sandbox and a real model — that spends money.
+`packages/*/src/testing/`, which is what makes that possible — and it is why the scaling work above
+could be measured at all, rather than argued about. Add `--real` to the harness or to `napbench` to
+run against a real sandbox and a real model; that spends money, and nothing else here does.
 
 ## Testing
 
@@ -288,7 +374,7 @@ bun run typecheck     # per-workspace tsc, then a root pass
 bun run lint          # biome
 ```
 
-**3,206 tests across 235 files.** Four suites, split by the *environment* each needs rather than for
+**3,894 tests across 289 files.** Four suites, split by the *environment* each needs rather than for
 tidiness: node, `tsc` (compile-time type assertions), jsdom, and a throwaway Postgres container
 started per run. The filename decides which suite collects a test, so all four can sit side by side
 in one package.
@@ -315,6 +401,12 @@ verification and repair loop, checkpoints, continuing an open job when a project
 NapBench, the harness that measures the agent. Its spec is frozen in [`docs/PLAN.md`](docs/PLAN.md);
 work since then is GitHub issues.
 
+**Since V2, two things.** Execution left the request: the turn queue and its per-session leases, the
+worker and reaper processes, cross-process fanout, and Kubernetes manifests with both autoscalers,
+measured against a ramp to 100 concurrent turns. And the loop became visible to the person who left
+— the job strip and the history behind it, the seam a transcript opens at, and the one card that
+says what was decided while nobody was watching.
+
 Ceilings exist on everything that costs money, because an unattended agent with an open-ended budget
 is a bill with no ceiling: per-user turn rate limits, per-user and deployment-wide sandbox
 quotas, a token budget per turn, and a step budget per agent loop.
@@ -326,7 +418,7 @@ roadmap:
 
 | Not built | Seam that exists today |
 |---|---|
-| Kubernetes sandbox pods | `SandboxManager`, plus a conformance suite in `packages/sandbox/src/testing/conformance.ts` that any implementation must pass |
+| Sandboxes as Kubernetes pods, instead of E2B | `SandboxManager`, plus a conformance suite in `packages/sandbox/src/testing/conformance.ts` that any implementation must pass. *Nap's own three processes already run on Kubernetes — [`infra/k8s`](infra/k8s) — which is a different thing: that is where the app runs, this is where a user's app would* |
 | Redis Streams event bus | `EventBus`; two implementations ship — in-process, and one over Postgres `LISTEN`/`NOTIFY` that crosses process boundaries |
 | Long-term memory | `MemoryProvider` — `NoopMemoryProvider` today, with real call sites in `ContextEngine` |
 | Multi-agent | `Runtime` — fan out to several `AgentService` runs, join their event streams |
@@ -341,6 +433,14 @@ roadmap:
 - [`docs/adr/`](docs/adr) — the decisions that would be expensive to reverse, one file each
 - [`docs/NAPBENCH.md`](docs/NAPBENCH.md) — the benchmark's architecture, scoring and how to add a
   task, alongside the two funded measurement write-ups
+- **Scaling**, in four parts: [`scaling-design.md`](docs/scaling-design.md) is what it was built to
+  — the queue's semantics, the state machines, the invariants;
+  [`scaling-baseline.md`](docs/scaling-baseline.md) is what one process did;
+  [`scaling-cluster.md`](docs/scaling-cluster.md) is what nine pods do, compared stage by stage; and
+  [`infra/k8s/README.md`](infra/k8s/README.md) is the objects themselves and the two kind clusters —
+  one that proves the claims a manifest cannot make, one that runs the ramp against the autoscalers
+- [`docs/DEPLOY.md`](docs/DEPLOY.md) — the deployed services, the env list, and the four silent
+  mistakes the Kubernetes manifests exist to avoid
 - [`docs/GOTCHAS.md`](docs/GOTCHAS.md) — the hard-won constraints, grouped by area, each one written
   down because it cost a session
 - [`CLAUDE.md`](CLAUDE.md) — how to work in this repo: commands, conventions, the definition of done
