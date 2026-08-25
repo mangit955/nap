@@ -72,6 +72,11 @@ bun run napbench:corpus   # re-photographs the nine fixture applications an eval
                           # able to tell apart — free, needs only a Chrome at NAP_CHROME_PATH.
                           # The PNGs are committed; run this only after changing a fixture, and
                           # re-capture the whole corpus at once. See docs/NAPBENCH.md
+bun run napbench:vision-spike --real --model=<id>
+                          # one real judgement of one corpus fixture, to confirm a model accepts
+                          # image input through the OpenRouter path this repo uses — spends a
+                          # fraction of a cent. Nothing may be pinned as the judge before this
+                          # says yes about it. Without --real it prints what it would do
 bun run napbench --baseline=<run-id|path> --candidate=<run-id|path>
                           # what moved between two finished runs — reads reports, runs nothing
 bun run typecheck         # turbo: tsc --noEmit per workspace, then a root pass for test/ + configs

@@ -21,7 +21,7 @@ const DECISIONS = [
   {
     file: "0002-absent-scoring-categories-renormalise.md",
     title: "Absent scoring categories renormalise rather than score zero",
-    body: "An unmeasured category is not a failed one. Scoring it zero would punish a run for a judge that does not exist yet.",
+    body: "An unmeasured category is not a failed one. Scoring it zero would punish a run for a question nobody got round to asking.",
   },
   {
     file: "0003-unmeasurable-metrics-stay-absent.md",

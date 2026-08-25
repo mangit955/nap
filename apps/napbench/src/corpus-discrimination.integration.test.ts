@@ -22,7 +22,8 @@
  * orders of magnitude more and cannot answer this question at all: a real run has no fixture whose
  * quality is known in advance.
  *
- * Needs: whatever `resolveProductJudge` needs. It skips, loudly, while nothing is composed.
+ * Needs: whatever `resolveProductJudge` needs — today an `OPENROUTER_API_KEY`, and nothing else.
+ * No Chrome, no sandbox, no credentials beyond that. It skips, loudly, when there is no judge.
  */
 
 import {
@@ -53,6 +54,8 @@ const RUN_ID = `corpus-${new Date().toISOString().replaceAll(/[:.]/g, "-")}`;
 describe.skipIf(!judge.ok)("the fixture corpus, judged for real", () => {
   const judgements = new Map<string, ProductJudgement>();
 
+  // Nine judgements, serially, at roughly half a minute each on a reasoning model — comfortably
+  // past the project's 120s hook timeout, which was set for a cold sandbox rather than for this.
   beforeAll(async () => {
     // Restated for the compiler, which `describe.skipIf` cannot narrow through.
     if (!judge.ok) throw new Error("unreachable: guarded by describe.skipIf");
@@ -76,7 +79,7 @@ describe.skipIf(!judge.ok)("the fixture corpus, judged for real", () => {
         }),
       );
     }
-  });
+  }, 900_000);
 
   it("meets every ordering and bound the corpus is built to test", () => {
     const outcomes = checkDiscrimination(judgements);

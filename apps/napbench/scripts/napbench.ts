@@ -63,6 +63,7 @@ import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import { gitAt, harnessIdentity } from "../src/harness-identity.ts";
 import { loadBenchReport } from "../src/load-report.ts";
 import { launchPlaywrightBrowser } from "../src/playwright-browser-session.ts";
+import { DEFAULT_JUDGE_MODEL, judgeModelOf, resolveProductJudge } from "../src/product-judge.ts";
 import { resolveResultsDir } from "../src/results-dir.ts";
 import { writeBenchReport, writeBenchTrajectory } from "../src/write-report.ts";
 import { fileScreenshotStore } from "../src/write-screenshot.ts";
@@ -217,16 +218,26 @@ let pricedModel: string | undefined;
 /**
  * Who grades the product half, on the tasks that declare an intent.
  *
- * Composed on a dry run and absent on a real one, which is the opposite way round from every
- * other fake here — and it is honest rather than backwards. A scripted judgement costs nothing
- * and exercises the whole second half of the scoring: the schema, the fold over the dimensions,
- * the geometric combination and the report's product section. A *real* judge is a vision model
- * this repo has not yet verified it can send an image to through the OpenRouter path, so there
- * is nothing to compose there yet, and a paid run scores its objective half alone until there
- * is. Both are stated rather than defaulted, because "which judge ran" is the first question
- * anybody asks of a product score.
+ * Composed on both paths, and they are not the same judge: a dry run gets the scripted one, whose
+ * grades are decided in advance and mean nothing about any application, and a real run gets a
+ * vision model that has actually looked at the screenshots. The value of the first is that a free
+ * run drives the identical scoring code the paid one does — the schema, the fold over the
+ * dimensions, the geometric combination, the report's product section — so the only thing left
+ * unproven when somebody pays is the judgement itself.
+ *
+ * Stated rather than defaulted, because "which judge ran" is the first question anybody asks of a
+ * product score, and the report carries the answer.
  */
 let product: ProductEvaluation | undefined;
+
+/**
+ * Whether anything in this selection would be judged at all.
+ *
+ * The frozen `all` suite declares no `intent` on any task and is scored exactly as its three
+ * funded runs were, so a run of it needs no judge — and refusing to start one for want of a
+ * judge's credential would block a paid run over a key nothing in it uses. See `runner.ts`.
+ */
+const judgeable = tasks.some((task) => task.intent !== undefined);
 
 if (options.real) {
   loadEnvFile(ENV_FILE, process.env);
@@ -249,6 +260,32 @@ if (options.real) {
         "Point it at a Chrome or Chromium binary, then retry.",
     );
     process.exit(1);
+  }
+
+  // Resolved here for the reason the browser path is: every product judgement in the suite would
+  // fail for this one reason, and discovering it after the turns have been paid for is the
+  // expensive way to learn that a key is missing.
+  if (judgeable) {
+    const judge = resolveProductJudge(process.env, { screenshotRoot: resultsDir });
+    if (!judge.ok) {
+      console.error(`${judge.error}\nThese tasks are scored on both halves and need one.`);
+      process.exit(1);
+    }
+    product = judge.value;
+
+    // An override reaches the same code as the default and none of the same evidence. The
+    // default was pinned only after `napbench:vision-spike` confirmed that id accepts an image
+    // through this route; a model named on the command line has had no such call made about it,
+    // and a suite that graded `not_run` throughout because the route silently refused its images
+    // is a discovery worth making before the sandboxes rather than in the reports.
+    const judgeModel = judgeModelOf(process.env);
+    if (judgeModel !== DEFAULT_JUDGE_MODEL) {
+      console.warn(
+        `NAP_JUDGE_MODEL overrides the judge to ${judgeModel}, which nothing here has verified\n` +
+          "accepts image input through this route. Confirm it first, for a fraction of a cent:\n" +
+          `  bun run napbench:vision-spike --real --model=${judgeModel}\n`,
+      );
+    }
   }
 
   const launched = await launchPlaywrightBrowser({ executablePath: chromePath });
@@ -274,7 +311,12 @@ if (options.real) {
       // Named in the banner because it decides what is being measured rather than what it
       // costs: a paid suite run without the loop is a control arm, and finding that out
       // afterwards from the report is finding it out too late.
-      `verification ${options.verify ? "on" : "off"}, on real E2B sandboxes. This costs money.\n`,
+      `verification ${options.verify ? "on" : "off"}, ` +
+      // Named for the reason the harness identity is recorded: a product half is one instrument's
+      // grades, and `compare` refuses two runs graded by different ones. Somebody reading this
+      // banner is choosing which archive this run joins.
+      `${judgeable ? `judged by ${judgeModelOf(process.env)}` : "unjudged"}` +
+      ", on real E2B sandboxes. This costs money.\n",
   );
 
   sandbox = new E2BSandboxManager({ template: NAP_TEMPLATE });

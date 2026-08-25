@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { PRODUCT_DIMENSIONS, type ProductDimension } from "./dimension.ts";
 import type { DimensionJudgement } from "./judgement.ts";
-import { PRODUCT_NOT_RUN, parseProductJudgement } from "./judgement.ts";
+import {
+  describeJudge,
+  judgesDiffer,
+  PRODUCT_NOT_RUN,
+  parseProductJudgement,
+} from "./judgement.ts";
 
 function evidence(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -198,5 +203,61 @@ describe("parsing a product judgement", () => {
     const parsed = parseProductJudgement(judgement({ overallScore: 72 }));
 
     expect(parsed.ok).toBe(false);
+  });
+});
+
+/**
+ * Absence is a value here rather than a null, because "nobody judged this run" is one of the
+ * things a comparison has to be able to say out loud — it is a different instrument, not a
+ * missing field. `compare` refuses on the answer these two give.
+ */
+describe("describeJudge", () => {
+  const judged = (source: string, rubricVersion: string) => {
+    const parsed = parseProductJudgement(judgement({ judge: { source, rubricVersion } }));
+    if (!parsed.ok) throw new Error(parsed.error);
+    return parsed.value;
+  };
+
+  it("names the model and the rubric it was asked under", () => {
+    expect(describeJudge(judged("openrouter:openai/a", "product-2"))).toContain(
+      "openrouter:openai/a",
+    );
+    expect(describeJudge(judged("openrouter:openai/a", "product-2"))).toContain("product-2");
+  });
+
+  it("says so when nobody judged", () => {
+    expect(describeJudge(null)).toBe("no judge");
+    expect(describeJudge(PRODUCT_NOT_RUN)).toBe("no judge");
+  });
+});
+
+describe("judgesDiffer", () => {
+  const judged = (source: string, rubricVersion: string) => {
+    const parsed = parseProductJudgement(judgement({ judge: { source, rubricVersion } }));
+    if (!parsed.ok) throw new Error(parsed.error);
+    return parsed.value;
+  };
+
+  it("is false for two runs graded by the same model against the same rubric", () => {
+    expect(judgesDiffer(judged("m", "product-2"), judged("m", "product-2"))).toBe(false);
+  });
+
+  it("is true for two models", () => {
+    expect(judgesDiffer(judged("a", "product-2"), judged("b", "product-2"))).toBe(true);
+  });
+
+  /** The same model asked a reworded question is a different instrument. */
+  it("is true for two rubric versions", () => {
+    expect(judgesDiffer(judged("m", "product-1"), judged("m", "product-2"))).toBe(true);
+  });
+
+  /** The whole archive is unjudged, and it is one instrument: none. */
+  it("is false for two runs neither of which was judged", () => {
+    expect(judgesDiffer(null, null)).toBe(false);
+    expect(judgesDiffer(null, PRODUCT_NOT_RUN)).toBe(false);
+  });
+
+  it("is true when only one of them was judged", () => {
+    expect(judgesDiffer(judged("m", "product-2"), null)).toBe(true);
   });
 });

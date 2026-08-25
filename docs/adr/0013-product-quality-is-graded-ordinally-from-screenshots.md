@@ -189,3 +189,38 @@ composition change if the budget ever exists — nothing in `packages/bench` wou
 Rejected because there is no reference for a generated application: what a to-do app *should* look
 like is the thing under measurement, and a reference would grade similarity to one designer's answer
 rather than quality.
+
+---
+
+## Amendment — the condition on naming a model, discharged
+
+*Added when the vision adapter landed. The decision above deliberately named no model; this records
+what verifying one found, and what it did not settle.*
+
+`openai/gpt-5.6-luna` is now the pinned default, and the condition this ADR set was met before it
+was named: `bun run napbench:vision-spike --real --model=<id>` sends one real judgement of one
+corpus fixture and confirms that the *Anthropic-shaped* `/v1/messages` endpoint forwards an `image`
+content block to a non-Anthropic model and answers with the `tool_use` block a structured judgement
+rides in. The registry's `input_modalities` is a claim about the model and was not treated as
+sufficient — what a run depends on is the route. `NAP_JUDGE_MODEL` moves the pin; re-run the spike
+before moving it.
+
+**Two things this ADR anticipated are now measured rather than argued.**
+
+The single-judge bias above is worse than stated in one specific way: the pinned judge is *the same
+model the agent runs on*, which on a funded run comparing two models would put one of the arms in
+the chair. It is pinned there on cost, and the mitigation is to name a third model in
+`NAP_JUDGE_MODEL` before spending on such a comparison — not to leave it to whoever reads the
+report afterwards.
+
+And the fixture corpus did what this ADR built it to do: it found the instrument wanting. Across
+three funded arms — two models and two rubric revisions — the judge meets four of the corpus's seven
+expectations. It orders every pair correctly, including the icon pair and the responsive pair; what
+it will not do is place an overuse fixture below `moderate` on `restraint`, or open more than an
+eleven-point gap between the top and the bottom of the corpus. Three expectations therefore stand
+unmet: one `beats` margin and two `grade_at_most` bounds — and a `grade_at_most` is an absolute
+claim about a single grade, which is the shape `discrimination.ts` opens by arguing against.
+Whether the expectations or the instrument are wrong
+is **not decided here**, and the paid suite is left red rather than made green by editing what the
+corpus claims. The numbers are in
+[`napbench-vision-judge.md`](../napbench-vision-judge.md).

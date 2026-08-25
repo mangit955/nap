@@ -29,7 +29,8 @@
     "prepare": "lefthook install",
     "napbench": "bun run apps/napbench/scripts/napbench.ts",
     "napbench:corpus": "bun run apps/napbench/scripts/capture-corpus.ts",
-    "napbench:preview-spike": "bun run apps/napbench/scripts/preview-reachability.ts"
+    "napbench:preview-spike": "bun run apps/napbench/scripts/preview-reachability.ts",
+    "napbench:vision-spike": "bun run apps/napbench/scripts/vision-reachability.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.7",

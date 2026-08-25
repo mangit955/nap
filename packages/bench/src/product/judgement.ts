@@ -140,6 +140,31 @@ export const ProductJudgementSchema = z.discriminatedUnion("status", [
 
 export type ProductJudgement = z.infer<typeof ProductJudgementSchema>;
 
+/**
+ * Which instrument produced a judgement, as one readable phrase.
+ *
+ * Absence is a value here rather than a null, because "nobody judged this run" is one of the
+ * things a comparison has to be able to say out loud: it is a different *instrument* from a model
+ * against a rubric, not a missing field.
+ */
+export function describeJudge(judgement: ProductJudgement | null): string {
+  if (judgement === null || judgement.status !== "judged") return "no judge";
+
+  return `${judgement.judge.source} against rubric ${judgement.judge.rubricVersion}`;
+}
+
+/**
+ * Whether two runs were graded by different instruments.
+ *
+ * The rubric version counts as much as the model does, and that is the point of recording it: the
+ * same model asked a reworded question is a different instrument, and a grade taken under one is
+ * not a grade taken under the other. Two unjudged runs do not differ — that is the whole archive,
+ * and it is one instrument, namely none.
+ */
+export function judgesDiffer(a: ProductJudgement | null, b: ProductJudgement | null): boolean {
+  return describeJudge(a) !== describeJudge(b);
+}
+
 /** The default answer, and the one every run gives until a judge is composed in. */
 export const PRODUCT_NOT_RUN: ProductJudgement = {
   status: "not_run",

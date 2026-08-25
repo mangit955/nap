@@ -43,11 +43,27 @@ costs nothing and needs no network. Its scores mean nothing: the scripted model 
 task and the judge's grades are fixed in advance and describe no image, so what a dry run proves is
 that the apparatus works, not that an agent does.
 
-The judge is the one fake composed on a dry run and *absent* on a real one, which is honest rather
-than backwards: a scripted judgement costs nothing and drives the whole product half — the schema,
-the fold over the dimensions, the geometric combination, the report's product section — while a real
-judge is a vision model that does not exist here yet. Until it does, a paid run scores its objective
-half alone, which is exactly what every archived run was scored as.
+Both paths compose a judge, and they are not the same judge. A dry run gets the scripted one, whose
+grades are decided in advance and describe no image; a real run gets a vision model that has
+actually looked. The scripted one earns its place by driving the whole product half for free — the
+schema, the fold over the dimensions, the geometric combination, the report's product section — so
+the only thing left unproven when somebody pays is the judgement itself.
+
+**The real judge is `OpenRouterVisionJudge` in `apps/napbench/src/vision-judge.ts`**, reached over
+OpenRouter with a plain `fetch` and the Anthropic Messages shape: one call carrying every surface
+capture, structured output forced through a single `tool_use`, and the rubric in
+`product-rubric.ts` as the system prompt. It reuses none of `@nap/agent` — that is the thing under
+test, and a grader sharing its subject's retries and accounting measures neither. It cites a surface
+and a viewport and *we* resolve the path, so a grade can never cite an image that does not exist. A
+judge that cannot grade **throws**, which lands as `errored`/`evaluator`; a judge that returns low
+grades on its own outage would file the instrument's bad afternoon against the model.
+
+A real run of a suite whose tasks declare an `intent` therefore needs `OPENROUTER_API_KEY`, and it
+is checked **before the first sandbox** for the reason `NAP_CHROME_PATH` is: every product judgement
+failing for one missing key after the turns are paid for is the expensive way to find out. A suite
+whose tasks declare no intent — `all`, `hard` — needs no judge and is not blocked for want of one.
+`NAP_JUDGE_MODEL` overrides which model grades; see the caution about the judge and the agent being
+the same model in [`napbench-vision-judge.md`](napbench-vision-judge.md).
 
 Unknown flags are refused rather than ignored. A forgiving parser would let `--budget-tokens` be
 mistyped on a paid run and silently use the default.
@@ -398,7 +414,7 @@ the fixture corpus below measures whether it discriminates at all. See
   stay distinguishable.
 - **An unjudged run is scored on its objective half alone**, never on a product half of zero.
   Absence renormalises, exactly as it does for a category. That covers every run of the frozen
-  suite, every real run until a vision judge exists, and every run that photographed nothing.
+  suite, every archived run, and every run that photographed nothing for a judge to look at.
 - **The gates arbitrate the combined number.** A judge cannot rescue an application that does not
   compile; the build cap still applies, after the halves are combined.
 
@@ -448,7 +464,17 @@ every fixture identically — which must fail all seven expectations, because th
 mode the corpus exists to catch. The paid suite,
 `apps/napbench/src/corpus-discrimination.integration.test.ts`, runs the identical claims against a
 real judge over the committed images: eighteen images through a vision model, and nothing else. It
-skips, with the reason printed, while `resolveProductJudge` has nothing to compose.
+skips, with the reason printed, when there is no `OPENROUTER_API_KEY` to compose one with.
+
+**It is currently red, and that is the finding rather than a bug.** Three funded arms — two models
+and two rubric revisions — meet four of the seven expectations. The judge orders every pair
+correctly, including the two the corpus was built around; what it will not do is put an overuse
+fixture below `moderate` on `restraint`, or open more than an eleven-point gap between the top and
+the bottom of the corpus. That is three unmet expectations: one `beats` margin, and two
+`grade_at_most` bounds — and a `grade_at_most` is an absolute claim about a single grade, which is
+the shape `discrimination.ts` opens by arguing against. Read
+[`napbench-vision-judge.md`](napbench-vision-judge.md) before changing an expectation to make this
+green; the numbers are there and the argument is not settled.
 
 **Follow-up: harvesting real screenshots.** A hand-written fixture is a designer's idea of slop
 rather than a specimen of it. The next step is to promote screenshots from funded runs into the
@@ -552,8 +578,12 @@ entirely on one task.
 Comparison refuses two runs whose **effective weight vectors** differ: renormalisation means a score
 is only meaningful relative to the categories that produced it. It also refuses runs of different
 tasks, and runs held at different **turn budgets** — `budget_exceeded` counts against the agent, so
-that attribution is only honest while the ceiling is fixed. It does *not* refuse two runs of
-different models, which is what it is for. Two runs, never three.
+that attribution is only honest while the ceiling is fixed. And it refuses two runs graded by
+different **judges**, which is the weight vector's argument applied to the other half: a product
+score is one model's grades against one wording of one rubric, so a delta across two of them
+measures the change of instrument. The judge identity is the source *and* the rubric version,
+because the same model asked a reworded question is a different instrument. It does *not* refuse two
+runs of different models, which is what it is for. Two runs, never three.
 
 **A differing harness is reported, never refused.** Every report records a *harness identity* — the
 commit Nap was running at, whether that tree was modified, and whether verification was on — because
@@ -630,7 +660,9 @@ with real infrastructure, so it works from a clean checkout.
 Credentials are read from `apps/api/.env` by convention. A real run refuses to start when one is
 missing, and names the variable — including `NAP_CHROME_PATH`, which is checked *before* the first
 sandbox rather than at the first browser check, because every browser check in the suite would fail
-for want of it after the turns had already been paid for.
+for want of it after the turns had already been paid for. `OPENROUTER_API_KEY` is checked in the
+same place and for the same reason, but only when the selected tasks declare an `intent`: a suite
+that is never judged must not be blocked over a judge's credential.
 
 ---
 

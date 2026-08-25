@@ -19,7 +19,9 @@
  * skipped when neither run has a number to reprice. A mismatched turn budget corrupts the
  * *attribution* — `budget_exceeded` counts against the agent only while the ceiling is held
  * fixed — so it applies to unscored runs too, which is exactly where an error kind is the whole
- * finding. See docs/adr/0004.
+ * finding. See docs/adr/0004. A mismatched *judge* is the weight vector's argument applied to the
+ * other half: a product score is one model's grades against one wording of one rubric, so two of
+ * them subtracted measure the change of instrument.
  *
  * **A differing harness is reported and never refused, and that is a decision.** By the letter
  * of the rule above it belongs with the weight vector: two runs produced by different Naps are
@@ -40,6 +42,7 @@ import type { Result } from "@nap/shared/result";
 import { CATEGORIES, type Category } from "./category.ts";
 import type { ErrorKind } from "./error-kind.ts";
 import type { RunMetrics } from "./metrics.ts";
+import { describeJudge, judgesDiffer } from "./product/judgement.ts";
 import type { BenchReport } from "./report.ts";
 import {
   budgetsDiffer,
@@ -169,6 +172,9 @@ export function compareRuns(
   const refusal = weightsRefusal(baseline, candidate);
   if (refusal !== null) return { ok: false, error: refusal };
 
+  const judge = judgeRefusal(baseline, candidate);
+  if (judge !== null) return { ok: false, error: judge };
+
   const metrics = compareMetrics(baseline, candidate);
   const scoreDelta =
     baseline.score === null || candidate.score === null ? null : candidate.score - baseline.score;
@@ -280,6 +286,41 @@ function weightsRefusal(baseline: BenchReport, candidate: BenchReport): string |
     `these runs have different effective weight vectors — ${effectiveVector(baseline)} and ` +
     `${effectiveVector(candidate)}. An absent category renormalises the rest, so the two ` +
     "scores are on different scales and the difference between them is not a measurement."
+  );
+}
+
+/**
+ * Why these two runs were not graded by the same instrument, or null if they were.
+ *
+ * The same argument as the weight vector, applied to the other half. A product half is a mean of
+ * grades, and a grade is one model's answer to one wording of one rubric — so the same
+ * screenshots put to a different model, or to the same model against a reworded rubric, produce
+ * numbers on two scales that both happen to run from 0 to 100. Subtracting them measures the
+ * change of instrument.
+ *
+ * **Refused rather than reported**, unlike the harness. "What did V2 do to the score?" is a real
+ * question, so a differing harness is printed and the arithmetic proceeds; there is no question a
+ * delta across two judges answers, because the thing that moved is the judge.
+ *
+ * **A run whose judge answered `not_run` counts as a different instrument from a judged one**, and
+ * deliberately so: its product half renormalised away, so its score is its objective half alone.
+ * That is v1 arithmetic reached by a v2 route, and comparing it with a combined score would put
+ * two different formulas' outputs side by side — which is the exact reading `scoringModelRefusal`
+ * exists to prevent one step earlier.
+ *
+ * Skipped when either run has no score, for the reason the weights are: there is nothing to
+ * reprice on a run that produced no number, and refusing there would make an errored run
+ * incomparable with anything.
+ */
+function judgeRefusal(baseline: BenchReport, candidate: BenchReport): string | null {
+  if (!carriesScore(baseline.status) || !carriesScore(candidate.status)) return null;
+  if (!judgesDiffer(baseline.product, candidate.product)) return null;
+
+  return (
+    `these runs were graded by different judges — ${describeJudge(baseline.product)} and ` +
+    `${describeJudge(candidate.product)}. A product half is one instrument's grades on a fixed ` +
+    "scale, so the difference between two of them is a change of instrument rather than a " +
+    "measurement of the application."
   );
 }
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { compareRuns, formatComparison } from "./compare.ts";
 import type { BenchReport } from "./report.ts";
 import { benchCheck, benchReport } from "./testing/bench-report.ts";
+import { scriptedJudgement } from "./testing/scripted-judgement.ts";
 
 function compared(baseline: BenchReport, candidate: BenchReport) {
   const result = compareRuns(baseline, candidate);
@@ -337,6 +338,77 @@ describe("compareRuns and the budget the runs were held at", () => {
     );
 
     expect(compared(baseline, candidate).scoreDelta).toBe(0);
+  });
+});
+
+/**
+ * The weight vector's argument, applied to the other half. A grade is one model's answer to one
+ * wording of one rubric, so two product halves subtracted measure the change of instrument.
+ */
+describe("compareRuns and which judge graded each side", () => {
+  function judged(source: string, rubricVersion: string): Partial<BenchReport> {
+    const judgement = scriptedJudgement([
+      { surfaceId: "home", viewport: "desktop", path: "home/desktop.png" },
+    ]);
+    if (judgement.status !== "judged") throw new Error("the scripted judge always judges");
+
+    return {
+      scoringModel: "v2",
+      halves: { objective: 58, product: 70 },
+      product: { ...judgement, judge: { source, rubricVersion } },
+    };
+  }
+
+  it("refuses two runs graded by different models", () => {
+    const [baseline, candidate] = pair(
+      judged("openrouter:openai/a", "product-1"),
+      judged("openrouter:openai/b", "product-1"),
+    );
+
+    expect(refused(baseline, candidate)).toMatch(/different judges/i);
+  });
+
+  /** The same model asked a reworded question is a different instrument. */
+  it("refuses two runs graded against different rubric versions", () => {
+    const [baseline, candidate] = pair(
+      judged("openrouter:openai/a", "product-1"),
+      judged("openrouter:openai/a", "product-2"),
+    );
+
+    expect(refused(baseline, candidate)).toMatch(/rubric/i);
+  });
+
+  it("compares two runs graded by the same judge", () => {
+    const [baseline, candidate] = pair(
+      judged("openrouter:openai/a", "product-1"),
+      judged("openrouter:openai/a", "product-1"),
+    );
+
+    expect(compared(baseline, candidate).scoreDelta).toBe(0);
+  });
+
+  /** The entire archive predates the judge, and it is one instrument: none. */
+  it("does not refuse two runs that were never judged", () => {
+    const [baseline, candidate] = pair({}, {});
+
+    expect(compared(baseline, candidate).scoreDelta).toBe(0);
+  });
+
+  /**
+   * Nothing to reprice on a run with no number, and refusing here would make an errored run
+   * incomparable with anything — which is precisely when somebody wants to see the other side.
+   */
+  it("says nothing about judges when either run produced no score", () => {
+    const [baseline] = pair(judged("openrouter:openai/a", "product-1"), {});
+    // Scored the same way, and it crashed before anybody looked: no halves, no judgement.
+    const candidate = benchReport({
+      status: "errored",
+      score: null,
+      categories: [],
+      scoringModel: "v2",
+    });
+
+    expect(compared(baseline, candidate).scoreDelta).toBeNull();
   });
 });
 
