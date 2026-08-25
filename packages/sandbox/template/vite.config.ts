@@ -4,6 +4,14 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  // Must stay in step with the `paths` entry in tsconfig.json: TypeScript resolves imports
+  // for the editor and `bun run typecheck`, Vite resolves them for the bundle, and neither
+  // reads the other's config.
+  // `new URL` rather than `node:path`: this file is typechecked with only `vite/client` in
+  // `types`, so reaching for a Node builtin here fails `bun run typecheck` inside the sandbox.
+  resolve: {
+    alias: { "@": new URL("./src", import.meta.url).pathname },
+  },
   server: {
     // The dev server runs inside a sandbox and is reached through a public proxy
     // rather than over localhost, so it has to listen on every interface and accept
