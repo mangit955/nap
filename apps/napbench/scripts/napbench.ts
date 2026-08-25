@@ -40,12 +40,14 @@ import {
 } from "@nap/bench/cli";
 import { compareRuns, formatComparison } from "@nap/bench/compare";
 import { deriveRunMetrics } from "@nap/bench/metrics";
+import type { ProductEvaluation } from "@nap/bench/product/evaluation";
 import { type BenchReport, evaluatorErrorReport } from "@nap/bench/report";
 import { type BenchRunResult, runBenchTask } from "@nap/bench/runner";
 import { resolveSelection } from "@nap/bench/suite";
 import { formatRunSummary, formatSuiteSummary, summariseSuite } from "@nap/bench/summary";
 import type { BenchTask } from "@nap/bench/task";
 import { ScriptedBrowserSession } from "@nap/bench/testing/scripted-browser-session";
+import { scriptedProductJudge } from "@nap/bench/testing/scripted-judgement";
 import { NapContextEngine } from "@nap/context/context-engine";
 import { NoopMemoryProvider } from "@nap/context/noop-memory-provider";
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
@@ -61,6 +63,7 @@ import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import { gitAt, harnessIdentity } from "../src/harness-identity.ts";
 import { loadBenchReport } from "../src/load-report.ts";
 import { launchPlaywrightBrowser } from "../src/playwright-browser-session.ts";
+import { DEFAULT_JUDGE_MODEL, judgeModelOf, resolveProductJudge } from "../src/product-judge.ts";
 import { resolveResultsDir } from "../src/results-dir.ts";
 import { writeBenchReport, writeBenchTrajectory } from "../src/write-report.ts";
 import { fileScreenshotStore } from "../src/write-screenshot.ts";
@@ -76,7 +79,10 @@ if (!parsedArgs.ok) {
 }
 const command = parsedArgs.value;
 
-const resultsDir = resolveResultsDir(REPO_ROOT);
+// The environment is read here rather than inside the resolver so that "which directory does
+// a run write into" stays a decision a test can drive. It is the shared results folder unless
+// a harness gave this run a job directory of its own — see `napbench-trial.ts`.
+const resultsDir = resolveResultsDir(REPO_ROOT, process.env);
 
 // Comparison reads two files and stops. It creates no session, no sandbox and no model call,
 // which is why it is answered here rather than anywhere near the run wiring below.
@@ -212,6 +218,29 @@ let browser: BrowserSessionFactory;
 let closeBrowser: () => Promise<void> = async () => undefined;
 /** Absent on a dry run: pricing a scripted model against a real price table is a fiction. */
 let pricedModel: string | undefined;
+/**
+ * Who grades the product half, on the tasks that declare an intent.
+ *
+ * Composed on both paths, and they are not the same judge: a dry run gets the scripted one, whose
+ * grades are decided in advance and mean nothing about any application, and a real run gets a
+ * vision model that has actually looked at the screenshots. The value of the first is that a free
+ * run drives the identical scoring code the paid one does — the schema, the fold over the
+ * dimensions, the geometric combination, the report's product section — so the only thing left
+ * unproven when somebody pays is the judgement itself.
+ *
+ * Stated rather than defaulted, because "which judge ran" is the first question anybody asks of a
+ * product score, and the report carries the answer.
+ */
+let product: ProductEvaluation | undefined;
+
+/**
+ * Whether anything in this selection would be judged at all.
+ *
+ * The frozen `all` suite declares no `intent` on any task and is scored exactly as its three
+ * funded runs were, so a run of it needs no judge — and refusing to start one for want of a
+ * judge's credential would block a paid run over a key nothing in it uses. See `runner.ts`.
+ */
+const judgeable = tasks.some((task) => task.intent !== undefined);
 
 if (options.real) {
   loadEnvFile(ENV_FILE, process.env);
@@ -234,6 +263,32 @@ if (options.real) {
         "Point it at a Chrome or Chromium binary, then retry.",
     );
     process.exit(1);
+  }
+
+  // Resolved here for the reason the browser path is: every product judgement in the suite would
+  // fail for this one reason, and discovering it after the turns have been paid for is the
+  // expensive way to learn that a key is missing.
+  if (judgeable) {
+    const judge = resolveProductJudge(process.env, { screenshotRoot: resultsDir });
+    if (!judge.ok) {
+      console.error(`${judge.error}\nThese tasks are scored on both halves and need one.`);
+      process.exit(1);
+    }
+    product = judge.value;
+
+    // An override reaches the same code as the default and none of the same evidence. The
+    // default was pinned only after `napbench:vision-spike` confirmed that id accepts an image
+    // through this route; a model named on the command line has had no such call made about it,
+    // and a suite that graded `not_run` throughout because the route silently refused its images
+    // is a discovery worth making before the sandboxes rather than in the reports.
+    const judgeModel = judgeModelOf(process.env);
+    if (judgeModel !== DEFAULT_JUDGE_MODEL) {
+      console.warn(
+        `NAP_JUDGE_MODEL overrides the judge to ${judgeModel}, which nothing here has verified\n` +
+          "accepts image input through this route. Confirm it first, for a fraction of a cent:\n" +
+          `  bun run napbench:vision-spike --real --model=${judgeModel}\n`,
+      );
+    }
   }
 
   const launched = await launchPlaywrightBrowser({ executablePath: chromePath });
@@ -259,7 +314,12 @@ if (options.real) {
       // Named in the banner because it decides what is being measured rather than what it
       // costs: a paid suite run without the loop is a control arm, and finding that out
       // afterwards from the report is finding it out too late.
-      `verification ${options.verify ? "on" : "off"}, on real E2B sandboxes. This costs money.\n`,
+      `verification ${options.verify ? "on" : "off"}, ` +
+      // Named for the reason the harness identity is recorded: a product half is one instrument's
+      // grades, and `compare` refuses two runs graded by different ones. Somebody reading this
+      // banner is choosing which archive this run joins.
+      `${judgeable ? `judged by ${judgeModelOf(process.env)}` : "unjudged"}` +
+      ", on real E2B sandboxes. This costs money.\n",
   );
 
   sandbox = new E2BSandboxManager({ template: NAP_TEMPLATE });
@@ -273,12 +333,14 @@ if (options.real) {
 } else {
   console.log(
     `Dry run of "${selectionName}" (${tasks.length} task(s)) on a scripted model, an in-memory ` +
-      "sandbox and a scripted browser.\nIt is free, and the scores mean nothing — it exercises " +
-      "the machinery, not a model. Pass --real to spend.\n",
+      "sandbox, a scripted browser and a scripted product judge.\nIt is free, and the scores " +
+      "mean nothing — the grades are fixed in advance and describe no image. It exercises the " +
+      "machinery, not a model. Pass --real to spend.\n",
   );
   sandbox = fakeSandbox();
   providerFor = scriptedProvider;
   browser = scriptedBrowser;
+  product = scriptedProductJudge();
 }
 
 const reports: BenchReport[] = [];
@@ -319,6 +381,9 @@ for (const { task, pass } of scheduled) {
       runId,
       browser,
       screenshots: fileScreenshotStore(resultsDir),
+      // Only the tasks that declare an intent are judged, whatever this is — see `runner.ts`.
+      // That is what keeps the frozen suite scored exactly as its funded runs were.
+      ...(product === undefined ? {} : { product }),
       weights: DEFAULT_CATEGORY_WEIGHTS,
       model: pricedModel,
       budget: turnBudget,
@@ -329,18 +394,22 @@ for (const { task, pass } of scheduled) {
     // suite: the remaining tasks are still worth running, and the aggregate has to show that
     // this one produced nothing rather than quietly containing one run fewer.
     console.error(`  the benchmark itself failed: ${messageOf(error)}`);
-    reports.push(
-      evaluatorErrorReport({
-        runId,
-        taskId: task.id,
-        sessionId,
-        weights: DEFAULT_CATEGORY_WEIGHTS,
-        metrics: deriveRunMetrics(await events.readFrom(sessionId, 0), { model: pricedModel }),
-        // A crash is one of the runs somebody most wants to reproduce, and the configuration
-        // is exactly what they would otherwise have to guess at.
-        configuration: { model: pricedModel ?? null, budget: turnBudget, harness },
-      }),
-    );
+    const crashed = evaluatorErrorReport({
+      runId,
+      taskId: task.id,
+      sessionId,
+      weights: DEFAULT_CATEGORY_WEIGHTS,
+      metrics: deriveRunMetrics(await events.readFrom(sessionId, 0), { model: pricedModel }),
+      // A crash is one of the runs somebody most wants to reproduce, and the configuration
+      // is exactly what they would otherwise have to guess at.
+      configuration: { model: pricedModel ?? null, budget: turnBudget, harness },
+    });
+    reports.push(crashed);
+    // Written, not only aggregated. A crash is the run somebody most wants to look at
+    // afterwards, and until this existed the only record of one was a line on a terminal
+    // somebody may not have been watching — a suite would summarise it and leave the results
+    // directory with one file fewer than it had runs.
+    console.log(`  ${await writeBenchReport(resultsDir, crashed)}`);
   }
 
   if (result !== undefined) {

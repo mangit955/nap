@@ -19,6 +19,7 @@
 
 import { type Distribution, describeDistribution } from "./distribution.ts";
 import { attributionOf } from "./error-kind.ts";
+import { PRODUCT_DIMENSIONS } from "./product/dimension.ts";
 import type { BenchReport } from "./report.ts";
 import { carriesScore, countsInAggregates } from "./status.ts";
 
@@ -267,6 +268,8 @@ export function formatRunSummary(report: BenchReport): string {
     );
   }
 
+  lines.push(...productLines(report));
+
   // The tally first, then the checks that did not pass. Together they close the arithmetic: a
   // reader can see how many checks each category score was over, and read the name of every one
   // that did not pass — so no number here is handed over unexplained.
@@ -313,6 +316,47 @@ export function formatRunSummary(report: BenchReport): string {
   }
 
   return lines.join("\n");
+}
+
+/**
+ * The two halves, and every dimension that was graded — printed only for a run that was judged.
+ *
+ * Nothing for a v1 run, rather than a row of dashes: those runs were not scored this way, and a
+ * summary that implied they had been would be the same mistake `compare` refuses across models.
+ *
+ * The judge's name is printed beside the number because a product score is the one figure in a
+ * report that depends on *who* produced it, and the commonest reading of one will be a free run's
+ * scripted grades — which mean nothing about any application.
+ */
+function productLines(report: BenchReport): string[] {
+  const halves = report.halves;
+  if (halves === null) return [];
+
+  const lines = [
+    `  halves: objective ${halves.objective}` +
+      (halves.product === null
+        ? " · product not judged, so the objective half stands alone"
+        : ` × product ${halves.product}, combined geometrically`),
+  ];
+
+  if (report.product?.status === "judged") {
+    const judged = report.product;
+    lines.push(`  judged by ${judged.judge.source} (rubric ${judged.judge.rubricVersion})`);
+
+    const grades = PRODUCT_DIMENSIONS.map((dimension) => {
+      const answer = judged.dimensions[dimension];
+      return `${dimension} ${answer.status === "graded" ? answer.grade : "—"}`;
+    });
+    lines.push(`  ${grades.join(", ")}`);
+
+    // The holistic read, kept beside the nine and outside them: its value is the disagreement
+    // with the computed mean, which is only visible if a reader can see both.
+    if (judged.polish.status === "graded") {
+      lines.push(`  polish ${judged.polish.grade} (reported, never scored)`);
+    }
+  }
+
+  return lines;
 }
 
 /** Grouped, because six-figure token counts are read wrong often enough to matter. */

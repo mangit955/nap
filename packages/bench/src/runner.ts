@@ -31,18 +31,19 @@ import type { AccessibilityCheck } from "./accessibility-check.ts";
 import type { BrowserCheck } from "./browser-check.ts";
 import { runAccessibilityCheck, runBrowserCheck } from "./browser-executor.ts";
 import type { BrowserSession, BrowserSessionFactory } from "./browser-session.ts";
+import { captureScreenshot, runCapturePass } from "./capture.ts";
 import { type CategoryWeights, DEFAULT_CATEGORY_WEIGHTS } from "./category.ts";
 import { applyGates, type BrowserUnavailable, type GateInput } from "./gates.ts";
 import { deriveRunMetrics } from "./metrics.ts";
-import type { BenchReport, CheckResult } from "./report.ts";
+import { type ProductEvaluation, surfaceScreenshotsOf } from "./product/evaluation.ts";
+import type { ProductJudgement } from "./product/judgement.ts";
+import { combineHalves, scoreProduct } from "./product/product-score.ts";
+import type { BenchReport, CheckResult, ReportHalves } from "./report.ts";
 import type { HarnessRecord, TurnBudgetRecord } from "./run-configuration.ts";
 import { scoreRun } from "./score.ts";
-import {
-  type CapturedScreenshot,
-  refFromMetadata,
-  type ScreenshotRef,
-  type ScreenshotStore,
-} from "./screenshot.ts";
+import { SCORING_MODEL_V2 } from "./scoring-model.ts";
+import type { ScreenshotRef, ScreenshotStore } from "./screenshot.ts";
+import { capturePlan } from "./surface.ts";
 import {
   type BenchTask,
   type CommandCheck,
@@ -52,7 +53,6 @@ import {
   weightOf,
 } from "./task.ts";
 import type { BenchTrajectory } from "./trajectory.ts";
-import { viewportNameForSize } from "./viewport.ts";
 import {
   notRunVisualEvaluation,
   VISUAL_NOT_RUN,
@@ -96,6 +96,18 @@ export type BenchRunnerDeps = {
    * than being forgotten, and those put every other category on a different denominator.
    */
   visual?: VisualEvaluation;
+  /**
+   * Who judges the product half, when there is one to judge.
+   *
+   * Absent scores the run the v1 way — one weighted mean over four categories — which is what
+   * every archived report was scored as and what the frozen suite goes on being scored as. So
+   * does a task that declares no `intent`, whatever judge was composed: with nothing to tell a
+   * judge what it is looking at there is nothing to ask it, and the runner does not ask.
+   *
+   * A port rather than a model for the reason `BrowserSession` is one: this package may not
+   * reach a network (docs/adr/0001), and the judge under `--real` is the thing that would.
+   */
+  product?: ProductEvaluation;
   /**
    * The session this run drives, already created by whoever composed the run.
    *
@@ -203,6 +215,16 @@ export async function runBenchTask(
   // paths that end early, which is the truthful answer for a run that produced nothing to judge.
   let visual: VisualEvaluationResult = VISUAL_NOT_RUN;
 
+  // What a product judge made of it, and the two halves that came out of asking.
+  //
+  // Undefined on every run that was not judged — a task with no `intent`, a run composed without
+  // a judge, and every run that ended before there was anything to look at — rather than a
+  // `not_run` judgement, because this decides which *arithmetic* the report records. A run
+  // nobody judged is a v1 run, and saying otherwise would claim its score was combined in a way
+  // it was not. The objective half is kept beside the judgement because without both a v2 score
+  // is a square root of two numbers a reader cannot see.
+  let judged: { judgement: ProductJudgement; halves: ReportHalves } | undefined;
+
   const finish = async (): Promise<BenchRunResult> => {
     const verdict = applyGates(observations);
     // Only a run that still carries a score has categories to explain it. An errored run's
@@ -239,6 +261,24 @@ export async function runBenchTask(
         metrics: deriveRunMetrics(events, { model: deps.model }),
         screenshots,
         visual,
+        // Stated rather than left to the schema's defaults, so that a report built here
+        // round-trips to itself: a `.default()` filling in an omitted field makes the read-back
+        // differ from what went in.
+        //
+        // An unjudged run is scored the v1 way — one weighted mean over four categories — and
+        // records none of the three. That covers every run of the frozen suite and every run
+        // that ended before there was anything to look at.
+        ...(judged === undefined
+          ? { halves: null, product: null }
+          : {
+              scoringModel: SCORING_MODEL_V2,
+              // `halves.objective` is what the checks came to before the product half multiplied
+              // it; the headline above is that combination, capped by whatever gate had something
+              // to say. So `score` is `min(√(objective × product), scoreCap)`, and every term in
+              // it is in front of the reader.
+              halves: judged.halves,
+              product: judged.judgement,
+            }),
       },
       trajectory: { runId, taskId: task.id, sessionId, events },
     };
@@ -361,13 +401,13 @@ export async function runBenchTask(
       async (session) => {
         // Photographed *after* the check's last step and before the session closes, which is
         // what makes the image show what the agent's application actually did rather than its
-        // starting state. A failure here is swallowed on purpose — see `capture`.
-        const ref = await capture(session, deps.screenshots, {
-          taskId: task.id,
-          runId,
-          check,
-          now,
-        });
+        // starting state. A failure here is swallowed on purpose — see `capture.ts`.
+        const ref = await captureScreenshot(
+          session,
+          deps.screenshots,
+          { check },
+          { taskId: task.id, runId, now },
+        );
         if (ref !== undefined) screenshots.push(ref);
       },
     );
@@ -382,6 +422,28 @@ export async function runBenchTask(
     checks.push(attempted.value);
   }
 
+  // The deliberate half of the photography, after every check has had its say and the
+  // application is in whatever state the run left it.
+  //
+  // **After the checks rather than instead of them**, and it changes no score: a check's
+  // photograph is evidence about that check, and this is evidence about the product. A judge
+  // grading responsiveness needs one view at two sizes, which no check can be relied on to
+  // leave behind. It runs only where there is something to photograph and somewhere to put it;
+  // a task that declares no surfaces still gets the default pair. See `surface.ts`.
+  if (previewUrl !== undefined && deps.browser !== undefined && deps.screenshots !== undefined) {
+    screenshots.push(
+      ...(await runCapturePass({
+        plan: capturePlan(task),
+        baseUrl: previewUrl,
+        browser: deps.browser,
+        store: deps.screenshots,
+        taskId: task.id,
+        runId,
+        now,
+      })),
+    );
+  }
+
   // Asked once, after every check, because a judge is shown the run's whole set of screenshots
   // rather than one at a time — "does this application look coherent" is not a per-check
   // question. Before the gate ladder sees a score, so that the number it judges is the one the
@@ -392,7 +454,42 @@ export async function runBenchTask(
     screenshots,
   });
 
-  observations.score = scoreRun(checks, weights, visualScoreOf(visual)).overall;
+  const objective = scoreRun(checks, weights, visualScoreOf(visual)).overall;
+  observations.score = objective;
+
+  // The product half, asked for once and only when there is a question to ask. Three things have
+  // to hold: a judge was composed, the task says what it is for — see `intent` in `task.ts` — and
+  // the checks produced a number for the judgement to be combined with. Without the last, the
+  // ladder is about to end the run as unmeasurable, and asking a judge would spend a real run's
+  // money on a report that cannot carry the answer.
+  if (deps.product !== undefined && task.intent !== undefined && objective !== null) {
+    const judgement = await deps.product.evaluate({
+      taskId: task.id,
+      runId,
+      intent: task.intent,
+      // The deliberate captures alone. A check's photograph is of whatever that check had driven
+      // the page into, at whatever size it finished at — evidence about the check, and not a
+      // view anybody asked to be judged. See `product/evaluation.ts`.
+      screenshots: surfaceScreenshotsOf(screenshots),
+    });
+
+    // Named for what it is rather than after `deps.product`, which is the judge: one is a port
+    // and the other a number, and reading them as the same word is how a fold ends up applied
+    // to the thing that produced it.
+    const productScore = scoreProduct(judgement);
+    judged = { judgement, halves: { objective, product: productScore?.score ?? null } };
+    // The gates arbitrate the *combined* number, so a judge can no more rescue an application
+    // that does not compile than the build cap could be dodged by looking good. An absent
+    // product half renormalises here rather than multiplying by zero — `combineHalves` returns
+    // the objective half alone, which is what every unjudged run in the archive was scored as.
+    //
+    // Such a run is still recorded as `v2`, and the distinction is worth being exact about: a
+    // judge *was* asked and answered that it had nothing to look at, which is a different fact
+    // from nobody having asked. The number happens to equal what v1 arithmetic would have given,
+    // and the model records which arithmetic was applied rather than which numbers came out —
+    // a report saying `v1` here would be unable to carry the judgement that explains it.
+    observations.score = combineHalves(objective, productScore?.score);
+  }
 
   return finish();
 }
@@ -438,54 +535,6 @@ async function seedEnvironment(
   }
 
   return { ok: true, value: undefined };
-}
-
-/**
- * Photographs the page a check left behind, stores it, and describes where it went.
- *
- * **Every failure here returns undefined rather than propagating**, and that is the point: a
- * screenshot is evidence *about* a run, not an observation *of* the application. A browser that
- * would not photograph, or a disk with no room on it, must leave the run's score untouched —
- * the alternative is a full disk being recorded as an agent that wrote a broken application,
- * on a run that has already been paid for.
- */
-async function capture(
-  session: BrowserSession,
-  store: ScreenshotStore | undefined,
-  run: {
-    taskId: string;
-    runId: string;
-    /** Only the two fields a capture records — which is why an audit can be photographed too. */
-    check: { id: string; referenceScreenshot?: string | undefined };
-    now: () => Date;
-  },
-): Promise<ScreenshotRef | undefined> {
-  if (store === undefined) return undefined;
-
-  const shot = await session.screenshot();
-  if (!shot.ok) return undefined;
-
-  const captured: CapturedScreenshot = {
-    metadata: {
-      taskId: run.taskId,
-      runId: run.runId,
-      checkId: run.check.id,
-      viewport: {
-        // The measured size decides the name, and nothing else does. A check may resize partway
-        // through, so its declaration is not evidence about the page that was photographed — and
-        // falling back to it for an unrecognised size would produce exactly the mislabelled
-        // capture `viewportNameForSize` returns undefined to avoid. Null is the honest answer.
-        name: viewportNameForSize(shot.value.viewport) ?? null,
-        ...shot.value.viewport,
-      },
-      capturedAt: run.now().toISOString(),
-      reference: run.check.referenceScreenshot ?? null,
-    },
-    bytes: shot.value.bytes,
-  };
-
-  const stored = await store(captured);
-  return stored.ok ? refFromMetadata(captured.metadata, stored.value) : undefined;
 }
 
 /**

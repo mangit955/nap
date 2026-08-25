@@ -31,6 +31,11 @@ const report: BenchReport = {
   },
   screenshots: [],
   visual: VISUAL_NOT_RUN,
+  // A v1 report: no scoring model recorded, and neither of the fields the v2 arithmetic
+  // writes. Spelled out rather than left to the schema's defaults so that this fixture still
+  // round-trips to itself, which is what these tests are for.
+  halves: null,
+  product: null,
   metrics: {
     toolCalls: 3,
     toolFailures: 0,

@@ -11,7 +11,7 @@
  */
 
 import type { NewStoredKey, StoredKeyRecord, UserKeyStore } from "@nap/shared/ports/user-key-store";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { userApiKeys } from "./schema.ts";
 
@@ -52,8 +52,13 @@ export class PostgresUserKeyStore implements UserKeyStore {
           iv: key.iv,
           hint: key.hint,
           // Set by hand: `defaultNow()` only applies to the insert, so without this a replaced
-          // key would still report the date the first one was saved.
-          updatedAt: new Date(),
+          // key would still report the date the first one was saved. It is the *database's*
+          // clock rather than `new Date()`, because the insert's default is, and two clocks
+          // means a key replaced a second later can report an earlier `updatedAt` than the one
+          // it replaced — which is what "when did I last change this?" must never say. The gap
+          // is milliseconds of skew between a host and a container, so it goes unnoticed until
+          // it does not.
+          updatedAt: sql`now()`,
         },
       })
       .returning();

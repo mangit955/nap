@@ -48,6 +48,11 @@ export function benchReport(overrides: Partial<BenchReport> = {}): BenchReport {
     },
     screenshots: [],
     visual: VISUAL_NOT_RUN,
+    // A default report is a v1 report: `scoringModel` is left off entirely, which is what an
+    // archived report looks like and what `scoringModelOf` reads as v1. A test about the
+    // product half opts in by overriding all three of these together.
+    halves: null,
+    product: null,
     ...overrides,
   };
 }

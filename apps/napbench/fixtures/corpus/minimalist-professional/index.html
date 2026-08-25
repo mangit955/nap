@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Orbit — board</title>
+    <style>
+      :root {
+        --ink: #16181d;
+        --muted: #6b7280;
+        --line: #e6e8ec;
+        --accent: #2f45c5;
+        --page: #ffffff;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--page);
+        color: var(--ink);
+        font: 400 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      .shell { max-width: 720px; margin: 0 auto; padding: 56px 24px 80px; }
+      header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+      h1 { font-size: 22px; line-height: 1.2; letter-spacing: -0.015em; font-weight: 600; margin: 0; }
+      .sub { color: var(--muted); font-size: 13px; margin: 6px 0 0; }
+      .count { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+
+      form { display: flex; gap: 8px; margin: 32px 0 8px; }
+      input {
+        flex: 1; min-width: 0; padding: 9px 12px; font: inherit; font-size: 14px;
+        color: var(--ink); background: #fff;
+        border: 1px solid var(--line); border-radius: 6px;
+      }
+      input::placeholder { color: #9aa1ab; }
+      button {
+        padding: 9px 16px; font: inherit; font-size: 14px; font-weight: 500;
+        color: #fff; background: var(--accent);
+        border: 1px solid var(--accent); border-radius: 6px; cursor: pointer;
+      }
+
+      ul { list-style: none; margin: 24px 0 0; padding: 0; }
+      li {
+        display: flex; align-items: center; gap: 14px;
+        padding: 14px 2px; border-top: 1px solid var(--line);
+      }
+      li:last-child { border-bottom: 1px solid var(--line); }
+      .title { flex: 1; min-width: 0; font-size: 15px; }
+      .done .title { color: var(--muted); text-decoration: line-through; }
+      .who { color: var(--muted); font-size: 13px; }
+      .state { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--muted); width: 104px; }
+      .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
+      .state.progress { color: var(--accent); }
+      .state.blocked { color: #b23a2e; }
+      .state.done { color: #2f7a4d; }
+
+      @media (max-width: 560px) {
+        .shell { padding: 32px 20px 56px; }
+        li { flex-wrap: wrap; gap: 6px 12px; }
+        .title { flex-basis: 100%; }
+        .state { width: auto; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <header>
+        <div>
+          <h1>Board</h1>
+          <p class="sub">Orbit — week of 18 August</p>
+        </div>
+        <span class="count">5 items</span>
+      </header>
+
+      <form onsubmit="return false">
+        <input placeholder="Add a task" aria-label="Add a task" />
+        <button type="submit">Add</button>
+      </form>
+
+      <ul>
+        <li>
+          <span class="state progress"><span class="dot"></span>In progress</span>
+          <span class="title">Draft the Q3 rollout plan</span>
+          <span class="who">Priya</span>
+        </li>
+        <li>
+          <span class="state progress"><span class="dot"></span>In progress</span>
+          <span class="title">Fix the sign-in redirect loop</span>
+          <span class="who">Sam</span>
+        </li>
+        <li>
+          <span class="state"><span class="dot"></span>Todo</span>
+          <span class="title">Review the pricing copy</span>
+          <span class="who">Alex</span>
+        </li>
+        <li>
+          <span class="state blocked"><span class="dot"></span>Blocked</span>
+          <span class="title">Migrate the staging database</span>
+          <span class="who">Priya</span>
+        </li>
+        <li class="done">
+          <span class="state done"><span class="dot"></span>Done</span>
+          <span class="title">Ship the onboarding email</span>
+          <span class="who">Sam</span>
+        </li>
+      </ul>
+    </div>
+  </body>
+</html>

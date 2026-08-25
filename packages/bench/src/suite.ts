@@ -16,7 +16,10 @@ import type { BenchTask } from "./task.ts";
 import { DEBUG_BROKEN_TASK } from "./tasks/debug-broken.ts";
 import { EXPENSE_LEDGER_TASK } from "./tasks/expense-ledger.ts";
 import { LANDING_PAGE_TASK } from "./tasks/landing-page.ts";
+import { PRICING_PAGE_TASK } from "./tasks/pricing-page.ts";
+import { READING_LIST_TASK } from "./tasks/reading-list.ts";
 import { RESPONSIVE_LAYOUT_TASK } from "./tasks/responsive-layout.ts";
+import { SALES_DASHBOARD_TASK } from "./tasks/sales-dashboard.ts";
 import { TODO_CRUD_TASK } from "./tasks/todo-crud.ts";
 import { TRACER_TASK } from "./tasks/tracer.ts";
 
@@ -35,6 +38,9 @@ export const BENCH_TASKS: readonly BenchTask[] = [
   DEBUG_BROKEN_TASK,
   RESPONSIVE_LAYOUT_TASK,
   EXPENSE_LEDGER_TASK,
+  READING_LIST_TASK,
+  SALES_DASHBOARD_TASK,
+  PRICING_PAGE_TASK,
   TRACER_TASK,
 ];
 
@@ -58,12 +64,36 @@ export const BENCHMARK_SUITE = "all";
 export const HARD_SUITE = "hard";
 
 /**
+ * The tasks scored on both halves: what the application does, and whether it is one anybody
+ * would want to use.
+ *
+ * Its own name rather than an addition to `all` for the reason `hard` has one, and for a second
+ * reason that matters more: these tasks are scored under a *different arithmetic*. A run here
+ * combines an objective half with a judged one geometrically, so its 79 and `all`'s 79 are not
+ * the same claim — which is why `compare` refuses to put the two side by side at all. Growing
+ * `all` with one of these would have made that mistake unrefusable.
+ *
+ * Every task in it declares an `intent`, which is what makes it judgeable, and declares the
+ * surfaces the judge is shown. A task that declares neither is scored the v1 way wherever it
+ * runs — see `runner.ts`.
+ *
+ * **Three shapes rather than three subjects.** A tool somebody comes back to, a screen that is
+ * read at a glance, and a page written to persuade — because "is this a product anybody would
+ * want" is a different question of each, and a suite of three list applications would
+ * characterise a model on one of them three times. Every one of them is described by the outcome
+ * somebody wanted rather than by an interface to build, which is what leaves the wording, the
+ * structure and the layout to the model and therefore leaves something to judge.
+ */
+export const PRODUCT_SUITE = "product";
+
+/**
  * `satisfies` rather than an annotation, so the literal names survive: widening this to
  * `Record<string, …>` would make `SUITES[BENCHMARK_SUITE]` possibly-undefined and buy nothing.
  */
 export const SUITES = {
   [BENCHMARK_SUITE]: ["landing-page", "todo-crud", "debug-broken", "responsive-layout"],
   [HARD_SUITE]: ["expense-ledger"],
+  [PRODUCT_SUITE]: ["reading-list", "sales-dashboard", "pricing-page"],
   /**
    * One task that exercises every stage without asserting much about the application.
    *

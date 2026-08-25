@@ -14,3 +14,11 @@ pre-commit:
     # other needs money.
     - name: test
       run: bunx vitest run --project unit --project web --changed
+
+    # The Python under harbor/ is outside every gate above — Biome does not read it, tsc
+    # cannot, and vitest collects nothing from it. It gets its own, on its own glob, so a
+    # checkout with no `uv` is only asked for one when it commits Python. CI runs the same two
+    # commands unconditionally.
+    - name: python
+      glob: "*.py"
+      run: bun run lint:py && bun run test:py

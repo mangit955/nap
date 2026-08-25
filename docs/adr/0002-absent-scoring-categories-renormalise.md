@@ -1,6 +1,12 @@
 # ADR-0002 — Absent scoring categories renormalise rather than score zero
 
-**Status:** Accepted — 2026-08-14
+**Status:** Accepted — 2026-08-14. **Superseded in part by
+[ADR-0012](0012-the-score-becomes-two-halves-combined-geometrically.md)**, which makes the
+four-category weighted mean below one *half* of a score rather than the whole of one, and retires
+the `visual` category in favour of a product half graded by a judge. Everything here about
+renormalisation, about absent-versus-failed, about error attribution and about a run without a score
+is unchanged and is inherited by that ADR — including for the product half, which is absent rather
+than zero when nobody judged.
 
 ## Context
 
@@ -104,6 +110,11 @@ recorded as the agent's worst possible outcome.
 
 Every number NapBench reports today is on a scale that will change when the visual evaluator
 arrives. That is acceptable because it is recorded and enforced, rather than discovered later.
+
+> It changed, and not the way this expected. No visual evaluator arrived; the category was retired
+> and appearance became a second half that multiplies (ADR-0012). The scale did move, and the
+> mechanism this paragraph relied on is what caught it — a report records its scoring model and
+> `compare` refuses to put the two side by side, exactly as it refuses two weight vectors.
 
 Overall scores are comparable within a weight vector and refused across vectors. Cross-vector
 comparison, if it is ever wanted, has to be asked for deliberately — it is not something a caller

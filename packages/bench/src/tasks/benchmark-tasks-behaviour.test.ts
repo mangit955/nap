@@ -1,5 +1,5 @@
 /**
- * The four tasks driven against scripted applications, to prove the checks *discriminate*.
+ * Every task driven against scripted applications, to prove the checks *discriminate*.
  *
  * A task file that parses tells you nothing: a check asserting something always true would
  * validate, run, and pass every model equally. So each task here is run twice — against an
@@ -29,7 +29,10 @@ import {
 import { DEBUG_BROKEN_TASK } from "./debug-broken.ts";
 import { EXPENSE_LEDGER_TASK } from "./expense-ledger.ts";
 import { LANDING_PAGE_TASK } from "./landing-page.ts";
+import { PRICING_PAGE_TASK } from "./pricing-page.ts";
+import { READING_LIST_TASK } from "./reading-list.ts";
 import { RESPONSIVE_LAYOUT_TASK } from "./responsive-layout.ts";
+import { SALES_DASHBOARD_TASK } from "./sales-dashboard.ts";
 import { TODO_CRUD_TASK } from "./todo-crud.ts";
 
 const BASE_URL = "https://preview.example";
@@ -865,5 +868,346 @@ describe("expense-ledger", () => {
     };
 
     expect(await auditOutcomeOf(EXPENSE_LEDGER_TASK, "is-accessible", unlabelled)).toBe("failed");
+  });
+});
+
+/**
+ * A reading list, and the ways of shipping one that only looks finished.
+ *
+ * The task's prompt pins no wording, so the fakes below pin none either: the application is a
+ * field and whatever it chose to put on the page. That is the point — every assertion is about
+ * text the check typed in, which is the only thing a task described by outcome is entitled to
+ * assert.
+ */
+function readingList(options: { saves: boolean; echoes?: boolean; overflows?: boolean }) {
+  let typed = "";
+
+  return {
+    pages: {
+      "/": {
+        elements: [{ role: "textbox", label: "Title", value: "" }],
+        ...(options.overflows ? { scrollWidth: { mobile: 500, desktop: 1280 } } : {}),
+      },
+    },
+    on: {
+      fill: (interaction: ScriptedInteraction) => {
+        typed = interaction.value ?? "";
+      },
+      press: ({ key, page }: ScriptedInteraction) => {
+        if (key !== "Enter" || typed === "") return;
+        // The half an agent can ship without: the keystroke is handled and nothing is kept.
+        if (options.echoes === false) return;
+
+        page.add({ role: "listitem", text: typed }, { persists: options.saves });
+        typed = "";
+      },
+    },
+  } satisfies ScriptedBrowserSessionOptions;
+}
+
+describe("reading-list", () => {
+  it("passes an application that keeps what was typed into it", async () => {
+    for (const checkId of ["keeps-what-you-add", "still-there-when-you-come-back"]) {
+      expect(await outcomeOf(READING_LIST_TASK, checkId, readingList({ saves: true }))).toBe(
+        "passed",
+      );
+    }
+  });
+
+  it("fails one whose Enter key does nothing", async () => {
+    // The most likely half-built version: a field that accepts typing, and a list nothing
+    // reaches. Nothing about the page looks wrong until something is saved.
+    expect(
+      await outcomeOf(
+        READING_LIST_TASK,
+        "keeps-what-you-add",
+        readingList({ saves: true, echoes: false }),
+      ),
+    ).toBe("failed");
+  });
+
+  it("fails one that only looked like it saved anything", async () => {
+    // Both applications behave identically until the reload, which is the whole assertion —
+    // and the check that does not reload still passes this one, which is why there are two.
+    const forgetful = () => readingList({ saves: false });
+
+    expect(await outcomeOf(READING_LIST_TASK, "keeps-what-you-add", forgetful())).toBe("passed");
+    expect(await outcomeOf(READING_LIST_TASK, "still-there-when-you-come-back", forgetful())).toBe(
+      "failed",
+    );
+  });
+
+  it("fails one that spills off the side of a phone", async () => {
+    // The objective half of "works on a phone". The judged half — whether the small viewport was
+    // designed for or the large one squashed — is graded under `responsiveness` and is not this.
+    expect(
+      await outcomeOf(READING_LIST_TASK, "fits-on-a-phone", readingList({ saves: true })),
+    ).toBe("passed");
+    expect(
+      await outcomeOf(
+        READING_LIST_TASK,
+        "fits-on-a-phone",
+        readingList({ saves: true, overflows: true }),
+      ),
+    ).toBe("failed");
+  });
+
+  it("fails one that throws while saving, which no visibility assertion would notice", async () => {
+    expect(
+      await outcomeOf(READING_LIST_TASK, "keeps-what-you-add", {
+        ...readingList({ saves: true }),
+        consoleErrors: ["uncaught TypeError: undefined is not a function"],
+      }),
+    ).toBe("failed");
+  });
+
+  it("passes a clean audit of the phone layout and fails an unlabelled field", async () => {
+    expect(
+      await auditOutcomeOf(READING_LIST_TASK, "is-accessible", readingList({ saves: true })),
+    ).toBe("passed");
+
+    const unlabelled: ScriptedBrowserSessionOptions = {
+      pages: {
+        "/": {
+          elements: [{ role: "textbox" }],
+          violations: [
+            {
+              id: "label",
+              impact: "critical",
+              help: "Form elements must have labels",
+              helpUrl: "https://dequeuniversity.com/rules/axe/4.10/label",
+              nodes: 1,
+            },
+          ],
+        },
+      },
+    };
+
+    expect(await auditOutcomeOf(READING_LIST_TASK, "is-accessible", unlabelled)).toBe("failed");
+  });
+});
+
+/**
+ * A dashboard, and the ways of shipping one that has quietly lost information.
+ *
+ * Nothing is typed and nothing is clicked here, so the discrimination is entirely about what
+ * reached the screen out of the file the task seeded. Every defect below is one a real generated
+ * dashboard ships: it leads on the best seller and drops the tail, or it draws a chart and never
+ * writes the number down.
+ */
+function dashboard(options: {
+  drinks?: readonly string[];
+  figures?: readonly string[];
+  overflows?: boolean;
+}): ScriptedBrowserSessionOptions {
+  const drinks = options.drinks ?? ["Flat white", "Filter", "Cortado", "Hot chocolate"];
+  const figures = options.figures ?? ["268", "191", "143", "87"];
+
+  return {
+    pages: {
+      "/": {
+        elements: [
+          { role: "heading", name: "Last week", text: "Last week" },
+          ...drinks.map((name) => ({ text: name })),
+          ...figures.map((figure) => ({ text: figure })),
+        ],
+        ...(options.overflows ? { scrollWidth: { mobile: 640, desktop: 1280 } } : {}),
+      },
+    },
+  };
+}
+
+describe("sales-dashboard", () => {
+  it("passes an application that shows the week it was given", async () => {
+    for (const checkId of [
+      "shows-every-drink",
+      "shows-the-figures-themselves",
+      "fits-on-a-phone",
+    ]) {
+      expect(await outcomeOf(SALES_DASHBOARD_TASK, checkId, dashboard({}))).toBe("passed");
+    }
+  });
+
+  it("fails one that leads on the best seller and drops the rest", async () => {
+    // The commonest way a generated dashboard loses information, and it looks finished: one
+    // large number, well laid out, and three quarters of the week missing.
+    const topOnly = dashboard({ drinks: ["Flat white"], figures: ["268"] });
+
+    expect(await outcomeOf(SALES_DASHBOARD_TASK, "shows-every-drink", topOnly)).toBe("failed");
+  });
+
+  it("fails one that draws the figures and never writes them down", async () => {
+    // A chart with no labels. Every drink is named, so the check above passes this application
+    // — which is exactly why the numbers are asserted by a check of their own.
+    const unlabelledChart = dashboard({ figures: [] });
+
+    expect(await outcomeOf(SALES_DASHBOARD_TASK, "shows-every-drink", unlabelledChart)).toBe(
+      "passed",
+    );
+    expect(
+      await outcomeOf(SALES_DASHBOARD_TASK, "shows-the-figures-themselves", unlabelledChart),
+    ).toBe("failed");
+  });
+
+  it("fails one that keeps the headline number and loses the tail", async () => {
+    // Why the check asserts the largest and the smallest rather than one of them: this
+    // application names every drink and prints only the number anybody would have led with.
+    const headlineOnly = dashboard({ figures: ["268"] });
+
+    expect(await outcomeOf(SALES_DASHBOARD_TASK, "shows-every-drink", headlineOnly)).toBe("passed");
+    expect(
+      await outcomeOf(SALES_DASHBOARD_TASK, "shows-the-figures-themselves", headlineOnly),
+    ).toBe("failed");
+  });
+
+  it("fails one whose table spills off the side of a phone", async () => {
+    // The failure a dashboard invites, and the one its desktop screenshot would never show.
+    const wide = dashboard({ overflows: true });
+
+    expect(await outcomeOf(SALES_DASHBOARD_TASK, "shows-every-drink", wide)).toBe("passed");
+    expect(await outcomeOf(SALES_DASHBOARD_TASK, "fits-on-a-phone", wide)).toBe("failed");
+  });
+
+  it("fails one that threw while rendering, which no visibility assertion would notice", async () => {
+    expect(
+      await outcomeOf(SALES_DASHBOARD_TASK, "shows-every-drink", {
+        ...dashboard({}),
+        consoleErrors: ["uncaught TypeError: Cannot read properties of undefined"],
+      }),
+    ).toBe("failed");
+  });
+
+  it("passes a clean audit of the phone layout and fails an unnamed figure", async () => {
+    expect(await auditOutcomeOf(SALES_DASHBOARD_TASK, "is-accessible", dashboard({}))).toBe(
+      "passed",
+    );
+
+    const unnamed: ScriptedBrowserSessionOptions = {
+      pages: {
+        "/": {
+          ...dashboard({}).pages?.["/"],
+          violations: [
+            {
+              id: "svg-img-alt",
+              impact: "serious",
+              help: "SVG elements with an img role must have an accessible text",
+              helpUrl: "https://dequeuniversity.com/rules/axe/4.10/svg-img-alt",
+              nodes: 1,
+            },
+          ],
+        },
+      },
+    };
+
+    expect(await auditOutcomeOf(SALES_DASHBOARD_TASK, "is-accessible", unnamed)).toBe("failed");
+  });
+});
+
+/**
+ * A pricing page, and the ways of shipping one a visitor cannot choose from.
+ *
+ * The two defects are the ones that look best: a page that quietly drops the free plan, and one
+ * that details the plan it is recommending and leaves the others as names. Both are handsome, and
+ * both leave somebody unable to do the single thing they came to do.
+ */
+function pricingPage(options: {
+  plans?: readonly string[];
+  features?: readonly string[];
+  overflows?: boolean;
+}): ScriptedBrowserSessionOptions {
+  const plans = options.plans ?? ["Solo", "Studio", "Agency"];
+  const features = options.features ?? ["One notebook", "Unlimited notebooks", "Shared workspaces"];
+
+  return {
+    pages: {
+      "/": {
+        elements: [
+          ...plans.map((name) => ({ role: "heading", name, text: name })),
+          ...features.map((feature) => ({ text: feature })),
+        ],
+        ...(options.overflows ? { scrollWidth: { mobile: 900, desktop: 1280 } } : {}),
+      },
+    },
+  };
+}
+
+describe("pricing-page", () => {
+  it("passes a page showing every plan it was given, and what is in each", async () => {
+    for (const checkId of ["shows-every-plan", "says-what-each-plan-includes", "fits-on-a-phone"]) {
+      expect(await outcomeOf(PRICING_PAGE_TASK, checkId, pricingPage({}))).toBe("passed");
+    }
+  });
+
+  it("fails one that quietly dropped the free plan", async () => {
+    const paidOnly = pricingPage({
+      plans: ["Studio", "Agency"],
+      features: ["Unlimited notebooks", "Shared workspaces"],
+    });
+
+    expect(await outcomeOf(PRICING_PAGE_TASK, "shows-every-plan", paidOnly)).toBe("failed");
+  });
+
+  it("fails one that details the plan it wants sold and names the others", async () => {
+    // Three headings and one filled card. The plan check passes it, which is why what a plan
+    // includes is asserted separately.
+    const oneCardFilled = pricingPage({ features: ["Unlimited notebooks"] });
+
+    expect(await outcomeOf(PRICING_PAGE_TASK, "shows-every-plan", oneCardFilled)).toBe("passed");
+    expect(await outcomeOf(PRICING_PAGE_TASK, "says-what-each-plan-includes", oneCardFilled)).toBe(
+      "failed",
+    );
+  });
+
+  it("fails one that reworded what it was told not to reword", async () => {
+    // The prompt says the file is what is on sale. An agent that improves the copy has changed
+    // the product's terms, and this is the only thing that would notice.
+    const reworded = pricingPage({
+      features: ["One notebook", "Unlimited notes", "Shared workspaces"],
+    });
+
+    expect(await outcomeOf(PRICING_PAGE_TASK, "says-what-each-plan-includes", reworded)).toBe(
+      "failed",
+    );
+  });
+
+  it("fails a three-card row that never restacked for a phone", async () => {
+    const wide = pricingPage({ overflows: true });
+
+    expect(await outcomeOf(PRICING_PAGE_TASK, "shows-every-plan", wide)).toBe("passed");
+    expect(await outcomeOf(PRICING_PAGE_TASK, "fits-on-a-phone", wide)).toBe("failed");
+  });
+
+  it("fails one that threw while rendering", async () => {
+    expect(
+      await outcomeOf(PRICING_PAGE_TASK, "shows-every-plan", {
+        ...pricingPage({}),
+        consoleErrors: ["uncaught TypeError: PLANS is not iterable"],
+      }),
+    ).toBe("failed");
+  });
+
+  it("passes a clean audit of the phone layout and fails cards with no headings", async () => {
+    expect(await auditOutcomeOf(PRICING_PAGE_TASK, "is-accessible", pricingPage({}))).toBe(
+      "passed",
+    );
+
+    const badContrast: ScriptedBrowserSessionOptions = {
+      pages: {
+        "/": {
+          ...pricingPage({}).pages?.["/"],
+          violations: [
+            {
+              id: "color-contrast",
+              impact: "serious",
+              help: "Elements must meet minimum colour contrast ratio thresholds",
+              helpUrl: "https://dequeuniversity.com/rules/axe/4.10/color-contrast",
+              nodes: 3,
+            },
+          ],
+        },
+      },
+    };
+
+    expect(await auditOutcomeOf(PRICING_PAGE_TASK, "is-accessible", badContrast)).toBe("failed");
   });
 });

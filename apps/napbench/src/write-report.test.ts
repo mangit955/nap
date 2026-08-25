@@ -28,6 +28,8 @@ const report: BenchReport = {
   weights: DEFAULT_CATEGORY_WEIGHTS,
   screenshots: [],
   visual: VISUAL_NOT_RUN,
+  halves: null,
+  product: null,
   metrics: {
     toolCalls: 1,
     toolFailures: 0,

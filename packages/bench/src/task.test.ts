@@ -333,3 +333,97 @@ describe("a task whose checks need the application to be serving", () => {
     expect(parsed.ok).toBe(true);
   });
 });
+
+describe("parseBenchTask — declared surfaces", () => {
+  const withSurfaces = (surfaces: unknown) =>
+    parseBenchTask({
+      id: "todo",
+      name: "A todo list",
+      prompts: ["Build a todo list."],
+      preview: { port: 5173 },
+      surfaces,
+      checks: [{ id: "build", kind: "command", command: "bun run build" }],
+    });
+
+  it("accepts named views with the steps that reach them", () => {
+    const parsed = withSurfaces([
+      { id: "empty" },
+      {
+        id: "populated",
+        steps: [
+          { step: "fill", selector: { by: "label", text: "Task" }, value: "Buy milk" },
+          { step: "press", key: "Enter" },
+        ],
+      },
+    ]);
+
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) expect(parsed.value.surfaces).toHaveLength(2);
+  });
+
+  it("rejects two surfaces sharing an id, which would collide on disk", () => {
+    const parsed = withSurfaces([{ id: "home" }, { id: "home" }]);
+
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) expect(parsed.error).toMatch(/home/);
+  });
+
+  it("rejects an empty list, which says something different from declaring none", () => {
+    expect(withSurfaces([]).ok).toBe(false);
+  });
+
+  it("rejects surfaces on a task with no preview to photograph", () => {
+    // The same rule browser checks answer to: a surface is driven against the running
+    // application, and one declared without a preview could never be reached.
+    const parsed = parseBenchTask({
+      id: "todo",
+      name: "A todo list",
+      prompts: ["Build a todo list."],
+      surfaces: [{ id: "home" }],
+      checks: [{ id: "build", kind: "command", command: "bun run build" }],
+    });
+
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) expect(parsed.error).toMatch(/preview/);
+  });
+});
+
+describe("parseBenchTask — the sentence a judge is shown", () => {
+  const withIntent = (intent: unknown, extras: Record<string, unknown> = {}) =>
+    parseBenchTask({
+      id: "todo",
+      name: "A todo list",
+      prompts: ["Build a todo list."],
+      preview: { port: 5173 },
+      intent,
+      ...extras,
+      checks: [{ id: "build", kind: "command", command: "bun run build" }],
+    });
+
+  it("accepts one neutral sentence about what the application is for", () => {
+    const parsed = withIntent("a place to keep track of what still needs doing");
+
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) expect(parsed.value.intent).toMatch(/still needs doing/);
+  });
+
+  it("rejects an empty one, which tells a judge nothing", () => {
+    expect(withIntent("   ").ok).toBe(false);
+  });
+
+  it("rejects a task with an intent and no preview, which could never be photographed", () => {
+    // Judging is done from images, images come from surfaces, and a surface is driven against
+    // the running application. A task declaring an intent it can never supply evidence for would
+    // be scored on a product half of nothing, silently.
+    const parsed = parseBenchTask({
+      id: "todo",
+      name: "A todo list",
+      prompts: ["Build a todo list."],
+      intent: "a place to keep track of what still needs doing",
+      checks: [{ id: "build", kind: "command", command: "bun run build" }],
+    });
+
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) expect(parsed.error).toMatch(/preview/);
+  });
+});

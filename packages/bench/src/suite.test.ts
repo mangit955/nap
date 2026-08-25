@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { BENCH_TASKS, BENCHMARK_SUITE, HARD_SUITE, resolveSelection, SUITES } from "./suite.ts";
+import {
+  BENCH_TASKS,
+  BENCHMARK_SUITE,
+  HARD_SUITE,
+  PRODUCT_SUITE,
+  resolveSelection,
+  SUITES,
+} from "./suite.ts";
 import { parseBenchTask } from "./task.ts";
 
 function resolved(selection: Parameters<typeof resolveSelection>[0]) {
@@ -41,6 +48,38 @@ describe("the suites", () => {
 
   it("names the harder tasks separately, so the two can be funded apart", () => {
     expect(SUITES[HARD_SUITE]).toEqual(["expense-ledger"]);
+  });
+
+  it("names the tasks scored on both halves separately, and every one of them is judgeable", () => {
+    // Three surfaces rather than three variations on one: a tool somebody returns to, a
+    // dashboard read at a glance, and a page written to be convincing. A suite of one shape
+    // would characterise a model on one shape.
+    expect(SUITES[PRODUCT_SUITE]).toEqual(["reading-list", "sales-dashboard", "pricing-page"]);
+
+    // The membership rule that matters more than the list: a task with no `intent` is scored
+    // the v1 way wherever it runs, so one in here would silently be measured on half of what
+    // this suite exists to measure — and the suite's numbers would not be on one scale.
+    for (const taskId of SUITES[PRODUCT_SUITE]) {
+      const task = BENCH_TASKS.find((candidate) => candidate.id === taskId);
+      expect(task?.intent, `${taskId} declares no intent`).toBeDefined();
+      expect(task?.surfaces, `${taskId} declares no surfaces`).toBeDefined();
+    }
+  });
+
+  it("keeps the judged tasks out of the frozen suite, which is scored differently", () => {
+    // Not tidiness: `all` is scored by one weighted mean and this suite by two halves combined
+    // geometrically. A task in both would be quoted under two arithmetics.
+    for (const taskId of SUITES[PRODUCT_SUITE]) {
+      expect(SUITES[BENCHMARK_SUITE]).not.toContain(taskId);
+      expect(SUITES[HARD_SUITE]).not.toContain(taskId);
+    }
+  });
+
+  it("leaves smoke untouched by the arrival of a judged suite", () => {
+    // `all` and `hard` are asserted above; this is the third of the suites that existed before
+    // the product half did, and the mistake it catches is a task added to it while somebody's
+    // attention was on the new one.
+    expect(SUITES.smoke).toEqual(["tracer"]);
   });
 
   it("keeps the hard tasks out of the frozen suite", () => {

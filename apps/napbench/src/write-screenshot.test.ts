@@ -15,6 +15,7 @@ function captured(overrides: Partial<CapturedScreenshot["metadata"]> = {}): Capt
       taskId: "todo",
       runId: RUN_ID,
       checkId: "shows-the-list",
+      surface: null,
       viewport: { name: "mobile", width: 375, height: 667 },
       capturedAt: "2026-08-15T04:05:06.000Z",
       reference: null,

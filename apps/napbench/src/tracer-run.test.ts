@@ -249,7 +249,8 @@ describe("screenshots, from a run to a file the report can be read against", () 
     const reportFile = await writeBenchReport(resultsDir, report);
 
     expect(report.status).toBe("passed");
-    expect(report.screenshots).toHaveLength(1);
+    // The check's own photograph, then the default surface pair every task's capture pass takes.
+    expect(report.screenshots).toHaveLength(3);
 
     const ref = report.screenshots[0];
     if (ref === undefined) throw new Error("the run recorded no screenshot");
@@ -317,7 +318,7 @@ describe("screenshots, from a run to a file the report can be read against", () 
       { category: "visual", score: 50, effectiveWeight: 37.5, checks: 0 },
     ]);
     expect(report.score).toBe(81);
-    expect(report.screenshots).toHaveLength(1);
+    expect(report.screenshots).toHaveLength(3);
   });
 
   it("does not lose the run when the screenshots cannot be written", async () => {

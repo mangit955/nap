@@ -27,6 +27,7 @@ import { AccessibilityCheckSchema } from "./accessibility-check.ts";
 import { BrowserCheckSchema } from "./browser-check.ts";
 import { type Category, CategorySchema, DEFAULT_CATEGORY_FOR_KIND } from "./category.ts";
 import { describeParseFailure } from "./parse-failure.ts";
+import { MAX_SURFACES_PER_TASK, SurfaceSchema } from "./surface.ts";
 
 /**
  * A command run inside the sandbox, judged on its exit code.
@@ -98,6 +99,17 @@ export const SeededFileSchema = z.strictObject({
 
 export type SeededFile = z.infer<typeof SeededFileSchema>;
 
+/**
+ * How long a task's `intent` may be, and the bound is the point rather than the number.
+ *
+ * A sentence, not a specification. The whole reason a judge is given an intent instead of the
+ * prompts is that a person opening the finished application has no specification — and a field
+ * with no ceiling is one somebody eventually pastes a feature list into, at which point the judge
+ * is grading completeness again and nothing in the schema noticed. Two hundred characters is
+ * comfortably a sentence and uncomfortably a list.
+ */
+export const MAX_INTENT_LENGTH = 200;
+
 export const BenchTaskSchema = z
   .strictObject({
     id: z.string().min(1),
@@ -148,6 +160,32 @@ export const BenchTaskSchema = z
         timeoutMs: z.number().int().positive().optional(),
       })
       .optional(),
+    /**
+     * The views this task wants photographed, at both of the capture pair's viewports.
+     *
+     * Absent means the front door, which is what makes a judge's pair exist for every task
+     * rather than only for the ones somebody remembered. Bounded rather than open, because each
+     * surface is two images and every image is vision-model tokens on a real run — see
+     * `surface.ts` for the ceiling and what it is a ceiling on.
+     */
+    surfaces: z.array(SurfaceSchema).min(1).max(MAX_SURFACES_PER_TASK).optional(),
+    /**
+     * One neutral sentence about what the application is for — and the thing that makes a task
+     * judgeable at all.
+     *
+     * **A judge is shown this and never the prompts.** What is being asked is the question a
+     * person opening the finished application would ask, and they have no specification in front
+     * of them; handing over the prompts would also have the judge grade feature completion, which
+     * the objective half already measures better because a check cannot be talked round. See
+     * `product/evaluation.ts`.
+     *
+     * Absent on every task scored the v1 way, which is what keeps the frozen suite frozen: with
+     * nothing to tell a judge what it is looking at there is nothing to judge, so the runner
+     * scores those tasks on their checks alone whatever judge it was handed. The switch is this
+     * field rather than a flag, because a task that could be judged but says nothing about
+     * itself is not a configuration anybody should be able to express.
+     */
+    intent: z.string().trim().min(1).max(MAX_INTENT_LENGTH).optional(),
     /** At least one: a task with nothing to check could never produce a score. */
     checks: z.array(BenchCheckSchema).min(1),
   })
@@ -191,7 +229,50 @@ export const BenchTaskSchema = z
         path: ["preview"],
       });
     }
+
+    // Two surfaces of one name would be photographed to the same filename, so the second would
+    // overwrite the first and the report would carry two references to one image — a judge
+    // handed a pair that is really the same picture twice.
+    const sharedSurfaces = duplicateIds(surfaceIds(task));
+    if (sharedSurfaces.length > 0) {
+      ctx.addIssue({
+        code: "custom",
+        message: `surfaces must have unique ids — duplicated: ${sharedSurfaces.join(", ")}`,
+        path: ["surfaces"],
+      });
+    }
+
+    // The same rule browser checks answer to, for the same reason: a surface is driven against
+    // the running application. Declared without a preview it could never be reached, and the
+    // task would silently produce no images to judge. A task that declares *nothing* is exempt
+    // — its default pair is an intention, not a declaration, and a build-only task legitimately
+    // has nothing to photograph.
+    if (task.preview === undefined && task.surfaces !== undefined) {
+      ctx.addIssue({
+        code: "custom",
+        message: "a task declaring surfaces must declare a preview for them to be reached at",
+        path: ["preview"],
+      });
+    }
+
+    // An intent is a promise that there will be something to judge, and everything a judge looks
+    // at is photographed from the running application. Declared without a preview, the task would
+    // be scored on a product half with no evidence under it — and would say so only in a report
+    // nobody reads until afterwards.
+    if (task.preview === undefined && task.intent !== undefined) {
+      ctx.addIssue({
+        code: "custom",
+        message:
+          "a task declaring an intent must declare a preview for its surfaces to be reached at",
+        path: ["preview"],
+      });
+    }
   });
+
+/** The ids of whatever surfaces a task declared, and none when it declared none. */
+function surfaceIds(task: { surfaces?: { id: string }[] | undefined }): string[] {
+  return (task.surfaces ?? []).map((surface) => surface.id);
+}
 
 /**
  * Whether this check can only be answered against a running application.

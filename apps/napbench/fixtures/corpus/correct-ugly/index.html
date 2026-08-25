@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Orbit — board</title>
+    <!--
+      No stylesheet at all, deliberately. Every feature the other eight fixtures show is here and
+      works — the form submits, the checkboxes toggle, the filter filters — and nothing has been
+      designed. This is the direction the geometric combination of the two halves exists for: a
+      judge that rewarded feature completeness would score this well, and it must not.
+    -->
+  </head>
+  <body>
+    <h1>Board</h1>
+    <p>Orbit &mdash; week of 18 August. 5 items: 1 done, 2 in progress, 1 blocked, 1 todo.</p>
+
+    <hr />
+
+    <form onsubmit="return addTask(event)">
+      <label for="new-task">Add a task</label>
+      <input id="new-task" name="task" />
+      <label for="assignee">Assignee</label>
+      <select id="assignee" name="assignee">
+        <option>Priya</option>
+        <option>Sam</option>
+        <option>Alex</option>
+      </select>
+      <button type="submit">Add</button>
+    </form>
+
+    <p>
+      <label for="filter">Filter</label>
+      <input id="filter" oninput="applyFilter()" />
+      <label><input type="checkbox" id="hide-done" onchange="applyFilter()" /> Hide done</label>
+    </p>
+
+    <hr />
+
+    <table border="1">
+      <thead>
+        <tr>
+          <th>Done</th>
+          <th>Task</th>
+          <th>Status</th>
+          <th>Assignee</th>
+        </tr>
+      </thead>
+      <tbody id="rows">
+        <tr>
+          <td><input type="checkbox" onchange="toggle(this)" /></td>
+          <td>Draft the Q3 rollout plan</td>
+          <td>In progress</td>
+          <td>Priya</td>
+        </tr>
+        <tr>
+          <td><input type="checkbox" onchange="toggle(this)" /></td>
+          <td>Fix the sign-in redirect loop</td>
+          <td>In progress</td>
+          <td>Sam</td>
+        </tr>
+        <tr>
+          <td><input type="checkbox" onchange="toggle(this)" /></td>
+          <td>Review the pricing copy</td>
+          <td>Todo</td>
+          <td>Alex</td>
+        </tr>
+        <tr>
+          <td><input type="checkbox" onchange="toggle(this)" /></td>
+          <td>Migrate the staging database</td>
+          <td>Blocked</td>
+          <td>Priya</td>
+        </tr>
+        <tr>
+          <td><input type="checkbox" checked onchange="toggle(this)" /></td>
+          <td>Ship the onboarding email</td>
+          <td>Done</td>
+          <td>Sam</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <script>
+      function addTask(event) {
+        event.preventDefault();
+        const title = document.getElementById("new-task").value.trim();
+        if (title === "") return false;
+        const row = document.getElementById("rows").insertRow();
+        row.innerHTML =
+          '<td><input type="checkbox" onchange="toggle(this)"></td><td></td><td>Todo</td><td></td>';
+        row.cells[1].textContent = title;
+        row.cells[3].textContent = document.getElementById("assignee").value;
+        document.getElementById("new-task").value = "";
+        return false;
+      }
+
+      function toggle(box) {
+        box.closest("tr").cells[2].textContent = box.checked ? "Done" : "Todo";
+        applyFilter();
+      }
+
+      function applyFilter() {
+        const term = document.getElementById("filter").value.toLowerCase();
+        const hideDone = document.getElementById("hide-done").checked;
+        for (const row of document.getElementById("rows").rows) {
+          const matches = row.cells[1].textContent.toLowerCase().includes(term);
+          const done = row.cells[2].textContent === "Done";
+          row.style.display = matches && !(hideDone && done) ? "" : "none";
+        }
+      }
+    </script>
+  </body>
+</html>
