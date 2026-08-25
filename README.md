@@ -448,3 +448,9 @@ roadmap:
 - [`docs/GOTCHAS.md`](docs/GOTCHAS.md) — the hard-won constraints, grouped by area, each one written
   down because it cost a session
 - [`CLAUDE.md`](CLAUDE.md) — how to work in this repo: commands, conventions, the definition of done
+- [`SECURITY.md`](SECURITY.md) — how to report a vulnerability, what is most worth looking at, and
+  what is already known and deliberate
+
+## License
+
+[MIT](LICENSE) © 2026 Manas Raghuwanshi
