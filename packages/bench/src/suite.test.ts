@@ -51,7 +51,10 @@ describe("the suites", () => {
   });
 
   it("names the tasks scored on both halves separately, and every one of them is judgeable", () => {
-    expect(SUITES[PRODUCT_SUITE]).toEqual(["reading-list"]);
+    // Three surfaces rather than three variations on one: a tool somebody returns to, a
+    // dashboard read at a glance, and a page written to be convincing. A suite of one shape
+    // would characterise a model on one shape.
+    expect(SUITES[PRODUCT_SUITE]).toEqual(["reading-list", "sales-dashboard", "pricing-page"]);
 
     // The membership rule that matters more than the list: a task with no `intent` is scored
     // the v1 way wherever it runs, so one in here would silently be measured on half of what
