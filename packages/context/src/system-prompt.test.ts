@@ -27,6 +27,20 @@ function templateTree(): FileTree {
   };
 }
 
+/**
+ * One section's contents, or a throw.
+ *
+ * Throwing rather than returning "" because the negative assertions below — the ones that say
+ * a phrase is absent — all pass against an empty string. A section that got renamed away would
+ * take its own guard with it silently, which is the failure mode a guard exists to prevent.
+ */
+function sectionOf(name: string): string {
+  const open = SYSTEM_PROMPT.indexOf(`<${name}>`);
+  const close = SYSTEM_PROMPT.indexOf(`</${name}>`);
+  if (open === -1 || close === -1) throw new Error(`the prompt has no <${name}> section`);
+  return SYSTEM_PROMPT.slice(open, close);
+}
+
 /** Nothing here varies between runs, so the snapshot is stable by construction. */
 async function assembled(overrides: Partial<ContextRequest> = {}): Promise<string> {
   const engine = new NapContextEngine({ root: ROOT });
@@ -72,14 +86,17 @@ describe("the system prompt", () => {
   });
 
   describe("required sections", () => {
-    it.each(["<stack>", "<files>", "<scope>", "<response>"])("includes %s", (section) => {
-      expect(SYSTEM_PROMPT).toContain(section);
-    });
+    it.each(["<stack>", "<files>", "<design>", "<scope>", "<response>"])(
+      "includes %s",
+      (section) => {
+        expect(SYSTEM_PROMPT).toContain(section);
+      },
+    );
 
     it("closes every section it opens", () => {
       // An unbalanced tag turns the rest of the prompt into the contents of a section,
       // which reads to the model as something other than what it says.
-      for (const section of ["stack", "files", "scope", "response"]) {
+      for (const section of ["stack", "files", "design", "scope", "response"]) {
         expect(SYSTEM_PROMPT.split(`<${section}>`)).toHaveLength(2);
         expect(SYSTEM_PROMPT.split(`</${section}>`)).toHaveLength(2);
       }
@@ -118,6 +135,51 @@ describe("the system prompt", () => {
       // tailwind.config.js, and get silence rather than an error.
       expect(SYSTEM_PROMPT).toContain("There is no tailwind.config.js");
       expect(SYSTEM_PROMPT).toContain("@theme");
+    });
+  });
+
+  describe("the design brief", () => {
+    // The prompt used to say nothing about design at all, so everything an evaluator
+    // complained about was unguided output. These assertions are on the *arguments* the
+    // brief has to keep making, not on its phrasing — reword freely, but a rewrite that
+    // drops one of them has dropped the reason the section exists.
+    const design = sectionOf("design");
+
+    it("names no library, icon set or component system", () => {
+      // The brief has to survive the template changing under it, and a prompt that names a
+      // component library teaches the model to reach for one whether or not it is installed.
+      // It is also what would have the benchmark measure adherence to our taste rather than
+      // design: the judge grading the product half sees screenshots only, and never learns
+      // which components an application was assembled from.
+      expect(design).not.toMatch(
+        /shadcn|radix|lucide|heroicons|font ?awesome|material ?ui|\bmui\b|bootstrap|chakra|daisy|ant design/i,
+      );
+    });
+
+    it("argues tokens over scattered one-off values", () => {
+      expect(design).toContain("design tokens first");
+      expect(design).toContain("A value used twice is a token");
+    });
+
+    it("puts hierarchy in type and spacing rather than colour and boxes", () => {
+      expect(design).toContain("hierarchy from type and space");
+      expect(design).toContain("only when spacing cannot do the job");
+    });
+
+    it("allows an icon only where it carries meaning text cannot", () => {
+      expect(design).toContain("Icons only where they carry meaning text cannot");
+      expect(design).toContain("ship the words");
+    });
+
+    it("argues restraint rather than listing forbidden decorations", () => {
+      // Not a penalty list: a gradient or a card can be right. The question the brief makes
+      // the model answer is whether the decision is about *this* application.
+      expect(design).toContain("should answer a question about this application");
+      expect(design).toContain("none is right because it was available");
+    });
+
+    it("asks for the small viewport to be designed rather than squashed into", () => {
+      expect(design).toContain("as its own layout");
     });
   });
 
