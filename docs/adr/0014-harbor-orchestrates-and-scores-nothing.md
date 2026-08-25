@@ -104,9 +104,10 @@ because those are the failures neither toolchain would otherwise see.
   no checkout can run nothing, which is the honest consequence of the agent being host-side.
 - Concurrency is now expressible, and every unit of it is a real E2B sandbox and a real model call.
   Fan-out multiplies spend; nothing here caps it.
-- The container path has been exercised only as far as the host allows: the bundled verifier was run
-  standalone under Bun, which is the same runtime and the same file the image runs, but no image has
-  been built and no trial has yet been driven by Harbor itself.
+- The container path is exercised: the generated `environment/Dockerfile` builds, and the generated
+  `tests/test.sh` running inside it writes `reward.json` for a scored run and — for an errored one —
+  writes nothing and exits 1, which is the whole claim. What remains unexercised is Harbor itself
+  driving a trial end to end; the agent has only been run as a subprocess by hand.
 - Harbor is a dependency of nothing that ships. It sits outside the workspace, outside
   `test/architecture.ts`'s dependency table, and can be deleted without touching a line of the
   benchmark.
