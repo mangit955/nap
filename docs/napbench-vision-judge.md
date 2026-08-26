@@ -164,3 +164,8 @@ anchor spacing rather than from taste. It is left failing and documented.
 - A run of the `product` suite has never been funded. Everything above is the judge alone, over
   static fixtures. What a real generated application scores, and whether the two halves multiply
   to something a person would recognise, is still unbought.
+
+  **Bought, 2026-08-26.** [`napbench-first-product-run.md`](napbench-first-product-run.md) has it:
+  three generated applications, scored 89 / 83 / 82, the anti-slop half of the map demonstrated —
+  and a new failure mode in its place. The conflict of interest above was avoided by pinning the
+  judge to a model the agent was not.

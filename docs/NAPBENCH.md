@@ -732,3 +732,11 @@ It confirms the loop now arbitrates that check on real projects, and is otherwis
 the measurement still cannot be taken: the run that separated the two arms failed only browser
 checks while building and typechecking clean, so the loop was blind to it as well. Twelve funded
 runs across both measurements have fired zero repair turns.
+
+[`napbench-first-product-run.md`](napbench-first-product-run.md) is the first funded run of the
+`product` suite against applications the agent actually generated, rather than the judge alone over
+static fixtures. It is the run that demonstrated the anti-slop half of the design working — three
+applications, `restraint` graded `excellent` twice — and found what replaced it: an oversized
+editorial hero on all three, costing `hierarchy` a `weak` on the one page whose plans then start
+below the fold. Also the first observed case of the two halves disagreeing on a real application,
+with the browser check catching an overflow the judge said in as many words it could not see.
