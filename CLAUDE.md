@@ -142,7 +142,12 @@ A lefthook pre-commit hook runs `biome check` + `typecheck` + `vitest --changed`
 packages/  shared  db  sandbox  storage  capture  agent  context  runtime  verify  bench  loadgen
 apps/      web (Next.js)   api (Hono, runs on Bun)   napbench (the benchmark CLI)
 harbor/    the benchmark as an external harness's agent — Python, outside the workspace
+.railway/  the Railway deployment as TypeScript — three services, one image. See docs/DEPLOY.md
 ```
+
+`.railway/railway.ts` belongs to no workspace, so the root `tsconfig.json` names it **as a file**:
+a bare directory there expands to a wildcard, and TypeScript's wildcards skip dot-prefixed paths,
+so it would be excluded from typecheck without saying so.
 
 **`apps/api` is three processes, not one.** `src/index.ts` serves and executes nothing; `src/worker.ts` executes and serves nothing; `src/reaper.ts` sweeps and does neither, as **exactly one replica** guarded by an advisory lock. All three call `bootNap` in `src/boot.ts`, which builds the real clients and hands them to the one `composeNap` — the role it passes decides which loops start. Adding a dependency means touching `boot.ts` once, never three times. See `docs/DEPLOY.md`.
 

@@ -1,7 +1,7 @@
 # Deploying Nap
 
 **Live:** the app is at <https://nap-tawny.vercel.app> and the API at
-<https://nap-api-production.up.railway.app>.
+<https://nap-api-production-731a.up.railway.app>.
 
 Two services and four accounts. The web app is on Vercel, the API on Railway, and the
 API is the one that holds all the state and spends all the money.
@@ -36,24 +36,42 @@ worker.** Same repo, same Dockerfile, same variables — what differs is the sta
 **the healthcheck path must be empty for the two that serve nothing**, because whether a worker
 is working is a question about queue depth.
 
-**That last point needs a config file per role, and finding out why cost a broken deployment.**
-Railway applies `railway.json` as config-as-code on every deploy *from that repo*, so a single
-file at the root governs all three services and re-imposes its `healthcheckPath` no matter what
-the service is set to in the dashboard or through the API. A worker inherits `/health`, serves
-nothing, never answers, and the deployment fails at the `HEALTHCHECK` step — **after** the
-process has booted correctly and logged `worker claiming`, which is what makes it confusing:
-the logs show a working worker and the deploy shows a failure. So there are three files, and
-each service points at its own through the *Config-as-code* setting (`railwayConfigFile`):
+**That last point is why the healthcheck is declared per role, and finding out why cost a broken
+deployment.** A worker that inherits `/health` serves nothing, never answers, and the deployment
+fails at the healthcheck step — **after** the process has booted correctly and logged
+`worker claiming`, which is what makes it confusing: the logs show a working worker and the deploy
+shows a failure.
 
-| Service | Config file | Start command | Healthcheck |
-|---|---|---|---|
-| `nap-api` | `railway.json` | the Dockerfile's default | `/health` |
-| `nap-worker` | `railway.worker.json` | `bun apps/api/src/worker.ts` | none |
-| `nap-reaper` | `railway.reaper.json` | `bun apps/api/src/reaper.ts` | none |
+| Service | Start command | Healthcheck |
+|---|---|---|
+| `nap-api` | the Dockerfile's default | `/health` |
+| `nap-worker` | `bun apps/api/src/worker.ts` | none |
+| `nap-reaper` | `bun apps/api/src/reaper.ts` | none |
 
-Setting the start command on the service without pointing it at the right config file half-works
-— the command applies, the healthcheck still kills it — which is the failure this table exists to
-stop somebody rediscovering.
+**All three are declared in `.railway/railway.ts`, and that file is the only place they are.**
+It is Railway's Infrastructure-as-Code: one TypeScript module describing the project, compiled and
+diffed against the live deployment.
+
+```bash
+railway config plan     # what Railway would change; touches nothing
+railway config apply    # apply it — asks first unless you pass --yes
+```
+
+It needs the `railway` SDK (a root devDependency) and Railway CLI ≥ 5.42.1.
+
+**This replaced three files, and the mechanism they used is gone.** `railway.json`,
+`railway.worker.json` and `railway.reaper.json` worked by pointing each service at its own file
+through Railway's *Config-as-code* setting (`railwayConfigFile`). That setting now fails with
+*"Config as Code (railway.json / railway.toml) is deprecated"*, and the files themselves stop being
+read on **2026-12-01**. A service created from this repo while a root `railway.json` was the only
+config silently builds with Railpack, ignores the `Dockerfile`, and inherits no start command — so
+the worker and the reaper come up as second copies of the API, which is exactly the failure the old
+table existed to prevent.
+
+`test/railway.test.ts` compiles that config and checks the claims that fail silently: the three
+services exist, only the API is healthchecked, the reaper is one replica, no credential has a
+literal value, and the drain is longer than the application's own. Each rule is also run against a
+synthetic service that breaks it, because a rule nobody has watched fail is not known to work.
 
 One thing must be true first:
 
@@ -100,11 +118,13 @@ That also rules out anything that sleeps the *reaper*: a sleeping one is not rea
 sandboxes it should have cleaned up keep billing. Leave app sleeping off on every service.
 
 **What is deployed is still one API and one worker, and that is now a sizing choice.**
-`railway.json` pins `numReplicas: 1`, and `NAP_EVENT_BUS` still defaults to `in-process` — so
-scaling *this* deployment is two edits, not one. **Raising the replica count without setting the
-event bus is exactly the failure the old rule described**, and nothing will tell you: the turns run
-and the chat panes stop moving. The multi-pod shape lives in `infra/k8s/`, where both are set in the
-manifests.
+`.railway/railway.ts` pins each at one replica. `NAP_EVENT_BUS` is already `postgres` on all three
+services — it has to be, since the worker and the reaper refuse to boot without it — so scaling
+this deployment is now the one edit rather than the two it used to be. **Raising the replica count
+while the bus is still `in-process` is exactly the failure the old rule described**, and nothing
+will tell you: the turns run and the chat panes stop moving. That is worth remembering because the
+*default* is still `in-process`; it is set here, not inherited. The multi-pod shape lives in
+`infra/k8s/`, where both are set in the manifests.
 
 The event log is durable and ordered in Postgres, so a restart loses nothing either: a client
 reconnects with `?afterSeq=` and gets exactly the gap.
@@ -158,6 +178,15 @@ every turn in flight costs a human a reopen. The Kubernetes manifests set
 turns in flight and lost none of them — which is evidence that draining works, and not evidence
 about the 900-around-600 arithmetic itself.
 
+**On Railway that grace period is zero unless you set it**, which makes this the one place the
+platform's default silently cancels the application's design: `SIGTERM` is followed immediately by
+`SIGKILL`, so the worker stops claiming, renews its leases, and is killed mid-sentence anyway. The
+turns in flight are then the janitor's problem rather than the drain's — they are recovered, but
+each one cost somebody a reopen, on every single deploy. `.railway/railway.ts` sets
+`drainingSeconds: 900` on the worker for the same 900-around-600 reason as the manifests, and
+`test/railway.test.ts` asserts that it exceeds `NAP_DRAIN_TIMEOUT_SECONDS`. Railway also exposes
+this as the `RAILWAY_DEPLOYMENT_DRAINING_SECONDS` variable; the config file is where it is decided.
+
 An API pod is cheaper: stop accepting, close each socket with a normal close code, exit. Clients
 reconnect with `?afterSeq=` and lose nothing, because the log is the delivery.
 
@@ -183,20 +212,28 @@ reason.
 
 ### 2. The API on Railway
 
-`railway.json` already selects the Dockerfile, pins one replica and points the healthcheck
-at `/health`. Set the variables below; Railway injects `PORT` itself.
+`railway config apply` builds all three services from `.railway/railway.ts` — the Dockerfile, the
+start commands, one replica each, the healthcheck on the API alone. What it deliberately does not
+carry is the credentials, which are `preserve()` there and must be set on the services:
 
 ```
 DATABASE_URL              the Neon URL from step 1
+NAP_LISTEN_DATABASE_URL   the same database's direct endpoint — see the LISTEN caveat above
 E2B_API_KEY
 OPENROUTER_API_KEY
 BETTER_AUTH_SECRET        openssl rand -base64 32 — a fresh one, not the dev value
 NAP_KEY_ENCRYPTION_SECRET openssl rand -base64 32 — must decode to exactly 32 bytes
 R2_ACCOUNT_ID R2_BUCKET R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY
-NODE_ENV=production
-NAP_API_URL               https://<the railway domain>
-NAP_WEB_ORIGIN            https://<the vercel domain>
 ```
+
+`NODE_ENV`, `NAP_API_URL`, `NAP_WEB_ORIGIN` and `NAP_EVENT_BUS` are in the config file rather than
+here, because none of them is a secret and all four are things a reader should be able to see
+without opening a dashboard.
+
+**Railway injects `PORT` itself, and it is 8080.** The app defaults to 3001 and follows `PORT`
+where it is set, so the only thing that has to know the number is the domain: one pointed at the
+wrong port answers **502 while the container logs a healthy boot and serves `/health` internally**.
+`.railway/railway.ts` declares the port with the domain so the two cannot drift.
 
 Optionally `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET` and the Google pair — both halves or
 neither, or boot refuses. Without them those buttons are not offered and email sign-in and
