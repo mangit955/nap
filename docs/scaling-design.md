@@ -79,11 +79,12 @@ the sandbox directly (`apps/api/src/files/routes.ts:94`). Stateless does not mea
 
 ### Deployment today
 
-One Railway container, `numReplicas: 1` pinned in `railway.json`, Neon Postgres, R2, E2B,
+One Railway container, one replica pinned in config-as-code, Neon Postgres, R2, E2B,
 OpenRouter. `docs/DEPLOY.md` documented the one-replica rule and *why* — every reason in it is one
 of the rows above, and retiring it was the last step of §20. *(Retired. That document now records
 what replaced each of the four reasons; Railway still runs one replica per process, as a sizing
-choice.)*
+choice. The pin has since moved: Railway deprecated config-as-code, so the three `railway*.json`
+files are now one `.railway/railway.ts`.)*
 
 ---
 

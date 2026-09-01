@@ -4,6 +4,13 @@
   // include only their own "src", so without this root pass everything here —
   // including the architecture and doc-consistency checks that enforce the
   // rules in docs/PLAN.md — would sit outside typecheck entirely.
+  //
+  // `.railway` is here for exactly that reason. It is the deployment's three services as
+  // TypeScript, it belongs to no workspace, and a config file that does not compile is one that
+  // fails at deploy time instead of at `bun run typecheck`.
   "extends": "./tsconfig.base.json",
-  "include": ["test", "vitest.config.ts"]
+  //
+  // Named as a file rather than as the directory: a bare ".railway" here expands to a wildcard,
+  // and TypeScript's wildcards skip dot-prefixed paths, so it matches nothing and says nothing.
+  "include": ["test", "vitest.config.ts", ".railway/railway.ts"]
 }
