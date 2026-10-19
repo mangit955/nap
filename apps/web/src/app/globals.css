@@ -1526,4 +1526,146 @@ body {
   .workspace-title [aria-label="Job phase"] {
     display: none;
   }
+  .workspace-title [aria-label="Hide chat"] {
+    display: none;
+  }
+}
+
+/* Keep the workspace dark even when the OS uses a light appearance. */
+:root:has(.dashboard-frame),
+.dashboard-frame {
+  color-scheme: dark;
+  --color-surface: #0a0a0a;
+  --color-panel: #101010;
+  --color-field: #171717;
+  --color-edge: #242424;
+  --color-line-strong: #383838;
+  --color-ink: #e5e5e5;
+  --color-ink-2: #b8b8b8;
+  --color-muted: #858585;
+  --color-hover: #ffffff10;
+  --color-bubble: #191919;
+  --color-accent: #346bf1;
+  --color-accent-ink: #8cacff;
+  --color-accent-tint: #346bf126;
+}
+.dashboard-frame {
+  grid-template-columns: 260px minmax(0, 1fr);
+}
+.dashboard-frame[data-sidebar-collapsed="true"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+.dashboard-frame[data-sidebar-collapsed="true"] .dashboard-sidebar {
+  display: none;
+}
+.sidebar-toggle {
+  position: absolute;
+  top: 14px;
+  left: 224px;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 28px;
+  border-radius: 6px;
+  color: var(--color-muted);
+  background: var(--color-panel);
+}
+.sidebar-toggle:hover {
+  color: var(--color-ink);
+  background: var(--color-hover);
+}
+.sidebar-toggle:focus-visible {
+  outline: 2px solid var(--color-accent);
+}
+.dashboard-frame[data-sidebar-collapsed="true"] .sidebar-toggle {
+  left: 14px;
+}
+.dashboard-frame[data-sidebar-collapsed="true"] .workspace-header {
+  padding-left: 52px;
+}
+.mobile-sidebar-toggle,
+.sidebar-backdrop {
+  display: none;
+}
+.dashboard-home {
+  display: flex;
+  min-height: 100%;
+  align-items: center;
+  justify-content: center;
+  padding: 80px 48px;
+}
+.dashboard-prompt {
+  width: 100%;
+  max-width: 800px;
+  margin-top: -48px;
+}
+.workspace-monogram {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  border: 1px solid var(--color-line-strong);
+  border-radius: 7px;
+  color: var(--color-ink);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -1px;
+}
+.workspace-composer {
+  min-width: 0;
+  border: 1px solid #303030;
+  border-radius: 20px;
+  background: var(--color-field);
+  transition:
+    border-color 150ms,
+    box-shadow 150ms;
+}
+.workspace-composer:focus-within {
+  border-color: #424242;
+  box-shadow: 0 0 0 3px #ffffff03;
+}
+@media (hover: none) {
+  .session-actions {
+    opacity: 1;
+  }
+}
+@media (max-width: 767px) {
+  .dashboard-frame {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .dashboard-frame[data-navigation-open="false"] .dashboard-sidebar,
+  .desktop-sidebar-toggle {
+    display: none;
+  }
+  .mobile-sidebar-toggle {
+    display: grid;
+    left: 12px;
+  }
+  .dashboard-frame[data-navigation-open="true"] .dashboard-sidebar {
+    display: block;
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: 260px;
+    z-index: 40;
+  }
+  .dashboard-frame[data-navigation-open="true"] .mobile-sidebar-toggle {
+    left: 224px;
+    z-index: 50;
+  }
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0 0 0 260px;
+    z-index: 30;
+    background: #0009;
+  }
+  .dashboard-home {
+    padding: 80px 20px;
+  }
+  .dashboard-prompt {
+    margin-top: -32px;
+  }
+  .dashboard-frame .workspace-header {
+    padding-left: 48px;
+  }
 }

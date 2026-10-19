@@ -1,34 +1,14 @@
 "use client";
 
-/**
- * The dashboard, wired to the session and the server.
- *
- * One question is asked here and answered for the whole page — who is signed in — and one list
- * is loaded, because the rail's recents and the grid's cards are the same projects shown twice.
- * Two subscriptions would be two answers that can disagree for a frame, and two requests would
- * be two lists that disagree for longer.
- *
- * **The scope and the search live here**, above both halves, for the same reason: the rail says
- * which scope is showing and the grid does the showing.
- *
- * Somebody who is not signed in is sent to the sign-in page — but only once the session has
- * resolved. Redirecting while it is still pending signs out anybody who arrives with a perfectly
- * good cookie, which is the same mistake as drawing a Sign in link over a live session.
- *
- * It is split in two for the same reason, and the split is load-bearing rather than tidy: hooks
- * cannot be skipped, so a single component would fire the project request before it knew whether
- * there was anybody to make it for — see the note on the early return below.
- */
-
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ApiKeyPanel } from "../account/api-key-panel.tsx";
 import { useApiKey } from "../account/use-api-key.ts";
 import { authClient } from "../auth/client.ts";
-import { NapLoader } from "../brand/nap-loader.tsx";
 import { useModels } from "../chat/use-models.ts";
 import { useProjects } from "../projects/use-projects.ts";
 import { useStartProject } from "../projects/use-start-project.ts";
+import { SpinnerIcon } from "../ui/icons.tsx";
 import { Dashboard } from "./dashboard.tsx";
 import { DashboardHero } from "./dashboard-hero.tsx";
 import { greetingName, type ProjectScope, recentProjects, scopeCounts } from "./filters.ts";
@@ -42,8 +22,6 @@ export function LiveDashboard() {
     if (!isPending && session == null) router.replace("/sign-in");
   }, [isPending, session, router]);
 
-  // The session is the gate in front of the whole dashboard. Keeping the awake mark on screen
-  // while it resolves prevents the post-sign-in route from looking like a failed navigation.
   if (isPending) {
     return (
       <main
@@ -52,7 +30,7 @@ export function LiveDashboard() {
         className="flex min-h-dvh flex-col items-center justify-center gap-4 bg-surface text-ink-2"
         role="status"
       >
-        <NapLoader className="size-20" />
+        <SpinnerIcon className="size-5 text-muted" />
         <p className="text-sm">Getting your workspace ready…</p>
       </main>
     );
@@ -80,7 +58,7 @@ function SignedInDashboard({
   };
 }) {
   const router = useRouter();
-  const { projects, status, actionError, create, close, remove, rename } = useProjects();
+  const { projects, status, actionError, close, remove, rename } = useProjects();
   const { busy, error, start } = useStartProject();
   const { models, loading: modelsLoading } = useModels();
   // The same hook the welcome step uses, so the rail's label and that page cannot disagree
@@ -90,6 +68,7 @@ function SignedInDashboard({
   const [signingOut, setSigningOut] = useState(false);
 
   const [prompt, setPrompt] = useState("");
+  const [draftVersion, setDraftVersion] = useState(0);
   // `undefined` is intentional: it sends no model key, so the server owns the default until
   // the person makes an explicit choice. The fallback is still shown in the picker below.
   const [model, setModel] = useState<string | undefined>(undefined);
@@ -126,10 +105,15 @@ function SignedInDashboard({
             onApiKey={() => setKeyPanelOpen(true)}
             keyHint={key.state?.configured === true ? key.state.hint : undefined}
             onNewProject={() => {
-              void create().then((projectId) => {
-                // Straight into the new project: nobody makes one in order to look at it in a grid.
-                if (projectId !== undefined) router.push(`/p/${projectId}`);
-              });
+              setPrompt("");
+              setDraftVersion((version) => version + 1);
+              requestAnimationFrame(() =>
+                document
+                  .querySelector<HTMLTextAreaElement>(
+                    'textarea[aria-label="Describe the app you want"]',
+                  )
+                  ?.focus(),
+              );
             }}
             signingOut={signingOut}
             onSignOut={() => {
@@ -154,7 +138,7 @@ function SignedInDashboard({
         }
         hero={
           <DashboardHero
-            name={user.isAnonymous ? "there" : greetingName(user)}
+            key={draftVersion}
             value={prompt}
             busy={busy}
             error={error}

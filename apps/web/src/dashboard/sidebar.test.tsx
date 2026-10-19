@@ -60,6 +60,10 @@ describe("the dashboard sidebar", () => {
     show();
 
     expect(screen.getByRole("navigation", { name: /dashboard/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "nap dashboard" })).toHaveAttribute(
+      "href",
+      "/dashboard",
+    );
   });
 
   it("offers the three scopes with their counts", () => {

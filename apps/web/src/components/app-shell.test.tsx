@@ -151,17 +151,9 @@ describe("AppShell", () => {
     expect(container.firstElementChild).toHaveClass("overflow-hidden");
   });
 
-  it("renders a banner identifying the product", () => {
+  it("keeps the workbench controls in the workspace banner", () => {
     render(shell());
-
-    expect(screen.getByRole("banner")).toHaveTextContent(/nap/i);
-  });
-
-  it("offers a way back to the dashboard", () => {
-    // Without it the workspace is a dead end: the URL is the only route out, and nobody types
-    // one to leave a page.
-    render(shell());
-
-    expect(screen.getByRole("link", { name: /nap/i })).toHaveAttribute("href", "/dashboard");
+    expect(screen.getByRole("banner")).toHaveTextContent("Preview");
+    expect(screen.getByRole("tablist", { name: "Workbench" })).toBeInTheDocument();
   });
 });

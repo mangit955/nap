@@ -13,7 +13,7 @@ function show(props: Partial<Parameters<typeof DashboardHero>[0]> = {}) {
   const handlers = { onChange: vi.fn(), onSubmit: vi.fn() };
 
   const view = render(
-    <DashboardHero name="Manas" value="" busy={false} error={undefined} {...handlers} {...props} />,
+    <DashboardHero value="" busy={false} error={undefined} {...handlers} {...props} />,
   );
 
   return { ...handlers, view };
@@ -63,10 +63,10 @@ describe("the dashboard hero", () => {
     { id: "anthropic/claude-opus-5", label: "Claude Opus 5", free: false, available: true },
   ];
 
-  it("greets the person by name", () => {
+  it("keeps the brand above the composer", () => {
     show();
 
-    expect(screen.getByRole("heading", { name: /Manas/ })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "nap" })).toBeInTheDocument();
   });
 
   it("keeps the prompt free of stickers", () => {
@@ -108,16 +108,6 @@ describe("the dashboard hero", () => {
 
     expect(onSubmit).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
-  });
-
-  it("puts an example in the box rather than sending it", () => {
-    // A starting point, not a decision: people edit these before sending.
-    const { onChange, onSubmit } = show({ prompts: ["a habit tracker with a weekly grid"] });
-
-    fireEvent.click(screen.getByRole("button", { name: "a habit tracker with a weekly grid" }));
-
-    expect(onChange).toHaveBeenCalledWith("a habit tracker with a weekly grid");
-    expect(onSubmit).not.toHaveBeenCalled();
   });
 
   it("says why nothing happened when the send failed", () => {

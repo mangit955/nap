@@ -21,7 +21,6 @@ import type { MediaAttachment } from "@nap/shared/media";
  */
 
 import { Fragment } from "react";
-import { NapMark } from "../brand/nap-mark.tsx";
 import { turnFailureCopy } from "../errors/failure-copy.ts";
 import { AlertIcon, CopyIcon } from "../ui/icons.tsx";
 import { OutputBlock } from "./output-block.tsx";
@@ -74,7 +73,7 @@ export function ChatTranscript({
       // peers in a list.
       role="log"
       aria-label="Transcript"
-      className="flex flex-col gap-3 px-4 py-4"
+      className="flex flex-col gap-4 px-5 py-6"
     >
       {items.map((item, index) => (
         <Fragment key={item.key}>
@@ -135,7 +134,7 @@ function Item({
       // read. Making both bubbles gives a paragraph of explanation the shape of a text message.
       return item.from === "user" ? (
         <div className="flex justify-end pt-1">
-          <div className="max-w-[90%] rounded-xl border border-edge bg-bubble px-4 py-3 text-sm text-ink leading-relaxed">
+          <div className="max-w-[92%] rounded-xl border border-edge bg-bubble px-4 py-3 text-[13px] text-ink leading-relaxed">
             {item.attachments?.map((attachment) => (
               <div key={attachment.name} className="mb-3">
                 <div className={attachment.kind === "video" ? "grid grid-cols-3 gap-2" : "flex"}>
@@ -179,9 +178,9 @@ function Item({
           {opensBlock && (
             <span
               aria-hidden="true"
-              className="flex items-center gap-1.5 font-display font-semibold text-[12px] text-muted"
+              className="mb-1 flex items-center gap-2 text-[12px] font-medium text-ink-2"
             >
-              <NapMark className="size-4" />
+              <span className="workspace-monogram size-5 text-xs">n</span>
               nap
             </span>
           )}

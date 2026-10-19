@@ -26,7 +26,7 @@ export function Workbench({
   code: ReactNode;
 }) {
   return (
-    <div className="flex min-h-0 min-w-0 flex-col p-2 pt-0">
+    <div className="flex min-h-0 min-w-0 flex-col px-3 pb-3">
       <Panel id="preview" label="Preview" hidden={tab !== "preview"}>
         {preview}
       </Panel>

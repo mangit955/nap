@@ -75,7 +75,7 @@ describe("the dashboard, before there is a session", () => {
     render(<LiveDashboard />);
 
     expect(screen.getByRole("status", { name: "Loading dashboard" })).toBeInTheDocument();
-    expect(document.querySelector(".nap-loader")).toBeInTheDocument();
+    expect(document.querySelector(".nap-spin")).toBeInTheDocument();
     expect(replace).not.toHaveBeenCalled();
     expect(useProjects).not.toHaveBeenCalled();
   });
@@ -88,7 +88,7 @@ describe("the dashboard, before there is a session", () => {
 
     render(<LiveDashboard />);
 
-    expect(screen.getByRole("heading", { name: /Manas/ })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "nap" })).toBeInTheDocument();
     expect(useProjects).toHaveBeenCalled();
     expect(replace).not.toHaveBeenCalled();
   });

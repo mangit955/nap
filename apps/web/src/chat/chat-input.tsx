@@ -117,7 +117,7 @@ export function ChatInput({
   const empty = text.trim() === "" && media.attachments.length === 0;
 
   return (
-    <div className="shrink-0 p-3">
+    <div className="shrink-0 px-4 pt-2 pb-4">
       {error !== undefined && (
         // `alert` so it is announced: the message the user just sent has vanished from the
         // screen, and nothing else on the page explains why.
@@ -180,7 +180,7 @@ export function ChatInput({
       )}
       <fieldset
         aria-label="Message composer"
-        className="relative rounded-2xl border border-edge bg-field shadow-card focus-within:border-line-strong"
+        className="workspace-composer relative"
         onDragOver={(event) => event.preventDefault()}
         onDrop={(event) => {
           event.preventDefault();
@@ -192,7 +192,7 @@ export function ChatInput({
           disabled={running || media.processing}
           onRemove={media.remove}
         />
-        <div className="px-4 pt-3 pb-2">
+        <div className="px-4 pt-4 pb-3">
           <textarea
             ref={box}
             aria-label="Message"
@@ -243,8 +243,8 @@ export function ChatInput({
               event.preventDefault();
               send();
             }}
-            placeholder={running ? "Working…" : "Describe the app you want"}
-            className="min-h-7 w-full min-w-0 resize-none bg-transparent text-sm leading-relaxed text-ink outline-none placeholder:text-muted disabled:text-muted"
+            placeholder={running ? "Working…" : "Ask a follow-up…"}
+            className="min-h-12 w-full min-w-0 resize-none bg-transparent text-sm leading-relaxed text-ink outline-none placeholder:text-muted disabled:text-muted"
           />
         </div>
         <div className="flex items-center justify-between gap-2 px-2.5 pb-2.5">

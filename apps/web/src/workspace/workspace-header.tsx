@@ -59,7 +59,7 @@ export function WorkspaceHeader({
   onToggleChat: () => void;
 }) {
   return (
-    <header className="workspace-header flex h-12 shrink-0 items-center gap-3 border-b border-edge px-3 pl-14 md:pl-3">
+    <header className="workspace-header flex h-14 shrink-0 items-center gap-3 px-4 pl-14 md:pl-3">
       <div className="workspace-title flex min-w-0 flex-1 items-center gap-2">
         <IconButton
           label={chatOpen ? "Hide chat" : "Show chat"}
@@ -69,16 +69,6 @@ export function WorkspaceHeader({
         >
           <PanelIcon open={chatOpen} />
         </IconButton>
-
-        <a
-          href="/dashboard"
-          aria-label="Back to nap dashboard"
-          title="Dashboard"
-          className="grid size-7 shrink-0 place-items-center rounded-lg text-muted hover:bg-hover hover:text-ink"
-        >
-          <span aria-hidden="true">←</span>
-          <span className="sr-only">nap dashboard</span>
-        </a>
 
         {/*
           Editable only when it is a name. `headerNote` puts sentences here for the loading,
@@ -97,13 +87,15 @@ export function WorkspaceHeader({
           />
         )}
 
-        <JobPhase job={job} />
+        <div className={chatOpen ? "sr-only" : "min-w-0"}>
+          <JobPhase job={job} />
+        </div>
       </div>
 
       <div
         role="tablist"
         aria-label="Workbench"
-        className="flex shrink-0 items-center gap-0.5 rounded-chip bg-field p-0.5 shadow-hairline"
+        className="flex shrink-0 items-center gap-0.5 rounded-lg border border-edge bg-panel p-0.5"
       >
         {WORKBENCH_TABS.map((entry) => (
           <button

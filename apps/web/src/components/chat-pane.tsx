@@ -7,7 +7,6 @@ import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { useMemo, useRef, useState } from "react";
 import { ApiKeyPanel } from "../account/api-key-panel.tsx";
 import { useApiKey } from "../account/use-api-key.ts";
-import { NapMark } from "../brand/nap-mark.tsx";
 import { ChatInput } from "../chat/chat-input.tsx";
 import { ChatTranscript } from "../chat/chat-transcript.tsx";
 import { JobStrip } from "../chat/job-strip.tsx";
@@ -26,7 +25,6 @@ import { useTurnSubmission } from "../chat/use-turn-submission.ts";
 import { useUnseenCard } from "../chat/use-unseen-card.ts";
 import { WorkingIndicator } from "../chat/working-indicator.tsx";
 import { turnStartedAt, workingLabel } from "../chat/working-state.ts";
-import { EXAMPLE_PROMPTS } from "../dashboard/example-prompts.ts";
 import type { FetchJson } from "../files/use-project-files.ts";
 import type { SessionLog } from "../hooks/use-session-log.ts";
 import { Pane } from "./pane.tsx";
@@ -170,7 +168,7 @@ export function ChatPane({
           {empty && loading ? (
             <TranscriptSkeleton />
           ) : empty ? (
-            <EmptyState onPick={onSubmit} />
+            <EmptyState />
           ) : (
             <>
               {events.length > 0 && (
@@ -209,7 +207,7 @@ export function ChatPane({
 function PendingMessage({ text }: { text: string }) {
   return (
     <div className="flex justify-end px-4 pb-3">
-      <p className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-bubble px-3.5 py-2 text-[13px] text-ink leading-relaxed">
+      <p className="max-w-[92%] whitespace-pre-wrap rounded-xl border border-edge bg-bubble px-4 py-3 text-[13px] text-ink leading-relaxed">
         <span className="sr-only">You: </span>
         {text}
       </p>
@@ -243,39 +241,16 @@ function Working({
   );
 }
 
-/**
- * An empty screen is an invitation, so it says what to do rather than what this is.
- *
- * The examples are the same four the front page offers, from one list rather than a second copy
- * — they are chosen to be small and finishable, and a divergent set here would be a different
- * promise about what this thing is for. They send a turn directly rather than filling the box:
- * a prompt somebody has to press twice is a prompt with a step in it for no reason.
- */
-function EmptyState({ onPick }: { onPick: (message: string) => void }) {
+function EmptyState() {
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-5 px-6 py-10 text-center">
-      <NapMark className="size-9 text-muted" />
-
-      <div className="flex flex-col gap-1.5">
-        <p className="font-display font-semibold text-[15px] text-ink">Describe the app you want</p>
-        <p className="max-w-[34ch] text-[12.5px] text-muted leading-relaxed">
-          Every file the agent writes and every command it runs shows up here as it happens.
-        </p>
-      </div>
-
-      <ul aria-label="Example prompts" className="flex flex-col items-stretch gap-1.5">
-        {EXAMPLE_PROMPTS.map((prompt) => (
-          <li key={prompt}>
-            <button
-              type="button"
-              onClick={() => onPick(prompt)}
-              className="w-full rounded-chip border border-edge bg-field/60 px-3 py-2 text-left text-[12.5px] text-ink-2 transition-colors hover:border-line-strong hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
-            >
-              {prompt}
-            </button>
-          </li>
-        ))}
-      </ul>
+    <div className="flex h-full flex-col items-center justify-center gap-3 px-8 py-10 text-center">
+      <span aria-hidden="true" className="workspace-monogram mb-1 size-9 text-xl">
+        n
+      </span>
+      <p className="text-sm font-medium text-ink-2">Describe the app you want</p>
+      <p className="max-w-[30ch] text-xs leading-relaxed text-muted">
+        Start with an idea or attach a reference. We’ll take it from there.
+      </p>
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { useRef, useState } from "react";
 import { SpinnerIcon } from "../ui/icons.tsx";
 import type { ProjectScope } from "./filters.ts";
 import { filterProjects } from "./filters.ts";
+import { SessionActions } from "./session-actions.tsx";
 
 const SCOPES: readonly { id: ProjectScope; label: string }[] = [
   { id: "all", label: "All sessions" },
@@ -12,7 +13,7 @@ const SCOPES: readonly { id: ProjectScope; label: string }[] = [
   { id: "put-away", label: "Put away" },
 ];
 const ROW =
-  "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm text-ink-2 transition-colors hover:bg-hover hover:text-ink focus-visible:outline-accent";
+  "flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-[13px] text-ink-2 transition-colors hover:bg-hover hover:text-ink focus-visible:outline-accent";
 
 export function Sidebar({
   name,
@@ -63,43 +64,39 @@ export function Sidebar({
   return (
     <nav
       aria-label="Dashboard"
-      className="flex h-full min-h-0 flex-col border-r border-edge bg-panel px-3 pt-5 pb-3"
+      className="flex h-full min-h-0 flex-col border-r border-edge bg-panel px-2.5 pt-3 pb-2"
     >
-      <a
-        href="/dashboard"
-        className="mb-7 flex items-center gap-2.5 px-3 text-ink"
-        aria-label="nap dashboard"
-      >
-        <span className="grid size-7 place-items-center rounded-lg border border-edge text-sm font-semibold">
-          n
-        </span>
-        <span className="text-lg font-semibold tracking-tight">nap</span>
-      </a>
-      <div className="flex flex-col gap-1">
-        <button type="button" onClick={onNewProject} className={`${ROW} text-ink`}>
-          <PlusIcon />
-          New session
-        </button>
+      <div className="mb-5 flex h-8 items-center gap-1 pr-8">
+        <a
+          href="/dashboard"
+          aria-label="nap dashboard"
+          className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-2 py-1 text-[13px] text-ink hover:bg-hover"
+        >
+          <span aria-hidden="true" className="workspace-monogram size-6 text-sm">
+            n
+          </span>
+          <span className="truncate font-medium">My workspace</span>
+        </a>
         <button
           type="button"
+          aria-label="Search sessions"
+          title="Search sessions"
           onClick={() => {
-            setSearching(true);
-            requestAnimationFrame(() => search.current?.focus());
+            setSearching(!searching);
+            if (searching) setQuery("");
+            else requestAnimationFrame(() => search.current?.focus());
           }}
-          className={ROW}
+          className="grid size-7 shrink-0 place-items-center rounded-md text-muted hover:bg-hover hover:text-ink"
         >
           <SearchIcon />
-          Search sessions
         </button>
-        <a href="/docs" className={ROW}>
-          <BookIcon />
-          Documentation
-        </a>
       </div>
-      <div className="mt-8 flex items-center justify-between px-3 pb-3">
-        <h2 className="text-sm font-medium text-ink">
-          Sessions <span className="ml-1 text-xs font-normal text-muted">{counts.all}</span>
-        </h2>
+      <button type="button" onClick={onNewProject} className={`${ROW} bg-hover text-ink`}>
+        <PlusIcon />
+        New session
+      </button>
+      <div className="mt-7 flex items-center justify-between px-3 pb-4">
+        <h2 className="text-[13px] font-medium text-ink-2">Sessions</h2>
         <div className="flex gap-1">
           <button
             type="button"
@@ -154,91 +151,53 @@ export function Sidebar({
         </div>
       )}
       <div className="nap-scroll min-h-0 flex-1 overflow-y-auto">
+        <p className="mb-2 flex items-center gap-2 px-3 text-xs text-muted">
+          <RecentIcon />
+          {scope === "running" ? "Running" : scope === "put-away" ? "Put away" : "Recent"}
+        </p>
         {loading ? (
           <p role="status" className="px-3 py-3 text-xs text-muted">
             Loading sessions…
           </p>
         ) : sessions.length === 0 ? (
-          <p className="px-3 py-4 text-xs leading-relaxed text-muted">
-            {query || scope !== "all"
-              ? "No matching sessions."
-              : "Your sessions will appear here. Start with a new idea."}
+          <p className="pl-9 pr-3 py-2 text-xs leading-relaxed text-muted">
+            {query || scope !== "all" ? "No matching sessions." : "No sessions yet"}
           </p>
         ) : (
-          <>
-            <p className="mb-2 px-3 text-xs text-muted">Recent</p>
-            <ul aria-label="Sessions" className="flex flex-col gap-0.5">
-              {sessions.map((project) => (
-                <li
-                  key={project.projectId}
-                  className={`group relative flex items-center rounded-lg ${activeProjectId === project.projectId ? "bg-hover" : "hover:bg-hover"}`}
+          <ul aria-label="Sessions" className="flex flex-col gap-0.5">
+            {sessions.map((project) => (
+              <li
+                key={project.projectId}
+                className={`group relative flex items-center rounded-lg ${activeProjectId === project.projectId ? "bg-hover" : "hover:bg-hover"}`}
+              >
+                <a
+                  href={`/p/${project.projectId}`}
+                  aria-current={activeProjectId === project.projectId ? "page" : undefined}
+                  className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md py-2 pr-2 pl-9 text-[13px] text-ink-2 focus-visible:outline-accent"
                 >
-                  <a
-                    href={`/p/${project.projectId}`}
-                    aria-current={activeProjectId === project.projectId ? "page" : undefined}
-                    className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-ink-2 focus-visible:outline-accent"
-                  >
-                    <span className="min-w-0 flex-1 truncate">{project.name}</span>
-                    {project.sandboxId !== null && (
-                      <span className="size-1.5 shrink-0 rounded-full bg-accent" title="Running">
-                        <span className="sr-only">Running</span>
-                      </span>
-                    )}
-                  </a>
-                  {(onRename || onDelete || onClose) && (
-                    <details className="mr-1 shrink-0">
-                      <summary
-                        aria-label={`Session actions for ${project.name}`}
-                        className="list-none rounded px-1.5 py-1 text-muted hover:text-ink"
-                      >
-                        ···
-                      </summary>
-                      <div className="absolute right-1 top-10 z-20 w-40 rounded-lg border border-edge bg-field p-1 shadow-raised">
-                        {onRename && (
-                          <button
-                            type="button"
-                            disabled={busyProjectId === project.projectId}
-                            onClick={() => {
-                              const name = window.prompt("Session name", project.name);
-                              if (name?.trim()) onRename(project.projectId, name.trim());
-                            }}
-                            className={ROW}
-                          >
-                            Rename
-                          </button>
-                        )}
-                        {onClose && project.sandboxId !== null && (
-                          <button
-                            type="button"
-                            disabled={busyProjectId === project.projectId}
-                            onClick={() => onClose(project.projectId)}
-                            className={ROW}
-                          >
-                            Put away
-                          </button>
-                        )}
-                        {onDelete && (
-                          <button
-                            type="button"
-                            disabled={busyProjectId === project.projectId}
-                            onClick={() => {
-                              if (
-                                window.confirm(`Delete “${project.name}”? This cannot be undone.`)
-                              )
-                                onDelete(project.projectId);
-                            }}
-                            className={`${ROW} text-danger`}
-                          >
-                            Delete
-                          </button>
-                        )}
-                      </div>
-                    </details>
+                  <span className="min-w-0 flex-1 truncate">{project.name}</span>
+                  {project.sandboxId !== null && (
+                    <span className="size-1.5 shrink-0 rounded-full bg-accent" title="Running">
+                      <span className="sr-only">Running</span>
+                    </span>
                   )}
-                </li>
-              ))}
-            </ul>
-          </>
+                </a>
+                {(onRename || onDelete || onClose) && (
+                  <SessionActions
+                    name={project.name}
+                    disabled={busyProjectId === project.projectId}
+                    onRename={onRename ? (name) => onRename(project.projectId, name) : undefined}
+                    onDelete={onDelete ? () => onDelete(project.projectId) : undefined}
+                    onClose={
+                      onClose && project.sandboxId !== null
+                        ? () => onClose(project.projectId)
+                        : undefined
+                    }
+                  />
+                )}
+              </li>
+            ))}
+          </ul>
         )}
         {error && (
           <p role="alert" className="px-3 py-2 text-xs text-danger">
@@ -246,7 +205,7 @@ export function Sidebar({
           </p>
         )}
       </div>
-      <div className="relative mt-4 flex shrink-0 items-center gap-0.5 border-t border-edge pt-3">
+      <div className="relative mt-4 flex shrink-0 items-center gap-0.5 pt-2">
         <AccountMenu
           name={name}
           email={email}
@@ -333,19 +292,19 @@ export function AccountMenu({
             src={avatarUrl}
             alt=""
             referrerPolicy="no-referrer"
-            className="size-9 shrink-0 rounded-full object-cover"
+            className="size-8 shrink-0 rounded-full object-cover"
           />
         ) : (
           <span
             aria-hidden="true"
-            className="grid size-9 shrink-0 place-items-center rounded-full bg-accent-tint font-medium text-accent-ink text-xs"
+            className="grid size-8 shrink-0 place-items-center rounded-full border border-edge bg-hover font-medium text-ink-2 text-xs"
           >
             {name.slice(0, 1).toUpperCase()}
           </span>
         )}
         <span className="flex min-w-0 flex-col">
-          <span className="truncate font-medium text-ink text-sm">{name}</span>
-          <span className="truncate text-xs text-muted">{email ?? "Personal workspace"}</span>
+          <span className="truncate font-medium text-ink text-[12px]">{name}</span>
+          <span className="truncate text-[11px] text-muted">{email ?? "Personal workspace"}</span>
         </span>
       </button>
 
@@ -449,14 +408,6 @@ function SignOutIcon() {
   );
 }
 
-function BookIcon() {
-  return (
-    <svg aria-hidden="true" {...STROKE}>
-      <rect x="3.5" y="2" width="9" height="12" rx="1" />
-      <path d="M6 5h4M6 8h4M6 11h2" />
-    </svg>
-  );
-}
 function FilterIcon() {
   return (
     <svg aria-hidden="true" {...STROKE}>
@@ -479,6 +430,15 @@ function SettingsIcon() {
     <svg aria-hidden="true" {...STROKE}>
       <path d="m6.5 2-.4 1.5-1.5.8L3 4l-1 1.8 1.1 1.1v1.8L2 10l1 1.8 1.6-.3 1.5.8.4 1.7h2.9l.5-1.7 1.5-.8 1.6.3 1-1.8-1.1-1.3V6.9L14 5.8 13 4l-1.6.3-1.5-.8L9.4 2z" />
       <circle cx="8" cy="8" r="2" />
+    </svg>
+  );
+}
+
+function RecentIcon() {
+  return (
+    <svg aria-hidden="true" {...STROKE}>
+      <circle cx="8" cy="8" r="5.5" />
+      <path d="M8 4.5V8l2.5 1.5" />
     </svg>
   );
 }

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { Dashboard } from "./dashboard.tsx";
 
@@ -56,4 +56,24 @@ describe("the dashboard frame", () => {
     expect(frame).toHaveClass("opacity-60");
     expect(frame).toHaveAttribute("aria-busy", "true");
   });
+});
+
+it("collapses and restores the sidebar without leaving the dashboard", () => {
+  show();
+  const frame = screen.getByRole("main").parentElement;
+  fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+  expect(frame).toHaveAttribute("data-sidebar-collapsed", "true");
+  fireEvent.click(screen.getByRole("button", { name: "Expand sidebar" }));
+  expect(frame).toHaveAttribute("data-sidebar-collapsed", "false");
+});
+
+it("dismisses mobile navigation from the backdrop", () => {
+  show();
+  fireEvent.click(screen.getByRole("button", { name: "Open sessions" }));
+  expect(screen.getByRole("button", { name: "Close sessions" })).toHaveAttribute(
+    "aria-expanded",
+    "true",
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Close navigation" }));
+  expect(screen.getByRole("button", { name: "Open sessions" })).toHaveFocus();
 });

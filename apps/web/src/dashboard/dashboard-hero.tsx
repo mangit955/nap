@@ -6,15 +6,13 @@ import { useEffect, useRef } from "react";
 import { AttachmentButton, AttachmentTray, DictationButton } from "../chat/composer-controls.tsx";
 import { ModelPicker } from "../chat/model-picker.tsx";
 import { useMediaAttachments } from "../chat/use-media-attachments.ts";
-import { EXAMPLE_PROMPTS } from "./example-prompts.ts";
+
 import { appendDictation, useDictation } from "./use-dictation.ts";
 
 export function DashboardHero({
-  name,
   value,
   busy = false,
   error,
-  prompts = EXAMPLE_PROMPTS,
   models = [],
   modelsLoading = false,
   model,
@@ -23,11 +21,9 @@ export function DashboardHero({
   onChange,
   onSubmit,
 }: {
-  name: string;
   value: string;
   busy?: boolean;
   error?: string | undefined;
-  prompts?: readonly string[];
   models?: readonly ModelChoice[];
   modelsLoading?: boolean;
   model?: string | undefined;
@@ -57,15 +53,22 @@ export function DashboardHero({
   };
 
   return (
-    <div className="relative flex min-h-full flex-col justify-center px-5 py-20 sm:px-10">
-      <div className="mx-auto flex w-full max-w-[720px] flex-col">
-        <p className="mb-3 text-sm text-muted">Your workspace, ready when you are</p>
-        <h1 className="mb-8 text-[28px] font-medium tracking-tight text-ink sm:text-[32px]">
-          {name === "there" ? "What would you like to build?" : `What are we building, ${name}?`}
-        </h1>
+    <div className="dashboard-home">
+      <div className="dashboard-prompt">
+        <div className="mb-5 flex items-center justify-between px-2">
+          <h1 className="flex items-center gap-2.5 text-[28px] font-semibold tracking-[-1px] text-ink">
+            <span aria-hidden="true" className="workspace-monogram size-8 text-xl">
+              n
+            </span>
+            nap
+          </h1>
+          <span className="rounded-full border border-edge px-3 py-1 text-[11px] text-muted">
+            New session
+          </span>
+        </div>
         <fieldset
           aria-label="New session composer"
-          className="rounded-2xl border border-edge bg-field shadow-card transition-colors focus-within:border-line-strong"
+          className="workspace-composer"
           onDragOver={(event) => event.preventDefault()}
           onDrop={(event) => {
             event.preventDefault();
@@ -96,10 +99,10 @@ export function DashboardHero({
               event.preventDefault();
               send();
             }}
-            placeholder="Describe what you want to build…"
-            className="block min-h-32 w-full resize-none bg-transparent px-5 pt-4 pb-3 text-[15px] leading-relaxed text-ink outline-none placeholder:text-muted disabled:text-muted"
+            placeholder="Ask nap to build an app, fix a bug, or explore an idea…"
+            className="block h-[116px] min-h-[116px] w-full resize-none bg-transparent px-5 pt-5 pb-3 text-[15px] leading-relaxed text-ink outline-none placeholder:text-muted disabled:text-muted"
           />
-          <div className="flex items-center justify-between gap-2 px-3 pb-3">
+          <div className="flex items-center justify-between gap-2 px-3.5 pb-3.5 pt-1">
             <div className="flex min-w-0 items-center gap-1">
               <AttachmentButton disabled={disabled} onFiles={(files) => void media.add(files)} />
               <ModelPicker
@@ -119,7 +122,7 @@ export function DashboardHero({
                 aria-label="Send"
                 onClick={send}
                 disabled={disabled || (value.trim() === "" && media.attachments.length === 0)}
-                className="grid size-9 place-items-center rounded-full bg-accent text-white transition-colors hover:bg-accent/90 disabled:bg-hover disabled:text-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                className="composer-send grid size-8 place-items-center rounded-full bg-accent text-white transition-colors hover:bg-accent/90 disabled:bg-hover disabled:text-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
               >
                 <svg
                   viewBox="0 0 24 24"
@@ -152,26 +155,6 @@ export function DashboardHero({
             {message}
           </p>
         ))}
-        <div className="mt-6 flex flex-wrap items-center gap-2">
-          <span className="mr-1 text-xs text-muted">Try a starting point</span>
-          {prompts.map((prompt) => (
-            <button
-              key={prompt}
-              type="button"
-              onClick={() => {
-                onChange(prompt);
-                box.current?.focus();
-              }}
-              className="rounded-lg border border-edge px-3 py-1.5 text-xs text-ink-2 transition-colors hover:bg-hover hover:text-ink focus-visible:outline-accent"
-            >
-              {prompt}
-            </button>
-          ))}
-        </div>
-        <p className="mt-5 text-[11px] text-muted">
-          Enter to send <span className="px-1.5 text-line-strong">·</span> Shift + Enter for a new
-          line
-        </p>
       </div>
     </div>
   );
