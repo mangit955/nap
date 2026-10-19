@@ -76,7 +76,7 @@ function SignedInDashboard({
   const [busyProjectId, setBusyProjectId] = useState<string | undefined>(undefined);
 
   /** Runs one action against one project, with that card held still while it is in flight. */
-  const run = (projectId: string, action: (id: string) => Promise<void>) => {
+  const run = (projectId: string, action: (id: string) => Promise<unknown>) => {
     setBusyProjectId(projectId);
     void action(projectId).finally(() => setBusyProjectId(undefined));
   };

@@ -2,6 +2,7 @@
 
 /** The deployment-backed model choice used by both prompt composers. */
 
+import { modelSupportsImages } from "@nap/shared/model-capabilities";
 import type { ModelChoice } from "@nap/shared/models-protocol";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -138,6 +139,9 @@ export function ModelPicker({
                     <span className="shrink-0 rounded-[4px] bg-hover px-1 py-px font-medium text-[10px] text-muted uppercase tracking-wide">
                       Free
                     </span>
+                  )}
+                  {!modelSupportsImages(choice.id) && (
+                    <span className="shrink-0 text-[10px] text-muted">Text only</span>
                   )}
                   {!choice.available && (
                     <span

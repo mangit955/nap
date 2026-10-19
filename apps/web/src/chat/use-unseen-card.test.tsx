@@ -101,6 +101,36 @@ describe("when it is worked out", () => {
 
     expect(view.result.current.card?.objective).toBe("add a dark mode toggle");
   });
+
+  it("summarizes a chat absence once and stays dismissed while reading continues", () => {
+    const events: StoredEvent[] = [];
+    const view = renderHook(({ events, active }) => useUnseenCard(events, 4, true, active), {
+      initialProps: { events, active: true },
+    });
+    view.rerender({ events, active: false });
+    const finished = concluded(JOB, "build a todo list");
+    view.rerender({ events: finished, active: false });
+    expect(view.result.current.card).toBeNull();
+
+    view.rerender({ events: finished, active: true });
+    expect(view.result.current.card?.objective).toBe("build a todo list");
+
+    const later = [...finished, ...concluded(OTHER_JOB, "add a dark mode toggle")];
+    view.rerender({ events: later, active: true });
+    expect(view.result.current.card?.objective).toBe("build a todo list");
+
+    act(() => {
+      view.result.current.dismiss();
+    });
+    view.rerender({
+      events: [
+        ...later,
+        log.at("turn.failed", { reason: "sandbox_unavailable", message: "no capacity" }),
+      ],
+      active: true,
+    });
+    expect(view.result.current.card).toBeNull();
+  });
 });
 
 describe("dismissing it", () => {

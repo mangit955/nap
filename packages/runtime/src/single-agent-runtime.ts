@@ -814,6 +814,7 @@ export class SingleAgentRuntime implements Runtime {
       sessionId: settings.sessionId,
       sandboxId,
       userMessage: prompt,
+      model: settings.model,
       attachments: options.attachments,
       history,
       job,

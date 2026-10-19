@@ -90,7 +90,12 @@ export function Sidebar({
           <SearchIcon />
         </button>
       </div>
-      <button type="button" onClick={onNewProject} className={`${ROW} bg-hover text-ink`}>
+      <button
+        type="button"
+        data-new-session
+        onClick={onNewProject}
+        className={`${ROW} bg-hover text-ink`}
+      >
         <PlusIcon />
         New session
       </button>
@@ -100,6 +105,7 @@ export function Sidebar({
           <button
             type="button"
             aria-label="New session"
+            data-new-session
             onClick={onNewProject}
             className="rounded p-1 text-muted hover:bg-hover hover:text-ink"
           >

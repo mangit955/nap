@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { PanelIcon } from "../ui/icons.tsx";
 import { useDocumentScrollLock } from "../ui/use-document-scroll-lock.ts";
 
@@ -22,10 +22,53 @@ export function Dashboard({
   const [collapsed, setCollapsed] = useState(false);
   const [navigationOpen, setNavigationOpen] = useState(false);
   const mobileTrigger = useRef<HTMLButtonElement>(null);
-  const closeNavigation = () => {
+  const navigation = useRef<HTMLDivElement>(null);
+  const closeNavigation = useCallback(() => {
     setNavigationOpen(false);
     mobileTrigger.current?.focus();
-  };
+  }, []);
+
+  useEffect(() => {
+    if (!navigationOpen) return;
+    const drawer = navigation.current;
+    drawer
+      ?.querySelector<HTMLElement>("a[href], button:not([disabled]), input:not([disabled])")
+      ?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      // Native rename/account dialogs keep their own Escape and Tab handling.
+      if (event.target instanceof Element && event.target.closest("dialog[open]")) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeNavigation();
+      } else if (event.key === "Tab" && drawer) {
+        const targets = [
+          mobileTrigger.current,
+          ...drawer.querySelectorAll<HTMLElement>(
+            'a[href], button:not([disabled]), input:not([disabled]), [tabindex="0"]',
+          ),
+        ].filter(
+          (node): node is HTMLElement =>
+            node instanceof HTMLElement && node.getClientRects().length > 0,
+        );
+        if (targets.length === 0) return;
+        const focused = document.activeElement;
+        const index = focused instanceof HTMLElement ? targets.indexOf(focused) : -1;
+        const next = (index + (event.shiftKey ? -1 : 1) + targets.length) % targets.length;
+        event.preventDefault();
+        targets[next]?.focus();
+      }
+    };
+    const viewport = window.matchMedia("(max-width: 767px)");
+    const onResize = () => {
+      if (!viewport.matches) setNavigationOpen(false);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    viewport.addEventListener("change", onResize);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      viewport.removeEventListener("change", onResize);
+    };
+  }, [navigationOpen, closeNavigation]);
 
   return (
     <div
@@ -63,20 +106,24 @@ export function Dashboard({
           className="sidebar-backdrop"
         />
       )}
-      {/* biome-ignore lint/a11y/noStaticElementInteractions: delegates Escape and navigation from interactive descendants. */}
       <div
+        ref={navigation}
         className="dashboard-sidebar min-h-0"
-        onKeyDown={(event) => {
-          if (event.key === "Escape" && navigationOpen) closeNavigation();
-        }}
         onClickCapture={(event) => {
-          if (navigationOpen && event.target instanceof Element && event.target.closest("a"))
+          if (
+            navigationOpen &&
+            event.target instanceof Element &&
+            event.target.closest("a, [data-new-session]")
+          )
             closeNavigation();
         }}
       >
         {sidebar}
       </div>
-      <Content className="dashboard-content nap-scroll-hidden relative min-h-0 min-w-0 overflow-y-auto">
+      <Content
+        inert={navigationOpen}
+        className="dashboard-content nap-scroll-hidden relative min-h-0 min-w-0 overflow-y-auto"
+      >
         {hero}
         {grid}
       </Content>

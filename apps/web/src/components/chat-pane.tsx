@@ -45,6 +45,7 @@ const NO_JOBS = jobView([]);
  * `use-turn-submission.ts` for why that boundary is worth keeping.
  */
 export function ChatPane({
+  active = true,
   events,
   jobs = NO_JOBS,
   loading = false,
@@ -63,6 +64,7 @@ export function ChatPane({
   card,
   onDismissCard = () => {},
 }: {
+  active?: boolean;
   events: readonly StoredEvent[];
   /**
    * Where the session's jobs stand, derived above this pane because the workspace bar reads the
@@ -201,6 +203,7 @@ export function ChatPane({
 
           <div ref={composerDock} className="chat-composer-dock absolute inset-x-0 bottom-0 z-10">
             <ChatInput
+              visible={active}
               running={running}
               error={error}
               onSubmit={onSubmit}
@@ -275,12 +278,14 @@ function EmptyState() {
 }
 
 export function LiveChatPane({
+  active = true,
   sessionId,
   projectId,
   log,
   files,
   fetchJson,
 }: {
+  active?: boolean;
   sessionId: string | undefined;
   /** Only so a prompt typed on the front page can be claimed by the project it was meant for. */
   projectId?: string | undefined;
@@ -294,12 +299,12 @@ export function LiveChatPane({
   // Subscribed here rather than in `useSessionLog` with the other folds: this is the one answer
   // in the workspace that is not a fold over the log at all — it is a fact about this browser,
   // and only this pane draws it.
-  const seen = useSeenCursor(sessionId, lastSeq);
+  const seen = useSeenCursor(sessionId, lastSeq, active);
   // Beside the cursor, and for the same reason: it is a fact about this browser rather than a
   // fold over the log, and only this pane draws it. Worked out here rather than in the pane
   // below because it needs `replayed` — a card decided before the log arrived would be a card
   // decided over an empty one.
-  const { card, dismiss } = useUnseenCard(events, seen, replayed);
+  const { card, dismiss } = useUnseenCard(events, seen, replayed, active);
   const injected = fetchJson === undefined ? {} : { fetchJson };
   const { submit, cancel, pending, running, error } = useTurnSubmission({
     sessionId,
@@ -333,6 +338,7 @@ export function LiveChatPane({
       <ApiKeyPanel open={keyPanelOpen} onClose={() => setKeyPanelOpen(false)} keyState={key} />
 
       <ChatPane
+        active={active}
         events={events}
         jobs={jobs}
         // Nothing has been asked for yet when there is no session: the project record is still on

@@ -1,5 +1,6 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { mediaBrowser } from "../testing/media-browser.ts";
 import { DashboardHero } from "./dashboard-hero.tsx";
 
 /**
@@ -62,6 +63,37 @@ describe("the dashboard hero", () => {
     { id: "openai/gpt-5.6-luna", label: "Gpt 5 6 Luna", free: false, available: true },
     { id: "anthropic/claude-opus-5", label: "Claude Opus 5", free: false, available: true },
   ];
+
+  it("retains references across a text-only model choice and blocks sending until compatible", async () => {
+    const browser = mediaBrowser();
+    const onSubmit = vi.fn();
+    const props = { value: "Match this", onChange: vi.fn(), onSubmit };
+    const view = render(<DashboardHero {...props} model="openai/gpt-5.6-luna" />);
+    try {
+      const { rerender } = view;
+      fireEvent.paste(box(), {
+        clipboardData: { files: [new File(["image"], "reference.png", { type: "image/png" })] },
+      });
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "Remove reference.png" })).toBeEnabled(),
+      );
+      rerender(<DashboardHero {...props} model="nvidia/nemotron-3-super-120b-a12b:free" />);
+      expect(screen.getByRole("alert")).toHaveTextContent(/model.*image/i);
+      expect(screen.getByRole("button", { name: "Add images or videos" })).toBeDisabled();
+      fireEvent.keyDown(box(), { key: "Enter" });
+      expect(onSubmit).not.toHaveBeenCalled();
+      expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+      expect(browser.revokeObjectURL).not.toHaveBeenCalled();
+      rerender(<DashboardHero {...props} model="openai/gpt-5.6-luna" />);
+      fireEvent.click(screen.getByRole("button", { name: "Send" }));
+      expect(onSubmit).toHaveBeenCalledWith("Match this", [
+        expect.objectContaining({ kind: "image", name: "reference.png" }),
+      ]);
+    } finally {
+      view.unmount();
+      browser.restore();
+    }
+  });
 
   it("keeps the brand above the composer", () => {
     show();

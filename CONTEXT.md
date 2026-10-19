@@ -12,6 +12,12 @@ at a time. Outlives every sandbox it ever had.
 **Session** — one conversation about a project. A project's newest session is the one its workspace
 opens; a link never names a session, because the project grows new ones.
 
+**Media attachment** — a named reference on a user message: one prepared JPEG for an image,
+or sampled JPEG frames with timestamps for a video. These bytes travel with the durable turn
+request and event; the original file and video audio do not. A text-only model sees a named
+omission marker for historical references, while a new reference requires a model with image
+input. See [ADR-0015](docs/adr/0015-media-references-travel-with-the-prompt.md).
+
 **Turn** — one exchange within a session: a prompt, whatever the agent does about it, and exactly
 one terminal event (`turn.completed` or `turn.failed`). The unit budgets, cancellation and commits
 are all scoped to. **The prompt comes from the user or from failed verification** — a repair is a
@@ -88,7 +94,7 @@ and on the card that says what was decided in your absence (`apps/web/src/chat/u
 
 **Unseen** — the events in a session that *this browser* has never displayed, computed against a
 persisted **seen cursor**: `localStorage`, keyed by session, advanced only while the document is
-visible. Deliberately not "away" — away names the user's state, which nothing can observe, and
+visible and its chat pane is open. Deliberately not "away" — away names the user's state, which nothing can observe, and
 what is computed is a property of the log against a cursor; "While you were away" is copy and may
 differ. **Distinct from the replay `seq`** that `use-event-stream.ts` keeps and `/ws?seq=N`
 resumes from, which is per-connection and in memory where this is per-browser and durable. Two

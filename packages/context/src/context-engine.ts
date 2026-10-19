@@ -1,4 +1,5 @@
 import { mediaBlocks } from "@nap/shared/media";
+import { MODEL_MEDIA_UNSUPPORTED, modelSupportsImages } from "@nap/shared/model-capabilities";
 /**
  * Assembles everything the model sees for one turn, and owns what it costs.
  *
@@ -134,7 +135,7 @@ function textBlock(text: string): LLMContentBlock {
  * damaging one: it is a summary produced *about* the model's reasoning, and feeding it back
  * as the model's own words invents a turn that never happened.
  */
-function toMessages(events: NapEvent[]): LLMMessage[] {
+function toMessages(events: NapEvent[], images: boolean): LLMMessage[] {
   const messages: LLMMessage[] = [];
 
   const push = (role: LLMMessage["role"], block: LLMContentBlock): void => {
@@ -168,7 +169,18 @@ function toMessages(events: NapEvent[]): LLMMessage[] {
   for (const event of events) {
     switch (event.type) {
       case "user.message":
-        for (const block of mediaBlocks(event.payload.attachments ?? [])) push("user", block);
+        for (const attachment of event.payload.attachments ?? []) {
+          if (images) {
+            for (const block of mediaBlocks([attachment])) push("user", block);
+          } else {
+            push(
+              "user",
+              textBlock(
+                `Reference ${attachment.name} omitted: this model cannot view images or video frames.`,
+              ),
+            );
+          }
+        }
         push("user", textBlock(event.payload.text));
         break;
       case "agent.message":
@@ -203,7 +215,7 @@ function toMessages(events: NapEvent[]): LLMMessage[] {
 }
 
 /** Groups the log into turns, oldest first, preserving the order events were appended in. */
-function toTurns(history: NapEvent[]): Turn[] {
+function toTurns(history: NapEvent[], images: boolean): Turn[] {
   const byTurn = new Map<string, NapEvent[]>();
 
   for (const event of history) {
@@ -216,7 +228,7 @@ function toTurns(history: NapEvent[]): Turn[] {
   }
 
   return [...byTurn.entries()]
-    .map(([id, events]) => ({ id, messages: toMessages(events) }))
+    .map(([id, events]) => ({ id, messages: toMessages(events, images) }))
     .filter((turn) => turn.messages.length > 0);
 }
 
@@ -311,6 +323,8 @@ export class NapContextEngine implements ContextEngine {
   }
 
   async build(request: ContextRequest): Promise<BuiltContext> {
+    const images = modelSupportsImages(request.model);
+    if (request.attachments?.length && !images) throw new Error(MODEL_MEDIA_UNSUPPORTED);
     const memories = await request.memory.retrieve(request.sessionId, request.userMessage);
 
     let digest = await buildFileTreeDigest(request.sandbox, request.sandboxId, {
@@ -320,7 +334,7 @@ export class NapContextEngine implements ContextEngine {
 
     // The window before the budget is consulted at all: a cap on how far back the agent
     // looks, independent of whether the tokens happen to be available.
-    let turns = toTurns(request.history).slice(-this.#maxTurns);
+    let turns = toTurns(request.history, images).slice(-this.#maxTurns);
 
     // Staleness, before the budget is consulted at all. Everything below this point reclaims
     // tokens because the context does not fit; this reclaims them because carrying an old

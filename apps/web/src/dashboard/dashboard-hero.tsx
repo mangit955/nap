@@ -1,6 +1,7 @@
 "use client";
 
 import type { MediaAttachment } from "@nap/shared/media";
+import { MODEL_MEDIA_UNSUPPORTED, modelSupportsImages } from "@nap/shared/model-capabilities";
 import type { ModelChoice } from "@nap/shared/models-protocol";
 import { useEffect, useRef } from "react";
 import { NapMark } from "../brand/nap-mark.tsx";
@@ -35,6 +36,8 @@ export function DashboardHero({
 }) {
   const box = useRef<HTMLTextAreaElement>(null);
   const media = useMediaAttachments();
+  const images = modelSupportsImages(model);
+  const incompatibleMedia = media.attachments.length > 0 && !images;
   const dictation = useDictation((spoken) => onChange(appendDictation(value, spoken)));
   const disabled = busy || media.processing;
   useEffect(() => {
@@ -48,7 +51,7 @@ export function DashboardHero({
   const send = () => {
     const message =
       value.trim() || (media.attachments.length > 0 ? "Build an app using these references." : "");
-    if (message === "" || disabled) return;
+    if (message === "" || disabled || incompatibleMedia) return;
     dictation.stop();
     if (media.attachments.length === 0) onSubmit(message);
     else
@@ -105,7 +108,10 @@ export function DashboardHero({
           />
           <div className="composer-toolbar flex items-center justify-between gap-2 px-3 pb-3 sm:px-4 sm:pb-4">
             <div className="flex min-w-0 items-center gap-1">
-              <AttachmentButton disabled={disabled} onFiles={(files) => void media.add(files)} />
+              <AttachmentButton
+                disabled={disabled || !images}
+                onFiles={(files) => void media.add(files)}
+              />
               <ModelPicker
                 models={models}
                 model={model}
@@ -122,7 +128,11 @@ export function DashboardHero({
                 type="button"
                 aria-label="Send"
                 onClick={send}
-                disabled={disabled || (value.trim() === "" && media.attachments.length === 0)}
+                disabled={
+                  disabled ||
+                  incompatibleMedia ||
+                  (value.trim() === "" && media.attachments.length === 0)
+                }
                 className="composer-send grid size-8 place-items-center rounded-full bg-accent text-white transition-colors hover:bg-accent/90 disabled:bg-hover disabled:text-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
               >
                 <svg
@@ -151,11 +161,18 @@ export function DashboardHero({
             {dictation.interim || "Listening…"}
           </p>
         )}
-        {[media.error, dictation.error, error].filter(Boolean).map((message) => (
-          <p key={message} role="alert" className="mt-3 text-sm text-danger">
-            {message}
-          </p>
-        ))}
+        {[
+          media.error,
+          dictation.error,
+          error,
+          incompatibleMedia ? MODEL_MEDIA_UNSUPPORTED : undefined,
+        ]
+          .filter(Boolean)
+          .map((message) => (
+            <p key={message} role="alert" className="mt-3 text-sm text-danger">
+              {message}
+            </p>
+          ))}
       </div>
     </div>
   );

@@ -1,7 +1,9 @@
 import type { NapEvent, NapEventType } from "@nap/shared/events";
+import type { MediaAttachment } from "@nap/shared/media";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import { ev as storedEvent } from "../testing/events.ts";
 import { useTurnSubmission } from "./use-turn-submission.ts";
 
 const SESSION = "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f";
@@ -53,6 +55,105 @@ function submission(fetchJson = poster().fetchJson) {
 }
 
 describe("the optimistic message", () => {
+  it("keeps a repeated attachment-only turn pending until its own durable message arrives", async () => {
+    const text = "Use these references for the app.";
+    const first: MediaAttachment = {
+      kind: "image",
+      name: "first.jpg",
+      frames: [{ mediaType: "image/jpeg", data: "/9j/AAAA", timestamp: 0 }],
+    };
+    const second: MediaAttachment = {
+      kind: "image",
+      name: "second.jpg",
+      frames: [{ mediaType: "image/jpeg", data: "/9j/BBBB", timestamp: 0 }],
+    };
+    const nextTurn = "8c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f";
+    const history = [
+      storedEvent("user.message", { text, attachments: [first] }, 41),
+      storedEvent("turn.started", { source: "user" }, 42),
+      storedEvent(
+        "turn.completed",
+        {
+          usage: { inputTokens: 1, outputTokens: 1 },
+          durationMs: 10,
+          commitSha: null,
+        },
+        43,
+      ),
+    ];
+    const endpoint = poster();
+    const { result, rerender } = renderHook(
+      (events: StoredEvent[]) =>
+        useTurnSubmission({ sessionId: SESSION, events, fetchJson: endpoint.fetchJson }),
+      { initialProps: history },
+    );
+
+    await act(async () => {
+      await result.current.submit(text, undefined, [second]);
+    });
+
+    expect(endpoint.bodies).toEqual([{ message: text, attachments: [second] }]);
+    expect(result.current.pending).toBe(text);
+    expect(result.current.running).toBe(true);
+
+    const recorded = [
+      ...history,
+      storedEvent("user.message", { text, attachments: [second] }, 44, { turnId: nextTurn }),
+    ];
+    rerender(recorded);
+    await waitFor(() => expect(result.current.pending).toBeUndefined());
+    expect(result.current.running).toBe(true);
+    rerender([
+      ...recorded,
+      storedEvent("turn.started", { source: "user" }, 45, { turnId: nextTurn }),
+    ]);
+    expect(result.current.running).toBe(true);
+  });
+
+  it("keeps Stop through the recorded-message gap before sandbox acquisition finishes", async () => {
+    const nextTurn = "8c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f";
+    const history = [
+      storedEvent("user.message", { text: "Previous request" }, 41),
+      storedEvent("turn.started", { source: "user" }, 42),
+      storedEvent(
+        "turn.completed",
+        {
+          usage: { inputTokens: 1, outputTokens: 1 },
+          durationMs: 10,
+          commitSha: null,
+        },
+        43,
+      ),
+    ];
+    const { result, rerender } = renderHook(
+      (events: StoredEvent[]) =>
+        useTurnSubmission({ sessionId: SESSION, events, fetchJson: poster().fetchJson }),
+      { initialProps: history },
+    );
+    await act(async () => {
+      await result.current.submit("New reference request");
+    });
+    expect(result.current.running).toBe(true);
+    const recorded = [
+      ...history,
+      storedEvent("user.message", { text: "New reference request" }, 44, { turnId: nextTurn }),
+    ];
+    rerender(recorded);
+    await waitFor(() => expect(result.current.pending).toBeUndefined());
+    expect(result.current.running).toBe(true);
+
+    rerender([
+      ...recorded,
+      storedEvent(
+        "turn.failed",
+        { reason: "cancelled", message: "Cancelled before acquisition" },
+        45,
+        { turnId: nextTurn },
+      ),
+    ]);
+    expect(result.current.running).toBe(false);
+  });
+
   it("appears immediately, before the server has heard of it", async () => {
     const { result } = submission();
 

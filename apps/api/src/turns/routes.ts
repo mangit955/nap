@@ -1,4 +1,5 @@
 import { MediaAttachmentsSchema } from "@nap/shared/media";
+import { MODEL_MEDIA_UNSUPPORTED, modelSupportsImages } from "@nap/shared/model-capabilities";
 /**
  * Starting and stopping a turn.
  *
@@ -152,6 +153,9 @@ export function registerTurnRoutes(
     });
     if (!access.ok) {
       return c.json({ error: access.message, code: access.code }, refusalStatus(access.code));
+    }
+    if (body.data.attachments?.length && !modelSupportsImages(access.model)) {
+      return c.json({ error: MODEL_MEDIA_UNSUPPORTED, code: "model_media_unsupported" }, 400);
     }
 
     // Both ceilings are checked after the body, so a malformed request never costs somebody a

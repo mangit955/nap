@@ -316,6 +316,7 @@ describe("SingleAgentRuntime", () => {
     });
 
     expect(agent.requests[0]?.model).toBe("anthropic/claude-opus-5");
+    expect(context.requests[0]?.model).toBe("anthropic/claude-opus-5");
   });
 
   it("names no model when the turn named none, leaving the default where it lives", async () => {

@@ -190,18 +190,18 @@ export function AppShell({
         data-chat-open={chatOpen}
         style={paneStyle}
       >
+        <div hidden={!chatOpen} className="workspace-chat min-h-0 min-w-0">
+          <LiveChatPane
+            active={chatOpen}
+            sessionId={sessionId}
+            projectId={projectId}
+            log={log}
+            files={files.listing?.files}
+            {...(fetchJson === undefined ? {} : { fetchJson })}
+          />
+        </div>
         {chatOpen && (
-          <>
-            <LiveChatPane
-              sessionId={sessionId}
-              projectId={projectId}
-              log={log}
-              files={files.listing?.files}
-              {...(fetchJson === undefined ? {} : { fetchJson })}
-            />
-
-            <Splitter label="Chat width" value={width} onGrab={onGrab} onKeyDown={onKeyDown} />
-          </>
+          <Splitter label="Chat width" value={width} onGrab={onGrab} onKeyDown={onKeyDown} />
         )}
 
         <Workbench

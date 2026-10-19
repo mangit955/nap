@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { mediaBrowser } from "../testing/media-browser.ts";
 import { ChatInput } from "./chat-input.tsx";
 
 function show(props: Partial<Parameters<typeof ChatInput>[0]> = {}) {
@@ -19,6 +20,115 @@ const box = () => screen.getByRole("textbox", { name: /message/i });
 function type(text: string) {
   fireEvent.change(box(), { target: { value: text } });
 }
+
+it("stops dictation when chat is hidden and retains the draft when shown again", () => {
+  const stop = vi.fn();
+  vi.stubGlobal(
+    "SpeechRecognition",
+    class {
+      start = vi.fn();
+      stop = stop;
+      abort = vi.fn();
+    },
+  );
+  const props = { running: false, error: undefined, onSubmit: vi.fn(), onCancel: vi.fn() };
+  const view = render(<ChatInput {...props} />);
+  try {
+    type("Keep this draft");
+    fireEvent.click(screen.getByRole("button", { name: "Start dictation" }));
+    expect(screen.getByRole("button", { name: "Stop dictation" })).toBeInTheDocument();
+    view.rerender(<ChatInput {...props} visible={false} />);
+    expect(stop).toHaveBeenCalledOnce();
+    view.rerender(<ChatInput {...props} visible />);
+    expect(box()).toHaveValue("Keep this draft");
+    expect(screen.getByRole("button", { name: "Start dictation" })).toBeInTheDocument();
+  } finally {
+    view.unmount();
+    vi.unstubAllGlobals();
+  }
+});
+
+describe("reference inputs", () => {
+  let browser: ReturnType<typeof mediaBrowser>;
+  beforeEach(() => {
+    browser = mediaBrowser();
+  });
+  afterEach(() => {
+    browser.restore();
+  });
+  const models = [
+    { id: "openai/gpt-5.6-luna", label: "Luna", free: false, available: true },
+    {
+      id: "nvidia/nemotron-3-ultra-550b-a55b:free",
+      label: "Nemotron",
+      free: true,
+      available: true,
+    },
+  ];
+
+  it.each(["picker", "paste", "drop"])(
+    "sends the prepared image from %s through the same submission",
+    async (source) => {
+      const onSubmit = vi.fn();
+      show({ onSubmit, models, model: "openai/gpt-5.6-luna" });
+      const files = [new File(["small"], "reference.png", { type: "image/png" })];
+      if (source === "picker")
+        fireEvent.change(screen.getByLabelText("Attach images or videos"), { target: { files } });
+      else if (source === "paste") fireEvent.paste(box(), { clipboardData: { files } });
+      else
+        fireEvent.drop(screen.getByRole("group", { name: "Message composer" }), {
+          dataTransfer: { files },
+        });
+      await screen.findByRole("button", { name: "Remove reference.png" });
+      fireEvent.click(screen.getByRole("button", { name: "Send" }));
+      expect(onSubmit).toHaveBeenCalledWith("Use these references for the app.", [
+        {
+          kind: "image",
+          name: "reference.png",
+          frames: [{ mediaType: "image/jpeg", data: "/9j/AAAA", timestamp: 0 }],
+        },
+      ]);
+    },
+  );
+
+  it("does not offer new attachments for a selected text-only model", () => {
+    show({ models, model: "nvidia/nemotron-3-ultra-550b-a55b:free" });
+    expect(screen.getByRole("button", { name: "Add images or videos" })).toBeDisabled();
+    type("Build a text-only page");
+    expect(screen.getByRole("button", { name: "Send" })).toBeEnabled();
+  });
+
+  it("keeps a prepared reference when switching to a text-only model and refuses to send it", async () => {
+    const onSubmit = vi.fn();
+    const view = show({ onSubmit, models, model: "openai/gpt-5.6-luna" });
+    fireEvent.change(screen.getByLabelText("Attach images or videos"), {
+      target: { files: [new File(["small"], "reference.png", { type: "image/png" })] },
+    });
+    await screen.findByRole("button", { name: "Remove reference.png" });
+    type("Use my layout");
+    view.rerender(
+      <ChatInput
+        running={false}
+        error={undefined}
+        onCancel={() => {}}
+        onSubmit={onSubmit}
+        models={models}
+        model="nvidia/nemotron-3-ultra-550b-a55b:free"
+      />,
+    );
+
+    expect(screen.getByRole("alert")).toHaveTextContent(/model.*(image|reference)/i);
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    fireEvent.keyDown(box(), { key: "Enter" });
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Remove reference.png" })).toBeEnabled();
+    expect(browser.revokeObjectURL).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove reference.png" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(onSubmit).toHaveBeenCalledWith("Use my layout");
+  });
+});
 
 describe("sending", () => {
   it("sends what was typed", () => {

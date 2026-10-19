@@ -1510,7 +1510,7 @@ body {
   grid-template-columns: minmax(0, 1fr);
 }
 
-.workspace-panes > [aria-labelledby="chat-heading"] {
+.workspace-chat > [aria-labelledby="chat-heading"] {
   background: var(--color-surface);
 }
 
@@ -1518,7 +1518,7 @@ body {
   .workspace-panes {
     grid-template-columns: minmax(0, 1fr);
   }
-  .workspace-panes[data-chat-open="true"] > :not([aria-labelledby="chat-heading"]) {
+  .workspace-panes[data-chat-open="true"] > :not(.workspace-chat) {
     display: none;
   }
   .workspace-header {

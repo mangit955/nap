@@ -57,7 +57,6 @@ export type TurnOutcome =
       turnId: string;
       reason: TurnFailureReason;
       message: string;
-      attachments?: MediaAttachment[] | undefined;
     };
 
 /**

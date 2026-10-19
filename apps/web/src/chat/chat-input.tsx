@@ -1,6 +1,7 @@
 "use client";
 
 import type { MediaAttachment } from "@nap/shared/media";
+import { MODEL_MEDIA_UNSUPPORTED, modelSupportsImages } from "@nap/shared/model-capabilities";
 import type { ModelChoice } from "@nap/shared/models-protocol";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { appendDictation, useDictation } from "../dashboard/use-dictation.ts";
@@ -14,6 +15,7 @@ const MAX_HEIGHT = 132;
 const MIN_HEIGHT = 28;
 
 export function ChatInput({
+  visible = true,
   running,
   error,
   onSubmit,
@@ -24,6 +26,7 @@ export function ChatInput({
   onModelChange,
   onAddKey,
 }: {
+  visible?: boolean;
   running: boolean;
   error: string | undefined;
   onSubmit: (message: string, attachments?: MediaAttachment[]) => void;
@@ -46,6 +49,8 @@ export function ChatInput({
 }) {
   const [text, setText] = useState("");
   const media = useMediaAttachments();
+  const images = modelSupportsImages(model);
+  const incompatibleMedia = media.attachments.length > 0 && !images;
   const dictation = useDictation((spoken) =>
     setText((current) => appendDictation(current, spoken)),
   );
@@ -58,10 +63,10 @@ export function ChatInput({
   const box = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    if (!running && document.activeElement === document.body) {
+    if (visible && !running && document.activeElement === document.body) {
       box.current?.focus({ preventScroll: true });
     }
-  }, [running]);
+  }, [running, visible]);
 
   useEffect(() => {
     if (error === undefined || inFlight.current === "") return;
@@ -71,8 +76,8 @@ export function ChatInput({
   }, [error, media.setAttachments]);
 
   useEffect(() => {
-    if (running) dictation.stop();
-  }, [running, dictation.stop]);
+    if (running || !visible) dictation.stop();
+  }, [running, visible, dictation.stop]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: text changes the textarea scrollHeight.
   useLayoutEffect(() => {
     const field = box.current;
@@ -102,7 +107,7 @@ export function ChatInput({
   const send = () => {
     const message =
       text.trim() || (media.attachments.length > 0 ? "Use these references for the app." : "");
-    if (message === "" || running || media.processing) return;
+    if (message === "" || running || media.processing || incompatibleMedia) return;
 
     inFlight.current = message;
     setText("");
@@ -169,11 +174,13 @@ export function ChatInput({
         </div>
       )}
 
-      {[media.error, dictation.error].filter(Boolean).map((message) => (
-        <p key={message} role="alert" className="pb-2 text-xs text-danger">
-          {message}
-        </p>
-      ))}
+      {[media.error, dictation.error, incompatibleMedia ? MODEL_MEDIA_UNSUPPORTED : undefined]
+        .filter(Boolean)
+        .map((message) => (
+          <p key={message} role="alert" className="pb-2 text-xs text-danger">
+            {message}
+          </p>
+        ))}
       {media.processing && (
         <p role="status" className="pb-2 text-xs text-muted">
           Preparing attachments…
@@ -256,7 +263,7 @@ export function ChatInput({
         <div className="composer-toolbar flex items-center justify-between gap-2 px-3 pb-3 sm:px-4 sm:pb-4">
           <div className="flex min-w-0 items-center gap-1">
             <AttachmentButton
-              disabled={running || media.processing}
+              disabled={running || media.processing || !images}
               onFiles={(files) => void media.add(files)}
             />
             <ModelPicker
@@ -266,7 +273,7 @@ export function ChatInput({
               onChange={(choice) => onModelChange?.(choice)}
               onAddKey={onAddKey}
               onPick={() => box.current?.focus()}
-              closeWhen={text}
+              closeWhen={`${visible}:${text}`}
             />
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
@@ -293,7 +300,7 @@ export function ChatInput({
               <button
                 type="button"
                 onClick={send}
-                disabled={empty || media.processing}
+                disabled={empty || media.processing || incompatibleMedia}
                 aria-label="Send"
                 className="composer-send grid size-8 place-items-center rounded-full bg-accent text-white disabled:bg-hover disabled:text-muted focus-visible:outline-accent"
               >

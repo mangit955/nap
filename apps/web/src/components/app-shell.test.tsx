@@ -1,8 +1,9 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
-import { PROJECT_ID, SESSION_ID } from "../testing/events.ts";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { ev, PROJECT_ID, SESSION_ID } from "../testing/events.ts";
 import { sockets } from "../testing/fake-socket.ts";
 import { JOB_ID, jobLog } from "../testing/job-events.ts";
+import { mediaBrowser } from "../testing/media-browser.ts";
 import { AppShell } from "./app-shell.tsx";
 
 /**
@@ -49,6 +50,177 @@ function shell() {
 }
 
 describe("AppShell", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("keeps a mobile draft, reference and chosen model while inspecting code", async () => {
+    const media = mediaBrowser();
+    vi.spyOn(window, "matchMedia").mockImplementation((query) => ({
+      matches: query === "(max-width: 767px)",
+      media: query,
+      onchange: null,
+      addEventListener() {},
+      removeEventListener() {},
+      addListener() {},
+      removeListener() {},
+      dispatchEvent: () => false,
+    }));
+    const models = {
+      models: [
+        { id: "openai/gpt-5.6-luna", label: "Luna", free: false, available: true },
+        { id: "anthropic/claude-opus-5", label: "Opus", free: false, available: true },
+      ],
+      fallback: "openai/gpt-5.6-luna",
+      key: { configured: false },
+    };
+    const net = sockets();
+    const view = render(
+      <AppShell
+        projectId={PROJECT_ID}
+        createSocket={net.createSocket}
+        fetchJson={(url) =>
+          url.endsWith("/models") ? Promise.resolve(Response.json(models)) : fetchJson(url)
+        }
+      />,
+    );
+    try {
+      await screen.findByRole("button", { name: "Model" });
+      fireEvent.change(screen.getByRole("textbox", { name: "Message" }), {
+        target: { value: "Keep this draft" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Model" }));
+      fireEvent.click(screen.getByRole("button", { name: /Opus/ }));
+      fireEvent.change(screen.getByLabelText("Attach images or videos"), {
+        target: { files: [new File(["small"], "reference.png", { type: "image/png" })] },
+      });
+      await screen.findByRole("button", { name: "Remove reference.png" });
+      const preview = screen.getByRole("img", { name: "reference.png" }).getAttribute("src");
+
+      fireEvent.click(screen.getByRole("button", { name: "Model" }));
+      expect(screen.getByRole("button", { name: /Opus/ })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("tab", { name: "Code" }));
+      expect(screen.queryByRole("region", { name: "Chat" })).toBeNull();
+      expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
+      expect(screen.queryByRole("button", { name: /Opus/ })).toBeNull();
+      expect(media.revokeObjectURL).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: "Show chat" }));
+
+      expect(screen.getByRole("textbox", { name: "Message" })).toHaveValue("Keep this draft");
+      expect(screen.getByRole("button", { name: "Model" })).toHaveTextContent("Opus");
+      expect(screen.getByRole("img", { name: "reference.png" })).toHaveAttribute(
+        "src",
+        preview ?? "",
+      );
+      expect(net.opened).toHaveLength(1);
+    } finally {
+      view.unmount();
+      media.restore();
+    }
+  });
+
+  it("keeps Stop available after a mobile tab switch before the worker's first event", async () => {
+    vi.spyOn(window, "matchMedia").mockImplementation((query) => ({
+      matches: true,
+      media: query,
+      onchange: null,
+      addEventListener() {},
+      removeEventListener() {},
+      addListener() {},
+      removeListener() {},
+      dispatchEvent: () => false,
+    }));
+    const net = sockets();
+    render(
+      <AppShell
+        projectId={PROJECT_ID}
+        createSocket={net.createSocket}
+        fetchJson={(url) =>
+          url.endsWith("/turns")
+            ? Promise.resolve(Response.json({ turnId: "queued" }, { status: 202 }))
+            : fetchJson(url)
+        }
+      />,
+    );
+    await waitFor(() => expect(net.opened).toHaveLength(1));
+    fireEvent.change(screen.getByRole("textbox", { name: "Message" }), {
+      target: { value: "Build this" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await screen.findByRole("button", { name: "Stop" });
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("tab", { name: "Code" }));
+    fireEvent.click(screen.getByRole("button", { name: "Show chat" }));
+    expect(screen.getByRole("button", { name: "Stop" })).toBeEnabled();
+    expect(screen.getByRole("textbox", { name: "Message" })).toBeDisabled();
+  });
+
+  it("does not mark events seen while the chat is hidden", async () => {
+    localStorage.removeItem(`nap.seen.${SESSION_ID}`);
+    const net = sockets();
+    render(
+      <AppShell projectId={PROJECT_ID} createSocket={net.createSocket} fetchJson={fetchJson} />,
+    );
+    await waitFor(() => expect(net.opened).toHaveLength(1));
+    await act(async () => {
+      net.latest.open();
+      net.latest.deliver({ type: "event", event: ev("user.message", { text: "First" }, 1) });
+      net.latest.deliver({ type: "ready" });
+    });
+    await waitFor(() => expect(localStorage.getItem(`nap.seen.${SESSION_ID}`)).toBe("1"));
+    fireEvent.click(screen.getByRole("button", { name: "Hide chat" }));
+    await act(async () => {
+      net.latest.deliver({
+        type: "event",
+        event: ev("agent.message", { text: "Unseen answer" }, 2),
+      });
+    });
+    expect(localStorage.getItem(`nap.seen.${SESSION_ID}`)).toBe("1");
+    fireEvent.click(screen.getByRole("button", { name: "Show chat" }));
+    await waitFor(() => expect(localStorage.getItem(`nap.seen.${SESSION_ID}`)).toBe("2"));
+  });
+
+  it("summarizes a failure received while chat was hidden when it is shown again", async () => {
+    localStorage.removeItem(`nap.seen.${SESSION_ID}`);
+    vi.spyOn(window, "matchMedia").mockImplementation((query) => ({
+      matches: query === "(max-width: 767px)",
+      media: query,
+      onchange: null,
+      addEventListener() {},
+      removeEventListener() {},
+      addListener() {},
+      removeListener() {},
+      dispatchEvent: () => false,
+    }));
+    const net = sockets();
+    render(
+      <AppShell projectId={PROJECT_ID} createSocket={net.createSocket} fetchJson={fetchJson} />,
+    );
+    await waitFor(() => expect(net.opened).toHaveLength(1));
+    await act(async () => {
+      net.latest.open();
+      net.latest.deliver({ type: "event", event: ev("user.message", { text: "First" }, 1) });
+      net.latest.deliver({ type: "ready" });
+    });
+    await waitFor(() => expect(localStorage.getItem(`nap.seen.${SESSION_ID}`)).toBe("1"));
+    expect(screen.queryByRole("region", { name: "While you were away" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Hide chat" }));
+    expect(screen.queryByRole("region", { name: "Chat" })).toBeNull();
+    await act(async () => {
+      net.latest.deliver({
+        type: "event",
+        event: ev("turn.failed", { reason: "sandbox_unavailable", message: "no capacity" }, 2),
+      });
+    });
+    expect(localStorage.getItem(`nap.seen.${SESSION_ID}`)).toBe("1");
+
+    fireEvent.click(screen.getByRole("button", { name: "Show chat" }));
+
+    const card = await screen.findByRole("region", { name: "While you were away" });
+    expect(card).toHaveTextContent("The workspace couldn't start.");
+  });
+
   it("mounts the chat beside the workbench", () => {
     render(shell());
 

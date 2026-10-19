@@ -37,11 +37,18 @@ export type Projects = {
   actionError: string | undefined;
   create: () => Promise<string | undefined>;
   close: (projectId: string) => Promise<void>;
-  remove: (projectId: string) => Promise<void>;
+  remove: (projectId: string) => Promise<boolean>;
   rename: (projectId: string, name: string) => Promise<void>;
 };
 
 const DEFAULT_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
+
+// The sidebar and open workspace hold separate server records on the same page.
+// Broadcast successful edits without storing another copy or refetching both views.
+const renameListeners = new Set<(project: ProjectSummaryPayload) => void>();
+function publishRename(project: ProjectSummaryPayload) {
+  for (const listener of renameListeners) listener(project);
+}
 
 /**
  * How long a restore may go unannounced before the panes stop claiming it is under way.
@@ -59,6 +66,18 @@ export function useProjects(options: { baseUrl?: string; fetchJson?: FetchJson }
   const [projects, setProjects] = useState<ProjectSummaryPayload[]>([]);
   const [status, setStatus] = useState<ProjectsStatus>("loading");
   const [actionError, setActionError] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    const renamed = (updated: ProjectSummaryPayload) => {
+      setProjects((current) =>
+        current.map((project) => (project.projectId === updated.projectId ? updated : project)),
+      );
+    };
+    renameListeners.add(renamed);
+    return () => {
+      renameListeners.delete(renamed);
+    };
+  }, []);
 
   // `fetchJson` is deliberately not a dependency; see the note in `useProjectFiles`.
   // biome-ignore lint/correctness/useExhaustiveDependencies: see above
@@ -131,13 +150,15 @@ export function useProjects(options: { baseUrl?: string; fetchJson?: FetchJson }
   );
 
   const remove = useCallback(
-    async (projectId: string): Promise<void> => {
+    async (projectId: string): Promise<boolean> => {
       const done = await act(
         `${baseUrl}/projects/${projectId}`,
         { method: "DELETE" },
         "Could not delete the project",
       );
-      if (done !== undefined) await reload();
+      if (done === undefined) return false;
+      await reload();
+      return true;
     },
     [act, baseUrl, reload],
   );
@@ -153,12 +174,14 @@ export function useProjects(options: { baseUrl?: string; fetchJson?: FetchJson }
         },
         "Could not rename the project",
       );
-      // Reloaded rather than patched in place, like every other action here: the server decides
-      // what the name ended up as — it trims, and it may refuse — and a list edited from an
-      // assumption is how a card ends up showing a name that was never stored.
-      if (done !== undefined) await reload();
+      if (done === undefined) return;
+      try {
+        publishRename(ProjectSummarySchema.parse(await done.json()));
+      } catch {
+        setActionError("Could not rename the project — the server sent something unexpected.");
+      }
     },
-    [act, baseUrl, reload],
+    [act, baseUrl],
   );
 
   return { projects, status, actionError, create, close, remove, rename };
@@ -249,6 +272,15 @@ export function useProject(
 
   const [project, setProject] = useState<ProjectSummaryPayload | undefined>(undefined);
   const [status, setStatus] = useState<OpenProject["status"]>("loading");
+  useEffect(() => {
+    const renamed = (updated: ProjectSummaryPayload) => {
+      if (updated.projectId === projectId) setProject(updated);
+    };
+    renameListeners.add(renamed);
+    return () => {
+      renameListeners.delete(renamed);
+    };
+  }, [projectId]);
   /** True between the click and the server's answer, before there is anything to wait for. */
   const [requesting, setRequesting] = useState(false);
   /**
@@ -369,7 +401,7 @@ export function useProject(
         // The record this hook holds is updated from the server's answer rather than from the
         // string that was sent: the workspace has no list to reload, and the server trims.
         const updated = ProjectSummarySchema.parse(await response.json());
-        setProject(updated);
+        publishRename(updated);
         return updated.name;
       } catch {
         return undefined;

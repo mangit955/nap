@@ -54,6 +54,8 @@ export type ContextRequest = {
   sandboxId: string;
   /** The message this turn is being built for. */
   userMessage: string;
+  /** The resolved selection. Unknown or absent models receive text-only context. */
+  model?: string | undefined;
   attachments?: MediaAttachment[] | undefined;
   /**
    * The job this turn belongs to, when the caller tracks one. Absent for a caller that does

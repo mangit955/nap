@@ -15,16 +15,16 @@
  * stood when reading resumed, and then held still.
  *
  * **So it re-asks when reading resumes, and "resumes" is an event rather than a value.** The
- * cursor is re-read on mount and on returning to a hidden tab, and both are moments when there
- * may be a genuine absence to describe. A new *seam* is not a reliable signal of one: a tab that
+ * cursor is re-read on mount and on returning to a hidden tab or chat pane, when there may be an
+ * absence to describe. A new *seam* is not a reliable signal of one: a tab that
  * was already up to date when it was hidden comes back to a cursor holding the same number it
  * held before, React bails out of the identical state, and an effect watching only that value
  * never runs — which is silence in exactly the case this whole feature exists for. So the
- * visibility transition is a dependency in its own right.
+ * visibility transition and chat activity are dependencies in their own right.
  *
- * Both updates land in one batch — this hook's and `useSeenCursor`'s, from the same event — so
- * the recompute sees the seam as it has just been re-read rather than the one it replaced. That
- * ordering is what keeps a returning reader from being told about events they watched arrive.
+ * On document visibility changes, this hook and `useSeenCursor` update in one batch, so the
+ * recompute sees the seam as it has just been re-read. Chat reopening is an explicit dependency
+ * too, even when re-reading the cursor leaves that seam unchanged.
  *
  * It waits for the replay, because events arrive one at a time and `ready` comes last — a card
  * worked out on the first frame is a card worked out over an empty log, and freezing that would
@@ -41,6 +41,8 @@ export function useUnseenCard(
   seen: number | undefined,
   /** Whether the server has said it sent everything it had. See `useEventStream`. */
   replayed: boolean,
+  /** The pane stays mounted while hidden; reopening it starts a new reading interval. */
+  active = true,
 ): { card: UnseenSummary | null; dismiss: () => void } {
   const [card, setCard] = useState<UnseenSummary | null>(null);
   /** How many times this browser has come back to the tab. A counter, because only the *change*
@@ -70,9 +72,9 @@ export function useUnseenCard(
   // leave a hook that never re-asks on a return where the cursor did not move.
   // biome-ignore lint/correctness/useExhaustiveDependencies: see above
   useEffect(() => {
-    if (!replayed) return;
+    if (!active || !replayed) return;
     setCard(unseenSummary(eventsRef.current, seen));
-  }, [seen, replayed, resumed]);
+  }, [seen, replayed, resumed, active]);
 
   return { card, dismiss: () => setCard(null) };
 }

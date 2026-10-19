@@ -13,12 +13,13 @@
  * into the transcript the button is drawn from.
  */
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { stashFirstPrompt } from "../chat/first-prompt.ts";
 import { jobView } from "../chat/job-summary.ts";
 import type { SessionLog } from "../hooks/use-session-log.ts";
 import { ev, PROJECT_ID, SESSION_ID } from "../testing/events.ts";
+import { mediaBrowser } from "../testing/media-browser.ts";
 import { LiveChatPane } from "./chat-pane.tsx";
 
 const MODELS = {
@@ -75,6 +76,93 @@ beforeEach(() => {
 });
 
 describe("LiveChatPane", () => {
+  it("restores reference bytes after a refused POST and sends the same reference again", async () => {
+    const browser = mediaBrowser();
+    const posted: unknown[] = [];
+    const postMedia = async (url: string, init?: RequestInit) => {
+      if (!url.endsWith("/turns")) return fetchJson(url, init);
+      posted.push(JSON.parse(String(init?.body)));
+      return posted.length === 1
+        ? Response.json({ error: "try again" }, { status: 503 })
+        : Response.json({ turnId: "8c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f" }, { status: 202 });
+    };
+    const empty = { ...failedTurn(), events: [], lastSeq: 0, jobs: jobView([]) };
+    const view = render(<LiveChatPane sessionId={SESSION_ID} log={empty} fetchJson={postMedia} />);
+    try {
+      await screen.findByRole("button", { name: "Model" });
+      fireEvent.change(screen.getByLabelText("Attach images or videos"), {
+        target: { files: [new File(["small"], "reference.png", { type: "image/png" })] },
+      });
+      await screen.findByRole("button", { name: "Remove reference.png" });
+      fireEvent.change(screen.getByRole("textbox", { name: "Message" }), {
+        target: { value: "Use my layout" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Send" }));
+      await screen.findByRole("alert");
+      await waitFor(() => {
+        expect(screen.getByRole("textbox", { name: "Message" })).toHaveValue("Use my layout");
+        expect(screen.getByRole("button", { name: "Remove reference.png" })).toBeInTheDocument();
+      });
+      expect(browser.revokeObjectURL).not.toHaveBeenCalled();
+
+      fireEvent.click(screen.getByRole("button", { name: "Send" }));
+      await waitFor(() => expect(posted).toHaveLength(2));
+      expect(posted).toEqual(
+        [0, 1].map(() => ({
+          message: "Use my layout",
+          attachments: [
+            {
+              kind: "image",
+              name: "reference.png",
+              frames: [{ mediaType: "image/jpeg", data: "/9j/AAAA", timestamp: 0 }],
+            },
+          ],
+        })),
+      );
+      expect(screen.getByRole("button", { name: "Stop" })).toBeEnabled();
+    } finally {
+      view.unmount();
+      browser.restore();
+    }
+  });
+
+  it("retries replayed video references with every frame byte and timestamp intact", async () => {
+    const attachments = [
+      {
+        kind: "video" as const,
+        name: "flow.webm",
+        duration: 4,
+        frames: [
+          { mediaType: "image/jpeg" as const, data: "/9j/AAAA", timestamp: 0.2 },
+          { mediaType: "image/jpeg" as const, data: "/9j/BBBB", timestamp: 2 },
+          { mediaType: "image/jpeg" as const, data: "/9j/CCCC", timestamp: 3.8 },
+        ],
+      },
+    ];
+    const events = [
+      ev("user.message", { text: "Match this flow", attachments }, 51),
+      ev("turn.started", { source: "user" }, 52),
+      ev("turn.failed", { reason: "sandbox_unavailable", message: "no capacity" }, 53),
+    ];
+    const replayed = { ...failedTurn(), events, lastSeq: 53, jobs: jobView(events) };
+    const posted: unknown[] = [];
+    render(
+      <LiveChatPane
+        sessionId={SESSION_ID}
+        log={replayed}
+        fetchJson={async (url, init) => {
+          if (url.endsWith("/turns")) posted.push(JSON.parse(String(init?.body)));
+          return fetchJson(url, init);
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /try again/i }));
+    await act(async () => {});
+    expect(posted).toEqual([{ message: "Match this flow", attachments }]);
+    expect(screen.getByRole("button", { name: "Stop" })).toBeEnabled();
+  });
+
   it("sends a failed turn's message again when the retry is pressed", async () => {
     render(<LiveChatPane sessionId={SESSION_ID} log={failedTurn()} fetchJson={fetchJson} />);
 

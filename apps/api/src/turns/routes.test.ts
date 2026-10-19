@@ -270,6 +270,7 @@ describe("limits", () => {
     sessionSandboxId?: string | null;
     /** Passed in when a test needs to look at what the allowance actually recorded. */
     rate?: InMemoryTurnRateLimiter;
+    allowedModels?: string[];
   }) {
     const projects = new InMemoryProjectStore(
       (options.running ?? []).map((project, i) => ({
@@ -295,7 +296,7 @@ describe("limits", () => {
         queue: options.queue,
         registry: new TurnRegistry(),
         projects: unnamedProject(),
-        allowedModels: ALLOWED,
+        allowedModels: options.allowedModels ?? ALLOWED,
         keys: async () => (options.noKey === true ? null : OPENROUTER_KEY),
         freeModel: FREE_MODEL,
         defaultModel: ALLOWED[0] ?? "",
@@ -344,6 +345,39 @@ describe("limits", () => {
     // The refusal has to happen before anything is written down, or the ceiling is decorative.
     expect(queue.enqueued).toEqual([]);
   });
+
+  it.each(["nvidia/nemotron-3-ultra-550b-a55b:free", "custom/unknown-model"])(
+    "refuses new references on %s before spending allowance or queuing work",
+    async (model) => {
+      const queue = new InMemoryTurnQueue();
+      const rate = new InMemoryTurnRateLimiter({ limit: 1, windowMs: 60_000 });
+      const hono = limited({ queue, rate, allowedModels: [...ALLOWED, model] });
+      const refused = await post(hono, `/sessions/${SESSION}/turns`, {
+        message: "Use this reference",
+        model,
+        attachments: [
+          {
+            kind: "image",
+            name: "reference.jpg",
+            frames: [{ mediaType: "image/jpeg", data: "/9j/AAAA", timestamp: 0 }],
+          },
+        ],
+      });
+
+      expect(refused.status).toBe(400);
+      await expect(refused.json()).resolves.toMatchObject({ code: "model_media_unsupported" });
+      expect(queue.enqueued).toHaveLength(0);
+      expect(rate.size).toBe(0);
+
+      const accepted = await post(hono, `/sessions/${SESSION}/turns`, {
+        message: "Build a text-only page",
+        model,
+      });
+      expect(accepted.status).toBe(202);
+      expect(queue.enqueued[0]).toMatchObject({ message: "Build a text-only page", model });
+      expect(rate.size).toBe(1);
+    },
+  );
 
   it("writes an allowed model onto the request", async () => {
     const queue = new InMemoryTurnQueue();

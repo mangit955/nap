@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Dashboard } from "./dashboard.tsx";
+import { Sidebar } from "./sidebar.tsx";
 
 /**
  * The frame: a rail on the left, with scrolling confined to the content column rather than the
@@ -76,4 +77,47 @@ it("dismisses mobile navigation from the backdrop", () => {
   );
   fireEvent.click(screen.getByRole("button", { name: "Close navigation" }));
   expect(screen.getByRole("button", { name: "Open sessions" })).toHaveFocus();
+});
+
+function interactiveSidebar(onNewProject = vi.fn()) {
+  return (
+    <Sidebar
+      name="Reader"
+      email={undefined}
+      scope="all"
+      counts={{ all: 0, running: 0, "put-away": 0 }}
+      recents={[]}
+      onScopeChange={() => {}}
+      onNewProject={onNewProject}
+      onApiKey={() => {}}
+      keyHint={undefined}
+      onSignOut={() => {}}
+    />
+  );
+}
+
+it("moves focus into mobile sessions and Escape immediately returns it to the trigger", () => {
+  render(
+    <Dashboard sidebar={interactiveSidebar()} hero={<button type="button">Composer</button>} />,
+  );
+  const trigger = screen.getByRole("button", { name: "Open sessions" });
+  trigger.focus();
+  fireEvent.click(trigger);
+  expect(screen.getByRole("link", { name: "nap dashboard" })).toHaveFocus();
+  expect(screen.getByRole("main", { hidden: true })).toHaveAttribute("inert");
+  fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+  expect(screen.getByRole("button", { name: "Open sessions" })).toHaveFocus();
+  expect(screen.getByRole("main")).not.toHaveAttribute("inert");
+});
+
+it("closes mobile sessions when New session is chosen", () => {
+  const onNewProject = vi.fn();
+  render(<Dashboard sidebar={interactiveSidebar(onNewProject)} hero={<p>Composer</p>} />);
+  fireEvent.click(screen.getByRole("button", { name: "Open sessions" }));
+  fireEvent.click(screen.getAllByRole("button", { name: "New session" })[0]!);
+  expect(onNewProject).toHaveBeenCalledOnce();
+  expect(screen.getByRole("button", { name: "Open sessions" })).toHaveAttribute(
+    "aria-expanded",
+    "false",
+  );
 });

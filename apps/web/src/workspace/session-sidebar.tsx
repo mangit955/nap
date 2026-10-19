@@ -42,7 +42,11 @@ export function SessionSidebar({ projectId }: { projectId: string }) {
         error={actionError ?? (status === "error" ? "Could not load sessions." : undefined)}
         busyProjectId={busyProjectId}
         onRename={(id, name) => void rename(id, name)}
-        onDelete={(id) => run(id, remove)}
+        onDelete={(id) =>
+          run(id, async (removedId) => {
+            if ((await remove(removedId)) && removedId === projectId) router.replace("/dashboard");
+          })
+        }
         onClose={(id) => run(id, close)}
         onSignOut={() => {
           setSigningOut(true);
