@@ -1,0 +1,67 @@
+╭───────────────────────────────────────╮
+│ lefthook  v2.1.14   hook:  [1mpre-commit[m │
+╰───────────────────────────────────────╯
+┃  biome ❯ 
+Checked 8 files in 39ms. No fixes applied.
+
+┃  typecheck ❯ 
+$ turbo run typecheck && tsc --noEmit
+• turbo 2.10.8
+
+   • Packages in scope: @nap/agent, @nap/api, @nap/bench, @nap/capture, @nap/context, @nap/db, @nap/loadgen, @nap/napbench, @nap/runtime, @nap/sandbox, @nap/shared, @nap/storage, @nap/verify, @nap/web
+   • Running typecheck in 14 packages
+   • Remote caching disabled
+
+@nap/agent:typecheck: cache hit, replaying logs e42a694b47740e02
+@nap/db:typecheck: cache hit, replaying logs 15073d7c5f686d9a
+@nap/agent:typecheck: $ tsc --noEmit
+@nap/db:typecheck: $ tsc --noEmit
+@nap/capture:typecheck: cache hit, replaying logs 9c75cdc8af30532d
+@nap/storage:typecheck: cache hit, replaying logs 6d2ffed20154025d
+@nap/web:typecheck: cache hit, replaying logs 848a52e061a76040
+@nap/capture:typecheck: $ tsc --noEmit
+@nap/storage:typecheck: $ tsc --noEmit
+@nap/sandbox:typecheck: cache hit, replaying logs adaa347834dfd0e1
+@nap/context:typecheck: cache hit, replaying logs 7f82273509c2c71e
+@nap/loadgen:typecheck: cache hit, replaying logs 8160f1ceed8960a5
+@nap/verify:typecheck: cache hit, replaying logs d9215397bead7555
+@nap/sandbox:typecheck: $ tsc --noEmit
+@nap/context:typecheck: $ tsc --noEmit
+@nap/loadgen:typecheck: $ tsc --noEmit
+@nap/web:typecheck: $ tsc --noEmit
+@nap/shared:typecheck: cache hit, replaying logs a07d510c517326ab
+@nap/shared:typecheck: $ tsc --noEmit
+@nap/verify:typecheck: $ tsc --noEmit
+@nap/bench:typecheck: cache hit, replaying logs 141344296543d82c
+@nap/napbench:typecheck: cache hit, replaying logs 7cbaa808fa138bf1
+@nap/bench:typecheck: $ tsc --noEmit
+@nap/runtime:typecheck: cache hit, replaying logs ca45162b54d9c640
+@nap/napbench:typecheck: $ tsc --noEmit
+@nap/runtime:typecheck: $ tsc --noEmit
+@nap/api:typecheck: cache hit, replaying logs 90b66db5d3ab945d
+@nap/api:typecheck: $ tsc --noEmit
+
+ Tasks:    14 successful, 14 total
+Cached:    14 cached, 14 total
+  Time:    31ms >>> FULL TURBO
+
+
+┃  test ❯ 
+
+ RUN  v4.1.10 <repo>
+
+
+ Test Files  14 passed (14)
+      Tests  194 passed (194)
+   Start at  10:50:32
+   Duration  2.66s (transform 1.50s, setup 2.10s, import 2.40s, tests 7.26s, environment 8.65s)
+
+
+│  python (skip) no matching staged files
+[38;2;56;56;56m  ────────────────────────────────────[m
+summary: (done in 4.12 seconds)
+✓ biome (0.15 seconds)
+✓ typecheck (0.31 seconds)
+✓ test (3.66 seconds)
+[feat/dark-workspace-media 4930e97] fix(chat): recover refused first prompts with media
+ 8 files changed, 369 insertions(+), 19 deletions(-)

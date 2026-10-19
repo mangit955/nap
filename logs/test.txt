@@ -1,0 +1,13 @@
+$ vitest run --project unit --project types --project web --project db
+Testing types with tsc and vue-tsc is an experimental feature.
+Breaking changes might not follow SemVer, please pin Vitest's version when using it.
+
+ RUN  v4.1.10 <repo>
+
+
+ Test Files  315 passed (315)
+      Tests  4318 passed (4318)
+Type Errors  no errors
+   Start at  10:45:30
+   Duration  30.77s (transform 6.13s, setup 8.99s, import 21.53s, tests 40.84s, environment 39.14s, typecheck 114ms)
+

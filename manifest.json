@@ -1,0 +1,119 @@
+{
+  "pr": "https://github.com/mangit955/nap/pull/115",
+  "reviewed_head": "4930e97dab644af952c318e70dcdfa9e2ab7cc31",
+  "base": "9ca9cd5074edabde49ba1014849aff32057a90f6",
+  "verified_tree": "f3e781fb55d43dc8fd58bf09f7a6ba2416c3e4ff",
+  "artifacts": [
+    {
+      "path": "screenshots/desktop-workspace.png",
+      "source_name": "browser-candidate2-1280.png",
+      "captured_candidate": "777f193e",
+      "caption": "Desktop workspace, sidebar and composer",
+      "bytes": 101656,
+      "sha256": "d5fbcf7ed5e4d3b230b6fae36688e21d8a9a4908858867c6b440341f7d3a9425"
+    },
+    {
+      "path": "screenshots/dashboard-mobile.png",
+      "source_name": "browser-candidate2-drawer-dashboard-390.png",
+      "captured_candidate": "777f193e",
+      "caption": "Dashboard branding and composer",
+      "bytes": 13036,
+      "sha256": "a831eea6bd134d245f34876a7a2d120479655d5a76664f2f07af431ac9cab427"
+    },
+    {
+      "path": "screenshots/preview-before-mobile.png",
+      "source_name": "preview-controls-before-390.png",
+      "captured_candidate": "5a150ab3",
+      "caption": "Before repair: mobile preview controls inaccessible",
+      "bytes": 11773,
+      "sha256": "478d7cd7361358ca604a1ab66058526c7d190fdb67502af430a0d3d9ada2bc3f"
+    },
+    {
+      "path": "screenshots/preview-after-mobile.png",
+      "source_name": "browser-candidate2-390.png",
+      "captured_candidate": "777f193e",
+      "caption": "After repair: route, reload and open controls visible",
+      "bytes": 12510,
+      "sha256": "72fe986869c49ae9f14a70c4cf1d65eccd0392f11ae9b1cae0eff18b9ef75ba5"
+    },
+    {
+      "path": "screenshots/first-prompt-recovery-mobile.png",
+      "source_name": "final-corrected-first-recovery-390.png",
+      "captured_candidate": "5e115c34",
+      "caption": "Final tree: refused first prompt restored with references",
+      "bytes": 35090,
+      "sha256": "b071b53bbe848c7ed5d916c5730460e3141955a562445c62edd4baf4c34df5a5"
+    },
+    {
+      "path": "screenshots/edited-retry-mobile.png",
+      "source_name": "final-corrected-edited-recovery-390.png",
+      "captured_candidate": "5e115c34",
+      "caption": "Final tree: edited text/model and video-only retry",
+      "bytes": 33093,
+      "sha256": "c6604d2d83b4de6a087b02167222873fe50a084c42cf3e7b5bd5d455c64e3d05"
+    },
+    {
+      "path": "screenshots/session-actions-mobile.png",
+      "source_name": "final-corrected-session-portal-390.png",
+      "captured_candidate": "5e115c34",
+      "caption": "Final tree: keyboard focus inside session actions",
+      "bytes": 21469,
+      "sha256": "272683e0c9769dc18b346958ee0494941305f03624b39accb8c00838dd90b776"
+    }
+  ],
+  "checks": [
+    {
+      "command_argv": [
+        "bun",
+        "run",
+        "test"
+      ],
+      "candidate": "5e115c34f609cc5574c63873e4f8974c1ec9f921",
+      "base": "9ca9cd5074edabde49ba1014849aff32057a90f6",
+      "start_utc": "2026-10-19T05:15:30.116795+00:00",
+      "end_utc": "2026-10-19T05:16:01.569583+00:00",
+      "exit_code": 0,
+      "duration_seconds": 31.259
+    },
+    {
+      "command_argv": [
+        "bun",
+        "run",
+        "typecheck"
+      ],
+      "candidate": "5e115c34f609cc5574c63873e4f8974c1ec9f921",
+      "base": "9ca9cd5074edabde49ba1014849aff32057a90f6",
+      "start_utc": "2026-10-19T05:15:22.699138+00:00",
+      "end_utc": "2026-10-19T05:15:23.488571+00:00",
+      "exit_code": 0,
+      "duration_seconds": 0.626
+    },
+    {
+      "command_argv": [
+        "bun",
+        "run",
+        "lint"
+      ],
+      "candidate": "5e115c34f609cc5574c63873e4f8974c1ec9f921",
+      "base": "9ca9cd5074edabde49ba1014849aff32057a90f6",
+      "start_utc": "2026-10-19T05:17:09.736093+00:00",
+      "end_utc": "2026-10-19T05:17:10.260481+00:00",
+      "exit_code": 0,
+      "duration_seconds": 0.363
+    },
+    {
+      "command_argv": [
+        "bun",
+        "run",
+        "build",
+        "--force"
+      ],
+      "candidate": "5e115c34f609cc5574c63873e4f8974c1ec9f921",
+      "base": "9ca9cd5074edabde49ba1014849aff32057a90f6",
+      "start_utc": "2026-10-19T05:17:13.948138+00:00",
+      "end_utc": "2026-10-19T05:17:17.702379+00:00",
+      "exit_code": 0,
+      "duration_seconds": 3.582
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+$ turbo run build --force
+• turbo 2.10.8
+
+   • Packages in scope: @nap/agent, @nap/api, @nap/bench, @nap/capture, @nap/context, @nap/db, @nap/loadgen, @nap/napbench, @nap/runtime, @nap/sandbox, @nap/shared, @nap/storage, @nap/verify, @nap/web
+   • Running build in 14 packages
+   • Remote caching disabled
+
+@nap/web:build: cache bypass, force executing ec5bf44036d019b3
+@nap/web:build: $ next build
+@nap/web:build: ▲ Next.js 16.3.0 (Turbopack)
+@nap/web:build: ✓ Running next.config.ts took 74ms
+@nap/web:build: 
+@nap/web:build:   Creating an optimized production build ...
+@nap/web:build: ✓ Compiled successfully in 605ms
+@nap/web:build:   Skipping validation of types
+@nap/web:build:   Finished TypeScript config validation in 6ms ...
+@nap/web:build:   Collecting page data using 9 workers ...
+@nap/web:build:   Generating static pages using 9 workers (0/11) ...
+@nap/web:build:   Generating static pages using 9 workers (2/11) 
+@nap/web:build:   Generating static pages using 9 workers (5/11) 
+@nap/web:build:   Generating static pages using 9 workers (8/11) 
+@nap/web:build: ✓ Generating static pages using 9 workers (11/11) in 145ms
+@nap/web:build:   Finalizing page optimization ...
+@nap/web:build: 
+@nap/web:build: Route (app)
+@nap/web:build: ┌ ○ /
+@nap/web:build: ├ ○ /_not-found
+@nap/web:build: ├ ○ /dashboard
+@nap/web:build: ├ ○ /docs
+@nap/web:build: ├ ○ /icon.svg
+@nap/web:build: ├ ○ /opengraph-image.png
+@nap/web:build: ├ ƒ /p/[projectId]
+@nap/web:build: ├ ƒ /sign-in
+@nap/web:build: ├ ○ /sign-up
+@nap/web:build: ├ ○ /twitter-image.png
+@nap/web:build: └ ○ /welcome
+@nap/web:build: 
+@nap/web:build: 
+@nap/web:build: ○  (Static)   prerendered as static content
+@nap/web:build: ƒ  (Dynamic)  server-rendered on demand
+@nap/web:build: 
+
+ Tasks:    1 successful, 1 total
+Cached:    0 cached, 1 total
+  Time:    2.726s 
+
