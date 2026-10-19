@@ -14,6 +14,19 @@
 **/.next
 **/.turbo
 
+# Local credentials and recordings must never be uploaded with the web app.
+**/.env
+**/.env.*
+!**/.env.example
+/.scratch
+/napbench-results
+/napload-results
+/harbor/tasks
+/harbor/.venv
+/.ruff_cache
+/harbor/.ruff_cache
+/harbor/.pytest_cache
+
 # The API's business, not the browser's.
 /Dockerfile
 /.dockerignore
