@@ -271,6 +271,11 @@ The 15-second margin between "worker has certainly aborted" (≤ expiry+15s) and
 
 ### Orphaning
 
+The request/repair identity and resume closeout described below are refined by
+[ADR-0017](adr/0017-repair-prompts-record-request-ownership.md). Recovery now closes each
+identifiable unfinished turn owned by the orphaned request. The ADR also states the legacy
+ownership boundary, covered-prefix UI activity reconciliation and concrete reader rollout.
+
 At `lease_expires_at + 30s` the janitor (in the reaper pod) marks the request `orphaned` and, under
 the request's own `turnId`, appends:
 
@@ -293,6 +298,10 @@ crash in between, exactly the state invariant 15 forbids.
 ---
 
 ## 6. Turn-request identity, and the execution guarantee
+
+See [ADR-0017](adr/0017-repair-prompts-record-request-ownership.md) for durable repair ownership.
+The initial-turn identity rule applies to ordinary requests. A resume itself starts no turn;
+its generated repairs have distinct IDs and explicitly name the resume request as owner.
 
 > **Queue delivery may be at-least-once. Logical Turn execution is at-most-once.**
 
@@ -345,8 +354,8 @@ distributed system unchanged.
 
 Two consequences the design did not anticipate, both recorded in `docs/GOTCHAS.md` (API section):
 the row carries a concrete model, so **an open can now be refused for a model nobody asked for**;
-and an orphaned `resume` is announced with the `system.notice` alone, since opening a project
-starts no turn for a `turn.failed` to close.
+and an orphaned `resume` gets only a notice when it started no repair. Recorded owned repairs
+are closed under their own turn IDs; the open operation itself has no turn to fail.
 
 ---
 

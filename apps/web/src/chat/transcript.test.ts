@@ -35,6 +35,48 @@ const REPAIR_TURN = "9d2e3f4a-5b6c-4d7e-9f80-1a2b3c4d5e60";
 const JOB = "5f6a7b8c-9d0e-4f10-a213-456789abcdef";
 const failedCheck = { name: "typecheck", outcome: "failed", output: "exit 2" } as const;
 
+it.each([false, true])(
+  "uses recorded job ownership for a repair retry before start, job in window=%s",
+  (knownJob) => {
+    const unrelated = "00000000-0000-4000-8000-000000000001";
+    const media = [
+      {
+        kind: "image" as const,
+        name: "wanted.jpg",
+        frames: [{ timestamp: 0, mediaType: "image/jpeg" as const, data: "AAAA" }],
+      },
+    ];
+    const items = fold(
+      ...(knownJob
+        ? [
+            ev("user.message", { text: "Original request", attachments: media }),
+            ev("job.started", { jobId: JOB, objective: "Original request" }),
+          ]
+        : []),
+      evIn(unrelated, ev("user.message", { text: "Unrelated request" })),
+      evIn(
+        REPAIR_TURN,
+        ev("user.message", {
+          text: "Generated repair instructions",
+          repair: { requestId: unrelated, jobId: JOB },
+        }),
+      ),
+      evIn(REPAIR_TURN, ev("turn.failed", { reason: "internal", message: "interrupted" })),
+    );
+    expect(
+      items.find(
+        (item) => item.kind === "message" && item.text === "Generated repair instructions",
+      ),
+    ).toMatchObject({ from: "verifier" });
+    expect(items.at(-1)).toMatchObject({
+      outcome: "failed",
+      retryMessage: knownJob ? "Original request" : undefined,
+    });
+    if (knownJob) expect(items.at(-1)).toMatchObject({ retryAttachments: media });
+    else expect(items.at(-1)).not.toHaveProperty("retryAttachments");
+  },
+);
+
 const evIn = (turnId: string, event: StoredEvent): StoredEvent => ({ ...event, turnId });
 
 function fold(...events: StoredEvent[]): TranscriptItem[] {
@@ -515,6 +557,96 @@ describe("stability", () => {
 });
 
 describe("what a failed turn would send again", () => {
+  const reference = [
+    {
+      kind: "image" as const,
+      name: "reference.jpg",
+      frames: [{ timestamp: 0, mediaType: "image/jpeg" as const, data: "AAAA" }],
+    },
+  ];
+
+  it("does not borrow a prompt or media for an unidentified turn", () => {
+    const items = fold(
+      ev("user.message", { text: "earlier work", attachments: reference }),
+      evIn(REPAIR_TURN, ev("turn.failed", { reason: "internal", message: "interrupted" })),
+    );
+    expect(items.at(-1)).toMatchObject({ retryMessage: undefined });
+    expect(items.at(-1)).not.toHaveProperty("retryAttachments");
+  });
+
+  it("keeps retry identity when another turn's message arrives before its failure", () => {
+    const items = fold(
+      ev("user.message", { text: "earlier work", attachments: reference }),
+      evIn(REPAIR_TURN, ev("user.message", { text: "later work" })),
+      ev("turn.failed", { reason: "internal", message: "interrupted" }),
+      evIn(REPAIR_TURN, ev("turn.failed", { reason: "internal", message: "also interrupted" })),
+    );
+    expect(items.at(-2)).toMatchObject({
+      retryMessage: "earlier work",
+      retryAttachments: reference,
+    });
+    expect(items.at(-1)).toMatchObject({ retryMessage: "later work" });
+    expect(items.at(-1)).not.toHaveProperty("retryAttachments");
+  });
+
+  it("does not carry a manual command into an unidentified failure", () => {
+    const items = fold(
+      ev("compaction.started", { id: "compact1", trigger: "manual" }),
+      evIn(REPAIR_TURN, ev("turn.failed", { reason: "internal", message: "interrupted" })),
+    );
+    expect(items.at(-1)).toMatchObject({ retryMessage: undefined });
+  });
+
+  it("keeps a verification retry tied to the original user even across manual and later activity", () => {
+    const manualTurn = "00000000-0000-4000-8000-000000000006";
+    const laterTurn = "00000000-0000-4000-8000-000000000007";
+    const items = fold(
+      ev("user.message", { text: "original request", attachments: reference }),
+      evIn(manualTurn, ev("compaction.started", { id: "compact1", trigger: "manual" })),
+      evIn(REPAIR_TURN, ev("user.message", { text: "failed check details" })),
+      evIn(REPAIR_TURN, ev("turn.started", { source: "verification" })),
+      evIn(laterTurn, ev("user.message", { text: "new request" })),
+      evIn(REPAIR_TURN, ev("turn.failed", { reason: "internal", message: "interrupted" })),
+    );
+    expect(items.at(-1)).toMatchObject({
+      retryMessage: "original request",
+      retryAttachments: reference,
+    });
+  });
+
+  it("retains verification retry during preparation before turn.started", () => {
+    const items = fold(
+      ev("user.message", { text: "original request", attachments: reference }),
+      ev("verification.completed", { jobId: JOB, checks: [failedCheck] }),
+      evIn(REPAIR_TURN, ev("user.message", { text: "failed check details" })),
+      evIn(REPAIR_TURN, ev("turn.failed", { reason: "internal", message: "preparation failed" })),
+    );
+    expect(items.at(-1)).toMatchObject({
+      retryMessage: "original request",
+      retryAttachments: reference,
+    });
+  });
+
+  it("does not create another manual card when orphan closeout repeats its marker", () => {
+    const items = fold(
+      ev("compaction.started", { id: "compact1", trigger: "manual" }),
+      ev("compaction.failed", {
+        id: "compact1",
+        message: "interrupted",
+        cancelled: false,
+        usage: null,
+      }),
+      ev("compaction.started", { id: "compact1", trigger: "manual" }),
+      ev("compaction.failed", {
+        id: "compact1",
+        message: "interrupted",
+        cancelled: false,
+        usage: null,
+      }),
+    );
+    expect(items).toEqual([expect.objectContaining({ kind: "compaction", status: "failed" })]);
+  });
+
   it("carries the message that started that turn", () => {
     const items = buildTranscript([
       ev("user.message", { text: "build a todo list" }),

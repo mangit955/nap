@@ -111,8 +111,8 @@ type TurnOutcome =
        *
        * Carried here rather than looked up by the component: by the time a second turn has
        * failed, "the last user message in the log" is a different message from the one that
-       * began the turn being retried. Undefined only for a log that begins mid-turn, which is
-       * what a client joining late with `afterSeq` sees.
+       * began the turn being retried. Undefined when the log cannot identify the request.
+       * A verification turn deliberately retries the user request it was repairing.
        */
       retryMessage: string | undefined;
       retryAttachments?: MediaAttachment[] | undefined;
@@ -133,7 +133,10 @@ function repairTurns(events: readonly StoredEvent[]): ReadonlySet<string> {
   const ids = new Set<string>();
 
   for (const event of events) {
-    if (event.type === "turn.started" && event.payload.source === "verification") {
+    if (
+      (event.type === "turn.started" && event.payload.source === "verification") ||
+      (event.type === "user.message" && event.payload.repair !== undefined)
+    ) {
       ids.add(event.turnId);
     }
   }
@@ -165,9 +168,11 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
   const stepsById = new Map<string, Step>();
   // The step a `file.changed` belongs to: the last one opened that has not been answered yet.
   let openStep: Step | undefined;
-  /** What the user last said, which is what a failed turn would offer to send again. */
-  let lastUserMessage: string | undefined;
-  let lastUserAttachments: MediaAttachment[] | undefined;
+  type RetryRequest = NapEventOf<"user.message">["payload"];
+  const retryByTurn = new Map<string, RetryRequest | undefined>();
+  const userTurnByJob = new Map<string, string>();
+  // Only a known verification turn can inherit another turn's user request.
+  let lastUserRequest: RetryRequest | undefined;
 
   for (const event of events) {
     // `seq` is unique per session and never reused, so it is a stable React key for free —
@@ -177,9 +182,10 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
     switch (event.type) {
       case "compaction.started":
         if (event.payload.trigger === "manual") {
-          lastUserMessage = "/compact";
-          lastUserAttachments = undefined;
+          retryByTurn.set(event.turnId, { text: "/compact" });
         }
+        // The janitor can repeat an announcement after losing an append acknowledgement.
+        if (items.some((item) => item.kind === "compaction" && item.id === event.payload.id)) break;
         items.push({
           kind: "compaction",
           key,
@@ -228,9 +234,17 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
         // Remembered for the turn this opens, so a failure downstream knows what to offer to
         // send again — and only when a person wrote it. Retrying means re-sending the request,
         // and a repair prompt is the verifier's account of a check that has not been re-run.
-        if (from === "user") {
-          lastUserMessage = event.payload.text;
-          lastUserAttachments = event.payload.attachments;
+        if (event.payload.repair !== undefined) {
+          const userTurn = userTurnByJob.get(event.payload.repair.jobId);
+          retryByTurn.set(
+            event.turnId,
+            userTurn === undefined ? undefined : retryByTurn.get(userTurn),
+          );
+        } else if (from === "user") {
+          lastUserRequest = event.payload;
+          retryByTurn.set(event.turnId, event.payload);
+        } else {
+          retryByTurn.set(event.turnId, lastUserRequest);
         }
         break;
       }
@@ -333,6 +347,9 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
         break;
 
       case "turn.started":
+        if (event.payload.source === "verification" && !retryByTurn.has(event.turnId)) {
+          retryByTurn.set(event.turnId, lastUserRequest);
+        }
         awaitingRepair = false;
         items.push({ kind: "turn-start", key, source: event.payload.source });
         break;
@@ -342,6 +359,10 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
       // reads as a conversation. Read here only for the flag above.
       case "verification.completed":
         awaitingRepair = event.payload.checks.some((check) => check.outcome === "failed");
+        break;
+
+      case "job.started":
+        userTurnByJob.set(event.payload.jobId, event.turnId);
         break;
 
       // Whatever the checks last said, a job that has closed is prompting nothing further. Red
@@ -363,7 +384,7 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
         });
         break;
 
-      case "turn.failed":
+      case "turn.failed": {
         for (const item of items)
           if (
             item.kind === "compaction" &&
@@ -374,16 +395,18 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
             item.text = "Compaction interrupted.";
           }
 
+        const retry = retryByTurn.get(event.turnId);
         items.push({
           kind: "turn-end",
           key,
           outcome: "failed",
           reason: event.payload.reason,
           message: event.payload.message,
-          retryMessage: lastUserMessage,
-          ...(lastUserAttachments === undefined ? {} : { retryAttachments: lastUserAttachments }),
+          retryMessage: retry?.text,
+          ...(retry?.attachments === undefined ? {} : { retryAttachments: retry.attachments }),
         });
         break;
+      }
     }
   }
 

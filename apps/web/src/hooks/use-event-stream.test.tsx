@@ -55,6 +55,7 @@ describe("connecting", () => {
     expect(url.pathname).toBe("/ws");
     expect(url.searchParams.get("sessionId")).toBe(SESSION);
     expect(url.searchParams.get("seq")).toBe("0");
+    expect(url.searchParams.get("repairOwnership")).toBe("1");
     expect(result.current.status).toBe("connecting");
   });
 
@@ -113,6 +114,7 @@ describe("reconnecting", () => {
 
     expect(net.opened).toHaveLength(2);
     expect(net.seqOf(1)).toBe("3");
+    expect(new URL(net.latest.url).searchParams.get("repairOwnership")).toBe("1");
   });
 
   it("keeps the transcript across a reconnect and absorbs the replay overlap", () => {
@@ -337,6 +339,14 @@ describe("knowing the log has all arrived", () => {
     act(() => net.latest.drop());
 
     expect(result.current.replayed).toBe(true);
+    act(() => void vi.advanceTimersByTime(BACKOFF.initialMs));
+    expect(net.opened).toHaveLength(2);
+    expect(result.current.replayed).toBe(true);
+
+    act(() => net.latest.open());
+    expect(result.current.replayed).toBe(true);
+    act(() => net.latest.deliver({ type: "ready" }));
+    expect(result.current.replayed).toBe(true);
   });
 
   it("forgets it when the session changes", () => {
@@ -344,10 +354,37 @@ describe("knowing the log has all arrived", () => {
     const net = sockets();
     const { result, rerender } = renderWith(net, SESSION);
     act(() => net.latest.open());
+    act(() => net.latest.deliver({ type: "event", event: event(1, "previous session") }));
     act(() => net.latest.deliver({ type: "ready" }));
 
     rerender({ id: "8f7e6d5c-4b3a-4291-8776-5544332211ff" });
 
     expect(result.current.replayed).toBe(false);
+    expect(result.current.events).toEqual([]);
+    expect(result.current.lastSeq).toBe(0);
+    expect(net.seqOf(1)).toBe("0");
+    act(() => net.latest.open());
+    expect(result.current.replayed).toBe(false);
+    act(() => net.latest.deliver({ type: "ready" }));
+    expect(result.current.replayed).toBe(true);
   });
+});
+
+it("retains opted-in repair ownership while advancing the replay cursor", () => {
+  const net = sockets();
+  const { result } = render(net);
+  const repair: NapEvent = {
+    type: "user.message",
+    sessionId: SESSION,
+    turnId: TURN,
+    seq: 1,
+    createdAt: "2026-10-19T00:00:00.000Z",
+    payload: { text: "Repair", repair: { requestId: TURN, jobId: OTHER_SESSION } },
+  };
+  act(() => {
+    net.latest.open();
+    net.latest.deliver({ type: "event", event: repair });
+  });
+  expect(result.current.events).toEqual([repair]);
+  expect(result.current.lastSeq).toBe(1);
 });

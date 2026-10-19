@@ -20,6 +20,8 @@ import {
   type GuardedRoute,
   OWNER,
   PUBLIC_ROUTES,
+  REQUEST,
+  SESSION,
   type SeededSandbox,
   STRANGER,
   seedSandbox,
@@ -38,8 +40,18 @@ beforeAll(async () => {
 const silent = () => createLogger({ level: "silent" }, { write: () => {} });
 
 /** `undefined` builds an app nobody is signed in to. */
-function appAs(userId: string | undefined): ReturnType<typeof createApp> {
+async function appAs(userId: string | undefined): Promise<ReturnType<typeof createApp>> {
   const deps: Omit<AppDeps, "logger"> = fullyWiredDeps(seeded);
+  if (deps.turns === undefined) throw new Error("turn routes missing from authorization fixture");
+  await deps.turns.queue.enqueue({
+    id: REQUEST,
+    sessionId: SESSION,
+    userId: OWNER,
+    kind: "turn",
+    message: "/compact",
+    model: "poolside/laguna-s-2.1:free",
+    billsToUser: false,
+  });
   return createApp({
     logger: silent(),
     ...deps,
@@ -63,7 +75,7 @@ describe("signed out", () => {
   it.each(GUARDED_ROUTES.map((route) => [label(route), route] as const))(
     "%s is 401",
     async (_name, route) => {
-      const res = await request(appAs(undefined), route);
+      const res = await request(await appAs(undefined), route);
 
       expect(res.status).toBe(401);
     },
@@ -74,7 +86,7 @@ describe("signed out", () => {
     async (_name, route) => {
       // The other half of the same claim. A gate that refuses everything is trivially secure and
       // useless: nobody could sign in, because signing in is itself a request.
-      const res = await appAs(undefined).request(route.examplePath);
+      const res = await (await appAs(undefined)).request(route.examplePath);
 
       expect(res.status).not.toBe(401);
     },
@@ -96,14 +108,14 @@ describe("signed in as somebody else", () => {
     async (_name, route) => {
       // 404 throughout: a 403 would confirm the project or session exists, which is a fact about
       // another person's data that a stranger should not be able to establish.
-      const res = await request(appAs(STRANGER), route);
+      const res = await request(await appAs(STRANGER), route);
 
       expect(res.status).toBe(404);
     },
   );
 
   it("sees none of the owner's projects in their listing", async () => {
-    const res = await appAs(STRANGER).request("/projects");
+    const res = await (await appAs(STRANGER)).request("/projects");
 
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toEqual({ projects: [] });
@@ -118,10 +130,24 @@ describe("signed in as the owner", () => {
       // 409 depending on what they do and on the fixture's state, and pinning each one here would
       // make this a second copy of the route tests. What matters is that the *gate* let them
       // through: anything but 401 and 404 means authorization was not the thing that stopped it.
-      const res = await request(appAs(OWNER), route);
+      const res = await request(await appAs(OWNER), route);
 
       expect([res.status, label(route)]).not.toEqual([401, label(route)]);
       expect([res.status, label(route)]).not.toEqual([404, label(route)]);
+      if (route.path === "/sessions/:sessionId/activity") {
+        expect(res.status).toBe(200);
+        expect(res.headers.get("cache-control")).toBe("no-store");
+        await expect(res.json()).resolves.toEqual({
+          sessionId: SESSION,
+          throughSeq: 0,
+          active: true,
+        });
+      }
+      if (route.path === "/sessions/:sessionId/turns/:requestId") {
+        expect(res.status).toBe(200);
+        expect(res.headers.get("cache-control")).toBe("no-store");
+        await expect(res.json()).resolves.toEqual({ id: REQUEST, state: "queued" });
+      }
     },
   );
 });

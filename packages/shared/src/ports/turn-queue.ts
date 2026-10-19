@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { MediaAttachment } from "../media.ts";
 /**
  * The durable queue of turn requests, and the per-session leases that make one of them exclusive.
@@ -44,6 +45,21 @@ export type TurnRequestKind = (typeof TURN_REQUEST_KINDS)[number];
 /** Where a request is in its life. Terminal states are never left, and none returns to `queued`. */
 export const TURN_REQUEST_STATES = ["queued", "leased", "done", "failed", "orphaned"] as const;
 export type TurnRequestState = (typeof TURN_REQUEST_STATES)[number];
+
+export const TurnAcceptanceSchema = z.object({ accepted: z.literal(true), requestId: z.uuid() });
+export const TurnRequestStatusSchema = z.object({
+  id: z.uuid(),
+  state: z.enum(TURN_REQUEST_STATES),
+});
+/** Queue observation taken after reading the durable prefix through throughSeq. */
+export const SessionActivitySchema = z.strictObject({
+  sessionId: z.uuid(),
+  throughSeq: z.number().int().nonnegative(),
+  active: z.boolean(),
+});
+export type SessionActivity = z.infer<typeof SessionActivitySchema>;
+
+export type TurnRequestStatus = z.infer<typeof TurnRequestStatusSchema>;
 
 export type EnqueueTurnRequest = {
   /**
@@ -105,12 +121,9 @@ export type TurnRequestSettlement = "done" | "failed";
  *
  * `id` is also the turn id its events were written under — that identity is the whole reason the
  * janitor can close the right Turn without having run it. See `docs/scaling-design.md` §6.
+ * `message` recovers a manual command when the worker died before writing its first event.
  */
-export type OrphanedTurnRequest = {
-  id: string;
-  sessionId: string;
-  kind: TurnRequestKind;
-};
+export type OrphanedTurnRequest = Pick<EnqueueTurnRequest, "id" | "sessionId" | "kind" | "message">;
 
 /** What a cancellation found, so a route can tell "stopped it" from "there was nothing to stop". */
 export type CancelOutcome =
@@ -132,6 +145,13 @@ export interface TurnQueue {
    * would suggest the queue had a say in it.
    */
   enqueue(request: EnqueueTurnRequest): Promise<void>;
+
+  /** Reads one caller's accepted request, including cancellation before any event was written. */
+  getStatus(request: {
+    id: string;
+    sessionId: string;
+    userId: string;
+  }): Promise<TurnRequestStatus | null>;
 
   /**
    * Takes the oldest claimable request and leases its session to `owner`, or answers `null`.
@@ -180,6 +200,11 @@ export interface TurnQueue {
    * a turn that is executing.
    */
   anyLeased(sessionIds: readonly string[]): Promise<boolean>;
+
+  /** Queued or leased work, including preparation and resumes without a prompt yet.
+   * This observation is not a lock. Expiry alone does not release a lease.
+   */
+  hasPending(sessionId: string): Promise<boolean>;
 
   /**
    * Asks for whatever is in flight on this session to stop.

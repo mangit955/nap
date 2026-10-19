@@ -15,9 +15,8 @@ import { MODEL_MEDIA_UNSUPPORTED, modelSupportsImages } from "@nap/shared/model-
  * a worker — today in this same process, tomorrow in its own deployment — claims it, leases the
  * session and runs it. Two consequences worth knowing about:
  *
- *   - **The request cannot report on the turn.** It never could usefully; now it cannot at all,
- *     and anything a caller wants to know arrives as events on the session, which is where a
- *     client is already looking.
+ *   - **Admission returns the durable request ID.** Execution arrives as session events. A
+ *     pending caller can also read that row's status, since a queued cancellation emits none.
  *   - **Cancellation is a row, not a `Map`.** `requestCancel` reaches a turn running on any pod,
  *     which the old registry could not. The registry is still consulted, as a fast path for the
  *     case where the turn happens to be running here — see `registry.ts`.
@@ -28,6 +27,7 @@ import { MODEL_MEDIA_UNSUPPORTED, modelSupportsImages } from "@nap/shared/model-
  */
 
 import { getLogger } from "@nap/shared/logging";
+import type { EventStore } from "@nap/shared/ports/event-store";
 import type { ModelCredentials } from "@nap/shared/ports/llm-provider";
 import type { ProjectStore } from "@nap/shared/ports/project-store";
 import type { SessionRecord, SessionStore } from "@nap/shared/ports/session-store";
@@ -128,7 +128,29 @@ const TurnBodySchema = z.object({
 export function registerTurnRoutes(
   app: Hono<{ Variables: AuthVariables }>,
   deps: TurnRouteDeps,
+  events: EventStore,
 ): void {
+  app.get("/sessions/:sessionId/activity", async (c) => {
+    const found = await findOwnedSession(deps.sessions, c.req.param("sessionId"), c.get("userId"));
+    if (!found.ok) return c.json({ error: found.error.message }, found.error.status);
+    const cursor = z
+      .string()
+      .regex(/^\d+$/)
+      .transform(Number)
+      .pipe(z.number().int().nonnegative())
+      .safeParse(c.req.query("cursor") ?? "0");
+    if (!cursor.success) return c.json({ error: "invalid event cursor" }, 400);
+    const { sessionId } = found.value;
+    c.header("cache-control", "no-store");
+    // Include the cursor's row to verify coverage rather than trusting a client watermark.
+    // Reading the prefix BEFORE the queue is essential: an admission after the queue read
+    // could otherwise put its prompt inside a falsely idle prefix.
+    const prefix = await events.readFrom(sessionId, Math.max(0, cursor.data - 1));
+    const throughSeq = prefix.at(-1)?.seq ?? 0;
+    if (throughSeq < cursor.data) return c.json({ error: "event cursor is ahead of history" }, 409);
+    const active = await deps.queue.hasPending(sessionId);
+    return c.json({ sessionId, throughSeq, active });
+  });
   app.post("/sessions/:sessionId/turns", async (c) => {
     const found = await findOwnedSession(deps.sessions, c.req.param("sessionId"), c.get("userId"));
     if (!found.ok) return c.json({ error: found.error.message }, found.error.status);
@@ -205,7 +227,22 @@ export function registerTurnRoutes(
 
     getLogger().info({ requestId: id, sessionId }, "turn request queued");
 
-    return c.json({ accepted: true }, 202);
+    return c.json({ accepted: true, requestId: id }, 202);
+  });
+
+  app.get("/sessions/:sessionId/turns/:requestId", async (c) => {
+    const found = await findOwnedSession(deps.sessions, c.req.param("sessionId"), c.get("userId"));
+    if (!found.ok) return c.json({ error: found.error.message }, found.error.status);
+    const id = z.uuid().safeParse(c.req.param("requestId"));
+    if (!id.success) return c.json({ error: "invalid request id" }, 400);
+    const status = await deps.queue.getStatus({
+      id: id.data,
+      sessionId: found.value.sessionId,
+      userId: c.get("userId"),
+    });
+    c.header("cache-control", "no-store");
+    if (status === null) return c.json({ error: "turn request not found" }, 404);
+    return c.json(status);
   });
 
   app.post("/sessions/:sessionId/turns/cancel", async (c) => {

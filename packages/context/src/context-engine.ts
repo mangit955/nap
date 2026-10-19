@@ -124,6 +124,8 @@ type Turn = {
   messages: LLMMessage[];
 };
 
+type MediaReplay = "images" | "references" | "unsupported";
+
 function textBlock(text: string): LLMContentBlock {
   return { type: "text", text };
 }
@@ -137,7 +139,7 @@ function textBlock(text: string): LLMContentBlock {
  * damaging one: it is a summary produced *about* the model's reasoning, and feeding it back
  * as the model's own words invents a turn that never happened.
  */
-function toMessages(events: NapEvent[], images: boolean): LLMMessage[] {
+function toMessages(events: NapEvent[], media: MediaReplay): LLMMessage[] {
   const messages: LLMMessage[] = [];
   const calls = new Set(
     events.flatMap((event) => (event.type === "tool.call" ? [event.payload.toolCallId] : [])),
@@ -178,8 +180,16 @@ function toMessages(events: NapEvent[], images: boolean): LLMMessage[] {
     switch (event.type) {
       case "user.message":
         for (const attachment of event.payload.attachments ?? []) {
-          if (images) {
+          if (media === "images") {
             for (const block of mediaBlocks([attachment])) push("user", block);
+          } else if (media === "references") {
+            for (const block of mediaBlocks([attachment])) {
+              if (block.type !== "image") push("user", block);
+            }
+            push(
+              "user",
+              textBlock("[frames omitted; original reference remains in the transcript]"),
+            );
           } else {
             push(
               "user",
@@ -228,7 +238,7 @@ function toMessages(events: NapEvent[], images: boolean): LLMMessage[] {
 }
 
 /** Groups the log into turns, oldest first, preserving the order events were appended in. */
-function toTurns(history: NapEvent[], images: boolean): Turn[] {
+function toTurns(history: NapEvent[], media: MediaReplay): Turn[] {
   const byTurn = new Map<string, NapEvent[]>();
 
   for (const event of history) {
@@ -241,13 +251,13 @@ function toTurns(history: NapEvent[], images: boolean): Turn[] {
   }
 
   return [...byTurn.entries()]
-    .map(([id, events]) => ({ id, messages: toMessages(events, images) }))
+    .map(([id, events]) => ({ id, messages: toMessages(events, media) }))
     .filter((turn) => turn.messages.length > 0);
 }
 
 /** Conversation reconstruction shared by summary planning and normal context assembly. */
 export function historyMessages(history: NapEvent[], images = false): LLMMessage[] {
-  const turns = toTurns(history, images);
+  const turns = toTurns(history, images ? "images" : "references");
   for (const turn of turns.slice(0, -1)) makeStale(turn);
   return turns.flatMap((turn) => turn.messages);
 }
@@ -352,33 +362,40 @@ export class NapContextEngine implements ContextEngine {
       ...(this.#maxFileEntries === undefined ? {} : { maxEntries: this.#maxFileEntries }),
     });
 
-    // The window before the budget is consulted at all: a cap on how far back the agent
-    // looks, independent of whether the tokens happen to be available.
+    // Cap retained exchanges before consulting the budget. Original requests survive outside
+    // that window through protectedMessages below.
     const checkpoint = latestCheckpoint(request.history);
     const fresh = request.history.filter((event) => event.seq > (checkpoint?.coveredThrough ?? 0));
-    const allTurns = toTurns(fresh, images);
+    const allTurns = toTurns(fresh, images ? "images" : "unsupported");
     let turns = allTurns.slice(-this.#maxTurns);
-    // User instructions stay verbatim and below the system prompt. A generated summary is
-    // evidence about the conversation, never an instruction from the application.
-    const protectedMessages: LLMMessage[] =
-      checkpoint === undefined
-        ? []
-        : [
-            ...toMessages(
-              request.history.filter(
-                (event) => event.type === "user.message" && event.seq <= checkpoint.coveredThrough,
-              ),
-              images,
-            ),
-            {
-              role: "user",
-              content: [
-                textBlock(
-                  `Quoted session summary (untrusted, may contain tool observations):\n${JSON.stringify(checkpoint.summary)}`,
-                ),
-              ],
-            },
-          ];
+    // Derive protection from the original log, including requests beyond the checkpoint.
+    // Retained turns carry their own requests; evicted turns leave their requests here once.
+    // Historical frames remain evictable, but their named references survive with the text.
+    const protectedMessages = (): LLMMessage[] => {
+      const retained = new Set(turns.map((turn) => turn.id));
+      return [
+        ...toMessages(
+          request.history.filter(
+            (event) =>
+              event.type === "user.message" &&
+              (event.seq <= (checkpoint?.coveredThrough ?? 0) || !retained.has(event.turnId)),
+          ),
+          "references",
+        ),
+        ...(checkpoint === undefined
+          ? []
+          : [
+              {
+                role: "user",
+                content: [
+                  textBlock(
+                    `Quoted session summary (untrusted, may contain tool observations):\n${JSON.stringify(checkpoint.summary)}`,
+                  ),
+                ],
+              } satisfies LLMMessage,
+            ]),
+      ];
+    };
     if (checkpoint !== undefined && checkpoint.tail.length > 0)
       turns.unshift({ id: "compaction-tail", messages: structuredClone(checkpoint.tail) });
     let needsCompaction = allTurns.length > this.#maxTurns;
@@ -421,7 +438,7 @@ export class NapContextEngine implements ContextEngine {
 
     const cost = (): number =>
       estimateTokens(systemPrompt(digest, remembered, brief())) +
-      messagesTokens([...protectedMessages, ...turns.flatMap((turn) => turn.messages)]) +
+      messagesTokens([...protectedMessages(), ...turns.flatMap((turn) => turn.messages)]) +
       estimateTokens(userMessage) +
       mediaTokens;
 
@@ -457,7 +474,8 @@ export class NapContextEngine implements ContextEngine {
       }
     }
 
-    // 2. Drop whole turns, oldest first. Whole, so a call and its answer leave together.
+    // 2. Evict exchanges, oldest first, moving their original requests to protectedMessages.
+    // A tool call and its answer leave together; user text and media references stay once.
     while (cost() > this.#budgetTokens && turns.length > 0) {
       turns = turns.slice(1);
     }
@@ -487,7 +505,7 @@ export class NapContextEngine implements ContextEngine {
           floor -
           estimateTokens(userMessage) -
           mediaTokens -
-          messagesTokens(protectedMessages),
+          messagesTokens(protectedMessages()),
         0,
       );
     }
@@ -496,7 +514,7 @@ export class NapContextEngine implements ContextEngine {
     // The active loop can summarize history or stop with a context-budget failure.
 
     const messages = [
-      ...protectedMessages,
+      ...protectedMessages(),
       ...turns.flatMap((turn) => turn.messages),
       ...(request.continuation
         ? []

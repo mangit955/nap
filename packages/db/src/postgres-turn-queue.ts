@@ -37,6 +37,7 @@ import type {
   OrphanedTurnRequest,
   TurnQueue,
   TurnRequestSettlement,
+  TurnRequestStatus,
 } from "@nap/shared/ports/turn-queue";
 import { and, asc, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
@@ -100,6 +101,39 @@ export class PostgresTurnQueue implements TurnQueue {
       model: request.model,
       billsToUser: request.billsToUser,
     });
+  }
+
+  async getStatus(request: {
+    id: string;
+    sessionId: string;
+    userId: string;
+  }): Promise<TurnRequestStatus | null> {
+    const [row] = await this.#db
+      .select({ id: turnRequests.id, state: turnRequests.state })
+      .from(turnRequests)
+      .where(
+        and(
+          eq(turnRequests.id, request.id),
+          eq(turnRequests.sessionId, request.sessionId),
+          eq(turnRequests.userId, request.userId),
+        ),
+      )
+      .limit(1);
+    return row ?? null;
+  }
+
+  async hasPending(sessionId: string): Promise<boolean> {
+    const [row] = await this.#db
+      .select({ id: turnRequests.id })
+      .from(turnRequests)
+      .where(
+        and(
+          eq(turnRequests.sessionId, sessionId),
+          inArray(turnRequests.state, ["queued", "leased"]),
+        ),
+      )
+      .limit(1);
+    return row !== undefined;
   }
 
   async claim(owner: string): Promise<LeasedTurnRequest | null> {
@@ -325,6 +359,7 @@ export class PostgresTurnQueue implements TurnQueue {
         id: turnRequests.id,
         sessionId: turnRequests.sessionId,
         kind: turnRequests.kind,
+        message: turnRequests.message,
       });
   }
 
@@ -334,6 +369,7 @@ export class PostgresTurnQueue implements TurnQueue {
         id: turnRequests.id,
         sessionId: turnRequests.sessionId,
         kind: turnRequests.kind,
+        message: turnRequests.message,
       })
       .from(turnRequests)
       .where(and(eq(turnRequests.state, "orphaned"), isNull(turnRequests.finishedAt)))

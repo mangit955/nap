@@ -81,6 +81,7 @@ export function workingLabel(items: readonly TranscriptItem[]): string {
   for (let index = items.length - 1; index >= 0; index -= 1) {
     const item = items[index];
     if (item === undefined) continue;
+    if (item.kind === "turn-end") break;
 
     if (item.kind === "compaction" && item.status === "running") return "Compacting context";
 
@@ -94,7 +95,6 @@ export function workingLabel(items: readonly TranscriptItem[]): string {
 
     if (item.kind === "turn-start") {
       turnOpen = true;
-      break;
     }
   }
 
@@ -105,21 +105,51 @@ export function workingLabel(items: readonly TranscriptItem[]): string {
   return turnOpen ? "Thinking" : "Starting up";
 }
 
+type InFlightTurn = {
+  turnId: string;
+  /** Ordinary preparation is busy before the server starts its elapsed clock. */
+  startedAt: string | undefined;
+};
+
 /**
- * When the open turn started, as the server timestamped it.
- *
- * The elapsed clock is anchored here rather than to the moment the indicator mounted, so a
- * reload in the middle of a turn resumes the count instead of restarting it — and so the
- * number hands over to the `Done · 12.4s` line, which the server computes from the same
- * instant. The scan mirrors `turnInFlight` in `use-turn-submission.ts`: backwards, and an
- * ending seen before a start means the last turn is over.
+ * Activity and elapsed time share turn identity. A terminal closes only its own turn and
+ * stays closed even if another janitor appends a duplicate start later. Map insertion order
+ * keeps a duplicate from displacing newer work; the first clock anchor stays stable too.
  */
-export function turnStartedAt(events: readonly StoredEvent[]): string | undefined {
-  for (let index = events.length - 1; index >= 0; index -= 1) {
-    const event = events[index];
-    if (event === undefined) continue;
-    if (event.type === "turn.completed" || event.type === "turn.failed") return undefined;
-    if (event.type === "turn.started") return event.createdAt;
+export function inFlightTurn(
+  events: readonly StoredEvent[],
+  idleThroughSeq = 0,
+): InFlightTurn | undefined {
+  const turns = new Map<string, InFlightTurn | null>();
+  for (const event of events) {
+    if (event.type === "turn.completed" || event.type === "turn.failed") {
+      turns.set(event.turnId, null);
+      continue;
+    }
+    if (
+      event.type !== "user.message" &&
+      event.type !== "turn.started" &&
+      event.type !== "compaction.started"
+    )
+      continue;
+
+    // Terminals above still apply even when the activity read retired their prefix. That
+    // prevents a delayed duplicate start from reopening a turn that already ended.
+    if (event.seq <= idleThroughSeq) continue;
+    const turn = turns.get(event.turnId);
+    if (turn === null) continue;
+    const startedAt =
+      event.type === "turn.started" ||
+      (event.type === "compaction.started" && event.payload.trigger === "manual")
+        ? event.createdAt
+        : undefined;
+    if (turn === undefined) turns.set(event.turnId, { turnId: event.turnId, startedAt });
+    else turn.startedAt ??= startedAt;
   }
-  return undefined;
+  return [...turns.values()].findLast((turn) => turn !== null);
+}
+
+/** The server's first clock anchor for the active turn, preserved across reloads. */
+export function turnStartedAt(events: readonly StoredEvent[]): string | undefined {
+  return inFlightTurn(events)?.startedAt;
 }

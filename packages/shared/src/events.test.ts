@@ -18,6 +18,28 @@ const ENVELOPE = {
 
 const JOB_ID = "3f9a1c2d-5e6b-4f7a-8b9c-0d1e2f3a4b5c";
 
+it("replays old prompts and validates a repair's durable request and job ownership", () => {
+  const legacy = { ...ENVELOPE, type: "user.message", payload: { text: "old prompt" } };
+  expect(NapEventSchema.parse(legacy)).toEqual(legacy);
+  const prompt = {
+    ...legacy,
+    payload: {
+      text: "repair prompt",
+      repair: { requestId: ENVELOPE.turnId, jobId: JOB_ID },
+    },
+  };
+  expect(NapEventSchema.parse(JSON.parse(JSON.stringify(prompt)))).toEqual(prompt);
+  for (const repair of [
+    { requestId: "not-a-uuid", jobId: JOB_ID },
+    { requestId: ENVELOPE.turnId },
+    { requestId: ENVELOPE.turnId, jobId: JOB_ID, guessed: true },
+  ]) {
+    expect(
+      NapEventSchema.safeParse({ ...prompt, payload: { text: "repair", repair } }).success,
+    ).toBe(false);
+  }
+});
+
 type Case = {
   readonly type: NapEvent["type"];
   readonly valid: NapEvent;

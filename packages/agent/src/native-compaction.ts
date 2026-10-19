@@ -46,8 +46,10 @@ export type CodexCompactionTransport = {
     method: "thread/compact/start" | "thread/inject_items",
     params: Record<string, unknown>,
   ): Promise<unknown>;
+  /** New notifications only, on a session serialized through NativeSessionLifecycle. */
   subscribe(listener: (notification: unknown) => void): () => void;
-  interrupt(turnId: string | null): Promise<void>;
+  /** Interrupts a known native turn. The adapter waits briefly for a late start after Stop. */
+  interrupt(turnId: string): Promise<void>;
 };
 
 const CodexNotification = z.object({
@@ -71,7 +73,14 @@ const CodexNotification = z.object({
 
 export function codexCompaction(transport: CodexCompactionTransport): NativeCompaction {
   return async (request) => {
+    request.signal?.throwIfAborted();
     let turnId: string | null = null;
+    let stopped = false;
+    let started = false;
+    let startFailed = false;
+    let removed = false;
+    let interrupted = false;
+    let cleanupTimer: ReturnType<typeof setTimeout> | undefined;
     let boundary = false;
     let total: TokenUsage | undefined;
     let usage: TokenUsage | null = null;
@@ -82,11 +91,31 @@ export function codexCompaction(transport: CodexCompactionTransport): NativeComp
       reject = no;
     });
     void completed.catch(() => {});
+    const cleanup = () => {
+      if (removed) return;
+      removed = true;
+      clearTimeout(cleanupTimer);
+      unsubscribe();
+    };
+    const interruptKnownTurn = async () => {
+      if (turnId === null || interrupted) return;
+      interrupted = true;
+      try {
+        await transport.interrupt(turnId);
+      } finally {
+        cleanup();
+      }
+    };
     const unsubscribe = transport.subscribe((raw) => {
+      if (removed) return;
       const parsed = CodexNotification.safeParse(raw);
       if (!parsed.success || parsed.data.params.threadId !== transport.sessionId) return;
       const { method, params } = parsed.data;
-      if (method === "turn/started") turnId = params.turn?.id ?? null;
+      if (started && turnId === null && method === "turn/started") turnId = params.turn?.id ?? null;
+      if (stopped) {
+        void interruptKnownTurn().catch(() => {});
+        return;
+      }
       if (method === "thread/tokenUsage/updated" && params.tokenUsage !== undefined) {
         const current = params.tokenUsage.total;
         if (params.turnId === turnId) {
@@ -122,7 +151,16 @@ export function codexCompaction(transport: CodexCompactionTransport): NativeComp
     try {
       await interruptible(
         async (signal) => {
-          await transport.request("thread/compact/start", { threadId: transport.sessionId });
+          signal.throwIfAborted();
+          started = true;
+          try {
+            await transport.request("thread/compact/start", { threadId: transport.sessionId });
+          } catch (error) {
+            startFailed = true;
+            cleanup();
+            throw error;
+          }
+          signal.throwIfAborted();
           await completed;
           signal.throwIfAborted();
           // Codex removes client developer messages on compaction. Restore trusted application
@@ -147,9 +185,23 @@ export function codexCompaction(transport: CodexCompactionTransport): NativeComp
               },
             ],
           });
+          signal.throwIfAborted();
         },
         request.signal,
-        () => transport.interrupt(turnId),
+        async () => {
+          stopped = true;
+          reject(
+            new Error("Native compaction was interrupted; reopen the session before continuing."),
+          );
+          if (!started || startFailed) {
+            cleanup();
+            return;
+          }
+          // A null interrupt cannot stop a turn the server has not started. Keep listening,
+          // but never retain a subscription indefinitely on an unusable native session.
+          cleanupTimer = setTimeout(cleanup, 5_000);
+          await interruptKnownTurn();
+        },
       );
       return {
         provider: "codex",
@@ -159,7 +211,7 @@ export function codexCompaction(transport: CodexCompactionTransport): NativeComp
         afterTokens: null,
       };
     } finally {
-      unsubscribe();
+      if (!stopped) cleanup();
       // A late failed notification must not become an unhandled rejection after cancellation.
       void completed.catch(() => {});
     }
@@ -168,8 +220,14 @@ export function codexCompaction(transport: CodexCompactionTransport): NativeComp
 
 export type ClaudeCompactionTransport = {
   sessionId: string;
-  /** Must use the existing sandbox-bound Agent SDK session and its configured instructions. */
-  query(prompt: string, signal?: AbortSignal): AsyncIterable<unknown>;
+  /**
+   * One transport-owned pump consumes the persistent SDK query. Subscribe only to new messages;
+   * unsubscribe removes this listener, never closes that query. Share NativeSessionLifecycle
+   * with ordinary turns so each operation owns the next result for this session.
+   */
+  subscribe(listener: (message: unknown) => void): () => void;
+  /** Sends on the configured sandbox-bound session; resolves on acceptance and obeys Stop before dispatch. */
+  send(prompt: string, signal?: AbortSignal): Promise<void>;
   interrupt(): Promise<void>;
 };
 const Usage = z.object({
@@ -194,43 +252,68 @@ const ClaudeMessage = z.object({
 
 export function claudeCompaction(transport: ClaudeCompactionTransport): NativeCompaction {
   return async (request) => {
+    request.signal?.throwIfAborted();
     let boundary = false;
-    let completed = false;
     let beforeTokens: number | null = null;
     let afterTokens: number | null = null;
     let usage: TokenUsage | null = null;
-    await interruptible(
-      async (signal) => {
-        for await (const raw of transport.query("/compact", signal)) {
-          signal.throwIfAborted();
-          const parsed = ClaudeMessage.safeParse(raw);
-          if (!parsed.success || parsed.data.session_id !== transport.sessionId) continue;
-          const message = parsed.data;
-          if (message.type === "system" && message.subtype === "compact_boundary") {
-            boundary = true;
-            beforeTokens = message.compact_metadata?.pre_tokens ?? null;
-            afterTokens = message.compact_metadata?.post_tokens ?? null;
-          }
-          if (message.type === "result") {
-            if (message.subtype !== "success" || message.is_error)
-              throw new Error("Claude native compaction failed.");
-            completed = true;
-            if (message.usage !== undefined)
-              usage = {
-                inputTokens:
-                  message.usage.input_tokens +
-                  (message.usage.cache_creation_input_tokens ?? 0) +
-                  (message.usage.cache_read_input_tokens ?? 0),
-                outputTokens: message.usage.output_tokens,
-              };
-          }
+    let resolve = () => {};
+    let reject = (_error: Error) => {};
+    const completed = new Promise<void>((yes, no) => {
+      resolve = yes;
+      reject = no;
+    });
+    void completed.catch(() => {});
+    let sent = false;
+    let settled = false;
+    const unsubscribe = transport.subscribe((raw) => {
+      if (!sent || settled) return;
+      const parsed = ClaudeMessage.safeParse(raw);
+      if (!parsed.success || parsed.data.session_id !== transport.sessionId) return;
+      const message = parsed.data;
+      if (message.type === "system" && message.subtype === "compact_boundary") {
+        boundary = true;
+        beforeTokens = message.compact_metadata?.pre_tokens ?? null;
+        afterTokens = message.compact_metadata?.post_tokens ?? null;
+      }
+      if (message.type === "result") {
+        settled = true;
+        if (message.subtype !== "success" || message.is_error) {
+          reject(new Error("Claude native compaction failed."));
+          return;
         }
-        if (!boundary || !completed)
-          throw new Error("Claude did not report compact_boundary and successful completion.");
-      },
-      request.signal,
-      () => transport.interrupt(),
-    );
+        if (!boundary) {
+          reject(new Error("Claude did not report compact_boundary and successful completion."));
+          return;
+        }
+        if (message.usage !== undefined)
+          usage = {
+            inputTokens:
+              message.usage.input_tokens +
+              (message.usage.cache_creation_input_tokens ?? 0) +
+              (message.usage.cache_read_input_tokens ?? 0),
+            outputTokens: message.usage.output_tokens,
+          };
+        resolve();
+      }
+    });
+    try {
+      await interruptible(
+        async (signal) => {
+          signal.throwIfAborted();
+          sent = true;
+          await transport.send("/compact", signal);
+          await completed;
+        },
+        request.signal,
+        () => transport.interrupt(),
+      );
+    } finally {
+      settled = true;
+      unsubscribe();
+      // Release the command's waiter without touching the transport's persistent iterator.
+      resolve();
+    }
     return { provider: "claude", sessionId: transport.sessionId, usage, beforeTokens, afterTokens };
   };
 }
@@ -256,6 +339,7 @@ async function interruptible(
   });
   try {
     await Promise.race([work(effective), stopped]);
+    effective.throwIfAborted();
   } finally {
     clearTimeout(timeout);
     effective.removeEventListener("abort", abort);

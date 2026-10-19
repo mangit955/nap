@@ -141,7 +141,14 @@ export const NapEventSchema = z.discriminatedUnion("type", [
     budgetTokens: z.int().positive(),
     windowTokens: z.int().positive().nullable(),
   }),
-  event("user.message", { ...text, attachments: MediaAttachmentsSchema.optional() }),
+  event("user.message", {
+    ...text,
+    attachments: MediaAttachmentsSchema.optional(),
+    // A repair can become durable before turn.started. Its lease owner and original job
+    // must travel with the prompt, including when a resume request continues an older job.
+    // Absent in legacy logs; absence does not establish ownership of a verification turn.
+    repair: z.strictObject({ requestId: z.uuid(), jobId: z.uuid() }).optional(),
+  }),
   /** Summarized reasoning, not raw thinking — the model is run with `display: "summarized"`. */
   event("agent.thinking", text),
   event("agent.message", text),

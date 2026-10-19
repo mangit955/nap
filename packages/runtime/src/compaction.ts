@@ -1,4 +1,4 @@
-import { prepareCompaction, summaryRequest } from "@nap/context/compaction";
+import { prepareCompaction, summaryRequest, textOnlyContext } from "@nap/context/compaction";
 import { type CompactContext, estimateContextTokens } from "@nap/shared/compaction";
 import type { NapEvent, NapEventOf } from "@nap/shared/events";
 import type { BuiltContext } from "@nap/shared/ports/context-engine";
@@ -18,12 +18,15 @@ export function contextCompactor(options: {
   drain: () => Promise<void>;
   rebuild: (history: NapEvent[]) => Promise<BuiltContext>;
   budgetTokens: number;
+  /** Manual operations are durable before runtime preparation starts. */
+  startedId?: string;
 }): CompactContext {
   return async (request) => {
-    const id = crypto.randomUUID();
+    const id = options.startedId ?? crypto.randomUUID();
     let usage: TokenUsage | null =
       request.native === undefined ? { inputTokens: 0, outputTokens: 0 } : null;
-    options.emit({ type: "compaction.started", payload: { id, trigger: request.trigger } });
+    if (options.startedId === undefined)
+      options.emit({ type: "compaction.started", payload: { id, trigger: request.trigger } });
     await options.drain();
     try {
       request.signal?.throwIfAborted();
@@ -31,7 +34,7 @@ export function contextCompactor(options: {
       if (request.native !== undefined) {
         const result = await request.native({
           trustedInstructions: request.systemPrompt,
-          untrustedContext: JSON.stringify({
+          untrustedContext: textOnlyContext({
             userRequests: history
               .filter((event) => event.type === "user.message")
               .map((event) => event.payload),

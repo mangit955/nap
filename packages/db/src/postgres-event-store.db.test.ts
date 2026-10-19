@@ -63,6 +63,25 @@ function message(sessionId: string, turnId: string, text: string): PendingEvent 
 }
 
 describe("append assigns seq", () => {
+  it("replays repair ownership through a fresh adapter alongside legacy prompts", async () => {
+    const sessionId = await seedSession();
+    const requestId = randomUUID();
+    const jobId = randomUUID();
+    const legacy = await store.append({
+      ...message(sessionId, requestId, "Original request"),
+      type: "user.message",
+      payload: { text: "Original request" },
+    });
+    const repair = await store.append({
+      ...message(sessionId, randomUUID(), "Repair"),
+      type: "user.message",
+      payload: { text: "Repair", repair: { requestId, jobId } },
+    });
+    const restarted = new PostgresEventStore(db);
+    expect(await restarted.readFrom(sessionId, 0)).toEqual([legacy, repair]);
+    expect(repair.payload).toEqual({ text: "Repair", repair: { requestId, jobId } });
+  });
+
   it("starts at 1 and increments by one", async () => {
     const sessionId = await seedSession();
     const turnId = randomUUID();

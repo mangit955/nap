@@ -253,8 +253,8 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
 
     if (request.kind === "resume") {
       const outcome = await runtime.resumeSession(request.sessionId, {
-        // The request's id *is* the turn id its events go under, so a janitor closing this out
-        // later can name the same Turn without having run it.
+        // Resume lifecycle events use this id. Any repair it starts records this request as
+        // its owner while retaining its own turn id.
         turnId: request.id,
         model: request.model,
         // A resume that continues a job runs turns, so it answers to the lease exactly as a turn

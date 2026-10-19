@@ -161,6 +161,18 @@ describe("requestCancel", () => {
 });
 
 describe("orphanExpired", () => {
+  it("retains a manual command until orphan announcement finishes", async () => {
+    const { id } = await enqueue("session-a", "/compact");
+    await queue.claim("worker-that-exits");
+    now += 90_001;
+    const expected = [{ id, sessionId: "session-a", kind: "turn", message: "/compact" }];
+    expect(await queue.orphanExpired()).toEqual(expected);
+    expect(await queue.unannouncedOrphans()).toEqual(expected);
+    expect(await queue.claim("next-worker")).toBeNull();
+    await queue.markOrphanAnnounced(id);
+    expect(await queue.unannouncedOrphans()).toEqual([]);
+  });
+
   it("leaves a lease alone until the grace window has passed", async () => {
     const { id } = await enqueue("session-a");
     await queue.claim("worker-1");
@@ -171,7 +183,9 @@ describe("orphanExpired", () => {
     expect(queue.stateOf(id)).toBe("leased");
 
     now += 30_000;
-    expect(await queue.orphanExpired()).toEqual([{ id, sessionId: "session-a", kind: "turn" }]);
+    expect(await queue.orphanExpired()).toEqual([
+      { id, sessionId: "session-a", kind: "turn", message: "do a thing" },
+    ]);
     expect(queue.stateOf(id)).toBe("orphaned");
   });
 
@@ -230,7 +244,7 @@ describe("unannouncedOrphans", () => {
     // A janitor that died between orphaning and appending would otherwise leave a request that
     // is terminal here and still spinning in somebody's chat pane.
     expect(await queue.unannouncedOrphans()).toEqual([
-      { id, sessionId: "session-a", kind: "turn" },
+      { id, sessionId: "session-a", kind: "turn", message: "do a thing" },
     ]);
 
     await queue.markOrphanAnnounced(id);
@@ -295,4 +309,21 @@ describe("inFlight", () => {
     expect(queue.stateOf(queued.id)).toBe("failed");
     expect(queue.inFlight).toBe(0);
   });
+});
+
+it("reports queued and leased activity until settlement, including cancellation and other sessions", async () => {
+  const sessionId = "session-a";
+  const request = await enqueue(sessionId);
+  expect(await queue.hasPending(sessionId)).toBe(true);
+  expect(await queue.hasPending("00000000-0000-4000-8000-000000000099")).toBe(false);
+  await queue.claim("activity-worker");
+  expect(await queue.hasPending(sessionId)).toBe(true);
+  await queue.requestCancel(sessionId);
+  expect(await queue.hasPending(sessionId)).toBe(true);
+  await queue.settle(request.id, "activity-worker", "failed");
+  expect(await queue.hasPending(sessionId)).toBe(false);
+  await enqueue(sessionId);
+  expect(await queue.hasPending(sessionId)).toBe(true);
+  await queue.requestCancel(sessionId);
+  expect(await queue.hasPending(sessionId)).toBe(false);
 });

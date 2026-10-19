@@ -54,17 +54,22 @@ it("Codex waits for native lifecycle, uses the current thread, and restores trus
 
 it("Claude submits /compact and requires compact_boundary, with unknown usage left unknown", async () => {
   const sent: string[] = [];
+  let notify: (message: unknown) => void = () => {};
   const compact = claudeCompaction({
     sessionId: "claude-session",
-    async *query(prompt) {
+    subscribe(listener) {
+      notify = listener;
+      return () => {};
+    },
+    async send(prompt) {
       sent.push(prompt);
-      yield {
+      notify({
         type: "system",
         subtype: "compact_boundary",
         session_id: "claude-session",
         compact_metadata: { pre_tokens: 42_000, post_tokens: 8_000 },
-      };
-      yield { type: "result", subtype: "success", session_id: "claude-session" };
+      });
+      notify({ type: "result", subtype: "success", session_id: "claude-session" });
     },
     async interrupt() {},
   });
@@ -81,10 +86,15 @@ it("Claude submits /compact and requires compact_boundary, with unknown usage le
 });
 
 it("rejects unsupported native compaction instead of pretending a text response compacted", async () => {
+  let notify: (message: unknown) => void = () => {};
   const compact = claudeCompaction({
     sessionId: "s",
-    async *query() {
-      yield { type: "result", subtype: "success", session_id: "s" };
+    subscribe(listener) {
+      notify = listener;
+      return () => {};
+    },
+    async send() {
+      notify({ type: "result", subtype: "success", session_id: "s" });
     },
     async interrupt() {},
   });
@@ -195,16 +205,21 @@ it("does not fall back to another delivery when Codex rejects the native method"
 });
 
 it("includes Claude cached input in reported compaction spend", async () => {
+  let notify: (message: unknown) => void = () => {};
   const compact = claudeCompaction({
     sessionId: "s",
-    async *query() {
-      yield {
+    subscribe(listener) {
+      notify = listener;
+      return () => {};
+    },
+    async send() {
+      notify({
         type: "system",
         subtype: "compact_boundary",
         session_id: "s",
         compact_metadata: { pre_tokens: 4000 },
-      };
-      yield {
+      });
+      notify({
         type: "result",
         subtype: "success",
         session_id: "s",
@@ -214,7 +229,7 @@ it("includes Claude cached input in reported compaction spend", async () => {
           cache_read_input_tokens: 1000,
           output_tokens: 40,
         },
-      };
+      });
     },
     async interrupt() {},
   });

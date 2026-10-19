@@ -33,14 +33,20 @@ const completed = () =>
 const failed = (reason: "cancelled" | "internal" = "cancelled") =>
   ev("turn.failed", { reason, message: "stopped" });
 
-function poster(status = 202) {
+function poster(status = 202, requestIds = [TURN]) {
   const calls: string[] = [];
+  let admitted = 0;
   /** What was actually sent, so the model on a turn can be asserted rather than assumed. */
   const bodies: unknown[] = [];
   const fetchJson = async (url: string, init?: RequestInit): Promise<Response> => {
     calls.push(new URL(url).pathname);
     bodies.push(typeof init?.body === "string" ? JSON.parse(init.body) : undefined);
-    return new Response(JSON.stringify({ accepted: true }), { status });
+    if (init?.method !== "POST")
+      return Response.json({ id: url.split("/").at(-1), state: "queued" });
+    return new Response(
+      JSON.stringify({ accepted: true, requestId: requestIds[admitted++] ?? TURN }),
+      { status },
+    );
   };
   return { fetchJson, calls, bodies };
 }
@@ -81,7 +87,7 @@ describe("the optimistic message", () => {
         43,
       ),
     ];
-    const endpoint = poster();
+    const endpoint = poster(202, [nextTurn]);
     const { result, rerender } = renderHook(
       (events: StoredEvent[]) =>
         useTurnSubmission({ sessionId: SESSION, events, fetchJson: endpoint.fetchJson }),
@@ -127,7 +133,11 @@ describe("the optimistic message", () => {
     ];
     const { result, rerender } = renderHook(
       (events: StoredEvent[]) =>
-        useTurnSubmission({ sessionId: SESSION, events, fetchJson: poster().fetchJson }),
+        useTurnSubmission({
+          sessionId: SESSION,
+          events,
+          fetchJson: poster(202, [nextTurn]).fetchJson,
+        }),
       { initialProps: history },
     );
     await act(async () => {
@@ -196,7 +206,9 @@ describe("the optimistic message", () => {
       await result.current.submit("second message");
     });
 
-    rerender([userSaid("an earlier message")]);
+    rerender([
+      { ...userSaid("an earlier message"), turnId: "8c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f" },
+    ]);
 
     expect(result.current.pending).toBe("second message");
   });
@@ -475,7 +487,8 @@ describe("when the server refuses", () => {
 });
 
 it("acknowledges /compact from lifecycle events and keeps a queued prompt pending until its own event", async () => {
-  const endpoint = poster();
+  const nextTurn = "8c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f";
+  const endpoint = poster(202, [TURN, nextTurn]);
   const hook = submission(endpoint.fetchJson);
   await act(async () => {
     await hook.result.current.submit("/compact");
@@ -491,7 +504,7 @@ it("acknowledges /compact from lifecycle events and keeps a queued prompt pendin
   hook.rerender([start, compact, completed()]);
   expect(hook.result.current.pending).toBe("next request");
   expect(hook.result.current.running).toBe(true);
-  hook.rerender([start, compact, completed(), userSaid("next request")]);
+  hook.rerender([start, compact, completed(), { ...userSaid("next request"), turnId: nextTurn }]);
   await waitFor(() => expect(hook.result.current.pending).toBeUndefined());
   expect(endpoint.bodies).toEqual([{ message: "/compact" }, { message: "next request" }]);
 });

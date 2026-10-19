@@ -4,7 +4,7 @@ import { FAKE_OWNER } from "@nap/db/testing/in-memory-project-store";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { VERSION } from "@nap/shared/version";
 import { WSContext, type WSEvents } from "hono/ws";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { type AppDeps, createApp } from "./app.ts";
 import { createLogger } from "./logger.ts";
 import { createMetrics, WS_CONNECTIONS_METRIC } from "./metrics.ts";
@@ -469,3 +469,51 @@ describe("request logging", () => {
     expect(record).not.toHaveProperty("projectId");
   });
 });
+
+it.each([false, true])(
+  "passes repair ownership opt-in through the real upgrade route: %s",
+  async (optIn) => {
+    const store = new InMemoryEventStore();
+    await store.append({
+      sessionId: SESSION,
+      turnId: SESSION,
+      createdAt: "2026-10-19T00:00:00.000Z",
+      type: "user.message",
+      payload: { text: "Repair", repair: { requestId: SESSION, jobId: SESSION } },
+    });
+    const upgrader = new FakeUpgrader();
+    const instance = app({
+      stream: {
+        store,
+        bus: new InMemoryEventBus(),
+        sessions: new InMemorySessionStore([{ sessionId: SESSION, projectId: "project-1" }]),
+        upgradeWebSocket: upgrader.upgrade,
+      },
+    });
+    expect(
+      (await instance.request(`/ws?sessionId=${SESSION}${optIn ? "&repairOwnership=1" : ""}`))
+        .status,
+    ).toBe(200);
+    const frames: string[] = [];
+    const ws = new WSContext({
+      send: (data) => {
+        if (typeof data === "string") frames.push(data);
+      },
+      close: () => {},
+      readyState: 1,
+    });
+    const handlers = upgrader.calls[0]!;
+    try {
+      handlers.onOpen?.(new Event("open"), ws);
+      await vi.waitFor(() =>
+        expect(frames.some((raw) => JSON.parse(raw).type === "ready")).toBe(true),
+      );
+      expect(JSON.parse(frames[0]!).event.payload).toEqual({
+        text: "Repair",
+        ...(optIn ? { repair: { requestId: SESSION, jobId: SESSION } } : {}),
+      });
+    } finally {
+      handlers.onClose?.(new CloseEvent("close"), ws);
+    }
+  },
+);

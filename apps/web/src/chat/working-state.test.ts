@@ -2,7 +2,7 @@ import type { NapEvent, NapEventType } from "@nap/shared/events";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { describe, expect, it } from "vitest";
 import { buildTranscript } from "./transcript.ts";
-import { stepTarget, turnStartedAt, workingLabel } from "./working-state.ts";
+import { inFlightTurn, stepTarget, turnStartedAt, workingLabel } from "./working-state.ts";
 
 /**
  * A `.test.ts` under `apps/web`, like `transcript.test.ts` beside it: deriving what the agent
@@ -46,6 +46,21 @@ function labelFor(...events: StoredEvent[]): string {
 }
 
 describe("workingLabel", () => {
+  it("keeps manual preparation visible and anchors its clock before turn.started", () => {
+    const compact = ev("compaction.started", { id: "c", trigger: "manual" });
+    const started = ev("turn.started", { source: "user" });
+    expect(labelFor(compact)).toBe("Compacting context");
+    expect(labelFor(compact, started)).toBe("Compacting context");
+    expect(turnStartedAt([compact])).toBe(compact.createdAt);
+    expect(turnStartedAt([compact, started])).toBe(compact.createdAt);
+    expect(
+      turnStartedAt([
+        compact,
+        started,
+        ev("turn.failed", { reason: "cancelled", message: "stopped" }),
+      ]),
+    ).toBeUndefined();
+  });
   it("names active compaction and returns to thinking after its boundary", () => {
     const started = ev("turn.started", { source: "user" });
     const compact = ev("compaction.started", { id: "c", trigger: "automatic" });
@@ -198,11 +213,29 @@ describe("turnStartedAt", () => {
         usage: { inputTokens: 10, outputTokens: 2 },
         commitSha: null,
       }),
-      ev("turn.started", { source: "user" }),
+      { ...ev("turn.started", { source: "user" }), turnId: "8c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f" },
     ] as const;
 
     const answer = turnStartedAt([first, ...second]);
     expect(answer).toBe(second[1].createdAt);
     expect(answer).not.toBe(first.createdAt);
+  });
+});
+
+it("retires only covered activity while retaining terminal identity across the idle boundary", () => {
+  const first = ev("turn.started", { source: "user" });
+  const ended = ev("turn.completed", {
+    usage: { inputTokens: 1, outputTokens: 1 },
+    durationMs: 1,
+    commitSha: null,
+  });
+  const legacy = { ...ev("turn.started", { source: "verification" }), turnId: "legacy" };
+  const duplicate = ev("turn.started", { source: "user" });
+  const history = [first, ended, legacy, duplicate];
+  expect(inFlightTurn(history, legacy.seq)).toBeUndefined();
+  const newer = { ...ev("turn.started", { source: "verification" }), turnId: "newer" };
+  expect(inFlightTurn([...history, newer], legacy.seq)).toEqual({
+    turnId: newer.turnId,
+    startedAt: newer.createdAt,
   });
 });

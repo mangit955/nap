@@ -39,22 +39,31 @@ export function prepareCompaction(history: NapEvent[], chunkTokens: number): Com
       break;
     }
   }
-  const source = JSON.stringify(
-    { previousSummary: checkpoint?.summary ?? null, exchanges: messages },
-    (_key, value: unknown) => {
-      if (typeof value === "object" && value !== null && "type" in value && value.type === "image")
-        return {
-          type: "text",
-          text: "[image omitted from summary; original reference remains in the transcript]",
-        };
-      return value;
-    },
-  );
+  const source = textOnlyContext({
+    previousSummary: checkpoint?.summary ?? null,
+    exchanges: messages,
+  });
   const chunks: string[] = [];
   const chars = Math.max(1, Math.floor(chunkTokens * 4));
   for (let offset = 0; offset < source.length; offset += chars)
     chunks.push(source.slice(offset, offset + chars));
   return { coveredThrough: history.at(-1)?.seq ?? 0, chunks, tail };
+}
+
+/** Summary and native restoration carry media references, never encoded frame bytes. */
+export function textOnlyContext(value: unknown): string {
+  return JSON.stringify(value, (_key, value: unknown) => {
+    if (typeof value === "object" && value !== null && "type" in value && value.type === "image")
+      return {
+        type: "text",
+        text: "[image bytes omitted; original reference remains in the transcript]",
+      };
+    if (typeof value === "object" && value !== null && "mediaType" in value && "data" in value) {
+      const { data: _data, ...reference } = value;
+      return reference;
+    }
+    return value;
+  });
 }
 
 export function summaryRequest(
