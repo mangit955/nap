@@ -8,6 +8,7 @@
  * somebody's work rather than merely failing their turn.
  */
 
+import { RESERVATION_TTL_MS } from "@nap/shared/capacity-windows";
 import { getLogger } from "@nap/shared/logging";
 import type { ObjectStore } from "@nap/shared/ports/object-store";
 import type { RepositorySource, RepositoryWorkspace } from "@nap/shared/ports/repository-workspace";
@@ -149,7 +150,7 @@ async function acquireAuthorizedSandbox(
  * decision, which is what stops a hundred simultaneous turns each finding themselves under a cap
  * of ten.
  *
- * Reserved, created, activated — and released on every path where the sandbox did not come into
+ * Reserved, created, renewed while it is prepared, activated — and released on every path where the sandbox did not come into
  * existence, immediately rather than by a sweep, because a slot held by a creation that already
  * failed is one somebody else could have had.
  *
@@ -166,7 +167,13 @@ async function open(
   if (!reserved.ok) return reserved;
   const reservation = reserved.value;
 
-  const opened = await create(options, session);
+  const heartbeat = holdWhilePreparing(options, reservation);
+  let opened: Result<AcquiredSandbox, SandboxError>;
+  try {
+    opened = await create(options, session, heartbeat.created);
+  } finally {
+    await heartbeat.stop();
+  }
   if (!opened.ok) {
     await releaseQuietly(options, reservation);
     return opened;
@@ -191,6 +198,55 @@ async function open(
   await options.sessions.setSandboxId(session.sessionId, opened.value.id);
 
   return opened;
+}
+
+/** How often a reservation is renewed while its sandbox is being prepared — well inside its TTL. */
+const RENEW_EVERY_MS = RESERVATION_TTL_MS / 4;
+
+/**
+ * Keeps the reservation from lapsing between the sandbox existing and the sandbox being ready.
+ *
+ * A repository's setup command may run for ten minutes; a reservation lives for two. Without this
+ * an ordinary dependency install outlives its row, the reaper reclaims it, and the finished
+ * sandbox is refused as uncounted. Renewal keeps the row `reserved` rather than activating it
+ * early, so a process that dies mid-setup still gives the slot back within one TTL — and it
+ * records the sandbox id, so the inventory sweep sees the sandbox as referenced meanwhile.
+ *
+ * A failed renewal is only logged: `activate` at the end asks the same question authoritatively,
+ * and a renewal that could not reach the database says nothing about whether the row survives.
+ */
+function holdWhilePreparing(
+  options: AcquireOptions,
+  reservation: Reservation | null,
+): { created: (sandboxId: string) => void; stop: () => Promise<void> } {
+  const capacity = options.capacity;
+  if (reservation === null || capacity === undefined) {
+    return { created: () => {}, stop: async () => {} };
+  }
+
+  let timer: ReturnType<typeof setInterval> | undefined;
+  let inFlight: Promise<void> = Promise.resolve();
+  const renew = (sandboxId: string) => {
+    inFlight = inFlight.then(async () => {
+      try {
+        const renewed = await capacity.renew(reservation.id, sandboxId);
+        if (!renewed.ok) getLogger().warn({ sandboxId }, renewed.error.message);
+      } catch (error) {
+        getLogger().warn({ sandboxId, err: error }, "could not renew a sandbox reservation");
+      }
+    });
+  };
+
+  return {
+    created: (sandboxId) => {
+      renew(sandboxId);
+      timer = setInterval(() => renew(sandboxId), RENEW_EVERY_MS);
+    },
+    stop: async () => {
+      if (timer !== undefined) clearInterval(timer);
+      await inFlight;
+    },
+  };
 }
 
 /**
@@ -302,6 +358,7 @@ async function reserve(
 async function create(
   options: AcquireOptions,
   session: SessionRecord,
+  onCreated: (sandboxId: string) => void,
 ): Promise<Result<AcquiredSandbox, SandboxError>> {
   if (options.restore === null) {
     if (options.source !== undefined) {
@@ -322,6 +379,7 @@ async function create(
     projectId: session.projectId,
     ...(options.source === undefined ? {} : { source: options.source }),
     signal: options.signal,
+    onCreated,
   });
   if (!opened.ok) {
     // Flattened to the one code a turn can report. The distinction between "no sandbox" and "no

@@ -47,6 +47,7 @@ type Pull = {
 
 class GitHubTransport {
   installationStatus = 200;
+  installationHeaders: Record<string, string> = {};
   suspended: string | null = null;
   tokenStatus = 200;
   permission = { permission: "write", user: { id: 7, login: "owner" } };
@@ -63,14 +64,14 @@ class GitHubTransport {
     const body: unknown = init?.body === undefined ? null : JSON.parse(String(init.body));
     this.calls.push({ path, method, body });
     if (path === "/app/installations/99")
-      return json(
+      return Response.json(
         {
           id: 99,
           app_id: 42,
           account: { id: 88, login: "org", type: "Organization" },
           suspended_at: this.suspended,
         },
-        this.installationStatus,
+        { status: this.installationStatus, headers: this.installationHeaders },
       );
     if (path.endsWith("/access_tokens"))
       return json(
@@ -314,6 +315,32 @@ describe("GitHubIntegration authorization", () => {
       ok: false,
     });
     expect((await f.store.installation(f.session.userId, 99))?.status).toBe("removed");
+  });
+
+  it("keeps an installation connected through rate limiting and its own credential failures", async () => {
+    // A throttled 403 looks like a denial unless the limit headers are read. Persisting it as a
+    // removal would disconnect the owner's repositories until they reinstalled the app.
+    const f = await fixture();
+    const throttles = [
+      { status: 403, headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "9999999999" } },
+      { status: 403, headers: { "retry-after": "60" } },
+      { status: 429, headers: {} },
+      { status: 401, headers: {} },
+    ];
+    for (const throttle of throttles) {
+      f.transport.installationStatus = throttle.status;
+      f.transport.installationHeaders = throttle.headers;
+      expect(await f.service.authorize(f.session.userId, 99, repository)).toMatchObject({
+        ok: false,
+        error: { code: "unavailable" },
+      });
+      expect((await f.store.installation(f.session.userId, 99))?.status).toBe("active");
+    }
+    f.transport.installationStatus = 200;
+    f.transport.installationHeaders = {};
+    expect(await f.service.authorize(f.session.userId, 99, repository)).toMatchObject({
+      ok: true,
+    });
   });
 
   it("delivers Git credentials only to the server broker and rechecks delayed clone access", async () => {
@@ -582,6 +609,19 @@ describe("job branch preparation", () => {
     expect(
       f.sandbox.commands(sandbox.value.id).some((command) => command.includes("checkout")),
     ).toBe(false);
+    // Unfinished edits from other work must not ride along into a PR the feedback is about.
+    f.sandbox.script(/status --porcelain/, { stdout: " M stray.ts" });
+    const dirtyJob = randomUUID();
+    expect(
+      await f.service.prepareJob({
+        session: f.session,
+        sandboxId: sandbox.value.id,
+        jobId: dirtyJob,
+        requestId,
+      }),
+    ).toMatchObject({ ok: false, error: { code: "conflict" } });
+    expect(await f.store.job(dirtyJob)).toBeNull();
+    f.sandbox.script(/status --porcelain/, { stdout: "" });
     head = "c".repeat(40);
     const refusedJob = randomUUID();
     expect(
@@ -629,10 +669,14 @@ describe("job branch preparation", () => {
     const sandbox = await f.sandbox.create(f.session.projectId);
     if (!sandbox.ok) throw new Error("Fixture sandbox failed");
     let dirty = false;
+    let branch = "main";
     f.sandbox.script(/status --porcelain/, () => ({ stdout: dirty ? " M local.ts" : "" }));
     f.sandbox.script(/rev-parse HEAD/, { stdout: SHA });
-    f.sandbox.script(/symbolic-ref --short HEAD/, { stdout: "main" });
-    f.sandbox.script(/checkout -b/, {});
+    f.sandbox.script(/symbolic-ref --short HEAD/, () => ({ stdout: branch }));
+    f.sandbox.script(/checkout -b/, (command) => {
+      branch = command.match(/checkout -b '([^']+)'/)?.[1] ?? "missing";
+      return {};
+    });
     const jobId = randomUUID();
     expect(
       await f.service.prepareJob({ session: f.session, sandboxId: sandbox.value.id, jobId }),
@@ -641,17 +685,23 @@ describe("job branch preparation", () => {
     const commands = f.sandbox.commands(sandbox.value.id);
     expect(commands.some((command) => command.includes(`nap/${jobId}`))).toBe(true);
     expect(commands.some((command) => /reset|clean -f/.test(command))).toBe(false);
+    // The first job stopped with edits in place. The next one continues them on that branch.
     dirty = true;
+    const next = randomUUID();
     expect(
       await f.service.prepareJob({
         session: f.session,
         sandboxId: sandbox.value.id,
-        jobId: randomUUID(),
+        jobId: next,
       }),
-    ).toMatchObject({ ok: false, error: { code: "conflict" } });
+    ).toMatchObject({ ok: true });
+    expect(await f.store.job(next)).toMatchObject({ headBranch: `nap/${jobId}`, baseSha: SHA });
     expect(
       f.sandbox.commands(sandbox.value.id).filter((command) => command.includes("checkout -b")),
     ).toHaveLength(1);
+    expect(
+      f.sandbox.commands(sandbox.value.id).some((command) => /reset|clean -f/.test(command)),
+    ).toBe(false);
   });
 
   it("does not publish a failed or cancelled verification outcome", async () => {

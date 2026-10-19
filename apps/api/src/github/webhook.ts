@@ -31,63 +31,133 @@ const RELEVANT_EVENTS = new Set([
   "status",
 ]);
 
+/**
+ * How long a pull request may go unrefreshed before the backstop sweep reads it again.
+ *
+ * Webhooks are how changes arrive; this only catches deliveries GitHub never made. Each refresh
+ * costs about ten API calls against an installation's hourly allowance of 5,000, so refreshing
+ * every open pull request on every 15-second tick would spend that allowance on two of them.
+ */
+export const RECONCILE_AFTER_MS = 5 * 60_000;
+
+type Authorize = GitHubIntegration["authorize"];
+
 export class GitHubEventProcessor {
-  constructor(readonly integration: GitHubIntegration) {}
+  constructor(
+    readonly integration: GitHubIntegration,
+    readonly now: () => number = Date.now,
+  ) {}
 
   async tick(): Promise<void> {
     const { store, app } = this.integration.deps;
     if (app === null) return;
+    // One authorization per repository per tick, however many jobs and deliveries share it.
+    const authorize = this.#memoizedAuthorize();
+    const installationStatus = new Map<number, Promise<string | undefined>>();
+    // Deliveries arrive in bursts — one per check run — and all describe the same pull request.
+    // Each job is refreshed once, after the whole batch is claimed.
+    const targets = new Map<
+      string,
+      { binding: ProjectRepository; job: RepositoryJob; deliveries: string[] }
+    >();
+    const claimed: { id: string; attempts: number; failure?: string }[] = [];
     // A tick is bounded. The inbox lease survives process restarts and duplicate deliveries.
     for (let count = 0; count < 10; count += 1) {
       const delivery = await store.claimDelivery();
       if (delivery === null) break;
-      let failure: string | undefined;
+      const entry: (typeof claimed)[number] = { id: delivery.id, attempts: delivery.attempts };
+      claimed.push(entry);
       try {
-        if (RELEVANT_EVENTS.has(delivery.event)) {
-          const parsed = Delivery.safeParse(delivery.payload);
-          if (parsed.success && parsed.data.installation !== undefined) {
-            const installationId = parsed.data.installation.id;
-            app.invalidate(installationId);
-            const remote = await app.installation(installationId);
-            if (remote.ok)
-              await store.setInstallationStatus(
-                installationId,
-                remote.value.suspended_at === null ? "active" : "suspended",
-              );
-            else if (remote.error.code === "access_denied")
-              await store.setInstallationStatus(installationId, "removed");
-            else failure = remote.error.message;
-            if (failure === undefined) {
-              const bindings = await store.repositoriesForInstallation(installationId);
-              for (const binding of bindings
-                .filter(
-                  (entry) =>
-                    parsed.data.repository === undefined ||
-                    entry.repository.id === parsed.data.repository.id,
-                )
-                .slice(0, 20)) {
-                const jobs = await store.jobs(binding.projectId, binding.userId);
-                for (const job of this.#latestBranches(jobs).slice(0, 5)) {
-                  const result = await this.reconcile(binding, job);
-                  if (!result.ok && result.error.code !== "access_denied")
-                    failure = result.error.message;
-                }
-              }
-            }
+        if (!RELEVANT_EVENTS.has(delivery.event)) continue;
+        const parsed = Delivery.safeParse(delivery.payload);
+        if (!parsed.success || parsed.data.installation === undefined) continue;
+        const installationId = parsed.data.installation.id;
+        let status = installationStatus.get(installationId);
+        if (status === undefined) {
+          status = this.#refreshInstallation(installationId);
+          installationStatus.set(installationId, status);
+        }
+        const failure = await status;
+        if (failure !== undefined) {
+          entry.failure = failure;
+          continue;
+        }
+        const bindings = await store.repositoriesForInstallation(installationId);
+        for (const binding of bindings
+          .filter(
+            (item) =>
+              parsed.data.repository === undefined ||
+              item.repository.id === parsed.data.repository.id,
+          )
+          .slice(0, 20)) {
+          const jobs = await store.jobs(binding.projectId, binding.userId);
+          for (const job of this.#latestBranches(jobs).slice(0, 5)) {
+            const target = targets.get(job.jobId) ?? { binding, job, deliveries: [] };
+            target.deliveries.push(delivery.id);
+            targets.set(job.jobId, target);
           }
         }
       } catch {
+        entry.failure = "GitHub delivery processing was interrupted.";
+      }
+    }
+    for (const { binding, job, deliveries } of targets.values()) {
+      let failure: string | undefined;
+      try {
+        const result = await this.#refresh(binding, job, authorize);
+        if (!result.ok && result.error.code !== "access_denied") failure = result.error.message;
+      } catch {
         failure = "GitHub delivery processing was interrupted.";
       }
-      await store.finishDelivery(delivery.id, delivery.attempts, failure);
+      if (failure === undefined) continue;
+      for (const entry of claimed) if (deliveries.includes(entry.id)) entry.failure ??= failure;
     }
-    for (const job of await store.listReconcileJobs(10)) {
+    for (const entry of claimed)
+      await store.finishDelivery(entry.id, entry.attempts, entry.failure);
+
+    const stale = new Date(this.now() - RECONCILE_AFTER_MS);
+    for (const job of await store.listReconcileJobs(10, stale)) {
+      if (targets.has(job.jobId)) continue;
       const session = await this.integration.deps.sessions.get(job.sessionId);
       if (session === null) continue;
       const binding = await store.repository(job.projectId, session.userId);
       if (binding === null) continue;
-      await this.reconcile(binding, job);
+      await this.#refresh(binding, job, authorize);
     }
+  }
+
+  /** The installation's current state, written down; a message when GitHub could not say. */
+  async #refreshInstallation(installationId: number): Promise<string | undefined> {
+    const { store, app } = this.integration.deps;
+    if (app === null) return undefined;
+    app.invalidate(installationId);
+    const remote = await app.installation(installationId);
+    if (remote.ok) {
+      await store.setInstallationStatus(
+        installationId,
+        remote.value.suspended_at === null ? "active" : "suspended",
+      );
+      return undefined;
+    }
+    // Only a 404 says the installation is gone; anything else is GitHub being unable to answer.
+    if (remote.status === 404) {
+      await store.setInstallationStatus(installationId, "removed");
+      return undefined;
+    }
+    return remote.error.message;
+  }
+
+  #memoizedAuthorize(): Authorize {
+    const seen = new Map<string, ReturnType<Authorize>>();
+    return (userId, installationId, repository) => {
+      const key = `${userId}:${installationId}:${repository.id}`;
+      let result = seen.get(key);
+      if (result === undefined) {
+        result = this.integration.authorize(userId, installationId, repository);
+        seen.set(key, result);
+      }
+      return result;
+    };
   }
 
   #latestBranches(jobs: RepositoryJob[]): RepositoryJob[] {
@@ -100,7 +170,11 @@ export class GitHubEventProcessor {
   }
 
   async reconcile(binding: ProjectRepository, job: RepositoryJob): Promise<GitHubResult<void>> {
-    const result = await this.#refresh(binding, job);
+    const result = await this.#refresh(
+      binding,
+      job,
+      this.integration.authorize.bind(this.integration),
+    );
     return result.ok ? { ok: true, value: undefined } : result;
   }
 
@@ -109,7 +183,11 @@ export class GitHubEventProcessor {
     job: RepositoryJob,
     feedback: RepositoryFeedback,
   ): Promise<GitHubResult<void>> {
-    const result = await this.#refresh(binding, job);
+    const result = await this.#refresh(
+      binding,
+      job,
+      this.integration.authorize.bind(this.integration),
+    );
     if (!result.ok) return result;
     return feedback.projectId === binding.projectId &&
       feedback.jobId === job.jobId &&
@@ -125,14 +203,18 @@ export class GitHubEventProcessor {
         };
   }
 
-  async #refresh(binding: ProjectRepository, job: RepositoryJob): Promise<GitHubResult<string[]>> {
-    const result = await this.#reconcile(binding, job);
+  async #refresh(
+    binding: ProjectRepository,
+    job: RepositoryJob,
+    authorize: Authorize,
+  ): Promise<GitHubResult<string[]>> {
+    const result = await this.#reconcile(binding, job, authorize);
     if (!result.ok)
       await this.integration.deps.store.updateJob(job.jobId, {
         checkState: "unknown",
         reviewState: "unknown",
         error: result.error.message,
-        updatedAt: new Date().toISOString(),
+        updatedAt: new Date(this.now()).toISOString(),
       });
     return result;
   }
@@ -140,19 +222,16 @@ export class GitHubEventProcessor {
   async #reconcile(
     binding: ProjectRepository,
     job: RepositoryJob,
+    authorize: Authorize,
   ): Promise<GitHubResult<string[]>> {
     const { store, app } = this.integration.deps;
     if (app === null || job.pullRequestNumber === null) return { ok: true, value: [] };
     const currentFeedback: string[] = [];
-    const authorized = await this.integration.authorize(
-      binding.userId,
-      binding.installationId,
-      binding.repository,
-    );
+    const authorized = await authorize(binding.userId, binding.installationId, binding.repository);
     if (!authorized.ok) {
       await store.updateJob(job.jobId, {
         error: authorized.error.message,
-        updatedAt: new Date().toISOString(),
+        updatedAt: new Date(this.now()).toISOString(),
       });
       return authorized;
     }
@@ -176,7 +255,7 @@ export class GitHubEventProcessor {
     const update: Partial<RepositoryJob> = {
       pullRequestState: state,
       ...(job.publishState === "failed" ? {} : { error: null }),
-      updatedAt: new Date().toISOString(),
+      updatedAt: new Date(this.now()).toISOString(),
     };
     let changed = state !== job.pullRequestState;
     if (state === "open") {
@@ -242,7 +321,7 @@ export class GitHubEventProcessor {
             kind: "checks",
             summary: `Address failing GitHub checks for commit ${remote.value.head.sha}: ${[...failed.map((entry) => entry.name), ...badStatuses.map((entry) => entry.context)].join(", ").slice(0, 3000)}.`,
             requestId: null,
-            createdAt: new Date().toISOString(),
+            createdAt: new Date(this.now()).toISOString(),
           })) || changed;
       }
       for (const comment of [...comments.value, ...inline.value]) {
@@ -266,12 +345,22 @@ export class GitHubEventProcessor {
             kind: "comment",
             summary: comment.body.replace(/^\s*\/nap\s+/i, "").slice(0, 4000),
             requestId: null,
-            createdAt: new Date().toISOString(),
+            createdAt: new Date(this.now()).toISOString(),
           })) || changed;
       }
     }
     await store.discardStaleFeedback(job.jobId, currentFeedback);
     await store.updateJob(job.jobId, update);
+    if (state !== "open") {
+      // Earlier jobs on this pull request are no longer reconciled, so they learn it closed here.
+      for (const earlier of await store.jobs(binding.projectId, binding.userId))
+        if (
+          earlier.jobId !== job.jobId &&
+          earlier.pullRequestNumber === job.pullRequestNumber &&
+          earlier.pullRequestState === "open"
+        )
+          await store.updateJob(earlier.jobId, { pullRequestState: state });
+    }
     if (changed)
       await this.integration.notice(
         binding.sessionId,

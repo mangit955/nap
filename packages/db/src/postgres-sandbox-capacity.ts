@@ -214,6 +214,19 @@ export class PostgresSandboxCapacity implements SandboxCapacity {
     return { ok: true, value: undefined };
   }
 
+  async renew(reservationId: string, sandboxId: string): Promise<VoidResult<ActivationFailure>> {
+    const rows = await this.#db
+      .update(sandboxReservations)
+      .set({ sandboxId, expiresAt: sql`now() + ${RESERVATION_TTL}::interval` })
+      .where(
+        and(eq(sandboxReservations.id, reservationId), eq(sandboxReservations.state, "reserved")),
+      )
+      .returning({ id: sandboxReservations.id });
+
+    if (rows.length === 0) return reclaimed(sandboxId);
+    return { ok: true, value: undefined };
+  }
+
   /**
    * Deleting rather than marking, in both releases, and finding nothing is success.
    *

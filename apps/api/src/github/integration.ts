@@ -60,9 +60,16 @@ export class GitHubIntegration implements RepositoryWorkspace {
     if (local === null || local.status !== "active" || this.deps.app === null) return denied();
     const remote = await this.deps.app.installation(id);
     if (!remote.ok) {
-      if (remote.error.code === "access_denied")
+      // Only GitHub saying the installation is gone may disconnect it. A 401 is this app's own
+      // credentials and a throttled 403 is temporary; persisting either would turn an outage
+      // into a disconnection nobody can undo without reinstalling.
+      if (remote.status === 404) {
         await this.deps.store.setInstallationStatus(id, "removed");
-      return remote;
+        return denied();
+      }
+      return remote.error.code === "access_denied"
+        ? { ok: false, error: { code: "unavailable", message: remote.error.message } }
+        : remote;
     }
     if (remote.value.app_id !== this.deps.app.config.appId || remote.value.suspended_at !== null) {
       await this.deps.store.setInstallationStatus(id, "suspended");
@@ -190,11 +197,8 @@ export class GitHubIntegration implements RepositoryWorkspace {
     const sha = await this.#git(sandboxId, "rev-parse HEAD");
     if (!sha.ok) return sha;
     let job = await this.deps.store.job(jobId);
+    const created = job === null;
     if (job === null) {
-      if (status.value !== "")
-        return conflict(
-          "The workspace has unfinished edits. Resume the existing job or save those edits before starting another job.",
-        );
       let prior: RepositoryJob | null = null;
       if (options.requestId !== undefined) {
         const feedback = (
@@ -202,10 +206,25 @@ export class GitHubIntegration implements RepositoryWorkspace {
         ).find((entry) => entry.requestId === options.requestId);
         if (feedback !== undefined) prior = await this.deps.store.job(feedback.jobId);
       }
+      if (prior !== null && status.value !== "")
+        return conflict(
+          "The workspace has unfinished edits from other work. Finish them in chat before applying this PR feedback.",
+        );
       if (prior !== null && prior.pushedSha !== sha.value)
         return conflict(
           "The workspace has moved since this PR feedback arrived. Open the linked branch before applying it.",
         );
+      if (prior === null && status.value !== "") {
+        // A stopped or failed job leaves its edits in the workspace. The next message continues
+        // them on the branch they were started on — and that branch's pull request, if it has
+        // one — rather than refusing every message until somebody discards the work.
+        const current = await this.#git(sandboxId, "symbolic-ref --short HEAD");
+        if (current.ok)
+          prior =
+            (await this.deps.store.jobs(session.projectId, session.userId)).find(
+              (entry) => entry.headBranch === current.value,
+            ) ?? null;
+      }
       job = await this.deps.store.createJob({
         jobId,
         projectId: session.projectId,
@@ -228,7 +247,10 @@ export class GitHubIntegration implements RepositoryWorkspace {
     if (job.projectId !== session.projectId || job.sessionId !== session.sessionId) return denied();
     const branch = await this.#git(sandboxId, "symbolic-ref --short HEAD");
     if (branch.ok && branch.value === job.headBranch) return success();
-    if (status.value !== "")
+    // A new branch from the current commit carries uncommitted edits with it unchanged. An
+    // existing job whose branch is not checked out is a different matter: switching would mix
+    // these edits into somebody else's branch.
+    if (!created && status.value !== "")
       return conflict("The workspace has unfinished edits. Its branch was not changed.");
     if (sha.value !== job.baseSha)
       return conflict(

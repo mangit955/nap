@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -9,6 +9,19 @@ import type { GitHubResult } from "./app.ts";
 
 const execute = promisify(execFile);
 const MAX_BUNDLE_BYTES = 64 * 1024 * 1024;
+/**
+ * The most one transfer may write to this process's temporary disk.
+ *
+ * The bundle limit is checked only once the bundle exists, and getting there means fetching every
+ * branch and tag first — so without this a large repository fills the worker's disk before it is
+ * refused, and every turn on that worker fails with it. A fetched pack plus the bundle made from
+ * it is about twice the bundle, so four times leaves room without letting a repository many times
+ * the limit through.
+ */
+const MAX_WORKING_BYTES = 4 * MAX_BUNDLE_BYTES;
+/** How many transfers may hold temporary disk at once, so the bound above is a bound per process. */
+const MAX_CONCURRENT_TRANSFERS = 2;
+const WATCH_EVERY_MS = 200;
 type Transfer = {
   fullName: string;
   branch: string;
@@ -21,12 +34,45 @@ export interface GitBroker {
 }
 
 export class ServerGitBroker implements GitBroker {
+  readonly #waiting: (() => void)[] = [];
+  #active = 0;
+
   constructor(
     readonly options: {
       remoteFor?: (fullName: string) => string;
       allowLocalTransport?: boolean;
+      maxWorkingBytes?: number;
+      maxConcurrent?: number;
     } = {},
   ) {}
+
+  /** Waits for a transfer slot; false when cancelled while waiting. */
+  async #acquire(signal: AbortSignal | undefined): Promise<boolean> {
+    if (this.#active < (this.options.maxConcurrent ?? MAX_CONCURRENT_TRANSFERS)) {
+      this.#active += 1;
+      return true;
+    }
+    return await new Promise<boolean>((resolve) => {
+      const granted = () => {
+        signal?.removeEventListener("abort", cancelled);
+        resolve(true);
+      };
+      const cancelled = () => {
+        const index = this.#waiting.indexOf(granted);
+        if (index !== -1) this.#waiting.splice(index, 1);
+        resolve(false);
+      };
+      this.#waiting.push(granted);
+      signal?.addEventListener("abort", cancelled, { once: true });
+    });
+  }
+
+  #release(): void {
+    const next = this.#waiting.shift();
+    // Handed straight to the next waiter, so the count never dips and lets a third in.
+    if (next !== undefined) next();
+    else this.#active -= 1;
+  }
 
   async #withGit<T>(
     options: Transfer,
@@ -43,7 +89,29 @@ export class ServerGitBroker implements GitBroker {
         error: { code: "access_denied", message: "Invalid repository or branch." },
       };
     }
-    const directory = await mkdtemp(join(tmpdir(), "nap-git-"));
+    if (!(await this.#acquire(options.signal)))
+      return { ok: false, error: { code: "cancelled", message: "Repository transfer cancelled." } };
+    let directory: string;
+    try {
+      directory = await mkdtemp(join(tmpdir(), "nap-git-"));
+    } catch (error) {
+      this.#release();
+      throw error;
+    }
+    const limit = new AbortController();
+    const signal =
+      options.signal === undefined ? limit.signal : AbortSignal.any([options.signal, limit.signal]);
+    const allowance = this.options.maxWorkingBytes ?? MAX_WORKING_BYTES;
+    let oversized = false;
+    // Sampled while Git runs, to stop a download partway; and checked after every step, because
+    // a fast transfer can finish between two samples.
+    const watcher = setInterval(() => {
+      void directorySize(directory).then((bytes) => {
+        if (bytes <= allowance) return;
+        oversized = true;
+        limit.abort();
+      });
+    }, WATCH_EVERY_MS);
     try {
       const env = {
         PATH: process.env.PATH ?? "/usr/bin:/bin",
@@ -81,14 +149,26 @@ export class ServerGitBroker implements GitBroker {
             env,
             timeout: 120_000,
             maxBuffer: 2 * 1024 * 1024,
-            ...(options.signal === undefined ? {} : { signal: options.signal }),
+            signal,
           },
         );
+        if ((await directorySize(directory)) > allowance) {
+          oversized = true;
+          throw new Error("transfer exceeded its disk allowance");
+        }
         return result.stdout.trim();
       };
       await git("init", "--bare", ".");
       return { ok: true, value: await operation(git, directory) };
     } catch {
+      if (oversized)
+        return {
+          ok: false,
+          error: {
+            code: "conflict",
+            message: `This repository is too large to import. Nap supports repositories whose history bundles to ${MAX_BUNDLE_BYTES / 1024 / 1024} MiB or less.`,
+          },
+        };
       return options.signal?.aborted
         ? { ok: false, error: { code: "cancelled", message: "Repository transfer cancelled." } }
         : {
@@ -100,7 +180,9 @@ export class ServerGitBroker implements GitBroker {
             },
           };
     } finally {
+      clearInterval(watcher);
       await rm(directory, { recursive: true, force: true });
+      this.#release();
     }
   }
 
@@ -161,4 +243,22 @@ export class ServerGitBroker implements GitBroker {
   #remote(fullName: string): string {
     return this.options.remoteFor?.(fullName) ?? `https://github.com/${fullName}.git`;
   }
+}
+
+/** Bytes under a directory. A file vanishing mid-walk is Git renaming a temporary pack. */
+async function directorySize(directory: string): Promise<number> {
+  let total = 0;
+  try {
+    const entries = await readdir(directory, { recursive: true, withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isFile()) continue;
+      total += await stat(join(entry.parentPath, entry.name)).then(
+        (info) => info.size,
+        () => 0,
+      );
+    }
+  } catch {
+    // The directory is being removed; there is nothing left to bound.
+  }
+  return total;
 }

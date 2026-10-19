@@ -67,6 +67,26 @@ const empty = z.unknown();
 type Permissions = Record<string, "read" | "write">;
 type Token = { token: string; expiresAt: number };
 
+/**
+ * GitHub answers an exhausted rate limit with 403 or 429, and a 403 is otherwise how it says
+ * access is gone. Reading the limit headers is the only way to tell them apart, and telling them
+ * apart is the difference between waiting an hour and disconnecting somebody's repositories.
+ * https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api
+ */
+export function isRateLimited(response: Pick<Response, "status" | "headers">): boolean {
+  if (response.status !== 403 && response.status !== 429) return false;
+  return (
+    response.status === 429 ||
+    response.headers.get("x-ratelimit-remaining") === "0" ||
+    response.headers.has("retry-after")
+  );
+}
+
+const RATE_LIMITED: GitHubError = {
+  code: "unavailable",
+  message: "GitHub is rate limiting Nap's requests for this connection. Try again shortly.",
+};
+
 function failure<T>(status?: number): GitHubResult<T> {
   if (status === 401 || status === 403 || status === 404)
     return {
@@ -137,6 +157,8 @@ export class GitHubApp {
             ? AbortSignal.timeout(20_000)
             : AbortSignal.any([options.signal, AbortSignal.timeout(20_000)]),
       });
+      if (isRateLimited(response))
+        return { ok: false, error: RATE_LIMITED, status: response.status };
       if (!response.ok) return { ...failure<T>(response.status), status: response.status };
       const parsed = schema.safeParse(response.status === 204 ? null : await response.json());
       return parsed.success
@@ -153,7 +175,10 @@ export class GitHubApp {
     }
   }
 
-  async installation(id: number): Promise<GitHubResult<z.infer<typeof Installation>>> {
+  /** `status` is 404 only when GitHub says the installation no longer exists. */
+  async installation(
+    id: number,
+  ): Promise<GitHubResult<z.infer<typeof Installation>> & { status?: number }> {
     try {
       return await this.#http(`/app/installations/${id}`, `Bearer ${this.#jwt()}`, Installation);
     } catch {

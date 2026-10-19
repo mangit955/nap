@@ -91,7 +91,12 @@ export function phaseOf({
   if (putAwayAt !== undefined && resumeError === undefined) return { kind: "starting" };
 
   if (!previewRequired && record === "running") return { kind: "no-preview" };
-  if (!previewRequired && record === "new") return { kind: "starting" };
+  // A repository with no dev server never announces a preview, so a failed first start is the
+  // only preview news it gets — and "starting" over it would spin forever.
+  if (!previewRequired && record === "new")
+    return preview.status === "error"
+      ? { kind: "failed", message: preview.message }
+      : { kind: "starting" };
 
   if (nothingIsServing(preview, putAwayAt)) return { kind: "put-away" };
 

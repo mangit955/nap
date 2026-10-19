@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { decodeRepositoryBundle, encodeRepositoryBundle } from "@nap/sandbox/git-bundle";
@@ -107,4 +108,90 @@ it("rejects invalid branches and already cancelled operations without running Gi
       signal: AbortSignal.abort(),
     }),
   ).toMatchObject({ ok: false, error: { code: "cancelled" } });
+});
+
+async function repositoryWith(bytes: number): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), "nap-broker-test-"));
+  directories.push(dir);
+  git(dir, "init", "-b", "main");
+  // Random, so neither zlib nor delta compression can shrink it under the limit.
+  await writeFile(join(dir, "blob.bin"), randomBytes(bytes));
+  git(dir, "add", ".");
+  git(dir, "commit", "-m", "base");
+  return dir;
+}
+
+const brokerDirectories = async () =>
+  (await readdir(tmpdir())).filter((name) => name.startsWith("nap-git-"));
+
+it("stops a transfer that outgrows its disk allowance and leaves nothing behind", async () => {
+  const dir = await repositoryWith(4 * 1024 * 1024);
+  const before = await brokerDirectories();
+  const broker = new ServerGitBroker({
+    remoteFor: () => dir,
+    allowLocalTransport: true,
+    maxWorkingBytes: 1024 * 1024,
+  });
+
+  const imported = await broker.fetch({ fullName: "org/repo", branch: "main", token: "secret" });
+
+  expect(imported).toMatchObject({
+    ok: false,
+    error: { code: "conflict", message: expect.stringContaining("too large") },
+  });
+  expect(await brokerDirectories()).toEqual(before);
+  // The same repository fits a normal allowance, so the refusal above was the limit's doing.
+  const roomy = new ServerGitBroker({ remoteFor: () => dir, allowLocalTransport: true });
+  expect(
+    await roomy.fetch({ fullName: "org/repo", branch: "main", token: "secret" }),
+  ).toMatchObject({ ok: true });
+});
+
+it("runs no more transfers at once than it is allowed", async () => {
+  const dir = await repositoryWith(1024);
+  const order: string[] = [];
+  const broker = new ServerGitBroker({
+    remoteFor: () => {
+      order.push("start");
+      return dir;
+    },
+    allowLocalTransport: true,
+    maxConcurrent: 1,
+  });
+  const transfer = () => broker.fetch({ fullName: "org/repo", branch: "main", token: "secret" });
+
+  const results = await Promise.all([
+    transfer().then((result) => {
+      order.push("end");
+      return result;
+    }),
+    transfer(),
+  ]);
+
+  expect(results).toMatchObject([{ ok: true }, { ok: true }]);
+  expect(order.slice(0, 3)).toEqual(["start", "end", "start"]);
+});
+
+it("gives up its place in line when cancelled while waiting", async () => {
+  const dir = await repositoryWith(1024);
+  const broker = new ServerGitBroker({
+    remoteFor: () => dir,
+    allowLocalTransport: true,
+    maxConcurrent: 1,
+  });
+  const waiting = new AbortController();
+  const first = broker.fetch({ fullName: "org/repo", branch: "main", token: "secret" });
+  const second = broker.fetch({
+    fullName: "org/repo",
+    branch: "main",
+    token: "secret",
+    signal: waiting.signal,
+  });
+  waiting.abort();
+
+  expect(await second).toMatchObject({ ok: false, error: { code: "cancelled" } });
+  expect(await first).toMatchObject({ ok: true });
+  expect(
+    await broker.fetch({ fullName: "org/repo", branch: "main", token: "secret" }),
+  ).toMatchObject({ ok: true });
 });

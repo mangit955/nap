@@ -347,3 +347,64 @@ describe("activating", () => {
     if (!refused.ok) expect(refused.error.reason).toBe("per_user");
   });
 });
+
+describe("renewing", () => {
+  it("pushes a preparing reservation's expiry out and names its sandbox", async () => {
+    // A repository setup that outlives the TTL: the row is about to lapse, renewal must move its
+    // clock and record the sandbox so the inventory sweep sees it referenced — while leaving it
+    // `reserved`, so a process that dies mid-setup still loses the slot.
+    const userId = await seedUser();
+    const projectId = await seedProject(userId);
+    const reserved = await capacity.reserve({ projectId, userId });
+    if (!reserved.ok) throw new Error("expected the reservation to be admitted");
+    await db
+      .update(sandboxReservations)
+      .set({ expiresAt: sqlOf`now() + interval '1 second'` })
+      .where(eq(sandboxReservations.id, reserved.value.id));
+
+    const renewed = await capacity.renew(reserved.value.id, "sb-preparing");
+
+    expect(renewed.ok).toBe(true);
+    const [row] = await db
+      .select({
+        state: sandboxReservations.state,
+        sandboxId: sandboxReservations.sandboxId,
+        outlivesAMinute: sqlOf<boolean>`${sandboxReservations.expiresAt} > now() + interval '1 minute'`,
+      })
+      .from(sandboxReservations)
+      .where(eq(sandboxReservations.id, reserved.value.id));
+    expect(row).toEqual({ state: "reserved", sandboxId: "sb-preparing", outlivesAMinute: true });
+    expect(await new PostgresCapacityReconciler(db).referencedSandboxIds()).toContain(
+      "sb-preparing",
+    );
+  });
+
+  it("reports a reservation that was reclaimed before it could be renewed", async () => {
+    const userId = await seedUser();
+    const projectId = await seedProject(userId);
+    const reserved = await capacity.reserve({ projectId, userId });
+    if (!reserved.ok) throw new Error("expected the reservation to be admitted");
+    await capacity.release(reserved.value.id);
+
+    const renewed = await capacity.renew(reserved.value.id, "sb-late");
+
+    expect(renewed).toMatchObject({ ok: false, error: { reason: "reservation_reclaimed" } });
+  });
+
+  it("does not turn an active row back into an expiring one", async () => {
+    const userId = await seedUser();
+    const projectId = await seedProject(userId);
+    const reserved = await capacity.reserve({ projectId, userId });
+    if (!reserved.ok) throw new Error("expected the reservation to be admitted");
+    await capacity.activate(reserved.value.id, "sb-live");
+
+    const renewed = await capacity.renew(reserved.value.id, "sb-live");
+
+    expect(renewed.ok).toBe(false);
+    const [row] = await db
+      .select({ neverExpires: sqlOf<boolean>`${sandboxReservations.expiresAt} = 'infinity'` })
+      .from(sandboxReservations)
+      .where(eq(sandboxReservations.id, reserved.value.id));
+    expect(row?.neverExpires).toBe(true);
+  });
+});

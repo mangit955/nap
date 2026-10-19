@@ -64,7 +64,13 @@ export interface GitHubStore {
   job(jobId: string): Promise<RepositoryJob | null>;
   jobs(projectId: string, userId: string): Promise<RepositoryJob[]>;
   updateJob(jobId: string, update: RepositoryJobUpdate): Promise<void>;
-  listReconcileJobs(limit: number): Promise<RepositoryJob[]>;
+  /**
+   * The newest job on each open pull request that has not been refreshed since
+   * `notUpdatedSince`, oldest first. Older jobs on the same pull request are left out: they
+   * describe the same remote state, and reconciling each would multiply GitHub calls by the
+   * number of follow-ups somebody has run.
+   */
+  listReconcileJobs(limit: number, notUpdatedSince: Date): Promise<RepositoryJob[]>;
   feedbackForProject(projectId: string, userId: string): Promise<RepositoryFeedback[]>;
   feedback(
     projectId: string,

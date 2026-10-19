@@ -393,24 +393,44 @@ describe("repository job identity", () => {
   });
 
   it("reconciles a bounded oldest-first set of open PRs with active access", async () => {
+    // Dated long ago so the cutoff below excludes every other test's jobs in this shared database.
     const repository = await imported();
     const earlier = await store.createJob({
       ...newJob(repository),
+      pullRequestNumber: 1,
       pullRequestState: "open",
       updatedAt: "2000-01-01T00:00:00.000Z",
     });
     const later = await store.createJob({
       ...newJob(repository),
+      pullRequestNumber: 2,
       pullRequestState: "open",
       updatedAt: "2001-01-01T00:00:00.000Z",
     });
-    expect((await store.listReconcileJobs(1)).map((job) => job.jobId)).toEqual([earlier.jobId]);
-    expect((await store.listReconcileJobs(2)).map((job) => job.jobId)).toEqual([
-      earlier.jobId,
+    const ids = async (limit: number, cutoff: string) =>
+      (await store.listReconcileJobs(limit, new Date(cutoff))).map((job) => job.jobId);
+
+    expect(await ids(1, "2002-01-01T00:00:00.000Z")).toEqual([earlier.jobId]);
+    expect(await ids(2, "2002-01-01T00:00:00.000Z")).toEqual([earlier.jobId, later.jobId]);
+    // Refreshed since the cutoff: left for a later tick.
+    expect(await ids(10, "2000-06-01T00:00:00.000Z")).toEqual([earlier.jobId]);
+
+    // A follow-up on the first PR supersedes it, even when the older job was refreshed more
+    // recently — which is exactly when ordering by `updated_at` would pick the wrong one.
+    const followUp = await store.createJob({
+      ...earlier,
+      jobId: randomUUID(),
+      updatedAt: "1999-01-01T00:00:00.000Z",
+    });
+    expect(await ids(10, "2002-01-01T00:00:00.000Z")).toEqual([followUp.jobId, later.jobId]);
+    expect((await store.jobs(repository.projectId, owner)).map((job) => job.jobId)).toEqual([
+      followUp.jobId,
       later.jobId,
+      earlier.jobId,
     ]);
+
     await store.disconnect(owner, repository.installationId);
-    expect(await store.listReconcileJobs(10)).toEqual([]);
+    expect(await ids(10, "2002-01-01T00:00:00.000Z")).toEqual([]);
   });
 });
 

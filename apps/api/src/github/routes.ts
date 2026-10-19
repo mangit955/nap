@@ -111,7 +111,7 @@ export function registerGitHubRoutes(
             installation.installationId,
             current.value.suspended_at === null ? "active" : "suspended",
           );
-        else if (!current.ok && current.error.code === "access_denied")
+        else if (!current.ok && current.status === 404)
           await deps.store.setInstallationStatus(installation.installationId, "removed");
       }
     }

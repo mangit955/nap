@@ -22,7 +22,21 @@ import type {
   RepositoryJobUpdate,
 } from "@nap/shared/ports/github-store";
 import type { EnqueueTurnRequest } from "@nap/shared/ports/turn-queue";
-import { and, asc, desc, eq, gt, isNull, lt, ne, notInArray, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  isNull,
+  lt,
+  ne,
+  notExists,
+  notInArray,
+  or,
+  sql,
+} from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import {
   githubConnectionStates,
@@ -291,7 +305,7 @@ export class PostgresGitHubStore implements GitHubStore {
       .from(repositoryJobs)
       .innerJoin(projects, eq(projects.id, repositoryJobs.projectId))
       .where(and(eq(projects.id, projectId), eq(projects.userId, userId)))
-      .orderBy(desc(repositoryJobs.updatedAt));
+      .orderBy(desc(repositoryJobs.createdAt), desc(repositoryJobs.jobId));
     return rows.map(({ job }) => toJob(job));
   }
 
@@ -305,7 +319,8 @@ export class PostgresGitHubStore implements GitHubStore {
       .where(eq(repositoryJobs.jobId, jobId));
   }
 
-  async listReconcileJobs(limit: number): Promise<RepositoryJob[]> {
+  async listReconcileJobs(limit: number, notUpdatedSince: Date): Promise<RepositoryJob[]> {
+    const newer = alias(repositoryJobs, "newer");
     const rows = await this.db
       .select({ job: repositoryJobs })
       .from(repositoryJobs)
@@ -315,7 +330,29 @@ export class PostgresGitHubStore implements GitHubStore {
         eq(githubInstallations.installationId, projectRepositories.installationId),
       )
       .where(
-        and(eq(repositoryJobs.pullRequestState, "open"), eq(githubInstallations.status, "active")),
+        and(
+          eq(repositoryJobs.pullRequestState, "open"),
+          eq(githubInstallations.status, "active"),
+          lt(repositoryJobs.updatedAt, notUpdatedSince),
+          notExists(
+            this.db
+              .select({ one: sql`1` })
+              .from(newer)
+              .where(
+                and(
+                  eq(newer.projectId, repositoryJobs.projectId),
+                  eq(newer.pullRequestNumber, repositoryJobs.pullRequestNumber),
+                  or(
+                    gt(newer.createdAt, repositoryJobs.createdAt),
+                    and(
+                      eq(newer.createdAt, repositoryJobs.createdAt),
+                      gt(newer.jobId, repositoryJobs.jobId),
+                    ),
+                  ),
+                ),
+              ),
+          ),
+        ),
       )
       .orderBy(asc(repositoryJobs.updatedAt), asc(repositoryJobs.jobId))
       .limit(Math.max(0, Math.min(100, Math.floor(limit))));

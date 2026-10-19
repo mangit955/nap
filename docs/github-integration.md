@@ -69,10 +69,12 @@ credentials in a Nap conversation.
    Model API keys also remain separate. No Claude or Codex subscription authentication is added.
 
 5. Run `bun run db:migrate`. Migration 0009 adds installations, callback states, repository
-   bindings, repository jobs, feedback and a webhook inbox. Stop old workers before enabling the
+   bindings, repository jobs, feedback and a webhook inbox; 0010 records when each job was created,
+   which is how the newest job on a pull request is told apart from earlier ones. Stop old workers before enabling the
    new UI: old workers do not understand queue requests with kind `publish`. Deploy API, workers,
    reaper and web from the same version. Run one reaper with the existing leader lease. Its GitHub
-   sweep runs every 15 seconds separately from sandbox cleanup.
+   sweep runs every 15 seconds separately from sandbox cleanup; each sweep processes new webhook
+   deliveries, and rereads an open pull request only when nothing has refreshed it for five minutes.
 
 6. Sign into a permanent Nap account and connect from Settings → Connections. Use GitHub's
    selected-repositories option. On the Connections page, Manage access opens GitHub settings;
@@ -103,8 +105,11 @@ Normal sandbox capacity, idle teardown, cancellation and durable queue rules app
 
 A new job gets `nap/<job-id>` from the workspace's current commit. It targets the branch chosen at
 import. This preserves the current workspace, so a second job may include earlier unmerged work.
-Nap does not automatically rebase, merge, force-push or update the upstream base. A new job refuses
-unfinished uncommitted edits; a retry of that same job can continue them on its existing branch.
+Nap does not automatically rebase, merge, force-push or update the upstream base. Stopping a job
+keeps its uncommitted edits in the workspace. The next message continues them as a new job on the
+same branch, and that branch's pull request if it has one. Edits made outside any job branch move
+onto the new job's branch unchanged. Approved PR feedback is the exception: it refuses to start
+while unfinished edits from other work are present, so they cannot reach the wrong pull request.
 
 Existing verification checks the configured package scripts. A verified commit can be pushed and
 proposed as a draft PR, automatically if selected at import. The panel records the base/head,
@@ -127,10 +132,15 @@ work, feedback refuses to reset it.
 
 Webhook signatures cover the raw request body. The inbox deduplicates delivery IDs and fences
 worker leases; transient failures retry up to five attempts. Each sweep handles at most ten
-deliveries plus ten open-PR reconciliation records. GitHub API collections stop at 1,000 records
+deliveries plus ten open-PR reconciliation records. Deliveries in one sweep that name the same pull
+request share one refresh, and only the newest job on a pull request is refreshed; earlier jobs
+learn its closed or merged state from it. GitHub API collections stop at 1,000 records
 and fail visibly rather than infer a passing status from incomplete data. Missed installation
 revocations are also checked before each repository operation. Repository renames recover by
 numeric ID in the App's current selected repositories, without following authenticated redirects.
+Only a 404 from GitHub's installation endpoint marks an installation removed. Rate limiting (a 403
+or 429 carrying GitHub's rate-limit headers) and failures of the App's own credentials are
+reported as temporary and change no stored state.
 
 ## Credential boundary
 
@@ -154,9 +164,10 @@ GitHub.com is supported. Optional personal PR authorship, GitHub Enterprise Serv
 ownership, repository indexing and automatic follow-ups are later work. Git LFS payloads, submodule
 checkout, private package registry authentication and arbitrary repository secret injection are
 not implemented. The App does not request workflow-write permission, so GitHub may reject a push
-that changes `.github/workflows`. Git operations have a two-minute deadline and bundles are capped at 64 MiB;
-the cap does not bound server disk use during an initial fetch. Large repositories need a separate
-resource admission policy before raising that limit.
+that changes `.github/workflows`. Git operations have a two-minute deadline and bundles are capped at 64 MiB.
+Each transfer may use at most 256 MiB of server temporary disk, checked while Git runs and after
+each step; at most two transfers run at once per process. A repository over either limit is
+refused as too large. Raising the bundle cap needs a matching review of those bounds.
 
 The verifier retains Nap's Bun/package-script checks and optional preview probe. There is no
 language-specific verifier for arbitrary non-JavaScript repositories. Absent checks retain the

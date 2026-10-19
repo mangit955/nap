@@ -2,10 +2,12 @@ import { InMemorySandboxCapacity } from "@nap/db/testing/in-memory-sandbox-capac
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
+import { scriptGit } from "@nap/sandbox/testing/script-git";
+import { RESERVATION_TTL_MS } from "@nap/shared/capacity-windows";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SessionRecord } from "@nap/shared/ports/session-store";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   acquireSandbox,
   LOST_SANDBOX_WARNING,
@@ -370,5 +372,97 @@ describe("the capacity a new sandbox costs", () => {
     if (!acquired.ok) return;
     const stored = await options.sessions.get(SESSION_ID);
     expect(stored?.sandboxId).toBe(acquired.value.id);
+  });
+
+  describe("a repository setup longer than a reservation lives", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("keeps its slot through the reaper's sweeps and opens", async () => {
+      // A dependency install may run for ten minutes and a reservation lapses after two. The
+      // reaper runs while setup is still going; the slot must survive it, and the sandbox must be
+      // named somewhere the inventory sweep looks, or a perfectly healthy import is refused.
+      vi.useFakeTimers();
+      const capacity = new InMemorySandboxCapacity();
+      const sandbox = scriptGit(
+        new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0 }) }),
+      );
+      const swept: { reclaimed: string[]; held: ReturnType<typeof capacity.held> }[] = [];
+      sandbox.script(/setsid timeout/, async () => {
+        for (let minute = 0; minute < 6; minute++) {
+          await vi.advanceTimersByTimeAsync(60_000);
+          swept.push({ reclaimed: capacity.reclaimExpired(), held: capacity.held() });
+        }
+        return { exitCode: 0 };
+      });
+
+      const acquired = await acquireSandbox(
+        {
+          ...deps(sandbox, { restore: true }),
+          capacity,
+          repository: {
+            source: async () => ({
+              ok: true,
+              value: {
+                setupCommand: "npm ci",
+                devCommand: null,
+                previewPort: null,
+                initialBundle: async () => ({ ok: true, value: Buffer.from("bundle") }),
+              },
+            }),
+            prepareJob: async () => ({ ok: true, value: undefined }),
+            finishJob: async () => ({ ok: true, value: undefined }),
+          },
+        },
+        session(null),
+      );
+
+      expect(acquired.ok).toBe(true);
+      if (!acquired.ok) return;
+      expect(swept.length * 60_000).toBeGreaterThan(RESERVATION_TTL_MS * 2);
+      for (const sweep of swept) {
+        expect(sweep.reclaimed).toEqual([]);
+        expect(sweep.held).toMatchObject([{ state: "reserved", sandboxId: acquired.value.id }]);
+      }
+      expect(capacity.held()).toMatchObject([{ state: "active", sandboxId: acquired.value.id }]);
+    });
+
+    it("still loses the slot within one TTL when nothing is renewing it", async () => {
+      // The other half of the bargain: renewal must stop with the acquire, or a crashed process
+      // would hold a slot forever. Here the creation fails after the sandbox exists.
+      vi.useFakeTimers();
+      const capacity = new InMemorySandboxCapacity();
+      const sandbox = scriptGit(
+        new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0 }) }),
+      );
+      sandbox.script(/setsid timeout/, () => ({ exitCode: 1 }));
+
+      const acquired = await acquireSandbox(
+        {
+          ...deps(sandbox, { restore: true }),
+          capacity,
+          repository: {
+            source: async () => ({
+              ok: true,
+              value: {
+                setupCommand: "false",
+                devCommand: null,
+                previewPort: null,
+                initialBundle: async () => ({ ok: true, value: Buffer.from("bundle") }),
+              },
+            }),
+            prepareJob: async () => ({ ok: true, value: undefined }),
+            finishJob: async () => ({ ok: true, value: undefined }),
+          },
+        },
+        session(null),
+      );
+
+      expect(acquired.ok).toBe(false);
+      expect(capacity.held()).toEqual([]);
+      await vi.advanceTimersByTimeAsync(RESERVATION_TTL_MS * 3);
+      expect(vi.getTimerCount()).toBe(0);
+    });
   });
 });

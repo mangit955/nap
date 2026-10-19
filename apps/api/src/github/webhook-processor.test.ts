@@ -10,7 +10,7 @@ import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store
 import { describe, expect, it } from "vitest";
 import { GitHubApp, type GitHubFetch } from "./app.ts";
 import { GitHubIntegration } from "./integration.ts";
-import { GitHubEventProcessor } from "./webhook.ts";
+import { GitHubEventProcessor, RECONCILE_AFTER_MS } from "./webhook.ts";
 
 const key = generateKeyPairSync("rsa", { modulusLength: 2048 })
   .privateKey.export({ type: "pkcs8", format: "pem" })
@@ -54,10 +54,12 @@ class GitHubTransport {
   comments: Comment[] = [];
   inlineComments: Comment[] = [];
   readonly requestedShas: string[] = [];
+  readonly paths: string[] = [];
 
   readonly fetch: GitHubFetch = async (url) => {
     const parsed = new URL(url);
     const path = parsed.pathname;
+    this.paths.push(path);
     const page = Number(parsed.searchParams.get("page") ?? "1");
     if (path === "/app/installations/99")
       return Response.json(
@@ -175,7 +177,7 @@ async function fixture() {
     events,
     bus: new InMemoryEventBus(),
   });
-  const processor = new GitHubEventProcessor(integration);
+  const processor = new GitHubEventProcessor(integration, () => now);
   return {
     store,
     binding,
@@ -514,6 +516,67 @@ describe("GitHubEventProcessor", () => {
     await f.processor.tick();
     expect(await f.store.feedbackForProject(f.binding.projectId, f.binding.userId)).toHaveLength(1);
     expect(f.store.enqueued).toEqual([]);
+  });
+
+  it("refreshes one pull request once however many jobs and deliveries name it", async () => {
+    // Follow-up jobs share their predecessor's pull request, and a CI run delivers one webhook per
+    // check. Reading GitHub once per job per delivery spends an installation's hourly allowance on
+    // a couple of busy pull requests.
+    const f = await fixture();
+    f.transport.checks = [{ name: "ci", status: "completed", conclusion: "success" }];
+    const followUps: string[] = [];
+    for (let index = 0; index < 4; index += 1) {
+      const jobId = randomUUID();
+      followUps.push(jobId);
+      await f.store.createJob({ ...f.job, jobId, updatedAt: new Date(0).toISOString() });
+    }
+    for (let index = 0; index < 8; index += 1)
+      await f.store.receiveDelivery({
+        id: randomUUID(),
+        event: "check_run",
+        payload: { installation: { id: 99 }, repository: { id: 123 } },
+      });
+
+    await f.processor.tick();
+
+    const pullReads = () => f.transport.paths.filter((path) => path === "/repos/org/app/pulls/10");
+    expect(pullReads()).toHaveLength(1);
+    expect(f.transport.paths.filter((path) => path === "/app/installations/99")).toHaveLength(2);
+    expect(await f.store.claimDelivery()).toBeNull();
+    // The newest job is the one refreshed — the one whose pushed commit feedback attaches to.
+    expect((await f.store.job(followUps.at(-1) ?? ""))?.checkState).toBe("passed");
+    expect((await f.store.job(f.job.jobId))?.checkState).toBe("unknown");
+  });
+
+  it("reads an unchanged pull request again only after the backstop interval", async () => {
+    const f = await fixture();
+    f.advance(RECONCILE_AFTER_MS + 1);
+    const pullReads = () =>
+      f.transport.paths.filter((path) => path === "/repos/org/app/pulls/10").length;
+
+    await f.processor.tick();
+    expect(pullReads()).toBe(1);
+    await f.processor.tick();
+    f.advance(RECONCILE_AFTER_MS - 1_000);
+    await f.processor.tick();
+    expect(pullReads()).toBe(1);
+    f.advance(2_000);
+    await f.processor.tick();
+    expect(pullReads()).toBe(2);
+  });
+
+  it("tells superseded jobs when their shared pull request merges", async () => {
+    const f = await fixture();
+    const followUp = randomUUID();
+    await f.store.createJob({ ...f.job, jobId: followUp });
+    f.transport.state = "closed";
+    f.transport.mergedAt = "2026-10-19T15:00:00Z";
+    f.advance(RECONCILE_AFTER_MS + 1);
+
+    await f.processor.tick();
+
+    expect((await f.store.job(followUp))?.pullRequestState).toBe("merged");
+    expect((await f.store.job(f.job.jobId))?.pullRequestState).toBe("merged");
   });
 
   it("bounds inbox work per tick", async () => {

@@ -39,12 +39,13 @@ head and feedback version. Review bodies and other commenters are status data in
 
 Existing template projects and the current coding provider remain available. This adds no shared
 organization hierarchy, general Git proxy, parallel VM platform, auto-merge or credential store.
-The broker's temporary disk usage is not bounded by the final bundle-size limit. Repository
-setup and verification use the existing sandbox toolchain; arbitrary languages, private package
+The broker bounds its temporary disk per transfer and runs a fixed number of transfers per
+process, so a repository too large to import is refused before it can fill a worker's disk.
+Repository setup and verification use the existing sandbox toolchain; arbitrary languages, private package
 credentials, LFS and submodules require separate support. Registration and operational details
 are in [GitHub integration](../github-integration.md).
 
-Migration 0009 is additive, but old workers cannot interpret `publish` queue requests. Roll out
+Migrations 0009 and 0010 are additive, but old workers cannot interpret `publish` queue requests. Roll out
 the new API, workers and reaper together before the UI. GitHub installation remains a manual
 operator step. Local Git, Postgres and simulated API tests establish the implementation's state
 transitions; they do not establish live App configuration or provider behavior.

@@ -63,6 +63,12 @@ export type OpenProjectOptions = {
   projectId: string;
   source?: RepositorySource;
   signal?: AbortSignal | undefined;
+  /**
+   * Told the sandbox's id the moment it exists, before anything slow runs in it. Whoever is
+   * accounting for the sandbox needs to know it is real while the restore and setup are still
+   * going; nothing here waits on the answer.
+   */
+  onCreated?: (sandboxId: string) => void;
 };
 
 /**
@@ -136,6 +142,7 @@ export async function openProject(
     return fail("sandbox_unavailable", `could not create a sandbox: ${created.error.message}`);
   }
   const sandboxId = created.value.id;
+  options.onCreated?.(sandboxId);
 
   if (bytes === null) {
     return { ok: true, value: { sandboxId, restored: false, warning, installed: false } };

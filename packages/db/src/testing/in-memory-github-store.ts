@@ -30,6 +30,8 @@ export class InMemoryGitHubStore implements GitHubStore {
   private readonly installations = new Map<number, GitHubInstallation>();
   private readonly repositories = new Map<string, ProjectRepository>();
   private readonly jobRows = new Map<string, RepositoryJob>();
+  /** Creation order, which the real store keeps in `created_at`. */
+  private readonly jobCreated = new Map<string, number>();
   private readonly feedbackRows = new Map<string, RepositoryFeedback>();
   private readonly deliveries = new Map<string, MemoryDelivery>();
   private approvalTail: Promise<unknown> = Promise.resolve();
@@ -176,7 +178,10 @@ export class InMemoryGitHubStore implements GitHubStore {
     ) {
       throw new Error("Repository job identity conflicts with existing work.");
     }
-    if (previous === undefined) this.jobRows.set(job.jobId, structuredClone(job));
+    if (previous === undefined) {
+      this.jobRows.set(job.jobId, structuredClone(job));
+      this.jobCreated.set(job.jobId, this.jobCreated.size);
+    }
     return structuredClone(previous ?? job);
   }
 
@@ -189,7 +194,7 @@ export class InMemoryGitHubStore implements GitHubStore {
     return structuredClone(
       [...this.jobRows.values()]
         .filter((job) => job.projectId === projectId)
-        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+        .sort((a, b) => this.#created(b) - this.#created(a)),
     );
   }
 
@@ -203,20 +208,32 @@ export class InMemoryGitHubStore implements GitHubStore {
       });
   }
 
-  async listReconcileJobs(limit: number): Promise<RepositoryJob[]> {
+  async listReconcileJobs(limit: number, notUpdatedSince: Date): Promise<RepositoryJob[]> {
+    const jobs = [...this.jobRows.values()];
     return structuredClone(
-      [...this.jobRows.values()]
+      jobs
         .filter((job) => {
           const repository = this.repositories.get(job.projectId);
           return (
             job.pullRequestState === "open" &&
             repository !== undefined &&
-            this.installations.get(repository.installationId)?.status === "active"
+            this.installations.get(repository.installationId)?.status === "active" &&
+            Date.parse(job.updatedAt) < notUpdatedSince.getTime() &&
+            !jobs.some(
+              (other) =>
+                other.projectId === job.projectId &&
+                other.pullRequestNumber === job.pullRequestNumber &&
+                this.#created(other) > this.#created(job),
+            )
           );
         })
         .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt) || a.jobId.localeCompare(b.jobId))
         .slice(0, Math.max(0, Math.min(100, Math.floor(limit)))),
     );
+  }
+
+  #created(job: RepositoryJob): number {
+    return this.jobCreated.get(job.jobId) ?? -1;
   }
 
   async feedbackForProject(projectId: string, userId: string): Promise<RepositoryFeedback[]> {

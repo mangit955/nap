@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { RESERVATION_TTL_MS } from "@nap/shared/capacity-windows";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { InMemorySandboxCapacity } from "./in-memory-sandbox-capacity.ts";
 
 /**
@@ -61,14 +62,21 @@ describe("InMemorySandboxCapacity", () => {
 
     expect(await capacity.activate(reserved.value.id, "sb-1")).toMatchObject({ ok: true });
     expect(capacity.held()).toEqual([
-      { id: reserved.value.id, projectId: "p-1", userId: USER, state: "active", sandboxId: "sb-1" },
+      {
+        id: reserved.value.id,
+        projectId: "p-1",
+        userId: USER,
+        state: "active",
+        sandboxId: "sb-1",
+        expiresAt: Number.POSITIVE_INFINITY,
+      },
     ]);
   });
 
   it("reports a reservation that is no longer there to activate", async () => {
     // The rule the real one holds against a reaper that reclaimed the row mid-create: whoever is
-    // holding the sandbox has to be told nothing counts it. Reproduced here by releasing, because
-    // nothing in the fake expires — what a caller sees is the same either way.
+    // holding the sandbox has to be told nothing counts it. Reproduced here by releasing — what a
+    // caller sees is the same either way.
     const capacity = new InMemorySandboxCapacity();
     const reserved = await capacity.reserve({ projectId: "p-1", userId: USER });
     if (!reserved.ok) throw new Error("expected the reservation to be admitted");
@@ -90,5 +98,47 @@ describe("InMemorySandboxCapacity", () => {
     await capacity.releaseForProject("p-1");
 
     expect(capacity.held()).toMatchObject([{ projectId: "p-2", state: "reserved" }]);
+  });
+
+  describe("expiry and renewal", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("lapses a reserved row after its TTL, and never an active one", async () => {
+      vi.useFakeTimers();
+      const capacity = new InMemorySandboxCapacity();
+      const waiting = await capacity.reserve({ projectId: "p-1", userId: USER });
+      const live = await capacity.reserve({ projectId: "p-2", userId: USER });
+      if (!waiting.ok || !live.ok) throw new Error("expected both to be admitted");
+      await capacity.activate(live.value.id, "sb-live");
+
+      vi.advanceTimersByTime(RESERVATION_TTL_MS - 1);
+      expect(capacity.reclaimExpired()).toEqual([]);
+      vi.advanceTimersByTime(2);
+      expect(capacity.reclaimExpired()).toEqual([waiting.value.id]);
+      expect(capacity.held()).toMatchObject([{ id: live.value.id, state: "active" }]);
+    });
+
+    it("renews a reserved row and names its sandbox, but refuses a gone or active one", async () => {
+      vi.useFakeTimers();
+      const capacity = new InMemorySandboxCapacity();
+      const reserved = await capacity.reserve({ projectId: "p-1", userId: USER });
+      if (!reserved.ok) throw new Error("expected the reservation to be admitted");
+
+      vi.advanceTimersByTime(RESERVATION_TTL_MS - 1);
+      expect(await capacity.renew(reserved.value.id, "sb-1")).toMatchObject({ ok: true });
+      vi.advanceTimersByTime(RESERVATION_TTL_MS - 1);
+      expect(capacity.reclaimExpired()).toEqual([]);
+      expect(capacity.held()).toMatchObject([{ state: "reserved", sandboxId: "sb-1" }]);
+
+      await capacity.activate(reserved.value.id, "sb-1");
+      expect(await capacity.renew(reserved.value.id, "sb-1")).toMatchObject({ ok: false });
+      await capacity.release(reserved.value.id);
+      expect(await capacity.renew(reserved.value.id, "sb-1")).toMatchObject({
+        ok: false,
+        error: { reason: "reservation_reclaimed" },
+      });
+    });
   });
 });

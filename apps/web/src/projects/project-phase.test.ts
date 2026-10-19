@@ -45,6 +45,21 @@ describe("before anything is known", () => {
     });
   });
 
+  it("shows why a repository without a preview failed to start instead of starting forever", () => {
+    expect(
+      phaseOf(
+        inputs({
+          previewRequired: false,
+          record: "new",
+          preview: { status: "error", message: "Repository setup failed." },
+        }),
+      ),
+    ).toEqual({ kind: "failed", message: "Repository setup failed." });
+    expect(
+      phaseOf(inputs({ previewRequired: false, record: "new", preview: { status: "idle" } })).kind,
+    ).toBe("starting");
+  });
+
   it("is opening while the record is still being fetched", () => {
     // Nothing is known yet, and deriving a state from an empty log is how the pane came to
     // announce "Nothing running yet" about a project that was running.
