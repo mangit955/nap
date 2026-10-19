@@ -11,6 +11,7 @@
 @theme {
   --color-surface: #0a0a0a;
   --color-panel: #101010;
+  --color-sidebar: #0a0a0a;
   --color-edge: #242424;
   --color-ink: #e5e5e5;
   --color-muted: #858585;
@@ -1535,8 +1536,8 @@ body {
 :root:has(.dashboard-frame),
 .dashboard-frame {
   color-scheme: dark;
-  --color-surface: #0a0a0a;
-  --color-panel: #101010;
+  --color-surface: #111111;
+  --color-panel: #111111;
   --color-field: #171717;
   --color-edge: #242424;
   --color-line-strong: #383838;
@@ -1569,7 +1570,7 @@ body {
   height: 28px;
   border-radius: 6px;
   color: var(--color-muted);
-  background: var(--color-panel);
+  background: var(--color-sidebar);
 }
 .sidebar-toggle:hover {
   color: var(--color-ink);
@@ -1599,17 +1600,6 @@ body {
   width: 100%;
   max-width: 800px;
   margin-top: -48px;
-}
-.workspace-monogram {
-  display: grid;
-  place-items: center;
-  flex-shrink: 0;
-  border: 1px solid var(--color-line-strong);
-  border-radius: 7px;
-  color: var(--color-ink);
-  font-weight: 600;
-  line-height: 1;
-  letter-spacing: -1px;
 }
 .workspace-composer {
   min-width: 0;

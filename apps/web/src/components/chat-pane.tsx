@@ -7,6 +7,7 @@ import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { useMemo, useRef, useState } from "react";
 import { ApiKeyPanel } from "../account/api-key-panel.tsx";
 import { useApiKey } from "../account/use-api-key.ts";
+import { NapMark } from "../brand/nap-mark.tsx";
 import { ChatInput } from "../chat/chat-input.tsx";
 import { ChatTranscript } from "../chat/chat-transcript.tsx";
 import { JobStrip } from "../chat/job-strip.tsx";
@@ -244,9 +245,7 @@ function Working({
 function EmptyState() {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 px-8 py-10 text-center">
-      <span aria-hidden="true" className="workspace-monogram mb-1 size-9 text-xl">
-        n
-      </span>
+      <NapMark className="mb-1 size-9 shrink-0 text-ink" />
       <p className="text-sm font-medium text-ink-2">Describe the app you want</p>
       <p className="max-w-[30ch] text-xs leading-relaxed text-muted">
         Start with an idea or attach a reference. We’ll take it from there.

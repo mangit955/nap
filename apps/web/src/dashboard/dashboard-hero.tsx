@@ -3,6 +3,7 @@
 import type { MediaAttachment } from "@nap/shared/media";
 import type { ModelChoice } from "@nap/shared/models-protocol";
 import { useEffect, useRef } from "react";
+import { NapMark } from "../brand/nap-mark.tsx";
 import { AttachmentButton, AttachmentTray, DictationButton } from "../chat/composer-controls.tsx";
 import { ModelPicker } from "../chat/model-picker.tsx";
 import { useMediaAttachments } from "../chat/use-media-attachments.ts";
@@ -55,16 +56,11 @@ export function DashboardHero({
   return (
     <div className="dashboard-home">
       <div className="dashboard-prompt">
-        <div className="mb-5 flex items-center justify-between px-2">
-          <h1 className="flex items-center gap-2.5 text-[28px] font-semibold tracking-[-1px] text-ink">
-            <span aria-hidden="true" className="workspace-monogram size-8 text-xl">
-              n
-            </span>
+        <div className="mb-5 px-2">
+          <h1 className="flex items-center gap-2.5 text-[28px] font-normal tracking-[-1px] text-ink">
+            <NapMark className="size-8 shrink-0" />
             nap
           </h1>
-          <span className="rounded-full border border-edge px-3 py-1 text-[11px] text-muted">
-            New session
-          </span>
         </div>
         <fieldset
           aria-label="New session composer"

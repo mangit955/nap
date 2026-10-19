@@ -2,6 +2,7 @@
 
 import type { ProjectSummaryPayload } from "@nap/shared/projects-protocol";
 import { useRef, useState } from "react";
+import { NapMark } from "../brand/nap-mark.tsx";
 import { SpinnerIcon } from "../ui/icons.tsx";
 import type { ProjectScope } from "./filters.ts";
 import { filterProjects } from "./filters.ts";
@@ -64,7 +65,7 @@ export function Sidebar({
   return (
     <nav
       aria-label="Dashboard"
-      className="flex h-full min-h-0 flex-col border-r border-edge bg-panel px-2.5 pt-3 pb-2"
+      className="flex h-full min-h-0 flex-col border-r border-edge bg-sidebar px-2.5 pt-3 pb-2"
     >
       <div className="mb-5 flex h-8 items-center gap-1 pr-8">
         <a
@@ -72,9 +73,7 @@ export function Sidebar({
           aria-label="nap dashboard"
           className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-2 py-1 text-[13px] text-ink hover:bg-hover"
         >
-          <span aria-hidden="true" className="workspace-monogram size-6 text-sm">
-            n
-          </span>
+          <NapMark className="size-6 shrink-0" />
           <span className="truncate font-medium">My workspace</span>
         </a>
         <button

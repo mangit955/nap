@@ -21,6 +21,7 @@ import type { MediaAttachment } from "@nap/shared/media";
  */
 
 import { Fragment } from "react";
+import { NapMark } from "../brand/nap-mark.tsx";
 import { turnFailureCopy } from "../errors/failure-copy.ts";
 import { AlertIcon, CopyIcon } from "../ui/icons.tsx";
 import { OutputBlock } from "./output-block.tsx";
@@ -180,7 +181,7 @@ function Item({
               aria-hidden="true"
               className="mb-1 flex items-center gap-2 text-[12px] font-medium text-ink-2"
             >
-              <span className="workspace-monogram size-5 text-xs">n</span>
+              <NapMark className="size-5 shrink-0" />
               nap
             </span>
           )}
