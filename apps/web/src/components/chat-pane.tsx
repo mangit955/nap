@@ -10,6 +10,7 @@ import { useApiKey } from "../account/use-api-key.ts";
 import { NapMark } from "../brand/nap-mark.tsx";
 import { ChatInput } from "../chat/chat-input.tsx";
 import { ChatTranscript } from "../chat/chat-transcript.tsx";
+import type { FirstPrompt } from "../chat/first-prompt.ts";
 import { JobStrip } from "../chat/job-strip.tsx";
 import { jobView, type SessionJobView } from "../chat/job-summary.ts";
 import { groupSteps } from "../chat/step-group.ts";
@@ -52,6 +53,7 @@ export function ChatPane({
   pending,
   running = false,
   error,
+  firstPrompt,
   onSubmit = () => {},
   onCancel = () => {},
   onRetry,
@@ -84,6 +86,8 @@ export function ChatPane({
   pending?: string | undefined;
   running?: boolean;
   error?: string | undefined;
+  /** The dashboard request, retained until admission so a refusal can restore the composer. */
+  firstPrompt?: FirstPrompt | undefined;
   onSubmit?: (message: string, attachments?: MediaAttachment[]) => void;
   onCancel?: () => void;
   /** Re-sends a failed turn's message. Optional so the many render tests need not supply one. */
@@ -206,6 +210,7 @@ export function ChatPane({
               visible={active}
               running={running}
               error={error}
+              firstPrompt={firstPrompt}
               onSubmit={onSubmit}
               onCancel={onCancel}
               {...(files === undefined ? {} : { files })}
@@ -319,6 +324,7 @@ export function LiveChatPane({
   // Held here rather than in the composer: the choice has to outlive the box being cleared on
   // send, and a retry has to go out on the same model the user picked.
   const [model, setModel] = useState<string | undefined>(undefined);
+  const [firstPrompt, setFirstPrompt] = useState<FirstPrompt>();
 
   // Through the same submission path as the input, so the front page's first message is an
   // ordinary turn — same optimistic message, same rate limit, same refusal wording.
@@ -329,7 +335,10 @@ export function LiveChatPane({
       // The dashboard's selected model is part of its first prompt. Put it in the workspace
       // state before sending, so the composer stays truthful for the turns that follow.
       if (firstModel !== undefined) setModel(firstModel);
-      void submit(message, firstModel, attachments);
+      setFirstPrompt({ text: message, model: firstModel, attachments });
+      void submit(message, firstModel, attachments).then((accepted) => {
+        if (accepted) setFirstPrompt(undefined);
+      });
     },
   });
 
@@ -347,7 +356,11 @@ export function LiveChatPane({
         pending={pending}
         running={running}
         error={error}
-        onSubmit={(message, attachments) => void submit(message, model, attachments)}
+        firstPrompt={firstPrompt}
+        onSubmit={(message, attachments) => {
+          setFirstPrompt(undefined);
+          void submit(message, model, attachments);
+        }}
         onCancel={() => void cancel()}
         // The same submission path as the input: a retry is an ordinary turn, and routing it
         // anywhere else would give it different rate-limit and optimistic-message behaviour.

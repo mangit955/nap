@@ -43,8 +43,8 @@ const UNREACHABLE =
 import type { FetchJson } from "../files/use-project-files.ts";
 
 export type TurnSubmission = {
-  /** Resolves once the server has accepted or refused; the turn itself runs on past it. */
-  submit: (message: string, model?: string, attachments?: MediaAttachment[]) => Promise<void>;
+  /** True means admission succeeded; the turn itself runs on past this response. */
+  submit: (message: string, model?: string, attachments?: MediaAttachment[]) => Promise<boolean>;
   cancel: () => Promise<void>;
   /** The message the user sent that the log has not caught up with yet. */
   pending: string | undefined;
@@ -122,9 +122,9 @@ export function useTurnSubmission(options: {
     message: string,
     model?: string,
     attachments?: MediaAttachment[],
-  ): Promise<void> => {
+  ): Promise<boolean> => {
     const text = message.trim();
-    if (sessionId === undefined || text === "") return;
+    if (sessionId === undefined || text === "") return false;
 
     submittedAfter.current = events.at(-1)?.seq ?? 0;
     setPending(text);
@@ -146,11 +146,13 @@ export function useTurnSubmission(options: {
       );
 
       if (!response.ok) throw new Error(await refusalMessage(response));
+      return true;
     } catch (failure) {
       // Rolled back rather than left on screen: a message that stays after the request failed
       // claims the agent has it. The caller puts the text back in the box.
       setPending(undefined);
       setError(failure instanceof Error ? failure.message : UNREACHABLE);
+      return false;
     } finally {
       setPosting(false);
     }

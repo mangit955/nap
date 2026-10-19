@@ -7,6 +7,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { appendDictation, useDictation } from "../dashboard/use-dictation.ts";
 import { AttachmentButton, AttachmentTray, DictationButton } from "./composer-controls.tsx";
 import { applyPick, menuRows, parseToken } from "./composer-menu.ts";
+import type { FirstPrompt } from "./first-prompt.ts";
 import { ModelPicker } from "./model-picker.tsx";
 import { type DraftAttachment, useMediaAttachments } from "./use-media-attachments.ts";
 
@@ -18,6 +19,7 @@ export function ChatInput({
   visible = true,
   running,
   error,
+  firstPrompt,
   onSubmit,
   onCancel,
   files = [],
@@ -29,6 +31,7 @@ export function ChatInput({
   visible?: boolean;
   running: boolean;
   error: string | undefined;
+  firstPrompt?: FirstPrompt | undefined;
   onSubmit: (message: string, attachments?: MediaAttachment[]) => void;
   onCancel: () => void;
   /**
@@ -69,11 +72,22 @@ export function ChatInput({
   }, [running, visible]);
 
   useEffect(() => {
-    if (error === undefined || inFlight.current === "") return;
-    setText(inFlight.current);
-    media.setAttachments(sentMedia.current);
-    inFlight.current = "";
-  }, [error, media.setAttachments]);
+    if (error === undefined) return;
+    if (inFlight.current !== "") {
+      setText(inFlight.current);
+      media.setAttachments(sentMedia.current);
+      inFlight.current = "";
+    } else if (firstPrompt !== undefined) {
+      setText(firstPrompt.text);
+      media.setAttachments(
+        (firstPrompt.attachments ?? []).map((attachment) => ({
+          id: crypto.randomUUID(),
+          previewUrl: undefined,
+          media: attachment,
+        })),
+      );
+    }
+  }, [error, firstPrompt, media.setAttachments]);
 
   useEffect(() => {
     if (running || !visible) dictation.stop();

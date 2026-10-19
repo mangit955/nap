@@ -104,6 +104,25 @@ export function SessionActions({
             aria-label={`Actions for ${name}`}
             style={position}
             className="fixed z-50 w-[168px] rounded-xl border border-edge bg-field p-1 shadow-raised"
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                event.stopPropagation();
+                setPosition(undefined);
+                trigger.current?.focus();
+              } else if (event.key === "Tab") {
+                const targets = Array.from(
+                  event.currentTarget.querySelectorAll<HTMLElement>("button:not([disabled])"),
+                );
+                if (targets.length === 0) return;
+                const focused = document.activeElement;
+                const index = focused instanceof HTMLElement ? targets.indexOf(focused) : -1;
+                const next = (index + (event.shiftKey ? -1 : 1) + targets.length) % targets.length;
+                event.preventDefault();
+                event.stopPropagation();
+                targets[next]?.focus();
+              }
+            }}
           >
             {onRename && (
               <button

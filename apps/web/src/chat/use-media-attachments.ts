@@ -3,7 +3,12 @@
 import { MAX_ATTACHMENTS, type MediaAttachment, MediaAttachmentsSchema } from "@nap/shared/media";
 import { useEffect, useRef, useState } from "react";
 
-export type DraftAttachment = { id: string; previewUrl: string; media: MediaAttachment };
+export type DraftAttachment = {
+  id: string;
+  /** Recovered prepared frames have no original file URL. */
+  previewUrl: string | undefined;
+  media: MediaAttachment;
+};
 
 const ACCEPTED_IMAGES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
 const ACCEPTED_VIDEOS = new Set(["video/mp4", "video/webm", "video/quicktime"]);
@@ -36,7 +41,7 @@ export function useMediaAttachments() {
     }
     working.current = true;
     setProcessing(true);
-    const additions: DraftAttachment[] = [];
+    const additions: (DraftAttachment & { previewUrl: string })[] = [];
     try {
       for (const file of files) {
         const previewUrl = URL.createObjectURL(file);
@@ -77,6 +82,7 @@ export function useMediaAttachments() {
     setAttachments,
     release: (items: readonly DraftAttachment[]) => {
       for (const item of items) {
+        if (item.previewUrl === undefined) continue;
         URL.revokeObjectURL(item.previewUrl);
         urls.current.delete(item.previewUrl);
       }
@@ -84,7 +90,7 @@ export function useMediaAttachments() {
     remove: (id: string) =>
       setAttachments((items) => {
         const removed = items.find((item) => item.id === id);
-        if (removed) {
+        if (removed?.previewUrl !== undefined) {
           URL.revokeObjectURL(removed.previewUrl);
           urls.current.delete(removed.previewUrl);
         }

@@ -1,6 +1,7 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { Dashboard } from "./dashboard.tsx";
+import { SessionActions } from "./session-actions.tsx";
 import { Sidebar } from "./sidebar.tsx";
 
 /**
@@ -21,6 +22,88 @@ function show(fading = false) {
     />,
   );
 }
+
+beforeAll(() => {
+  HTMLDialogElement.prototype.showModal ??= function () {
+    this.setAttribute("open", "");
+  };
+  HTMLDialogElement.prototype.close ??= function () {
+    this.removeAttribute("open");
+    this.dispatchEvent(new Event("close"));
+  };
+});
+
+function openSessionActions() {
+  render(
+    <Dashboard
+      sidebar={
+        <nav aria-label="Sessions">
+          <SessionActions
+            name="Portfolio"
+            onRename={vi.fn()}
+            onClose={vi.fn()}
+            onDelete={vi.fn()}
+          />
+        </nav>
+      }
+      hero={<button type="button">Composer</button>}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Open sessions" }));
+  fireEvent.click(screen.getByRole("button", { name: "Session actions for Portfolio" }));
+}
+
+it("keeps every portalled session action reachable by Tab inside mobile sessions", () => {
+  const rects = vi
+    .spyOn(HTMLElement.prototype, "getClientRects")
+    .mockReturnValue(
+      Object.assign([new DOMRect(0, 0, 100, 30)], { item: () => new DOMRect(0, 0, 100, 30) }),
+    );
+  try {
+    openSessionActions();
+    expect(screen.getByRole("button", { name: "Rename" })).toHaveFocus();
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Tab" });
+    expect(screen.getByRole("button", { name: "Put away" })).toHaveFocus();
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Tab" });
+    expect(screen.getByRole("button", { name: "Delete" })).toHaveFocus();
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Tab", shiftKey: true });
+    expect(screen.getByRole("button", { name: "Put away" })).toHaveFocus();
+  } finally {
+    rects.mockRestore();
+  }
+});
+
+it("closes the session action menu before the mobile drawer on Escape", () => {
+  openSessionActions();
+  fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+  expect(screen.queryByRole("button", { name: "Rename" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Close sessions" })).toHaveAttribute(
+    "aria-expanded",
+    "true",
+  );
+  expect(screen.getByRole("button", { name: "Session actions for Portfolio" })).toHaveFocus();
+  fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+  expect(screen.getByRole("button", { name: "Open sessions" })).toHaveFocus();
+});
+
+it("leaves the rename dialog's keys to the dialog while mobile sessions stays open", () => {
+  openSessionActions();
+  fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+  const input = screen.getByRole("textbox", { name: "Session name" });
+  input.focus();
+  expect(fireEvent.keyDown(input, { key: "Tab" })).toBe(true);
+  expect(fireEvent.keyDown(input, { key: "Escape" })).toBe(true);
+  expect(screen.getByRole("button", { name: "Close sessions" })).toHaveAttribute(
+    "aria-expanded",
+    "true",
+  );
+  const dialog = screen.getByRole("dialog", { name: "Rename session" });
+  if (!(dialog instanceof HTMLDialogElement)) throw new Error("Expected the native dialog");
+  act(() => dialog.close());
+  expect(screen.getByRole("button", { name: "Session actions for Portfolio" })).toHaveFocus();
+  fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+  expect(screen.getByRole("button", { name: "Open sessions" })).toHaveFocus();
+});
 
 describe("the dashboard frame", () => {
   it("puts the rail and the page in two landmarks a reader can move between", () => {

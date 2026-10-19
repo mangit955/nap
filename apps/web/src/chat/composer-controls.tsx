@@ -105,10 +105,10 @@ export function AttachmentTray({
       <ul aria-label="Attachments" className="flex flex-wrap gap-2">
         {attachments.map(({ id, previewUrl, media }) => (
           <li key={id} className="relative w-20 shrink-0">
-            {media.kind === "image" ? (
-              // biome-ignore lint/performance/noImgElement: this is a local blob URL, not an optimizable network image.
+            {media.kind === "image" || previewUrl === undefined ? (
+              // biome-ignore lint/performance/noImgElement: local file previews and prepared frames need no network optimization.
               <img
-                src={previewUrl}
+                src={previewUrl ?? `data:image/jpeg;base64,${media.frames[0]?.data ?? ""}`}
                 alt={media.name}
                 className="h-16 w-full rounded-lg border border-edge object-cover"
               />
