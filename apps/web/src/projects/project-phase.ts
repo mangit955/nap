@@ -32,6 +32,8 @@ export type ProjectPhase =
    * a project put away and restarted has two announcements in its log and one live sandbox.
    */
   | { kind: "running"; url: string; seq: number }
+  /** The repository is ready to edit and intentionally has no development server. */
+  | { kind: "no-preview" }
   /** Nothing is serving it. The work is safe; the pane offers to start it again. */
   | { kind: "put-away" }
   /** A sandbox was wanted and could not be had. */
@@ -55,6 +57,7 @@ export type PhaseInputs = {
   resuming: boolean;
   /** Why the last start was refused, if it was. */
   resumeError: string | undefined;
+  previewRequired?: boolean;
 };
 
 export function phaseOf({
@@ -65,6 +68,7 @@ export function phaseOf({
   replayed,
   resuming,
   resumeError,
+  previewRequired = true,
 }: PhaseInputs): ProjectPhase {
   // Nothing is known. Deriving a state from an empty log here is how the pane came to announce
   // "Nothing running yet" about a project that was running.
@@ -85,6 +89,9 @@ export function phaseOf({
   // forever to be starting a project that nothing is starting: a refusal leaves the record saying
   // exactly the same thing.
   if (putAwayAt !== undefined && resumeError === undefined) return { kind: "starting" };
+
+  if (!previewRequired && record === "running") return { kind: "no-preview" };
+  if (!previewRequired && record === "new") return { kind: "starting" };
 
   if (nothingIsServing(preview, putAwayAt)) return { kind: "put-away" };
 

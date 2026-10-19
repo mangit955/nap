@@ -131,7 +131,13 @@ async function announce(
   }
   sink.emit({
     type: "system.notice",
-    payload: { level: "warning", text: RESUME_NOTICE },
+    payload: {
+      level: "warning",
+      text:
+        request.kind === "publish"
+          ? "Publishing was interrupted. Your saved work is safe; retry publishing from this project."
+          : RESUME_NOTICE,
+    },
     sessionId: request.sessionId,
     turnId: request.id,
     createdAt,

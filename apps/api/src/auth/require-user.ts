@@ -39,7 +39,14 @@ import type { Authenticate } from "./auth.ts";
 export type AuthVariables = { userId: string; isAnonymous: boolean };
 
 /** Matched exactly, not by prefix: `/healthz` is a different route from `/health`. */
-const PUBLIC_PATHS = new Set(["/health", "/livez", "/readyz", "/metrics", "/auth/providers"]);
+const PUBLIC_PATHS = new Set([
+  "/health",
+  "/livez",
+  "/readyz",
+  "/metrics",
+  "/auth/providers",
+  "/github/webhook",
+]);
 
 /** The one prefix, because the auth library owns which paths exist beneath it. */
 const PUBLIC_PREFIX = "/api/auth/";

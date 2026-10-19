@@ -48,6 +48,7 @@ import type { ModelCredentials } from "@nap/shared/ports/llm-provider";
 import type { MemoryProvider } from "@nap/shared/ports/memory-provider";
 import type { ObjectStore } from "@nap/shared/ports/object-store";
 import type { PageCapture } from "@nap/shared/ports/page-capture";
+import type { RepositorySource, RepositoryWorkspace } from "@nap/shared/ports/repository-workspace";
 import type {
   ContinueOptions,
   ResumeOutcome,
@@ -102,6 +103,7 @@ type TurnSettings = {
   signal?: AbortSignal | undefined;
   model?: string | undefined;
   credentials?: ModelCredentials | undefined;
+  workspace?: "repository";
 };
 
 /**
@@ -126,6 +128,8 @@ type JobRun = {
   turn: TurnScope;
   /** False once a `job.completed` has been written for it. */
   open: boolean;
+  previewPort: number | null;
+  requestId: string;
 };
 
 /**
@@ -188,6 +192,7 @@ export type SingleAgentRuntimeOptions = {
   events: EventStore;
   bus: EventBus;
   memory: MemoryProvider;
+  repository?: RepositoryWorkspace;
   /**
    * Where a project's bytes and its snapshot rows live. Supply both to make a project
    * survive its sandbox; supply neither and a session without a live sandbox starts from
@@ -364,7 +369,7 @@ export class SingleAgentRuntime implements Runtime {
     const { session, sink, emit } = scope;
 
     try {
-      const acquired = await this.#acquire(session);
+      const acquired = await this.#acquire(session, options.signal);
 
       if (!acquired.ok) {
         // A notice, not a `turn.failed`. No turn ran, so a failed one would put a retry button
@@ -381,7 +386,11 @@ export class SingleAgentRuntime implements Runtime {
       // Only for a sandbox this just created. One that was already serving has its
       // `preview.ready` in the log already, and re-announcing remounts the frame underneath
       // whoever is using the app.
-      if (acquired.value.created) await this.#announcePreview(acquired.value.id, emit);
+      const previewPort =
+        acquired.value.repository === undefined
+          ? this.#previewPort
+          : acquired.value.repository.previewPort;
+      if (acquired.value.created) await this.#announcePreview(acquired.value.id, emit, previewPort);
 
       await sink.drain();
       getLogger().info({ created: acquired.value.created }, "project resumed");
@@ -394,13 +403,14 @@ export class SingleAgentRuntime implements Runtime {
       //
       // Last, and after the outcome is already decided: resuming is what the caller asked for,
       // and a browser launch must not be able to delay or fail it.
-      if (acquired.value.created) await this.#photograph(session.projectId, acquired.value.id);
+      if (acquired.value.created && previewPort !== null)
+        await this.#photograph(session.projectId, acquired.value.id, previewPort);
 
       // Last of all, and after everything the caller asked for is done: continuing a job runs
       // turns, which take minutes, and the project is up and usable the whole time. The caller
       // does not wait on this — `POST /projects/:id/open` has already answered — but the queue
       // does, which is what stops a message sent during a continuation interleaving with it.
-      await this.#continue(scope, acquired.value.id, options);
+      await this.#continue(scope, acquired.value.id, options, acquired.value.repository);
 
       return { ok: true, sandboxId: acquired.value.id, created: acquired.value.created };
     } catch (error) {
@@ -428,7 +438,12 @@ export class SingleAgentRuntime implements Runtime {
    * app away from somebody over work they can restart with a sentence. Closing the job is the
    * other half: left open, it is one that every subsequent open would try to continue again.
    */
-  async #continue(scope: TurnScope, sandboxId: string, options: ContinueOptions): Promise<void> {
+  async #continue(
+    scope: TurnScope,
+    sandboxId: string,
+    options: ContinueOptions,
+    repository?: RepositorySource,
+  ): Promise<void> {
     const { session, sink } = scope;
     const history = await this.#options.events.readFrom(session.sessionId, 0);
     const state = foldJobs(history);
@@ -454,6 +469,13 @@ export class SingleAgentRuntime implements Runtime {
         { jobId: continuation.jobId, outcome: continuation.outcome },
         "an open job had nothing left to do and was closed",
       );
+      await this.#finishRepositoryJob({
+        scope,
+        sandboxId,
+        jobId: continuation.jobId,
+        requestId: options.turnId,
+        signal: options.signal,
+      });
       return;
     }
 
@@ -462,7 +484,11 @@ export class SingleAgentRuntime implements Runtime {
     const { turnId: _resumeTurnId, ...inherited } = options;
 
     const run: JobRun = {
-      settings: { sessionId: session.sessionId, ...inherited },
+      settings: {
+        sessionId: session.sessionId,
+        ...inherited,
+        ...(repository === undefined ? {} : { workspace: "repository" }),
+      },
       session,
       sink,
       sandboxId,
@@ -474,6 +500,8 @@ export class SingleAgentRuntime implements Runtime {
       repairs: continuation.attemptsUsed,
       turn: scope,
       open: true,
+      previewPort: repository === undefined ? this.#previewPort : repository.previewPort,
+      requestId: options.turnId,
     };
 
     getLogger().info(
@@ -491,6 +519,7 @@ export class SingleAgentRuntime implements Runtime {
     };
 
     try {
+      await this.#prepareRepositoryJob(run);
       await this.#driveJob(run, {
         outcome,
         failed: continuation.kind === "repair" ? continuation.failed : null,
@@ -506,6 +535,13 @@ export class SingleAgentRuntime implements Runtime {
       if (run.open) {
         run.turn.emit("job.completed", { jobId: run.jobId, outcome: "abandoned" });
         await sink.drain().catch(() => {});
+        await this.#finishRepositoryJob({
+          scope: run.turn,
+          sandboxId,
+          jobId: run.jobId,
+          requestId: run.requestId,
+          signal: options.signal,
+        });
       }
     }
   }
@@ -582,7 +618,7 @@ export class SingleAgentRuntime implements Runtime {
       });
       await sink.drain();
 
-      const sandboxId = await this.#acquire(session);
+      const sandboxId = await this.#acquire(session, request.signal);
       if (!sandboxId.ok) {
         emit("turn.failed", { reason: "sandbox_unavailable", message: sandboxId.error.message });
         await sink.drain();
@@ -608,10 +644,13 @@ export class SingleAgentRuntime implements Runtime {
       // Only for a sandbox this turn created. A resumed one is already serving and announced
       // itself on the turn that made it — the client replays that. Re-announcing would reload
       // the app underneath someone in the middle of using it, on every turn.
-      if (sandboxId.value.created) await this.#announcePreview(sandboxId.value.id, emit);
+      const repository = sandboxId.value.repository;
+      const previewPort = repository === undefined ? this.#previewPort : repository.previewPort;
+      if (sandboxId.value.created)
+        await this.#announcePreview(sandboxId.value.id, emit, previewPort);
 
       run = {
-        settings: request,
+        settings: { ...request, ...(repository === undefined ? {} : { workspace: "repository" }) },
         session,
         sink,
         sandboxId: sandboxId.value.id,
@@ -621,10 +660,14 @@ export class SingleAgentRuntime implements Runtime {
         repairs: 0,
         turn: scope,
         open: true,
+        previewPort,
+        requestId: request.turnId,
       };
 
+      await this.#prepareRepositoryJob(run);
+
       const outcome = await this.#attempt({
-        settings: request,
+        settings: run.settings,
         scope,
         sandboxId: run.sandboxId,
         prompt: request.message,
@@ -651,6 +694,15 @@ export class SingleAgentRuntime implements Runtime {
 
       // Best effort: if persistence is what broke, there is nowhere left to record it.
       await sink.drain().catch(() => {});
+      if (run !== null) {
+        await this.#finishRepositoryJob({
+          scope: run.turn,
+          sandboxId: run.sandboxId,
+          jobId: run.jobId,
+          requestId: run.requestId,
+          signal: request.signal,
+        });
+      }
 
       return { ok: false, turnId: (run?.turn ?? scope).turnId, reason: "internal", message };
     }
@@ -679,6 +731,13 @@ export class SingleAgentRuntime implements Runtime {
       emit("job.completed", { jobId, outcome });
       run.open = false;
       await sink.drain();
+      await this.#finishRepositoryJob({
+        scope: run.turn,
+        sandboxId,
+        jobId,
+        requestId: run.requestId,
+        signal: settings.signal,
+      });
     };
 
     let { outcome, failed, announce, fresh } = entry;
@@ -701,6 +760,7 @@ export class SingleAgentRuntime implements Runtime {
           sandboxId,
           commitSha: outcome.commitSha,
           announce,
+          previewPort: run.previewPort,
         });
         // Every round after the first is one this loop began itself.
         announce = true;
@@ -713,13 +773,21 @@ export class SingleAgentRuntime implements Runtime {
           // After the snapshot, deliberately: the work reaching storage is what must not be
           // delayed by a browser launch, and a picture is the one thing here nobody would miss.
           // Only when the turn changed something — an unchanged app photographs identically.
-          if (outcome.commitSha !== null) await this.#photograph(session.projectId, sandboxId);
+          if (outcome.commitSha !== null && run.previewPort !== null)
+            await this.#photograph(session.projectId, sandboxId, run.previewPort);
         }
 
         // Arbitration closed the job: it passed, there was nothing to check, or the run learned
         // nothing about the project.
         if (failed === null) {
           run.open = false;
+          await this.#finishRepositoryJob({
+            scope: run.turn,
+            sandboxId,
+            jobId,
+            requestId: run.requestId,
+            signal: settings.signal,
+          });
           return outcome;
         }
       }
@@ -820,6 +888,7 @@ export class SingleAgentRuntime implements Runtime {
       job,
       sandbox: this.#options.sandbox,
       memory: this.#options.memory,
+      ...(settings.workspace === undefined ? {} : { workspace: settings.workspace }),
     });
 
     // The previous turn of this job ended on this sink, and its ending is not this one's.
@@ -938,6 +1007,7 @@ export class SingleAgentRuntime implements Runtime {
      * would spend an attempt that no repair turn ever used (`continue-job.ts`).
      */
     announce: boolean;
+    previewPort: number | null;
   }): Promise<CheckFailure | null> {
     const { scope, jobId, sandboxId, commitSha, announce } = options;
     const { sink, emit } = scope;
@@ -957,7 +1027,7 @@ export class SingleAgentRuntime implements Runtime {
     if (announce) emit("verification.started", { jobId });
     await sink.drain();
 
-    const verified = await this.#runChecks(sandboxId);
+    const verified = await this.#runChecks(sandboxId, options.previewPort);
 
     if (verified === null || verified.verdict === "errored") {
       emit("job.completed", { jobId, outcome: "abandoned" });
@@ -1000,12 +1070,15 @@ export class SingleAgentRuntime implements Runtime {
    * already complete and committed by the time any of it runs, and turning a finished turn into
    * a failed one because a probe blew up would report the wrong thing to the person waiting.
    */
-  async #runChecks(sandboxId: string): Promise<VerificationResult | null> {
+  async #runChecks(
+    sandboxId: string,
+    previewPort: number | null,
+  ): Promise<VerificationResult | null> {
     try {
       return await verifyTurn({
         sandbox: this.#options.sandbox,
         sandboxId,
-        previewPort: this.#previewPort,
+        previewPort,
         previewTimeoutMs: this.#previewTimeoutMs,
       });
     } catch (error) {
@@ -1073,7 +1146,11 @@ export class SingleAgentRuntime implements Runtime {
    * this owns is that a failure is only ever a log line: a missing screenshot costs a card its
    * picture, and nothing here is worth failing a turn or a resume over.
    */
-  async #photograph(projectId: string, sandboxId: string): Promise<void> {
+  async #photograph(
+    projectId: string,
+    sandboxId: string,
+    previewPort = this.#previewPort,
+  ): Promise<void> {
     const capture = this.#options.capture;
     const objects = this.#options.objects;
     if (capture === undefined || objects === undefined) return;
@@ -1084,7 +1161,7 @@ export class SingleAgentRuntime implements Runtime {
       objects,
       projectId,
       sandboxId,
-      port: this.#previewPort,
+      port: previewPort,
     }).catch((error: unknown) => ({ ok: false as const, error: { message: String(error) } }));
 
     if (shot.ok) {
@@ -1107,8 +1184,9 @@ export class SingleAgentRuntime implements Runtime {
   async #announcePreview(
     sandboxId: string,
     emit: (type: "preview.ready", payload: Payload<"preview.ready">) => void,
+    port: number | null = this.#previewPort,
   ): Promise<void> {
-    const port = this.#previewPort;
+    if (port === null) return;
     const ready = await this.#options.sandbox.waitForPreview(sandboxId, port, {
       timeoutMs: this.#previewTimeoutMs,
     });
@@ -1116,17 +1194,72 @@ export class SingleAgentRuntime implements Runtime {
   }
 
   /** See `acquire-sandbox.ts`, which owns the four paths and their ordering. */
-  async #acquire(session: SessionRecord): Promise<Result<AcquiredSandbox, SandboxError>> {
+  async #acquire(
+    session: SessionRecord,
+    signal?: AbortSignal,
+  ): Promise<Result<AcquiredSandbox, SandboxError>> {
     return await acquireSandbox(
       {
         sandbox: this.#options.sandbox,
         sessions: this.#options.sessions,
         restore: this.#restore,
         ttlMs: this.#sandboxTtlMs,
+        signal,
+        ...(this.#options.repository === undefined ? {} : { repository: this.#options.repository }),
         ...(this.#options.capacity === undefined ? {} : { capacity: this.#options.capacity }),
       },
       session,
     );
+  }
+
+  async #prepareRepositoryJob(run: JobRun): Promise<void> {
+    if (this.#options.repository === undefined) return;
+    if (run.settings.signal?.aborted) throw new Error("The repository job was cancelled.");
+    const prepared = await this.#options.repository.prepareJob({
+      session: run.session,
+      sandboxId: run.sandboxId,
+      jobId: run.jobId,
+      requestId: run.requestId,
+      signal: run.settings.signal,
+    });
+    if (!prepared.ok) throw new Error(prepared.error.message);
+    if (run.settings.signal?.aborted) throw new Error("The repository job was cancelled.");
+  }
+
+  async #finishRepositoryJob(options: {
+    scope: TurnScope;
+    sandboxId: string;
+    jobId: string;
+    requestId: string;
+    signal?: AbortSignal | undefined;
+  }): Promise<void> {
+    if (this.#options.repository === undefined) return;
+    const { scope, sandboxId, jobId, requestId, signal } = options;
+    try {
+      const history = await this.#options.events.readFrom(scope.session.sessionId, 0);
+      const completed = history.findLast(
+        (event) => event.type === "job.completed" && event.payload.jobId === jobId,
+      );
+      if (completed?.type !== "job.completed") return;
+      const finished = await this.#options.repository.finishJob({
+        session: scope.session,
+        sandboxId,
+        jobId,
+        requestId,
+        signal,
+        outcome: completed.payload.outcome,
+      });
+      if (!finished.ok) {
+        scope.emit("system.notice", { level: "warning", text: finished.error.message });
+        await scope.sink.drain();
+      }
+    } catch {
+      scope.emit("system.notice", {
+        level: "warning",
+        text: "The job finished, but its GitHub update failed. You can retry publishing from this project.",
+      });
+      await scope.sink.drain().catch(() => {});
+    }
   }
 
   /**

@@ -15,6 +15,7 @@
 import type { SandboxError, SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { Result } from "@nap/shared/result";
 import { shellQuote } from "@nap/shared/shell";
+import { decodeRepositoryBundle, encodeRepositoryBundle } from "./git-bundle.ts";
 import { TEMPLATE_WORKDIR } from "./template.ts";
 
 export type CommitResult = {
@@ -27,6 +28,7 @@ export type CommitResult = {
 export type GitOptions = {
   /** Defaults to the project directory the template creates. */
   cwd?: string;
+  signal?: AbortSignal | undefined;
 };
 
 /** Where the bundle and its base64 transport land inside the sandbox. */
@@ -70,7 +72,14 @@ async function run(
   command: string,
   options: GitOptions | undefined,
 ): Promise<Result<{ exitCode: number; stdout: string; stderr: string }, SandboxError>> {
-  return manager.exec(sandboxId, `cd ${options?.cwd ?? TEMPLATE_WORKDIR} && ${command}`);
+  if (options?.signal?.aborted) return cancelled();
+  const cwd = options?.cwd === undefined ? TEMPLATE_WORKDIR : shellQuote(options.cwd);
+  const result = await manager.exec(sandboxId, `cd ${cwd} && ${command}`);
+  return options?.signal?.aborted ? cancelled() : result;
+}
+
+function cancelled(): Result<never, SandboxError> {
+  return { ok: false, error: { code: "exec_failed", message: "The Git operation was cancelled." } };
 }
 
 /**
@@ -132,25 +141,35 @@ export async function bundle(
   sandboxId: string,
   options?: GitOptions,
 ): Promise<Result<Uint8Array, SandboxError>> {
-  // `--all`, so branches other than the current one survive the round trip.
+  const head = await git(
+    manager,
+    sandboxId,
+    "git symbolic-ref -q HEAD || git rev-parse HEAD",
+    options,
+  );
+  if (!head.ok) return head;
+  // HEAD is explicit because detached commits need not be reachable from a named ref.
   const result = await git(
     manager,
     sandboxId,
-    `git bundle create ${BUNDLE_PATH} --all && base64 -w0 ${BUNDLE_PATH}`,
+    `git bundle create ${BUNDLE_PATH} --all HEAD && base64 < ${BUNDLE_PATH}`,
     options,
   );
   if (!result.ok) return result;
 
   // Tolerant of wrapping: -w0 asks for one line, but not every base64 honours it.
   const encoded = result.value.replaceAll(/\s/g, "");
-  return { ok: true, value: Uint8Array.from(Buffer.from(encoded, "base64")) };
+  return {
+    ok: true,
+    value: encodeRepositoryBundle(Buffer.from(encoded, "base64"), head.value.trim()),
+  };
 }
 
 /**
  * Replaces the repository and working tree with the contents of a bundle.
  *
- * Fetches into `FETCH_HEAD` and resets onto it rather than fetching a branch by name,
- * because git refuses to update the branch that is currently checked out.
+ * Builds and validates fresh Git metadata before replacing the old repository. Every ref
+ * survives, and the envelope disambiguates branches whose tips happen to be the same commit.
  */
 export async function restoreBundle(
   manager: SandboxManager,
@@ -158,25 +177,63 @@ export async function restoreBundle(
   bytes: Uint8Array,
   options?: GitOptions,
 ): Promise<Result<void, SandboxError>> {
+  if (options?.signal?.aborted) return cancelled();
+  const decodedBundle = decodeRepositoryBundle(bytes);
+  if (!decodedBundle.ok) return decodedBundle;
   const written = await manager.writeFile(
     sandboxId,
     BUNDLE_B64_PATH,
-    Buffer.from(bytes).toString("base64"),
+    Buffer.from(decodedBundle.value.bundle).toString("base64"),
   );
   if (!written.ok) return written;
 
   const decoded = await git(
     manager,
     sandboxId,
-    `base64 -d ${BUNDLE_B64_PATH} > ${BUNDLE_PATH}`,
+    `base64 -d < ${BUNDLE_B64_PATH} > ${BUNDLE_PATH}`,
     options,
   );
   if (!decoded.ok) return decoded;
 
-  const fetched = await git(manager, sandboxId, `git fetch ${BUNDLE_PATH}`, options);
+  const directory = "/tmp/nap-snapshot.git";
+  const fetched = await git(
+    manager,
+    sandboxId,
+    `git bundle verify ${BUNDLE_PATH} && rm -rf ${directory} && git -c core.hooksPath=/dev/null clone --mirror ${BUNDLE_PATH} ${directory}`,
+    options,
+  );
   if (!fetched.ok) return fetched;
 
-  const reset = await git(manager, sandboxId, "git reset --hard FETCH_HEAD", options);
+  const head = decodedBundle.value.head;
+  if (head !== null) {
+    const selected = await git(
+      manager,
+      sandboxId,
+      `git --git-dir=${directory} rev-parse --verify ${shellQuote(`${head}^{commit}`)} && ` +
+        (head.startsWith("refs/heads/")
+          ? `git check-ref-format ${shellQuote(head)} && git --git-dir=${directory} symbolic-ref HEAD ${shellQuote(head)}`
+          : `git --git-dir=${directory} update-ref --no-deref HEAD ${shellQuote(head)}`),
+      options,
+    );
+    if (!selected.ok) return selected;
+  }
+
+  const configured = await git(
+    manager,
+    sandboxId,
+    `git --git-dir=${directory} config core.bare false && git --git-dir=${directory} config core.hooksPath /dev/null && git --git-dir=${directory} config --remove-section remote.origin`,
+    options,
+  );
+  if (!configured.ok) return configured;
+
+  // Validate everything before replacing the template's Git metadata. Keep its index until
+  // reset so files tracked only by the template are removed from the working tree too.
+  const reset = await git(
+    manager,
+    sandboxId,
+    `(test ! -f .git/index || cp .git/index ${directory}/index) && rm -rf .git && mv ${directory} .git && git reset --hard HEAD`,
+    options,
+  );
   if (!reset.ok) return reset;
 
   // No `-x`: ignored files must survive. node_modules is gitignored and baked into the

@@ -48,7 +48,8 @@ let snapshots: InMemorySnapshotStore;
 function scriptRestore(manager: CountingSandboxManager): CountingSandboxManager {
   return manager
     .script(/base64 -d/, { exitCode: 0 })
-    .script(/git fetch/, { exitCode: 0 })
+    .script(/git bundle verify/, { exitCode: 0 })
+    .script(/config --remove-section remote.origin/, { exitCode: 0 })
     .script(/git reset --hard/, { exitCode: 0 })
     .script(/git clean/, { exitCode: 0 })
     .script(/bun install/, { exitCode: 0, stdout: "Checked 42 installs" });
@@ -116,7 +117,9 @@ describe("a project with a snapshot", () => {
     // Order, not membership: resetting before the fetch would reset onto the template's own
     // HEAD and report a successful restore of nothing.
     const commands = sandbox.commands(opened.value.sandboxId).join("\n");
-    expect(commands).toMatch(/base64 -d[\s\S]*git fetch[\s\S]*git reset --hard[\s\S]*git clean/);
+    expect(commands).toMatch(
+      /base64 -d[\s\S]*git bundle verify[\s\S]*git reset --hard[\s\S]*git clean/,
+    );
   });
 });
 
@@ -186,7 +189,10 @@ describe("a snapshot that cannot be applied", () => {
 
   it("falls back to a fresh template when git refuses the bundle", async () => {
     await seedSnapshot(new TextEncoder().encode("not a bundle at all"));
-    sandbox.script(/git fetch/, { exitCode: 128, stderr: "fatal: not a valid object name" });
+    sandbox.script(/git bundle verify/, {
+      exitCode: 128,
+      stderr: "fatal: not a valid object name",
+    });
 
     const opened = await open();
 
@@ -197,7 +203,10 @@ describe("a snapshot that cannot be applied", () => {
 
   it("does not install after a failed restore", async () => {
     await seedSnapshot();
-    sandbox.script(/git fetch/, { exitCode: 128, stderr: "fatal: not a valid object name" });
+    sandbox.script(/git bundle verify/, {
+      exitCode: 128,
+      stderr: "fatal: not a valid object name",
+    });
 
     const opened = await open();
     if (!opened.ok) throw new Error("expected the open to succeed");

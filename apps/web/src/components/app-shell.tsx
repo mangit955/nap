@@ -1,7 +1,9 @@
 "use client";
 
-import { type CSSProperties, useEffect, useRef, useState } from "react";
+import type { ProjectRepository } from "@nap/shared/github-protocol";
+import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react";
 import { type FetchJson, useProjectFiles } from "../files/use-project-files.ts";
+import { ProjectGitHubControl } from "../github/project-github.tsx";
 import type { CreateSocket } from "../hooks/use-event-stream.ts";
 import { useSessionLog } from "../hooks/use-session-log.ts";
 import { phaseOf, recordState } from "../projects/project-phase.ts";
@@ -73,12 +75,65 @@ export function AppShell({
    * session id comes from the record — so the answer is always one frame behind the fetch.
    */
   const [previewSeq, setPreviewSeq] = useState<number | undefined>(undefined);
+  const [projectRefreshKey, setProjectRefreshKey] = useState(0);
+  const [repository, setRepository] = useState<ProjectRepository | null>();
+  const [runningPreviewPort, setRunningPreviewPort] = useState<number | null>();
+  const receiveRepository = useCallback(
+    (next: ProjectRepository | null, runningPort?: number | null) => {
+      setRepository(next);
+      setRunningPreviewPort(runningPort);
+    },
+    [],
+  );
+  const [activePreview, setActivePreview] = useState<{
+    projectId: string;
+    sandboxId: string;
+    required: boolean;
+  } | null>(null);
+  const configuredPreviewRequired =
+    repository?.projectId !== projectId || repository.environment.previewPort !== null;
+  const previewRequired =
+    repository?.projectId === projectId && runningPreviewPort !== undefined
+      ? runningPreviewPort !== null
+      : activePreview?.projectId === projectId
+        ? activePreview.required
+        : configuredPreviewRequired;
 
   const { project, status, putAwayAt, resume, resuming, resumeError, rename } = useProject(
     projectId,
-    { previewSeq, ...(fetchJson === undefined ? {} : { fetchJson }) },
+    {
+      previewSeq,
+      previewRequired,
+      refreshKey: projectRefreshKey,
+      ...(fetchJson === undefined ? {} : { fetchJson }),
+    },
   );
   const sessionId = project?.sessionIds[0];
+
+  // Saving environment settings changes the next workspace, not the sandbox already running.
+  useEffect(() => {
+    const sandboxId = project?.sandboxId;
+    if (sandboxId == null) {
+      setActivePreview(null);
+      return;
+    }
+    if (repository?.projectId !== projectId) return;
+    const required =
+      runningPreviewPort === undefined ? configuredPreviewRequired : runningPreviewPort !== null;
+    setActivePreview((current) =>
+      current?.projectId === projectId &&
+      current.sandboxId === sandboxId &&
+      (runningPreviewPort === undefined || current.required === required)
+        ? current
+        : { projectId, sandboxId, required },
+    );
+  }, [
+    projectId,
+    project?.sandboxId,
+    repository?.projectId,
+    configuredPreviewRequired,
+    runningPreviewPort,
+  ]);
 
   /**
    * Which project this page has already asked to start, so it never asks twice.
@@ -124,6 +179,7 @@ export function AppShell({
     replayed: log.replayed,
     resuming,
     resumeError,
+    previewRequired,
   });
 
   // The restore's own end condition, reported to the hook that is waiting for it. In an effect
@@ -134,6 +190,21 @@ export function AppShell({
   }, [announced]);
 
   const previewUrl = phase.kind === "running" ? phase.url : undefined;
+  const githubRevision =
+    log.events.findLast(
+      (event) =>
+        event.type === "system.notice" ||
+        event.type === "turn.completed" ||
+        event.type === "turn.failed" ||
+        event.type === "verification.completed",
+    )?.seq ?? 0;
+  const projectRevision =
+    log.events.findLast(
+      (event) => event.type === "system.notice" || event.type === "preview.stopped",
+    )?.seq ?? 0;
+  useEffect(() => {
+    setProjectRefreshKey(projectRevision);
+  }, [projectRevision]);
 
   const files = useProjectFiles({
     sessionId,
@@ -180,6 +251,17 @@ export function AppShell({
         onReload={() => setReloads((count) => count + 1)}
         onRouteChange={setRoute}
         onToggleChat={() => setChatOpen((open) => !open)}
+        repositoryControl={
+          status === "ready" ? (
+            <ProjectGitHubControl
+              key={projectId}
+              projectId={projectId}
+              refreshKey={githubRevision}
+              onRepository={receiveRepository}
+              {...(fetchJson === undefined ? {} : { fetchJson })}
+            />
+          ) : undefined
+        }
       />
 
       <main
@@ -209,6 +291,7 @@ export function AppShell({
           preview={
             <PreviewPane
               phase={phase}
+              previewRequired={previewRequired}
               route={route}
               reloads={reloads}
               onResume={() => void resume()}

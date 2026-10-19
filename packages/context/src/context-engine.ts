@@ -37,7 +37,7 @@ import type { LLMContentBlock, LLMMessage } from "@nap/shared/ports/llm-provider
 import type { Memory } from "@nap/shared/ports/memory-provider";
 import { buildFileTreeDigest } from "./file-tree.ts";
 import { renderJobBrief } from "./job-brief.ts";
-import { SYSTEM_PROMPT } from "./system-prompt.ts";
+import { REPOSITORY_SYSTEM_PROMPT, SYSTEM_PROMPT } from "./system-prompt.ts";
 import { estimateTokens, truncateToTokens } from "./tokens.ts";
 
 /**
@@ -373,7 +373,7 @@ export class NapContextEngine implements ContextEngine {
           });
 
     const cost = (): number =>
-      estimateTokens(systemPrompt(digest, remembered, brief())) +
+      estimateTokens(systemPrompt(digest, remembered, brief(), request.workspace)) +
       messagesTokens(turns.flatMap((turn) => turn.messages)) +
       estimateTokens(userMessage) +
       mediaTokens;
@@ -432,7 +432,7 @@ export class NapContextEngine implements ContextEngine {
       // what is currently spent — and with the turn's own message still paid for, so shrinking
       // a quote can never be what silences the instruction the turn is actually carrying.
       outputTokens = 0;
-      const floor = estimateTokens(systemPrompt(digest, remembered, brief()));
+      const floor = estimateTokens(systemPrompt(digest, remembered, brief(), request.workspace));
       outputTokens = Math.max(this.#budgetTokens - floor - USER_MESSAGE_FLOOR_TOKENS, 0);
     }
 
@@ -440,7 +440,7 @@ export class NapContextEngine implements ContextEngine {
     if (cost() > this.#budgetTokens) {
       const available =
         this.#budgetTokens -
-        estimateTokens(systemPrompt(digest, remembered, brief())) -
+        estimateTokens(systemPrompt(digest, remembered, brief(), request.workspace)) -
         mediaTokens;
       // The head: a request states what it wants up front and qualifies it after.
       userMessage = truncateToTokens(userMessage, Math.max(available, 0), "head");
@@ -450,7 +450,7 @@ export class NapContextEngine implements ContextEngine {
       ...turns.flatMap((turn) => turn.messages),
       { role: "user", content: [...media, textBlock(userMessage)] } satisfies LLMMessage,
     ];
-    const prompt = systemPrompt(digest, remembered, brief());
+    const prompt = systemPrompt(digest, remembered, brief(), request.workspace);
 
     return {
       systemPrompt: prompt,
@@ -466,8 +466,13 @@ export class NapContextEngine implements ContextEngine {
  * Placing the cache breakpoint is the provider's job; leaving it somewhere worth placing is
  * this one's.
  */
-function systemPrompt(digest: string, memories: Memory[], job: string): string {
-  const sections = [SYSTEM_PROMPT];
+function systemPrompt(
+  digest: string,
+  memories: Memory[],
+  job: string,
+  workspace?: "repository",
+): string {
+  const sections = [workspace === "repository" ? REPOSITORY_SYSTEM_PROMPT : SYSTEM_PROMPT];
 
   if (digest !== "") {
     sections.push(`<project_files>\n${digest}\n</project_files>`);

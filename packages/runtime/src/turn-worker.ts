@@ -125,6 +125,8 @@ export type TurnWorkerOptions = {
    * quietly holding up the next claim.
    */
   onClaimTick?: () => void;
+  /** A publication retry uses the session lease and cancellation without spending model tokens. */
+  publish?: (request: LeasedTurnRequest, signal: AbortSignal) => Promise<boolean>;
 };
 
 export type TurnWorker = {
@@ -233,6 +235,10 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
 
   /** Whether the work succeeded. The runtime reports failure as a value; so does this. */
   async function execute(request: LeasedTurnRequest, signal: AbortSignal): Promise<boolean> {
+    if (request.kind === "publish") {
+      if (signal.aborted) return false;
+      return (await options.publish?.(request, signal)) ?? false;
+    }
     // Read here rather than carried on the row: the queue stores *whether* the asker pays, never
     // their key, so plaintext credentials never touch the table, a query log, or a backup.
     let credentials: ModelCredentials | undefined;

@@ -226,7 +226,8 @@ export type OpenProject = {
    *
    * Ending that wait needs a fact this hook cannot see — it holds a project record, not an
    * event log — so the newest `preview.ready` arrives as `previewSeq` from whoever does hold
-   * the subscription. See the note on that option.
+   * the subscription. A repository without a preview instead waits for its refreshed record
+   * to name a sandbox.
    */
   resuming: boolean;
   /** Set when the last resume was refused, in the server's own words. */
@@ -265,13 +266,23 @@ export function useProject(
      * *this* restore came up.
      */
     previewSeq?: number | undefined;
+    /** A durable workspace notice makes the sandbox record worth reading again. */
+    refreshKey?: number;
+    /** Imported repositories may intentionally have no development server. */
+    previewRequired?: boolean;
   } = {},
 ): OpenProject {
-  const { baseUrl = DEFAULT_BASE_URL, previewSeq } = options;
+  const {
+    baseUrl = DEFAULT_BASE_URL,
+    previewSeq,
+    refreshKey = 0,
+    previewRequired = true,
+  } = options;
   const fetchJson = options.fetchJson ?? credentialedFetch;
 
   const [project, setProject] = useState<ProjectSummaryPayload | undefined>(undefined);
   const [status, setStatus] = useState<OpenProject["status"]>("loading");
+  const loadedProject = useRef<string | undefined>(undefined);
   useEffect(() => {
     const renamed = (updated: ProjectSummaryPayload) => {
       if (updated.projectId === projectId) setProject(updated);
@@ -298,7 +309,9 @@ export function useProject(
   seqNow.current = previewSeq;
 
   const announced = previewSeq ?? -1;
-  const waiting = awaitingSince !== undefined && announced <= awaitingSince;
+  const waiting =
+    awaitingSince !== undefined &&
+    (previewRequired ? announced <= awaitingSince : project?.sandboxId == null);
   const resuming = requesting || waiting;
 
   /**
@@ -326,15 +339,20 @@ export function useProject(
   // `fetchJson` is deliberately not a dependency; see the note in `useProjectFiles`.
   // biome-ignore lint/correctness/useExhaustiveDependencies: see above
   useEffect(() => {
+    void refreshKey;
     let abandoned = false;
 
     // Everything below describes the *previous* project: whether it had been started from this
     // page, which announcement a restore of it was waiting for, and why the last attempt was
     // refused. Carried over, they would say that a project nobody has touched is already on its
     // way up — and the panes would sit waiting for a restore that was never asked for.
-    setStarted(false);
-    setAwaitingSince(undefined);
-    setResumeError(undefined);
+    if (loadedProject.current !== projectId) {
+      loadedProject.current = projectId;
+      setStarted(false);
+      setAwaitingSince(undefined);
+      setResumeError(undefined);
+      setStatus("loading");
+    }
 
     void (async () => {
       try {
@@ -357,7 +375,7 @@ export function useProject(
     return () => {
       abandoned = true;
     };
-  }, [projectId, baseUrl]);
+  }, [projectId, baseUrl, refreshKey]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: see the note in useProjectFiles
   const resume = useCallback(async (): Promise<void> => {

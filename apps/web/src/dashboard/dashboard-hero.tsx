@@ -151,6 +151,12 @@ export function DashboardHero({
             </div>
           </div>
         </fieldset>
+        <a
+          href="/settings/connections#import"
+          className="mt-5 inline-block text-sm text-muted underline underline-offset-4 hover:text-ink"
+        >
+          Import from GitHub
+        </a>
         {media.processing && (
           <p role="status" className="mt-3 text-xs text-muted">
             Preparing attachments…

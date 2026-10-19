@@ -809,7 +809,8 @@ describe("opening a project that has been put away", () => {
   function scriptRestore(manager: InMemorySandboxManager): InMemorySandboxManager {
     return manager
       .script(/base64 -d/, { exitCode: 0 })
-      .script(/git fetch/, { exitCode: 0 })
+      .script(/git bundle verify/, { exitCode: 0 })
+      .script(/config --remove-section remote.origin/, { exitCode: 0 })
       .script(/git reset --hard/, { exitCode: 0 })
       .script(/git clean/, { exitCode: 0 })
       .script(/bun install/, { exitCode: 0 });
@@ -846,7 +847,7 @@ describe("opening a project that has been put away", () => {
 
     expect(outcome.ok).toBe(true);
     const sandboxId = await onlySandboxId();
-    expect(sandbox.commands(sandboxId).join("\n")).toMatch(/git fetch/);
+    expect(sandbox.commands(sandboxId).join("\n")).toMatch(/git bundle verify/);
   });
 
   it("says nothing when the restore went cleanly", async () => {
@@ -862,7 +863,10 @@ describe("opening a project that has been put away", () => {
   });
 
   it("carries on with a fresh template, and says so, when the snapshot is unusable", async () => {
-    sandbox.script(/git fetch/, { exitCode: 128, stderr: "fatal: not a valid object name" });
+    sandbox.script(/git bundle verify/, {
+      exitCode: 128,
+      stderr: "fatal: not a valid object name",
+    });
     const agent = new ScriptedAgent(HAPPY_SCRIPT, true);
 
     const outcome = await restoringRuntime(agent).runTurn({
@@ -940,7 +944,7 @@ describe("opening a project that has been put away", () => {
       expect(outcome).toMatchObject({ ok: true, created: true });
       expect(agent.calls).toBe(0);
       expectEventSequence(await events.readFrom(SESSION_ID, 0), ["preview.ready"]);
-      expect(sandbox.commands(await onlySandboxId()).join("\n")).toMatch(/git fetch/);
+      expect(sandbox.commands(await onlySandboxId()).join("\n")).toMatch(/git bundle verify/);
     });
 
     it("says what went wrong as a notice rather than as a failed turn", async () => {

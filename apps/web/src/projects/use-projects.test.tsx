@@ -44,6 +44,36 @@ function server(routes: Record<string, () => Response>) {
 
 const BASE = "http://api.test";
 
+describe("restoring a repository without a preview server", () => {
+  it("waits for fresh sandbox state and finishes without a preview event", async () => {
+    let sandboxId: string | null = null;
+    const api = server({
+      [`GET /projects/${PROJECT}`]: () => json(summary({ sandboxId })),
+      [`POST /projects/${PROJECT}/open`]: () => json({}, 202),
+    });
+    const hook = renderHook(
+      ({ refreshKey }) =>
+        useProject(PROJECT, {
+          baseUrl: BASE,
+          fetchJson: api.fetchJson,
+          refreshKey,
+          previewRequired: false,
+        }),
+      { initialProps: { refreshKey: 0 } },
+    );
+    await waitFor(() => expect(hook.result.current.status).toBe("ready"));
+    await act(async () => {
+      await hook.result.current.resume();
+    });
+    expect(hook.result.current.resuming).toBe(true);
+    sandboxId = "restored-repository";
+    hook.rerender({ refreshKey: 1 });
+    await waitFor(() => expect(hook.result.current.resuming).toBe(false));
+    expect(hook.result.current.project?.sandboxId).toBe("restored-repository");
+    expect(hook.result.current.resumeError).toBeUndefined();
+  });
+});
+
 describe("renaming a project shown in the sidebar and workspace", () => {
   it.each(["sidebar", "workspace"])(
     "updates both mounted views after a successful %s rename",

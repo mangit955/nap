@@ -26,6 +26,13 @@ function show(phase: ProjectPhase) {
 const frame = () => screen.queryByTitle(PREVIEW_TITLE);
 
 describe("the phases", () => {
+  it("explains that a repository has no preview instead of claiming its server is starting", () => {
+    show({ kind: "no-preview" });
+    expect(screen.getByText("No preview configured")).toBeVisible();
+    expect(screen.queryByText(/starting the dev server/i)).toBeNull();
+    expect(frame()).toBeNull();
+  });
+
   it("invites a first prompt before anything has been asked for", () => {
     show({ kind: "idle" });
 

@@ -19,6 +19,7 @@ import type { Authenticate, AuthInstance } from "./auth/auth.ts";
 import { findOwnedSession } from "./auth/owned-session.ts";
 import { type AuthVariables, requireUser } from "./auth/require-user.ts";
 import { type FileRouteDeps, registerFileRoutes } from "./files/routes.ts";
+import { type GitHubRouteDeps, registerGitHubRoutes } from "./github/routes.ts";
 import type { HealthProbe, HealthReport } from "./health.ts";
 import { idsFromRequest } from "./log-ids.ts";
 import { METRICS_CONTENT_TYPE, type Metrics } from "./metrics.ts";
@@ -36,6 +37,7 @@ import { parseStreamQuery } from "./ws/query.ts";
 export type UpgradeWebSocket = (c: Context, events: WSEvents) => Promise<Response>;
 
 export type AppDeps = {
+  github?: GitHubRouteDeps;
   logger: Logger;
   /**
    * The origin the browser app is served from, allowed through CORS with credentials.
@@ -198,6 +200,7 @@ export function createApp(deps: AppDeps): Hono<{ Variables: AuthVariables }> {
    * which is a decision someone has to write down rather than one they can forget to make.
    */
   app.use("*", requireUser(deps.authenticate));
+  if (deps.github !== undefined) registerGitHubRoutes(app, deps.github);
 
   /**
    * What is reachable from here, for a person to read. The endpoint the other two are not.

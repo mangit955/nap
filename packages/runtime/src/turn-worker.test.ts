@@ -8,7 +8,7 @@ import type {
   TurnOutcome,
   TurnRequest,
 } from "@nap/shared/ports/runtime";
-import type { TurnQueue } from "@nap/shared/ports/turn-queue";
+import type { LeasedTurnRequest, TurnQueue } from "@nap/shared/ports/turn-queue";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type RunningTurns, startTurnWorker, type TurnWorker } from "./turn-worker.ts";
 
@@ -121,6 +121,7 @@ function start(
     drainTimeoutMs?: number;
     abortGraceMs?: number;
     onClaimTick?: () => void;
+    publish?: (request: LeasedTurnRequest, signal: AbortSignal) => Promise<boolean>;
   } = {},
 ): TurnWorker {
   const worker = startTurnWorker({
@@ -135,6 +136,7 @@ function start(
     ...(overrides.drainTimeoutMs === undefined ? {} : { drainTimeoutMs: overrides.drainTimeoutMs }),
     ...(overrides.abortGraceMs === undefined ? {} : { abortGraceMs: overrides.abortGraceMs }),
     ...(overrides.onClaimTick === undefined ? {} : { onClaimTick: overrides.onClaimTick }),
+    ...(overrides.publish === undefined ? {} : { publish: overrides.publish }),
   });
   workers.push(worker);
   return worker;
@@ -155,6 +157,29 @@ function enqueueTurn(
 }
 
 describe("running a claimed request", () => {
+  it("publishes under a lease without opening model credentials or calling the runtime", async () => {
+    const queue = new InMemoryTurnQueue();
+    const runtime = new RecordingRuntime();
+    const credentialsFor = vi.fn(async () => null);
+    const publish = vi.fn(async () => true);
+    const request = await enqueueRequest(queue, {
+      sessionId: "session-a",
+      userId: "user-1",
+      kind: "publish",
+      message: null,
+      model: "unused",
+      billsToUser: true,
+    });
+    start(queue, runtime, { credentialsFor, publish });
+    await vi.waitFor(() => expect(publish).toHaveBeenCalledOnce());
+    expect(publish).toHaveBeenCalledWith(
+      expect.objectContaining({ id: request.id }),
+      expect.any(AbortSignal),
+    );
+    expect(credentialsFor).not.toHaveBeenCalled();
+    expect(runtime.turns).toEqual([]);
+    expect(runtime.resumes).toEqual([]);
+  });
   it("hands the runtime the prompt, the model and a signal", async () => {
     const queue = new InMemoryTurnQueue();
     const runtime = new RecordingRuntime();

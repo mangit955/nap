@@ -438,3 +438,12 @@ what that run measured, and which of the design's invariants it did and did not 
 ## Things that are not deployed, deliberately
 
 - **The integration suite.** It spends real money and stays a manual, local step.
+
+## GitHub repository connections
+
+Register a separate GitHub App and configure all six `NAP_GITHUB_*` variables on the API,
+workers and reaper. Apply migration 0009 before starting the updated processes. The container
+includes Git for the server broker. Run the reaper for signed webhook processing and missed
+delivery reconciliation. The exact URLs, permissions, setup steps and rollout limits are in
+[GitHub integration](github-integration.md). The existing `GITHUB_CLIENT_*` sign-in app and
+model-provider credentials have separate purposes.

@@ -39,6 +39,12 @@ function inputs(overrides: Partial<PhaseInputs> = {}): PhaseInputs {
 }
 
 describe("before anything is known", () => {
+  it("recognizes a ready repository without waiting for a preview", () => {
+    expect(phaseOf(inputs({ previewRequired: false, preview: { status: "starting" } }))).toEqual({
+      kind: "no-preview",
+    });
+  });
+
   it("is opening while the record is still being fetched", () => {
     // Nothing is known yet, and deriving a state from an empty log is how the pane came to
     // announce "Nothing running yet" about a project that was running.

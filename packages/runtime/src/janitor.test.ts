@@ -41,21 +41,21 @@ function sweep() {
   return sweepOrphanedRequests({ queue, events, bus, now: () => new Date(now).toISOString() });
 }
 
-async function enqueue(sessionId = SESSION, kind: "turn" | "resume" = "turn") {
+async function enqueue(sessionId = SESSION, kind: "turn" | "resume" | "publish" = "turn") {
   // Through admission's own helper: the request's id is the turn id its events go under, which is
   // the whole reason the janitor below can close out a turn it never ran.
   return await enqueueRequest(queue, {
     sessionId,
     userId: "user-1",
     kind,
-    message: kind === "resume" ? null : "build me a thing",
+    message: kind === "turn" ? "build me a thing" : null,
     model: "openai/gpt-5-mini",
     billsToUser: false,
   });
 }
 
 /** A request a worker claimed and then died holding. */
-async function abandoned(sessionId = SESSION, kind: "turn" | "resume" = "turn") {
+async function abandoned(sessionId = SESSION, kind: "turn" | "resume" | "publish" = "turn") {
   const { id } = await enqueue(sessionId, kind);
   await queue.claim("worker-1");
   return id;
@@ -96,6 +96,15 @@ async function partialTurn(turnId: string, sessionId = SESSION): Promise<void> {
 }
 
 describe("orphaning an abandoned request", () => {
+  it("reports an interrupted publish without inventing a model turn failure", async () => {
+    await abandoned(SESSION, "publish");
+    pastGrace();
+    await sweep();
+    expect(await typesIn()).toEqual(["system.notice"]);
+    expect((await logOf())[0]).toMatchObject({
+      payload: { text: expect.stringContaining("retry publishing") },
+    });
+  });
   it("writes a terminal event and a notice under the request's own turn id", async () => {
     const id = await abandoned();
     await partialTurn(id);

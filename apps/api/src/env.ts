@@ -54,10 +54,17 @@ const BaseSchema = z.object({
   NAP_WEB_ORIGIN: z.url().default("http://localhost:3000"),
   /** Where this API is reached. OAuth redirect URIs are built from it, so it must be right. */
   NAP_API_URL: z.url().default("http://localhost:3001"),
-  /**
-   * A GitHub OAuth app, if there is one. Optional but paired — see the check below. Without
-   * them the GitHub button simply is not offered and email sign-in works as usual.
-   */
+  /** Repository App configuration. Either all six values are present or the feature is disabled. */
+  NAP_GITHUB_APP_ID: z.coerce.number().int().positive().optional(),
+  NAP_GITHUB_APP_SLUG: z
+    .string()
+    .regex(/^[a-z0-9-]+$/)
+    .optional(),
+  NAP_GITHUB_CLIENT_ID: z.string().min(1).optional(),
+  NAP_GITHUB_CLIENT_SECRET: z.string().min(1).optional(),
+  NAP_GITHUB_PRIVATE_KEY: z.string().min(1).optional(),
+  NAP_GITHUB_WEBHOOK_SECRET: z.string().min(20).optional(),
+  /** Optional paired credentials for GitHub sign-in, separate from repository authorization. */
   GITHUB_CLIENT_ID: z.string().min(1).optional(),
   GITHUB_CLIENT_SECRET: z.string().min(1).optional(),
   /** A Google OAuth client, if there is one. Optional but paired, exactly like GitHub's. */
@@ -326,6 +333,24 @@ const BaseSchema = z.object({
  * which is the whole reason this file validates the way it does.
  */
 export const EnvSchema = BaseSchema.superRefine((env, ctx) => {
+  const githubKeys = [
+    "NAP_GITHUB_APP_ID",
+    "NAP_GITHUB_APP_SLUG",
+    "NAP_GITHUB_CLIENT_ID",
+    "NAP_GITHUB_CLIENT_SECRET",
+    "NAP_GITHUB_PRIVATE_KEY",
+    "NAP_GITHUB_WEBHOOK_SECRET",
+  ] as const;
+  if (githubKeys.some((key) => env[key] !== undefined)) {
+    for (const key of githubKeys)
+      if (env[key] === undefined)
+        ctx.addIssue({
+          code: "custom",
+          path: [key],
+          message: "is required when GitHub App integration is configured",
+        });
+  }
+
   const required =
     env.NAP_PLATFORM === "openrouter"
       ? (["OPENROUTER_API_KEY"] as const)

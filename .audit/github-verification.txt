@@ -1,0 +1,125 @@
+Full suite
+$ vitest run --project unit --project types --project web --project db
+Testing types with tsc and vue-tsc is an experimental feature.
+Breaking changes might not follow SemVer, please pin Vitest's version when using it.
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/feat-github-app-integration
+
+
+ Test Files  333 passed (333)
+      Tests  4472 passed (4472)
+Type Errors  no errors
+   Start at  19:08:38
+   Duration  33.05s (transform 6.40s, setup 10.01s, import 23.18s, tests 47.77s, environment 41.55s, typecheck 109ms)
+
+
+
+Typecheck
+$ turbo run typecheck && tsc --noEmit
+• turbo 2.10.8
+
+   • Packages in scope: @nap/agent, @nap/api, @nap/bench, @nap/capture, @nap/context, @nap/db, @nap/loadgen, @nap/napbench, @nap/runtime, @nap/sandbox, @nap/shared, @nap/storage, @nap/verify, @nap/web
+   • Running typecheck in 14 packages
+   • Remote caching disabled, using shared worktree cache
+
+@nap/shared:typecheck: cache miss, executing 30cf5fa263ccf6b2
+@nap/storage:typecheck: cache miss, executing b16b49de8d20cfef
+@nap/sandbox:typecheck: cache miss, executing 949c583d3681f737
+@nap/db:typecheck: cache miss, executing d0e283176d08cb08
+@nap/context:typecheck: cache miss, executing e4148838a11f91f4
+@nap/web:typecheck: cache miss, executing 87de801acd76994e
+@nap/capture:typecheck: cache miss, executing adc60c02db44eb27
+@nap/loadgen:typecheck: cache miss, executing 853060004445a08a
+@nap/verify:typecheck: cache miss, executing 2d8e1f7ec45a3c72
+@nap/agent:typecheck: cache miss, executing 0e92ef08e74fcc30
+@nap/shared:typecheck: $ tsc --noEmit
+@nap/context:typecheck: $ tsc --noEmit
+@nap/sandbox:typecheck: $ tsc --noEmit
+@nap/storage:typecheck: $ tsc --noEmit
+@nap/web:typecheck: $ tsc --noEmit
+@nap/capture:typecheck: $ tsc --noEmit
+@nap/agent:typecheck: $ tsc --noEmit
+@nap/db:typecheck: $ tsc --noEmit
+@nap/loadgen:typecheck: $ tsc --noEmit
+@nap/verify:typecheck: $ tsc --noEmit
+@nap/bench:typecheck: cache miss, executing fbf01dbb648fe60b
+@nap/runtime:typecheck: cache miss, executing 95816d2b76af5129
+@nap/bench:typecheck: $ tsc --noEmit
+@nap/runtime:typecheck: $ tsc --noEmit
+@nap/api:typecheck: cache miss, executing c5394cff9e4f3e1f
+@nap/api:typecheck: $ tsc --noEmit
+@nap/napbench:typecheck: cache miss, executing c324df4a95573396
+@nap/napbench:typecheck: $ tsc --noEmit
+
+ Tasks:    14 successful, 14 total
+Cached:    0 cached, 14 total
+  Time:    1.97s
+
+
+
+Lint
+$ biome check .
+Checked 855 files in 1138ms. No fixes applied.
+
+Final gates after Git fixture isolation repair
+
+Full suite
+$ vitest run --project unit --project types --project web --project db
+Testing types with tsc and vue-tsc is an experimental feature.
+Breaking changes might not follow SemVer, please pin Vitest's version when using it.
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/feat-github-app-integration
+
+
+ Test Files  334 passed (334)
+      Tests  4473 passed (4473)
+Type Errors  no errors
+   Start at  19:17:29
+   Duration  32.01s (transform 6.05s, setup 9.08s, import 22.25s, tests 45.00s, environment 36.86s, typecheck 67ms)
+
+
+Typecheck
+$ turbo run typecheck && tsc --noEmit
+• turbo 2.10.8
+
+   • Packages in scope: @nap/agent, @nap/api, @nap/bench, @nap/capture, @nap/context, @nap/db, @nap/loadgen, @nap/napbench, @nap/runtime, @nap/sandbox, @nap/shared, @nap/storage, @nap/verify, @nap/web
+   • Running typecheck in 14 packages
+   • Remote caching disabled, using shared worktree cache
+
+@nap/web:typecheck: cache miss, executing 9bb2a8f7cb4212bb
+@nap/sandbox:typecheck: cache miss, executing af9ff6f29c766a0e
+@nap/context:typecheck: cache miss, executing d14ed16dc29b977b
+@nap/shared:typecheck: cache miss, executing b7c53f48f4655142
+@nap/capture:typecheck: cache miss, executing 4d1152f8d3f533ec
+@nap/db:typecheck: cache miss, executing dbc78e2f88303918
+@nap/storage:typecheck: cache miss, executing 6f516220ad1c55c5
+@nap/loadgen:typecheck: cache miss, executing 3d1e0b7c25f7e576
+@nap/agent:typecheck: cache miss, executing 686f4678676cd94a
+@nap/verify:typecheck: cache miss, executing e492721545faca0a
+@nap/shared:typecheck: $ tsc --noEmit
+@nap/storage:typecheck: $ tsc --noEmit
+@nap/loadgen:typecheck: $ tsc --noEmit
+@nap/sandbox:typecheck: $ tsc --noEmit
+@nap/agent:typecheck: $ tsc --noEmit
+@nap/verify:typecheck: $ tsc --noEmit
+@nap/db:typecheck: $ tsc --noEmit
+@nap/context:typecheck: $ tsc --noEmit
+@nap/capture:typecheck: $ tsc --noEmit
+@nap/web:typecheck: $ tsc --noEmit
+@nap/bench:typecheck: cache miss, executing 43cf6764f243bc60
+@nap/bench:typecheck: $ tsc --noEmit
+@nap/runtime:typecheck: cache miss, executing 2fe1251492fea44e
+@nap/runtime:typecheck: $ tsc --noEmit
+@nap/napbench:typecheck: cache miss, executing 25b360a516973d5c
+@nap/napbench:typecheck: $ tsc --noEmit
+@nap/api:typecheck: cache miss, executing b923068f7f5dd012
+@nap/api:typecheck: $ tsc --noEmit
+
+ Tasks:    14 successful, 14 total
+Cached:    0 cached, 14 total
+  Time:    1.917s
+
+
+Lint
+$ biome check .
+Checked 857 files in 1273ms. No fixes applied.

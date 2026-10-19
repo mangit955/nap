@@ -1,4 +1,5 @@
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
+import { decodeRepositoryBundle } from "@nap/sandbox/git-bundle";
 import { TEMPLATE_WORKDIR } from "@nap/sandbox/template";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { scriptGit } from "@nap/sandbox/testing/script-git";
@@ -74,7 +75,9 @@ describe("a successful teardown", () => {
     const [row] = snapshots.all();
     const stored = await objects.get(row?.key ?? "");
 
-    expect(stored.ok && Buffer.from(stored.value).toString()).toBe("PACK-bundle-bytes");
+    if (!stored.ok) throw new Error(stored.error.message);
+    const decoded = decodeRepositoryBundle(stored.value);
+    expect(decoded.ok && Buffer.from(decoded.value.bundle).toString()).toBe("PACK-bundle-bytes");
   });
 
   it("records the commit the bundle actually captured", async () => {
@@ -193,6 +196,7 @@ describe("snapshotKey", () => {
     // would overwrite the older snapshot, which is fine — but the rows would then both point
     // at one object, and deleting either would break the other.
     expect(snapshotKey(PROJECT, SHA, 1)).not.toBe(snapshotKey(PROJECT, SHA, 2));
+    expect(snapshotKey(PROJECT, SHA, 1)).not.toBe(snapshotKey(PROJECT, SHA, 1));
   });
 
   it("contains nothing that needs escaping in a URL", () => {
@@ -270,16 +274,16 @@ describe("tearing down a project that has not changed since its last snapshot", 
     await snapshots.record({ projectId: PROJECT, key: "projects/p/existing.bundle", gitSha });
   }
 
-  it("does not bundle or upload again", async () => {
+  it("captures branch and ref changes even when HEAD has not moved", async () => {
     // Once a turn snapshots its own work, the reaper arrives minutes later at the same commit.
     // Re-bundling it would write a second object holding byte-identical content.
     await alreadySnapshotted();
 
     const result = await tearDown();
 
-    expect(result).toMatchObject({ ok: true, value: { captured: false } });
-    expect(objects.puts).toBe(0);
-    expect(snapshots.all()).toHaveLength(1);
+    expect(result).toMatchObject({ ok: true, value: { captured: true } });
+    expect(objects.puts).toBe(1);
+    expect(snapshots.all()).toHaveLength(2);
   });
 
   it("still destroys the sandbox, because that is what a teardown is for", async () => {
@@ -293,7 +297,7 @@ describe("tearing down a project that has not changed since its last snapshot", 
     });
   });
 
-  it("hands back the existing key, so the project still points at its snapshot", async () => {
+  it("returns the new snapshot key", async () => {
     // The caller writes this onto the project row. A null or a fresh key here would strand the
     // real snapshot and leave the project pointing at nothing.
     await alreadySnapshotted();
@@ -302,7 +306,7 @@ describe("tearing down a project that has not changed since its last snapshot", 
 
     expect(result).toMatchObject({
       ok: true,
-      value: { key: "projects/p/existing.bundle", gitSha: SHA },
+      value: { key: expect.stringContaining(`projects/${PROJECT}/`), gitSha: SHA },
     });
   });
 

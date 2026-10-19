@@ -10,6 +10,7 @@
 
 import { getLogger } from "@nap/shared/logging";
 import type { ObjectStore } from "@nap/shared/ports/object-store";
+import type { RepositorySource, RepositoryWorkspace } from "@nap/shared/ports/repository-workspace";
 import type {
   ActivationFailure,
   Reservation,
@@ -19,6 +20,7 @@ import type { SandboxError, SandboxManager } from "@nap/shared/ports/sandbox-man
 import type { SessionRecord, SessionStore } from "@nap/shared/ports/session-store";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
 import type { Result, VoidResult } from "@nap/shared/result";
+import { readRepositoryPreviewPort } from "./repository-environment.ts";
 import { openProject } from "./restore.ts";
 
 /** A sandbox to work in, whether this call created it, and anything the user should be told. */
@@ -26,6 +28,7 @@ export type AcquiredSandbox = {
   id: string;
   created: boolean;
   notices: { level: "info" | "warning"; text: string }[];
+  repository?: RepositorySource;
 };
 
 /**
@@ -47,6 +50,9 @@ export type AcquireOptions = {
    * wants and what no deployment does — see `composeNap`, which always supplies one.
    */
   capacity?: SandboxCapacity;
+  repository?: RepositoryWorkspace;
+  signal?: AbortSignal | undefined;
+  source?: RepositorySource;
 };
 
 /**
@@ -69,6 +75,43 @@ export async function acquireSandbox(
   options: AcquireOptions,
   session: SessionRecord,
 ): Promise<Result<AcquiredSandbox, SandboxError>> {
+  if (options.signal?.aborted) return cancelledAcquire();
+  const source = await options.repository?.source(session, options.signal);
+  if (source !== undefined && !source.ok) {
+    return { ok: false, error: { code: "unavailable", message: source.error.message } };
+  }
+  const repository = source?.value ?? null;
+  const acquired = await acquireAuthorizedSandbox(
+    repository === null ? options : { ...options, source: repository },
+    session,
+  );
+  if (!acquired.ok || repository === null) return acquired;
+  const preview = acquired.value.created
+    ? { ok: true as const, value: repository.previewPort }
+    : await readRepositoryPreviewPort({
+        sandbox: options.sandbox,
+        sandboxId: acquired.value.id,
+        fallback: repository.previewPort,
+      });
+  if (!preview.ok)
+    return { ok: false, error: { code: "unavailable", message: preview.error.message } };
+  return {
+    ok: true,
+    value: {
+      ...acquired.value,
+      repository: { ...repository, previewPort: preview.value },
+      notices: acquired.value.created
+        ? [...acquired.value.notices, { level: "info", text: "Repository workspace ready." }]
+        : acquired.value.notices,
+    },
+  };
+}
+
+async function acquireAuthorizedSandbox(
+  options: AcquireOptions,
+  session: SessionRecord,
+): Promise<Result<AcquiredSandbox, SandboxError>> {
+  if (options.signal?.aborted) return cancelledAcquire();
   if (session.sandboxId === null) return await open(options, session);
 
   const resumed = await options.sandbox.resume(session.sandboxId);
@@ -127,6 +170,11 @@ async function open(
   if (!opened.ok) {
     await releaseQuietly(options, reservation);
     return opened;
+  }
+  if (options.signal?.aborted) {
+    await destroyQuietly(options, opened.value.id);
+    await releaseQuietly(options, reservation);
+    return cancelledAcquire();
   }
 
   // Activated before the session is told. The order is what decides how a half-finished acquire
@@ -256,6 +304,12 @@ async function create(
   session: SessionRecord,
 ): Promise<Result<AcquiredSandbox, SandboxError>> {
   if (options.restore === null) {
+    if (options.source !== undefined) {
+      return {
+        ok: false,
+        error: { code: "unavailable", message: "Repository workspaces require snapshot storage." },
+      };
+    }
     const created = await options.sandbox.create(session.projectId);
     if (!created.ok) return created;
     return { ok: true, value: { id: created.value.id, created: true, notices: [] } };
@@ -266,6 +320,8 @@ async function create(
     objects: options.restore.objects,
     snapshots: options.restore.snapshots,
     projectId: session.projectId,
+    ...(options.source === undefined ? {} : { source: options.source }),
+    signal: options.signal,
   });
   if (!opened.ok) {
     // Flattened to the one code a turn can report. The distinction between "no sandbox" and "no
@@ -281,6 +337,13 @@ async function create(
       notices:
         opened.value.warning === null ? [] : [{ level: "warning", text: opened.value.warning }],
     },
+  };
+}
+
+function cancelledAcquire(): Result<never, SandboxError> {
+  return {
+    ok: false,
+    error: { code: "unavailable", message: "Opening this workspace was cancelled." },
   };
 }
 
