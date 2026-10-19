@@ -50,6 +50,8 @@ export type JobContext = {
 };
 
 export type ContextRequest = {
+  /** Rebuild an active loop without appending its request a second time. */
+  continuation?: boolean;
   sessionId: string;
   sandboxId: string;
   /** The message this turn is being built for. */
@@ -77,9 +79,13 @@ export type ContextRequest = {
 };
 
 export type BuiltContext = {
+  /** Application-owned instructions, excluding file listings, memories and quoted checks. */
+  trustedInstructions?: string;
+  budgetTokens?: number;
+  needsCompaction?: boolean;
   systemPrompt: string;
   messages: LLMMessage[];
-  /** What the assembled context is expected to cost. Never exceeds the budget. */
+  /** Estimated input cost. Essential instructions can exceed the budget; the loop must compact or stop. */
   estimatedTokens: number;
 };
 

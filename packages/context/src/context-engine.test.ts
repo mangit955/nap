@@ -469,14 +469,15 @@ describe("NapContextEngine", () => {
       expect(totalTokens(context.systemPrompt, context.messages)).toBeLessThanOrEqual(budgetTokens);
     });
 
-    it("holds the budget even when the current message alone would blow it", async () => {
-      // The last thing that can be cut. Without this the invariant would be a wish: a user
-      // can paste a whole file into the chat box.
+    it("preserves an oversized current request so the loop can refuse instead of silently deleting instructions", async () => {
+      // The size is reported honestly; ending the turn belongs to the active loop.
       const context = await engine({ budgetTokens: MIN_BUDGET_TOKENS }).build(
         request({ userMessage: "z".repeat(200_000) }),
       );
 
-      expect(context.estimatedTokens).toBeLessThanOrEqual(MIN_BUDGET_TOKENS);
+      expect(context.estimatedTokens).toBeGreaterThan(MIN_BUDGET_TOKENS);
+      expect(context.needsCompaction).toBe(true);
+      expect(texts(context.messages).at(-1)).toBe("z".repeat(200_000));
       expect(context.systemPrompt).toContain(SYSTEM_PROMPT);
     });
 

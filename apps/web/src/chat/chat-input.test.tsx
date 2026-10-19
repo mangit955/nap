@@ -483,3 +483,14 @@ describe("when something goes wrong", () => {
     expect(box()).toHaveValue("a carefully worded prompt");
   });
 });
+
+it("allows a queued prompt during compaction while preserving the Stop control", () => {
+  const onSubmit = vi.fn();
+  show({ running: true, queueing: true, onSubmit });
+  fireEvent.change(screen.getByRole("textbox", { name: "Message" }), {
+    target: { value: "Continue with the filter" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Queue message" }));
+  expect(onSubmit).toHaveBeenCalledWith("Continue with the filter");
+  expect(screen.getByRole("button", { name: "Stop" })).toBeEnabled();
+});

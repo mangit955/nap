@@ -46,6 +46,18 @@ function labelFor(...events: StoredEvent[]): string {
 }
 
 describe("workingLabel", () => {
+  it("names active compaction and returns to thinking after its boundary", () => {
+    const started = ev("turn.started", { source: "user" });
+    const compact = ev("compaction.started", { id: "c", trigger: "automatic" });
+    expect(labelFor(started, compact)).toBe("Compacting context");
+    expect(
+      labelFor(
+        started,
+        compact,
+        ev("compaction.failed", { id: "c", message: "unavailable", cancelled: false, usage: null }),
+      ),
+    ).toBe("Thinking");
+  });
   it("says what it is doing before anything has happened", () => {
     // The window between the click and `turn.started` arriving. `running` is already true —
     // the POST is in flight — so the indicator is on screen with nothing yet to describe.

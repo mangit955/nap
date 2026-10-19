@@ -344,6 +344,26 @@ describe("the store and the bus together", () => {
 const JOB = "3f9a1c2d-5e6b-4f7a-8b9c-0d1e2f3a4b5c";
 
 const PAYLOADS = [
+  { type: "compaction.started", payload: { id: JOB, trigger: "manual" } },
+  {
+    type: "compaction.completed",
+    payload: {
+      id: JOB,
+      result: { kind: "api", checkpoint: { coveredThrough: 0, summary: "Summary", tail: [] } },
+      usage: null,
+      beforeTokens: 1000,
+      afterTokens: 100,
+    },
+  },
+  {
+    type: "compaction.failed",
+    payload: { id: JOB, message: "cancelled", cancelled: true, usage: null },
+  },
+  {
+    type: "context.usage",
+    payload: { inputTokens: 1000, source: "estimated", budgetTokens: 80000, windowTokens: null },
+  },
+
   { type: "user.message", payload: { text: "build me a todo list" } },
   { type: "agent.thinking", payload: { text: "considering the layout" } },
   { type: "agent.message", payload: { text: "Added App.tsx." } },

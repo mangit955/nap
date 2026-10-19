@@ -29,6 +29,49 @@ type Case = {
 
 const CASES = [
   {
+    type: "compaction.started",
+    valid: { ...ENVELOPE, type: "compaction.started", payload: { id: JOB_ID, trigger: "manual" } },
+    malformed: { ...ENVELOPE, type: "compaction.started", payload: {} },
+    issuePath: ["payload", "id"],
+  },
+  {
+    type: "compaction.completed",
+    valid: {
+      ...ENVELOPE,
+      type: "compaction.completed",
+      payload: {
+        id: JOB_ID,
+        result: { kind: "api", checkpoint: { coveredThrough: 0, summary: "Summary", tail: [] } },
+        usage: null,
+        beforeTokens: 1000,
+        afterTokens: 100,
+      },
+    },
+    malformed: { ...ENVELOPE, type: "compaction.completed", payload: {} },
+    issuePath: ["payload", "id"],
+  },
+  {
+    type: "compaction.failed",
+    valid: {
+      ...ENVELOPE,
+      type: "compaction.failed",
+      payload: { id: JOB_ID, message: "cancelled", cancelled: true, usage: null },
+    },
+    malformed: { ...ENVELOPE, type: "compaction.failed", payload: {} },
+    issuePath: ["payload", "id"],
+  },
+  {
+    type: "context.usage",
+    valid: {
+      ...ENVELOPE,
+      type: "context.usage",
+      payload: { inputTokens: 1000, source: "estimated", budgetTokens: 80000, windowTokens: null },
+    },
+    malformed: { ...ENVELOPE, type: "context.usage", payload: {} },
+    issuePath: ["payload", "inputTokens"],
+  },
+
+  {
     type: "user.message",
     valid: { ...ENVELOPE, type: "user.message", payload: { text: "build me a todo list" } },
     malformed: { ...ENVELOPE, type: "user.message", payload: { text: 42 } },

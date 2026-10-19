@@ -55,6 +55,14 @@ export type TranscriptItem =
       text: string;
       attachments?: MediaAttachment[] | undefined;
     }
+  | {
+      kind: "compaction";
+      key: number;
+      id: string;
+      turnId: string;
+      status: "running" | "completed" | "failed";
+      text: string;
+    }
   | { kind: "thinking"; key: number; text: string }
   | {
       kind: "step";
@@ -167,6 +175,45 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
     const key = event.seq;
 
     switch (event.type) {
+      case "compaction.started":
+        if (event.payload.trigger === "manual") {
+          lastUserMessage = "/compact";
+          lastUserAttachments = undefined;
+        }
+        items.push({
+          kind: "compaction",
+          key,
+          id: event.payload.id,
+          turnId: event.turnId,
+          status: "running",
+          text: "Compacting context…",
+        });
+        break;
+      case "compaction.completed":
+      case "compaction.failed": {
+        const item = items.find(
+          (item) => item.kind === "compaction" && item.id === event.payload.id,
+        );
+        const status = event.type === "compaction.completed" ? "completed" : "failed";
+        const usage = event.payload.usage;
+        const text =
+          event.type === "compaction.failed"
+            ? event.payload.message
+            : `Context compacted${usage === null ? "" : ` · ${usage.inputTokens.toLocaleString()} input / ${usage.outputTokens.toLocaleString()} output tokens`}`;
+        if (item?.kind === "compaction") {
+          item.status = status;
+          item.text = text;
+        } else
+          items.push({
+            kind: "compaction",
+            key,
+            id: event.payload.id,
+            turnId: event.turnId,
+            status,
+            text,
+          });
+        break;
+      }
       case "user.message": {
         const from = repairs.has(event.turnId) || awaitingRepair ? "verifier" : "user";
         items.push({
@@ -317,6 +364,16 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
         break;
 
       case "turn.failed":
+        for (const item of items)
+          if (
+            item.kind === "compaction" &&
+            item.turnId === event.turnId &&
+            item.status === "running"
+          ) {
+            item.status = "failed";
+            item.text = "Compaction interrupted.";
+          }
+
         items.push({
           kind: "turn-end",
           key,

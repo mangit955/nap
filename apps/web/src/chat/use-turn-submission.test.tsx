@@ -473,3 +473,25 @@ describe("when the server refuses", () => {
     expect(result.current.pending).toBeUndefined();
   });
 });
+
+it("acknowledges /compact from lifecycle events and keeps a queued prompt pending until its own event", async () => {
+  const endpoint = poster();
+  const hook = submission(endpoint.fetchJson);
+  await act(async () => {
+    await hook.result.current.submit("/compact");
+  });
+  const start = started();
+  const compact = ev("compaction.started", { id: TURN, trigger: "manual" });
+  hook.rerender([start, compact]);
+  await waitFor(() => expect(hook.result.current.pending).toBeUndefined());
+  expect(hook.result.current.running).toBe(true);
+  await act(async () => {
+    await hook.result.current.submit("next request");
+  });
+  hook.rerender([start, compact, completed()]);
+  expect(hook.result.current.pending).toBe("next request");
+  expect(hook.result.current.running).toBe(true);
+  hook.rerender([start, compact, completed(), userSaid("next request")]);
+  await waitFor(() => expect(hook.result.current.pending).toBeUndefined());
+  expect(endpoint.bodies).toEqual([{ message: "/compact" }, { message: "next request" }]);
+});

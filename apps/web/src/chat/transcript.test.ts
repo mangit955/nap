@@ -65,6 +65,7 @@ function stepsOf(items: TranscriptItem[]) {
  * still a decision somebody made — the union below is exhaustive across both.
  */
 const DRAWN_ELSEWHERE = [
+  "context.usage",
   "job.started",
   "verification.started",
   "verification.completed",
@@ -78,6 +79,22 @@ const DRAWN_ELSEWHERE = [
  * until it has a case or is named above, rather than quietly rendering as nothing.
  */
 const CASES = [
+  { type: "compaction.started", payload: { id: "compact1", trigger: "manual" } },
+  {
+    type: "compaction.completed",
+    payload: {
+      id: "compact1",
+      result: { kind: "native", provider: "codex", sessionId: "native1", coveredThrough: 0 },
+      usage: null,
+      beforeTokens: null,
+      afterTokens: null,
+    },
+  },
+  {
+    type: "compaction.failed",
+    payload: { id: "compact1", message: "Compaction failed", cancelled: false, usage: null },
+  },
+
   { type: "user.message", payload: { text: "build me a todo list" } },
   { type: "agent.thinking", payload: { text: "considering the layout" } },
   { type: "agent.message", payload: { text: "Added App.tsx." } },
@@ -133,7 +150,7 @@ describe("the treatment table covers the union", () => {
     // and the compile check green while rendering nowhere at all, which is the exact failure
     // this table exists to catch. Only the job strip's own events may sit there.
     for (const type of DRAWN_ELSEWHERE) {
-      expect(type).toMatch(/^(job|verification)\./);
+      expect(type).toMatch(/^(job|verification|context)\./);
       expect(CASES.map((c) => c.type)).not.toContain(type);
     }
   });

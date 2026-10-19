@@ -82,6 +82,8 @@ export function workingLabel(items: readonly TranscriptItem[]): string {
     const item = items[index];
     if (item === undefined) continue;
 
+    if (item.kind === "compaction" && item.status === "running") return "Compacting context";
+
     if (item.kind === "step" && item.status === "running") {
       const target = stepTarget(item);
       // A step whose arguments this client never received — it connected between the call and

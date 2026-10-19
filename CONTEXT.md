@@ -81,6 +81,11 @@ printed. Distinct from **truncation**, which is the ladder `ContextEngine` climb
 does not *fit*: staleness runs first and runs always, because a turn re-sends its whole transcript
 on every round trip and a thing that fits can still be a thing not worth ten copies. See ADR-0011.
 
+**Compaction** — replacing older working conversation with a summary while retaining the original
+transcript. A **compaction checkpoint** is the saved summary and the conversation boundary it
+covers; it says nothing about whether the project's code is verified.
+_Avoid_: checkpoint without the compaction qualifier, deleting history.
+
 **Checkpoint** — a *verified* commit, and the answer to "is this project in a valid state right
 now", which is `HEAD == last checkpoint` rather than a judgement anybody renders. Distinct from a
 **Snapshot**, which is a filesystem archived because a sandbox went away: a checkpoint is about

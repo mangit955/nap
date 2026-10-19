@@ -112,8 +112,9 @@ export function useTurnSubmission(options: {
     const arrived = events.some(
       (event) =>
         event.seq > submittedAfter.current &&
-        event.type === "user.message" &&
-        event.payload.text === pending,
+        ((event.type === "user.message" && event.payload.text === pending) ||
+          (pending === "/compact" &&
+            (event.type === "compaction.started" || event.type === "turn.failed"))),
     );
     if (arrived) setPending(undefined);
   }, [events, pending]);
@@ -162,12 +163,15 @@ export function useTurnSubmission(options: {
     if (sessionId === undefined) return;
 
     try {
-      // The response is deliberately not checked for success. A 409 means the turn ended
-      // while the click was in flight, which is exactly what the user asked for; anything
-      // else will show up as the turn continuing, which the transcript already reports.
-      await fetchRef.current(`${baseUrl}/sessions/${encodeURIComponent(sessionId)}/turns/cancel`, {
-        method: "POST",
-      });
+      // A successful cancellation can remove a queued prompt before it produces an event.
+      // A 409 means the turn ended while the click was in flight; the log settles that case.
+      const response = await fetchRef.current(
+        `${baseUrl}/sessions/${encodeURIComponent(sessionId)}/turns/cancel`,
+        {
+          method: "POST",
+        },
+      );
+      if (response.ok) setPending(undefined);
     } catch {
       // Nothing to say. The turn is either stopping or it is not, and the log is the
       // authority on which.

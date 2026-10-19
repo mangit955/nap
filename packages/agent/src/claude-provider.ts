@@ -350,9 +350,13 @@ export function toRequestParams(
 ): Anthropic.MessageStreamParams {
   return {
     model: config.model,
-    max_tokens: config.maxTokens,
-    output_config: { effort: config.effort },
-    thinking: { type: "adaptive", display: "summarized" },
+    max_tokens: Math.min(request.maxOutputTokens ?? config.maxTokens, config.maxTokens),
+    ...(request.purpose === "compaction"
+      ? { thinking: { type: "disabled" as const } }
+      : {
+          output_config: { effort: config.effort },
+          thinking: { type: "adaptive" as const, display: "summarized" as const },
+        }),
     system: [{ type: "text", text: request.systemPrompt, cache_control: CACHE_BREAKPOINT }],
     messages: withConversationBreakpoint(
       request.messages.map((message) => ({
@@ -390,7 +394,13 @@ export function toTurnResult(message: AnthropicMessage): LLMTurnResult {
     }
   }
 
-  return { type: "message", text: texts.join(""), toolCalls, usage };
+  return {
+    type: "message",
+    text: texts.join(""),
+    toolCalls,
+    usage,
+    ...(message.stop_reason === "max_tokens" ? { truncated: true } : {}),
+  };
 }
 
 export class ClaudeProvider implements LLMProvider {

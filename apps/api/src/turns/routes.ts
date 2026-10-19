@@ -138,6 +138,13 @@ export function registerTurnRoutes(
       return c.json({ error: body.error.issues.map((issue) => issue.message).join("; ") }, 400);
     }
 
+    if (body.data.message === "/compact") {
+      if (body.data.attachments?.length)
+        return c.json({ error: "Send /compact without attachments." }, 400);
+      if (await deps.queue.anyLeased([found.value.sessionId]))
+        return c.json({ error: "Wait for the current turn to finish before compacting." }, 409);
+    }
+
     // Whose account this turn is billed to, which is also what decides which models they may
     // name. One lookup answers both, and both are needed before anything is spent.
     const key = (await deps.keys?.(c.get("userId"))) ?? null;
@@ -169,7 +176,8 @@ export function registerTurnRoutes(
     // Awaited rather than detached: it is one indexed update, and the client reloads the project
     // record as soon as the turn is accepted — naming it in the background would race that read
     // and leave the bar saying "Untitled project" until something else refreshed it.
-    await nameFromFirstPrompt(deps, found.value, c.get("userId"), body.data.message);
+    if (body.data.message !== "/compact")
+      await nameFromFirstPrompt(deps, found.value, c.get("userId"), body.data.message);
 
     // The turn's identity, allocated here and durable a line later. It is the request's id *and*
     // the turn id every event of this turn is written under, which is what lets the janitor close

@@ -670,3 +670,18 @@ describe("naming a project after its first prompt", () => {
     expect((await projects.get("project-1", FAKE_OWNER))?.name).toBe(UNTITLED_PROJECT);
   });
 });
+
+it("queues /compact with the ordinary durable lease and does not rename a project after it", async () => {
+  const queue = new InMemoryTurnQueue();
+  const { app: hono, projects } = app(queue);
+  const res = await post(hono, `/sessions/${SESSION}/turns`, { message: "/compact" });
+  expect(res.status).toBe(202);
+  const leased = await queue.claim("worker");
+  expect(leased).toMatchObject({ message: "/compact", kind: "turn", sessionId: SESSION });
+  expect((await projects.get("project-1", FAKE_OWNER))?.name).toBe("Untitled project");
+  const busy = await post(hono, `/sessions/${SESSION}/turns`, { message: "/compact" });
+  expect(busy.status).toBe(409);
+  const prompt = await post(hono, `/sessions/${SESSION}/turns`, { message: "next prompt" });
+  expect(prompt.status).toBe(202);
+  expect(await queue.claim("other-worker")).toBeNull();
+});

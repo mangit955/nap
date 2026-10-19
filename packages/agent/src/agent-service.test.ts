@@ -581,3 +581,66 @@ describe("runTurn — the model writing its answer", () => {
     ]);
   });
 });
+
+it("does not refund earlier model spend when automatic compaction replaces the working context", async () => {
+  const { agent, provider } = service(
+    [
+      [
+        {
+          text: "",
+          toolCalls: [call("list_files", { path: "/home/user/app" }, "a")],
+          usage: { inputTokens: 10000, outputTokens: 1 },
+        },
+        { text: "summary", usage: { inputTokens: 1000, outputTokens: 100 } },
+        { text: "done", usage: { inputTokens: 10000, outputTokens: 1 } },
+      ],
+    ],
+    { maxTokens: 21000 },
+  );
+  await agent.runTurn(
+    request({
+      context: { ...CONTEXT, budgetTokens: 12000 },
+      compactContext: async (input) => {
+        await input.complete({
+          systemPrompt: "summarize",
+          messages: [],
+          tools: [],
+          purpose: "compaction",
+          maxOutputTokens: 100,
+        });
+        return { ok: true, messages: CONTEXT.messages };
+      },
+    }),
+  );
+  expect(provider.requests.map((r) => r.purpose)).toEqual([undefined, "compaction", undefined]);
+  expect(recorder.payloadsOf("turn.failed")).toEqual([
+    expect.objectContaining({ reason: "budget_exceeded" }),
+  ]);
+  expect(recorder.types).not.toContain("turn.completed");
+});
+
+it("does not send a request past a reported model window after compaction fails", async () => {
+  const provider = new ScriptedLLMProvider([[{ text: "must not be called" }]]);
+  const agent = new NapAgentService({
+    provider: { startTurn: () => ({ ...provider.startTurn(), contextWindowTokens: 4000 }) },
+  });
+  let compactions = 0;
+  await agent.runTurn(
+    request({
+      context: {
+        ...CONTEXT,
+        messages: [{ role: "user", content: "x".repeat(16000) }],
+        budgetTokens: 80000,
+      },
+      compactContext: async () => {
+        compactions++;
+        return { ok: false, message: "unavailable" };
+      },
+    }),
+  );
+  expect(compactions).toBe(1);
+  expect(provider.requests).toHaveLength(0);
+  expect(recorder.payloadsOf("turn.failed")).toEqual([
+    expect.objectContaining({ reason: "budget_exceeded" }),
+  ]);
+});

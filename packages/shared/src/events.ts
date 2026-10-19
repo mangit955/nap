@@ -22,6 +22,7 @@ import { MediaAttachmentsSchema } from "./media.ts";
 
 import { z } from "zod";
 import { CheckOutcomeSchema } from "./check-outcome.ts";
+import { CompactionResultSchema, TokenUsageSchema } from "./compaction.ts";
 
 /** The six sandbox-proxy tools. Nothing else may appear in the log. */
 export const TOOL_NAMES = [
@@ -120,6 +121,26 @@ const toolRef = {
 };
 
 export const NapEventSchema = z.discriminatedUnion("type", [
+  event("compaction.started", { id: z.uuid(), trigger: z.enum(["manual", "automatic"]) }),
+  event("compaction.completed", {
+    id: z.uuid(),
+    result: CompactionResultSchema,
+    usage: TokenUsageSchema.nullable(),
+    beforeTokens: z.int().nonnegative().nullable(),
+    afterTokens: z.int().nonnegative().nullable(),
+  }),
+  event("compaction.failed", {
+    id: z.uuid(),
+    message: z.string(),
+    cancelled: z.boolean(),
+    usage: TokenUsageSchema.nullable(),
+  }),
+  event("context.usage", {
+    inputTokens: z.int().nonnegative(),
+    source: z.enum(["estimated", "reported"]),
+    budgetTokens: z.int().positive(),
+    windowTokens: z.int().positive().nullable(),
+  }),
   event("user.message", { ...text, attachments: MediaAttachmentsSchema.optional() }),
   /** Summarized reasoning, not raw thinking — the model is run with `display: "summarized"`. */
   event("agent.thinking", text),
@@ -162,6 +183,8 @@ export const NapEventSchema = z.discriminatedUnion("type", [
    */
   event("turn.started", { source: PromptSourceSchema.default("user") }),
   event("turn.completed", {
+    /** Present when native compaction spent tokens but did not report their count. */
+    usageIncomplete: z.literal(true).optional(),
     usage: z.strictObject({
       inputTokens: z.int().nonnegative(),
       outputTokens: z.int().nonnegative(),

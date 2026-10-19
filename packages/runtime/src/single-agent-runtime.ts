@@ -67,6 +67,7 @@ import {
   type RestoreDeps,
   restoreDepsOf,
 } from "./acquire-sandbox.ts";
+import { contextCompactor } from "./compaction.ts";
 import { continuationFor } from "./continue-job.ts";
 import { EventSink } from "./event-sink.ts";
 import { repairCommitSubject, repairPrompt } from "./repair-prompt.ts";
@@ -564,6 +565,26 @@ export class SingleAgentRuntime implements Runtime {
       // itself, so finding it in the history too would send it to the model twice.
       const history = await this.#options.events.readFrom(request.sessionId, 0);
 
+      if (request.message.trim() === "/compact") {
+        if (request.attachments?.length) throw new Error("Send /compact without attachments.");
+        if (
+          !history.some((event) => event.type === "agent.message" || event.type === "tool.result")
+        )
+          throw new Error("There is no complete conversation to compact yet.");
+        const acquired = await this.#acquire(session);
+        if (!acquired.ok) throw new Error(acquired.error.message);
+        return await this.#attempt({
+          settings: request,
+          scope,
+          sandboxId: acquired.value.id,
+          prompt: "",
+          promptSource: "user",
+          commitSubject: "",
+          history,
+          operation: "compact",
+        });
+      }
+
       // **Before the sandbox, and durable before it.** Acquiring a workspace takes seconds on a
       // project's first turn, and this used to sit after it: nothing whatsoever reached the client
       // until the sandbox existed, so somebody who had just described their app watched an empty
@@ -804,7 +825,8 @@ export class SingleAgentRuntime implements Runtime {
      * Handed to the context engine rather than folded there: the component that owns the token
      * budget performs no I/O and does not read the log twice.
      */
-    job: JobContext;
+    job?: JobContext;
+    operation?: "compact";
   }): Promise<TurnOutcome> {
     const { settings, scope, sandboxId, prompt, promptSource, commitSubject, history, job } =
       options;
@@ -817,7 +839,8 @@ export class SingleAgentRuntime implements Runtime {
       model: settings.model,
       attachments: options.attachments,
       history,
-      job,
+      ...(job === undefined ? {} : { job }),
+      ...(options.operation === "compact" ? { continuation: true } : {}),
       sandbox: this.#options.sandbox,
       memory: this.#options.memory,
     });
@@ -832,8 +855,44 @@ export class SingleAgentRuntime implements Runtime {
       context,
       sandbox: this.#options.sandbox,
       onEvent: sink.emit,
+      ...(options.operation === undefined ? {} : { operation: options.operation }),
+      compactContext: contextCompactor({
+        budgetTokens: context.budgetTokens ?? 80_000,
+        read: async () => {
+          await sink.drain();
+          return this.#options.events.readFrom(settings.sessionId, 0);
+        },
+        emit: (event) => {
+          switch (event.type) {
+            case "compaction.started":
+              emit(event.type, event.payload);
+              break;
+            case "compaction.completed":
+              emit(event.type, event.payload);
+              break;
+            case "compaction.failed":
+              emit(event.type, event.payload);
+              break;
+          }
+        },
+        drain: () => sink.drain(),
+        rebuild: (history) =>
+          this.#options.context.build({
+            sessionId: settings.sessionId,
+            sandboxId,
+            userMessage: prompt,
+            model: settings.model,
+            continuation: true,
+            history,
+            ...(job === undefined ? {} : { job }),
+            sandbox: this.#options.sandbox,
+            memory: this.#options.memory,
+          }),
+      }),
       promptSource,
-      finalize: () => this.#commit(sandboxId, commitSubject),
+      ...(options.operation === "compact"
+        ? {}
+        : { finalize: () => this.#commit(sandboxId, commitSubject) }),
       ...(settings.signal === undefined ? {} : { signal: settings.signal }),
       ...(settings.model === undefined ? {} : { model: settings.model }),
       // Passed straight through and read nowhere here: the runtime decides *when* a turn

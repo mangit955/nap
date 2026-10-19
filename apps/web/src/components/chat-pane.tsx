@@ -10,6 +10,7 @@ import { useApiKey } from "../account/use-api-key.ts";
 import { NapMark } from "../brand/nap-mark.tsx";
 import { ChatInput } from "../chat/chat-input.tsx";
 import { ChatTranscript } from "../chat/chat-transcript.tsx";
+import { ContextControl } from "../chat/context-control.tsx";
 import type { FirstPrompt } from "../chat/first-prompt.ts";
 import { JobStrip } from "../chat/job-strip.tsx";
 import { jobView, type SessionJobView } from "../chat/job-summary.ts";
@@ -206,7 +207,16 @@ export function ChatPane({
           </div>
 
           <div ref={composerDock} className="chat-composer-dock absolute inset-x-0 bottom-0 z-10">
+            <ContextControl
+              events={events}
+              running={running}
+              onCompact={() => onSubmit("/compact")}
+            />
             <ChatInput
+              queueing={
+                pending === undefined &&
+                transcript.some((item) => item.kind === "compaction" && item.status === "running")
+              }
               visible={active}
               running={running}
               error={error}
