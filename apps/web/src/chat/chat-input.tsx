@@ -58,6 +58,12 @@ export function ChatInput({
   const box = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
+    if (!running && document.activeElement === document.body) {
+      box.current?.focus({ preventScroll: true });
+    }
+  }, [running]);
+
+  useEffect(() => {
     if (error === undefined || inFlight.current === "") return;
     setText(inFlight.current);
     media.setAttachments(sentMedia.current);

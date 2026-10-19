@@ -1610,10 +1610,9 @@ body {
   -webkit-backdrop-filter: blur(16px) saturate(1.08);
   backdrop-filter: blur(16px) saturate(1.08);
   box-shadow: inset 0 1px rgb(255 255 255 / 3%);
-  transition: border-color 150ms;
 }
-.workspace-composer:focus-within {
-  border-color: color-mix(in srgb, var(--color-ink) 18%, transparent);
+.workspace-composer textarea {
+  caret-color: var(--color-ink);
 }
 .composer-menu {
   border: 1px solid color-mix(in srgb, var(--color-ink) 10%, transparent);

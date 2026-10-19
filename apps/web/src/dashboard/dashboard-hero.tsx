@@ -38,6 +38,11 @@ export function DashboardHero({
   const dictation = useDictation((spoken) => onChange(appendDictation(value, spoken)));
   const disabled = busy || media.processing;
   useEffect(() => {
+    if (!busy && document.activeElement === document.body) {
+      box.current?.focus({ preventScroll: true });
+    }
+  }, [busy]);
+  useEffect(() => {
     if (busy) dictation.stop();
   }, [busy, dictation.stop]);
   const send = () => {
