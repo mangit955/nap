@@ -1,3 +1,4 @@
+import type { MediaAttachment } from "@nap/shared/media";
 /**
  * Turning an event log into the things a reader sees.
  *
@@ -47,7 +48,13 @@ export type StepStatus = "running" | "ok" | "failed";
 export type Speaker = "user" | "agent" | "verifier";
 
 export type TranscriptItem =
-  | { kind: "message"; key: number; from: Speaker; text: string }
+  | {
+      kind: "message";
+      key: number;
+      from: Speaker;
+      text: string;
+      attachments?: MediaAttachment[] | undefined;
+    }
   | { kind: "thinking"; key: number; text: string }
   | {
       kind: "step";
@@ -100,6 +107,7 @@ type TurnOutcome =
        * what a client joining late with `afterSeq` sees.
        */
       retryMessage: string | undefined;
+      retryAttachments?: MediaAttachment[] | undefined;
     };
 
 type Step = Extract<TranscriptItem, { kind: "step" }>;
@@ -151,6 +159,7 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
   let openStep: Step | undefined;
   /** What the user last said, which is what a failed turn would offer to send again. */
   let lastUserMessage: string | undefined;
+  let lastUserAttachments: MediaAttachment[] | undefined;
 
   for (const event of events) {
     // `seq` is unique per session and never reused, so it is a stable React key for free —
@@ -160,11 +169,22 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
     switch (event.type) {
       case "user.message": {
         const from = repairs.has(event.turnId) || awaitingRepair ? "verifier" : "user";
-        items.push({ kind: "message", key, from, text: event.payload.text });
+        items.push({
+          kind: "message",
+          key,
+          from,
+          text: event.payload.text,
+          ...(event.payload.attachments === undefined
+            ? {}
+            : { attachments: event.payload.attachments }),
+        });
         // Remembered for the turn this opens, so a failure downstream knows what to offer to
         // send again — and only when a person wrote it. Retrying means re-sending the request,
         // and a repair prompt is the verifier's account of a check that has not been re-run.
-        if (from === "user") lastUserMessage = event.payload.text;
+        if (from === "user") {
+          lastUserMessage = event.payload.text;
+          lastUserAttachments = event.payload.attachments;
+        }
         break;
       }
 
@@ -304,6 +324,7 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
           reason: event.payload.reason,
           message: event.payload.message,
           retryMessage: lastUserMessage,
+          ...(lastUserAttachments === undefined ? {} : { retryAttachments: lastUserAttachments }),
         });
         break;
     }

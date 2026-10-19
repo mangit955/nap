@@ -1,5 +1,7 @@
 "use client";
 
+import type { MediaAttachment } from "@nap/shared/media";
+
 /**
  * Saying something, and knowing whether the agent is still busy.
  *
@@ -15,8 +17,9 @@
  * it on any event would make the message flicker out a frame after appearing; never clearing
  * it would show it twice, once as a guess and once as a fact.
  *
- * **Whether a turn is running is derived from the log, not remembered.** A `turn.started`
- * with no `turn.completed` or `turn.failed` after it means busy — which is still true after a
+ * **Whether a turn is running is derived from the log, not remembered.** A `user.message` or
+ * `turn.started` with no `turn.completed` or `turn.failed` after it means busy — including
+ * sandbox acquisition between recording the prompt and starting the turn, and still true after a
  * page reload, and true in a second tab watching the same session. A flag set on submit and
  * cleared on response would be wrong in both cases, and the way it is wrong is an input that
  * accepts a message the server is about to refuse.
@@ -40,8 +43,8 @@ const UNREACHABLE =
 import type { FetchJson } from "../files/use-project-files.ts";
 
 export type TurnSubmission = {
-  /** Resolves once the server has accepted or refused; the turn itself runs on past it. */
-  submit: (message: string, model?: string) => Promise<void>;
+  /** True means admission succeeded; the turn itself runs on past this response. */
+  submit: (message: string, model?: string, attachments?: MediaAttachment[]) => Promise<boolean>;
   cancel: () => Promise<void>;
   /** The message the user sent that the log has not caught up with yet. */
   pending: string | undefined;
@@ -97,6 +100,7 @@ export function useTurnSubmission(options: {
   const [pending, setPending] = useState<string | undefined>(undefined);
   const [posting, setPosting] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
+  const submittedAfter = useRef(0);
 
   const fetchRef = useRef(fetchJson);
   fetchRef.current = fetchJson;
@@ -106,15 +110,23 @@ export function useTurnSubmission(options: {
   useEffect(() => {
     if (pending === undefined) return;
     const arrived = events.some(
-      (event) => event.type === "user.message" && event.payload.text === pending,
+      (event) =>
+        event.seq > submittedAfter.current &&
+        event.type === "user.message" &&
+        event.payload.text === pending,
     );
     if (arrived) setPending(undefined);
   }, [events, pending]);
 
-  const submit = async (message: string, model?: string): Promise<void> => {
+  const submit = async (
+    message: string,
+    model?: string,
+    attachments?: MediaAttachment[],
+  ): Promise<boolean> => {
     const text = message.trim();
-    if (sessionId === undefined || text === "") return;
+    if (sessionId === undefined || text === "") return false;
 
+    submittedAfter.current = events.at(-1)?.seq ?? 0;
     setPending(text);
     setError(undefined);
     setPosting(true);
@@ -129,16 +141,18 @@ export function useTurnSubmission(options: {
           // would refuse: `JSON.stringify` drops undefined properties, so this one expression
           // produces both bodies. An explicit branch here reads as though it were doing
           // something, and no test could tell the two apart.
-          body: JSON.stringify({ message: text, model }),
+          body: JSON.stringify({ message: text, model, attachments }),
         },
       );
 
       if (!response.ok) throw new Error(await refusalMessage(response));
+      return true;
     } catch (failure) {
       // Rolled back rather than left on screen: a message that stays after the request failed
       // claims the agent has it. The caller puts the text back in the box.
       setPending(undefined);
       setError(failure instanceof Error ? failure.message : UNREACHABLE);
+      return false;
     } finally {
       setPosting(false);
     }
@@ -169,12 +183,12 @@ export function useTurnSubmission(options: {
   };
 }
 
-/** A turn that started and has not been answered by an ending. */
+/** The prompt is durable before sandbox acquisition and turn.started. */
 function turnInFlight(events: readonly StoredEvent[]): boolean {
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const type = events[index]?.type;
     if (type === "turn.completed" || type === "turn.failed") return false;
-    if (type === "turn.started") return true;
+    if (type === "turn.started" || type === "user.message") return true;
   }
   return false;
 }

@@ -147,6 +147,15 @@ export function requestFailureCopy(
     };
   }
 
+  if (code === "model_media_unsupported") {
+    return {
+      title: "That model cannot use these references.",
+      detail: trimmed === "" ? "Your message and attachments have been kept." : trimmed,
+      recovery: "none",
+      action: "Choose a model with image input or remove the attachments before sending.",
+    };
+  }
+
   if (status === 401) {
     return {
       title: "Your session expired.",

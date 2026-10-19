@@ -1,5 +1,6 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { mediaBrowser } from "../testing/media-browser.ts";
 import { DashboardHero } from "./dashboard-hero.tsx";
 
 /**
@@ -13,7 +14,7 @@ function show(props: Partial<Parameters<typeof DashboardHero>[0]> = {}) {
   const handlers = { onChange: vi.fn(), onSubmit: vi.fn() };
 
   const view = render(
-    <DashboardHero name="Manas" value="" busy={false} error={undefined} {...handlers} {...props} />,
+    <DashboardHero value="" busy={false} error={undefined} {...handlers} {...props} />,
   );
 
   return { ...handlers, view };
@@ -63,38 +64,47 @@ describe("the dashboard hero", () => {
     { id: "anthropic/claude-opus-5", label: "Claude Opus 5", free: false, available: true },
   ];
 
-  it("greets the person by name", () => {
-    show();
-
-    expect(screen.getByRole("heading", { name: /Manas/ })).toBeInTheDocument();
+  it("retains references across a text-only model choice and blocks sending until compatible", async () => {
+    const browser = mediaBrowser();
+    const onSubmit = vi.fn();
+    const props = { value: "Match this", onChange: vi.fn(), onSubmit };
+    const view = render(<DashboardHero {...props} model="openai/gpt-5.6-luna" />);
+    try {
+      const { rerender } = view;
+      fireEvent.paste(box(), {
+        clipboardData: { files: [new File(["image"], "reference.png", { type: "image/png" })] },
+      });
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "Remove reference.png" })).toBeEnabled(),
+      );
+      rerender(<DashboardHero {...props} model="nvidia/nemotron-3-super-120b-a12b:free" />);
+      expect(screen.getByRole("alert")).toHaveTextContent(/model.*image/i);
+      expect(screen.getByRole("button", { name: "Add images or videos" })).toBeDisabled();
+      fireEvent.keyDown(box(), { key: "Enter" });
+      expect(onSubmit).not.toHaveBeenCalled();
+      expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+      expect(browser.revokeObjectURL).not.toHaveBeenCalled();
+      rerender(<DashboardHero {...props} model="openai/gpt-5.6-luna" />);
+      fireEvent.click(screen.getByRole("button", { name: "Send" }));
+      expect(onSubmit).toHaveBeenCalledWith("Match this", [
+        expect.objectContaining({ kind: "image", name: "reference.png" }),
+      ]);
+    } finally {
+      view.unmount();
+      browser.restore();
+    }
   });
 
-  it("adds quiet Nap stickers around the otherwise empty prompt band", () => {
+  it("keeps the brand above the composer", () => {
     show();
 
-    expect(screen.getByTestId("nap-stickers")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "nap" })).toBeInTheDocument();
   });
 
-  /**
-   * Animation has no accessible surface, so this is the deliberate exception to the
-   * no-class-names rule — the same reason the syntax-highlighting test queries tokens directly.
-   * What it protects is the *distinctness*: the stickers are four copies of one component and a
-   * copy-paste that leaves two of them on the same `kind` gives two of them the same idle loop
-   * and the same hover, which is exactly what nobody notices by eye.
-   */
-  it("gives each sticker its own behaviour rather than four copies of one", () => {
+  it("keeps the prompt free of stickers", () => {
     show();
-
-    const stickers = [...screen.getByTestId("nap-stickers").querySelectorAll(".nap-sticker")];
-    const kinds = stickers.map((sticker) =>
-      [...sticker.classList].find(
-        (name) => name.startsWith("nap-sticker-") && name !== "nap-sticker-awake",
-      ),
-    );
-
-    expect(stickers).toHaveLength(4);
-    expect(new Set(kinds).size).toBe(4);
-    expect(kinds).not.toContain(undefined);
+    expect(screen.queryByTestId("nap-stickers")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add images or videos" })).toBeInTheDocument();
   });
 
   it("sends what was typed on Enter", () => {
@@ -103,15 +113,6 @@ describe("the dashboard hero", () => {
     fireEvent.keyDown(box(), { key: "Enter" });
 
     expect(onSubmit).toHaveBeenCalledWith("a habit tracker");
-  });
-
-  it("types an example into an empty prompt hint", () => {
-    vi.useFakeTimers();
-    show();
-
-    act(() => vi.advanceTimersByTime(55));
-
-    expect(box()).toHaveAttribute("placeholder", "Let's build a");
   });
 
   it("makes a newline on Shift+Enter instead", () => {
@@ -139,16 +140,6 @@ describe("the dashboard hero", () => {
 
     expect(onSubmit).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
-  });
-
-  it("puts an example in the box rather than sending it", () => {
-    // A starting point, not a decision: people edit these before sending.
-    const { onChange, onSubmit } = show({ prompts: ["a habit tracker with a weekly grid"] });
-
-    fireEvent.click(screen.getByRole("button", { name: "a habit tracker with a weekly grid" }));
-
-    expect(onChange).toHaveBeenCalledWith("a habit tracker with a weekly grid");
-    expect(onSubmit).not.toHaveBeenCalled();
   });
 
   it("says why nothing happened when the send failed", () => {
@@ -179,10 +170,10 @@ describe("the dashboard hero", () => {
     expect(onModelChange).toHaveBeenCalledWith("anthropic/claude-opus-5");
   });
 
-  it("hides dictation when the browser cannot recognize speech", () => {
+  it("disables dictation when the browser cannot recognize speech", () => {
     show();
 
-    expect(screen.queryByRole("button", { name: "Start dictation" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Start dictation" })).toBeDisabled();
   });
 
   it("shows interim dictation separately and appends finalized speech", () => {

@@ -1,3 +1,4 @@
+import type { MediaAttachment } from "@nap/shared/media";
 /**
  * The Postgres schema, per docs/PLAN.md §5.
  *
@@ -381,6 +382,7 @@ export const turnRequests = pgTable(
     state: turnRequestState("state").notNull().default("queued"),
     /** The prompt. Null for `resume`, which asks for no new work. */
     message: text("message"),
+    attachments: jsonb("attachments").$type<MediaAttachment[]>(),
     /** Resolved at admission: which models somebody may name is a fact about who is asking. */
     model: text("model").notNull(),
     /**

@@ -132,6 +132,7 @@ function toolUses(messages: LLMMessage[]) {
 function blockText(block: LLMContentBlock): string {
   if (block.type === "text") return block.text;
   if (block.type === "tool_use") return `${block.name}${JSON.stringify(block.input)}`;
+  if (block.type === "image") return "";
   return block.content;
 }
 
@@ -831,4 +832,78 @@ describe("NapContextEngine", () => {
       await expect(engine().build(request({ history: toolTurn(1, 100) }))).resolves.toBeDefined();
     });
   });
+});
+
+describe("media in context", () => {
+  const attachment = {
+    kind: "image",
+    name: "reference.jpg",
+    frames: [{ mediaType: "image/jpeg", data: "/9j/AAAA", timestamp: 0 }],
+  } as const;
+  const attachments = [{ ...attachment, frames: [...attachment.frames] }];
+
+  it.each(["nvidia/nemotron-3-ultra-550b-a55b:free", "custom/unknown-model"])(
+    "keeps text usable on %s while preserving references for a later vision turn",
+    async (model) => {
+      const history = [event("user.message", 1, { text: "Use this reference", attachments })];
+      const original = structuredClone(history);
+      const engine = new NapContextEngine();
+      const textRequest = { ...request({ history }), model };
+      const textOnly = await engine.build(textRequest);
+
+      expect(blocks(textOnly.messages).filter((block) => block.type === "image")).toEqual([]);
+      expect(texts(textOnly.messages).join("\n")).toContain("Use this reference");
+      expect(texts(textOnly.messages).join("\n")).toMatch(/reference\.jpg.*omitted.*model/i);
+      expect(texts(textOnly.messages).join("\n")).toContain("add a dark mode toggle");
+      expect(history).toEqual(original);
+
+      const visionRequest = { ...request({ history }), model: "anthropic/claude-opus-5" };
+      const vision = await engine.build(visionRequest);
+      expect(blocks(vision.messages)).toContainEqual({
+        type: "image",
+        mediaType: "image/jpeg",
+        data: "/9j/AAAA",
+      });
+      expect(history).toEqual(original);
+    },
+  );
+
+  it("sends image blocks alongside the current prompt and accounts for their token cost", async () => {
+    const engine = new NapContextEngine();
+    const plain = await engine.build(request());
+    const withImage = await engine.build(request({ attachments, model: "openai/gpt-5.6-luna" }));
+    expect(withImage.messages.at(-1)?.content).toContainEqual({
+      type: "image",
+      mediaType: "image/jpeg",
+      data: "/9j/AAAA",
+    });
+    expect(withImage.estimatedTokens).toBeGreaterThan(plain.estimatedTokens + 2_200);
+  });
+
+  it("preserves references when a session is replayed", async () => {
+    const engine = new NapContextEngine();
+    const history = [event("user.message", 1, { text: "Use this reference", attachments })];
+    const result = await engine.build(request({ history, model: "openai/gpt-5.6-luna" }));
+    expect(result.messages[0]?.content).toContainEqual({
+      type: "image",
+      mediaType: "image/jpeg",
+      data: "/9j/AAAA",
+    });
+  });
+
+  it("refuses a budget too small for the images instead of silently dropping them", async () => {
+    const engine = new NapContextEngine({ budgetTokens: MIN_BUDGET_TOKENS });
+    await expect(
+      engine.build(request({ attachments, model: "openai/gpt-5.6-luna" })),
+    ).rejects.toThrow("Attachments exceed the context budget");
+  });
+
+  it.each([undefined, "custom/unknown-model", "nvidia/nemotron-3-ultra-550b-a55b:free"])(
+    "refuses current references when image input is not established for %s",
+    async (model) => {
+      await expect(new NapContextEngine().build(request({ attachments, model }))).rejects.toThrow(
+        "This model cannot use image or video references",
+      );
+    },
+  );
 });

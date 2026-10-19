@@ -1,44 +1,17 @@
 "use client";
 
-/**
- * The dashboard, wired to the session and the server.
- *
- * One question is asked here and answered for the whole page — who is signed in — and one list
- * is loaded, because the rail's recents and the grid's cards are the same projects shown twice.
- * Two subscriptions would be two answers that can disagree for a frame, and two requests would
- * be two lists that disagree for longer.
- *
- * **The scope and the search live here**, above both halves, for the same reason: the rail says
- * which scope is showing and the grid does the showing.
- *
- * Somebody who is not signed in is sent to the sign-in page — but only once the session has
- * resolved. Redirecting while it is still pending signs out anybody who arrives with a perfectly
- * good cookie, which is the same mistake as drawing a Sign in link over a live session.
- *
- * It is split in two for the same reason, and the split is load-bearing rather than tidy: hooks
- * cannot be skipped, so a single component would fire the project request before it knew whether
- * there was anybody to make it for — see the note on the early return below.
- */
-
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { ApiKeyPanel } from "../account/api-key-panel.tsx";
 import { useApiKey } from "../account/use-api-key.ts";
 import { authClient } from "../auth/client.ts";
-import { NapLoader } from "../brand/nap-loader.tsx";
 import { useModels } from "../chat/use-models.ts";
 import { useProjects } from "../projects/use-projects.ts";
 import { useStartProject } from "../projects/use-start-project.ts";
+import { SpinnerIcon } from "../ui/icons.tsx";
 import { Dashboard } from "./dashboard.tsx";
 import { DashboardHero } from "./dashboard-hero.tsx";
-import {
-  filterProjects,
-  greetingName,
-  type ProjectScope,
-  recentProjects,
-  scopeCounts,
-} from "./filters.ts";
-import { ProjectGrid } from "./project-grid.tsx";
+import { greetingName, type ProjectScope, recentProjects, scopeCounts } from "./filters.ts";
 import { Sidebar } from "./sidebar.tsx";
 
 export function LiveDashboard() {
@@ -49,8 +22,6 @@ export function LiveDashboard() {
     if (!isPending && session == null) router.replace("/sign-in");
   }, [isPending, session, router]);
 
-  // The session is the gate in front of the whole dashboard. Keeping the awake mark on screen
-  // while it resolves prevents the post-sign-in route from looking like a failed navigation.
   if (isPending) {
     return (
       <main
@@ -59,7 +30,7 @@ export function LiveDashboard() {
         className="flex min-h-dvh flex-col items-center justify-center gap-4 bg-surface text-ink-2"
         role="status"
       >
-        <NapLoader className="size-20" />
+        <SpinnerIcon className="size-5 text-muted" />
         <p className="text-sm">Getting your workspace ready…</p>
       </main>
     );
@@ -76,9 +47,18 @@ export function LiveDashboard() {
 }
 
 /** The dashboard proper. Everything here may assume there is a session behind it. */
-function SignedInDashboard({ user }: { user: { name?: string | null; email?: string | null } }) {
+function SignedInDashboard({
+  user,
+}: {
+  user: {
+    name?: string | null;
+    email?: string | null;
+    image?: string | null | undefined;
+    isAnonymous?: boolean | null | undefined;
+  };
+}) {
   const router = useRouter();
-  const { projects, status, actionError, create, close, remove, rename } = useProjects();
+  const { projects, status, actionError, close, remove, rename } = useProjects();
   const { busy, error, start } = useStartProject();
   const { models, loading: modelsLoading } = useModels();
   // The same hook the welcome step uses, so the rail's label and that page cannot disagree
@@ -88,16 +68,15 @@ function SignedInDashboard({ user }: { user: { name?: string | null; email?: str
   const [signingOut, setSigningOut] = useState(false);
 
   const [prompt, setPrompt] = useState("");
+  const [draftVersion, setDraftVersion] = useState(0);
   // `undefined` is intentional: it sends no model key, so the server owns the default until
   // the person makes an explicit choice. The fallback is still shown in the picker below.
   const [model, setModel] = useState<string | undefined>(undefined);
-  const [query, setQuery] = useState("");
   const [scope, setScope] = useState<ProjectScope>("all");
   const [busyProjectId, setBusyProjectId] = useState<string | undefined>(undefined);
-  const search = useRef<HTMLInputElement>(null);
 
   /** Runs one action against one project, with that card held still while it is in flight. */
-  const run = (projectId: string, action: (id: string) => Promise<void>) => {
+  const run = (projectId: string, action: (id: string) => Promise<unknown>) => {
     setBusyProjectId(projectId);
     void action(projectId).finally(() => setBusyProjectId(undefined));
   };
@@ -110,20 +89,31 @@ function SignedInDashboard({ user }: { user: { name?: string | null; email?: str
         fading={signingOut}
         sidebar={
           <Sidebar
-            name={greetingName(user)}
-            email={user.email ?? undefined}
+            name={user.isAnonymous ? "Guest" : user.name || greetingName(user)}
+            email={user.isAnonymous ? undefined : (user.email ?? undefined)}
+            avatarUrl={user.image ?? undefined}
+            onRename={(id, name) => void rename(id, name)}
+            onDelete={(id) => run(id, remove)}
+            onClose={(id) => run(id, close)}
+            error={actionError ?? (status === "error" ? "Could not load sessions." : undefined)}
+            loading={status === "loading"}
+            busyProjectId={busyProjectId}
             scope={scope}
             counts={scopeCounts(projects)}
-            recents={recentProjects(projects)}
+            recents={recentProjects(projects, projects.length)}
             onScopeChange={setScope}
-            onSearch={() => search.current?.focus()}
             onApiKey={() => setKeyPanelOpen(true)}
             keyHint={key.state?.configured === true ? key.state.hint : undefined}
             onNewProject={() => {
-              void create().then((projectId) => {
-                // Straight into the new project: nobody makes one in order to look at it in a grid.
-                if (projectId !== undefined) router.push(`/p/${projectId}`);
-              });
+              setPrompt("");
+              setDraftVersion((version) => version + 1);
+              requestAnimationFrame(() =>
+                document
+                  .querySelector<HTMLTextAreaElement>(
+                    'textarea[aria-label="Describe the app you want"]',
+                  )
+                  ?.focus(),
+              );
             }}
             signingOut={signingOut}
             onSignOut={() => {
@@ -148,7 +138,7 @@ function SignedInDashboard({ user }: { user: { name?: string | null; email?: str
         }
         hero={
           <DashboardHero
-            name={greetingName(user)}
+            key={draftVersion}
             value={prompt}
             busy={busy}
             error={error}
@@ -158,25 +148,7 @@ function SignedInDashboard({ user }: { user: { name?: string | null; email?: str
             onModelChange={setModel}
             onAddKey={() => setKeyPanelOpen(true)}
             onChange={setPrompt}
-            onSubmit={(message) => void start(message, model)}
-          />
-        }
-        grid={
-          <ProjectGrid
-            projects={filterProjects(projects, { query, scope })}
-            status={status}
-            actionError={actionError}
-            query={query}
-            scope={scope}
-            counts={scopeCounts(projects)}
-            searchRef={search}
-            busyProjectId={busyProjectId}
-            onQueryChange={setQuery}
-            onScopeChange={setScope}
-            onOpen={(projectId) => router.push(`/p/${projectId}`)}
-            onClose={(projectId) => run(projectId, close)}
-            onDelete={(projectId) => run(projectId, remove)}
-            onRename={(projectId, name) => void rename(projectId, name)}
+            onSubmit={(message, attachments) => void start(message, model, attachments)}
           />
         }
       />

@@ -95,6 +95,27 @@ async function expireLease(id: string): Promise<void> {
 }
 
 describe("enqueue", () => {
+  it("round-trips attachment frames through a database lease", async () => {
+    const seed = await seedSession();
+    const attachments = [
+      {
+        kind: "image" as const,
+        name: "reference.jpg",
+        frames: [{ mediaType: "image/jpeg" as const, data: "/9j/AAAA", timestamp: 0 }],
+      },
+    ];
+    await enqueueRequest(queue, {
+      ...seed,
+      kind: "turn",
+      message: "Use this image",
+      model: "anthropic/claude-opus-5",
+      billsToUser: true,
+      attachments,
+    });
+    const leased = await queue.claim("media-worker");
+    expect(leased?.attachments).toEqual(attachments);
+  });
+
   it("writes a queued request under the id it was given", async () => {
     const seed = await seedSession();
     const { id } = await enqueueTurn(seed);

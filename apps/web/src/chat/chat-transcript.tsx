@@ -1,5 +1,7 @@
 "use client";
 
+import type { MediaAttachment } from "@nap/shared/media";
+
 /**
  * The transcript: a conversation, with the machinery folded up between the turns.
  *
@@ -53,7 +55,7 @@ export function ChatTranscript({
   /** Put on the marker, so the scroller can open at it. See `use-stick-to-bottom.ts`. */
   seamRef?: React.RefObject<HTMLElement | null> | undefined;
   /** Re-sends a failed turn's message. Absent means no retry is offered, not a broken button. */
-  onRetry?: ((message: string) => void) | undefined;
+  onRetry?: ((message: string, attachments?: MediaAttachment[]) => void) | undefined;
 }) {
   // The only item that can still be added to is the last one — everything above it has been
   // overtaken by something newer. That alone is the whole rule, and it needs no check for
@@ -72,7 +74,7 @@ export function ChatTranscript({
       // peers in a list.
       role="log"
       aria-label="Transcript"
-      className="flex flex-col gap-3 px-4 py-4"
+      className="mx-auto flex max-w-[46rem] flex-col gap-5 px-5 py-6"
     >
       {items.map((item, index) => (
         <Fragment key={item.key}>
@@ -116,7 +118,7 @@ function Item({
   /** Whether this item can still be added to. Only ever true of the last one, mid-turn. */
   live: boolean;
   opensBlock: boolean;
-  onRetry?: ((message: string) => void) | undefined;
+  onRetry?: ((message: string, attachments?: MediaAttachment[]) => void) | undefined;
 }) {
   switch (item.kind) {
     case "message":
@@ -133,27 +135,57 @@ function Item({
       // read. Making both bubbles gives a paragraph of explanation the shape of a text message.
       return item.from === "user" ? (
         <div className="flex justify-end pt-1">
-          <p className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-bubble px-3.5 py-2 text-[13px] text-ink leading-relaxed">
-            {/*
+          <div className="chat-user-message">
+            {item.attachments?.map((attachment) => (
+              <div key={attachment.name} className="mb-3">
+                <div className={attachment.kind === "video" ? "grid grid-cols-3 gap-2" : "flex"}>
+                  {attachment.frames.map((frame) => (
+                    <figure key={frame.timestamp}>
+                      {/* biome-ignore lint/performance/noImgElement: prepared attachments are inline image data. */}
+                      <img
+                        src={`data:${frame.mediaType};base64,${frame.data}`}
+                        alt={
+                          attachment.kind === "video"
+                            ? `${attachment.name} at ${frame.timestamp.toFixed(1)}s`
+                            : attachment.name
+                        }
+                        className="max-h-40 max-w-full rounded-lg object-contain"
+                      />
+                      {attachment.kind === "video" && (
+                        <figcaption className="mt-1 text-xs text-muted">
+                          {frame.timestamp.toFixed(1)}s
+                        </figcaption>
+                      )}
+                    </figure>
+                  ))}
+                </div>
+                <p className="mt-1 truncate text-xs text-muted" title={attachment.name}>
+                  {attachment.name}
+                </p>
+              </div>
+            ))}
+            <p className="whitespace-pre-wrap">
+              {/*
               Read aloud but not drawn: the two speakers are told apart visually by position and
               shape, which is nothing at all to someone listening to the page.
             */}
-            <span className="sr-only">You: </span>
-            {item.text}
-          </p>
+              <span className="sr-only">You: </span>
+              {item.text}
+            </p>
+          </div>
         </div>
       ) : (
         <div className="flex flex-col gap-1.5">
           {opensBlock && (
             <span
               aria-hidden="true"
-              className="flex items-center gap-1.5 font-display font-semibold text-[12px] text-muted"
+              className="mb-1 flex items-center gap-2 text-[12px] font-medium text-ink-2"
             >
-              <NapMark className="size-4" />
+              <NapMark className="size-5 shrink-0" />
               nap
             </span>
           )}
-          <p className="whitespace-pre-wrap text-[13.5px] text-ink-2 leading-[1.65]">
+          <p className="whitespace-pre-wrap text-sm text-ink leading-[1.7]">
             <span className="sr-only">Agent: </span>
             <StreamingText text={item.text} live={live} />
           </p>
@@ -394,7 +426,7 @@ function TurnFailure({
   onRetry,
 }: {
   item: Extract<DisplayItem, { kind: "turn-end" }> & { outcome: "failed" };
-  onRetry?: ((message: string) => void) | undefined;
+  onRetry?: ((message: string, attachments?: MediaAttachment[]) => void) | undefined;
 }) {
   const copy = turnFailureCopy(item.reason, item.message);
   const message = item.retryMessage;
@@ -411,7 +443,11 @@ function TurnFailure({
       {canRetry && (
         <button
           type="button"
-          onClick={() => onRetry(message)}
+          onClick={() =>
+            item.retryAttachments === undefined
+              ? onRetry(message)
+              : onRetry(message, item.retryAttachments)
+          }
           className="mt-1.5 self-start rounded-chip border border-edge px-2 py-1 text-[11px] text-ink-2 transition-colors hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
         >
           Try again

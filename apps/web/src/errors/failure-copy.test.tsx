@@ -69,6 +69,13 @@ describe("each failure mode says what happened and what to do", () => {
 });
 
 describe("refused requests", () => {
+  it("asks for a compatible model or removal when references cannot be used", () => {
+    const copy = requestFailureCopy(400, "model_media_unsupported", "References are retained.");
+    expect(copy.detail).toBe("References are retained.");
+    expect(copy.recovery).not.toBe("retry");
+    expect(copy.action).toMatch(/model.*remove/i);
+  });
+
   it("tells a rate-limited caller to wait, carrying the server's own wait time", () => {
     const copy = requestFailureCopy(429, "rate_limited", "Too many turns. Try again in 4 minutes.");
 

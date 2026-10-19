@@ -44,6 +44,53 @@ function server(routes: Record<string, () => Response>) {
 
 const BASE = "http://api.test";
 
+describe("renaming a project shown in the sidebar and workspace", () => {
+  it.each(["sidebar", "workspace"])(
+    "updates both mounted views after a successful %s rename",
+    async (source) => {
+      const api = server({
+        "GET /projects": () => json({ projects: [summary()] }),
+        [`GET /projects/${PROJECT}`]: () => json(summary()),
+        [`PATCH /projects/${PROJECT}`]: () => json(summary({ name: "Renamed app" })),
+      });
+      const list = renderHook(() => useProjects({ baseUrl: BASE, fetchJson: api.fetchJson }));
+      const current = renderHook(() =>
+        useProject(PROJECT, { baseUrl: BASE, fetchJson: api.fetchJson }),
+      );
+      await waitFor(() => expect(list.result.current.status).toBe("ready"));
+      await waitFor(() => expect(current.result.current.status).toBe("ready"));
+
+      await act(async () => {
+        if (source === "sidebar") await list.result.current.rename(PROJECT, "Renamed app");
+        else await current.result.current.rename("Renamed app");
+      });
+      expect(list.result.current.projects[0]?.name).toBe("Renamed app");
+      expect(current.result.current.project?.name).toBe("Renamed app");
+      expect(api.calls.filter((call) => call.startsWith("GET"))).toHaveLength(2);
+    },
+  );
+
+  it("keeps both names when the server refuses the rename", async () => {
+    const api = server({
+      "GET /projects": () => json({ projects: [summary()] }),
+      [`GET /projects/${PROJECT}`]: () => json(summary()),
+      [`PATCH /projects/${PROJECT}`]: () => json({ error: "name refused" }, 400),
+    });
+    const list = renderHook(() => useProjects({ baseUrl: BASE, fetchJson: api.fetchJson }));
+    const current = renderHook(() =>
+      useProject(PROJECT, { baseUrl: BASE, fetchJson: api.fetchJson }),
+    );
+    await waitFor(() => expect(list.result.current.status).toBe("ready"));
+    await waitFor(() => expect(current.result.current.status).toBe("ready"));
+    await act(async () => {
+      await list.result.current.rename(PROJECT, "Not saved");
+    });
+    expect(list.result.current.projects[0]?.name).toBe("Todo app");
+    expect(current.result.current.project?.name).toBe("Todo app");
+    expect(list.result.current.actionError).toContain("name refused");
+  });
+});
+
 function listOnly(projects: ProjectSummaryPayload[] = [summary()]) {
   return server({ "GET /projects": () => json({ projects }) });
 }

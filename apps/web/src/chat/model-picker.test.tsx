@@ -51,6 +51,17 @@ describe("a model this caller cannot reach", () => {
 });
 
 describe("what the composer says it will run on", () => {
+  it("labels an unverified image model as text only without blocking text selection", () => {
+    const handlers = open();
+    const option = screen.getByRole("button", { name: /Gpt Oss 20b/ });
+    expect(option).toHaveTextContent("Text only");
+    expect(screen.getByRole("button", { name: /Claude Opus 5/ })).not.toHaveTextContent(
+      "Text only",
+    );
+    fireEvent.click(option);
+    expect(handlers.onChange).toHaveBeenCalledWith("openai/gpt-oss-20b:free");
+  });
+
   it("falls back to the first model this caller can actually reach", () => {
     // Not the first *listed* one. The allowlist opens with a paid model, so a free caller
     // would otherwise see "Gpt 5.6 Luna" on the composer and have every message refused.

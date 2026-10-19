@@ -9,12 +9,13 @@
  * should recede — anything more colourful here competes with the preview it surrounds.
  */
 @theme {
-  --color-surface: #0a0a0c;
-  --color-panel: #101014;
-  --color-edge: #22222a;
-  --color-ink: #e8e8ee;
-  --color-muted: #8b8b99;
-  --color-accent: #7c5cff;
+  --color-surface: #0a0a0a;
+  --color-panel: #101010;
+  --color-sidebar: #0a0a0a;
+  --color-edge: #242424;
+  --color-ink: #e5e5e5;
+  --color-muted: #858585;
+  --color-accent: #346bf1;
   /*
    * The only state the frame is allowed to shout about. A failed command or a failed turn has
    * to be findable in a wall of grey machine output without reading it; success stays unmarked,
@@ -33,27 +34,27 @@
    * frame receding — the alternative was a second accent, which would compete with the
    * preview.
    */
-  --color-ink-2: #b9b9c6;
+  --color-ink-2: #b8b8b8;
   /* A hairline that has to read as raised rather than as a division, so it is a step up from `edge`. */
-  --color-line-strong: #34343f;
+  --color-line-strong: #383838;
   /* Hover and the composer's inner wells. Translucent, so one value works over panel and surface both. */
   --color-hover: #ffffff10;
-  --color-field: #16161c;
+  --color-field: #141414;
   /*
    * What the user said, in the transcript. One step above `field` so a bubble reads as raised
    * against the pane without needing a border — a border here would put a second hairline
    * beside every line of the agent's prose, which has none.
    */
-  --color-bubble: #1c1c24;
+  --color-bubble: #1c1c1c;
   /*
-   * Line numbers in the file viewer. They were on `edge` (#22222a), which is a *border* colour:
+   * Line numbers in the file viewer. They were on `edge` (#242424), which is a *border* colour:
    * against the panel it measures about 1.2:1, so the gutter was there in the markup and
    * invisible on screen. This is the dimmest a number can be and still be read at 12px.
    */
-  --color-gutter: #55556a;
+  --color-gutter: #737373;
   /* The accent, legible as text. `accent` is a fill colour and fails contrast on a dark ground at 13px. */
-  --color-accent-ink: #a894ff;
-  --color-accent-tint: #7c5cff26;
+  --color-accent-ink: #8cacff;
+  --color-accent-tint: #346bf126;
 
   --radius-chip: 7px;
 
@@ -194,480 +195,9 @@ body {
   animation: nap-bob 3s ease-in-out 240ms infinite;
 }
 
-/* The dashboard stickers show Nap mid-task rather than asleep. They borrow the real mark but
-   hold its awake face open, because music and coding do not pair well with drifting z's. */
-.nap-sticker-awake .nap-mark-shut,
-.nap-sticker-awake .nap-mark-zzz {
-  display: none;
-}
-
-.nap-sticker-awake .nap-mark-open {
-  opacity: 1;
-}
-
-/*
- * ─── The stickers, doing something ──────────────────────────────────────────────────────────
- *
- * Each sticker has an idle loop that says what it is up to, and a hover reaction that is its
- * own — no two of the four react the same way. The idle side is kept under three pixels of
- * travel and runs slow: this is the furniture around the box somebody came here to type in, and
- * anything faster turns the edges of the band into the thing being watched. Every loop has a
- * different period so the four never fall into step, which is what makes them read as four
- * characters rather than one animation applied four times.
- *
- * **`transform` here composes with the tilt, it does not replace it.** Each sticker is placed at
- * an angle with a Tailwind rotate utility, which in v4 writes the *individual* `rotate`
- * property; `translate`, `rotate` and `transform` are applied in that order, so a keyframe using
- * `transform` moves the sticker around the angle it was pinned at. Writing `rotate()` inside
- * `transform` therefore *adds* to the tilt, which is what the hover flourish wants.
- */
-.nap-sticker {
-  transition:
-    border-color 260ms ease,
-    background-color 260ms ease;
-}
-
-/* Every card but the wand's brightens under the cursor. His is excluded here rather than
-   overridden below, so there is one place that says which cards react and it cannot disagree
-   with itself. */
-.nap-sticker:hover:not(.nap-sticker-spark) {
-  border-color: var(--color-line-strong);
-}
-
-/*
- * The squint ships with the mark and is off everywhere unless something asks for it, so the
- * header, the loader and the favicon are untouched by its existence.
- */
-.nap-mark-squint {
-  display: none;
-  transition: opacity 260ms ease;
-}
-
-/* Same deal: off unless a sticker asks for it, so the header and the favicon never see it. */
+.nap-mark-squint,
 .nap-mark-bored {
   display: none;
-}
-
-/*
- * Headphones: a nod on a two-and-a-half second beat. The headphones themselves hold still — a
- * pair of cups pulsing in and out reads as the drawing flickering rather than as sound, and the
- * nod already says everything the beat needs to say. Hovering turns it up: the beat doubles and
- * the nod widens, which is a different gesture rather than the same one hurried.
- *
- * **The card never moves — he does.** Animating the sticker itself was a shortcut, and it read
- * as a floating tile wobbling with a drawing inside it rather than as somebody nodding: the
- * border, the fill and the shadow all travelled too. The children are targeted instead of a
- * wrapper because the headphones are positioned against the *card*, and reparenting them into a
- * new element would move the drawing eight pixels off his head.
- */
-.nap-sticker-music > * {
-  animation: nap-nod 2400ms ease-in-out infinite;
-}
-
-.nap-sticker-music:hover > * {
-  animation: nap-nod-loud 1100ms ease-in-out infinite;
-}
-
-/*
- * It listens with its eyes screwed shut — the one thing a face does that says *enjoying this*
- * rather than merely awake — and opens them when you point at it, as if you had interrupted.
- * The two faces cross-fade on the same 260ms the mark's own waking uses, so this reads as the
- * same character doing the same trick rather than as a second effect bolted on.
- */
-.nap-sticker-music .nap-mark-squint {
-  display: block;
-  opacity: 1;
-}
-
-.nap-sticker-music .nap-mark-open {
-  opacity: 0;
-}
-
-.nap-sticker-music:hover .nap-mark-squint {
-  opacity: 0;
-}
-
-.nap-sticker-music:hover .nap-mark-open {
-  opacity: 1;
-}
-
-/*
- * The notes leave one at a time on inline delays, for the same reason the z's do. Hover only
- * shortens the flight: the delays are inline styles and a stylesheet cannot outrank them, so
- * the stagger stays put and the stream simply gets denser.
- */
-.nap-note {
-  opacity: 0;
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: nap-note 1800ms ease-out infinite both;
-}
-
-.nap-sticker-music:hover .nap-note {
-  animation-duration: 1000ms;
-}
-
-/*
- * Laptop: typing comes in bursts with pauses between them, because an even jitter reads as the
- * drawing vibrating rather than as somebody working. The screen breathes on its own longer
- * period.
- *
- * **Hovering makes him hide.** He drops behind the lid until only the top of the dome shows, the
- * paws slide off the edge after him, the typing stops and the code he was writing fades — caught
- * working and ducking out of sight, which is a reaction to *you* rather than a louder version of
- * what he was already doing. The dome is deliberately left showing: an empty laptop reads as the
- * drawing having broken, and the sliver is what makes it read as hiding.
- *
- * It is a transition, not an animation, so leaving the sticker plays it backwards for free and
- * he climbs back up.
- */
-/* He types; the desk he is typing at does not, and neither does the card around both. */
-.nap-sticker-code .nap-mark {
-  animation: nap-type 5200ms linear infinite;
-}
-
-/*
- * Unhurried on the way down and on the way back: he is sinking out of sight, not being dropped
- * through a trapdoor. A short, sharp curve here reads as a UI element toggling — which is the
- * one thing these are not.
- */
-.nap-sticker-code .nap-hider {
-  transition: transform 620ms cubic-bezier(0.45, 0.05, 0.25, 1);
-}
-
-.nap-sticker-code .nap-paws {
-  transition:
-    transform 620ms cubic-bezier(0.45, 0.05, 0.25, 1) 40ms,
-    opacity 380ms ease 140ms;
-}
-
-/* The typing stops the moment he moves — hands off the keys first, then down. */
-.nap-sticker-code:hover .nap-mark {
-  animation: none;
-}
-
-.nap-sticker-code:hover .nap-hider {
-  transform: translateY(19px);
-}
-
-.nap-sticker-code:hover .nap-paws {
-  transform: translateY(7px);
-  opacity: 0;
-}
-
-.nap-sticker-code .nap-screen {
-  opacity: 0.5;
-  animation: nap-screen 3000ms ease-in-out infinite;
-  transition: opacity 200ms ease;
-}
-
-.nap-sticker-code:hover .nap-screen {
-  animation: none;
-  opacity: 0;
-}
-
-/*
- * Sleeping: the mark already breathes and lets z's go, so all this adds is a slow sway and a
- * blanket that settles with it — five seconds, the longest period of the four, because it is
- * the one that is supposed to look like nothing is happening. He sways inside the card; the
- * card itself is a sticker stuck to the page and stickers do not breathe.
- */
-.nap-sticker-sleep > * {
-  animation: nap-snore 5200ms ease-in-out infinite;
-}
-
-.nap-sticker-sleep .nap-blanket {
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: nap-blanket 5200ms ease-in-out infinite;
-}
-
-/* Startled: the z's stop mid-air, the eyes come up, and it hops once and settles rather than
-   holding a raised pose — being woken is an event, not a state. */
-.nap-sticker-sleep:hover > * {
-  animation: nap-startle 620ms cubic-bezier(0.2, 0.9, 0.25, 1);
-}
-
-.nap-sticker-sleep:hover .nap-mark-zzz {
-  display: none;
-}
-
-.nap-sticker-sleep:hover .nap-mark-shut {
-  opacity: 0;
-}
-
-.nap-sticker-sleep:hover .nap-mark-open {
-  opacity: 1;
-}
-
-/* Once the hop is over it looks around, which is the mark's own waking gesture. The delay keeps
-   the glance from starting while the eyes are still opening. */
-.nap-sticker-sleep:hover .nap-mark-eyes {
-  animation: nap-glance 3s ease-in-out 620ms infinite;
-}
-
-/*
- * Spark: a twinkle and a wand ticking against it, three seconds apart from every other loop.
- *
- * **This is the one that refuses to play along.** The other three answer the cursor by doing
- * more of what they were doing; he does none of it — the lids stay halfway down, he does not
- * look up, the card does not light, and the only thing that happens is a vein popping over his
- * head. A character who ignores you is only funny if he *visibly* ignores you, which means every
- * reaction the rest of the set has must be switched off here rather than merely not added.
- */
-.nap-sticker-spark .nap-mark-bored {
-  display: block;
-}
-
-/*
- * The lids stay down through the hover, which takes an extra class to say: the mark's own waking
- * rule is `.nap-mark:hover .nap-mark-open`, and a pseudo-class counts as a class, so it outranks
- * a plain two-class selector and pops his eyes open the moment the pointer lands.
- */
-.nap-sticker-spark .nap-mark-open,
-.nap-sticker-spark .nap-mark:hover .nap-mark-open {
-  opacity: 0;
-}
-
-.nap-sticker-spark .nap-mark:hover .nap-mark-eyes,
-.nap-sticker-spark .nap-mark:hover .nap-mark-body {
-  animation: none;
-}
-
-/*
- * The vein pops, throbs once and stays for as long as the cursor does. It arrives a beat late on
- * purpose: instant, it reads as a hover state lighting up, where a pause reads as him having put
- * up with it for a moment and then not.
- */
-.nap-anger {
-  opacity: 0;
-  transform: scale(0.4);
-  transform-origin: center;
-}
-
-.nap-sticker-spark:hover .nap-anger {
-  animation: nap-anger 900ms cubic-bezier(0.2, 1.3, 0.4, 1) 220ms forwards;
-}
-
-.nap-sticker-spark .nap-star {
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: nap-twinkle 3000ms ease-in-out infinite;
-}
-
-.nap-sticker-spark .nap-wand {
-  transform-box: fill-box;
-  transform-origin: 30% 70%;
-  animation: nap-wand 3000ms ease-in-out infinite;
-}
-
-@keyframes nap-nod {
-  0%,
-  100% {
-    transform: translateY(0) rotate(-1deg);
-  }
-  50% {
-    transform: translateY(-1.6px) rotate(1deg);
-  }
-}
-
-@keyframes nap-nod-loud {
-  0%,
-  100% {
-    transform: translateY(0) rotate(-3.5deg);
-  }
-  50% {
-    transform: translateY(-3px) rotate(3.5deg);
-  }
-}
-
-@keyframes nap-note {
-  0% {
-    opacity: 0;
-    transform: translate(0, 2px) scale(0.6);
-  }
-  25% {
-    opacity: 0.9;
-  }
-  70% {
-    opacity: 0.5;
-  }
-  100% {
-    opacity: 0;
-    /* SVG user units on a 96-wide viewBox drawn at 80px, so this is about ten screen pixels. */
-    transform: translate(5px, -13px) scale(1.05) rotate(12deg);
-  }
-}
-
-/* Two bursts of four keystrokes in five seconds, with long flat stretches between them. The
-   percentages are the burst; everything else is the pause, which is most of the loop. */
-@keyframes nap-type {
-  0%,
-  30% {
-    transform: translateY(0);
-  }
-  32% {
-    transform: translateY(1px);
-  }
-  34% {
-    transform: translateY(0);
-  }
-  36% {
-    transform: translateY(1px);
-  }
-  38%,
-  66% {
-    transform: translateY(0);
-  }
-  68% {
-    transform: translateY(1px);
-  }
-  70% {
-    transform: translateY(0);
-  }
-  72% {
-    transform: translateY(1px);
-  }
-  74%,
-  100% {
-    transform: translateY(0);
-  }
-}
-
-@keyframes nap-screen {
-  0%,
-  100% {
-    opacity: 0.45;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-
-@keyframes nap-snore {
-  0%,
-  100% {
-    transform: translate(0, 0) rotate(0deg);
-  }
-  50% {
-    transform: translate(1.5px, 1px) rotate(-1.2deg);
-  }
-}
-
-@keyframes nap-blanket {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(0.8px);
-  }
-}
-
-@keyframes nap-startle {
-  0% {
-    transform: translateY(0) scale(1);
-  }
-  35% {
-    transform: translateY(-5px) scale(1.05);
-  }
-  65% {
-    transform: translateY(1px) scale(0.99);
-  }
-  100% {
-    transform: translateY(0) scale(1);
-  }
-}
-
-@keyframes nap-twinkle {
-  0%,
-  100% {
-    opacity: 0.5;
-    transform: scale(0.9);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1.1);
-  }
-}
-
-@keyframes nap-wand {
-  0%,
-  100% {
-    transform: rotate(-3deg);
-  }
-  50% {
-    transform: rotate(3deg);
-  }
-}
-
-@keyframes nap-anger {
-  0% {
-    opacity: 0;
-    transform: scale(0.4);
-  }
-  35% {
-    opacity: 1;
-    transform: scale(1.15);
-  }
-  55% {
-    transform: scale(0.95);
-  }
-  75% {
-    transform: scale(1.06);
-  }
-  100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-/*
- * Reduced motion keeps every *state* and drops everything that travels, exactly as the mark
- * does above: the sleeper still opens its eyes when pointed at, the laptop screen still lights
- * up in accent, and the notes and sparks sit still at low opacity instead of vanishing — a
- * sticker whose props disappeared would look half-drawn rather than considerate.
- */
-@media (prefers-reduced-motion: reduce) {
-  /* `> *` and `> *:hover`-adjacent selectors, because the loops live on the characters now and
-     not on the cards — a rule aimed at `.nap-sticker` would switch off nothing at all. */
-  .nap-sticker > *,
-  .nap-sticker:hover > *,
-  .nap-sticker .nap-mark,
-  .nap-sticker:hover .nap-mark,
-  .nap-sticker .nap-screen,
-  .nap-sticker .nap-blanket,
-  .nap-sticker .nap-star,
-  .nap-sticker .nap-wand,
-  .nap-sticker-sleep:hover .nap-mark-eyes {
-    animation: none;
-  }
-
-  .nap-note,
-  .nap-sticker-music:hover .nap-note {
-    animation: none;
-    opacity: 0.6;
-    transform: none;
-  }
-
-  /* The temper is a state, so it survives — it simply appears instead of popping. */
-  .nap-sticker-spark:hover .nap-anger {
-    animation: none;
-    opacity: 1;
-    transform: none;
-  }
-
-  .nap-sticker .nap-screen {
-    opacity: 0.75;
-  }
-
-  /* He still hides — that is the point of the sticker — he just arrives there instead of
-     sliding, which is the same bargain the mark's own waking makes. */
-  .nap-sticker-code .nap-hider,
-  .nap-sticker-code .nap-paws,
-  .nap-sticker-code .nap-screen {
-    transition: none;
-  }
 }
 
 @keyframes nap-glance {
@@ -1970,4 +1500,242 @@ body {
 
 .nap-scroll-hidden::-webkit-scrollbar {
   display: none;
+}
+
+.workspace-panes {
+  grid-template-columns: var(--chat-width) auto minmax(0, 1fr);
+}
+
+.workspace-panes[data-chat-open="false"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.workspace-chat > [aria-labelledby="chat-heading"] {
+  background: var(--color-surface);
+}
+
+@media (max-width: 767px) {
+  .workspace-panes {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .workspace-panes[data-chat-open="true"] > :not(.workspace-chat) {
+    display: none;
+  }
+  .workspace-header {
+    gap: 8px;
+  }
+  .workspace-title [aria-label="Job phase"] {
+    display: none;
+  }
+  .workspace-title [aria-label="Hide chat"] {
+    display: none;
+  }
+}
+
+/* Keep the workspace dark even when the OS uses a light appearance. */
+:root:has(.dashboard-frame),
+.dashboard-frame {
+  color-scheme: dark;
+  --color-surface: #111111;
+  --color-panel: #111111;
+  --color-field: #1e1e1e;
+  --color-edge: #242424;
+  --color-line-strong: #383838;
+  --color-ink: #e5e5e5;
+  --color-ink-2: #b8b8b8;
+  --color-muted: #858585;
+  --color-hover: #ffffff10;
+  --color-bubble: #191919;
+  --color-accent: #346bf1;
+  --color-accent-ink: #8cacff;
+  --color-accent-tint: #346bf126;
+}
+.dashboard-frame {
+  grid-template-columns: 260px minmax(0, 1fr);
+}
+.dashboard-frame[data-sidebar-collapsed="true"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+.dashboard-frame[data-sidebar-collapsed="true"] .dashboard-sidebar {
+  display: none;
+}
+.sidebar-toggle {
+  position: absolute;
+  top: 14px;
+  left: 224px;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 28px;
+  border-radius: 6px;
+  color: var(--color-muted);
+  background: var(--color-sidebar);
+}
+.sidebar-toggle:hover {
+  color: var(--color-ink);
+  background: var(--color-hover);
+}
+.sidebar-toggle:focus-visible {
+  outline: 2px solid var(--color-accent);
+}
+.dashboard-frame[data-sidebar-collapsed="true"] .sidebar-toggle {
+  left: 14px;
+}
+.dashboard-frame[data-sidebar-collapsed="true"] .workspace-header {
+  padding-left: 52px;
+}
+.mobile-sidebar-toggle,
+.sidebar-backdrop {
+  display: none;
+}
+.dashboard-home {
+  display: flex;
+  min-height: 100%;
+  align-items: center;
+  justify-content: center;
+  padding: 80px 48px;
+}
+.dashboard-prompt {
+  width: 100%;
+  max-width: 46rem;
+  margin-top: -48px;
+}
+.workspace-composer {
+  position: relative;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--color-ink) 8%, transparent);
+  border-radius: 24px;
+  background: color-mix(in srgb, var(--color-field) 80%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(1.08);
+  backdrop-filter: blur(16px) saturate(1.08);
+  box-shadow: inset 0 1px rgb(255 255 255 / 3%);
+}
+.workspace-composer textarea {
+  caret-color: var(--color-ink);
+}
+.composer-menu {
+  border: 1px solid color-mix(in srgb, var(--color-ink) 10%, transparent);
+  background: color-mix(in srgb, var(--color-field) 90%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(1.08);
+  backdrop-filter: blur(16px) saturate(1.08);
+}
+.composer-send,
+.composer-stop {
+  transition:
+    background-color 150ms,
+    box-shadow 150ms,
+    transform 150ms;
+}
+.composer-send:enabled {
+  box-shadow:
+    inset 0 1px rgb(255 255 255 / 16%),
+    0 1px 3px color-mix(in srgb, var(--color-accent) 24%, transparent);
+}
+.composer-send:enabled:hover,
+.composer-stop:enabled:hover {
+  transform: scale(1.05);
+}
+.composer-send:enabled:active,
+.composer-stop:enabled:active {
+  transform: scale(0.97);
+  box-shadow: inset 0 1px rgb(0 0 0 / 8%);
+}
+.chat-composer-dock,
+.chat-input {
+  pointer-events: none;
+}
+.chat-input > * {
+  pointer-events: auto;
+}
+.chat-scroller {
+  scroll-padding-top: 24px;
+}
+.chat-user-message {
+  max-width: 80%;
+  padding: 12px;
+  border-radius: 16px;
+  background: var(--color-bubble);
+  color: var(--color-ink);
+  font-size: 14px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .workspace-composer,
+  .composer-menu {
+    background: var(--color-field);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .composer-send:enabled,
+  .composer-stop:enabled {
+    transition: none;
+    transform: none;
+  }
+  .composer-send:enabled:hover,
+  .composer-send:enabled:active,
+  .composer-stop:enabled:hover,
+  .composer-stop:enabled:active {
+    transform: none;
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .workspace-composer,
+  .composer-menu {
+    background: var(--color-field);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+@media (pointer: coarse) {
+  .composer-toolbar button {
+    min-height: 36px;
+    min-width: 36px;
+  }
+}
+@media (hover: none) {
+  .session-actions {
+    opacity: 1;
+  }
+}
+@media (max-width: 767px) {
+  .dashboard-frame {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .dashboard-frame[data-navigation-open="false"] .dashboard-sidebar,
+  .desktop-sidebar-toggle {
+    display: none;
+  }
+  .mobile-sidebar-toggle {
+    display: grid;
+    left: 12px;
+  }
+  .dashboard-frame[data-navigation-open="true"] .dashboard-sidebar {
+    display: block;
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: 260px;
+    z-index: 40;
+  }
+  .dashboard-frame[data-navigation-open="true"] .mobile-sidebar-toggle {
+    left: 224px;
+    z-index: 50;
+  }
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0 0 0 260px;
+    z-index: 30;
+    background: #0009;
+  }
+  .dashboard-home {
+    padding: 80px 20px;
+  }
+  .dashboard-prompt {
+    margin-top: -32px;
+  }
+  .dashboard-frame .workspace-header {
+    padding-left: 48px;
+  }
 }

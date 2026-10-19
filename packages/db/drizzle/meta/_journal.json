@@ -57,6 +57,13 @@
       "when": 1787448830005,
       "tag": "0007_early_molten_man",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792373345498,
+      "tag": "0008_brave_silver_samurai",
+      "breakpoints": true
     }
   ]
 }

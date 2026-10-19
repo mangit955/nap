@@ -1,3 +1,4 @@
+import { MediaAttachmentsSchema } from "./media.ts";
 /**
  * The event contract.
  *
@@ -119,7 +120,7 @@ const toolRef = {
 };
 
 export const NapEventSchema = z.discriminatedUnion("type", [
-  event("user.message", text),
+  event("user.message", { ...text, attachments: MediaAttachmentsSchema.optional() }),
   /** Summarized reasoning, not raw thinking — the model is run with `display: "summarized"`. */
   event("agent.thinking", text),
   event("agent.message", text),

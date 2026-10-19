@@ -1,3 +1,5 @@
+import { mediaBlocks } from "@nap/shared/media";
+import { MODEL_MEDIA_UNSUPPORTED, modelSupportsImages } from "@nap/shared/model-capabilities";
 /**
  * Assembles everything the model sees for one turn, and owns what it costs.
  *
@@ -133,7 +135,7 @@ function textBlock(text: string): LLMContentBlock {
  * damaging one: it is a summary produced *about* the model's reasoning, and feeding it back
  * as the model's own words invents a turn that never happened.
  */
-function toMessages(events: NapEvent[]): LLMMessage[] {
+function toMessages(events: NapEvent[], images: boolean): LLMMessage[] {
   const messages: LLMMessage[] = [];
 
   const push = (role: LLMMessage["role"], block: LLMContentBlock): void => {
@@ -167,6 +169,18 @@ function toMessages(events: NapEvent[]): LLMMessage[] {
   for (const event of events) {
     switch (event.type) {
       case "user.message":
+        for (const attachment of event.payload.attachments ?? []) {
+          if (images) {
+            for (const block of mediaBlocks([attachment])) push("user", block);
+          } else {
+            push(
+              "user",
+              textBlock(
+                `Reference ${attachment.name} omitted: this model cannot view images or video frames.`,
+              ),
+            );
+          }
+        }
         push("user", textBlock(event.payload.text));
         break;
       case "agent.message":
@@ -201,7 +215,7 @@ function toMessages(events: NapEvent[]): LLMMessage[] {
 }
 
 /** Groups the log into turns, oldest first, preserving the order events were appended in. */
-function toTurns(history: NapEvent[]): Turn[] {
+function toTurns(history: NapEvent[], images: boolean): Turn[] {
   const byTurn = new Map<string, NapEvent[]>();
 
   for (const event of history) {
@@ -214,7 +228,7 @@ function toTurns(history: NapEvent[]): Turn[] {
   }
 
   return [...byTurn.entries()]
-    .map(([id, events]) => ({ id, messages: toMessages(events) }))
+    .map(([id, events]) => ({ id, messages: toMessages(events, images) }))
     .filter((turn) => turn.messages.length > 0);
 }
 
@@ -226,6 +240,8 @@ function blockTokens(block: LLMContentBlock): number {
   switch (block.type) {
     case "text":
       return estimateTokens(block.text);
+    case "image":
+      return 2_200;
     case "tool_use":
       // The name and arguments are what actually travel; the id is a few characters.
       return estimateTokens(`${block.name}${JSON.stringify(block.input)}`);
@@ -307,6 +323,8 @@ export class NapContextEngine implements ContextEngine {
   }
 
   async build(request: ContextRequest): Promise<BuiltContext> {
+    const images = modelSupportsImages(request.model);
+    if (request.attachments?.length && !images) throw new Error(MODEL_MEDIA_UNSUPPORTED);
     const memories = await request.memory.retrieve(request.sessionId, request.userMessage);
 
     let digest = await buildFileTreeDigest(request.sandbox, request.sandboxId, {
@@ -316,7 +334,7 @@ export class NapContextEngine implements ContextEngine {
 
     // The window before the budget is consulted at all: a cap on how far back the agent
     // looks, independent of whether the tokens happen to be available.
-    let turns = toTurns(request.history).slice(-this.#maxTurns);
+    let turns = toTurns(request.history, images).slice(-this.#maxTurns);
 
     // Staleness, before the budget is consulted at all. Everything below this point reclaims
     // tokens because the context does not fit; this reclaims them because carrying an old
@@ -328,6 +346,10 @@ export class NapContextEngine implements ContextEngine {
 
     let remembered: Memory[] = memories;
     let userMessage = request.userMessage;
+    const media = mediaBlocks(request.attachments ?? []);
+    const mediaTokens = media.reduce((total, block) => total + blockTokens(block), 0);
+    if (mediaTokens + MIN_BUDGET_TOKENS > this.#budgetTokens)
+      throw new Error("Attachments exceed the context budget. Send fewer images.");
     let attempts: readonly FailedAttempt[] = request.job?.attempts ?? [];
     /** A ceiling on each quoted failure. Uncapped until the last resort below applies one. */
     let outputTokens: number | undefined;
@@ -353,7 +375,8 @@ export class NapContextEngine implements ContextEngine {
     const cost = (): number =>
       estimateTokens(systemPrompt(digest, remembered, brief())) +
       messagesTokens(turns.flatMap((turn) => turn.messages)) +
-      estimateTokens(userMessage);
+      estimateTokens(userMessage) +
+      mediaTokens;
 
     // --- Truncation, in order. Each step is exhausted before the next begins. -----------
     //
@@ -416,14 +439,16 @@ export class NapContextEngine implements ContextEngine {
     // 7. Truncate the turn's own message, so the budget is a guarantee and not a hope.
     if (cost() > this.#budgetTokens) {
       const available =
-        this.#budgetTokens - estimateTokens(systemPrompt(digest, remembered, brief()));
+        this.#budgetTokens -
+        estimateTokens(systemPrompt(digest, remembered, brief())) -
+        mediaTokens;
       // The head: a request states what it wants up front and qualifies it after.
       userMessage = truncateToTokens(userMessage, Math.max(available, 0), "head");
     }
 
     const messages = [
       ...turns.flatMap((turn) => turn.messages),
-      { role: "user", content: [textBlock(userMessage)] } satisfies LLMMessage,
+      { role: "user", content: [...media, textBlock(userMessage)] } satisfies LLMMessage,
     ];
     const prompt = systemPrompt(digest, remembered, brief());
 

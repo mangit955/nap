@@ -18,7 +18,6 @@
 
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
-import { NapMark } from "../brand/nap-mark.tsx";
 import { PhaseDot } from "../chat/job-marks.tsx";
 import type { JobSummary } from "../chat/job-summary.ts";
 import { EditableTitle } from "../ui/editable-title.tsx";
@@ -60,8 +59,8 @@ export function WorkspaceHeader({
   onToggleChat: () => void;
 }) {
   return (
-    <header className="flex h-12 shrink-0 items-center gap-3 px-3">
-      <div className="flex min-w-0 flex-1 items-center gap-2">
+    <header className="workspace-header flex min-h-14 shrink-0 flex-wrap items-center gap-3 px-4 py-2 pl-14 md:pl-3">
+      <div className="workspace-title flex min-w-0 flex-1 items-center gap-2">
         <IconButton
           label={chatOpen ? "Hide chat" : "Show chat"}
           onClick={onToggleChat}
@@ -71,21 +70,6 @@ export function WorkspaceHeader({
           <PanelIcon open={chatOpen} />
         </IconButton>
 
-        {/*
-          A plain anchor rather than a router link: leaving the workspace should drop the socket
-          and every pending request, and a full navigation is the simplest thing that does that.
-        */}
-        <a
-          href="/dashboard"
-          className="flex shrink-0 items-center gap-1 font-semibold text-ink text-sm tracking-tight hover:text-accent focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
-        >
-          <NapMark className="size-6" />
-          nap
-        </a>
-
-        <span aria-hidden="true" className="text-muted">
-          /
-        </span>
         {/*
           Editable only when it is a name. `headerNote` puts sentences here for the loading,
           missing and error states — "this project no longer exists" is not something anybody
@@ -103,13 +87,15 @@ export function WorkspaceHeader({
           />
         )}
 
-        <JobPhase job={job} />
+        <div className={chatOpen ? "sr-only" : "min-w-0"}>
+          <JobPhase job={job} />
+        </div>
       </div>
 
       <div
         role="tablist"
         aria-label="Workbench"
-        className="flex shrink-0 items-center gap-0.5 rounded-chip bg-field p-0.5 shadow-hairline"
+        className="flex shrink-0 items-center gap-0.5 rounded-lg border border-edge bg-panel p-0.5"
       >
         {WORKBENCH_TABS.map((entry) => (
           <button
@@ -129,27 +115,25 @@ export function WorkspaceHeader({
         ))}
       </div>
 
-      <div className="flex flex-1 items-center justify-end gap-2">
-        {previewUrl !== undefined && (
-          <>
-            <RouteField route={route} onRouteChange={onRouteChange} />
+      {previewUrl !== undefined && (
+        <div className="flex w-full min-w-0 items-center justify-end gap-2 sm:w-auto sm:flex-1">
+          <RouteField route={route} onRouteChange={onRouteChange} />
 
-            <IconButton label="Reload the preview" onClick={onReload}>
-              <ReloadIcon />
-            </IconButton>
+          <IconButton label="Reload the preview" onClick={onReload}>
+            <ReloadIcon />
+          </IconButton>
 
-            <a
-              href={previewUrlFor(previewUrl, route)}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="Open the preview in a new tab"
-              className="grid size-7 place-items-center rounded-chip text-muted transition-colors hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
-            >
-              <ExternalIcon />
-            </a>
-          </>
-        )}
-      </div>
+          <a
+            href={previewUrlFor(previewUrl, route)}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Open the preview in a new tab"
+            className="grid size-7 place-items-center rounded-chip text-muted transition-colors hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
+          >
+            <ExternalIcon />
+          </a>
+        </div>
+      )}
     </header>
   );
 }
@@ -162,7 +146,7 @@ export function WorkspaceHeader({
  * carries is the one fact that must survive the pane being collapsed.
  *
  * **And this is the copy that announces.** `role="status"` is here rather than on the strip's
- * because this bar is the only surface in the workspace that is never unmounted: a live region
+ * because this bar is the only surface in the workspace that is never hidden: a live region
  * inside the chat pane goes silent the moment somebody hides the chat, and two of them would
  * announce the same change twice while the chat is open. The strip's phase is drawn, not spoken.
  * Rendered even with nothing to say, for the same reason — a region that appears along with its
@@ -224,7 +208,7 @@ function RouteField({
         // — which is how `//evil.example` reaches an iframe's src.
         onRouteChange(normaliseRoute(draft));
       }}
-      className="hidden min-w-0 flex-1 sm:block"
+      className="min-w-0 flex-1"
     >
       <input
         aria-label="Page to show"

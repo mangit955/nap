@@ -2,6 +2,7 @@
 
 /** The deployment-backed model choice used by both prompt composers. */
 
+import { modelSupportsImages } from "@nap/shared/model-capabilities";
 import type { ModelChoice } from "@nap/shared/models-protocol";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -91,14 +92,14 @@ export function ModelPicker({
   }
 
   return (
-    <div ref={root} className="relative">
+    <div ref={root} className="relative min-w-0">
       {open &&
         position !== undefined &&
         createPortal(
           <ul
             ref={menu}
             aria-label="Model"
-            className="nap-pop fixed z-50 w-52 overflow-hidden rounded-[10px] bg-field p-1 shadow-raised"
+            className="composer-menu nap-pop fixed z-50 w-52 overflow-hidden rounded-xl p-1 shadow-raised"
             style={{ ...position, transformOrigin: "bottom right" }}
           >
             {models.map((choice) => (
@@ -139,6 +140,9 @@ export function ModelPicker({
                       Free
                     </span>
                   )}
+                  {!modelSupportsImages(choice.id) && (
+                    <span className="shrink-0 text-[10px] text-muted">Text only</span>
+                  )}
                   {!choice.available && (
                     <span
                       id={`${LOCKED_HINT_ID}-${choice.id}`}
@@ -171,13 +175,13 @@ export function ModelPicker({
           if (bounds === undefined) return;
           setPosition({
             bottom: window.innerHeight - bounds.top + 4,
-            right: window.innerWidth - bounds.right,
+            right: Math.max(8, Math.min(window.innerWidth - bounds.right, window.innerWidth - 216)),
           });
           setOpen(true);
         }}
-        className="flex h-7 shrink-0 items-center gap-1 rounded-[8px] px-1.5 font-medium text-[12px] text-ink-2 transition-colors duration-150 hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent disabled:text-muted"
+        className="flex h-7 max-w-[180px] items-center gap-1.5 rounded-lg px-2 font-normal text-[13px] text-ink-2 transition-colors duration-150 hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent disabled:text-muted"
       >
-        {selected.label}
+        <span className="truncate">{selected.label}</span>
         <svg
           width="11"
           height="11"

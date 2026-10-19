@@ -576,7 +576,10 @@ export class SingleAgentRuntime implements Runtime {
       // then cannot be had: the message is the record of what was asked, and a refusal that erased
       // it would leave a failure with no question above it. No job is opened and nothing is
       // committed on that path, exactly as before.
-      emit("user.message", { text: request.message });
+      emit("user.message", {
+        text: request.message,
+        ...(request.attachments === undefined ? {} : { attachments: request.attachments }),
+      });
       await sink.drain();
 
       const sandboxId = await this.#acquire(session);
@@ -625,6 +628,7 @@ export class SingleAgentRuntime implements Runtime {
         scope,
         sandboxId: run.sandboxId,
         prompt: request.message,
+        attachments: request.attachments,
         promptSource: "user",
         commitSubject: request.message,
         history,
@@ -789,6 +793,7 @@ export class SingleAgentRuntime implements Runtime {
     /** What the model is being asked, which the context engine appends itself. */
     prompt: string;
     promptSource: PromptSource;
+    attachments?: TurnRequest["attachments"];
     /** The subject for whatever this turn commits. */
     commitSubject: string;
     /** The session's events, read *before* this turn's prompt was logged. */
@@ -809,6 +814,8 @@ export class SingleAgentRuntime implements Runtime {
       sessionId: settings.sessionId,
       sandboxId,
       userMessage: prompt,
+      model: settings.model,
+      attachments: options.attachments,
       history,
       job,
       sandbox: this.#options.sandbox,

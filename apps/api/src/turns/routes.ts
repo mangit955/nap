@@ -1,3 +1,5 @@
+import { MediaAttachmentsSchema } from "@nap/shared/media";
+import { MODEL_MEDIA_UNSUPPORTED, modelSupportsImages } from "@nap/shared/model-capabilities";
 /**
  * Starting and stopping a turn.
  *
@@ -107,6 +109,7 @@ export type TurnRouteDeps = {
 export type CallerKeys = (userId: string) => Promise<ModelCredentials | null>;
 
 const TurnBodySchema = z.object({
+  attachments: MediaAttachmentsSchema.optional(),
   /** Trimmed before the check: a message of spaces is an accident, not a prompt. */
   message: z
     .string()
@@ -151,6 +154,9 @@ export function registerTurnRoutes(
     if (!access.ok) {
       return c.json({ error: access.message, code: access.code }, refusalStatus(access.code));
     }
+    if (body.data.attachments?.length && !modelSupportsImages(access.model)) {
+      return c.json({ error: MODEL_MEDIA_UNSUPPORTED, code: "model_media_unsupported" }, 400);
+    }
 
     // Both ceilings are checked after the body, so a malformed request never costs somebody a
     // slot, and before the registry, so a refused turn leaves no trace of having been started.
@@ -179,6 +185,7 @@ export function registerTurnRoutes(
       userId: c.get("userId"),
       kind: "turn",
       message: body.data.message,
+      ...(body.data.attachments === undefined ? {} : { attachments: body.data.attachments }),
       // Concrete by now. The resolver always returns a model rather than leaving a default to be
       // applied later, because the default that would be applied is a *paid* one and forgetting
       // it is this deployment buying tokens for a stranger.

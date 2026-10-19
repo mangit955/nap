@@ -1,41 +1,25 @@
 "use client";
 
-/**
- * Where the user says what they want.
- *
- * **One action, never two.** While a turn is running the box is disabled and the button says
- * Stop rather than Send. A Send sitting beside a Cancel invites someone to queue a message
- * the server would refuse, and the runtime runs one turn per session — so the interface
- * should not imply otherwise.
- *
- * Enter sends and Shift+Enter makes a newline, which is the convention every chat interface
- * has settled on. It matters more here than usual: a prompt is often several sentences, and
- * losing one to a stray Enter is the kind of thing people stop trusting an input over.
- *
- * The text is cleared on send and **put back if the send failed**, because the hook rolls the
- * optimistic message back and the words have to survive somewhere the user will look for
- * them.
- *
- * **The box grows with what is typed, and the controls move when it does.** A prompt is
- * usually a paragraph, and a fixed two-row field either wastes the room or hides the words.
- * The field measures the text against the space left beside the controls; once it would wrap,
- * it takes the whole width and the controls drop to a row of their own. Both the measurement
- * and the auto-height run in a layout effect, so the change is committed in the frame the
- * character arrives in and nothing is ever seen at the wrong size.
- */
-
+import type { MediaAttachment } from "@nap/shared/media";
+import { MODEL_MEDIA_UNSUPPORTED, modelSupportsImages } from "@nap/shared/model-capabilities";
 import type { ModelChoice } from "@nap/shared/models-protocol";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { appendDictation, useDictation } from "../dashboard/use-dictation.ts";
+import { AttachmentButton, AttachmentTray, DictationButton } from "./composer-controls.tsx";
 import { applyPick, menuRows, parseToken } from "./composer-menu.ts";
+import type { FirstPrompt } from "./first-prompt.ts";
 import { ModelPicker } from "./model-picker.tsx";
+import { type DraftAttachment, useMediaAttachments } from "./use-media-attachments.ts";
 
 /** Room to write without swallowing the transcript. Past this the field scrolls instead of growing. */
 const MAX_HEIGHT = 132;
 const MIN_HEIGHT = 28;
 
 export function ChatInput({
+  visible = true,
   running,
   error,
+  firstPrompt,
   onSubmit,
   onCancel,
   files = [],
@@ -44,9 +28,11 @@ export function ChatInput({
   onModelChange,
   onAddKey,
 }: {
+  visible?: boolean;
   running: boolean;
   error: string | undefined;
-  onSubmit: (message: string) => void;
+  firstPrompt?: FirstPrompt | undefined;
+  onSubmit: (message: string, attachments?: MediaAttachment[]) => void;
   onCancel: () => void;
   /**
    * What this deployment will run a turn on. Empty hides the control entirely — a deployment
@@ -65,52 +51,55 @@ export function ChatInput({
   files?: readonly string[];
 }) {
   const [text, setText] = useState("");
-  const [expanded, setExpanded] = useState(false);
+  const media = useMediaAttachments();
+  const images = modelSupportsImages(model);
+  const incompatibleMedia = media.attachments.length > 0 && !images;
+  const dictation = useDictation((spoken) =>
+    setText((current) => appendDictation(current, spoken)),
+  );
+  const sentMedia = useRef<DraftAttachment[]>([]);
   /** Escape closes the menu without clearing the text, so it stays shut until the token changes. */
   const [dismissed, setDismissed] = useState("");
   const [active, setActive] = useState(0);
   /** The message currently in flight, kept only so a failure can hand it back. */
   const inFlight = useRef("");
   const box = useRef<HTMLTextAreaElement>(null);
-  const controls = useRef<HTMLDivElement>(null);
-  /** An unpainted copy of the text at the field's own metrics, for measuring one line of it. */
-  const ruler = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
-    if (error === undefined || inFlight.current === "") return;
-    setText(inFlight.current);
-    inFlight.current = "";
-  }, [error]);
+    if (visible && !running && document.activeElement === document.body) {
+      box.current?.focus({ preventScroll: true });
+    }
+  }, [running, visible]);
 
-  // `model` is not read below and is not removable either: it changes the picker's label, which
-  // changes the width of the row this measures. Dropping it leaves the field sized for the
-  // previous model's name — the same stale measurement the comment below is about, arrived at
-  // from the other direction.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: see above
+  useEffect(() => {
+    if (error === undefined) return;
+    if (inFlight.current !== "") {
+      setText(inFlight.current);
+      media.setAttachments(sentMedia.current);
+      inFlight.current = "";
+    } else if (firstPrompt !== undefined) {
+      setText(firstPrompt.text);
+      media.setAttachments(
+        (firstPrompt.attachments ?? []).map((attachment) => ({
+          id: crypto.randomUUID(),
+          previewUrl: undefined,
+          media: attachment,
+        })),
+      );
+    }
+  }, [error, firstPrompt, media.setAttachments]);
+
+  useEffect(() => {
+    if (running || !visible) dictation.stop();
+  }, [running, visible, dictation.stop]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: text changes the textarea scrollHeight.
   useLayoutEffect(() => {
     const field = box.current;
-    const row = controls.current;
-    const measure = ruler.current;
-    if (field === null || row === null || measure === null) return;
-
-    // Measure the controls themselves, rather than deriving their width from the field. In the
-    // expanded layout the field spans the whole row, so `row - field` becomes zero; using that
-    // number made a long prompt alternate forever between expanded and collapsed whenever a
-    // model choice changed the picker width.
-    const actions = Array.from(row.children).filter((child) => child !== field);
-    const actionWidth = actions.reduce((total, action) => total + action.clientWidth, 0);
-    const columnGap = Number.parseFloat(getComputedStyle(row).columnGap) || 0;
-    const collapsedWidth = Math.max(0, row.clientWidth - actionWidth - columnGap * actions.length);
-    const wraps = text.includes("\n") || measure.offsetWidth + 8 > collapsedWidth;
-    if (wraps !== expanded) setExpanded(wraps);
-
-    // Collapsed before measuring, or `scrollHeight` only ever reports the tallest it has been
-    // — the field would grow with the text and then refuse to shrink back.
+    if (!field) return;
     field.style.height = "0px";
-    const content = field.scrollHeight;
-    field.style.height = `${Math.min(Math.max(content, MIN_HEIGHT), MAX_HEIGHT)}px`;
-    field.style.overflowY = content > MAX_HEIGHT ? "auto" : "hidden";
-  }, [text, expanded, model]);
+    field.style.height = `${Math.min(Math.max(field.scrollHeight, MIN_HEIGHT), MAX_HEIGHT)}px`;
+    field.style.overflowY = field.scrollHeight > MAX_HEIGHT ? "auto" : "hidden";
+  }, [text]);
 
   // Derived, never stored. A menu held in state would survive the text that opened it — so
   // deleting the `@` would leave the list up over a sentence that no longer has a token in it.
@@ -130,24 +119,30 @@ export function ChatInput({
   };
 
   const send = () => {
-    const message = text.trim();
-    if (message === "" || running) return;
+    const message =
+      text.trim() || (media.attachments.length > 0 ? "Use these references for the app." : "");
+    if (message === "" || running || media.processing || incompatibleMedia) return;
 
     inFlight.current = message;
     setText("");
-    onSubmit(message);
+    dictation.stop();
+    media.release(
+      sentMedia.current.filter((sent) => !media.attachments.some((item) => item.id === sent.id)),
+    );
+    sentMedia.current = media.attachments;
+    media.setAttachments([]);
+    if (sentMedia.current.length === 0) onSubmit(message);
+    else
+      onSubmit(
+        message,
+        sentMedia.current.map((item) => item.media),
+      );
   };
 
-  // Hidden when there is no choice to make: a deployment with one allowed model has none, and
-  // a menu with a single row is furniture that implies a decision nobody has.
-  const picker =
-    models.length > 1 ? (models.find((choice) => choice.id === model) ?? models[0]) : undefined;
-  const sendColumn = picker === undefined ? "col-start-2" : "col-start-3";
-
-  const empty = text.trim() === "";
+  const empty = text.trim() === "" && media.attachments.length === 0;
 
   return (
-    <div className="shrink-0 p-3">
+    <div className="chat-input mx-auto w-full max-w-[46rem] px-4 pt-2 pb-4">
       {error !== undefined && (
         // `alert` so it is announced: the message the user just sent has vanished from the
         // screen, and nothing else on the page explains why.
@@ -163,7 +158,7 @@ export function ChatInput({
         <div className="relative">
           <ul
             aria-label={token?.kind === "file" ? "Files" : "Commands"}
-            className="nap-pop absolute inset-x-0 bottom-1 z-10 overflow-hidden rounded-[10px] bg-field p-1 shadow-raised"
+            className="composer-menu nap-pop absolute inset-x-0 bottom-1 z-10 overflow-hidden rounded-xl p-1 shadow-raised"
             style={{ transformOrigin: "bottom center" }}
           >
             {rows.map((row, position) => (
@@ -193,34 +188,51 @@ export function ChatInput({
         </div>
       )}
 
-      <div className="relative isolate flex flex-col gap-1.5 overflow-hidden rounded-[14px] border border-edge bg-panel p-1.5 shadow-card transition-colors duration-150 focus-within:border-line-strong">
-        {/*
-          Never painted and never read aloud — it exists only to be measured. The field itself
-          cannot answer "would this wrap?" without being resized first, which is a frame of
-          visible jitter; a span at the same metrics answers before anything is committed.
-        */}
-        <span
-          ref={ruler}
-          aria-hidden="true"
-          className="pointer-events-none invisible absolute whitespace-pre text-[13px] leading-[18px]"
-        >
-          {text}
-        </span>
-
-        <div
-          ref={controls}
-          className={`grid items-end gap-x-1 gap-y-1.5 ${
-            picker === undefined
-              ? "grid-cols-[minmax(0,1fr)_28px]"
-              : "grid-cols-[minmax(0,1fr)_auto_28px]"
-          }`}
-        >
+      {[media.error, dictation.error, incompatibleMedia ? MODEL_MEDIA_UNSUPPORTED : undefined]
+        .filter(Boolean)
+        .map((message) => (
+          <p key={message} role="alert" className="pb-2 text-xs text-danger">
+            {message}
+          </p>
+        ))}
+      {media.processing && (
+        <p role="status" className="pb-2 text-xs text-muted">
+          Preparing attachments…
+        </p>
+      )}
+      {dictation.listening && (
+        <p role="status" className="pb-2 text-xs text-accent-ink">
+          {dictation.interim || "Listening…"}
+        </p>
+      )}
+      <fieldset
+        aria-label="Message composer"
+        className="workspace-composer relative"
+        onDragOver={(event) => event.preventDefault()}
+        onDrop={(event) => {
+          event.preventDefault();
+          if (!running) void media.add(Array.from(event.dataTransfer.files));
+        }}
+      >
+        <AttachmentTray
+          attachments={media.attachments}
+          disabled={running || media.processing}
+          onRemove={media.remove}
+        />
+        <div className="px-4 pt-4 pb-2">
           <textarea
             ref={box}
             aria-label="Message"
             rows={1}
             value={text}
             disabled={running}
+            onPaste={(event) => {
+              const files = Array.from(event.clipboardData.files);
+              if (files.length && !running) {
+                event.preventDefault();
+                void media.add(files);
+              }
+            }}
             onChange={(event) => {
               setText(event.target.value);
             }}
@@ -258,73 +270,72 @@ export function ChatInput({
               event.preventDefault();
               send();
             }}
-            placeholder={running ? "Working…" : "Describe the app you want"}
-            className={`min-h-7 w-full min-w-0 resize-none bg-transparent px-1 py-[5px] text-[13px] text-ink leading-[18px] outline-none [overflow-wrap:anywhere] placeholder:text-muted disabled:text-muted ${
-              expanded ? "col-span-full col-start-1 row-start-1" : "col-start-1 row-start-1"
-            }`}
+            placeholder={running ? "Working…" : "Ask a follow-up…"}
+            className="block min-h-12 w-full min-w-0 resize-none bg-transparent text-sm leading-relaxed text-ink outline-none placeholder:text-muted disabled:text-muted"
           />
-
-          {picker !== undefined && (
-            <div className={expanded ? "col-start-2 row-start-2" : "col-start-2 row-start-1"}>
-              <ModelPicker
-                models={models}
-                model={model}
-                disabled={running}
-                onChange={(choice) => onModelChange?.(choice)}
-                onAddKey={onAddKey}
-                onPick={() => box.current?.focus()}
-                closeWhen={text}
-              />
-            </div>
-          )}
-
-          {running ? (
-            <button
-              type="button"
-              onClick={onCancel}
-              aria-label="Stop"
-              className={`flex size-7 shrink-0 items-center justify-center rounded-[8px] bg-hover text-ink-2 transition-[background-color,color,transform] duration-150 hover:text-ink active:scale-[0.94] focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent ${
-                expanded ? `${sendColumn} row-start-2` : `${sendColumn} row-start-1`
-              }`}
-            >
-              {/* A filled square: the universal stop mark, and legible at 15px where a word is not. */}
-              <svg
-                width="15"
-                height="15"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-                aria-hidden="true"
-              >
-                <rect x="7" y="7" width="10" height="10" rx="1.5" />
-              </svg>
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={send}
-              disabled={empty}
-              aria-label="Send"
-              className={`flex size-7 shrink-0 items-center justify-center rounded-[8px] transition-[background-color,color,transform] duration-200 enabled:active:scale-[0.94] focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent ${
-                empty ? "bg-line-strong text-ink-2" : "bg-ink text-surface"
-              } ${expanded ? `${sendColumn} row-start-2` : `${sendColumn} row-start-1`}`}
-            >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.4"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M12 19V5M5 12l7-7 7 7" />
-              </svg>
-            </button>
-          )}
         </div>
-      </div>
+        <div className="composer-toolbar flex items-center justify-between gap-2 px-3 pb-3 sm:px-4 sm:pb-4">
+          <div className="flex min-w-0 items-center gap-1">
+            <AttachmentButton
+              disabled={running || media.processing || !images}
+              onFiles={(files) => void media.add(files)}
+            />
+            <ModelPicker
+              models={models}
+              model={model}
+              disabled={running}
+              onChange={(choice) => onModelChange?.(choice)}
+              onAddKey={onAddKey}
+              onPick={() => box.current?.focus()}
+              closeWhen={`${visible}:${text}`}
+            />
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <DictationButton dictation={dictation} disabled={running || media.processing} />
+            {running ? (
+              <button
+                type="button"
+                onClick={onCancel}
+                aria-label="Stop"
+                className="composer-stop grid size-8 place-items-center rounded-full bg-hover text-ink focus-visible:outline-accent"
+              >
+                {/* A filled square: the universal stop mark, and legible at 15px where a word is not. */}
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <rect x="7" y="7" width="10" height="10" rx="1.5" />
+                </svg>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={send}
+                disabled={empty || media.processing || incompatibleMedia}
+                aria-label="Send"
+                className="composer-send grid size-8 place-items-center rounded-full bg-accent text-white disabled:bg-hover disabled:text-muted focus-visible:outline-accent"
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M12 19V5M5 12l7-7 7 7" />
+                </svg>
+              </button>
+            )}
+          </div>
+        </div>
+      </fieldset>
     </div>
   );
 }

@@ -16,7 +16,7 @@
  * **Displayed means displayed.** A background tab keeps its socket open and the worker keeps
  * going, so events arrive at a page nobody is looking at; counting those would make "you missed
  * this" a thing that never fires for the one case it exists for. So the cursor advances only while
- * the document is visible, and coming back re-reads it — which is what makes a tab left open
+ * the document is visible and chat is open, and coming back re-reads it — which makes a tab left open
  * behave like a tab that was closed and reopened.
  *
  * Read after mount, never during render: `localStorage` does not exist on the server, and a first
@@ -34,6 +34,7 @@ export function useSeenCursor(
   sessionId: string | undefined,
   /** The highest sequence received, from `useEventStream`. Per-connection; this one is not. */
   lastSeq: number,
+  active = true,
 ): number | undefined {
   const [seam, setSeam] = useState<number | undefined>(undefined);
   const [watching, setWatching] = useState(true);
@@ -47,14 +48,14 @@ export function useSeenCursor(
     }
 
     setSeam(readSeen(globalThis.localStorage, sessionId));
-    setWatching(document.visibilityState === "visible");
-  }, [sessionId]);
+    setWatching(active && document.visibilityState === "visible");
+  }, [sessionId, active]);
 
   useEffect(() => {
     if (sessionId === undefined) return;
 
     const onChange = () => {
-      if (document.visibilityState !== "visible") {
+      if (!active || document.visibilityState !== "visible") {
         setWatching(false);
         return;
       }
@@ -67,17 +68,17 @@ export function useSeenCursor(
 
     document.addEventListener("visibilitychange", onChange);
     return () => document.removeEventListener("visibilitychange", onChange);
-  }, [sessionId]);
+  }, [sessionId, active]);
 
   useEffect(() => {
-    if (sessionId === undefined || !watching) return;
+    if (sessionId === undefined || !watching || !active) return;
     // **Nothing received is not a cursor of zero.** A connection opens at zero and climbs, and
     // writing that first zero down would turn "this browser has never opened the session" into
     // "it has seen nothing of it" — which draws a seam above the first thing anybody ever said.
     if (lastSeq === 0) return;
 
     writeSeen(globalThis.localStorage, sessionId, lastSeq);
-  }, [sessionId, lastSeq, watching]);
+  }, [sessionId, lastSeq, watching, active]);
 
   return seam;
 }

@@ -1,3 +1,4 @@
+import { MediaAttachmentsSchema } from "@nap/shared/media";
 /**
  * The turn queue in Postgres — one in-flight request per session, cluster-wide.
  *
@@ -95,6 +96,7 @@ export class PostgresTurnQueue implements TurnQueue {
       userId: request.userId,
       kind: request.kind,
       message: request.message,
+      attachments: request.attachments ?? null,
       model: request.model,
       billsToUser: request.billsToUser,
     });
@@ -187,6 +189,9 @@ export class PostgresTurnQueue implements TurnQueue {
           userId: leased.userId,
           kind: leased.kind,
           message: leased.message,
+          ...(leased.attachments === null
+            ? {}
+            : { attachments: MediaAttachmentsSchema.parse(leased.attachments) }),
           model: leased.model,
           billsToUser: leased.billsToUser,
         },

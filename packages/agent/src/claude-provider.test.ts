@@ -685,6 +685,24 @@ describe("ClaudeProvider", () => {
       expect(JSON.stringify(first)).not.toContain("cache_control");
     });
 
+    it("serializes image inputs as provider image blocks", async () => {
+      const body = await bodyOf({
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "image", mediaType: "image/jpeg", data: "/9j/AAAA" },
+              { type: "text", text: "Match this" },
+            ],
+          },
+        ],
+      });
+      expect(body.messages[0]?.content).toContainEqual({
+        type: "image",
+        source: { type: "base64", media_type: "image/jpeg", data: "/9j/AAAA" },
+      });
+    });
+
     it("converts string content to a block so the marker has somewhere to live", async () => {
       const body = await bodyOf({ messages: [{ role: "user", content: "add a button" }] });
 

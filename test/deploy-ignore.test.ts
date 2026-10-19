@@ -47,6 +47,19 @@ describe("finding patterns that do not say what they mean", () => {
 });
 
 describe("the real .vercelignore", () => {
+  it.each([
+    ".env",
+    ".env.local",
+    "apps/api/.env",
+    "apps/web/.env.production.local",
+    ".scratch/demo-master.mp4",
+    "napbench-results/run/trajectory.json",
+    "napload-results/run/report.json",
+  ])("keeps local-only %s out of the upload", (path) => {
+    const contents = readFileSync(join(repoRoot, ".vercelignore"), "utf8");
+    expect(isIgnored(contents, path)).toBe(true);
+  });
+
   it("says what every one of its patterns means", () => {
     const contents = readFileSync(join(repoRoot, ".vercelignore"), "utf8");
 
@@ -66,9 +79,11 @@ describe("the real .vercelignore", () => {
     for (const pattern of patterns) {
       expect(pattern.startsWith("/apps/web/src")).toBe(false);
       // A recursive pattern is the dangerous kind: `**/docs` would reach into the app too. Only
-      // build artefacts are allowed to be recursive, because they exist at every depth by nature.
+      // build artefacts and local environment files may be recursive.
       if (pattern.startsWith("**/")) {
-        expect(["**/node_modules", "**/.next", "**/.turbo"]).toContain(pattern);
+        expect(["**/node_modules", "**/.next", "**/.turbo", "**/.env", "**/.env.*"]).toContain(
+          pattern,
+        );
       }
     }
   });

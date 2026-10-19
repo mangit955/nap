@@ -56,7 +56,7 @@ export function JobStrip({ jobs }: { jobs: SessionJobView }) {
   return (
     <section
       aria-label="Job status"
-      className="flex shrink-0 flex-col gap-1.5 border-edge border-b bg-panel/60 px-4 py-2.5"
+      className="mx-4 mt-3 flex shrink-0 flex-col gap-1.5 rounded-lg border border-edge/70 px-3 py-2"
     >
       <div className="flex items-center gap-2">
         <Phase summary={summary} />
