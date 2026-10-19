@@ -1,3 +1,4 @@
+import { MediaAttachmentsSchema } from "@nap/shared/media";
 /**
  * Starting and stopping a turn.
  *
@@ -107,6 +108,7 @@ export type TurnRouteDeps = {
 export type CallerKeys = (userId: string) => Promise<ModelCredentials | null>;
 
 const TurnBodySchema = z.object({
+  attachments: MediaAttachmentsSchema.optional(),
   /** Trimmed before the check: a message of spaces is an accident, not a prompt. */
   message: z
     .string()
@@ -179,6 +181,7 @@ export function registerTurnRoutes(
       userId: c.get("userId"),
       kind: "turn",
       message: body.data.message,
+      ...(body.data.attachments === undefined ? {} : { attachments: body.data.attachments }),
       // Concrete by now. The resolver always returns a model rather than leaving a default to be
       // applied later, because the default that would be applied is a *paid* one and forgetting
       // it is this deployment buying tokens for a stranger.

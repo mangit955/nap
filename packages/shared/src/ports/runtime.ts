@@ -1,3 +1,4 @@
+import type { MediaAttachment } from "../media.ts";
 /**
  * Turn orchestration: acquire a sandbox, build context, run the agent, persist each
  * event and then publish it, commit on success, snapshot. Budgets, cancellation and
@@ -29,6 +30,7 @@ export type TurnRequest = {
    */
   turnId: string;
   message: string;
+  attachments?: MediaAttachment[] | undefined;
   signal?: AbortSignal;
   /** Which model to run on. Absent is the deployment's default; the route validates it. */
   model?: string | undefined;
@@ -55,6 +57,7 @@ export type TurnOutcome =
       turnId: string;
       reason: TurnFailureReason;
       message: string;
+      attachments?: MediaAttachment[] | undefined;
     };
 
 /**

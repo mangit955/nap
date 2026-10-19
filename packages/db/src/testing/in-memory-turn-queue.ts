@@ -21,19 +21,11 @@ import type {
   LeaseRenewal,
   OrphanedTurnRequest,
   TurnQueue,
-  TurnRequestKind,
   TurnRequestSettlement,
   TurnRequestState,
 } from "@nap/shared/ports/turn-queue";
 
-type Row = {
-  id: string;
-  sessionId: string;
-  userId: string;
-  kind: TurnRequestKind;
-  message: string | null;
-  model: string;
-  billsToUser: boolean;
+type Row = EnqueueTurnRequest & {
   state: TurnRequestState;
   cancelRequested: boolean;
   leaseOwner: string | null;
@@ -74,6 +66,9 @@ export class InMemoryTurnQueue implements TurnQueue {
       userId: request.userId,
       kind: request.kind,
       message: request.message,
+      ...(request.attachments === undefined
+        ? {}
+        : { attachments: structuredClone(request.attachments) }),
       model: request.model,
       billsToUser: request.billsToUser,
       state: "queued",
@@ -107,6 +102,9 @@ export class InMemoryTurnQueue implements TurnQueue {
       userId: candidate.userId,
       kind: candidate.kind,
       message: candidate.message,
+      ...(candidate.attachments === undefined
+        ? {}
+        : { attachments: structuredClone(candidate.attachments) }),
       model: candidate.model,
       billsToUser: candidate.billsToUser,
     };
@@ -226,6 +224,7 @@ export class InMemoryTurnQueue implements TurnQueue {
       userId: row.userId,
       kind: row.kind,
       message: row.message,
+      ...(row.attachments === undefined ? {} : { attachments: structuredClone(row.attachments) }),
       model: row.model,
       billsToUser: row.billsToUser,
     }));

@@ -25,7 +25,6 @@ function project(over: Partial<ProjectSummaryPayload> = {}): ProjectSummaryPaylo
 function show(props: Partial<Parameters<typeof Sidebar>[0]> = {}) {
   const handlers = {
     onScopeChange: vi.fn(),
-    onSearch: vi.fn(),
     onNewProject: vi.fn(),
     onApiKey: vi.fn(),
     onSignOut: vi.fn(),
@@ -65,20 +64,22 @@ describe("the dashboard sidebar", () => {
 
   it("offers the three scopes with their counts", () => {
     show();
+    fireEvent.click(screen.getByRole("button", { name: "Filter sessions" }));
 
-    expect(screen.getByRole("button", { name: "All projects, 3" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "All sessions, 3" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Running, 1" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Put away, 2" })).toBeInTheDocument();
   });
 
   it("says which scope is showing, in a way that is not only a colour", () => {
     show({ scope: "running" });
+    fireEvent.click(screen.getByRole("button", { name: "Filter sessions" }));
 
     expect(screen.getByRole("button", { name: "Running, 1" })).toHaveAttribute(
       "aria-current",
       "true",
     );
-    expect(screen.getByRole("button", { name: "All projects, 3" })).not.toHaveAttribute(
+    expect(screen.getByRole("button", { name: "All sessions, 3" })).not.toHaveAttribute(
       "aria-current",
     );
   });
@@ -108,26 +109,32 @@ describe("the dashboard sidebar", () => {
 
   it("changes the scope when one is picked", () => {
     const { onScopeChange } = show();
+    fireEvent.click(screen.getByRole("button", { name: "Filter sessions" }));
 
     fireEvent.click(screen.getByRole("button", { name: "Put away, 2" }));
 
     expect(onScopeChange).toHaveBeenCalledWith("put-away");
   });
 
-  it("hands search to the field that does the searching", () => {
-    // The sidebar has no input of its own: two boxes filtering one grid is two answers that can
-    // disagree, so this button moves the cursor to the grid's.
-    const { onSearch } = show();
-
-    fireEvent.click(screen.getByRole("button", { name: /search/i }));
-
-    expect(onSearch).toHaveBeenCalled();
+  it("searches the sessions in the sidebar", () => {
+    show({
+      recents: [
+        project({ name: "Habit Builder" }),
+        project({ projectId: "other", name: "Portfolio" }),
+      ],
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Search sessions" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Search sessions" }), {
+      target: { value: "portfolio" },
+    });
+    expect(screen.getByRole("link", { name: /Portfolio/ })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Habit Builder/ })).not.toBeInTheDocument();
   });
 
   it("links each recent project to its workspace", () => {
     show({ recents: [project({ projectId: "abc", name: "Todo Landing Page" })] });
 
-    expect(screen.getByRole("link", { name: "Todo Landing Page" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: /^Todo Landing Page/ })).toHaveAttribute(
       "href",
       "/p/abc",
     );
@@ -197,7 +204,7 @@ describe("the dashboard sidebar", () => {
   it("starts a new project from the rail", () => {
     const { onNewProject } = show();
 
-    fireEvent.click(screen.getByRole("button", { name: /new project/i }));
+    fireEvent.click(screen.getAllByRole("button", { name: /new session/i })[0]!);
 
     expect(onNewProject).toHaveBeenCalled();
   });

@@ -94,6 +94,43 @@ describe("POST /sessions/:sessionId/turns", () => {
     ]);
   });
 
+  it("keeps image and video frames in the durable request", async () => {
+    const queue = new InMemoryTurnQueue();
+    const { app: hono } = app(queue);
+    const attachments = [
+      {
+        kind: "video",
+        name: "flow.mp4",
+        duration: 4,
+        frames: [{ mediaType: "image/jpeg", data: "/9j/AAAA", timestamp: 2 }],
+      },
+    ];
+    const res = await post(hono, `/sessions/${SESSION}/turns`, {
+      message: "Match this flow",
+      model: ALLOWED[1],
+      attachments,
+    });
+    expect(res.status).toBe(202);
+    expect(queue.enqueued[0]?.attachments).toEqual(attachments);
+  });
+
+  it("rejects invalid media before admitting work", async () => {
+    const queue = new InMemoryTurnQueue();
+    const { app: hono } = app(queue);
+    const res = await post(hono, `/sessions/${SESSION}/turns`, {
+      message: "Match this",
+      attachments: [
+        {
+          kind: "image",
+          name: "bad.svg",
+          frames: [{ mediaType: "image/svg+xml", data: "<svg/>", timestamp: 0 }],
+        },
+      ],
+    });
+    expect(res.status).toBe(400);
+    expect(queue.enqueued).toHaveLength(0);
+  });
+
   it("records whether the asker pays, and never their key", async () => {
     // The queue is a table every replica reads, so a credential on it would be plaintext in a
     // query log and in every backup. What it carries is the *fact* — the worker re-opens the key

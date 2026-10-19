@@ -1,3 +1,4 @@
+import { mediaBlocks } from "@nap/shared/media";
 /**
  * Assembles everything the model sees for one turn, and owns what it costs.
  *
@@ -167,6 +168,7 @@ function toMessages(events: NapEvent[]): LLMMessage[] {
   for (const event of events) {
     switch (event.type) {
       case "user.message":
+        for (const block of mediaBlocks(event.payload.attachments ?? [])) push("user", block);
         push("user", textBlock(event.payload.text));
         break;
       case "agent.message":
@@ -226,6 +228,8 @@ function blockTokens(block: LLMContentBlock): number {
   switch (block.type) {
     case "text":
       return estimateTokens(block.text);
+    case "image":
+      return 2_200;
     case "tool_use":
       // The name and arguments are what actually travel; the id is a few characters.
       return estimateTokens(`${block.name}${JSON.stringify(block.input)}`);
@@ -328,6 +332,10 @@ export class NapContextEngine implements ContextEngine {
 
     let remembered: Memory[] = memories;
     let userMessage = request.userMessage;
+    const media = mediaBlocks(request.attachments ?? []);
+    const mediaTokens = media.reduce((total, block) => total + blockTokens(block), 0);
+    if (mediaTokens + MIN_BUDGET_TOKENS > this.#budgetTokens)
+      throw new Error("Attachments exceed the context budget. Send fewer images.");
     let attempts: readonly FailedAttempt[] = request.job?.attempts ?? [];
     /** A ceiling on each quoted failure. Uncapped until the last resort below applies one. */
     let outputTokens: number | undefined;
@@ -353,7 +361,8 @@ export class NapContextEngine implements ContextEngine {
     const cost = (): number =>
       estimateTokens(systemPrompt(digest, remembered, brief())) +
       messagesTokens(turns.flatMap((turn) => turn.messages)) +
-      estimateTokens(userMessage);
+      estimateTokens(userMessage) +
+      mediaTokens;
 
     // --- Truncation, in order. Each step is exhausted before the next begins. -----------
     //
@@ -416,14 +425,16 @@ export class NapContextEngine implements ContextEngine {
     // 7. Truncate the turn's own message, so the budget is a guarantee and not a hope.
     if (cost() > this.#budgetTokens) {
       const available =
-        this.#budgetTokens - estimateTokens(systemPrompt(digest, remembered, brief()));
+        this.#budgetTokens -
+        estimateTokens(systemPrompt(digest, remembered, brief())) -
+        mediaTokens;
       // The head: a request states what it wants up front and qualifies it after.
       userMessage = truncateToTokens(userMessage, Math.max(available, 0), "head");
     }
 
     const messages = [
       ...turns.flatMap((turn) => turn.messages),
-      { role: "user", content: [textBlock(userMessage)] } satisfies LLMMessage,
+      { role: "user", content: [...media, textBlock(userMessage)] } satisfies LLMMessage,
     ];
     const prompt = systemPrompt(digest, remembered, brief());
 

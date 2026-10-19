@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useRef, useState } from "react";
 import { type FetchJson, useProjectFiles } from "../files/use-project-files.ts";
 import type { CreateSocket } from "../hooks/use-event-stream.ts";
 import { useSessionLog } from "../hooks/use-session-log.ts";
@@ -153,6 +153,7 @@ export function AppShell({
   const { width, containerRef, onGrab, onKeyDown } = usePaneWidth(CHAT_SPLIT, DEFAULT_CHAT_WIDTH);
 
   useDocumentScrollLock();
+  const paneStyle: CSSProperties & { "--chat-width": string } = { "--chat-width": `${width}px` };
 
   return (
     // Scoped here rather than as `body { overflow: hidden }`: the landing page and the welcome
@@ -172,7 +173,10 @@ export function AppShell({
         // disappears exactly when the preview takes the whole window. One value, so the bar and
         // the strip cannot say different things about one job.
         job={log.jobs.summary}
-        onTabChange={setTab}
+        onTabChange={(next) => {
+          setTab(next);
+          if (window.matchMedia("(max-width: 767px)").matches) setChatOpen(false);
+        }}
         onReload={() => setReloads((count) => count + 1)}
         onRouteChange={setRoute}
         onToggleChat={() => setChatOpen((open) => !open)}
@@ -182,8 +186,9 @@ export function AppShell({
         ref={containerRef}
         // The second clamp, and not a redundant one: this catches whatever a pane leaks, the root
         // above catches the header and anything drawn outside this grid.
-        className="relative grid min-h-0 flex-1 overflow-hidden"
-        style={{ gridTemplateColumns: chatOpen ? `${width}px auto 1fr` : "1fr" }}
+        className="workspace-panes relative grid min-h-0 flex-1 overflow-hidden"
+        data-chat-open={chatOpen}
+        style={paneStyle}
       >
         {chatOpen && (
           <>

@@ -1,3 +1,4 @@
+import type { MediaAttachment } from "../media.ts";
 /**
  * Assembles what the model sees, and owns the context token budget.
  *
@@ -53,6 +54,7 @@ export type ContextRequest = {
   sandboxId: string;
   /** The message this turn is being built for. */
   userMessage: string;
+  attachments?: MediaAttachment[] | undefined;
   /**
    * The job this turn belongs to, when the caller tracks one. Absent for a caller that does
    * not — the assembled prompt is then exactly what it was before jobs existed.

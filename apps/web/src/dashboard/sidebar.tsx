@@ -1,207 +1,287 @@
 "use client";
 
-/**
- * The rail: who you are, where you can go, and what you were last working on.
- *
- * It holds no state and asks nothing of the server. The scope it shows as current and the
- * projects it lists come down as props, because the grid to the right is showing the same
- * answer — two components each deciding what "running" means is how a sidebar ends up
- * highlighting a filter the grid is not applying.
- *
- * **Search is a button, not a second box.** The grid already owns a field; a rail with its own
- * would be two inputs filtering one list, which is two answers that can disagree. Pressing this
- * moves the cursor into the one that does the work.
- *
- * The scopes are buttons rather than links: nothing about them changes the address, and a link
- * that does not navigate is a promise to the browser's back button that this page cannot keep.
- */
-
 import type { ProjectSummaryPayload } from "@nap/shared/projects-protocol";
 import { useRef, useState } from "react";
-import { NapMark } from "../brand/nap-mark.tsx";
 import { SpinnerIcon } from "../ui/icons.tsx";
 import type { ProjectScope } from "./filters.ts";
+import { filterProjects } from "./filters.ts";
 
 const SCOPES: readonly { id: ProjectScope; label: string }[] = [
-  { id: "all", label: "All projects" },
+  { id: "all", label: "All sessions" },
   { id: "running", label: "Running" },
   { id: "put-away", label: "Put away" },
 ];
+const ROW =
+  "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm text-ink-2 transition-colors hover:bg-hover hover:text-ink focus-visible:outline-accent";
 
 export function Sidebar({
   name,
   email,
+  avatarUrl,
   scope,
   counts,
   recents,
   onScopeChange,
-  onSearch,
   onNewProject,
   onApiKey,
   keyHint,
   onSignOut,
   signingOut = false,
+  activeProjectId,
+  onRename,
+  onDelete,
+  onClose,
+  error,
+  loading = false,
+  busyProjectId,
 }: {
   name: string;
   email: string | undefined;
+  avatarUrl?: string | undefined;
   scope: ProjectScope;
   counts: Record<ProjectScope, number>;
-  /** Newest first, already trimmed to what fits — the rail does not decide how many. */
   recents: readonly ProjectSummaryPayload[];
   onScopeChange: (scope: ProjectScope) => void;
-  onSearch: () => void;
   onNewProject: () => void;
-  /** Opening the place a key is pasted. The rail is where somebody goes looking for it. */
   onApiKey: () => void;
-  /**
-   * The masked tail of the key in use, when there is one — `sk-or-…4f2a`.
-   *
-   * Shown rather than a bare "API key" entry because which state you are in is the thing
-   * people actually come here to check, and a menu item that looks identical either way makes
-   * them open it to find out. Undefined means the free models, which the label then says.
-   */
   keyHint: string | undefined;
   onSignOut: () => void;
-  /**
-   * Whether signing out is in flight.
-   *
-   * Worth showing because it is the one action in this rail that is neither instant nor
-   * visible: the request crosses the network to drop the session, and until the redirect lands
-   * the page looks exactly as it did before the press. Without a mark, a slow one reads as a
-   * button that did nothing and gets pressed again.
-   */
   signingOut?: boolean;
+  activeProjectId?: string | undefined;
+  onRename?: ((id: string, name: string) => void) | undefined;
+  onDelete?: ((id: string) => void) | undefined;
+  onClose?: ((id: string) => void) | undefined;
+  error?: string | undefined;
+  loading?: boolean;
+  busyProjectId?: string | undefined;
 }) {
+  const [query, setQuery] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [filtering, setFiltering] = useState(false);
+  const search = useRef<HTMLInputElement>(null);
+  const sessions = filterProjects(recents, { query, scope });
   return (
     <nav
       aria-label="Dashboard"
-      className="nap-scroll-hidden flex h-dvh w-full flex-col gap-6 overflow-y-auto border-edge border-r bg-panel px-3 py-4"
+      className="flex h-full min-h-0 flex-col border-r border-edge bg-panel px-3 pt-5 pb-3"
     >
-      <div className="flex items-center gap-1.5 px-2">
-        <NapMark className="size-8" />
-        <span className="font-semibold text-ink text-sm tracking-tight">nap</span>
-      </div>
-
-      <div className="flex flex-col gap-0.5">
-        {/*
-          The one item here that is genuinely a link: it is where you already are, but it is a
-          real address, and marking it `page` is what tells a reader arriving at the rail which
-          of these they are looking at.
-        */}
-        <a
-          href="/dashboard"
-          aria-current="page"
-          className="flex items-center gap-2.5 rounded-chip bg-hover px-2.5 py-2 font-medium text-ink text-sm focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
-        >
-          <HomeIcon />
-          Dashboard
-        </a>
-
-        <RailButton onClick={onSearch}>
-          <SearchIcon />
-          Search
-        </RailButton>
-
-        <RailButton onClick={onNewProject}>
+      <a
+        href="/dashboard"
+        className="mb-7 flex items-center gap-2.5 px-3 text-ink"
+        aria-label="nap dashboard"
+      >
+        <span className="grid size-7 place-items-center rounded-lg border border-edge text-sm font-semibold">
+          n
+        </span>
+        <span className="text-lg font-semibold tracking-tight">nap</span>
+      </a>
+      <div className="flex flex-col gap-1">
+        <button type="button" onClick={onNewProject} className={`${ROW} text-ink`}>
           <PlusIcon />
-          New project
-        </RailButton>
+          New session
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setSearching(true);
+            requestAnimationFrame(() => search.current?.focus());
+          }}
+          className={ROW}
+        >
+          <SearchIcon />
+          Search sessions
+        </button>
+        <a href="/docs" className={ROW}>
+          <BookIcon />
+          Documentation
+        </a>
       </div>
-
-      <div className="flex flex-col gap-0.5">
-        <h2 className="px-2.5 pb-1 font-medium text-[11px] text-muted uppercase tracking-wider">
-          Projects
+      <div className="mt-8 flex items-center justify-between px-3 pb-3">
+        <h2 className="text-sm font-medium text-ink">
+          Sessions <span className="ml-1 text-xs font-normal text-muted">{counts.all}</span>
         </h2>
-
-        {SCOPES.map((entry) => (
+        <div className="flex gap-1">
           <button
-            key={entry.id}
             type="button"
-            onClick={() => onScopeChange(entry.id)}
-            // The label is written out rather than left to the name-from-content algorithm,
-            // which joins the two spans with no separator and announces "All projects3".
-            aria-label={`${entry.label}, ${counts[entry.id]}`}
-            // `aria-current` rather than a colour alone, for the same reason the cards say
-            // "running" in words: a highlight is invisible to a reader and ambiguous to anyone
-            // who cannot separate two greys.
-            {...(scope === entry.id ? { "aria-current": true } : {})}
-            className={`flex items-center justify-between rounded-chip px-2.5 py-1.5 text-sm transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent ${
-              scope === entry.id
-                ? "bg-hover font-medium text-ink"
-                : "text-ink-2 hover:bg-hover hover:text-ink"
-            }`}
+            aria-label="New session"
+            onClick={onNewProject}
+            className="rounded p-1 text-muted hover:bg-hover hover:text-ink"
           >
-            <span>{entry.label}</span>
-            <span className="font-mono text-[11px] text-muted">{counts[entry.id]}</span>
+            <PlusIcon />
           </button>
-        ))}
+          <button
+            type="button"
+            aria-label="Filter sessions"
+            aria-expanded={filtering}
+            onClick={() => setFiltering(!filtering)}
+            className="rounded p-1 text-muted hover:bg-hover hover:text-ink"
+          >
+            <FilterIcon />
+          </button>
+        </div>
       </div>
-
-      {recents.length > 0 && (
-        <div className="flex min-h-0 flex-col gap-0.5">
-          <h2 className="px-2.5 pb-1 font-medium text-[11px] text-muted uppercase tracking-wider">
-            Recents
-          </h2>
-
-          <ul className="flex flex-col">
-            {recents.map((project) => (
-              <li key={project.projectId}>
-                {/*
-                  A plain anchor rather than a router link, like the workspace's own back-link:
-                  opening a project should start from a clean page rather than from whatever
-                  this one is holding.
-                */}
-                <a
-                  href={`/p/${project.projectId}`}
-                  className="block truncate rounded-chip px-2.5 py-1.5 text-ink-2 text-sm transition-colors hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
-                >
-                  {project.name}
-                </a>
-              </li>
-            ))}
-          </ul>
+      {searching && (
+        <input
+          ref={search}
+          aria-label="Search sessions"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              setQuery("");
+              setSearching(false);
+            }
+          }}
+          placeholder="Find a session…"
+          className="mx-2 mb-3 min-w-0 rounded-lg border border-edge bg-field px-3 py-2 text-sm outline-none focus:border-accent"
+        />
+      )}
+      {filtering && (
+        <div className="mb-3 flex flex-col gap-0.5">
+          {SCOPES.map((entry) => (
+            <button
+              key={entry.id}
+              type="button"
+              aria-label={`${entry.label}, ${counts[entry.id]}`}
+              aria-current={scope === entry.id ? true : undefined}
+              onClick={() => onScopeChange(entry.id)}
+              className={`${ROW} justify-between ${scope === entry.id ? "bg-hover text-ink" : ""}`}
+            >
+              <span>{entry.label}</span>
+              <span className="text-xs text-muted">{counts[entry.id]}</span>
+            </button>
+          ))}
         </div>
       )}
-
-      <div className="mt-auto border-edge border-t pt-3">
+      <div className="nap-scroll min-h-0 flex-1 overflow-y-auto">
+        {loading ? (
+          <p role="status" className="px-3 py-3 text-xs text-muted">
+            Loading sessions…
+          </p>
+        ) : sessions.length === 0 ? (
+          <p className="px-3 py-4 text-xs leading-relaxed text-muted">
+            {query || scope !== "all"
+              ? "No matching sessions."
+              : "Your sessions will appear here. Start with a new idea."}
+          </p>
+        ) : (
+          <>
+            <p className="mb-2 px-3 text-xs text-muted">Recent</p>
+            <ul aria-label="Sessions" className="flex flex-col gap-0.5">
+              {sessions.map((project) => (
+                <li
+                  key={project.projectId}
+                  className={`group relative flex items-center rounded-lg ${activeProjectId === project.projectId ? "bg-hover" : "hover:bg-hover"}`}
+                >
+                  <a
+                    href={`/p/${project.projectId}`}
+                    aria-current={activeProjectId === project.projectId ? "page" : undefined}
+                    className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-ink-2 focus-visible:outline-accent"
+                  >
+                    <span className="min-w-0 flex-1 truncate">{project.name}</span>
+                    {project.sandboxId !== null && (
+                      <span className="size-1.5 shrink-0 rounded-full bg-accent" title="Running">
+                        <span className="sr-only">Running</span>
+                      </span>
+                    )}
+                  </a>
+                  {(onRename || onDelete || onClose) && (
+                    <details className="mr-1 shrink-0">
+                      <summary
+                        aria-label={`Session actions for ${project.name}`}
+                        className="list-none rounded px-1.5 py-1 text-muted hover:text-ink"
+                      >
+                        ···
+                      </summary>
+                      <div className="absolute right-1 top-10 z-20 w-40 rounded-lg border border-edge bg-field p-1 shadow-raised">
+                        {onRename && (
+                          <button
+                            type="button"
+                            disabled={busyProjectId === project.projectId}
+                            onClick={() => {
+                              const name = window.prompt("Session name", project.name);
+                              if (name?.trim()) onRename(project.projectId, name.trim());
+                            }}
+                            className={ROW}
+                          >
+                            Rename
+                          </button>
+                        )}
+                        {onClose && project.sandboxId !== null && (
+                          <button
+                            type="button"
+                            disabled={busyProjectId === project.projectId}
+                            onClick={() => onClose(project.projectId)}
+                            className={ROW}
+                          >
+                            Put away
+                          </button>
+                        )}
+                        {onDelete && (
+                          <button
+                            type="button"
+                            disabled={busyProjectId === project.projectId}
+                            onClick={() => {
+                              if (
+                                window.confirm(`Delete “${project.name}”? This cannot be undone.`)
+                              )
+                                onDelete(project.projectId);
+                            }}
+                            className={`${ROW} text-danger`}
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </div>
+                    </details>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+        {error && (
+          <p role="alert" className="px-3 py-2 text-xs text-danger">
+            {error}
+          </p>
+        )}
+      </div>
+      <div className="relative mt-4 flex shrink-0 items-center gap-0.5 border-t border-edge pt-3">
         <AccountMenu
           name={name}
           email={email}
+          avatarUrl={avatarUrl}
           keyHint={keyHint}
           onApiKey={onApiKey}
           onSignOut={onSignOut}
           signingOut={signingOut}
         />
+        <a
+          href="/docs"
+          aria-label="Help"
+          title="Help"
+          className="rounded-lg p-1.5 text-muted hover:bg-hover hover:text-ink"
+        >
+          <HelpIcon />
+        </a>
+        <button
+          type="button"
+          aria-label="Settings"
+          title="API key settings"
+          onClick={onApiKey}
+          className="rounded-lg p-1.5 text-muted hover:bg-hover hover:text-ink"
+        >
+          <SettingsIcon />
+        </button>
       </div>
     </nav>
   );
 }
 
-/**
- * Who you are, and the two things you can do about it.
- *
- * The account's own actions used to sit in the rail as two more items, level with Search and New
- * project — which put "Sign out" one careless click from "Dashboard" and gave a key you set once a
- * permanent line of a menu you read every day. They live behind the name now: the rail lists
- * places to go, and this is the one entry that is a *person* rather than a destination.
- *
- * **It opens on a press and on nothing else.** Not hover: a menu that appears because the pointer
- * passed over the corner of the rail is one that opens when nobody asked, and it covers the
- * recents list while they are reading it. Click or Enter toggles it, Escape closes it and hands
- * focus back, and focus leaving the group closes it. `aria-haspopup` and `aria-expanded` are what
- * say all of that to a reader.
- *
- * **Focus deliberately does not open it either.** It did, and that made Escape look ignored:
- * closing hands focus back to the trigger, and the trigger taking focus reopened the menu.
- *
- * **The gap above the trigger is padding, not space.** The panel floats clear of the name by 8px,
- * and if that were a true gap the pointer would leave the group crossing it and the menu would
- * shut under the cursor. It is `pb-2` inside the panel's own box instead, so the whole path from
- * name to menu item stays inside one element.
- */
-function AccountMenu({
+export function AccountMenu({
   name,
   email,
+  avatarUrl,
   keyHint,
   onApiKey,
   onSignOut,
@@ -209,6 +289,7 @@ function AccountMenu({
 }: {
   name: string;
   email: string | undefined;
+  avatarUrl?: string | undefined;
   keyHint: string | undefined;
   onApiKey: () => void;
   onSignOut: () => void;
@@ -224,7 +305,7 @@ function AccountMenu({
     // own. A role would put a second, meaningless node in a reader's way.
     // biome-ignore lint/a11y/noStaticElementInteractions: see above
     <div
-      className="relative"
+      className="relative min-w-0 flex-1"
       onBlur={(event) => {
         // Only when focus has actually left the group — moving between the items inside it is a
         // blur too, and closing on that would make the menu unusable by keyboard.
@@ -246,15 +327,25 @@ function AccountMenu({
         onClick={() => setOpen((it) => !it)}
         className="flex w-full min-w-0 items-center gap-2.5 rounded-chip px-2.5 py-2 text-left transition-colors hover:bg-hover focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
       >
-        <span
-          aria-hidden="true"
-          className="grid size-7 shrink-0 place-items-center rounded-full bg-accent-tint font-medium text-accent-ink text-xs"
-        >
-          {name.slice(0, 1).toUpperCase()}
-        </span>
+        {avatarUrl ? (
+          // biome-ignore lint/performance/noImgElement: account images use the identity provider's URL.
+          <img
+            src={avatarUrl}
+            alt=""
+            referrerPolicy="no-referrer"
+            className="size-9 shrink-0 rounded-full object-cover"
+          />
+        ) : (
+          <span
+            aria-hidden="true"
+            className="grid size-9 shrink-0 place-items-center rounded-full bg-accent-tint font-medium text-accent-ink text-xs"
+          >
+            {name.slice(0, 1).toUpperCase()}
+          </span>
+        )}
         <span className="flex min-w-0 flex-col">
           <span className="truncate font-medium text-ink text-sm">{name}</span>
-          {email !== undefined && <span className="truncate text-[11px] text-muted">{email}</span>}
+          <span className="truncate text-xs text-muted">{email ?? "Personal workspace"}</span>
         </span>
       </button>
 
@@ -313,38 +404,6 @@ function MenuItem({
   );
 }
 
-/** Everything in the rail that does something rather than going somewhere. */
-function RailButton({
-  onClick,
-  disabled = false,
-  busy = false,
-  children,
-}: {
-  onClick: () => void;
-  disabled?: boolean;
-  /** Announced as `aria-busy`, for an item whose spinner says nothing to a screen reader. */
-  busy?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      aria-busy={busy || undefined}
-      className="flex items-center gap-2.5 rounded-chip px-2.5 py-2 text-ink-2 text-sm transition-colors hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent disabled:hover:bg-transparent disabled:hover:text-ink-2"
-    >
-      {children}
-    </button>
-  );
-}
-
-/*
- * The icons are `aria-hidden` and the label beside each is the accessible name — an icon that
- * announced itself would have every item read out twice. The attribute is written on each
- * `<svg>` rather than folded into this object, because the lint rule that insists an icon be
- * either labelled or hidden cannot see through a spread and fails the file.
- */
 const STROKE = {
   viewBox: "0 0 16 16",
   fill: "none",
@@ -354,14 +413,6 @@ const STROKE = {
   strokeLinejoin: "round",
   className: "size-4 shrink-0",
 } as const;
-
-function HomeIcon() {
-  return (
-    <svg aria-hidden="true" {...STROKE}>
-      <path d="M2.5 6.8 8 2.5l5.5 4.3V13a.5.5 0 0 1-.5.5H3a.5.5 0 0 1-.5-.5z" />
-    </svg>
-  );
-}
 
 function SearchIcon() {
   return (
@@ -394,6 +445,40 @@ function SignOutIcon() {
     <svg aria-hidden="true" {...STROKE}>
       <path d="M6.5 13.5H3.5a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1h3" />
       <path d="M10.5 10.5 13 8l-2.5-2.5M13 8H6.5" />
+    </svg>
+  );
+}
+
+function BookIcon() {
+  return (
+    <svg aria-hidden="true" {...STROKE}>
+      <rect x="3.5" y="2" width="9" height="12" rx="1" />
+      <path d="M6 5h4M6 8h4M6 11h2" />
+    </svg>
+  );
+}
+function FilterIcon() {
+  return (
+    <svg aria-hidden="true" {...STROKE}>
+      <path d="M4 2v3m0 4v5M12 2v7m0 4v1" />
+      <circle cx="4" cy="7" r="2" />
+      <circle cx="12" cy="11" r="2" />
+    </svg>
+  );
+}
+function HelpIcon() {
+  return (
+    <svg aria-hidden="true" {...STROKE}>
+      <circle cx="8" cy="8" r="6" />
+      <path d="M6.3 6a1.7 1.7 0 0 1 3.4 0c0 1.5-1.7 1.5-1.7 3M8 11.5h.01" />
+    </svg>
+  );
+}
+function SettingsIcon() {
+  return (
+    <svg aria-hidden="true" {...STROKE}>
+      <path d="m6.5 2-.4 1.5-1.5.8L3 4l-1 1.8 1.1 1.1v1.8L2 10l1 1.8 1.6-.3 1.5.8.4 1.7h2.9l.5-1.7 1.5-.8 1.6.3 1-1.8-1.1-1.3V6.9L14 5.8 13 4l-1.6.3-1.5-.8L9.4 2z" />
+      <circle cx="8" cy="8" r="2" />
     </svg>
   );
 }

@@ -18,7 +18,6 @@
 
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
-import { NapMark } from "../brand/nap-mark.tsx";
 import { PhaseDot } from "../chat/job-marks.tsx";
 import type { JobSummary } from "../chat/job-summary.ts";
 import { EditableTitle } from "../ui/editable-title.tsx";
@@ -60,8 +59,8 @@ export function WorkspaceHeader({
   onToggleChat: () => void;
 }) {
   return (
-    <header className="flex h-12 shrink-0 items-center gap-3 px-3">
-      <div className="flex min-w-0 flex-1 items-center gap-2">
+    <header className="workspace-header flex h-12 shrink-0 items-center gap-3 border-b border-edge px-3 pl-14 md:pl-3">
+      <div className="workspace-title flex min-w-0 flex-1 items-center gap-2">
         <IconButton
           label={chatOpen ? "Hide chat" : "Show chat"}
           onClick={onToggleChat}
@@ -71,21 +70,16 @@ export function WorkspaceHeader({
           <PanelIcon open={chatOpen} />
         </IconButton>
 
-        {/*
-          A plain anchor rather than a router link: leaving the workspace should drop the socket
-          and every pending request, and a full navigation is the simplest thing that does that.
-        */}
         <a
           href="/dashboard"
-          className="flex shrink-0 items-center gap-1 font-semibold text-ink text-sm tracking-tight hover:text-accent focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
+          aria-label="Back to nap dashboard"
+          title="Dashboard"
+          className="grid size-7 shrink-0 place-items-center rounded-lg text-muted hover:bg-hover hover:text-ink"
         >
-          <NapMark className="size-6" />
-          nap
+          <span aria-hidden="true">←</span>
+          <span className="sr-only">nap dashboard</span>
         </a>
 
-        <span aria-hidden="true" className="text-muted">
-          /
-        </span>
         {/*
           Editable only when it is a name. `headerNote` puts sentences here for the loading,
           missing and error states — "this project no longer exists" is not something anybody
@@ -129,7 +123,7 @@ export function WorkspaceHeader({
         ))}
       </div>
 
-      <div className="flex flex-1 items-center justify-end gap-2">
+      <div className="hidden min-w-0 flex-1 items-center justify-end gap-2 lg:flex">
         {previewUrl !== undefined && (
           <>
             <RouteField route={route} onRouteChange={onRouteChange} />

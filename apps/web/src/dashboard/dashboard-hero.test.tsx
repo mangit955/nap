@@ -69,32 +69,10 @@ describe("the dashboard hero", () => {
     expect(screen.getByRole("heading", { name: /Manas/ })).toBeInTheDocument();
   });
 
-  it("adds quiet Nap stickers around the otherwise empty prompt band", () => {
+  it("keeps the prompt free of stickers", () => {
     show();
-
-    expect(screen.getByTestId("nap-stickers")).toBeInTheDocument();
-  });
-
-  /**
-   * Animation has no accessible surface, so this is the deliberate exception to the
-   * no-class-names rule — the same reason the syntax-highlighting test queries tokens directly.
-   * What it protects is the *distinctness*: the stickers are four copies of one component and a
-   * copy-paste that leaves two of them on the same `kind` gives two of them the same idle loop
-   * and the same hover, which is exactly what nobody notices by eye.
-   */
-  it("gives each sticker its own behaviour rather than four copies of one", () => {
-    show();
-
-    const stickers = [...screen.getByTestId("nap-stickers").querySelectorAll(".nap-sticker")];
-    const kinds = stickers.map((sticker) =>
-      [...sticker.classList].find(
-        (name) => name.startsWith("nap-sticker-") && name !== "nap-sticker-awake",
-      ),
-    );
-
-    expect(stickers).toHaveLength(4);
-    expect(new Set(kinds).size).toBe(4);
-    expect(kinds).not.toContain(undefined);
+    expect(screen.queryByTestId("nap-stickers")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add images or videos" })).toBeInTheDocument();
   });
 
   it("sends what was typed on Enter", () => {
@@ -103,15 +81,6 @@ describe("the dashboard hero", () => {
     fireEvent.keyDown(box(), { key: "Enter" });
 
     expect(onSubmit).toHaveBeenCalledWith("a habit tracker");
-  });
-
-  it("types an example into an empty prompt hint", () => {
-    vi.useFakeTimers();
-    show();
-
-    act(() => vi.advanceTimersByTime(55));
-
-    expect(box()).toHaveAttribute("placeholder", "Let's build a");
   });
 
   it("makes a newline on Shift+Enter instead", () => {
@@ -179,10 +148,10 @@ describe("the dashboard hero", () => {
     expect(onModelChange).toHaveBeenCalledWith("anthropic/claude-opus-5");
   });
 
-  it("hides dictation when the browser cannot recognize speech", () => {
+  it("disables dictation when the browser cannot recognize speech", () => {
     show();
 
-    expect(screen.queryByRole("button", { name: "Start dictation" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Start dictation" })).toBeDisabled();
   });
 
   it("shows interim dictation separately and appends finalized speech", () => {

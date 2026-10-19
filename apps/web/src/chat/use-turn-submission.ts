@@ -1,5 +1,7 @@
 "use client";
 
+import type { MediaAttachment } from "@nap/shared/media";
+
 /**
  * Saying something, and knowing whether the agent is still busy.
  *
@@ -41,7 +43,7 @@ import type { FetchJson } from "../files/use-project-files.ts";
 
 export type TurnSubmission = {
   /** Resolves once the server has accepted or refused; the turn itself runs on past it. */
-  submit: (message: string, model?: string) => Promise<void>;
+  submit: (message: string, model?: string, attachments?: MediaAttachment[]) => Promise<void>;
   cancel: () => Promise<void>;
   /** The message the user sent that the log has not caught up with yet. */
   pending: string | undefined;
@@ -111,7 +113,11 @@ export function useTurnSubmission(options: {
     if (arrived) setPending(undefined);
   }, [events, pending]);
 
-  const submit = async (message: string, model?: string): Promise<void> => {
+  const submit = async (
+    message: string,
+    model?: string,
+    attachments?: MediaAttachment[],
+  ): Promise<void> => {
     const text = message.trim();
     if (sessionId === undefined || text === "") return;
 
@@ -129,7 +135,7 @@ export function useTurnSubmission(options: {
           // would refuse: `JSON.stringify` drops undefined properties, so this one expression
           // produces both bodies. An explicit branch here reads as though it were doing
           // something, and no test could tell the two apart.
-          body: JSON.stringify({ message: text, model }),
+          body: JSON.stringify({ message: text, model, attachments }),
         },
       );
 

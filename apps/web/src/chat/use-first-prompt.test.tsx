@@ -33,7 +33,7 @@ describe("the first turn of a project made from the front page", () => {
 
     render(<Probe projectId={PROJECT} sessionId={SESSION} submit={submit} />);
 
-    expect(submit).toHaveBeenCalledWith("a habit tracker", undefined);
+    expect(submit).toHaveBeenCalledWith("a habit tracker", undefined, undefined);
   });
 
   it("is sent exactly once, however often the effect runs", () => {
@@ -59,7 +59,7 @@ describe("the first turn of a project made from the front page", () => {
     expect(submit).not.toHaveBeenCalled();
 
     view.rerender(<Probe projectId={PROJECT} sessionId={SESSION} submit={submit} />);
-    expect(submit).toHaveBeenCalledWith("a habit tracker", undefined);
+    expect(submit).toHaveBeenCalledWith("a habit tracker", undefined, undefined);
   });
 
   it("sends nothing when the visitor simply opened an old project", () => {
@@ -86,6 +86,6 @@ describe("the first turn of a project made from the front page", () => {
 
     render(<Probe projectId={PROJECT} sessionId={SESSION} submit={submit} />);
 
-    expect(submit).toHaveBeenCalledWith("a habit tracker", "anthropic/claude-opus-5");
+    expect(submit).toHaveBeenCalledWith("a habit tracker", "anthropic/claude-opus-5", undefined);
   });
 });

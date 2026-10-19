@@ -21,7 +21,7 @@
  */
 
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { ApiKeyPanel } from "../account/api-key-panel.tsx";
 import { useApiKey } from "../account/use-api-key.ts";
 import { authClient } from "../auth/client.ts";
@@ -31,14 +31,7 @@ import { useProjects } from "../projects/use-projects.ts";
 import { useStartProject } from "../projects/use-start-project.ts";
 import { Dashboard } from "./dashboard.tsx";
 import { DashboardHero } from "./dashboard-hero.tsx";
-import {
-  filterProjects,
-  greetingName,
-  type ProjectScope,
-  recentProjects,
-  scopeCounts,
-} from "./filters.ts";
-import { ProjectGrid } from "./project-grid.tsx";
+import { greetingName, type ProjectScope, recentProjects, scopeCounts } from "./filters.ts";
 import { Sidebar } from "./sidebar.tsx";
 
 export function LiveDashboard() {
@@ -76,7 +69,16 @@ export function LiveDashboard() {
 }
 
 /** The dashboard proper. Everything here may assume there is a session behind it. */
-function SignedInDashboard({ user }: { user: { name?: string | null; email?: string | null } }) {
+function SignedInDashboard({
+  user,
+}: {
+  user: {
+    name?: string | null;
+    email?: string | null;
+    image?: string | null | undefined;
+    isAnonymous?: boolean | null | undefined;
+  };
+}) {
   const router = useRouter();
   const { projects, status, actionError, create, close, remove, rename } = useProjects();
   const { busy, error, start } = useStartProject();
@@ -91,10 +93,8 @@ function SignedInDashboard({ user }: { user: { name?: string | null; email?: str
   // `undefined` is intentional: it sends no model key, so the server owns the default until
   // the person makes an explicit choice. The fallback is still shown in the picker below.
   const [model, setModel] = useState<string | undefined>(undefined);
-  const [query, setQuery] = useState("");
   const [scope, setScope] = useState<ProjectScope>("all");
   const [busyProjectId, setBusyProjectId] = useState<string | undefined>(undefined);
-  const search = useRef<HTMLInputElement>(null);
 
   /** Runs one action against one project, with that card held still while it is in flight. */
   const run = (projectId: string, action: (id: string) => Promise<void>) => {
@@ -110,13 +110,19 @@ function SignedInDashboard({ user }: { user: { name?: string | null; email?: str
         fading={signingOut}
         sidebar={
           <Sidebar
-            name={greetingName(user)}
-            email={user.email ?? undefined}
+            name={user.isAnonymous ? "Guest" : user.name || greetingName(user)}
+            email={user.isAnonymous ? undefined : (user.email ?? undefined)}
+            avatarUrl={user.image ?? undefined}
+            onRename={(id, name) => void rename(id, name)}
+            onDelete={(id) => run(id, remove)}
+            onClose={(id) => run(id, close)}
+            error={actionError ?? (status === "error" ? "Could not load sessions." : undefined)}
+            loading={status === "loading"}
+            busyProjectId={busyProjectId}
             scope={scope}
             counts={scopeCounts(projects)}
-            recents={recentProjects(projects)}
+            recents={recentProjects(projects, projects.length)}
             onScopeChange={setScope}
-            onSearch={() => search.current?.focus()}
             onApiKey={() => setKeyPanelOpen(true)}
             keyHint={key.state?.configured === true ? key.state.hint : undefined}
             onNewProject={() => {
@@ -148,7 +154,7 @@ function SignedInDashboard({ user }: { user: { name?: string | null; email?: str
         }
         hero={
           <DashboardHero
-            name={greetingName(user)}
+            name={user.isAnonymous ? "there" : greetingName(user)}
             value={prompt}
             busy={busy}
             error={error}
@@ -158,25 +164,7 @@ function SignedInDashboard({ user }: { user: { name?: string | null; email?: str
             onModelChange={setModel}
             onAddKey={() => setKeyPanelOpen(true)}
             onChange={setPrompt}
-            onSubmit={(message) => void start(message, model)}
-          />
-        }
-        grid={
-          <ProjectGrid
-            projects={filterProjects(projects, { query, scope })}
-            status={status}
-            actionError={actionError}
-            query={query}
-            scope={scope}
-            counts={scopeCounts(projects)}
-            searchRef={search}
-            busyProjectId={busyProjectId}
-            onQueryChange={setQuery}
-            onScopeChange={setScope}
-            onOpen={(projectId) => router.push(`/p/${projectId}`)}
-            onClose={(projectId) => run(projectId, close)}
-            onDelete={(projectId) => run(projectId, remove)}
-            onRename={(projectId, name) => void rename(projectId, name)}
+            onSubmit={(message, attachments) => void start(message, model, attachments)}
           />
         }
       />

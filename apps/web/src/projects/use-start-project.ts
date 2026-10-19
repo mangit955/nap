@@ -1,5 +1,7 @@
 "use client";
 
+import type { MediaAttachment } from "@nap/shared/media";
+
 /**
  * Turning a sentence into a project, from wherever it was typed.
  *
@@ -34,7 +36,7 @@ export type StartProject = {
   /** Set from the press until the navigation, so the box cannot be sent twice. */
   busy: boolean;
   error: string | undefined;
-  start: (message: string, model?: string) => Promise<void>;
+  start: (message: string, model?: string, attachments?: MediaAttachment[]) => Promise<void>;
 };
 
 export function useStartProject(
@@ -50,7 +52,7 @@ export function useStartProject(
   // `fetchJson` is deliberately not a dependency; see the note in `useProjectFiles`.
   // biome-ignore lint/correctness/useExhaustiveDependencies: see above
   const start = useCallback(
-    async (message: string, model?: string): Promise<void> => {
+    async (message: string, model?: string, attachments?: MediaAttachment[]): Promise<void> => {
       const prompt = message.trim();
       if (prompt === "") return;
 
@@ -82,7 +84,11 @@ export function useStartProject(
 
       try {
         const created = CreatedProjectSchema.parse(await response.json());
-        stashFirstPrompt(created.projectId, { text: prompt, model });
+        stashFirstPrompt(created.projectId, {
+          text: prompt,
+          model,
+          ...(attachments === undefined ? {} : { attachments }),
+        });
 
         // Deliberately not `setBusy(false)`: the page is on its way out, and re-enabling the
         // control first invites a second project from a second press during the navigation.

@@ -1,3 +1,4 @@
+import type { MediaAttachment } from "../media.ts";
 /**
  * The durable queue of turn requests, and the per-session leases that make one of them exclusive.
  *
@@ -65,6 +66,7 @@ export type EnqueueTurnRequest = {
   kind: TurnRequestKind;
   /** The prompt. Null for `resume`, which asks for no new work. */
   message: string | null;
+  attachments?: MediaAttachment[] | undefined;
   /** Resolved at admission, because which models somebody may name is the route's fact. */
   model: string;
   /**

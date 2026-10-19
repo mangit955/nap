@@ -91,7 +91,7 @@ export function ModelPicker({
   }
 
   return (
-    <div ref={root} className="relative">
+    <div ref={root} className="relative min-w-0">
       {open &&
         position !== undefined &&
         createPortal(
@@ -171,13 +171,13 @@ export function ModelPicker({
           if (bounds === undefined) return;
           setPosition({
             bottom: window.innerHeight - bounds.top + 4,
-            right: window.innerWidth - bounds.right,
+            right: Math.max(8, Math.min(window.innerWidth - bounds.right, window.innerWidth - 216)),
           });
           setOpen(true);
         }}
-        className="flex h-7 shrink-0 items-center gap-1 rounded-[8px] px-1.5 font-medium text-[12px] text-ink-2 transition-colors duration-150 hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent disabled:text-muted"
+        className="flex h-7 max-w-[180px] items-center gap-1 rounded-[8px] px-1.5 font-medium text-[12px] text-ink-2 transition-colors duration-150 hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent disabled:text-muted"
       >
-        {selected.label}
+        <span className="truncate">{selected.label}</span>
         <svg
           width="11"
           height="11"

@@ -20,7 +20,7 @@
  * braces.
  */
 
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import { useDocumentScrollLock } from "../ui/use-document-scroll-lock.ts";
 
 export function Dashboard({
@@ -28,31 +28,56 @@ export function Dashboard({
   hero,
   grid,
   fading = false,
+  contentLandmark = true,
 }: {
   sidebar: ReactNode;
   hero: ReactNode;
-  grid: ReactNode;
+  grid?: ReactNode;
   /** A session-ending request is still in flight; dim the frame until navigation takes over. */
   fading?: boolean;
+  contentLandmark?: boolean;
 }) {
+  const Content = contentLandmark ? "main" : "div";
   useDocumentScrollLock();
+  const [navigationOpen, setNavigationOpen] = useState(false);
 
   return (
     <div
       aria-busy={fading}
-      className={`relative grid h-dvh overflow-hidden bg-surface transition-opacity duration-200 ease-out grid-cols-1 md:grid-cols-[248px_1fr] ${
+      className={`relative grid h-dvh overflow-hidden bg-surface transition-opacity duration-200 ease-out grid-cols-1 md:grid-cols-[280px_minmax(0,1fr)] ${
         fading ? "opacity-60" : "opacity-100"
       }`}
       data-signing-out={fading}
     >
       {/* Below the breakpoint the rail would take a third of a phone; the grid and the composer
           are the page, and both work without it. */}
-      <div className="hidden md:block">{sidebar}</div>
+      <button
+        type="button"
+        aria-label={navigationOpen ? "Close sessions" : "Open sessions"}
+        aria-expanded={navigationOpen}
+        onClick={() => setNavigationOpen(!navigationOpen)}
+        className="fixed top-3 left-3 z-50 grid size-9 place-items-center rounded-lg border border-edge bg-panel text-ink md:hidden"
+      >
+        {navigationOpen ? "×" : "☰"}
+      </button>
+      {navigationOpen && (
+        <button
+          type="button"
+          aria-label="Close navigation"
+          onClick={() => setNavigationOpen(false)}
+          className="fixed inset-0 z-30 bg-black/60 md:hidden"
+        />
+      )}
+      <div
+        className={`${navigationOpen ? "fixed inset-y-0 left-0 z-40 w-[280px] pt-12" : "hidden"} min-h-0 md:static md:block md:w-auto md:pt-0`}
+      >
+        {sidebar}
+      </div>
 
-      <main className="nap-scroll-hidden relative min-h-0 overflow-y-auto">
+      <Content className="nap-scroll-hidden relative min-h-0 overflow-y-auto">
         {hero}
         {grid}
-      </main>
+      </Content>
     </div>
   );
 }

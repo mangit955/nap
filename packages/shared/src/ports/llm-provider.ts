@@ -30,6 +30,7 @@ export type TokenUsage = {
  */
 export type LLMContentBlock =
   | { type: "text"; text: string }
+  | { type: "image"; mediaType: "image/jpeg"; data: string }
   | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
   | { type: "tool_result"; toolCallId: string; content: string; isError: boolean };
 

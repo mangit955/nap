@@ -132,6 +132,7 @@ function toolUses(messages: LLMMessage[]) {
 function blockText(block: LLMContentBlock): string {
   if (block.type === "text") return block.text;
   if (block.type === "tool_use") return `${block.name}${JSON.stringify(block.input)}`;
+  if (block.type === "image") return "";
   return block.content;
 }
 
@@ -830,5 +831,44 @@ describe("NapContextEngine", () => {
       // assembling context is a read-only act on the project's shape.
       await expect(engine().build(request({ history: toolTurn(1, 100) }))).resolves.toBeDefined();
     });
+  });
+});
+
+describe("media in context", () => {
+  const attachment = {
+    kind: "image",
+    name: "reference.jpg",
+    frames: [{ mediaType: "image/jpeg", data: "/9j/AAAA", timestamp: 0 }],
+  } as const;
+  const attachments = [{ ...attachment, frames: [...attachment.frames] }];
+
+  it("sends image blocks alongside the current prompt and accounts for their token cost", async () => {
+    const engine = new NapContextEngine();
+    const plain = await engine.build(request());
+    const withImage = await engine.build(request({ attachments }));
+    expect(withImage.messages.at(-1)?.content).toContainEqual({
+      type: "image",
+      mediaType: "image/jpeg",
+      data: "/9j/AAAA",
+    });
+    expect(withImage.estimatedTokens).toBeGreaterThan(plain.estimatedTokens + 2_200);
+  });
+
+  it("preserves references when a session is replayed", async () => {
+    const engine = new NapContextEngine();
+    const history = [event("user.message", 1, { text: "Use this reference", attachments })];
+    const result = await engine.build(request({ history }));
+    expect(result.messages[0]?.content).toContainEqual({
+      type: "image",
+      mediaType: "image/jpeg",
+      data: "/9j/AAAA",
+    });
+  });
+
+  it("refuses a budget too small for the images instead of silently dropping them", async () => {
+    const engine = new NapContextEngine({ budgetTokens: MIN_BUDGET_TOKENS });
+    await expect(engine.build(request({ attachments }))).rejects.toThrow(
+      "Attachments exceed the context budget",
+    );
   });
 });

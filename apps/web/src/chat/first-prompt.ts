@@ -1,3 +1,5 @@
+import { type MediaAttachment, MediaAttachmentsSchema } from "@nap/shared/media";
+import { z } from "zod";
 /**
  * The sentence someone typed on the landing page, carried into the project it created.
  *
@@ -24,6 +26,7 @@ const PROJECT_KEY = "nap.first-prompt";
 /** The prompt to send as a new project's first turn. */
 export type FirstPrompt = {
   text: string;
+  attachments?: MediaAttachment[] | undefined;
   /** Absent means the server's fallback, rather than a browser guess at what that is. */
   model?: string | undefined;
 };
@@ -60,19 +63,24 @@ export function takeFirstPrompt(
   if (stash.projectId !== projectId) return undefined;
 
   storage.removeItem(PROJECT_KEY);
-  return { text: stash.text, ...(stash.model === undefined ? {} : { model: stash.model }) };
+  return {
+    text: stash.text,
+    ...(stash.model === undefined ? {} : { model: stash.model }),
+    ...(stash.attachments === undefined ? {} : { attachments: stash.attachments }),
+  };
 }
 
 function parse(raw: string): ({ projectId: string } & FirstPrompt) | undefined {
   try {
-    const value: unknown = JSON.parse(raw);
-    if (typeof value !== "object" || value === null) return undefined;
-    const { projectId, text, model } = value as Record<string, unknown>;
-    return typeof projectId === "string" &&
-      typeof text === "string" &&
-      (model === undefined || typeof model === "string")
-      ? { projectId, text, ...(typeof model === "string" ? { model } : {}) }
-      : undefined;
+    const parsed = z
+      .object({
+        projectId: z.string(),
+        text: z.string(),
+        model: z.string().optional(),
+        attachments: MediaAttachmentsSchema.optional(),
+      })
+      .safeParse(JSON.parse(raw));
+    return parsed.success ? parsed.data : undefined;
   } catch {
     return undefined;
   }

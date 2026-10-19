@@ -1,5 +1,7 @@
 "use client";
 
+import type { MediaAttachment } from "@nap/shared/media";
+
 import type { ModelChoice } from "@nap/shared/models-protocol";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { useMemo, useRef, useState } from "react";
@@ -81,10 +83,10 @@ export function ChatPane({
   pending?: string | undefined;
   running?: boolean;
   error?: string | undefined;
-  onSubmit?: (message: string) => void;
+  onSubmit?: (message: string, attachments?: MediaAttachment[]) => void;
   onCancel?: () => void;
   /** Re-sends a failed turn's message. Optional so the many render tests need not supply one. */
-  onRetry?: ((message: string) => void) | undefined;
+  onRetry?: ((message: string, attachments?: MediaAttachment[]) => void) | undefined;
   /** The project's files, for the composer's `@` menu. */
   files?: readonly string[] | undefined;
   /** What this deployment will run a turn on, and which of them is chosen. */
@@ -324,11 +326,11 @@ export function LiveChatPane({
   useFirstPrompt({
     projectId,
     sessionId,
-    submit: (message, firstModel) => {
+    submit: (message, firstModel, attachments) => {
       // The dashboard's selected model is part of its first prompt. Put it in the workspace
       // state before sending, so the composer stays truthful for the turns that follow.
       if (firstModel !== undefined) setModel(firstModel);
-      void submit(message, firstModel);
+      void submit(message, firstModel, attachments);
     },
   });
 
@@ -345,11 +347,11 @@ export function LiveChatPane({
         pending={pending}
         running={running}
         error={error}
-        onSubmit={(message) => void submit(message, model)}
+        onSubmit={(message, attachments) => void submit(message, model, attachments)}
         onCancel={() => void cancel()}
         // The same submission path as the input: a retry is an ordinary turn, and routing it
         // anywhere else would give it different rate-limit and optimistic-message behaviour.
-        onRetry={(message) => void submit(message, model)}
+        onRetry={(message, attachments) => void submit(message, model, attachments)}
         files={files ?? []}
         models={models?.models ?? []}
         model={model ?? models?.fallback}
