@@ -4,7 +4,7 @@ import type { MediaAttachment } from "@nap/shared/media";
 
 import type { ModelChoice } from "@nap/shared/models-protocol";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
-import { useMemo, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ApiKeyPanel } from "../account/api-key-panel.tsx";
 import { useApiKey } from "../account/use-api-key.ts";
 import { NapMark } from "../brand/nap-mark.tsx";
@@ -121,12 +121,27 @@ export function ChatPane({
   // `unseen.ts` for why an item straddling the cursor stays above the line.
   const seam = useMemo(() => seamAt(items, seen), [items, seen]);
   const seamRef = useRef<HTMLElement>(null);
+  const composerDock = useRef<HTMLDivElement>(null);
+  const [composerHeight, setComposerHeight] = useState(144);
+  // Let history scroll behind the glass, with enough space to read the last message above it.
+  useLayoutEffect(() => {
+    const dock = composerDock.current;
+    if (dock === null) return;
+    const measure = () => {
+      const height = dock.getBoundingClientRect().height;
+      if (height > 0) setComposerHeight(height);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(dock);
+    return () => observer.disconnect();
+  }, []);
   // What "there is something new to see" means here. The event count alone would miss a turn
   // ending, and the running flag alone would miss every event inside it. The seam is in it
   // because it arrives from an effect a frame after mount, in a commit where nothing else
   // changed — and a scroller that did not look then would open at the bottom and stay there.
   const scroller = useStickToBottom<HTMLDivElement>(
-    `${events.length}:${pending}:${running}:${seam}`,
+    `${events.length}:${pending}:${running}:${seam}:${composerHeight}`,
     () => seamRef.current,
   );
 
@@ -160,39 +175,44 @@ export function ChatPane({
           />
         )}
 
-        <div
-          ref={scroller} // `overflow-x-hidden`, not `auto`: tool output is arbitrary text, and a long line
-          // belongs scrolling inside its own `OutputBlock` rather than dragging the whole
-          // conversation sideways.
-          className="nap-scroll relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden"
-        >
-          {empty && loading ? (
-            <TranscriptSkeleton />
-          ) : empty ? (
-            <EmptyState />
-          ) : (
-            <>
-              {events.length > 0 && (
-                <ChatTranscript items={items} seam={seam} seamRef={seamRef} onRetry={onRetry} />
-              )}
-              {pending !== undefined && <PendingMessage text={pending} />}
-            </>
-          )}
+        <div className="chat-stage relative min-h-0 flex-1">
+          <div
+            ref={scroller} // `overflow-x-hidden`, not `auto`: tool output is arbitrary text, and a long line
+            // belongs scrolling inside its own `OutputBlock` rather than dragging the whole
+            // conversation sideways.
+            className="chat-scroller nap-scroll relative h-full overflow-y-auto overflow-x-hidden"
+            style={{ paddingBottom: composerHeight, scrollPaddingBottom: composerHeight }}
+          >
+            {empty && loading ? (
+              <TranscriptSkeleton />
+            ) : empty ? (
+              <EmptyState />
+            ) : (
+              <>
+                {events.length > 0 && (
+                  <ChatTranscript items={items} seam={seam} seamRef={seamRef} onRetry={onRetry} />
+                )}
+                {pending !== undefined && <PendingMessage text={pending} />}
+              </>
+            )}
 
-          {running && <Working events={events} transcript={transcript} />}
+            {running && <Working events={events} transcript={transcript} />}
+          </div>
+
+          <div ref={composerDock} className="chat-composer-dock absolute inset-x-0 bottom-0 z-10">
+            <ChatInput
+              running={running}
+              error={error}
+              onSubmit={onSubmit}
+              onCancel={onCancel}
+              {...(files === undefined ? {} : { files })}
+              {...(models === undefined ? {} : { models })}
+              {...(model === undefined ? {} : { model })}
+              {...(onModelChange === undefined ? {} : { onModelChange })}
+              {...(onAddKey === undefined ? {} : { onAddKey })}
+            />
+          </div>
         </div>
-
-        <ChatInput
-          running={running}
-          error={error}
-          onSubmit={onSubmit}
-          onCancel={onCancel}
-          {...(files === undefined ? {} : { files })}
-          {...(models === undefined ? {} : { models })}
-          {...(model === undefined ? {} : { model })}
-          {...(onModelChange === undefined ? {} : { onModelChange })}
-          {...(onAddKey === undefined ? {} : { onAddKey })}
-        />
       </div>
     </Pane>
   );
@@ -207,8 +227,8 @@ export function ChatPane({
  */
 function PendingMessage({ text }: { text: string }) {
   return (
-    <div className="flex justify-end px-4 pb-3">
-      <p className="max-w-[92%] whitespace-pre-wrap rounded-xl border border-edge bg-bubble px-4 py-3 text-[13px] text-ink leading-relaxed">
+    <div className="mx-auto flex max-w-[46rem] justify-end px-5 pb-4">
+      <p className="chat-user-message whitespace-pre-wrap">
         <span className="sr-only">You: </span>
         {text}
       </p>

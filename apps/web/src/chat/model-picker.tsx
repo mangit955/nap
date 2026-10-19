@@ -98,7 +98,7 @@ export function ModelPicker({
           <ul
             ref={menu}
             aria-label="Model"
-            className="nap-pop fixed z-50 w-52 overflow-hidden rounded-[10px] bg-field p-1 shadow-raised"
+            className="composer-menu nap-pop fixed z-50 w-52 overflow-hidden rounded-xl p-1 shadow-raised"
             style={{ ...position, transformOrigin: "bottom right" }}
           >
             {models.map((choice) => (
@@ -175,7 +175,7 @@ export function ModelPicker({
           });
           setOpen(true);
         }}
-        className="flex h-7 max-w-[180px] items-center gap-1 rounded-[8px] px-1.5 font-medium text-[12px] text-ink-2 transition-colors duration-150 hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent disabled:text-muted"
+        className="flex h-7 max-w-[180px] items-center gap-1.5 rounded-lg px-2 font-normal text-[13px] text-ink-2 transition-colors duration-150 hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent disabled:text-muted"
       >
         <span className="truncate">{selected.label}</span>
         <svg

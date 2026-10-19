@@ -117,7 +117,7 @@ export function ChatInput({
   const empty = text.trim() === "" && media.attachments.length === 0;
 
   return (
-    <div className="shrink-0 px-4 pt-2 pb-4">
+    <div className="chat-input mx-auto w-full max-w-[46rem] px-4 pt-2 pb-4">
       {error !== undefined && (
         // `alert` so it is announced: the message the user just sent has vanished from the
         // screen, and nothing else on the page explains why.
@@ -133,7 +133,7 @@ export function ChatInput({
         <div className="relative">
           <ul
             aria-label={token?.kind === "file" ? "Files" : "Commands"}
-            className="nap-pop absolute inset-x-0 bottom-1 z-10 overflow-hidden rounded-[10px] bg-field p-1 shadow-raised"
+            className="composer-menu nap-pop absolute inset-x-0 bottom-1 z-10 overflow-hidden rounded-xl p-1 shadow-raised"
             style={{ transformOrigin: "bottom center" }}
           >
             {rows.map((row, position) => (
@@ -192,7 +192,7 @@ export function ChatInput({
           disabled={running || media.processing}
           onRemove={media.remove}
         />
-        <div className="px-4 pt-4 pb-3">
+        <div className="px-4 pt-4 pb-2">
           <textarea
             ref={box}
             aria-label="Message"
@@ -244,10 +244,10 @@ export function ChatInput({
               send();
             }}
             placeholder={running ? "Working…" : "Ask a follow-up…"}
-            className="min-h-12 w-full min-w-0 resize-none bg-transparent text-sm leading-relaxed text-ink outline-none placeholder:text-muted disabled:text-muted"
+            className="block min-h-12 w-full min-w-0 resize-none bg-transparent text-sm leading-relaxed text-ink outline-none placeholder:text-muted disabled:text-muted"
           />
         </div>
-        <div className="flex items-center justify-between gap-2 px-2.5 pb-2.5">
+        <div className="composer-toolbar flex items-center justify-between gap-2 px-3 pb-3 sm:px-4 sm:pb-4">
           <div className="flex min-w-0 items-center gap-1">
             <AttachmentButton
               disabled={running || media.processing}
@@ -270,7 +270,7 @@ export function ChatInput({
                 type="button"
                 onClick={onCancel}
                 aria-label="Stop"
-                className="grid size-8 place-items-center rounded-full bg-hover text-ink focus-visible:outline-accent"
+                className="composer-stop grid size-8 place-items-center rounded-full bg-hover text-ink focus-visible:outline-accent"
               >
                 {/* A filled square: the universal stop mark, and legible at 15px where a word is not. */}
                 <svg
@@ -289,7 +289,7 @@ export function ChatInput({
                 onClick={send}
                 disabled={empty || media.processing}
                 aria-label="Send"
-                className="grid size-8 place-items-center rounded-full bg-accent text-white disabled:bg-hover disabled:text-muted focus-visible:outline-accent"
+                className="composer-send grid size-8 place-items-center rounded-full bg-accent text-white disabled:bg-hover disabled:text-muted focus-visible:outline-accent"
               >
                 <svg
                   width="16"

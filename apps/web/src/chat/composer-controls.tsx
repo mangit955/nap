@@ -5,7 +5,7 @@ import type { useDictation } from "../dashboard/use-dictation.ts";
 import { type DraftAttachment, MEDIA_ACCEPT } from "./use-media-attachments.ts";
 
 export const CONTROL_CLASS =
-  "grid size-8 shrink-0 place-items-center rounded-lg text-muted transition-colors hover:bg-hover hover:text-ink focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40";
+  "grid size-8 shrink-0 place-items-center rounded-full text-muted transition-colors hover:bg-hover hover:text-ink focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40";
 
 export function AttachmentButton({
   disabled,
@@ -104,13 +104,14 @@ export function AttachmentTray({
     <div className="px-4 pt-4">
       <ul aria-label="Attachments" className="flex flex-wrap gap-2">
         {attachments.map(({ id, previewUrl, media }) => (
-          <li
-            key={id}
-            className="relative flex w-40 items-center gap-2 rounded-lg border border-edge bg-surface p-2"
-          >
+          <li key={id} className="relative w-20 shrink-0">
             {media.kind === "image" ? (
               // biome-ignore lint/performance/noImgElement: this is a local blob URL, not an optimizable network image.
-              <img src={previewUrl} alt={media.name} className="size-10 rounded object-cover" />
+              <img
+                src={previewUrl}
+                alt={media.name}
+                className="h-16 w-full rounded-lg border border-edge object-cover"
+              />
             ) : (
               <video
                 src={previewUrl}
@@ -118,10 +119,10 @@ export function AttachmentTray({
                 muted
                 playsInline
                 controls
-                className="h-12 w-16 rounded object-cover"
+                className="h-16 w-full rounded-lg border border-edge object-cover"
               />
             )}
-            <span className="min-w-0 flex-1">
+            <span className="mt-1 block min-w-0">
               <span className="block truncate text-xs text-ink-2" title={media.name}>
                 {media.name}
               </span>

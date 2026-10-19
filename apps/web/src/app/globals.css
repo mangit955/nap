@@ -1538,7 +1538,7 @@ body {
   color-scheme: dark;
   --color-surface: #111111;
   --color-panel: #111111;
-  --color-field: #171717;
+  --color-field: #1e1e1e;
   --color-edge: #242424;
   --color-line-strong: #383838;
   --color-ink: #e5e5e5;
@@ -1598,21 +1598,102 @@ body {
 }
 .dashboard-prompt {
   width: 100%;
-  max-width: 800px;
+  max-width: 46rem;
   margin-top: -48px;
 }
 .workspace-composer {
+  position: relative;
   min-width: 0;
-  border: 1px solid #303030;
-  border-radius: 20px;
-  background: var(--color-field);
-  transition:
-    border-color 150ms,
-    box-shadow 150ms;
+  border: 1px solid color-mix(in srgb, var(--color-ink) 8%, transparent);
+  border-radius: 24px;
+  background: color-mix(in srgb, var(--color-field) 80%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(1.08);
+  backdrop-filter: blur(16px) saturate(1.08);
+  box-shadow: inset 0 1px rgb(255 255 255 / 3%);
+  transition: border-color 150ms;
 }
 .workspace-composer:focus-within {
-  border-color: #424242;
-  box-shadow: 0 0 0 3px #ffffff03;
+  border-color: color-mix(in srgb, var(--color-ink) 18%, transparent);
+}
+.composer-menu {
+  border: 1px solid color-mix(in srgb, var(--color-ink) 10%, transparent);
+  background: color-mix(in srgb, var(--color-field) 90%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(1.08);
+  backdrop-filter: blur(16px) saturate(1.08);
+}
+.composer-send,
+.composer-stop {
+  transition:
+    background-color 150ms,
+    box-shadow 150ms,
+    transform 150ms;
+}
+.composer-send:enabled {
+  box-shadow:
+    inset 0 1px rgb(255 255 255 / 16%),
+    0 1px 3px color-mix(in srgb, var(--color-accent) 24%, transparent);
+}
+.composer-send:enabled:hover,
+.composer-stop:enabled:hover {
+  transform: scale(1.05);
+}
+.composer-send:enabled:active,
+.composer-stop:enabled:active {
+  transform: scale(0.97);
+  box-shadow: inset 0 1px rgb(0 0 0 / 8%);
+}
+.chat-composer-dock,
+.chat-input {
+  pointer-events: none;
+}
+.chat-input > * {
+  pointer-events: auto;
+}
+.chat-scroller {
+  scroll-padding-top: 24px;
+}
+.chat-user-message {
+  max-width: 80%;
+  padding: 12px;
+  border-radius: 16px;
+  background: var(--color-bubble);
+  color: var(--color-ink);
+  font-size: 14px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .workspace-composer,
+  .composer-menu {
+    background: var(--color-field);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .composer-send:enabled,
+  .composer-stop:enabled {
+    transition: none;
+    transform: none;
+  }
+  .composer-send:enabled:hover,
+  .composer-send:enabled:active,
+  .composer-stop:enabled:hover,
+  .composer-stop:enabled:active {
+    transform: none;
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .workspace-composer,
+  .composer-menu {
+    background: var(--color-field);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+@media (pointer: coarse) {
+  .composer-toolbar button {
+    min-height: 36px;
+    min-width: 36px;
+  }
 }
 @media (hover: none) {
   .session-actions {

@@ -74,7 +74,7 @@ export function ChatTranscript({
       // peers in a list.
       role="log"
       aria-label="Transcript"
-      className="flex flex-col gap-4 px-5 py-6"
+      className="mx-auto flex max-w-[46rem] flex-col gap-5 px-5 py-6"
     >
       {items.map((item, index) => (
         <Fragment key={item.key}>
@@ -135,7 +135,7 @@ function Item({
       // read. Making both bubbles gives a paragraph of explanation the shape of a text message.
       return item.from === "user" ? (
         <div className="flex justify-end pt-1">
-          <div className="max-w-[92%] rounded-xl border border-edge bg-bubble px-4 py-3 text-[13px] text-ink leading-relaxed">
+          <div className="chat-user-message">
             {item.attachments?.map((attachment) => (
               <div key={attachment.name} className="mb-3">
                 <div className={attachment.kind === "video" ? "grid grid-cols-3 gap-2" : "flex"}>
@@ -185,7 +185,7 @@ function Item({
               nap
             </span>
           )}
-          <p className="whitespace-pre-wrap text-[13.5px] text-ink-2 leading-[1.65]">
+          <p className="whitespace-pre-wrap text-sm text-ink leading-[1.7]">
             <span className="sr-only">Agent: </span>
             <StreamingText text={item.text} live={live} />
           </p>

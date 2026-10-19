@@ -96,9 +96,9 @@ export function DashboardHero({
               send();
             }}
             placeholder="Ask nap to build an app, fix a bug, or explore an idea…"
-            className="block h-[116px] min-h-[116px] w-full resize-none bg-transparent px-5 pt-5 pb-3 text-[15px] leading-relaxed text-ink outline-none placeholder:text-muted disabled:text-muted"
+            className="block h-24 min-h-24 w-full resize-none bg-transparent px-4 pt-4 pb-2 text-sm leading-relaxed text-ink outline-none placeholder:text-muted disabled:text-muted"
           />
-          <div className="flex items-center justify-between gap-2 px-3.5 pb-3.5 pt-1">
+          <div className="composer-toolbar flex items-center justify-between gap-2 px-3 pb-3 sm:px-4 sm:pb-4">
             <div className="flex min-w-0 items-center gap-1">
               <AttachmentButton disabled={disabled} onFiles={(files) => void media.add(files)} />
               <ModelPicker
