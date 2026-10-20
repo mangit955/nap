@@ -47,6 +47,8 @@ export type EventStreamOptions = {
   sessionId: string;
   /** Send events after this sequence number. */
   afterSeq: number;
+  /** Old open tabs use strict prompt schemas. Full ownership is explicit opt-in. */
+  repairOwnership?: boolean;
   socket: StreamSocket;
   heartbeat?: HeartbeatOptions;
 };
@@ -87,7 +89,14 @@ export function openEventStream(options: EventStreamOptions): EventStream {
     if (sentAnything && event.seq <= lastSentSeq) return;
     sentAnything = true;
     lastSentSeq = event.seq;
-    send({ type: "event", event });
+    if (
+      !options.repairOwnership &&
+      event.type === "user.message" &&
+      event.payload.repair !== undefined
+    ) {
+      const { repair: _repair, ...payload } = event.payload;
+      send({ type: "event", event: { ...event, payload } });
+    } else send({ type: "event", event });
   };
 
   const unsubscribe: Unsubscribe = bus.subscribe(sessionId, (event) => {

@@ -36,6 +36,7 @@ export const STRANGER = "00000000-0000-4000-8000-0000000000ff";
 
 export const PROJECT = "1f2e3d4c-5b6a-4798-8765-43210fedcba9";
 export const SESSION = "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f";
+export const REQUEST = "00000000-0000-4000-8000-000000000003";
 
 type RouteEntry = {
   method: string;
@@ -112,10 +113,20 @@ export const GUARDED_ROUTES: GuardedRoute[] = [
     examplePath: `/sessions/${SESSION}/file?path=src/App.tsx`,
   },
   {
+    method: "GET",
+    path: "/sessions/:sessionId/activity",
+    examplePath: `/sessions/${SESSION}/activity`,
+  },
+  {
     method: "POST",
     path: "/sessions/:sessionId/turns",
     examplePath: `/sessions/${SESSION}/turns`,
     body: { message: "hello" },
+  },
+  {
+    method: "GET",
+    path: "/sessions/:sessionId/turns/:requestId",
+    examplePath: `/sessions/${SESSION}/turns/${REQUEST}`,
   },
   {
     method: "POST",
@@ -193,8 +204,6 @@ export function fullyWiredDeps(seeded?: SeededSandbox): Omit<AppDeps, "logger"> 
       freeModel: FREE_MODEL,
     },
     turns: {
-      // Never actually reached by an authorization test: a request that got as far as being
-      // queued would mean the route let somebody through, which is the thing being tested.
       queue: new InMemoryTurnQueue(),
       registry: new TurnRegistry(),
       freeModel: FREE_MODEL,

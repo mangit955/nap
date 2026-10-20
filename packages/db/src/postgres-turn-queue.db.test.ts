@@ -94,6 +94,29 @@ async function expireLease(id: string): Promise<void> {
     .where(eq(turnRequests.id, id));
 }
 
+it("reads exact request status only for its session and owner across cancellation and settlement", async () => {
+  const seed = await seedSession();
+  const { id } = await enqueueTurn(seed);
+  const lookup = { ...seed, id };
+  expect(await queue.getStatus(lookup)).toEqual({ id, state: "queued" });
+  expect(await queue.getStatus({ ...lookup, id: randomUUID() })).toBeNull();
+  expect(await queue.getStatus({ ...lookup, sessionId: randomUUID() })).toBeNull();
+  expect(await queue.getStatus({ ...lookup, userId: randomUUID() })).toBeNull();
+  await queue.claim("worker");
+  const queued = await enqueueTurn(seed);
+  await queue.requestCancel(seed.sessionId);
+  expect(await queue.getStatus({ ...seed, id: queued.id })).toEqual({
+    id: queued.id,
+    state: "failed",
+  });
+  expect(await queue.getStatus(lookup)).toEqual({ id, state: "leased" });
+  const next = await enqueueTurn(seed);
+  await queue.settle(id, "worker", "failed");
+  expect(await queue.getStatus(lookup)).toEqual({ id, state: "failed" });
+  expect(await queue.getStatus({ ...seed, id: next.id })).toEqual({ id: next.id, state: "queued" });
+  expect((await queue.claim("worker"))?.id).toBe(next.id);
+});
+
 describe("enqueue", () => {
   it("round-trips attachment frames through a database lease", async () => {
     const seed = await seedSession();
@@ -548,6 +571,20 @@ describe("requestCancel", () => {
 });
 
 describe("orphanExpired", () => {
+  it("retains the durable manual command in both orphan projections across a restart", async () => {
+    const seed = await seedSession();
+    const { id } = await enqueueTurn(seed, "/compact");
+    await queue.claim("worker-that-exits");
+    await expireLease(id);
+    const expected = [{ id, sessionId: seed.sessionId, kind: "turn", message: "/compact" }];
+    expect(await queue.orphanExpired()).toEqual(expected);
+    const restarted = new PostgresTurnQueue(db);
+    expect(await restarted.unannouncedOrphans()).toEqual(expected);
+    expect(await restarted.claim("next-worker")).toBeNull();
+    await restarted.markOrphanAnnounced(id);
+    expect(await restarted.unannouncedOrphans()).toEqual([]);
+  });
+
   /** Just past expiry, and well inside the grace: where the worker has yet to notice. */
   async function expireLeaseWithinGrace(id: string): Promise<void> {
     await db
@@ -574,7 +611,9 @@ describe("orphanExpired", () => {
     await queue.claim("worker-1");
     await expireLease(id);
 
-    expect(await queue.orphanExpired()).toEqual([{ id, sessionId: seed.sessionId, kind: "turn" }]);
+    expect(await queue.orphanExpired()).toEqual([
+      { id, sessionId: seed.sessionId, kind: "turn", message: "build me a thing" },
+    ]);
 
     const row = await rowOf(id);
     expect(row?.state).toBe("orphaned");
@@ -666,7 +705,7 @@ describe("unannouncedOrphans", () => {
     await queue.orphanExpired();
 
     expect(await queue.unannouncedOrphans()).toEqual([
-      { id, sessionId: seed.sessionId, kind: "turn" },
+      { id, sessionId: seed.sessionId, kind: "turn", message: "build me a thing" },
     ]);
 
     await queue.markOrphanAnnounced(id);
@@ -717,4 +756,22 @@ describe("unannouncedOrphans", () => {
 
     expect(await queue.unannouncedOrphans()).toEqual([]);
   });
+});
+
+it("reports queued and leased activity until settlement, including cancellation and other sessions", async () => {
+  const seed = await seedSession();
+  const { sessionId } = seed;
+  const request = await enqueueTurn(seed);
+  expect(await queue.hasPending(sessionId)).toBe(true);
+  expect(await queue.hasPending("00000000-0000-4000-8000-000000000099")).toBe(false);
+  await queue.claim("activity-worker");
+  expect(await queue.hasPending(sessionId)).toBe(true);
+  await queue.requestCancel(sessionId);
+  expect(await queue.hasPending(sessionId)).toBe(true);
+  await queue.settle(request.id, "activity-worker", "failed");
+  expect(await queue.hasPending(sessionId)).toBe(false);
+  await enqueueTurn(seed, "/compact");
+  expect(await queue.hasPending(sessionId)).toBe(true);
+  await queue.requestCancel(sessionId);
+  expect(await queue.hasPending(sessionId)).toBe(false);
 });

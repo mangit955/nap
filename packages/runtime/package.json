@@ -13,12 +13,12 @@
     "@nap/sandbox": "workspace:*",
     "@nap/shared": "workspace:*",
     "@nap/storage": "workspace:*",
-    "@nap/verify": "workspace:*"
+    "@nap/verify": "workspace:*",
+    "@nap/context": "workspace:*"
   },
   "devDependencies": {
     "@nap/agent": "workspace:*",
     "@nap/capture": "workspace:*",
-    "@nap/context": "workspace:*",
     "@nap/db": "workspace:*"
   }
 }

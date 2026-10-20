@@ -58,7 +58,7 @@ export type EventStream = {
    *
    * The distinction a caller needs and cannot otherwise make: an empty `events` is either a
    * conversation still in flight or a project nobody has typed into, and those want opposite
-   * things on screen. False again from the moment a new connection is opened.
+   * things on screen. Retained across socket retries; reset when the session changes.
    */
   replayed: boolean;
 };
@@ -102,7 +102,7 @@ export function useEventStream(options: EventStreamOptions): EventStream {
     const connect = (): void => {
       if (abandoned) return;
 
-      const url = `${baseUrl}/ws?sessionId=${encodeURIComponent(sessionId)}&seq=${lastSeqRef.current}`;
+      const url = `${baseUrl}/ws?sessionId=${encodeURIComponent(sessionId)}&seq=${lastSeqRef.current}&repairOwnership=1`;
       const current = createSocketRef.current(url);
       socket = current;
 

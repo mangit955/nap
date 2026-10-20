@@ -194,6 +194,67 @@ A worker that dies *without* a `SIGTERM` is the janitor's: past the lease's grac
 the request `orphaned` and writes the terminal event the interrupted turn never got, so the chat
 pane is told rather than spinning. It never requeues — nothing re-executes with nobody watching.
 
+## Repair ownership rollout
+
+The worker now writes `user.message.payload.repair`. Old strict API, fanout, reaper and worker
+readers cannot read those durable rows. Browser tabs are different: the new API sends legacy-safe
+prompts unless a socket opts in with `repairOwnership=1`, including replay and reconnect. Existing
+tabs need no refresh for this field. New web assets alone are not the compatibility barrier.
+There is no database migration. Keep the same database and event log throughout.
+
+For the Railway services declared in `.railway/railway.ts`, use a controlled service-by-service
+release, not simultaneous Git auto-deploys:
+
+1. Disable automatic deploys for `nap-api`, `nap-reaper` and `nap-worker` in their service source
+   settings for this release. Record the deployed commit for each and the release commit. Keep
+   the worker on its old commit while deploying the release to `nap-api` and `nap-reaper` through
+   each service's Deploy action. Wait for the API health check, reaper startup and termination of
+   every old API/reaper deployment. Check all regions/replicas, not only the active deployment
+   badge. API shutdown closes old sockets; reconnects reach the compatible projection.
+2. Remove the active old `nap-worker` deployment through its deployment menu. Preserve the
+   configured 900-second draining grace; the worker stops claiming on SIGTERM and renews held
+   leases during its 600-second drain. Wait until every old worker instance has exited. If a
+   worker is killed or its status is uncertain, keep new workers stopped, resolve its process
+   status, and let the updated janitor finish expired leases. Do not treat an elapsed timer or
+   an empty queue alone as evidence that an old reader has exited.
+3. With all API/reaper instances on the release and no old worker alive, manually deploy that
+   exact release commit to `nap-worker`. Queued admissions can wait during this pause; they are
+   not requeued or replayed. Confirm the worker startup identifies the release before restoring
+   automatic deploys. Deploy the matching web assets on Vercel. Old and new browser tabs remain
+   supported by socket projection.
+4. Check a session's replay in an old tab and a refreshed tab, including a repair prompt and
+   reconnect cursor. Record process identities and results in the release record. These steps
+   are a rollout procedure, not a claim that this deployment has been exercised.
+
+For the repository's Kubernetes deployment, the equivalent commands below use the existing
+Deployments and KEDA object. Set `NAP_RELEASE_IMAGE` to the immutable image digest for this
+release. Do not apply the whole kustomization during this sequence, since it would update all
+roles together. Pause any external GitOps controller for these objects first.
+
+```sh
+kubectl -n nap set image deployment/nap-api api="$NAP_RELEASE_IMAGE"
+kubectl -n nap rollout status deployment/nap-api --timeout=180s
+kubectl -n nap set image deployment/nap-reaper reaper="$NAP_RELEASE_IMAGE"
+kubectl -n nap rollout status deployment/nap-reaper --timeout=180s
+kubectl -n nap get pods -l app.kubernetes.io/name=nap -o wide
+# Confirm every old API/reaper pod has terminated before proceeding.
+kubectl -n nap delete scaledobject nap-worker
+kubectl -n nap scale deployment/nap-worker --replicas=0
+kubectl -n nap wait --for=delete pod -l app.kubernetes.io/component=worker --timeout=960s
+# Confirm no old worker pod is running, including terminating or unreachable nodes.
+kubectl -n nap set image deployment/nap-worker worker="$NAP_RELEASE_IMAGE"
+kubectl -n nap scale deployment/nap-worker --replicas=2
+kubectl -n nap rollout status deployment/nap-worker --timeout=180s
+kubectl apply -f infra/k8s/base/scaledobject-worker.yaml
+```
+
+Use the deployment's recorded worker replica target if it differs from the base manifest's two.
+Do not advance after a failed barrier. Once any new metadata is durable, rollback must retain
+compatible backend readers. A prior binary that rejects the field is not a safe rollback image;
+stop producers and roll forward with compatible readers instead of deleting event payloads.
+The activity observation semantics and legacy recovery limits are in
+[ADR-0017](adr/0017-repair-prompts-record-request-ownership.md).
+
 ## First deployment
 
 ### 1. A production database

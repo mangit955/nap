@@ -13,25 +13,29 @@ import type { MediaAttachment } from "@nap/shared/media";
  * appear the moment it is typed, but the transcript is folded from `StoredEvent`s, and
  * inventing one would mean inventing a `seq` and a `turnId` — a fabricated row in the single
  * contract every part of this app agrees on. So `pending` is a string the pane renders after
- * the transcript, and it goes away when the *matching* `user.message` event arrives. Clearing
- * it on any event would make the message flicker out a frame after appearing; never clearing
- * it would show it twice, once as a guess and once as a fact.
+ * the transcript. Admission's request ID correlates it with its durable event or terminal
+ * queue status. Text cannot identify it across clients, and a queued cancellation has no event.
  *
- * **Whether a turn is running is derived from the log, not remembered.** A `user.message` or
- * `turn.started` with no `turn.completed` or `turn.failed` after it means busy — including
- * sandbox acquisition between recording the prompt and starting the turn, and still true after a
- * page reload, and true in a second tab watching the same session. A flag set on submit and
- * cleared on response would be wrong in both cases, and the way it is wrong is an input that
- * accepts a message the server is about to refuse.
+ * Activity follows turn identity in the log. A queue observation can retire a covered idle
+ * prefix, including legacy repair turns whose original request was never recorded. This
+ * changes only the activity projection; the transcript and durable history stay intact.
  *
  * A POST in flight counts as running too: the gap between the click and the first event is
  * small, but it is exactly long enough to send the same message twice.
  */
 
 import type { StoredEvent } from "@nap/shared/ports/event-store";
+import {
+  SessionActivitySchema,
+  TurnAcceptanceSchema,
+  TurnRequestStatusSchema,
+} from "@nap/shared/ports/turn-queue";
 import { useEffect, useRef, useState } from "react";
+import { z } from "zod";
 import { credentialedFetch } from "../api/credentialed-fetch.ts";
 import { requestFailureCopy } from "../errors/failure-copy.ts";
+import type { StreamStatus } from "../hooks/use-event-stream.ts";
+import { inFlightTurn } from "./working-state.ts";
 
 /**
  * The request never reached the server — no status, no body, so nothing above can say why.
@@ -49,10 +53,17 @@ export type TurnSubmission = {
   /** The message the user sent that the log has not caught up with yet. */
   pending: string | undefined;
   running: boolean;
+  startedAt: string | undefined;
   error: string | undefined;
 };
 
 const DEFAULT_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
+
+type PendingSubmission = {
+  key: symbol;
+  sessionId: string;
+  text: string;
+} & ({ kind: "posting" | "unconfirmed" } | { kind: "accepted"; requestId: string });
 
 /**
  * What to show when the server refuses.
@@ -65,9 +76,11 @@ const DEFAULT_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:30
  * private vocabulary for events the transcript also describes.
  */
 async function refusalMessage(response: Response): Promise<string> {
-  const body = await readJson(response);
-  const code = typeof body?.code === "string" ? body.code : undefined;
-  const message = typeof body?.error === "string" ? body.error : "";
+  const parsed = z
+    .object({ code: z.string().optional(), error: z.string().optional() })
+    .safeParse(await readJson(response));
+  const code = parsed.success ? parsed.data.code : undefined;
+  const message = parsed.success ? (parsed.data.error ?? "") : "";
 
   const copy = requestFailureCopy(response.status, code, message);
   // Title, detail and action on one line: this surfaces next to the input as a single string,
@@ -77,12 +90,9 @@ async function refusalMessage(response: Response): Promise<string> {
 }
 
 /** A body that is not JSON is a proxy's error page, or nothing at all. */
-async function readJson(response: Response): Promise<Record<string, unknown> | undefined> {
+async function readJson(response: Response): Promise<unknown> {
   try {
-    const body: unknown = await response.json();
-    return typeof body === "object" && body !== null
-      ? (body as Record<string, unknown>)
-      : undefined;
+    return await response.json();
   } catch {
     return undefined;
   }
@@ -92,31 +102,163 @@ export function useTurnSubmission(options: {
   sessionId: string | undefined;
   events: readonly StoredEvent[];
   baseUrl?: string;
+  connectionStatus?: StreamStatus;
+  replayed?: boolean;
   fetchJson?: FetchJson;
 }): TurnSubmission {
   const { sessionId, events, baseUrl = DEFAULT_BASE_URL } = options;
   const fetchJson = options.fetchJson ?? credentialedFetch;
 
-  const [pending, setPending] = useState<string | undefined>(undefined);
-  const [posting, setPosting] = useState(false);
+  const [pending, setPending] = useState<PendingSubmission>();
+  const [activity, setActivity] = useState<{
+    sessionId: string;
+    idleThroughSeq: number;
+    active: boolean;
+  }>();
   const [error, setError] = useState<string | undefined>(undefined);
-  const submittedAfter = useRef(0);
+  const active = useRef<symbol | undefined>(undefined);
+  const sessionRef = useRef(sessionId);
+  const previousSession = useRef(sessionId);
+  sessionRef.current = sessionId;
+  const cursor = events.findLast((event) => event.sessionId === sessionId)?.seq ?? 0;
+  const cursorRef = useRef(cursor);
+  cursorRef.current = cursor;
 
   const fetchRef = useRef(fetchJson);
   fetchRef.current = fetchJson;
 
-  // Cleared by the arrival of the event it was standing in for, in an effect rather than
-  // during render because it is a state change caused by new props.
   useEffect(() => {
-    if (pending === undefined) return;
+    if (previousSession.current === sessionId) return;
+    previousSession.current = sessionId;
+    active.current = undefined;
+    setPending(undefined);
+    setError(undefined);
+    setActivity(undefined);
+  }, [sessionId]);
+
+  // Admission's ID also names the first turn. Text is not an identity across clients.
+  // Read the whole replay so an event arriving before the POST response still acknowledges it.
+  useEffect(() => {
+    if (pending?.kind !== "accepted") return;
     const arrived = events.some(
       (event) =>
-        event.seq > submittedAfter.current &&
-        event.type === "user.message" &&
-        event.payload.text === pending,
+        event.sessionId === pending.sessionId &&
+        event.turnId === pending.requestId &&
+        (event.type === "user.message" ||
+          event.type === "turn.failed" ||
+          event.type === "turn.completed" ||
+          (pending.text === "/compact" && event.type === "compaction.started")),
     );
-    if (arrived) setPending(undefined);
+    if (arrived) setPending((current) => (current?.key === pending.key ? undefined : current));
   }, [events, pending]);
+
+  // A cancelled queued row never produces a user.message. Only that exact row's terminal
+  // status can settle it; the active compaction's failure says nothing about a later prompt.
+  useEffect(() => {
+    if (pending?.kind !== "accepted") return;
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    const reconcile = async (): Promise<void> => {
+      let settled = false;
+      try {
+        const response = await fetchRef.current(
+          `${baseUrl}/sessions/${encodeURIComponent(pending.sessionId)}/turns/${encodeURIComponent(pending.requestId)}`,
+          { signal: controller.signal },
+        );
+        const parsed = TurnRequestStatusSchema.safeParse(await readJson(response));
+        if (
+          !controller.signal.aborted &&
+          response.ok &&
+          parsed.success &&
+          parsed.data.id === pending.requestId &&
+          (parsed.data.state === "done" ||
+            parsed.data.state === "failed" ||
+            parsed.data.state === "orphaned")
+        ) {
+          settled = true;
+          setPending((current) => (current?.key === pending.key ? undefined : current));
+        }
+      } catch {
+        // A disconnected read does not establish that accepted work has ended.
+      }
+      if (!controller.signal.aborted && !settled)
+        timer = setTimeout(() => {
+          void reconcile();
+        }, 1000);
+    };
+    timer = setTimeout(() => {
+      void reconcile();
+    }, 1000);
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+    };
+  }, [baseUrl, pending]);
+
+  // One bounded read loop serves both controls and the elapsed clock. Only an idle
+  // observation retires history, and only up to its server-verified event cursor.
+  const pendingKey = pending?.key;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: admission and reconnect/replay changes invalidate outstanding observations even without a new event cursor.
+  useEffect(() => {
+    if (sessionId === undefined) return;
+    let stopped = false;
+    let controller: AbortController | undefined;
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    let timer: ReturnType<typeof setTimeout>;
+    const reconcile = async (): Promise<void> => {
+      controller = new AbortController();
+      const request = controller;
+      const generation = active.current;
+      const observedCursor = cursorRef.current;
+      deadline = setTimeout(() => request.abort(), 5000);
+      try {
+        const response = await fetchRef.current(
+          `${baseUrl}/sessions/${encodeURIComponent(sessionId)}/activity?cursor=${observedCursor}`,
+          { signal: request.signal },
+        );
+        const parsed = SessionActivitySchema.safeParse(await readJson(response));
+        if (
+          !stopped &&
+          !request.signal.aborted &&
+          response.ok &&
+          parsed.success &&
+          sessionRef.current === sessionId &&
+          active.current === generation &&
+          cursorRef.current === observedCursor &&
+          parsed.data.sessionId === sessionId &&
+          parsed.data.throughSeq >= observedCursor
+        ) {
+          const observation = parsed.data;
+          setActivity((previous) => ({
+            sessionId,
+            active: observation.active,
+            idleThroughSeq: Math.max(
+              previous?.sessionId === sessionId ? previous.idleThroughSeq : 0,
+              observation.active ? 0 : observation.throughSeq,
+            ),
+          }));
+        }
+      } catch {
+        // Failure establishes no new idle prefix. Retain any earlier observed active work.
+      } finally {
+        clearTimeout(deadline);
+        if (!stopped)
+          timer = setTimeout(() => {
+            void reconcile();
+          }, 1000);
+      }
+    };
+    // Coalesce mount/replay/admission updates without issuing a read per streamed event.
+    timer = setTimeout(() => {
+      void reconcile();
+    }, 1000);
+    return () => {
+      stopped = true;
+      controller?.abort();
+      clearTimeout(timer);
+      clearTimeout(deadline);
+    };
+  }, [baseUrl, sessionId, pendingKey, options.connectionStatus, options.replayed]);
 
   const submit = async (
     message: string,
@@ -126,10 +268,10 @@ export function useTurnSubmission(options: {
     const text = message.trim();
     if (sessionId === undefined || text === "") return false;
 
-    submittedAfter.current = events.at(-1)?.seq ?? 0;
-    setPending(text);
+    const key = Symbol();
+    active.current = key;
+    setPending({ key, sessionId, text, kind: "posting" });
     setError(undefined);
-    setPosting(true);
 
     try {
       const response = await fetchRef.current(
@@ -146,15 +288,33 @@ export function useTurnSubmission(options: {
       );
 
       if (!response.ok) throw new Error(await refusalMessage(response));
+      const accepted = TurnAcceptanceSchema.safeParse(await readJson(response));
+      if (active.current !== key || sessionRef.current !== sessionId) return true;
+      if (!accepted.success) {
+        // A successful but malformed receipt may already have queued the work. Do not invite
+        // a duplicate send by reporting admission failure or correlating it with another turn.
+        setPending((current) =>
+          current?.key === key ? { ...current, kind: "unconfirmed" } : current,
+        );
+        setError(
+          "The server accepted the message, but its status could not be read. Reload to check it.",
+        );
+        return true;
+      }
+      setPending((current) =>
+        current?.key === key
+          ? { ...current, kind: "accepted", requestId: accepted.data.requestId }
+          : current,
+      );
       return true;
     } catch (failure) {
       // Rolled back rather than left on screen: a message that stays after the request failed
       // claims the agent has it. The caller puts the text back in the box.
-      setPending(undefined);
-      setError(failure instanceof Error ? failure.message : UNREACHABLE);
+      if (active.current === key && sessionRef.current === sessionId) {
+        setPending(undefined);
+        setError(failure instanceof Error ? failure.message : UNREACHABLE);
+      }
       return false;
-    } finally {
-      setPosting(false);
     }
   };
 
@@ -162,33 +322,31 @@ export function useTurnSubmission(options: {
     if (sessionId === undefined) return;
 
     try {
-      // The response is deliberately not checked for success. A 409 means the turn ended
-      // while the click was in flight, which is exactly what the user asked for; anything
-      // else will show up as the turn continuing, which the transcript already reports.
+      // Cancellation races admission on the server. Its response cannot tell which pending
+      // prompt it covered; the exact request status above is authoritative, even in this tab.
       await fetchRef.current(`${baseUrl}/sessions/${encodeURIComponent(sessionId)}/turns/cancel`, {
         method: "POST",
       });
     } catch {
-      // Nothing to say. The turn is either stopping or it is not, and the log is the
-      // authority on which.
+      // The log and pending request status still determine whether the work ended.
     }
   };
+
+  const observation = activity?.sessionId === sessionId ? activity : undefined;
+  const turn = inFlightTurn(
+    events.filter((event) => event.sessionId === sessionId),
+    observation?.idleThroughSeq,
+  );
 
   return {
     submit,
     cancel,
-    pending,
-    running: posting || pending !== undefined || turnInFlight(events),
+    pending: pending?.sessionId === sessionId ? pending?.text : undefined,
+    running:
+      (pending !== undefined && pending.sessionId === sessionId) ||
+      observation?.active === true ||
+      turn !== undefined,
+    startedAt: turn?.startedAt,
     error,
   };
-}
-
-/** The prompt is durable before sandbox acquisition and turn.started. */
-function turnInFlight(events: readonly StoredEvent[]): boolean {
-  for (let index = events.length - 1; index >= 0; index -= 1) {
-    const type = events[index]?.type;
-    if (type === "turn.completed" || type === "turn.failed") return false;
-    if (type === "turn.started" || type === "user.message") return true;
-  }
-  return false;
 }

@@ -1,6 +1,7 @@
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import type { NapEvent } from "@nap/shared/events";
+import { MediaAttachmentsSchema } from "@nap/shared/media";
 import type { EventBus, EventHandler, Unsubscribe } from "@nap/shared/ports/event-bus";
 import type {
   AppendOptions,
@@ -10,6 +11,7 @@ import type {
 } from "@nap/shared/ports/event-store";
 import { type ServerFrame, ServerFrameSchema, WS_CLOSE } from "@nap/shared/ws-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 import { openEventStream } from "./event-stream.ts";
 
 /**
@@ -537,3 +539,121 @@ describe("close", () => {
     expect(socket.sent).toEqual([]);
   });
 });
+
+// user.message frame from c0b27dd5, before repair ownership. The media schema is unchanged.
+const OldPromptFrame = z.strictObject({
+  type: z.literal("event"),
+  event: z.strictObject({
+    type: z.literal("user.message"),
+    sessionId: z.uuid(),
+    turnId: z.uuid(),
+    seq: z.int().nonnegative(),
+    createdAt: z.iso.datetime(),
+    payload: z.strictObject({ text: z.string(), attachments: MediaAttachmentsSchema.optional() }),
+  }),
+});
+
+it.each([false, true])(
+  "delivers replay, buffered, live and reconnect repair prompts with metadata=%s",
+  async (repairOwnership) => {
+    const store = new InMemoryEventStore();
+    const bus = new InMemoryEventBus();
+    const prompt: PendingEvent = {
+      sessionId: SESSION,
+      turnId: TURN,
+      createdAt: "2026-10-19T00:00:00.000Z",
+      type: "user.message",
+      payload: {
+        text: "Repair this",
+        attachments: [
+          {
+            kind: "image",
+            name: "layout.jpg",
+            frames: [{ data: "AAAA", mediaType: "image/jpeg", timestamp: 0 }],
+          },
+        ],
+        repair: { requestId: TURN, jobId: OTHER_SESSION },
+      },
+    };
+    const first = await store.append(prompt);
+    const captured = new FakeSocket();
+    let release: () => void = () => {};
+    const paused = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const stream = openEventStream({
+      store: {
+        append: store.append.bind(store),
+        readFrom: async (sessionId, cursor) => {
+          const history = await store.readFrom(sessionId, cursor);
+          await paused;
+          return history;
+        },
+      },
+      bus,
+      sessionId: SESSION,
+      afterSeq: 0,
+      socket: captured,
+      ...(repairOwnership ? { repairOwnership: true } : {}),
+    });
+    try {
+      const second = await store.append(prompt);
+      bus.publish(second);
+      release();
+      await stream.ready;
+      const third = await store.append(prompt);
+      bus.publish(third);
+      expect(captured.seqs).toEqual([first.seq, second.seq, third.seq]);
+      expect(
+        captured.events.map((event) =>
+          event.type === "user.message" ? event.payload.text : undefined,
+        ),
+      ).toEqual(["Repair this", "Repair this", "Repair this"]);
+      expect(
+        captured.events.every(
+          (event) =>
+            event.type === "user.message" && event.payload.attachments?.[0]?.name === "layout.jpg",
+        ),
+      ).toBe(true);
+      for (const raw of captured.sent.filter((raw) => JSON.parse(raw).type === "event")) {
+        expect(OldPromptFrame.safeParse(JSON.parse(raw)).success).toBe(!repairOwnership);
+      }
+      expect(
+        captured.events.map((event) =>
+          event.type === "user.message" ? event.payload.repair : undefined,
+        ),
+      ).toEqual(
+        Array(3).fill(repairOwnership ? { requestId: TURN, jobId: OTHER_SESSION } : undefined),
+      );
+      const durable = await store.readFrom(SESSION, 0);
+      expect(
+        durable.every(
+          (event) => event.type === "user.message" && event.payload.repair !== undefined,
+        ),
+      ).toBe(true);
+      stream.onClose();
+      const fourth = await store.append(prompt);
+      const reconnected = new FakeSocket();
+      const next = openEventStream({
+        store,
+        bus,
+        sessionId: SESSION,
+        afterSeq: third.seq,
+        socket: reconnected,
+        ...(repairOwnership ? { repairOwnership: true } : {}),
+      });
+      try {
+        await next.ready;
+        expect(reconnected.seqs).toEqual([fourth.seq]);
+        expect(OldPromptFrame.safeParse(JSON.parse(reconnected.sent[0]!)).success).toBe(
+          !repairOwnership,
+        );
+      } finally {
+        next.onClose();
+      }
+    } finally {
+      release();
+      stream.onClose();
+    }
+  },
+);

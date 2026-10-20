@@ -113,9 +113,28 @@ export function Verification() {
         <Term>unconditionally</Term>, before the budget is consulted. The call keeps its shape —
         which tool, against which path — so the turn still reads as something that happened; what
         goes is any argument big enough to be a file&rsquo;s contents, and everything the call
-        printed. Prose on both sides is never touched. That is a different question from truncation,
-        which is still the only answer to <em>this does not fit</em>: fitting was never the test,
-        being worth ten to forty copies is.
+        printed. This cheap pruning preserves prose on both sides. Fitting was never the only test;
+        being worth repeatedly sending matters too.
+      </P>
+
+      <P>
+        Long tasks also compact their working conversation between completed tool batches, before
+        the next model call. The agent considers estimated or reported context, room for the next
+        response, and remaining turn spending. The summary costs tokens from that same budget;
+        compaction never resets what the task has already spent.
+      </P>
+      <P>
+        You can request this with <Code>/compact</Code> or the Context control above the composer. A
+        status line shows progress, completion or failure, with usage when the provider supplies it.
+        A message submitted during compaction waits for it to finish. Stop cancels the work. Your
+        original transcript remains available, and the saved summary records exactly where later
+        conversation resumes after a worker restart.
+      </P>
+      <P>
+        Original user requests and the current job brief survive separately from the summary.
+        Summaries and quoted tool output remain conversation data, outside trusted application
+        instructions. If compaction fails, the previous working context stays usable. If essential
+        instructions still exceed the budget, the turn stops instead of silently shortening them.
       </P>
 
       <P>

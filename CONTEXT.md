@@ -81,6 +81,11 @@ printed. Distinct from **truncation**, which is the ladder `ContextEngine` climb
 does not *fit*: staleness runs first and runs always, because a turn re-sends its whole transcript
 on every round trip and a thing that fits can still be a thing not worth ten copies. See ADR-0011.
 
+**Compaction** — replacing older working conversation with a summary while retaining the original
+transcript. A **compaction checkpoint** is the saved summary and the conversation boundary it
+covers; it says nothing about whether the project's code is verified.
+_Avoid_: checkpoint without the compaction qualifier, deleting history.
+
 **Checkpoint** — a *verified* commit, and the answer to "is this project in a valid state right
 now", which is `HEAD == last checkpoint` rather than a judgement anybody renders. Distinct from a
 **Snapshot**, which is a filesystem archived because a sandbox went away: a checkpoint is about
@@ -114,10 +119,13 @@ an API pod at admission, claimed by exactly one worker, terminal exactly once �
 may drive a job through several turns — the prompt and its repairs. It carries *whether* the asker
 pays, never their key, so no credential is ever in that table. A request is claimed at most once,
 which is what makes queue delivery at-least-once and logical turn execution at-most-once.
-**Its id is also the turn id of the first Turn it becomes**, allocated at admission before the row
-is inserted — which is how the janitor, on a pod that never ran the turn, can close out the right
-one. A *repair* is a distinct Turn with an id of its own: it shares the request's lease, not its
-identity. Why the queue is a table rather than a broker is `docs/adr/0009`.
+An ordinary request's identity also identifies its first Turn. A *repair* is a distinct Turn
+owned by the request executing it, which can be a later resume request continuing an older Job.
+It shares that request's lease, not its identity. See `docs/adr/0009` and `docs/adr/0017`.
+
+**Session activity** is whether a session has work waiting or executing. The browser observes
+activity; it does not grant permission to execute. A historical turn can remain unended in the
+log while its request is no longer active. See `docs/adr/0017`.
 
 **Lease** — a worker's time-bounded, exclusive claim on a session, and what took over from the
 in-process `SessionQueue` as the thing that makes a session's turns serial. The `SessionQueue` is
@@ -134,8 +142,8 @@ no requeue path at all.
 **reaper**, which puts away projects nobody is looking at. It waits past the lease's **grace
 window** — a *fence*, not a timeout: renewal is conditional, so the previous worker has certainly
 aborted by then, and reclaiming earlier is what would put two writers on one session — then marks
-the request *orphaned* and writes the terminal event the interrupted Turn never got, under the
-request's own id. **It never requeues and never closes the Job**: re-executing with nobody watching
+the request *orphaned* and closes its identifiable unfinished Turns, including repairs.
+**It never requeues and never closes the Job**: re-executing with nobody watching
 is what *Continue* forbids, so the work waits for a human to reopen the project.
 
 **Role** — which part of the deployment a process is: an **API pod** serves HTTP, WebSockets, auth

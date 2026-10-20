@@ -87,6 +87,13 @@ export class TurnBudget {
     return { steps: this.#steps, tokens: this.#tokens };
   }
 
+  remaining(): { steps: number; tokens: number } {
+    return {
+      steps: Math.max(0, this.#maxSteps - this.#steps),
+      tokens: Math.max(0, this.#maxTokens - this.#tokens),
+    };
+  }
+
   /** Steps are reported before tokens, so a turn over both limits still fails once. */
   check(): BudgetVerdict {
     if (this.#steps > this.#maxSteps) {

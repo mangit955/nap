@@ -14,10 +14,12 @@ export type StreamQuery = {
   sessionId: string;
   /** Send events *after* this sequence number; 0 means the whole transcript. */
   afterSeq: number;
+  repairOwnership: boolean;
 };
 
 const StreamQuerySchema = z.object({
   sessionId: z.uuid(),
+  repairOwnership: z.literal("1").optional(),
   /**
    * Absent means "from the beginning". Present means it must be a real sequence number —
    * matched as digits rather than coerced, because `Number("")` is 0 and `?seq=` would then
@@ -30,6 +32,7 @@ export function parseStreamQuery(url: URL): Result<StreamQuery, { message: strin
   const seq = url.searchParams.get("seq");
   const parsed = StreamQuerySchema.safeParse({
     sessionId: url.searchParams.get("sessionId") ?? undefined,
+    repairOwnership: url.searchParams.get("repairOwnership") ?? undefined,
     ...(seq === null ? {} : { seq }),
   });
 
@@ -41,5 +44,12 @@ export function parseStreamQuery(url: URL): Result<StreamQuery, { message: strin
     return { ok: false, error: { message } };
   }
 
-  return { ok: true, value: { sessionId: parsed.data.sessionId, afterSeq: parsed.data.seq ?? 0 } };
+  return {
+    ok: true,
+    value: {
+      sessionId: parsed.data.sessionId,
+      afterSeq: parsed.data.seq ?? 0,
+      repairOwnership: parsed.data.repairOwnership === "1",
+    },
+  };
 }

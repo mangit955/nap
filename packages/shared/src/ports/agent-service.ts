@@ -16,6 +16,8 @@ import type { ModelCredentials } from "./llm-provider.ts";
 import type { SandboxManager } from "./sandbox-manager.ts";
 
 export type AgentTurnRequest = {
+  compactContext?: import("../compaction.ts").CompactContext;
+  operation?: "compact";
   sessionId: string;
   turnId: string;
   sandboxId: string;

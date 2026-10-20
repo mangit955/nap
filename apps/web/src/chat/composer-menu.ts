@@ -3,12 +3,10 @@
  *
  * Both are the same shape — a trigger character being typed, a query growing after it, and a
  * list narrowing as it does — so they are one fold rather than two. What differs is only what
- * the rows are: `@` names files that exist in the sandbox right now, `/` names prompt openings.
+ * the rows are: `@` names files that exist in the sandbox right now, `/` offers compaction and prompt openings.
  *
- * **`/` inserts text and promises nothing else.** There is no command dispatch behind it and
- * there should not be one: the agent reads plain English, so a command is a phrase somebody
- * would otherwise type out. That is why they read as sentence openings rather than verbs —
- * what lands in the box is the beginning of a prompt the user finishes.
+ * `/compact` is a runtime command. The other entries insert sentence openings for the user
+ * to finish before sending.
  *
  * Pure, so the interesting parts — a trigger that is part of an email address, a query with a
  * slash in it, a pick that has to replace exactly the token and nothing before it — are tested
@@ -31,13 +29,11 @@ export type MenuRow = {
 };
 
 /**
- * Openings, not commands.
- *
- * Each one is the start of a sentence the user completes, because a prompt the model receives
- * as a bare verb ("/refactor") is a prompt with no object. The trailing space is deliberate —
- * the caret lands where the next word goes.
+ * Compaction submits a complete command. The other entries start a sentence; their trailing
+ * space places the caret where the next word goes.
  */
 export const COMMANDS: MenuRow[] = [
+  { key: "compact", name: "/compact", detail: "Summarize working context; keep the transcript" },
   { key: "add", name: "/add", detail: "Add a feature or a page" },
   { key: "fix", name: "/fix", detail: "Something is broken" },
   { key: "restyle", name: "/restyle", detail: "Change how it looks" },
@@ -47,6 +43,7 @@ export const COMMANDS: MenuRow[] = [
 
 /** The sentence each opening drops into the box. */
 const COMMAND_TEXT: Record<string, string> = {
+  compact: "/compact",
   add: "Add ",
   fix: "Fix the ",
   restyle: "Restyle the ",

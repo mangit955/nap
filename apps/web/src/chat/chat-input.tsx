@@ -18,6 +18,7 @@ const MIN_HEIGHT = 28;
 export function ChatInput({
   visible = true,
   running,
+  queueing = false,
   error,
   firstPrompt,
   onSubmit,
@@ -30,6 +31,7 @@ export function ChatInput({
 }: {
   visible?: boolean;
   running: boolean;
+  queueing?: boolean;
   error: string | undefined;
   firstPrompt?: FirstPrompt | undefined;
   onSubmit: (message: string, attachments?: MediaAttachment[]) => void;
@@ -103,7 +105,7 @@ export function ChatInput({
 
   // Derived, never stored. A menu held in state would survive the text that opened it — so
   // deleting the `@` would leave the list up over a sentence that no longer has a token in it.
-  const token = running ? undefined : parseToken(text);
+  const token = running && !queueing ? undefined : parseToken(text);
   const rows = token === undefined ? [] : menuRows(token, files);
   const open = token !== undefined && rows.length > 0 && dismissed !== text;
 
@@ -121,7 +123,7 @@ export function ChatInput({
   const send = () => {
     const message =
       text.trim() || (media.attachments.length > 0 ? "Use these references for the app." : "");
-    if (message === "" || running || media.processing || incompatibleMedia) return;
+    if (message === "" || (running && !queueing) || media.processing || incompatibleMedia) return;
 
     inFlight.current = message;
     setText("");
@@ -225,7 +227,7 @@ export function ChatInput({
             aria-label="Message"
             rows={1}
             value={text}
-            disabled={running}
+            disabled={running && !queueing}
             onPaste={(event) => {
               const files = Array.from(event.clipboardData.files);
               if (files.length && !running) {
@@ -270,7 +272,13 @@ export function ChatInput({
               event.preventDefault();
               send();
             }}
-            placeholder={running ? "Working…" : "Ask a follow-up…"}
+            placeholder={
+              queueing
+                ? "Queue a message after compaction…"
+                : running
+                  ? "Working…"
+                  : "Ask a follow-up…"
+            }
             className="block min-h-12 w-full min-w-0 resize-none bg-transparent text-sm leading-relaxed text-ink outline-none placeholder:text-muted disabled:text-muted"
           />
         </div>
@@ -283,7 +291,7 @@ export function ChatInput({
             <ModelPicker
               models={models}
               model={model}
-              disabled={running}
+              disabled={running && !queueing}
               onChange={(choice) => onModelChange?.(choice)}
               onAddKey={onAddKey}
               onPick={() => box.current?.focus()}
@@ -292,7 +300,7 @@ export function ChatInput({
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
             <DictationButton dictation={dictation} disabled={running || media.processing} />
-            {running ? (
+            {running && (
               <button
                 type="button"
                 onClick={onCancel}
@@ -310,12 +318,13 @@ export function ChatInput({
                   <rect x="7" y="7" width="10" height="10" rx="1.5" />
                 </svg>
               </button>
-            ) : (
+            )}
+            {(!running || queueing) && (
               <button
                 type="button"
                 onClick={send}
                 disabled={empty || media.processing || incompatibleMedia}
-                aria-label="Send"
+                aria-label={queueing ? "Queue message" : "Send"}
                 className="composer-send grid size-8 place-items-center rounded-full bg-accent text-white disabled:bg-hover disabled:text-muted focus-visible:outline-accent"
               >
                 <svg
