@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { IDBFactory } from "fake-indexeddb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { type ComposerDraft, ComposerDraftStore } from "../projects/composer-draft.ts";
 import { mediaBrowser } from "../testing/media-browser.ts";
 import { ChatInput } from "./chat-input.tsx";
 
@@ -511,4 +512,60 @@ it("restores an owner-bound workspace draft after navigating away", async () => 
   show(props);
   await waitFor(() => expect(box()).toHaveValue("Keep this follow-up"));
   vi.unstubAllGlobals();
+});
+
+it("flushes the latest workspace draft before a document link and retains it on save failure", async () => {
+  vi.stubGlobal("indexedDB", new IDBFactory());
+  const draftIdentity = { ownerId: crypto.randomUUID(), projectId: crypto.randomUUID() };
+  const draft: ComposerDraft = {
+    id: draftIdentity.projectId,
+    ownerId: draftIdentity.ownerId,
+    operationId: draftIdentity.projectId,
+    text: "Workspace draft",
+    model: "openai/gpt-5.6-luna",
+    source: null,
+    attachments: [
+      {
+        kind: "image",
+        name: "header.jpg",
+        frames: [{ data: "aGVsbG8=", mediaType: "image/jpeg", timestamp: 0 }],
+      },
+    ],
+    expiresAt: Date.now() + 10000,
+  };
+  await new ComposerDraftStore().save(draft);
+  const view = render(
+    <>
+      <ChatInput
+        draftIdentity={draftIdentity}
+        model={draft.model}
+        running={false}
+        error={undefined}
+        onSubmit={vi.fn()}
+        onCancel={vi.fn()}
+      />
+      <a href="/dashboard">Dashboard</a>
+    </>,
+  );
+  await waitFor(() => expect(box()).toHaveValue(draft.text));
+  const save = vi
+    .spyOn(ComposerDraftStore.prototype, "save")
+    .mockRejectedValue(new Error("Storage full"));
+  try {
+    type("Last workspace edit");
+    expect(fireEvent.click(screen.getByRole("link", { name: "Dashboard" }))).toBe(false);
+    await screen.findByText(/Could not save this draft/);
+    expect(save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: "Last workspace edit",
+        model: draft.model,
+        attachments: draft.attachments,
+      }),
+    );
+    expect(box()).toHaveValue("Last workspace edit");
+    view.unmount();
+  } finally {
+    save.mockRestore();
+    vi.unstubAllGlobals();
+  }
 });

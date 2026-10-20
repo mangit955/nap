@@ -65,9 +65,6 @@ export function SessionList({
     const timer = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(timer);
   }, []);
-  useEffect(() => {
-    root.current?.querySelector('[aria-current="page"]')?.scrollIntoView?.({ block: "nearest" });
-  }, []);
   const sorted = [...sessions].sort(
     (a, b) =>
       (a.navigation.position ?? Number.MAX_SAFE_INTEGER) -

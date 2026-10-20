@@ -56,6 +56,35 @@ function openAccountMenu() {
 }
 
 describe("the dashboard sidebar", () => {
+  it("restores scroll after asynchronous rows load only once", () => {
+    sessionStorage.setItem("nap.sidebar.scroll", "4000");
+    const props = {
+      name: "Reader",
+      email: undefined,
+      scope: "all" as const,
+      counts: { all: 1, running: 1, "put-away": 0 },
+      recents: [],
+      keyHint: undefined,
+      onScopeChange: vi.fn(),
+      onNewProject: vi.fn(),
+      onApiKey: vi.fn(),
+      onSignOut: vi.fn(),
+    };
+    const view = render(<Sidebar {...props} loading />);
+    const list = screen.getByRole("region", { name: "Session list" });
+    // Browsers clamp an offset to zero while the list contains only its loading placeholder.
+    list.scrollTop = 0;
+    fireEvent.scroll(list);
+    expect(sessionStorage.getItem("nap.sidebar.scroll")).toBe("4000");
+    view.rerender(<Sidebar {...props} recents={[project()]} />);
+    expect(list.scrollTop).toBe(4000);
+    list.scrollTop = 2200;
+    fireEvent.scroll(list);
+    view.rerender(<Sidebar {...props} recents={[project({ name: "Updated title" })]} />);
+    expect(list.scrollTop).toBe(2200);
+    sessionStorage.removeItem("nap.sidebar.scroll");
+  });
+
   it("is a navigation landmark with a name, since the page has two", () => {
     show();
 

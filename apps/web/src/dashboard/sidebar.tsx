@@ -94,14 +94,28 @@ export function Sidebar({
   const [repository, setRepository] = useState("");
   const [showArchived, setShowArchived] = useState(false);
   const scroll = useRef<HTMLElement>(null);
+  const restoredScroll = useRef(false);
+  const revealedProject = useRef<string | undefined>(undefined);
+  const navigationStatus = navigation?.status;
   useEffect(() => {
-    try {
-      if (scroll.current)
-        scroll.current.scrollTop = Number(sessionStorage.getItem("nap.sidebar.scroll") ?? 0);
-    } catch {
-      /* Scrolling also works without persistence. */
+    const element = scroll.current;
+    if (loading || (navigationStatus && navigationStatus !== "ready") || !element) return;
+    if (!restoredScroll.current) {
+      try {
+        element.scrollTop = Number(sessionStorage.getItem("nap.sidebar.scroll") ?? 0);
+      } catch {
+        /* Scrolling also works without persistence. */
+      }
+      restoredScroll.current = true;
     }
-  }, []);
+    if (activeProjectId && revealedProject.current !== activeProjectId) {
+      const selected = element.querySelector('[aria-current="page"]');
+      if (selected) {
+        selected.scrollIntoView?.({ block: "nearest" });
+        revealedProject.current = activeProjectId;
+      }
+    }
+  }, [loading, activeProjectId, navigationStatus]);
   const sessions: SessionSummary[] =
     navigation?.projects ??
     recents.map((row) => ({
@@ -249,6 +263,7 @@ export function Sidebar({
         tabIndex={0}
         className="nap-scroll-hidden relative min-h-0 flex-1 overflow-y-auto"
         onScroll={(event) => {
+          if (!restoredScroll.current) return;
           try {
             sessionStorage.setItem("nap.sidebar.scroll", String(event.currentTarget.scrollTop));
           } catch {

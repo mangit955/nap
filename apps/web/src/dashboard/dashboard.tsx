@@ -81,12 +81,19 @@ export function Dashboard({
         const targets = [
           mobileTrigger.current,
           ...drawer.querySelectorAll<HTMLElement>(
-            'a[href], button:not([disabled]), input:not([disabled]), [tabindex="0"]',
+            'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex="0"]',
           ),
-        ].filter(
-          (node): node is HTMLElement =>
-            node instanceof HTMLElement && node.getClientRects().length > 0,
-        );
+        ].filter((node): node is HTMLElement => {
+          if (
+            !(node instanceof HTMLElement) ||
+            node.matches(":disabled, [tabindex='-1']") ||
+            node.closest("[hidden], [inert]") ||
+            node.getClientRects().length === 0
+          )
+            return false;
+          const closed = node.closest("details:not([open])");
+          return !closed || node.closest("summary")?.parentElement === closed;
+        });
         if (targets.length === 0) return;
         const focused = document.activeElement;
         const index = focused instanceof HTMLElement ? targets.indexOf(focused) : -1;

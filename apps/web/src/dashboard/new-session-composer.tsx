@@ -12,6 +12,7 @@ import type { FetchJson } from "../files/use-project-files.ts";
 import { type RepositoryChoice, RepositoryPicker } from "../github/repository-picker.tsx";
 import { GITHUB_API_URL } from "../github/request.ts";
 import { type ComposerDraft, ComposerDraftStore } from "../projects/composer-draft.ts";
+import { useDraftNavigation } from "../projects/use-draft-navigation.ts";
 import { DashboardHero } from "./dashboard-hero.tsx";
 
 export function NewSessionComposer({
@@ -129,6 +130,19 @@ export function NewSessionComposer({
     }, 300);
     return () => clearTimeout(timer);
   }, [snapshot, persist]);
+  useDraftNavigation(
+    draft
+      ? async () => {
+          const value = snapshot();
+          if (sending.current) await saveTail.current;
+          else if (value) await persist(value);
+        }
+      : undefined,
+    () =>
+      setError(
+        "Could not save your draft. Keep this page open and free browser storage before leaving.",
+      ),
+  );
 
   const closePicker = useCallback(() => {
     setPicker(false);
@@ -205,7 +219,7 @@ export function NewSessionComposer({
       const body: unknown = await response.json();
       if (!response.ok) {
         if (response.status >= 400 && response.status < 500) {
-          const editable = { ...value, pendingStart: undefined, operationId: crypto.randomUUID() };
+          const editable = { ...value, pendingStart: undefined };
           setDraft(editable);
           await persist(editable);
         }
@@ -285,7 +299,10 @@ export function NewSessionComposer({
                   type="button"
                   disabled={busy || !!draft?.pendingStart}
                   aria-label="Remove repository"
-                  onClick={() => setDraft((value) => value && { ...value, source: null })}
+                  onClick={() => {
+                    setDraft((value) => value && { ...value, source: null });
+                    setSettingsDirty(false);
+                  }}
                 >
                   ×
                 </button>

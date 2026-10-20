@@ -6,6 +6,7 @@ import type { ModelChoice } from "@nap/shared/models-protocol";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { appendDictation, useDictation } from "../dashboard/use-dictation.ts";
 import { type ComposerDraft, ComposerDraftStore } from "../projects/composer-draft.ts";
+import { useDraftNavigation } from "../projects/use-draft-navigation.ts";
 import { ComposerAddMenu } from "./composer-add-menu.tsx";
 import { AttachmentTray, DictationButton } from "./composer-controls.tsx";
 import { applyPick, menuRows, parseToken } from "./composer-menu.ts";
@@ -131,6 +132,16 @@ export function ChatInput({
       if (value) void draftStore.current.save(value).catch(() => {});
     },
     [],
+  );
+  useDraftNavigation(
+    draftReady && draftOwner && draftProject
+      ? async () => {
+          const value = latestDraft.current;
+          if (value) await draftStore.current.save(value);
+        }
+      : undefined,
+    () =>
+      setDraftError("Could not save this draft. Keep the session open and free browser storage."),
   );
   const images = modelSupportsImages(model);
   const incompatibleMedia = media.attachments.length > 0 && !images;

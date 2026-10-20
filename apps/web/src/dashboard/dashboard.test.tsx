@@ -205,6 +205,28 @@ it("closes mobile sessions when New session is chosen", () => {
   );
 });
 
+it("includes repository scope and Settings in the real mobile sidebar's Tab order", () => {
+  const rects = vi
+    .spyOn(HTMLElement.prototype, "getClientRects")
+    .mockReturnValue(
+      Object.assign([new DOMRect(0, 0, 100, 30)], { item: () => new DOMRect(0, 0, 100, 30) }),
+    );
+  try {
+    render(<Dashboard sidebar={interactiveSidebar()} hero={<p>Composer</p>} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open sessions" }));
+    const reached = new Set<Element | null>();
+    for (let index = 0; index < 30; index++) {
+      fireEvent.keyDown(document.activeElement ?? document.body, { key: "Tab" });
+      reached.add(document.activeElement);
+    }
+    expect(reached.has(screen.getByRole("combobox", { name: "Repository scope" }))).toBe(true);
+    expect(reached.has(screen.getByLabelText("Settings", { selector: "summary" }))).toBe(true);
+    expect(reached.has(screen.getByRole("button", { name: "Close sessions" }))).toBe(true);
+  } finally {
+    rects.mockRestore();
+  }
+});
+
 it("resizes the shared sidebar by keyboard and restores its width", () => {
   localStorage.clear();
   const view = render(<Dashboard sidebar={<p>Sessions</p>} hero={<p>Composer</p>} />);

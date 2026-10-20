@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { IDBFactory } from "fake-indexeddb";
 import { afterEach, expect, it, vi } from "vitest";
+import { type ComposerDraft, ComposerDraftStore } from "../projects/composer-draft.ts";
 import { NewSessionComposer } from "./new-session-composer.tsx";
 
 const push = vi.fn();
@@ -9,6 +10,171 @@ afterEach(() => {
   vi.unstubAllGlobals();
   sessionStorage.clear();
   push.mockClear();
+  vi.restoreAllMocks();
+});
+
+async function seedDraft(source: ComposerDraft["source"] = null) {
+  vi.stubGlobal("indexedDB", new IDBFactory());
+  const draft: ComposerDraft = {
+    id: crypto.randomUUID(),
+    ownerId: crypto.randomUUID(),
+    operationId: crypto.randomUUID(),
+    text: "Fix the header",
+    model: "openai/gpt-5.6-luna",
+    source,
+    attachments: [
+      {
+        kind: "image",
+        name: "header.jpg",
+        frames: [{ data: "aGVsbG8=", mediaType: "image/jpeg", timestamp: 0 }],
+      },
+    ],
+    expiresAt: Date.now() + 10000,
+  };
+  await new ComposerDraftStore().save(draft);
+  sessionStorage.setItem(`nap.composer.${draft.ownerId}`, draft.id);
+  return draft;
+}
+
+it("keeps the operation identity through a lost response and a refused overlapping retry", async () => {
+  const draft = await seedDraft();
+  const fetchJson = vi.fn(async (_url: string, _init?: RequestInit) => {
+    if (fetchJson.mock.calls.length === 1) throw new Error("Lost response");
+    if (fetchJson.mock.calls.length === 2)
+      return Response.json({ error: "Rate limit" }, { status: 429 });
+    return Response.json({
+      projectId: crypto.randomUUID(),
+      sessionId: crypto.randomUUID(),
+      requestId: crypto.randomUUID(),
+    });
+  });
+  const props = {
+    ownerId: draft.ownerId,
+    models: [],
+    modelsLoading: false,
+    onAddKey: vi.fn(),
+    fetchJson,
+  };
+  const first = render(<NewSessionComposer {...props} />);
+  const box = screen.getByRole("textbox", { name: "Describe the app you want" });
+  await waitFor(() => expect(box).toHaveValue(draft.text));
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await screen.findByText("Lost response");
+  fireEvent.click(await screen.findByRole("button", { name: "Retry pending start" }));
+  await screen.findByText("Rate limit");
+  expect(box).toBeEnabled();
+  first.unmount();
+  render(<NewSessionComposer {...props} />);
+  await waitFor(() => expect(screen.getByRole("textbox")).toHaveValue(draft.text));
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(push).toHaveBeenCalledOnce());
+  expect(fetchJson.mock.calls[2]?.[1]?.body).toBe(fetchJson.mock.calls[0]?.[1]?.body);
+});
+
+it("retains the operation ID for an edited refused draft, and a new draft gets a new ID", async () => {
+  const draft = await seedDraft();
+  const fetchJson = vi.fn(async (_url: string, _init?: RequestInit) =>
+    Response.json({ error: "Operation already committed" }, { status: 409 }),
+  );
+  const props = {
+    ownerId: draft.ownerId,
+    models: [],
+    modelsLoading: false,
+    onAddKey: vi.fn(),
+    fetchJson,
+  };
+  const first = render(<NewSessionComposer {...props} />);
+  const box = screen.getByRole("textbox", { name: "Describe the app you want" });
+  await waitFor(() => expect(box).toHaveValue(draft.text));
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await screen.findByText("Operation already committed");
+  fireEvent.change(box, { target: { value: "Different task" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(fetchJson).toHaveBeenCalledTimes(2));
+  await screen.findByText("Operation already committed");
+  expect(JSON.parse(String(fetchJson.mock.calls[1]?.[1]?.body))).toMatchObject({
+    operationId: draft.operationId,
+    prompt: { message: "Different task" },
+  });
+  first.unmount();
+  sessionStorage.removeItem(`nap.composer.${draft.ownerId}`);
+  render(<NewSessionComposer {...props} />);
+  const fresh = screen.getByRole("textbox", { name: "Describe the app you want" });
+  await waitFor(() => expect(fresh).toBeEnabled());
+  fireEvent.change(fresh, { target: { value: "Intentional new session" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(fetchJson).toHaveBeenCalledTimes(3));
+  expect(JSON.parse(String(fetchJson.mock.calls[2]?.[1]?.body)).operationId).not.toBe(
+    draft.operationId,
+  );
+  await screen.findByText("Operation already committed");
+});
+
+it("can send a template after editing and removing its repository settings", async () => {
+  const draft = await seedDraft({
+    installationId: 1,
+    repositoryId: 11,
+    name: "example/storefront",
+    baseBranch: "main",
+    environment: { setupCommand: null, devCommand: null, previewPort: null },
+    autoPublish: false,
+    repository: { id: 11, fullName: "example/storefront", defaultBranch: "main", private: true },
+  });
+  const fetchJson = vi.fn(async (_url: string, _init?: RequestInit) =>
+    Response.json({ error: "Reached start" }, { status: 429 }),
+  );
+  render(
+    <NewSessionComposer
+      ownerId={draft.ownerId}
+      models={[]}
+      modelsLoading={false}
+      onAddKey={vi.fn()}
+      fetchJson={fetchJson}
+    />,
+  );
+  await screen.findByRole("button", { name: "Remove repository" });
+  fireEvent.click(screen.getByText("Source settings", { selector: "summary" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "Base branch" }), {
+    target: { value: "other" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Remove repository" }));
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await screen.findByText("Reached start");
+  expect(JSON.parse(String(fetchJson.mock.calls[0]?.[1]?.body))).toMatchObject({
+    source: { kind: "template" },
+    prompt: { message: draft.text, model: draft.model, attachments: draft.attachments },
+  });
+});
+
+it("flushes current text, model and media on an anchor click and stops if storage fails", async () => {
+  const draft = await seedDraft();
+  render(
+    <>
+      <NewSessionComposer
+        ownerId={draft.ownerId}
+        models={[]}
+        modelsLoading={false}
+        onAddKey={vi.fn()}
+      />
+      <a href="/p/other">Other session</a>
+    </>,
+  );
+  const box = screen.getByRole("textbox", { name: "Describe the app you want" });
+  await waitFor(() => expect(box).toHaveValue(draft.text));
+  const save = vi
+    .spyOn(ComposerDraftStore.prototype, "save")
+    .mockRejectedValue(new Error("Storage full"));
+  fireEvent.change(box, { target: { value: "Last edit before leaving" } });
+  expect(fireEvent.click(screen.getByRole("link", { name: "Other session" }))).toBe(false);
+  await screen.findByText(/Could not save your draft/);
+  expect(save).toHaveBeenCalledWith(
+    expect.objectContaining({
+      text: "Last edit before leaving",
+      model: draft.model,
+      attachments: draft.attachments,
+    }),
+  );
+  expect(box).toHaveValue("Last edit before leaving");
 });
 
 it("starts a template with its task and model once, without browser first-prompt replay", async () => {

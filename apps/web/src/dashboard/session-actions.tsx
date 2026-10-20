@@ -51,7 +51,10 @@ export function SessionActions({
         trigger.current?.focus();
       }
     };
-    const scroll = () => setPosition(undefined);
+    const scroll = (event: Event) => {
+      if (event.target instanceof Node && menu.current?.contains(event.target)) return;
+      setPosition(undefined);
+    };
     document.addEventListener("pointerdown", dismiss);
     document.addEventListener("keydown", onEscape);
     window.addEventListener("resize", scroll);

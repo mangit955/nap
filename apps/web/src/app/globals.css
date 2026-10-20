@@ -1772,6 +1772,10 @@ body {
   text-align: left;
   font-size: 13px;
 }
+.workspace-composer .composer-add-menu {
+  top: auto;
+  bottom: calc(100% + 8px);
+}
 .composer-add-menu button:hover,
 .composer-add-menu button:focus-visible {
   background: #ffffff0b;
