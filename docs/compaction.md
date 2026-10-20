@@ -44,6 +44,13 @@ existing session and request reconciliation. Ordinary optimistic messages stay i
 transcript area. The queue has no edit, steer, reorder or individual cancel action; Stop keeps
 Nap's existing session cancellation behavior.
 
+On desktop, scrolling through a long conversation folds the composer into a single-line pill
+with its model controls below. Returning to the end or editing the draft expands it. Streaming
+alone never folds it. Multiline drafts, prepared references, queued prompts and actionable
+composer details keep their full layout. The expanded transcript inset stays reserved while
+folded so returning to the end leaves the final response visible. Successful turns have no
+post-response duration/footer; active clocks and failure recovery remain available.
+
 ## Persistence and safety
 
 `compaction.completed` stores an API checkpoint with `coveredThrough`, summary and a complete

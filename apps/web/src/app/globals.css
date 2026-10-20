@@ -1707,6 +1707,88 @@ body {
     min-width: 36px;
   }
 }
+
+.workspace-composer[data-resting="true"] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 52px;
+  margin-bottom: 32px;
+  padding-right: 9px;
+  border-radius: 28px;
+}
+.workspace-composer[data-resting="true"] .composer-prompt {
+  min-width: 0;
+  flex: 1;
+  padding: 8px 0 8px 16px;
+}
+.workspace-composer[data-resting="true"] textarea {
+  min-height: 32px;
+  overflow: hidden;
+  white-space: nowrap;
+  line-height: 32px;
+}
+.workspace-composer[data-resting="true"] .composer-toolbar {
+  display: contents;
+}
+.workspace-composer[data-resting="true"] .composer-model-controls {
+  position: absolute;
+  inset: 100% 22px auto;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid color-mix(in srgb, var(--color-ink) 8%, transparent);
+  border-top: 0;
+  border-radius: 0 0 16px 16px;
+  background: color-mix(in srgb, var(--color-field) 80%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(1.08);
+  backdrop-filter: blur(16px) saturate(1.08);
+}
+.workspace-composer[data-resting="true"] .composer-model-controls button {
+  height: 24px;
+  font-size: 11px;
+}
+.workspace-composer[data-resting="true"] .composer-model-controls > button {
+  width: 24px;
+  margin-left: auto;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .workspace-composer {
+    transition: border-radius 160ms ease-out;
+  }
+  .workspace-composer[data-resting="true"] {
+    animation: composer-rest 160ms ease-out;
+  }
+  .workspace-composer[data-resting="true"] .composer-model-controls {
+    animation: composer-strip-enter 160ms ease-out;
+  }
+  @keyframes composer-rest {
+    from {
+      min-height: var(--composer-expanded-height, 128px);
+      margin-bottom: 0;
+    }
+    to {
+      min-height: 52px;
+      margin-bottom: 32px;
+    }
+  }
+  @keyframes composer-strip-enter {
+    from {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .workspace-composer[data-resting="true"] .composer-model-controls {
+    background: var(--color-field);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
 @media (hover: none) {
   .session-actions {
     opacity: 1;

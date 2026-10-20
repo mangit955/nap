@@ -142,7 +142,11 @@ export function ChatPane({
     if (dock === null) return;
     const measure = () => {
       const height = dock.getBoundingClientRect().height;
-      if (height > 0) setComposerHeight(height);
+      if (height > 0) {
+        // Keep the expanded inset while resting so returning to the end cannot cover its last row.
+        const resting = dock.querySelector('[data-resting="true"]') !== null;
+        setComposerHeight((current) => (resting ? Math.max(current, height) : height));
+      }
     };
     measure();
     const observer = new ResizeObserver(measure);
@@ -153,7 +157,7 @@ export function ChatPane({
   // ending, and the running flag alone would miss every event inside it. The seam is in it
   // because it arrives from an effect a frame after mount, in a commit where nothing else
   // changed — and a scroller that did not look then would open at the bottom and stay there.
-  const scroller = useStickToBottom<HTMLDivElement>(
+  const scroller = useStickToBottom<HTMLElement>(
     `${events.length}:${pending}:${running}:${seam}:${composerHeight}`,
     () => seamRef.current,
   );
@@ -189,11 +193,14 @@ export function ChatPane({
         )}
 
         <div className="chat-stage relative min-h-0 flex-1">
-          <div
+          <section
             ref={scroller} // `overflow-x-hidden`, not `auto`: tool output is arbitrary text, and a long line
             // belongs scrolling inside its own `OutputBlock` rather than dragging the whole
             // conversation sideways.
-            className="chat-scroller nap-scroll relative h-full overflow-y-auto overflow-x-hidden"
+            aria-label="Conversation"
+            // biome-ignore lint/a11y/noNoninteractiveTabindex: the scroll region must receive PageUp/Home/End without focusing the editor.
+            tabIndex={0}
+            className="chat-scroller nap-scroll relative h-full overflow-y-auto overflow-x-hidden focus-visible:outline-accent"
             style={{ paddingBottom: composerHeight, scrollPaddingBottom: composerHeight }}
           >
             {empty && loading ? (
@@ -217,10 +224,11 @@ export function ChatPane({
                 transcript={transcript}
               />
             )}
-          </div>
+          </section>
 
           <div ref={composerDock} className="chat-composer-dock absolute inset-x-0 bottom-0 z-10">
             <ChatInput
+              timeline={empty ? undefined : scroller}
               contextControl={
                 <ContextControl
                   events={events}

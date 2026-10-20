@@ -3,12 +3,20 @@
 import type { MediaAttachment } from "@nap/shared/media";
 import { MODEL_MEDIA_UNSUPPORTED, modelSupportsImages } from "@nap/shared/model-capabilities";
 import type { ModelChoice } from "@nap/shared/models-protocol";
-import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  type ReactNode,
+  type RefObject,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { appendDictation, useDictation } from "../dashboard/use-dictation.ts";
 import { AttachmentButton, AttachmentTray, DictationButton } from "./composer-controls.tsx";
 import { applyPick, menuRows, parseToken } from "./composer-menu.ts";
 import type { FirstPrompt } from "./first-prompt.ts";
 import { ModelPicker } from "./model-picker.tsx";
+import { useComposerScroll } from "./use-composer-scroll.ts";
 import { type DraftAttachment, useMediaAttachments } from "./use-media-attachments.ts";
 
 /** Room to write without swallowing the transcript. Past this the field scrolls instead of growing. */
@@ -21,6 +29,7 @@ export function ChatInput({
   queueing = false,
   queued,
   contextControl,
+  timeline,
   error,
   firstPrompt,
   onSubmit,
@@ -36,6 +45,7 @@ export function ChatInput({
   queueing?: boolean;
   queued?: Pick<FirstPrompt, "text" | "attachments"> | undefined;
   contextControl?: ReactNode;
+  timeline?: RefObject<HTMLElement | null> | undefined;
   error: string | undefined;
   firstPrompt?: FirstPrompt | undefined;
   onSubmit: (message: string, attachments?: MediaAttachment[]) => void;
@@ -70,12 +80,38 @@ export function ChatInput({
   /** The message currently in flight, kept only so a failure can hand it back. */
   const inFlight = useRef("");
   const box = useRef<HTMLTextAreaElement>(null);
+  const root = useRef<HTMLDivElement>(null);
+  const surface = useRef<HTMLFieldSetElement>(null);
+  const [multiline, setMultiline] = useState(false);
+  const token = running && !queueing ? undefined : parseToken(text);
+  const rows = token === undefined ? [] : menuRows(token, files);
+  const open = token !== undefined && rows.length > 0 && dismissed !== text;
+  const scroll = useComposerScroll({
+    timeline,
+    composer: root,
+    eligible:
+      visible &&
+      !multiline &&
+      !open &&
+      error === undefined &&
+      queued === undefined &&
+      media.attachments.length === 0 &&
+      !media.processing &&
+      media.error === undefined &&
+      !dictation.listening &&
+      dictation.error === undefined,
+  });
 
   useEffect(() => {
-    if (visible && !running && document.activeElement === document.body) {
+    if (
+      visible &&
+      !running &&
+      !scroll.restingRef.current &&
+      document.activeElement === document.body
+    ) {
       box.current?.focus({ preventScroll: true });
     }
-  }, [running, visible]);
+  }, [running, visible, scroll.restingRef]);
 
   useEffect(() => {
     if (error === undefined) return;
@@ -98,20 +134,36 @@ export function ChatInput({
   useEffect(() => {
     if (running || !visible) dictation.stop();
   }, [running, visible, dictation.stop]);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: text changes the textarea scrollHeight.
   useLayoutEffect(() => {
     const field = box.current;
     if (!field) return;
-    field.style.height = "0px";
-    field.style.height = `${Math.min(Math.max(field.scrollHeight, MIN_HEIGHT), MAX_HEIGHT)}px`;
-    field.style.overflowY = field.scrollHeight > MAX_HEIGHT ? "auto" : "hidden";
-  }, [text]);
-
-  // Derived, never stored. A menu held in state would survive the text that opened it — so
-  // deleting the `@` would leave the list up over a sentence that no longer has a token in it.
-  const token = running && !queueing ? undefined : parseToken(text);
-  const rows = token === undefined ? [] : menuRows(token, files);
-  const open = token !== undefined && rows.length > 0 && dismissed !== text;
+    const measure = () => {
+      field.style.minHeight = "0px";
+      field.style.height = "0px";
+      const lineHeight = Number.parseFloat(getComputedStyle(field).lineHeight) || 24;
+      setMultiline(text.includes("\n") || field.scrollHeight > lineHeight * 1.5);
+      field.style.minHeight = "";
+      field.style.height = scroll.resting
+        ? "32px"
+        : `${Math.min(Math.max(field.scrollHeight, MIN_HEIGHT), MAX_HEIGHT)}px`;
+      field.style.overflowY = field.scrollHeight > MAX_HEIGHT ? "auto" : "hidden";
+      if (!scroll.resting && surface.current !== null) {
+        surface.current.style.setProperty(
+          "--composer-expanded-height",
+          `${surface.current.getBoundingClientRect().height}px`,
+        );
+      }
+    };
+    measure();
+    let width = field.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (field.clientWidth === width) return;
+      width = field.clientWidth;
+      measure();
+    });
+    observer.observe(field);
+    return () => observer.disconnect();
+  }, [text, scroll.resting]);
 
   // Keyed to the token rather than reset by an effect: a new query is a new list, and an
   // index left over from the last one points at a row that has moved.
@@ -148,7 +200,30 @@ export function ChatInput({
   const empty = text.trim() === "" && media.attachments.length === 0;
 
   return (
-    <div className="chat-input mx-auto w-full max-w-[46rem] px-4 pt-2 pb-4">
+    <div ref={root} className="chat-input relative mx-auto w-full max-w-[46rem] px-4 pt-2 pb-4">
+      {scroll.away && (
+        <div
+          className="absolute inset-x-0 -top-9 flex justify-center"
+          style={{ pointerEvents: "none" }}
+        >
+          <button
+            type="button"
+            onClick={scroll.scrollToEnd}
+            className="composer-menu pointer-events-auto flex h-7 items-center gap-1 rounded-full px-2.5 text-xs text-ink-2 shadow-raised hover:text-ink focus-visible:outline-accent"
+          >
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              className="size-3"
+            >
+              <path d="m4 6 4 4 4-4" />
+            </svg>
+            Scroll to end
+          </button>
+        </div>
+      )}
       {error !== undefined && (
         // `alert` so it is announced: the message the user just sent has vanished from the
         // screen, and nothing else on the page explains why.
@@ -213,8 +288,19 @@ export function ChatInput({
       )}
       {queued !== undefined && <QueuedMessage {...queued} />}
       <fieldset
+        ref={surface}
         aria-label="Message composer"
+        data-resting={scroll.resting}
         className="workspace-composer relative"
+        onPointerDownCapture={(event) => {
+          if (!(event.target instanceof Element)) return;
+          if (event.target.closest('button, input, select, summary, a, [role="button"]')) return;
+          scroll.expand();
+          if (scroll.resting && event.target !== box.current) {
+            event.preventDefault();
+            box.current?.focus({ preventScroll: true });
+          }
+        }}
         onDragOver={(event) => event.preventDefault()}
         onDrop={(event) => {
           event.preventDefault();
@@ -226,11 +312,13 @@ export function ChatInput({
           disabled={running || media.processing}
           onRemove={media.remove}
         />
-        <div className="px-4 pt-4 pb-2">
+        <div className="composer-prompt px-4 pt-4 pb-2">
           <textarea
             ref={box}
             aria-label="Message"
             rows={1}
+            onPointerDown={scroll.expand}
+            onFocus={scroll.focusEditor}
             value={text}
             disabled={running && !queueing}
             onPaste={(event) => {
@@ -241,6 +329,7 @@ export function ChatInput({
               }
             }}
             onChange={(event) => {
+              scroll.expand();
               setText(event.target.value);
             }}
             onKeyDown={(event) => {
@@ -288,11 +377,7 @@ export function ChatInput({
           />
         </div>
         <div className="composer-toolbar flex items-center justify-between gap-2 px-3 pb-3 sm:px-4 sm:pb-4">
-          <div className="flex min-w-0 items-center gap-1">
-            <AttachmentButton
-              disabled={running || media.processing || !images}
-              onFiles={(files) => void media.add(files)}
-            />
+          <div className="composer-model-controls flex min-w-0 items-center gap-1">
             <ModelPicker
               models={models}
               model={model}
@@ -302,9 +387,13 @@ export function ChatInput({
               onPick={() => box.current?.focus()}
               closeWhen={`${visible}:${text}`}
             />
-          </div>
-          <div className="flex shrink-0 items-center gap-1.5">
             <DictationButton dictation={dictation} disabled={running || media.processing} />
+          </div>
+          <div className="composer-primary-actions flex shrink-0 items-center gap-1.5">
+            <AttachmentButton
+              disabled={running || media.processing || !images}
+              onFiles={(files) => void media.add(files)}
+            />
             {contextControl}
             {running && (
               <button

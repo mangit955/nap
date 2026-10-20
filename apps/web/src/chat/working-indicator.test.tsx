@@ -63,7 +63,7 @@ describe("WorkingIndicator", () => {
 
   it("counts from the turn's own start, so a reload mid-turn resumes the count", () => {
     // The anchor is the server's timestamp on `turn.started`. Mount time would restart at zero
-    // on every reload and disagree with the `Done · 12.4s` line that replaces this.
+    // on every reload instead of measuring the same active turn.
     const startedAt = new Date(START - 12_000).toISOString();
     const { container } = render(<WorkingIndicator label="Thinking" startedAt={startedAt} />);
 

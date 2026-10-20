@@ -313,21 +313,7 @@ function Item({
       );
 
     case "turn-end":
-      return item.outcome === "completed" ? (
-        <Meta>
-          {/*
-            Just how long it took, and whether anything changed. The token counts and the commit
-            SHA used to be here and are instrumentation rather than something a person reads
-            between turns — forty characters of hex that also pushed this row wider than the
-            pane and gave the whole transcript a horizontal scrollbar. Both are still in the
-            event log for anything that wants them.
-          */}
-          Done · {(item.durationMs / 1000).toFixed(1)}s
-          {item.commitSha === null ? " · no file changes" : ""}
-        </Meta>
-      ) : (
-        <TurnFailure item={item} onRetry={onRetry} />
-      );
+      return item.outcome === "completed" ? null : <TurnFailure item={item} onRetry={onRetry} />;
   }
 }
 
