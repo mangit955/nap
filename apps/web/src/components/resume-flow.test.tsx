@@ -90,6 +90,54 @@ beforeEach(() => {
 });
 
 describe("opening a put-away project", () => {
+  it("retains the exact preview iframe through compaction start and completion", async () => {
+    open();
+    await waitFor(() => expect(net.opened).toHaveLength(1));
+    await act(async () => {
+      net.latest.open();
+      net.latest.deliver({
+        type: "event",
+        event: ev("preview.ready", { url: "https://5173-existing.e2b.app", port: 5173 }, 1),
+      });
+      net.latest.deliver({ type: "ready" });
+    });
+    const frame = await screen.findByTitle(PREVIEW_TITLE);
+    await act(async () => {
+      net.latest.deliver({
+        type: "event",
+        event: ev(
+          "compaction.started",
+          { id: "4e4a0f05-f15f-45bc-9a9b-2e8049eb951b", trigger: "manual" },
+          2,
+        ),
+      });
+    });
+    expect(screen.getByText("Compacting context…")).toBeVisible();
+    expect(screen.getByTitle(PREVIEW_TITLE)).toBe(frame);
+    await act(async () => {
+      net.latest.deliver({
+        type: "event",
+        event: ev(
+          "compaction.completed",
+          {
+            id: "4e4a0f05-f15f-45bc-9a9b-2e8049eb951b",
+            beforeTokens: 4000,
+            afterTokens: 2000,
+            usage: null,
+            result: {
+              kind: "api",
+              checkpoint: { summary: "Keep the form", coveredThrough: 1, tail: [] },
+            },
+          },
+          3,
+        ),
+      });
+    });
+    expect(screen.getByText("Context compacted")).toBeVisible();
+    expect(screen.getByTitle(PREVIEW_TITLE)).toBe(frame);
+    expect(frame).toHaveAttribute("src", "https://5173-existing.e2b.app");
+  });
+
   it.each([null, 5173])(
     "uses the running sandbox's preview port %s after a full page load",
     async (runningPreviewPort) => {

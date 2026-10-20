@@ -12,10 +12,44 @@ reported window, capped at 8,192 tokens. This is a heuristic, not the provider's
 the API provider defaults to a 64,000-token output ceiling. Summary requests have their own
 smaller output limit and are checked against a provider window when one is supplied.
 
-The implementation follows [T3 Code at the pinned revision](https://github.com/pingdotgg/t3code/tree/e3b35d1b2440b104f0bc2e357377c348121234dd).
+The lifecycle implementation follows [T3 Code at the pinned revision](https://github.com/pingdotgg/t3code/tree/e3b35d1b2440b104f0bc2e357377c348121234dd).
 Source attribution and the MIT license are in [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md).
 T3 delegates summary storage to its native providers. Nap's API summary, checkpoint and replay
 logic is additional work because those providers are not present on the current routes.
+
+## Context controls and transcript
+
+The circular meter and quiet timeline adapt T3 Code's components at
+[67c0fc0cdaf963b103518862dd7b68a9c758ecf2](https://github.com/pingdotgg/t3code/tree/67c0fc0cdaf963b103518862dd7b68a9c758ecf2).
+The popup percentage names Nap's configured **input budget**. It is not the provider's window
+or an exact automatic trigger. Missing usage stays unknown, and a missing usage report does
+not prevent manual compaction of existing history. The icon-only circular control sits inside
+the composer immediately left of Send or Stop. Click or tap it to open the popup above it,
+aligned to its right edge. Tab reaches the action, Escape returns focus to the icon, and an
+outside press dismisses the popup. The header pairs the percentage with used/budget tokens;
+estimates and provider reports stay labelled. The popup scrolls within the available pane.
+
+The transcript retains trigger and timestamps when recorded. Terminal-only replay leaves the
+trigger unknown. Completed API rows show estimated before/after context sizes and a collapsed,
+read-only summary. Summary-call input/output usage is labelled separately. Manual compaction can
+increase the estimate by restoring history initial pruning omitted; no savings are promised.
+Native results may supply neither context counts nor a portable summary.
+
+A cancelled operation has a neutral stopped row. A failed manual operation and its matching
+turn failure share one presentation and the existing exact-command retry. Ordinary turn
+failures retain their request-specific retry. A prompt queued after compaction appears once
+in a collapsible panel attached above the composer, with its text and reference thumbnails.
+The panel retains that prompt until its exact request is acknowledged or settled, using the
+existing session and request reconciliation. Ordinary optimistic messages stay in the
+transcript area. The queue has no edit, steer, reorder or individual cancel action; Stop keeps
+Nap's existing session cancellation behavior.
+
+On desktop, scrolling through a long conversation folds the composer into a single-line pill
+with its model controls below. Returning to the end or editing the draft expands it. Streaming
+alone never folds it. Multiline drafts, prepared references, queued prompts and actionable
+composer details keep their full layout. The expanded transcript inset stays reserved while
+folded so returning to the end leaves the final response visible. Successful turns have no
+post-response duration/footer; active clocks and failure recovery remain available.
 
 ## Persistence and safety
 

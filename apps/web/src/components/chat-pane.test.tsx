@@ -1,6 +1,7 @@
 import type { NapEvent } from "@nap/shared/events";
+import type { MediaAttachment } from "@nap/shared/media";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { ChatPane } from "./chat-pane.tsx";
 
@@ -146,4 +147,70 @@ describe("ChatPane", () => {
 
     expect(screen.getByRole("status", { name: "Agent is working" })).toBeInTheDocument();
   });
+});
+
+it("labels only the optimistic message queued after compaction", () => {
+  const { rerender } = render(
+    <ChatPane events={[message]} pending="Next request" pendingAfterCompaction running />,
+  );
+  expect(screen.getByText("Queued after compaction")).toBeVisible();
+  expect(screen.getByText("Next request")).toBeVisible();
+  rerender(<ChatPane events={[message]} />);
+  expect(screen.queryByText("Queued after compaction")).toBeNull();
+});
+
+it("places the icon-only context control inside the composer beside Send and Stop", () => {
+  const { rerender } = render(<ChatPane events={[message]} />);
+  const composer = screen.getByRole("group", { name: "Message composer" });
+  const context = within(composer).getByLabelText("Context, usage not reported");
+  expect(context.textContent).toBe("?");
+  expect(context.closest("details")?.nextElementSibling).toBe(
+    screen.getByRole("button", { name: "Send" }),
+  );
+  rerender(<ChatPane events={[message]} running />);
+  expect(context.closest("details")?.nextElementSibling).toBe(
+    screen.getByRole("button", { name: "Stop" }),
+  );
+});
+
+it("attaches a collapsible queue above the composer until the exact pending request clears", () => {
+  const attachments: MediaAttachment[] = [
+    {
+      kind: "image",
+      name: "reference.jpg",
+      frames: [{ data: "AAAA", mediaType: "image/jpeg", timestamp: 0 }],
+    },
+  ];
+  const { rerender } = render(
+    <ChatPane
+      events={[message]}
+      pending="Next request"
+      pendingAttachments={attachments}
+      pendingAfterCompaction
+      running
+    />,
+  );
+  const queue = screen.getByRole("group", { name: "Queued messages" });
+  const composer = screen.getByRole("group", { name: "Message composer" });
+  expect(queue.nextElementSibling).toBe(composer);
+  expect(within(queue).getByText("Next request")).toBeVisible();
+  expect(within(queue).getByRole("img", { name: "reference.jpg" })).toHaveAttribute(
+    "src",
+    "data:image/jpeg;base64,AAAA",
+  );
+  expect(screen.getAllByText("Next request")).toHaveLength(1);
+  expect(screen.getByRole("log")).not.toHaveTextContent("Next request");
+  const disclosure = within(queue).getByLabelText("Queued messages, 1");
+  fireEvent.click(disclosure);
+  expect(within(queue).getByText("Next request")).not.toBeVisible();
+  fireEvent.click(disclosure);
+  expect(within(queue).getByText("Next request")).toBeVisible();
+  // A finished compaction does not identify the next request or settle its queue display.
+  rerender(
+    <ChatPane events={[message]} pending="Next request" pendingAfterCompaction running={false} />,
+  );
+  expect(screen.getByRole("group", { name: "Queued messages" })).toBeVisible();
+  rerender(<ChatPane events={[message]} pending="Ordinary request" />);
+  expect(screen.queryByRole("group", { name: "Queued messages" })).toBeNull();
+  expect(screen.getByText("Ordinary request")).toBeVisible();
 });

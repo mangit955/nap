@@ -508,3 +508,45 @@ it("acknowledges /compact from lifecycle events and keeps a queued prompt pendin
   await waitFor(() => expect(hook.result.current.pending).toBeUndefined());
   expect(endpoint.bodies).toEqual([{ message: "/compact" }, { message: "next request" }]);
 });
+
+it("retains queued provenance through compaction completion until exact acknowledgement", async () => {
+  const nextTurn = "8c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f";
+  const { result, rerender } = submission(poster(202, [nextTurn]).fetchJson);
+  const compact = ev("compaction.started", { id: TURN, trigger: "manual" });
+  rerender([compact]);
+  await act(() => result.current.submit("Next request"));
+  expect(result.current.pendingAfterCompaction).toBe(true);
+  const done = ev("compaction.completed", {
+    id: TURN,
+    beforeTokens: null,
+    afterTokens: null,
+    usage: null,
+    result: { kind: "native", provider: "codex", sessionId: "native", coveredThrough: 0 },
+  });
+  rerender([compact, done, completed(), userSaid("Next request")]);
+  expect(result.current.pendingAfterCompaction).toBe(true);
+  expect(result.current.pending).toBe("Next request");
+  rerender([compact, done, { ...userSaid("Next request"), turnId: nextTurn }]);
+  expect(result.current.pendingAfterCompaction).toBe(false);
+  expect(result.current.pending).toBeUndefined();
+});
+
+it("keeps queued media with its exact optimistic request through unrelated events", async () => {
+  const nextTurn = "8c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f";
+  const attachments: MediaAttachment[] = [
+    {
+      kind: "image",
+      name: "reference.jpg",
+      frames: [{ data: "AAAA", mediaType: "image/jpeg", timestamp: 0 }],
+    },
+  ];
+  const { result, rerender } = submission(poster(202, [nextTurn]).fetchJson);
+  const compact = ev("compaction.started", { id: TURN, trigger: "manual" });
+  rerender([compact]);
+  await act(() => result.current.submit("Match this", undefined, attachments));
+  expect(result.current).toMatchObject({ pendingAttachments: attachments });
+  rerender([compact, completed(), userSaid("Match this")]);
+  expect(result.current).toMatchObject({ pendingAttachments: attachments });
+  rerender([compact, completed(), { ...userSaid("Match this"), turnId: nextTurn }]);
+  expect(result.current).toMatchObject({ pendingAttachments: undefined });
+});

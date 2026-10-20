@@ -42,9 +42,9 @@ const NO_JOBS = jobView([]);
  * is what every test mounts, and the half that subscribes owns the socket. That is what keeps
  * two dozen render tests free of the network.
  *
- * The optimistic message is rendered *after* the transcript rather than inside it: the
- * transcript is folded from stored events, and this one has not been stored yet. See
- * `use-turn-submission.ts` for why that boundary is worth keeping.
+ * The optimistic message stays outside the transcript fold: it has not been stored yet.
+ * Requests queued after compaction attach to the composer; ordinary requests appear below
+ * the transcript. See `use-turn-submission.ts` for the request reconciliation.
  */
 export function ChatPane({
   draftIdentity,
@@ -53,6 +53,8 @@ export function ChatPane({
   jobs = NO_JOBS,
   loading = false,
   pending,
+  pendingAttachments,
+  pendingAfterCompaction = false,
   running = false,
   activity,
   error,
@@ -88,6 +90,8 @@ export function ChatPane({
    */
   loading?: boolean;
   pending?: string | undefined;
+  pendingAttachments?: MediaAttachment[] | undefined;
+  pendingAfterCompaction?: boolean;
   running?: boolean;
   activity?: { startedAt: string | undefined };
   error?: string | undefined;
@@ -140,7 +144,11 @@ export function ChatPane({
     if (dock === null) return;
     const measure = () => {
       const height = dock.getBoundingClientRect().height;
-      if (height > 0) setComposerHeight(height);
+      if (height > 0) {
+        // Keep the expanded inset while resting so returning to the end cannot cover its last row.
+        const resting = dock.querySelector('[data-resting="true"]') !== null;
+        setComposerHeight((current) => (resting ? Math.max(current, height) : height));
+      }
     };
     measure();
     const observer = new ResizeObserver(measure);
@@ -151,7 +159,7 @@ export function ChatPane({
   // ending, and the running flag alone would miss every event inside it. The seam is in it
   // because it arrives from an effect a frame after mount, in a commit where nothing else
   // changed — and a scroller that did not look then would open at the bottom and stay there.
-  const scroller = useStickToBottom<HTMLDivElement>(
+  const scroller = useStickToBottom<HTMLElement>(
     `${events.length}:${pending}:${running}:${seam}:${composerHeight}`,
     () => seamRef.current,
   );
@@ -187,11 +195,14 @@ export function ChatPane({
         )}
 
         <div className="chat-stage relative min-h-0 flex-1">
-          <div
+          <section
             ref={scroller} // `overflow-x-hidden`, not `auto`: tool output is arbitrary text, and a long line
             // belongs scrolling inside its own `OutputBlock` rather than dragging the whole
             // conversation sideways.
-            className="chat-scroller nap-scroll relative h-full overflow-y-auto overflow-x-hidden"
+            aria-label="Conversation"
+            // biome-ignore lint/a11y/noNoninteractiveTabindex: the scroll region must receive PageUp/Home/End without focusing the editor.
+            tabIndex={0}
+            className="chat-scroller nap-scroll relative h-full overflow-y-auto overflow-x-hidden focus-visible:outline-accent"
             style={{ paddingBottom: composerHeight, scrollPaddingBottom: composerHeight }}
           >
             {empty && loading ? (
@@ -203,7 +214,9 @@ export function ChatPane({
                 {events.length > 0 && (
                   <ChatTranscript items={items} seam={seam} seamRef={seamRef} onRetry={onRetry} />
                 )}
-                {pending !== undefined && <PendingMessage text={pending} />}
+                {pending !== undefined && !pendingAfterCompaction && (
+                  <PendingMessage text={pending} />
+                )}
               </>
             )}
 
@@ -213,16 +226,24 @@ export function ChatPane({
                 transcript={transcript}
               />
             )}
-          </div>
+          </section>
 
           <div ref={composerDock} className="chat-composer-dock absolute inset-x-0 bottom-0 z-10">
-            <ContextControl
-              events={events}
-              running={running}
-              onCompact={() => onSubmit("/compact")}
-            />
             <ChatInput
               draftIdentity={draftIdentity}
+              timeline={empty ? undefined : scroller}
+              contextControl={
+                <ContextControl
+                  events={events}
+                  running={running}
+                  onCompact={() => onSubmit("/compact")}
+                />
+              }
+              queued={
+                pending !== undefined && pendingAfterCompaction
+                  ? { text: pending, attachments: pendingAttachments }
+                  : undefined
+              }
               queueing={
                 pending === undefined &&
                 transcript.some((item) => item.kind === "compaction" && item.status === "running")
@@ -256,10 +277,10 @@ export function ChatPane({
 function PendingMessage({ text }: { text: string }) {
   return (
     <div className="mx-auto flex max-w-[46rem] justify-end px-5 pb-4">
-      <p className="chat-user-message whitespace-pre-wrap">
+      <div className="chat-user-message whitespace-pre-wrap">
         <span className="sr-only">You: </span>
         {text}
-      </p>
+      </div>
     </div>
   );
 }
@@ -331,7 +352,16 @@ export function LiveChatPane({
   // decided over an empty one.
   const { card, dismiss } = useUnseenCard(events, seen, replayed, active);
   const injected = fetchJson === undefined ? {} : { fetchJson };
-  const { submit, cancel, pending, running, startedAt, error } = useTurnSubmission({
+  const {
+    submit,
+    cancel,
+    pending,
+    pendingAttachments,
+    pendingAfterCompaction,
+    running,
+    startedAt,
+    error,
+  } = useTurnSubmission({
     sessionId,
     events,
     connectionStatus: log.status,
@@ -377,6 +407,8 @@ export function LiveChatPane({
         // its way, so the log this pane will show has not even been subscribed to.
         loading={sessionId === undefined || (!replayed && events.length === 0)}
         pending={pending}
+        pendingAttachments={pendingAttachments}
+        pendingAfterCompaction={pendingAfterCompaction}
         running={running}
         activity={{ startedAt }}
         error={error}

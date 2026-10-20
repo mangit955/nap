@@ -129,8 +129,8 @@ const TREATMENTS = [
       durationMs: 8400,
       commitSha: "a1b2c3d",
     },
-    // The SHA and the token counts are gone from this row; the duration is what it says now.
-    shows: /8\.4s/,
+    // Successful terminal events end streaming but add no transcript footer.
+    shows: /^$/,
   },
   {
     type: "turn.failed",
@@ -289,13 +289,13 @@ describe("a turn in progress", () => {
     );
 
     const log = screen.getByRole("log");
-    expect(log).toHaveTextContent(/45\.5s/);
+    expect(log).toBeEmptyDOMElement();
     expect(log).not.toHaveTextContent(/19909/);
     expect(log).not.toHaveTextContent(/5569/);
     expect(log).not.toHaveTextContent(/b3cf725b/);
   });
 
-  it("says a turn changed nothing rather than showing an empty commit", () => {
+  it("omits the successful footer even when no files changed", () => {
     show(
       ev("turn.completed", {
         usage: { inputTokens: 10, outputTokens: 5 },
@@ -304,7 +304,7 @@ describe("a turn in progress", () => {
       }),
     );
 
-    expect(screen.getByRole("log")).toHaveTextContent(/no file changes/i);
+    expect(screen.getByRole("log")).toBeEmptyDOMElement();
   });
 
   it("names why a turn failed, in the user's vocabulary rather than the system's", () => {

@@ -1601,15 +1601,25 @@ body {
   max-width: 46rem;
   margin-top: -48px;
 }
-.workspace-composer {
+.workspace-composer,
+.composer-queue {
   position: relative;
   min-width: 0;
   border: 1px solid color-mix(in srgb, var(--color-ink) 8%, transparent);
-  border-radius: 24px;
   background: color-mix(in srgb, var(--color-field) 80%, transparent);
   -webkit-backdrop-filter: blur(16px) saturate(1.08);
   backdrop-filter: blur(16px) saturate(1.08);
   box-shadow: inset 0 1px rgb(255 255 255 / 3%);
+}
+.workspace-composer {
+  border-radius: 24px;
+}
+.composer-queue {
+  border-radius: 16px 16px 0 0;
+  border-bottom: 0;
+}
+.context-control[open] > summary {
+  background: var(--color-hover);
 }
 .workspace-composer textarea {
   caret-color: var(--color-ink);
@@ -1663,6 +1673,7 @@ body {
 }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .workspace-composer,
+  .composer-queue,
   .composer-menu {
     background: var(--color-field);
   }
@@ -1682,6 +1693,7 @@ body {
 }
 @media (prefers-reduced-transparency: reduce) {
   .workspace-composer,
+  .composer-queue,
   .composer-menu {
     background: var(--color-field);
     -webkit-backdrop-filter: none;
@@ -1689,9 +1701,92 @@ body {
   }
 }
 @media (pointer: coarse) {
-  .composer-toolbar button {
+  .composer-toolbar button,
+  .composer-toolbar summary {
     min-height: 36px;
     min-width: 36px;
+  }
+}
+
+.workspace-composer[data-resting="true"] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 52px;
+  margin-bottom: 32px;
+  padding-right: 9px;
+  border-radius: 28px;
+}
+.workspace-composer[data-resting="true"] .composer-prompt {
+  min-width: 0;
+  flex: 1;
+  padding: 8px 0 8px 16px;
+}
+.workspace-composer[data-resting="true"] textarea {
+  min-height: 32px;
+  overflow: hidden;
+  white-space: nowrap;
+  line-height: 32px;
+}
+.workspace-composer[data-resting="true"] .composer-toolbar {
+  display: contents;
+}
+.workspace-composer[data-resting="true"] .composer-model-controls {
+  position: absolute;
+  inset: 100% 22px auto;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid color-mix(in srgb, var(--color-ink) 8%, transparent);
+  border-top: 0;
+  border-radius: 0 0 16px 16px;
+  background: color-mix(in srgb, var(--color-field) 80%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(1.08);
+  backdrop-filter: blur(16px) saturate(1.08);
+}
+.workspace-composer[data-resting="true"] .composer-model-controls button {
+  height: 24px;
+  font-size: 11px;
+}
+.workspace-composer[data-resting="true"] .composer-model-controls > button {
+  width: 24px;
+  margin-left: auto;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .workspace-composer {
+    transition: border-radius 160ms ease-out;
+  }
+  .workspace-composer[data-resting="true"] {
+    animation: composer-rest 160ms ease-out;
+  }
+  .workspace-composer[data-resting="true"] .composer-model-controls {
+    animation: composer-strip-enter 160ms ease-out;
+  }
+  @keyframes composer-rest {
+    from {
+      min-height: var(--composer-expanded-height, 128px);
+      margin-bottom: 0;
+    }
+    to {
+      min-height: 52px;
+      margin-bottom: 32px;
+    }
+  }
+  @keyframes composer-strip-enter {
+    from {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .workspace-composer[data-resting="true"] .composer-model-controls {
+    background: var(--color-field);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
   }
 }
 @media (hover: none) {
@@ -1775,6 +1870,16 @@ body {
 .workspace-composer .composer-add-menu {
   top: auto;
   bottom: calc(100% + 8px);
+}
+.composer-primary-actions {
+  position: relative;
+}
+.composer-primary-actions .composer-add {
+  position: static;
+}
+.composer-primary-actions .composer-add-menu {
+  right: 0;
+  left: auto;
 }
 .composer-add-menu button:hover,
 .composer-add-menu button:focus-visible {
