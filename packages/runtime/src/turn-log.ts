@@ -59,6 +59,22 @@ function levelFor(event: StoredEvent): EventLogLine["level"] {
  */
 function detail(event: NapEvent): Record<string, unknown> {
   switch (event.type) {
+    case "compaction.started":
+      return { compactionId: event.payload.id, trigger: event.payload.trigger };
+    case "compaction.completed":
+      return {
+        compactionId: event.payload.id,
+        kind: event.payload.result.kind,
+        usage: event.payload.usage,
+      };
+    case "compaction.failed":
+      return {
+        compactionId: event.payload.id,
+        cancelled: event.payload.cancelled,
+        usage: event.payload.usage,
+      };
+    case "context.usage":
+      return event.payload;
     case "user.message":
     case "agent.message":
     case "agent.thinking":

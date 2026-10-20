@@ -167,6 +167,14 @@ export function formatEvent(event: NapEvent): string {
 
 function detail(event: NapEvent): string {
   switch (event.type) {
+    case "compaction.started":
+      return "Compacting context";
+    case "compaction.completed":
+      return "Context compacted";
+    case "compaction.failed":
+      return event.payload.message;
+    case "context.usage":
+      return `${event.payload.inputTokens} input tokens (${event.payload.source})`;
     case "user.message":
     case "agent.message":
     case "agent.thinking":

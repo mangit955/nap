@@ -67,6 +67,51 @@ describe("1 · sandbox failure", () => {
 });
 
 describe("2 · agent failure", () => {
+  it("offers no retry when the failed turn has no identified request", () => {
+    const onRetry = vi.fn();
+    const earlier = ev("user.message", { text: "old work" });
+    const failure = {
+      ...ev("turn.failed", { reason: "internal", message: "interrupted" }),
+      turnId: "another-turn",
+    };
+    render(<ChatPane events={[earlier, failure]} onRetry={onRetry} />);
+    expect(screen.queryByRole("button", { name: /try again/i })).not.toBeInTheDocument();
+    expect(onRetry).not.toHaveBeenCalled();
+  });
+
+  it("retries the recovered manual command once without earlier media", () => {
+    const onRetry = vi.fn();
+    const earlier = {
+      ...ev("user.message", {
+        text: "old work",
+        attachments: [
+          {
+            kind: "image",
+            name: "old.jpg",
+            frames: [{ timestamp: 0, mediaType: "image/jpeg", data: "AAAA" }],
+          },
+        ],
+      }),
+      turnId: "earlier-turn",
+    };
+    const history = [
+      earlier,
+      ev("compaction.started", { id: "compact1", trigger: "manual" }),
+      ev("compaction.failed", {
+        id: "compact1",
+        message: "interrupted",
+        cancelled: false,
+        usage: null,
+      }),
+      ev("turn.failed", { reason: "internal", message: "interrupted" }),
+    ];
+    const view = render(<ChatPane events={history} onRetry={onRetry} />);
+    view.rerender(<ChatPane events={[...history]} onRetry={onRetry} />);
+    expect(screen.getByText("Compaction failed.")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: /try again/i }));
+    expect(onRetry.mock.calls).toEqual([["/compact"]]);
+  });
+
   it("offers a retry when the machinery broke", () => {
     const onRetry = vi.fn();
     render(<ChatPane events={failedTurn("internal", "unhandled error")} onRetry={onRetry} />);

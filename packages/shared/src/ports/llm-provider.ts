@@ -54,6 +54,8 @@ export type LLMToolDefinition = {
 };
 
 export type LLMRequest = {
+  purpose?: "compaction";
+  maxOutputTokens?: number;
   systemPrompt: string;
   messages: LLMMessage[];
   /** Declared every call: a model that was not told about a tool never asks for one. */
@@ -84,7 +86,13 @@ export type LLMRequest = {
 };
 
 export type LLMTurnResult =
-  | { type: "message"; text: string; toolCalls: LLMToolCall[]; usage: TokenUsage }
+  | {
+      type: "message";
+      text: string;
+      toolCalls: LLMToolCall[];
+      usage: TokenUsage;
+      truncated?: boolean;
+    }
   | { type: "refusal"; usage: TokenUsage }
   | { type: "error"; message: string; retryable: boolean; usage: TokenUsage };
 
@@ -133,8 +141,28 @@ export interface LLMProvider {
   startTurn(options?: LLMTurnOptions): LLMTurn;
 }
 
+export type NativeCompaction = (request: {
+  trustedInstructions: string;
+  untrustedContext: string;
+  signal?: AbortSignal | undefined;
+}) => Promise<{
+  provider: "claude" | "codex";
+  sessionId: string;
+  usage: TokenUsage | null;
+  beforeTokens: number | null;
+  afterTokens: number | null;
+}>;
+
 export interface LLMTurn {
+  /**
+   * Present only on a session-backed provider; never inferred from a model name.
+   * That provider owns its durable replay cursor and must not resend compacted exchanges.
+   * API providers always send the full messages list and must never expose this capability.
+   */
+  compact?: NativeCompaction;
+  contextWindowTokens?: number;
+
   complete(request: LLMRequest): Promise<LLMTurnResult>;
-  /** Everything this turn has spent so far, across every call made through this handle. */
+  /** Total complete() usage, including summaries. Native compact() reports usage separately. */
   usage(): TokenUsage;
 }

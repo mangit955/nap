@@ -17,7 +17,7 @@ Worker              claims the request and holds a lease on your session
   │
 Runtime             opens a job, says something, acquires a sandbox
   │
-ContextEngine       assembles the prompt within a token budget
+ContextEngine       assembles and prunes the working conversation
   │
 AgentService        drives the model loop, one tool call at a time
   │                   read_file · write_file · edit_file

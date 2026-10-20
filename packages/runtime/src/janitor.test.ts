@@ -268,14 +268,15 @@ describe("when the announcement does not get through", () => {
     const id = await abandoned();
     pastGrace();
 
-    // Everything is durable and only the bookkeeping failed. The next tick sees an orphan still
-    // owed its events and writes them again — a second terminal event in a chat pane is untidy,
-    // and no terminal event at all is a pane that never stops.
+    // Everything is durable and only the bookkeeping failed. The next tick sees an orphan
+    // still owed, reads its durable endings and retries the announcement mark.
     const flaky: TurnQueue = {
       orphanExpired: (limit) => queue.orphanExpired(limit),
       unannouncedOrphans: (limit) => queue.unannouncedOrphans(limit),
       markOrphanAnnounced: () => Promise.reject(new Error("no connection")),
       enqueue: (request) => queue.enqueue(request),
+      getStatus: (request) => queue.getStatus(request),
+      hasPending: (sessionId) => queue.hasPending(sessionId),
       claim: (owner) => queue.claim(owner),
       renew: (requestId, owner) => queue.renew(requestId, owner),
       settle: (requestId, owner, state) => queue.settle(requestId, owner, state),
@@ -300,6 +301,8 @@ describe("when the announcement does not get through", () => {
       orphanExpired: () => Promise.reject(new Error("the database went away")),
       unannouncedOrphans: () => Promise.reject(new Error("the database went away")),
       enqueue: (request) => queue.enqueue(request),
+      getStatus: (request) => queue.getStatus(request),
+      hasPending: (sessionId) => queue.hasPending(sessionId),
       claim: (owner) => queue.claim(owner),
       renew: (requestId, owner) => queue.renew(requestId, owner),
       settle: (requestId, owner, state) => queue.settle(requestId, owner, state),

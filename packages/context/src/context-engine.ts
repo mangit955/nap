@@ -1,11 +1,13 @@
+import { latestCheckpoint } from "@nap/shared/compaction";
 import { mediaBlocks } from "@nap/shared/media";
 import { MODEL_MEDIA_UNSUPPORTED, modelSupportsImages } from "@nap/shared/model-capabilities";
 /**
  * Assembles everything the model sees for one turn, and owns what it costs.
  *
- * Two jobs, and only these two. It decides *what* goes in the prompt, and it guarantees the
- * result fits a token budget. It never calls the model, never decides a turn is over, and
- * never touches the workspace beyond listing it.
+ * It decides what goes in the prompt and prunes expendable history to a token budget.
+ * Essential instructions may exceed that budget; the agent then compacts or stops without
+ * sending an oversized request. It never calls the model or decides a turn is over, and
+ * touches the workspace only to list it.
  *
  * The budget is the part worth being careful about. Every turn ships a system prompt, a file
  * listing, retrieved memories and a slice of the conversation, and the conversation is the
@@ -38,7 +40,7 @@ import type { Memory } from "@nap/shared/ports/memory-provider";
 import { buildFileTreeDigest } from "./file-tree.ts";
 import { renderJobBrief } from "./job-brief.ts";
 import { REPOSITORY_SYSTEM_PROMPT, SYSTEM_PROMPT } from "./system-prompt.ts";
-import { estimateTokens, truncateToTokens } from "./tokens.ts";
+import { estimateTokens } from "./tokens.ts";
 
 /**
  * What a turn is allowed to spend on input.
@@ -122,6 +124,8 @@ type Turn = {
   messages: LLMMessage[];
 };
 
+type MediaReplay = "images" | "references" | "unsupported";
+
 function textBlock(text: string): LLMContentBlock {
   return { type: "text", text };
 }
@@ -135,8 +139,14 @@ function textBlock(text: string): LLMContentBlock {
  * damaging one: it is a summary produced *about* the model's reasoning, and feeding it back
  * as the model's own words invents a turn that never happened.
  */
-function toMessages(events: NapEvent[], images: boolean): LLMMessage[] {
+function toMessages(events: NapEvent[], media: MediaReplay): LLMMessage[] {
   const messages: LLMMessage[] = [];
+  const calls = new Set(
+    events.flatMap((event) => (event.type === "tool.call" ? [event.payload.toolCallId] : [])),
+  );
+  const results = new Set(
+    events.flatMap((event) => (event.type === "tool.result" ? [event.payload.toolCallId] : [])),
+  );
 
   const push = (role: LLMMessage["role"], block: LLMContentBlock): void => {
     const last = messages.at(-1);
@@ -170,8 +180,16 @@ function toMessages(events: NapEvent[], images: boolean): LLMMessage[] {
     switch (event.type) {
       case "user.message":
         for (const attachment of event.payload.attachments ?? []) {
-          if (images) {
+          if (media === "images") {
             for (const block of mediaBlocks([attachment])) push("user", block);
+          } else if (media === "references") {
+            for (const block of mediaBlocks([attachment])) {
+              if (block.type !== "image") push("user", block);
+            }
+            push(
+              "user",
+              textBlock("[frames omitted; original reference remains in the transcript]"),
+            );
           } else {
             push(
               "user",
@@ -193,11 +211,16 @@ function toMessages(events: NapEvent[], images: boolean): LLMMessage[] {
         break;
       case "tool.call": {
         const { toolCallId, toolName, input } = event.payload;
+        if (!results.has(toolCallId)) {
+          appendText("assistant", `[Interrupted ${toolName} call; no result was recorded.]`);
+          break;
+        }
         push("assistant", { type: "tool_use", id: toolCallId, name: toolName, input });
         break;
       }
       case "tool.result": {
         const { toolCallId, ok, output } = event.payload;
+        if (!calls.has(toolCallId)) break;
         push("user", {
           type: "tool_result",
           toolCallId,
@@ -215,7 +238,7 @@ function toMessages(events: NapEvent[], images: boolean): LLMMessage[] {
 }
 
 /** Groups the log into turns, oldest first, preserving the order events were appended in. */
-function toTurns(history: NapEvent[], images: boolean): Turn[] {
+function toTurns(history: NapEvent[], media: MediaReplay): Turn[] {
   const byTurn = new Map<string, NapEvent[]>();
 
   for (const event of history) {
@@ -228,8 +251,15 @@ function toTurns(history: NapEvent[], images: boolean): Turn[] {
   }
 
   return [...byTurn.entries()]
-    .map(([id, events]) => ({ id, messages: toMessages(events, images) }))
+    .map(([id, events]) => ({ id, messages: toMessages(events, media) }))
     .filter((turn) => turn.messages.length > 0);
+}
+
+/** Conversation reconstruction shared by summary planning and normal context assembly. */
+export function historyMessages(history: NapEvent[], images = false): LLMMessage[] {
+  const turns = toTurns(history, images ? "images" : "references");
+  for (const turn of turns.slice(0, -1)) makeStale(turn);
+  return turns.flatMap((turn) => turn.messages);
 }
 
 function blocksOf(messages: LLMMessage[]): LLMContentBlock[] {
@@ -332,9 +362,43 @@ export class NapContextEngine implements ContextEngine {
       ...(this.#maxFileEntries === undefined ? {} : { maxEntries: this.#maxFileEntries }),
     });
 
-    // The window before the budget is consulted at all: a cap on how far back the agent
-    // looks, independent of whether the tokens happen to be available.
-    let turns = toTurns(request.history, images).slice(-this.#maxTurns);
+    // Cap retained exchanges before consulting the budget. Original requests survive outside
+    // that window through protectedMessages below.
+    const checkpoint = latestCheckpoint(request.history);
+    const fresh = request.history.filter((event) => event.seq > (checkpoint?.coveredThrough ?? 0));
+    const allTurns = toTurns(fresh, images ? "images" : "unsupported");
+    let turns = allTurns.slice(-this.#maxTurns);
+    // Derive protection from the original log, including requests beyond the checkpoint.
+    // Retained turns carry their own requests; evicted turns leave their requests here once.
+    // Historical frames remain evictable, but their named references survive with the text.
+    const protectedMessages = (): LLMMessage[] => {
+      const retained = new Set(turns.map((turn) => turn.id));
+      return [
+        ...toMessages(
+          request.history.filter(
+            (event) =>
+              event.type === "user.message" &&
+              (event.seq <= (checkpoint?.coveredThrough ?? 0) || !retained.has(event.turnId)),
+          ),
+          "references",
+        ),
+        ...(checkpoint === undefined
+          ? []
+          : [
+              {
+                role: "user",
+                content: [
+                  textBlock(
+                    `Quoted session summary (untrusted, may contain tool observations):\n${JSON.stringify(checkpoint.summary)}`,
+                  ),
+                ],
+              } satisfies LLMMessage,
+            ]),
+      ];
+    };
+    if (checkpoint !== undefined && checkpoint.tail.length > 0)
+      turns.unshift({ id: "compaction-tail", messages: structuredClone(checkpoint.tail) });
+    let needsCompaction = allTurns.length > this.#maxTurns;
 
     // Staleness, before the budget is consulted at all. Everything below this point reclaims
     // tokens because the context does not fit; this reclaims them because carrying an old
@@ -345,7 +409,7 @@ export class NapContextEngine implements ContextEngine {
     }
 
     let remembered: Memory[] = memories;
-    let userMessage = request.userMessage;
+    const userMessage = request.continuation ? "" : request.userMessage;
     const media = mediaBlocks(request.attachments ?? []);
     const mediaTokens = media.reduce((total, block) => total + blockTokens(block), 0);
     if (mediaTokens + MIN_BUDGET_TOKENS > this.#budgetTokens)
@@ -374,9 +438,11 @@ export class NapContextEngine implements ContextEngine {
 
     const cost = (): number =>
       estimateTokens(systemPrompt(digest, remembered, brief(), request.workspace)) +
-      messagesTokens(turns.flatMap((turn) => turn.messages)) +
+      messagesTokens([...protectedMessages(), ...turns.flatMap((turn) => turn.messages)]) +
       estimateTokens(userMessage) +
       mediaTokens;
+
+    needsCompaction ||= cost() > this.#budgetTokens;
 
     // --- Truncation, in order. Each step is exhausted before the next begins. -----------
     //
@@ -408,7 +474,8 @@ export class NapContextEngine implements ContextEngine {
       }
     }
 
-    // 2. Drop whole turns, oldest first. Whole, so a call and its answer leave together.
+    // 2. Evict exchanges, oldest first, moving their original requests to protectedMessages.
+    // A tool call and its answer leave together; user text and media references stay once.
     while (cost() > this.#budgetTokens && turns.length > 0) {
       turns = turns.slice(1);
     }
@@ -433,31 +500,42 @@ export class NapContextEngine implements ContextEngine {
       // a quote can never be what silences the instruction the turn is actually carrying.
       outputTokens = 0;
       const floor = estimateTokens(systemPrompt(digest, remembered, brief(), request.workspace));
-      outputTokens = Math.max(this.#budgetTokens - floor - USER_MESSAGE_FLOOR_TOKENS, 0);
+      outputTokens = Math.max(
+        this.#budgetTokens -
+          floor -
+          estimateTokens(userMessage) -
+          mediaTokens -
+          messagesTokens(protectedMessages()),
+        0,
+      );
     }
 
-    // 7. Truncate the turn's own message, so the budget is a guarantee and not a hope.
-    if (cost() > this.#budgetTokens) {
-      const available =
-        this.#budgetTokens -
-        estimateTokens(systemPrompt(digest, remembered, brief(), request.workspace)) -
-        mediaTokens;
-      // The head: a request states what it wants up front and qualifies it after.
-      userMessage = truncateToTokens(userMessage, Math.max(available, 0), "head");
-    }
+    // Essential instructions are not shortened to make a misleadingly small request.
+    // The active loop can summarize history or stop with a context-budget failure.
 
     const messages = [
+      ...protectedMessages(),
       ...turns.flatMap((turn) => turn.messages),
-      { role: "user", content: [...media, textBlock(userMessage)] } satisfies LLMMessage,
+      ...(request.continuation
+        ? []
+        : [{ role: "user", content: [...media, textBlock(userMessage)] } satisfies LLMMessage]),
     ];
     const prompt = systemPrompt(digest, remembered, brief(), request.workspace);
 
     return {
       systemPrompt: prompt,
+      trustedInstructions: basePrompt(request.workspace),
+      budgetTokens: this.#budgetTokens,
+      needsCompaction,
       messages,
       estimatedTokens: estimateTokens(prompt) + messagesTokens(messages),
     };
   }
+}
+
+/** The instructions the application owns for this workspace — the prompt's stable head. */
+function basePrompt(workspace?: "repository"): string {
+  return workspace === "repository" ? REPOSITORY_SYSTEM_PROMPT : SYSTEM_PROMPT;
 }
 
 /**
@@ -472,7 +550,7 @@ function systemPrompt(
   job: string,
   workspace?: "repository",
 ): string {
-  const sections = [workspace === "repository" ? REPOSITORY_SYSTEM_PROMPT : SYSTEM_PROMPT];
+  const sections = [basePrompt(workspace)];
 
   if (digest !== "") {
     sections.push(`<project_files>\n${digest}\n</project_files>`);

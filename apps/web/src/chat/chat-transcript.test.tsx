@@ -39,6 +39,7 @@ function show(...events: StoredEvent[]) {
  * chronology, and putting them in both panes says one thing twice.
  */
 const DRAWN_ELSEWHERE = [
+  "context.usage",
   "job.started",
   "verification.started",
   "verification.completed",
@@ -53,6 +54,28 @@ const DRAWN_ELSEWHERE = [
  * has a row or a place above.
  */
 const TREATMENTS = [
+  {
+    type: "compaction.started",
+    payload: { id: "compact1", trigger: "manual" },
+    shows: /Compacting context/,
+  },
+  {
+    type: "compaction.completed",
+    payload: {
+      id: "compact1",
+      result: { kind: "native", provider: "codex", sessionId: "native1", coveredThrough: 0 },
+      usage: null,
+      beforeTokens: null,
+      afterTokens: null,
+    },
+    shows: /Context compacted/,
+  },
+  {
+    type: "compaction.failed",
+    payload: { id: "compact1", message: "Compaction failed", cancelled: false, usage: null },
+    shows: /Compaction failed/,
+  },
+
   {
     type: "user.message",
     payload: { text: "build me a todo list" },
@@ -138,7 +161,7 @@ describe("every event type has a visual treatment", () => {
     // The list is otherwise an escape hatch: a type moved into it renders nowhere while both
     // the count and the compile check stay green, which is what this table exists to catch.
     for (const type of DRAWN_ELSEWHERE) {
-      expect(type).toMatch(/^(job|verification)\./);
+      expect(type).toMatch(/^(job|verification|context)\./);
       expect(TREATMENTS.map((t) => t.type)).not.toContain(type);
     }
   });

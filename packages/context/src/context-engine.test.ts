@@ -26,6 +26,8 @@ it("uses repository guidance without the starter stack assumptions", async () =>
   const built = await new NapContextEngine().build(request({ workspace: "repository" }));
   expect(built.systemPrompt.startsWith(REPOSITORY_SYSTEM_PROMPT)).toBe(true);
   expect(built.systemPrompt).not.toContain(SYSTEM_PROMPT);
+  // Compaction keeps these as the trusted half, so they must be the instructions this workspace ran under.
+  expect(built.trustedInstructions).toBe(REPOSITORY_SYSTEM_PROMPT);
   expect(built.estimatedTokens).toBeLessThanOrEqual(DEFAULT_BUDGET_TOKENS);
 });
 
@@ -259,7 +261,7 @@ describe("NapContextEngine", () => {
       expect(texts(context.messages).at(-1)).toBe("add a dark mode toggle");
     });
 
-    it("keeps only the most recent turns", async () => {
+    it("keeps the most recent exchanges and every original request once", async () => {
       const history = [1, 2, 3, 4, 5].flatMap((n) => [
         userMessage(n, `ask ${n}`),
         agentMessage(n, `answer ${n}`),
@@ -268,6 +270,9 @@ describe("NapContextEngine", () => {
       const context = await engine({ maxTurns: 2 }).build(request({ history }));
 
       expect(texts(context.messages)).toEqual([
+        "ask 1",
+        "ask 2",
+        "ask 3",
         "ask 4",
         "answer 4",
         "ask 5",
@@ -467,7 +472,7 @@ describe("NapContextEngine", () => {
       2_000,
       10_000,
       DEFAULT_BUDGET_TOKENS,
-    ])("never exceeds a budget of %i tokens", async (budgetTokens) => {
+    ])("fits a budget of %i tokens when protected requests fit", async (budgetTokens) => {
       const history = Array.from({ length: 30 }, (_, i) => toolTurn(i + 1, 5_000)).flat();
 
       const context = await engine({ budgetTokens }).build(request({ history }));
@@ -476,14 +481,15 @@ describe("NapContextEngine", () => {
       expect(totalTokens(context.systemPrompt, context.messages)).toBeLessThanOrEqual(budgetTokens);
     });
 
-    it("holds the budget even when the current message alone would blow it", async () => {
-      // The last thing that can be cut. Without this the invariant would be a wish: a user
-      // can paste a whole file into the chat box.
+    it("preserves an oversized current request so the loop can refuse instead of silently deleting instructions", async () => {
+      // The size is reported honestly; ending the turn belongs to the active loop.
       const context = await engine({ budgetTokens: MIN_BUDGET_TOKENS }).build(
         request({ userMessage: "z".repeat(200_000) }),
       );
 
-      expect(context.estimatedTokens).toBeLessThanOrEqual(MIN_BUDGET_TOKENS);
+      expect(context.estimatedTokens).toBeGreaterThan(MIN_BUDGET_TOKENS);
+      expect(context.needsCompaction).toBe(true);
+      expect(texts(context.messages).at(-1)).toBe("z".repeat(200_000));
       expect(context.systemPrompt).toContain(SYSTEM_PROMPT);
     });
 
@@ -531,7 +537,7 @@ describe("NapContextEngine", () => {
       }
     });
 
-    it("drops whole turns oldest first once there is no output left to elide", async () => {
+    it("evicts old exchanges while retaining their original requests", async () => {
       // Prose, so step one has nothing to reclaim and the drop is what is being measured.
       const history = [1, 2, 3, 4, 5, 6].flatMap((n) => wordyTurn(n, 4_000));
 
@@ -539,7 +545,14 @@ describe("NapContextEngine", () => {
       const rendered = texts(context.messages).join("\n");
 
       expect(rendered).toContain("change number 6");
-      expect(rendered).not.toContain("change number 1");
+      expect(rendered).toContain("change number 1");
+      for (let i = 1; i <= 6; i++)
+        expect(
+          texts(context.messages).filter((text) => text === `change number ${i}`),
+        ).toHaveLength(1);
+      expect(
+        context.messages.filter((message) => message.role === "assistant").length,
+      ).toBeLessThan(6);
     });
 
     it("gives up the file listing rather than the turn's own message", async () => {
@@ -757,7 +770,10 @@ describe("NapContextEngine", () => {
 
       expect(context.systemPrompt).toContain("add a dark mode toggle");
       expect(context.systemPrompt).toContain("FAIL src/App.test.tsx");
-      expect(texts(context.messages).join("\n")).not.toContain("change number 1");
+      expect(texts(context.messages).join("\n")).toContain("change number 1");
+      expect(
+        context.messages.filter((message) => message.role === "assistant").length,
+      ).toBeLessThan(6);
     });
 
     it("outlives the file listing and the memories", async () => {
@@ -848,6 +864,67 @@ describe("media in context", () => {
     frames: [{ mediaType: "image/jpeg", data: "/9j/AAAA", timestamp: 0 }],
   } as const;
   const attachments = [{ ...attachment, frames: [...attachment.frames] }];
+
+  it.each(["window", "budget", "checkpoint"] as const)(
+    "keeps old request text and named media references once after %s eviction",
+    async (eviction) => {
+      const history = [
+        event("user.message", 1, {
+          text: "Never deploy. Match the first reference.",
+          attachments: [
+            {
+              kind: "video",
+              name: "first.mp4",
+              duration: 8,
+              frames: [{ timestamp: 1.5, mediaType: "image/jpeg", data: "AAAA" }],
+            },
+          ],
+        }),
+        agentMessage(1, "w".repeat(4_000)),
+      ];
+      if (eviction === "checkpoint")
+        history.push(
+          event("compaction.completed", 1, {
+            id: crypto.randomUUID(),
+            result: {
+              kind: "api",
+              checkpoint: {
+                coveredThrough: history.at(-1)!.seq,
+                summary: "earlier work",
+                tail: [],
+              },
+            },
+            beforeTokens: 8_000,
+            afterTokens: 1_000,
+            usage: null,
+          }),
+        );
+      history.push(
+        event("user.message", 2, { text: "Match the second reference too.", attachments }),
+        agentMessage(2, "OK"),
+      );
+      const original = structuredClone(history);
+      const result = await new NapContextEngine({
+        maxTurns: eviction === "window" ? 1 : 20,
+        budgetTokens: eviction === "budget" ? 4_000 : 80_000,
+      }).build(request({ history, model: "openai/gpt-5.6-luna" }));
+      const userText = texts(result.messages.filter((message) => message.role === "user")).join(
+        "\n",
+      );
+      for (const text of [
+        "Never deploy. Match the first reference.",
+        "Match the second reference too.",
+        "first.mp4",
+        "reference.jpg",
+      ])
+        expect(userText.split(text)).toHaveLength(2);
+      expect(userText).toContain("Frame at 1.5s");
+      expect(blocks(result.messages).filter((block) => block.type === "image")).toEqual([
+        { type: "image", mediaType: "image/jpeg", data: "/9j/AAAA" },
+      ]);
+      expect(history).toEqual(original);
+    },
+  );
 
   it.each(["nvidia/nemotron-3-ultra-550b-a55b:free", "custom/unknown-model"])(
     "keeps text usable on %s while preserving references for a later vision turn",

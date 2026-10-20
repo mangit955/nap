@@ -122,7 +122,7 @@ export class ServerGitBroker implements GitBroker {
       });
     }, WATCH_EVERY_MS);
     try {
-      const env = {
+      const env: Record<string, string> = {
         PATH: process.env.PATH ?? "/usr/bin:/bin",
         HOME: directory,
         XDG_CONFIG_HOME: directory,
@@ -155,7 +155,9 @@ export class ServerGitBroker implements GitBroker {
           ],
           {
             cwd: directory,
-            env,
+            // Asserted because the web app's tests import this module, and Next's ambient types
+            // make NODE_ENV required on every ProcessEnv there. Git gets nothing from us but this.
+            env: env as NodeJS.ProcessEnv,
             timeout: 120_000,
             maxBuffer: 2 * 1024 * 1024,
             signal,

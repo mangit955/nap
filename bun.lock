@@ -78,6 +78,8 @@
         "zod": "4.4.3",
       },
       "devDependencies": {
+        "@nap/db": "workspace:*",
+        "@nap/runtime": "workspace:*",
         "@testing-library/jest-dom": "7.0.0",
         "@testing-library/react": "16.3.2",
         "@types/react": "19.2.18",
@@ -157,6 +159,7 @@
       "name": "@nap/runtime",
       "version": "0.0.0",
       "dependencies": {
+        "@nap/context": "workspace:*",
         "@nap/sandbox": "workspace:*",
         "@nap/shared": "workspace:*",
         "@nap/storage": "workspace:*",
@@ -165,7 +168,6 @@
       "devDependencies": {
         "@nap/agent": "workspace:*",
         "@nap/capture": "workspace:*",
-        "@nap/context": "workspace:*",
         "@nap/db": "workspace:*",
       },
     },

@@ -66,9 +66,10 @@ const fetchJson = async (url: string, init?: RequestInit): Promise<Response> => 
   if (url.endsWith("/models")) return json(MODELS);
   if (url.includes("/account/api-key")) return json({ present: false });
   if (url.includes("/turns")) {
+    if (init?.method !== "POST") return json({ id: url.split("/").at(-1), state: "queued" });
     const body = JSON.parse(String(init?.body ?? "{}")) as { message: string; model?: string };
     turns.push(body);
-    return json({ turnId: "e7a1c2d3-4b5a-4c6d-8e9f-0a1b2c3d4e5f" }, 202);
+    return json({ accepted: true, requestId: "e7a1c2d3-4b5a-4c6d-8e9f-0a1b2c3d4e5f" }, 202);
   }
 
   return json({ files: [], ready: true });
@@ -100,6 +101,90 @@ beforeEach(() => {
 });
 
 describe("LiveChatPane", () => {
+  it("enables the composer and Context after reloading a recovered verification child", async () => {
+    const request = "00000000-0000-4000-8000-000000000002";
+    const repair = "00000000-0000-4000-8000-000000000003";
+    const jobId = "00000000-0000-4000-8000-000000000004";
+    const events = [
+      ev("user.message", { text: "Build it" }, 1, { turnId: request }),
+      ev("agent.message", { text: "Built the dashboard" }, 2, { turnId: request }),
+      ev(
+        "turn.completed",
+        { usage: { inputTokens: 1, outputTokens: 1 }, durationMs: 1, commitSha: "abc" },
+        3,
+        { turnId: request },
+      ),
+      ev("user.message", { text: "Repair it", repair: { requestId: request, jobId } }, 4, {
+        turnId: repair,
+      }),
+      ev("turn.started", { source: "verification" }, 5, { turnId: repair }),
+      ev("turn.failed", { reason: "internal", message: "interrupted" }, 6, { turnId: repair }),
+      ev("system.notice", { level: "warning", text: "Reopen the project" }, 7, { turnId: request }),
+    ];
+    const replayed = { ...failedTurn(), events, lastSeq: 7, jobs: jobView(events) };
+    render(<LiveChatPane sessionId={SESSION_ID} log={replayed} fetchJson={fetchJson} />);
+    await screen.findByRole("button", { name: "Model" });
+    expect(screen.getByRole("textbox", { name: "Message" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: "Agent is working" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("Context"));
+    expect(screen.getByRole("button", { name: "Compact context" })).toBeEnabled();
+    fireEvent.change(screen.getByRole("textbox", { name: "Message" }), {
+      target: { value: "Add a footer" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(turns).toHaveLength(1));
+    expect(turns[0]?.message).toBe("Add a footer");
+  });
+
+  it("enables the composer and Context after reloading a late duplicate recovery start", async () => {
+    const compact = "00000000-0000-4000-8000-000000000002";
+    const marker = ev("compaction.started", { id: compact, trigger: "manual" }, 4, {
+      turnId: compact,
+    });
+    const events = [
+      ev("user.message", { text: "old work" }, 1),
+      ev("agent.message", { text: "Done" }, 2),
+      ev(
+        "turn.completed",
+        {
+          usage: { inputTokens: 1, outputTokens: 1 },
+          durationMs: 10,
+          commitSha: null,
+        },
+        3,
+      ),
+      marker,
+      ev(
+        "compaction.failed",
+        {
+          id: compact,
+          message: "interrupted",
+          cancelled: false,
+          usage: null,
+        },
+        5,
+        { turnId: compact },
+      ),
+      ev("turn.failed", { reason: "internal", message: "interrupted" }, 6, { turnId: compact }),
+      { ...marker, seq: 7, createdAt: "2026-08-09T12:00:07.000Z" },
+    ];
+    const replayed = { ...failedTurn(), events, lastSeq: 7, jobs: jobView(events) };
+    render(<LiveChatPane sessionId={SESSION_ID} log={replayed} fetchJson={fetchJson} />);
+    await screen.findByRole("button", { name: "Model" });
+    expect(screen.getByRole("textbox", { name: "Message" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: "Agent is working" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("Context"));
+    expect(screen.getByRole("button", { name: "Compact context" })).toBeEnabled();
+    fireEvent.change(screen.getByRole("textbox", { name: "Message" }), {
+      target: { value: "Add a footer" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(turns).toHaveLength(1));
+    expect(turns[0]?.message).toBe("Add a footer");
+  });
+
   it.each(["rate limit", "network"])(
     "restores the first dashboard prompt after a %s refusal and retries only on request",
     async (failure) => {
@@ -112,7 +197,10 @@ describe("LiveChatPane", () => {
           if (failure === "network") throw new TypeError("Network unavailable");
           return Response.json({ error: "try again" }, { status: 429 });
         }
-        return Response.json({ turnId: "8c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f" }, { status: 202 });
+        return Response.json(
+          { accepted: true, requestId: "8c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f" },
+          { status: 202 },
+        );
       };
       const empty = { ...failedTurn(), events: [], lastSeq: 0, jobs: jobView([]) };
       const pane = (
@@ -179,7 +267,10 @@ describe("LiveChatPane", () => {
           posted.push(JSON.parse(String(init?.body)));
           return posted.length < 3
             ? Response.json({ error: "permission required" }, { status: 403 })
-            : Response.json({ turnId: "8c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f" }, { status: 202 });
+            : Response.json(
+                { accepted: true, requestId: "8c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f" },
+                { status: 202 },
+              );
         }}
       />,
     );
@@ -217,7 +308,10 @@ describe("LiveChatPane", () => {
       if (!url.endsWith("/turns")) return fetchJson(url, init);
       posted.push(JSON.parse(String(init?.body)));
       return posted.length === 1
-        ? Response.json({ turnId: "8c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f" }, { status: 202 })
+        ? Response.json(
+            { accepted: true, requestId: "8c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f" },
+            { status: 202 },
+          )
         : Response.json({ error: "try again" }, { status: 429 });
     };
     const view = render(
@@ -230,9 +324,13 @@ describe("LiveChatPane", () => {
     );
     await act(async () => {});
     const events = [
-      ev("user.message", { text: FIRST_PROMPT.text, attachments: FIRST_PROMPT.attachments }, 1),
-      ev("turn.started", { source: "user" }, 2),
-      ev("turn.failed", { reason: "sandbox_unavailable", message: "no capacity" }, 3),
+      ev("user.message", { text: FIRST_PROMPT.text, attachments: FIRST_PROMPT.attachments }, 1, {
+        turnId: "8c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f",
+      }),
+      ev("turn.started", { source: "user" }, 2, { turnId: "8c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f" }),
+      ev("turn.failed", { reason: "sandbox_unavailable", message: "no capacity" }, 3, {
+        turnId: "8c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f",
+      }),
       ev("user.message", { text: "A later unrelated prompt" }, 4),
       ev("turn.started", { source: "user" }, 5),
       ev("turn.failed", { reason: "sandbox_unavailable", message: "no capacity" }, 6),
@@ -297,7 +395,10 @@ describe("LiveChatPane", () => {
       posted.push(JSON.parse(String(init?.body)));
       return posted.length === 1
         ? Response.json({ error: "try again" }, { status: 503 })
-        : Response.json({ turnId: "8c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f" }, { status: 202 });
+        : Response.json(
+            { accepted: true, requestId: "8c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f" },
+            { status: 202 },
+          );
     };
     const empty = { ...failedTurn(), events: [], lastSeq: 0, jobs: jobView([]) };
     const view = render(<LiveChatPane sessionId={SESSION_ID} log={empty} fetchJson={postMedia} />);
@@ -460,4 +561,41 @@ describe("LiveChatPane", () => {
     expect(await screen.findByText(/build me a todo list/)).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: /while you were away/i })).toBeNull();
   });
+});
+
+it("shares reconciled legacy activity with composer, Context and the visible clock", async () => {
+  vi.useFakeTimers();
+  const legacyTurn = "00000000-0000-4000-8000-000000000090";
+  const events = [
+    ev("agent.message", { text: "Original response" }, 1),
+    ev("user.message", { text: "Legacy repair" }, 2, { turnId: legacyTurn }),
+    ev("turn.started", { source: "verification" }, 3, { turnId: legacyTurn }),
+  ];
+  const log = { ...failedTurn(), events, lastSeq: 3, jobs: jobView(events) };
+  const view = render(
+    <LiveChatPane
+      sessionId={SESSION_ID}
+      log={log}
+      fetchJson={async (url, init) => {
+        if (url.includes("/activity"))
+          return Response.json({ sessionId: SESSION_ID, throughSeq: 3, active: false });
+        return fetchJson(url, init);
+      }}
+    />,
+  );
+  try {
+    expect(screen.getByRole("status", { name: "Agent is working" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Message" })).toBeDisabled();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(screen.queryByRole("status", { name: "Agent is working" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Message" })).toBeEnabled();
+    fireEvent.click(screen.getByText("Context"));
+    expect(screen.getByRole("button", { name: "Compact context" })).toBeEnabled();
+  } finally {
+    view.unmount();
+    vi.useRealTimers();
+  }
 });

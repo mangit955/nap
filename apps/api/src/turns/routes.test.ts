@@ -34,6 +34,7 @@ function app(
   registry = new TurnRegistry(),
   logger = silent(),
   projects = unnamedProject(),
+  store = new InMemoryEventStore(),
 ) {
   return {
     projects,
@@ -42,7 +43,7 @@ function app(
       // Every guarded route needs a caller; this stands in for a signed-in session cookie.
       authenticate: async () => ({ userId: FAKE_OWNER, isAnonymous: false }),
       stream: {
-        store: new InMemoryEventStore(),
+        store,
         bus: new InMemoryEventBus(),
         upgradeWebSocket: async () => new Response(null),
       },
@@ -77,6 +78,52 @@ const ALLOWED = ["openai/gpt-5.6-luna", "anthropic/claude-opus-5", "openai/gpt-o
 const FREE_MODEL = "openai/gpt-oss-20b:free";
 /** A caller who brought their own key, and may therefore reach the paid models. */
 const OPENROUTER_KEY = { platform: "openrouter", apiKey: "sk-or-theirs" } as const;
+
+describe("accepted request status", () => {
+  it("returns the exact admitted ID and terminal status for a prompt cancelled before execution", async () => {
+    const { app: hono, queue } = app(new InMemoryTurnQueue());
+    const admitted = await post(hono, `/sessions/${SESSION}/turns`, { message: "Add the filter" });
+    const request = queue.enqueued[0]!;
+    expect(await admitted.json()).toEqual({ accepted: true, requestId: request.id });
+    const path = `/sessions/${SESSION}/turns/${request.id}`;
+    const queued = await hono.request(path);
+    expect(queued.headers.get("cache-control")).toBe("no-store");
+    expect(await queued.json()).toEqual({ id: request.id, state: "queued" });
+    await post(hono, `/sessions/${SESSION}/turns/cancel`);
+    expect(await (await hono.request(path)).json()).toEqual({ id: request.id, state: "failed" });
+    expect(await queue.claim("worker")).toBeNull();
+  });
+
+  it("keeps a post-cancellation admission queued when the old compaction finishes", async () => {
+    const { app: hono, queue } = app(new InMemoryTurnQueue());
+    await post(hono, `/sessions/${SESSION}/turns`, { message: "/compact" });
+    const compact = (await queue.claim("worker"))!;
+    await post(hono, `/sessions/${SESSION}/turns/cancel`);
+    await post(hono, `/sessions/${SESSION}/turns`, { message: "Still wanted" });
+    const next = queue.enqueued[1]!;
+    await queue.settle(compact.id, "worker", "failed");
+    expect(await (await hono.request(`/sessions/${SESSION}/turns/${next.id}`)).json()).toEqual({
+      id: next.id,
+      state: "queued",
+    });
+    expect((await queue.claim("worker"))?.id).toBe(next.id);
+  });
+
+  it("refuses another session, another caller, unknown IDs and malformed IDs", async () => {
+    const { app: hono, queue } = app(new InMemoryTurnQueue());
+    await post(hono, `/sessions/${SESSION}/turns`, { message: "private" });
+    const request = queue.enqueued[0]!;
+    expect((await hono.request(`/sessions/${UNKNOWN}/turns/${request.id}`)).status).toBe(404);
+    const otherSessionId = crypto.randomUUID();
+    await queue.enqueue({ ...request, id: otherSessionId, sessionId: UNKNOWN });
+    expect((await hono.request(`/sessions/${SESSION}/turns/${otherSessionId}`)).status).toBe(404);
+    const otherUserId = crypto.randomUUID();
+    await queue.enqueue({ ...request, id: otherUserId, userId: "another-owner" });
+    expect((await hono.request(`/sessions/${SESSION}/turns/${otherUserId}`)).status).toBe(404);
+    expect((await hono.request(`/sessions/${SESSION}/turns/${UNKNOWN}`)).status).toBe(404);
+    expect((await hono.request(`/sessions/${SESSION}/turns/not-a-uuid`)).status).toBe(400);
+  });
+});
 
 describe("POST /sessions/:sessionId/turns", () => {
   it("accepts the message and answers before the turn is done", async () => {
@@ -669,4 +716,57 @@ describe("naming a project after its first prompt", () => {
 
     expect((await projects.get("project-1", FAKE_OWNER))?.name).toBe(UNTITLED_PROJECT);
   });
+});
+
+it("queues /compact with the ordinary durable lease and does not rename a project after it", async () => {
+  const queue = new InMemoryTurnQueue();
+  const { app: hono, projects } = app(queue);
+  const res = await post(hono, `/sessions/${SESSION}/turns`, { message: "/compact" });
+  expect(res.status).toBe(202);
+  const leased = await queue.claim("worker");
+  expect(leased).toMatchObject({ message: "/compact", kind: "turn", sessionId: SESSION });
+  expect((await projects.get("project-1", FAKE_OWNER))?.name).toBe("Untitled project");
+  const busy = await post(hono, `/sessions/${SESSION}/turns`, { message: "/compact" });
+  expect(busy.status).toBe(409);
+  const prompt = await post(hono, `/sessions/${SESSION}/turns`, { message: "next prompt" });
+  expect(prompt.status).toBe(202);
+  expect(await queue.claim("other-worker")).toBeNull();
+});
+
+it("reads a real covered prefix before checking queue activity and never caches it", async () => {
+  const events = new InMemoryEventStore();
+  const queue = new InMemoryTurnQueue();
+  const { app: hono } = app(queue, new TurnRegistry(), silent(), unnamedProject(), events);
+  const first = await events.append({
+    sessionId: SESSION,
+    turnId: UNKNOWN,
+    createdAt: "2026-10-19T00:00:00.000Z",
+    type: "user.message",
+    payload: { text: "Legacy" },
+  });
+  const read = events.readFrom.bind(events);
+  events.readFrom = async (sessionId, cursor) => {
+    const history = await read(sessionId, cursor);
+    await post(hono, `/sessions/${SESSION}/turns`, { message: "/compact" });
+    return history;
+  };
+  const response = await hono.request(`/sessions/${SESSION}/activity?cursor=${first.seq}`);
+  expect(response.status).toBe(200);
+  expect(response.headers.get("cache-control")).toBe("no-store");
+  expect(await response.json()).toEqual({
+    sessionId: SESSION,
+    throughSeq: first.seq,
+    active: true,
+  });
+  events.readFrom = read;
+  await queue.requestCancel(SESSION);
+  expect(
+    await (await hono.request(`/sessions/${SESSION}/activity?cursor=${first.seq}`)).json(),
+  ).toEqual({ sessionId: SESSION, throughSeq: first.seq, active: false });
+  expect((await hono.request(`/sessions/${SESSION}/activity?cursor=999`)).status).toBe(409);
+  expect((await hono.request(`/sessions/${SESSION}/activity?cursor=-1`)).status).toBe(400);
+  events.readFrom = async () => {
+    throw new Error("database unavailable");
+  };
+  expect((await hono.request(`/sessions/${SESSION}/activity`)).status).toBe(500);
 });

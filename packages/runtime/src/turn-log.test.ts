@@ -17,6 +17,35 @@ function base(seq: number) {
 
 /** One of every event type, so the exhaustiveness assertions below have something to walk. */
 const ONE_OF_EACH: Record<NapEventType, StoredEvent> = {
+  "compaction.started": stored({
+    ...base(19),
+    type: "compaction.started",
+    payload: { id: TURN, trigger: "manual" },
+  }),
+  "compaction.completed": stored({
+    ...base(20),
+    type: "compaction.completed",
+    payload: {
+      id: TURN,
+      result: {
+        kind: "api",
+        checkpoint: { coveredThrough: 18, summary: "private summary", tail: [] },
+      },
+      usage: null,
+      beforeTokens: null,
+      afterTokens: null,
+    },
+  }),
+  "compaction.failed": stored({
+    ...base(21),
+    type: "compaction.failed",
+    payload: { id: TURN, message: "private error", cancelled: false, usage: null },
+  }),
+  "context.usage": stored({
+    ...base(22),
+    type: "context.usage",
+    payload: { inputTokens: 1000, source: "estimated", budgetTokens: 80000, windowTokens: null },
+  }),
   "user.message": stored({
     ...base(1),
     type: "user.message",

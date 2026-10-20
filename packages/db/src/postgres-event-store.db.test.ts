@@ -63,6 +63,25 @@ function message(sessionId: string, turnId: string, text: string): PendingEvent 
 }
 
 describe("append assigns seq", () => {
+  it("replays repair ownership through a fresh adapter alongside legacy prompts", async () => {
+    const sessionId = await seedSession();
+    const requestId = randomUUID();
+    const jobId = randomUUID();
+    const legacy = await store.append({
+      ...message(sessionId, requestId, "Original request"),
+      type: "user.message",
+      payload: { text: "Original request" },
+    });
+    const repair = await store.append({
+      ...message(sessionId, randomUUID(), "Repair"),
+      type: "user.message",
+      payload: { text: "Repair", repair: { requestId, jobId } },
+    });
+    const restarted = new PostgresEventStore(db);
+    expect(await restarted.readFrom(sessionId, 0)).toEqual([legacy, repair]);
+    expect(repair.payload).toEqual({ text: "Repair", repair: { requestId, jobId } });
+  });
+
   it("starts at 1 and increments by one", async () => {
     const sessionId = await seedSession();
     const turnId = randomUUID();
@@ -344,6 +363,26 @@ describe("the store and the bus together", () => {
 const JOB = "3f9a1c2d-5e6b-4f7a-8b9c-0d1e2f3a4b5c";
 
 const PAYLOADS = [
+  { type: "compaction.started", payload: { id: JOB, trigger: "manual" } },
+  {
+    type: "compaction.completed",
+    payload: {
+      id: JOB,
+      result: { kind: "api", checkpoint: { coveredThrough: 0, summary: "Summary", tail: [] } },
+      usage: null,
+      beforeTokens: 1000,
+      afterTokens: 100,
+    },
+  },
+  {
+    type: "compaction.failed",
+    payload: { id: JOB, message: "cancelled", cancelled: true, usage: null },
+  },
+  {
+    type: "context.usage",
+    payload: { inputTokens: 1000, source: "estimated", budgetTokens: 80000, windowTokens: null },
+  },
+
   { type: "user.message", payload: { text: "build me a todo list" } },
   { type: "agent.thinking", payload: { text: "considering the layout" } },
   { type: "agent.message", payload: { text: "Added App.tsx." } },

@@ -68,6 +68,7 @@ import {
   type RestoreDeps,
   restoreDepsOf,
 } from "./acquire-sandbox.ts";
+import { contextCompactor } from "./compaction.ts";
 import { continuationFor } from "./continue-job.ts";
 import { EventSink } from "./event-sink.ts";
 import { repairCommitSubject, repairPrompt } from "./repair-prompt.ts";
@@ -114,6 +115,8 @@ type TurnSettings = {
  * — a throw can land between one turn ending and the next beginning.
  */
 type JobRun = {
+  /** The request stays fixed while turn advances through verification repairs. */
+  requestId: string;
   settings: TurnSettings;
   session: SessionRecord;
   sink: EventSink;
@@ -129,7 +132,6 @@ type JobRun = {
   /** False once a `job.completed` has been written for it. */
   open: boolean;
   previewPort: number | null;
-  requestId: string;
 };
 
 /**
@@ -479,11 +481,11 @@ export class SingleAgentRuntime implements Runtime {
       return;
     }
 
-    // Everything the continuation inherits except the resume's own turn id, which named the Turn
-    // that opened the project and names nothing this loop goes on to run.
+    // The resume owns this continuation's lease, but each repair gets a separate turn id.
     const { turnId: _resumeTurnId, ...inherited } = options;
 
     const run: JobRun = {
+      requestId: options.turnId,
       settings: {
         sessionId: session.sessionId,
         ...inherited,
@@ -501,7 +503,6 @@ export class SingleAgentRuntime implements Runtime {
       turn: scope,
       open: true,
       previewPort: repository === undefined ? this.#previewPort : repository.previewPort,
-      requestId: options.turnId,
     };
 
     getLogger().info(
@@ -528,6 +529,15 @@ export class SingleAgentRuntime implements Runtime {
       });
     } catch (error) {
       getLogger().error({ err: error, jobId: run.jobId }, "could not continue the open job");
+
+      // A resume itself has no turn, but a durable repair prompt does. Context preparation
+      // can throw before the agent emits a start or terminal for that child.
+      if (run.turn !== scope && sink.terminal === null) {
+        run.turn.emit("turn.failed", {
+          reason: options.signal?.aborted === true ? "cancelled" : "internal",
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
 
       // The same reasoning the turn path's catch uses, for the same reason: a job left open by a
       // continuation that fell over is one that the *next* open would try to continue too, and
@@ -588,6 +598,9 @@ export class SingleAgentRuntime implements Runtime {
      * and a throw can land between one turn ending and the next beginning.
      */
     let run: JobRun | null = null;
+    const manualCompactionId =
+      request.message.trim() === "/compact" ? crypto.randomUUID() : undefined;
+    let pendingCompaction = manualCompactionId;
 
     const emit = <T extends NapEvent["type"]>(type: T, payload: Payload<T>): void => {
       (run?.turn ?? scope).emit(type, payload);
@@ -596,9 +609,52 @@ export class SingleAgentRuntime implements Runtime {
     getLogger().info({ chars: request.message.length }, "turn started");
 
     try {
+      if (pendingCompaction !== undefined) {
+        emit("compaction.started", { id: pendingCompaction, trigger: "manual" });
+        await sink.drain();
+      }
       // Read before the message is logged: the context engine appends the turn's own message
       // itself, so finding it in the history too would send it to the model twice.
       const history = await this.#options.events.readFrom(request.sessionId, 0);
+
+      if (manualCompactionId !== undefined) {
+        request.signal?.throwIfAborted();
+        if (request.attachments?.length) throw new Error("Send /compact without attachments.");
+        if (
+          !history.some((event) => event.type === "agent.message" || event.type === "tool.result")
+        )
+          throw new Error("There is no complete conversation to compact yet.");
+        const acquired = await this.#acquire(session);
+        if (!acquired.ok) throw new Error(acquired.error.message);
+        for (const notice of acquired.value.notices) emit("system.notice", notice);
+        if (acquired.value.created) await this.#announcePreview(acquired.value.id, emit);
+        request.signal?.throwIfAborted();
+        const outcome = await this.#attempt({
+          settings: request,
+          scope,
+          sandboxId: acquired.value.id,
+          prompt: "",
+          promptSource: "user",
+          commitSubject: "",
+          history,
+          manualCompaction: {
+            id: manualCompactionId,
+            onSettled: () => {
+              pendingCompaction = undefined;
+            },
+          },
+        });
+        if (!outcome.ok && pendingCompaction !== undefined) {
+          emit("compaction.failed", {
+            id: pendingCompaction,
+            message: outcome.message,
+            cancelled: outcome.reason === "cancelled",
+            usage: null,
+          });
+          await sink.drain();
+        }
+        return outcome;
+      }
 
       // **Before the sandbox, and durable before it.** Acquiring a workspace takes seconds on a
       // project's first turn, and this used to sit after it: nothing whatsoever reached the client
@@ -650,6 +706,7 @@ export class SingleAgentRuntime implements Runtime {
         await this.#announcePreview(sandboxId.value.id, emit, previewPort);
 
       run = {
+        requestId: request.turnId,
         settings: { ...request, ...(repository === undefined ? {} : { workspace: "repository" }) },
         session,
         sink,
@@ -661,7 +718,6 @@ export class SingleAgentRuntime implements Runtime {
         turn: scope,
         open: true,
         previewPort,
-        requestId: request.turnId,
       };
 
       await this.#prepareRepositoryJob(run);
@@ -680,11 +736,19 @@ export class SingleAgentRuntime implements Runtime {
 
       return await this.#driveJob(run, { outcome, failed: null, announce: true, fresh: true });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const cancelled = request.signal?.aborted === true;
+      const message = cancelled
+        ? "The turn was cancelled."
+        : error instanceof Error
+          ? error.message
+          : String(error);
+      if (pendingCompaction !== undefined)
+        emit("compaction.failed", { id: pendingCompaction, message, cancelled, usage: null });
 
       // Only if the turn is not already closed — a thrown error after a `turn.failed` would
       // otherwise close the same turn twice.
-      if (sink.terminal === null) emit("turn.failed", { reason: "internal", message });
+      if (sink.terminal === null)
+        emit("turn.failed", { reason: cancelled ? "cancelled" : "internal", message });
 
       // The job goes with it, whether or not the turn that crashed had already ended: a job left
       // open is one the next opening of this project would continue, spending tokens on the
@@ -704,7 +768,12 @@ export class SingleAgentRuntime implements Runtime {
         });
       }
 
-      return { ok: false, turnId: (run?.turn ?? scope).turnId, reason: "internal", message };
+      return {
+        ok: false,
+        turnId: (run?.turn ?? scope).turnId,
+        reason: cancelled ? "cancelled" : "internal",
+        message,
+      };
     }
   }
 
@@ -821,14 +890,15 @@ export class SingleAgentRuntime implements Runtime {
       const attempt = run.repairs;
       // A fresh id, and the only kind this runtime still allocates. A repair is a distinct Turn
       // (docs/adr/0006) that shares the request's *lease* rather than its identity — the request
-      // id names the Turn it began, and a repair is not that Turn. Nothing outside needs to
-      // predict this one: the budget is counted from the log, so it survives a worker's death
-      // without a caller having had to hand these ids out in advance.
+      // id names the Turn it began, and a repair is not that Turn. The repair prompt records
+      // both identities so recovery can close this child without closing a later request.
       const repairTurnId = this.#newTurnId();
       run.turn = this.#scopeFor(session, sink, settings.sessionId, repairTurnId);
       const repaired = failed;
       outcome = await withLogContext(getLogger(), { turnId: repairTurnId }, () =>
         this.#repair({
+          requestId: run.requestId,
+          jobId,
           settings,
           scope: run.turn,
           sandboxId,
@@ -872,12 +942,15 @@ export class SingleAgentRuntime implements Runtime {
      * Handed to the context engine rather than folded there: the component that owns the token
      * budget performs no I/O and does not read the log twice.
      */
-    job: JobContext;
+    job?: JobContext;
+    manualCompaction?: { id: string; onSettled: () => void };
   }): Promise<TurnOutcome> {
     const { settings, scope, sandboxId, prompt, promptSource, commitSubject, history, job } =
       options;
     const { sink, emit, turnId } = scope;
 
+    // Preparation belongs to this turn too, even if it fails before the agent starts.
+    sink.beginTurn();
     const context = await this.#options.context.build({
       sessionId: settings.sessionId,
       sandboxId,
@@ -885,14 +958,14 @@ export class SingleAgentRuntime implements Runtime {
       model: settings.model,
       attachments: options.attachments,
       history,
-      job,
+      ...(job === undefined ? {} : { job }),
+      ...(options.manualCompaction === undefined ? {} : { continuation: true }),
       sandbox: this.#options.sandbox,
       memory: this.#options.memory,
       ...(settings.workspace === undefined ? {} : { workspace: settings.workspace }),
     });
 
-    // The previous turn of this job ended on this sink, and its ending is not this one's.
-    sink.beginTurn();
+    settings.signal?.throwIfAborted();
 
     await this.#options.agent.runTurn({
       sessionId: settings.sessionId,
@@ -901,8 +974,49 @@ export class SingleAgentRuntime implements Runtime {
       context,
       sandbox: this.#options.sandbox,
       onEvent: sink.emit,
+      ...(options.manualCompaction === undefined ? {} : { operation: "compact" }),
+      compactContext: contextCompactor({
+        ...(options.manualCompaction === undefined
+          ? {}
+          : { startedId: options.manualCompaction.id }),
+        budgetTokens: context.budgetTokens ?? 80_000,
+        read: async () => {
+          await sink.drain();
+          return this.#options.events.readFrom(settings.sessionId, 0);
+        },
+        emit: (event) => {
+          switch (event.type) {
+            case "compaction.started":
+              emit(event.type, event.payload);
+              break;
+            case "compaction.completed":
+              options.manualCompaction?.onSettled();
+              emit(event.type, event.payload);
+              break;
+            case "compaction.failed":
+              options.manualCompaction?.onSettled();
+              emit(event.type, event.payload);
+              break;
+          }
+        },
+        drain: () => sink.drain(),
+        rebuild: (history) =>
+          this.#options.context.build({
+            sessionId: settings.sessionId,
+            sandboxId,
+            userMessage: prompt,
+            model: settings.model,
+            continuation: true,
+            history,
+            ...(job === undefined ? {} : { job }),
+            sandbox: this.#options.sandbox,
+            memory: this.#options.memory,
+          }),
+      }),
       promptSource,
-      finalize: () => this.#commit(sandboxId, commitSubject),
+      ...(options.manualCompaction !== undefined
+        ? {}
+        : { finalize: () => this.#commit(sandboxId, commitSubject) }),
       ...(settings.signal === undefined ? {} : { signal: settings.signal }),
       ...(settings.model === undefined ? {} : { model: settings.model }),
       // Passed straight through and read nowhere here: the runtime decides *when* a turn
@@ -938,6 +1052,8 @@ export class SingleAgentRuntime implements Runtime {
    * event the log already carries.
    */
   async #repair(options: {
+    requestId: string;
+    jobId: string;
     settings: TurnSettings;
     scope: TurnScope;
     sandboxId: string;
@@ -953,7 +1069,11 @@ export class SingleAgentRuntime implements Runtime {
     // Read before the prompt is logged, for the same reason the user's turn does it: the
     // context engine appends this turn's own message itself.
     const history = await this.#options.events.readFrom(settings.sessionId, 0);
-    scope.emit("user.message", { text: prompt });
+    scope.emit("user.message", {
+      text: prompt,
+      repair: { requestId: options.requestId, jobId: options.jobId },
+    });
+    await scope.sink.drain();
 
     return await this.#attempt({
       settings,

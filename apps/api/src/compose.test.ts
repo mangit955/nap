@@ -378,6 +378,8 @@ describe("composeNap", () => {
       // Delegated one by one rather than spread off the instance: these are class methods over
       // private fields, and a spread copies them detached from the `this` they read.
       enqueue: (request) => queue.enqueue(request),
+      getStatus: (request) => queue.getStatus(request),
+      hasPending: (sessionId) => queue.hasPending(sessionId),
       claim: (owner) => queue.claim(owner),
       renew: (requestId, owner) => queue.renew(requestId, owner),
       settle: (requestId, owner, state) => queue.settle(requestId, owner, state),

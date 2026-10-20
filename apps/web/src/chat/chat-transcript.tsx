@@ -121,6 +121,15 @@ function Item({
   onRetry?: ((message: string, attachments?: MediaAttachment[]) => void) | undefined;
 }) {
   switch (item.kind) {
+    case "compaction":
+      return (
+        <div
+          role="status"
+          className={`rounded-lg border border-white/10 px-3 py-2 font-mono text-xs ${item.status === "failed" ? "text-amber-300" : "text-muted"}`}
+        >
+          {item.text}
+        </div>
+      );
     case "message":
       // A prompt the verifier wrote is neither of the two voices below, and drawing it as
       // either is the specific thing this treatment exists to prevent: in a user bubble it
@@ -428,8 +437,16 @@ function TurnFailure({
   item: Extract<DisplayItem, { kind: "turn-end" }> & { outcome: "failed" };
   onRetry?: ((message: string, attachments?: MediaAttachment[]) => void) | undefined;
 }) {
-  const copy = turnFailureCopy(item.reason, item.message);
   const message = item.retryMessage;
+  const copy =
+    message === "/compact"
+      ? {
+          title: item.reason === "cancelled" ? "Compaction stopped." : "Compaction failed.",
+          detail: item.message,
+          action: "Your original conversation is still available.",
+          recovery: item.reason === "cancelled" ? "none" : "retry",
+        }
+      : turnFailureCopy(item.reason, item.message);
   const canRetry =
     copy.recovery === "retry" && onRetry !== undefined && message !== undefined && message !== "";
 

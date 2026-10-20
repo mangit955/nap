@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { BACKOFF } from "../hooks/use-event-stream.ts";
 import { ev, PROJECT_ID, SESSION_ID } from "../testing/events.ts";
 import { sockets } from "../testing/fake-socket.ts";
 import { JOB_ID, jobLog } from "../testing/job-events.ts";
@@ -52,7 +53,62 @@ function shell() {
 describe("AppShell", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.useRealTimers();
   });
+
+  it.each(["ordinary-event", "socket-reconnect"])(
+    "keeps the existing preview iframe across %s",
+    async (scenario) => {
+      vi.useFakeTimers();
+      const net = sockets();
+      const view = render(
+        <AppShell projectId={PROJECT_ID} fetchJson={fetchJson} createSocket={net.createSocket} />,
+      );
+      try {
+        await act(async () => {});
+        expect(net.opened).toHaveLength(1);
+        await act(async () => {
+          net.latest.open();
+          net.latest.deliver({
+            type: "event",
+            event: ev("preview.ready", { url: "https://5173-existing.e2b.dev", port: 5173 }, 1),
+          });
+        });
+        expect(screen.queryByTitle("App preview")).toBeNull();
+        await act(async () => net.latest.deliver({ type: "ready" }));
+        const original = screen.getByTitle("App preview");
+        expect(original.isConnected).toBe(true);
+
+        if (scenario === "ordinary-event") {
+          await act(async () => {
+            net.latest.deliver({
+              type: "event",
+              event: ev("agent.message", { text: "Still here" }, 2),
+            });
+          });
+        } else {
+          act(() => net.latest.drop());
+          expect(screen.getByTitle("App preview")).toBe(original);
+          await act(async () => {
+            await vi.advanceTimersByTimeAsync(BACKOFF.initialMs);
+          });
+          expect(net.opened).toHaveLength(2);
+          expect(net.seqOf(1)).toBe("1");
+          expect(new URL(net.latest.url).searchParams.get("repairOwnership")).toBe("1");
+          expect(original.isConnected).toBe(true);
+          expect(screen.getByTitle("App preview")).toBe(original);
+          await act(async () => net.latest.open());
+          expect(original.isConnected).toBe(true);
+          expect(screen.getByTitle("App preview")).toBe(original);
+          await act(async () => net.latest.deliver({ type: "ready" }));
+        }
+        expect(original.isConnected).toBe(true);
+        expect(screen.getByTitle("App preview")).toBe(original);
+      } finally {
+        view.unmount();
+      }
+    },
+  );
 
   it("keeps a mobile draft, reference and chosen model while inspecting code", async () => {
     const media = mediaBrowser();
@@ -137,7 +193,12 @@ describe("AppShell", () => {
         createSocket={net.createSocket}
         fetchJson={(url) =>
           url.endsWith("/turns")
-            ? Promise.resolve(Response.json({ turnId: "queued" }, { status: 202 }))
+            ? Promise.resolve(
+                Response.json(
+                  { accepted: true, requestId: "8c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f" },
+                  { status: 202 },
+                ),
+              )
             : fetchJson(url)
         }
       />,
@@ -180,7 +241,8 @@ describe("AppShell", () => {
     await waitFor(() => expect(localStorage.getItem(`nap.seen.${SESSION_ID}`)).toBe("2"));
   });
 
-  it("summarizes a failure received while chat was hidden when it is shown again", async () => {
+  it("summarizes a hidden-chat failure and keeps its card dismissed across reconnect", async () => {
+    vi.useFakeTimers();
     localStorage.removeItem(`nap.seen.${SESSION_ID}`);
     vi.spyOn(window, "matchMedia").mockImplementation((query) => ({
       matches: query === "(max-width: 767px)",
@@ -196,13 +258,14 @@ describe("AppShell", () => {
     render(
       <AppShell projectId={PROJECT_ID} createSocket={net.createSocket} fetchJson={fetchJson} />,
     );
-    await waitFor(() => expect(net.opened).toHaveLength(1));
+    await act(async () => {});
+    expect(net.opened).toHaveLength(1);
     await act(async () => {
       net.latest.open();
       net.latest.deliver({ type: "event", event: ev("user.message", { text: "First" }, 1) });
       net.latest.deliver({ type: "ready" });
     });
-    await waitFor(() => expect(localStorage.getItem(`nap.seen.${SESSION_ID}`)).toBe("1"));
+    expect(localStorage.getItem(`nap.seen.${SESSION_ID}`)).toBe("1");
     expect(screen.queryByRole("region", { name: "While you were away" })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Hide chat" }));
@@ -217,8 +280,21 @@ describe("AppShell", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Show chat" }));
 
-    const card = await screen.findByRole("region", { name: "While you were away" });
+    const card = screen.getByRole("region", { name: "While you were away" });
     expect(card).toHaveTextContent("The workspace couldn't start.");
+    fireEvent.click(within(card).getByRole("button", { name: "Dismiss" }));
+    expect(screen.queryByRole("region", { name: "While you were away" })).toBeNull();
+
+    act(() => net.latest.drop());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(BACKOFF.initialMs);
+    });
+    expect(net.opened).toHaveLength(2);
+    await act(async () => {
+      net.latest.open();
+      net.latest.deliver({ type: "ready" });
+    });
+    expect(screen.queryByRole("region", { name: "While you were away" })).toBeNull();
   });
 
   it("mounts the chat beside the workbench", () => {

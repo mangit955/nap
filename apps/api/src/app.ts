@@ -278,7 +278,7 @@ export function createApp(deps: AppDeps): Hono<{ Variables: AuthVariables }> {
     );
     if (!owned.ok) return c.json({ error: owned.error.message }, owned.error.status);
 
-    const { sessionId, afterSeq } = query.value;
+    const { sessionId, afterSeq, repairOwnership } = query.value;
     let stream: ReturnType<typeof openEventStream> | undefined;
     // Counted here rather than inside `openEventStream`, because the gauge is about the socket
     // rather than about the replay: a stream that fails to start still holds a connection, and
@@ -297,6 +297,7 @@ export function createApp(deps: AppDeps): Hono<{ Variables: AuthVariables }> {
           bus: deps.stream.bus,
           sessionId,
           afterSeq,
+          repairOwnership,
           socket: ws,
           ...(deps.stream.heartbeat === undefined ? {} : { heartbeat: deps.stream.heartbeat }),
         });
@@ -329,7 +330,7 @@ export function createApp(deps: AppDeps): Hono<{ Variables: AuthVariables }> {
 
   if (deps.account !== undefined) registerAccountRoutes(app, deps.account);
   if (deps.files !== undefined) registerFileRoutes(app, deps.files);
-  if (deps.turns !== undefined) registerTurnRoutes(app, deps.turns);
+  if (deps.turns !== undefined) registerTurnRoutes(app, deps.turns, deps.stream.store);
   if (deps.models !== undefined) registerModelRoutes(app, deps.models);
   if (deps.projects !== undefined) registerProjectRoutes(app, deps.projects);
 

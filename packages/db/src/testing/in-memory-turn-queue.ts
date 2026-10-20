@@ -23,6 +23,7 @@ import type {
   TurnQueue,
   TurnRequestSettlement,
   TurnRequestState,
+  TurnRequestStatus,
 } from "@nap/shared/ports/turn-queue";
 
 type Row = EnqueueTurnRequest & {
@@ -80,6 +81,26 @@ export class InMemoryTurnQueue implements TurnQueue {
       // order, and a test that injected a frozen clock would otherwise have none.
       createdAt: this.#sequence,
     });
+  }
+
+  async getStatus(request: {
+    id: string;
+    sessionId: string;
+    userId: string;
+  }): Promise<TurnRequestStatus | null> {
+    const row = this.#rows.find(
+      (row) =>
+        row.id === request.id &&
+        row.sessionId === request.sessionId &&
+        row.userId === request.userId,
+    );
+    return row === undefined ? null : { id: row.id, state: row.state };
+  }
+
+  async hasPending(sessionId: string): Promise<boolean> {
+    return this.#rows.some(
+      (row) => row.sessionId === sessionId && (row.state === "queued" || row.state === "leased"),
+    );
   }
 
   async claim(owner: string): Promise<LeasedTurnRequest | null> {
@@ -258,5 +279,5 @@ export class InMemoryTurnQueue implements TurnQueue {
 }
 
 function asOrphan(row: Row): OrphanedTurnRequest {
-  return { id: row.id, sessionId: row.sessionId, kind: row.kind };
+  return { id: row.id, sessionId: row.sessionId, kind: row.kind, message: row.message };
 }

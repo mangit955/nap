@@ -663,6 +663,8 @@ describe("SingleAgentRuntime", () => {
       "user.message",
       "job.started",
       "turn.started",
+      "context.usage",
+      "context.usage",
       "agent.message",
       "turn.completed",
       "verification.started",

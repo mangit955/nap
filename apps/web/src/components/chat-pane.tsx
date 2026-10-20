@@ -10,6 +10,7 @@ import { useApiKey } from "../account/use-api-key.ts";
 import { NapMark } from "../brand/nap-mark.tsx";
 import { ChatInput } from "../chat/chat-input.tsx";
 import { ChatTranscript } from "../chat/chat-transcript.tsx";
+import { ContextControl } from "../chat/context-control.tsx";
 import type { FirstPrompt } from "../chat/first-prompt.ts";
 import { JobStrip } from "../chat/job-strip.tsx";
 import { jobView, type SessionJobView } from "../chat/job-summary.ts";
@@ -52,6 +53,7 @@ export function ChatPane({
   loading = false,
   pending,
   running = false,
+  activity,
   error,
   firstPrompt,
   onSubmit = () => {},
@@ -85,6 +87,7 @@ export function ChatPane({
   loading?: boolean;
   pending?: string | undefined;
   running?: boolean;
+  activity?: { startedAt: string | undefined };
   error?: string | undefined;
   /** The dashboard request, retained until admission so a refusal can restore the composer. */
   firstPrompt?: FirstPrompt | undefined;
@@ -202,11 +205,25 @@ export function ChatPane({
               </>
             )}
 
-            {running && <Working events={events} transcript={transcript} />}
+            {running && (
+              <Working
+                startedAt={activity === undefined ? turnStartedAt(events) : activity.startedAt}
+                transcript={transcript}
+              />
+            )}
           </div>
 
           <div ref={composerDock} className="chat-composer-dock absolute inset-x-0 bottom-0 z-10">
+            <ContextControl
+              events={events}
+              running={running}
+              onCompact={() => onSubmit("/compact")}
+            />
             <ChatInput
+              queueing={
+                pending === undefined &&
+                transcript.some((item) => item.kind === "compaction" && item.status === "running")
+              }
               visible={active}
               running={running}
               error={error}
@@ -252,14 +269,12 @@ function PendingMessage({ text }: { text: string }) {
  * what nothing in the log can express.
  */
 function Working({
-  events,
+  startedAt,
   transcript,
 }: {
-  events: readonly StoredEvent[];
+  startedAt: string | undefined;
   transcript: readonly TranscriptItem[];
 }) {
-  const startedAt = turnStartedAt(events);
-
   return (
     <div className="px-4 pb-3">
       <WorkingIndicator
@@ -311,9 +326,11 @@ export function LiveChatPane({
   // decided over an empty one.
   const { card, dismiss } = useUnseenCard(events, seen, replayed, active);
   const injected = fetchJson === undefined ? {} : { fetchJson };
-  const { submit, cancel, pending, running, error } = useTurnSubmission({
+  const { submit, cancel, pending, running, startedAt, error } = useTurnSubmission({
     sessionId,
     events,
+    connectionStatus: log.status,
+    replayed,
     ...injected,
   });
   const { models } = useModels(injected);
@@ -355,6 +372,7 @@ export function LiveChatPane({
         loading={sessionId === undefined || (!replayed && events.length === 0)}
         pending={pending}
         running={running}
+        activity={{ startedAt }}
         error={error}
         firstPrompt={firstPrompt}
         onSubmit={(message, attachments) => {

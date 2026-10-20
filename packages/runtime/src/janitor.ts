@@ -4,9 +4,9 @@
  * A worker that dies mid-turn leaves a request `leased` and a Turn with no terminal event.
  * `openEventStream` has no timeout, so the chat pane waits on an event nobody will ever write —
  * it spins forever and the person watching it is told nothing at all. This is what writes that
- * event: past the grace window the request becomes `orphaned` and, under the request's own turn
- * id, a `turn.failed` and a `system.notice` go into the log. **A `resume` gets the notice alone**
- * — opening a project starts no turn, so there is nothing waiting and nothing to fail.
+ * event: past the grace window the request becomes `orphaned`. Each unfinished turn it owns
+ * gets `turn.failed`, and the request gets a `system.notice`. A resume with no repair prompt
+ * gets only the notice; opening a project does not itself start a turn.
  *
  * **It does not requeue, and that is the point.** Automatic re-execution is the autonomous loop
  * that spends tokens with nobody watching, which `CONTEXT.md`'s *Continue* semantics forbid. The
@@ -46,6 +46,9 @@ const INTERRUPTED_MESSAGE =
   "This turn was interrupted: the worker running it stopped responding, so it never finished.";
 const RESUME_NOTICE =
   "Nothing was lost — the work so far is saved. Reopen the project to pick it up from where it stopped.";
+/** A publish ran no turn, so there is nothing to reopen — what is left to do is publish again. */
+const PUBLISH_INTERRUPTED_NOTICE =
+  "Publishing was interrupted. Your saved work is safe; retry publishing from this project.";
 
 export type JanitorFailure = {
   /** Which request could not be closed out, or null when the queue itself could not be asked. */
@@ -111,44 +114,84 @@ async function announce(
   const createdAt = (options.now ?? (() => new Date().toISOString()))();
   const sink = new EventSink(options.events, options.bus);
 
-  // Both under the request's own id, which is the first Turn's turn id. That identity is what
-  // lets something which never ran the turn close the right one — see `docs/scaling-design.md`
-  // §6. Ordered: the terminal event ends the turn, and the notice explains it.
-  //
-  // **A resume gets the notice alone.** Nobody started a turn by opening a project, so a
-  // `turn.failed` there is a failure in the transcript for something the user never asked for,
-  // offered back to them with a retry of an unrelated message. The event exists to stop a pane
-  // spinning on a turn it is waiting for, and an open leaves nothing waiting: there is no
-  // `user.message` to be unanswered.
-  if (request.kind === "turn") {
-    sink.emit({
-      type: "turn.failed",
-      payload: { reason: "internal", message: INTERRUPTED_MESSAGE },
-      sessionId: request.sessionId,
-      turnId: request.id,
-      createdAt,
-    });
-  }
-  sink.emit({
-    type: "system.notice",
-    payload: {
-      level: "warning",
-      text:
-        request.kind === "publish"
-          ? "Publishing was interrupted. Your saved work is safe; retry publishing from this project."
-          : RESUME_NOTICE,
-    },
-    sessionId: request.sessionId,
-    turnId: request.id,
-    createdAt,
-  });
-
   try {
+    // A worker may die during credential/session lookup, before runtime records /compact.
+    // The queue already owns that intent. Recover it here, after the lease's grace fence,
+    // and use the durable log to finish partial announcements on a later tick.
+    const manual = request.kind === "turn" && request.message?.trim() === "/compact";
+    const history = await options.events.readFrom(request.sessionId, 0);
+    const requestHistory = history.filter((event) => event.turnId === request.id);
+    if (manual) {
+      const started = requestHistory.find(
+        (event) => event.type === "compaction.started" && event.payload.trigger === "manual",
+      );
+      // Stable even if the first recovery append committed but its acknowledgement was lost.
+      const id = started?.type === "compaction.started" ? started.payload.id : request.id;
+      if (started === undefined) {
+        sink.emit({
+          type: "compaction.started",
+          payload: { id, trigger: "manual" },
+          sessionId: request.sessionId,
+          turnId: request.id,
+          createdAt,
+        });
+      }
+      if (
+        !requestHistory.some(
+          (event) =>
+            (event.type === "compaction.completed" || event.type === "compaction.failed") &&
+            event.payload.id === id,
+        )
+      ) {
+        sink.emit({
+          type: "compaction.failed",
+          payload: { id, message: INTERRUPTED_MESSAGE, cancelled: false, usage: null },
+          sessionId: request.sessionId,
+          turnId: request.id,
+          createdAt,
+        });
+      }
+    }
+
+    // The first ordinary/manual turn uses the request id even if preparation wrote nothing.
+    // Repairs name their owner on the durable prompt, before context building or turn.started.
+    // Never infer legacy child ownership from position: a later resume may own the same job.
+    const ownedTurns = new Set(request.kind === "turn" ? [request.id] : []);
+    const endedTurns = new Set<string>();
+    for (const event of history) {
+      if (event.type === "user.message" && event.payload.repair?.requestId === request.id)
+        ownedTurns.add(event.turnId);
+      if (event.type === "turn.failed" || event.type === "turn.completed")
+        endedTurns.add(event.turnId);
+    }
+    for (const turnId of ownedTurns) {
+      if (endedTurns.has(turnId)) continue;
+      sink.emit({
+        type: "turn.failed",
+        payload: { reason: "internal", message: INTERRUPTED_MESSAGE },
+        sessionId: request.sessionId,
+        turnId,
+        createdAt,
+      });
+    }
+    const notice = request.kind === "publish" ? PUBLISH_INTERRUPTED_NOTICE : RESUME_NOTICE;
+    if (
+      !requestHistory.some(
+        (event) => event.type === "system.notice" && event.payload.text === notice,
+      )
+    )
+      sink.emit({
+        type: "system.notice",
+        payload: { level: "warning", text: notice },
+        sessionId: request.sessionId,
+        turnId: request.id,
+        createdAt,
+      });
+
     await sink.drain();
   } catch (error) {
-    // The row stays unannounced, so the next tick tries again. Retrying is right even though a
-    // duplicate is conceivable: a second terminal event in a chat pane is untidy, and no
-    // terminal event at all is a pane that never stops spinning.
+    // The row stays unannounced. A new tick reads committed endings, including lost acks.
+    // Concurrent readers can still append duplicates, always under the same turn identities.
     return messageOf(error);
   }
 

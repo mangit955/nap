@@ -1,3 +1,4 @@
+import { estimateContextTokens } from "@nap/shared/compaction";
 /**
  * Driving the model through one turn.
  *
@@ -29,8 +30,10 @@ import type {
   LLMContentBlock,
   LLMMessage,
   LLMProvider,
+  LLMRequest,
   LLMToolCall,
   LLMTurn,
+  LLMTurnResult,
 } from "@nap/shared/ports/llm-provider";
 import { DeltaStream } from "./delta-stream.ts";
 import { TurnBudget, type TurnBudgetOptions } from "./safety/budget.ts";
@@ -83,6 +86,12 @@ class Turn {
   readonly #clock: () => number;
   readonly #startedAt: number;
   readonly #messages: LLMMessage[];
+  #lastCompactionStep = -3;
+  #reportedInput: number | undefined;
+  #inputEstimate = 0;
+  #nativeContext = false;
+  #nativeUsage = { inputTokens: 0, outputTokens: 0 };
+  #usageIncomplete = false;
 
   constructor(
     request: AgentTurnRequest,
@@ -109,9 +118,39 @@ class Turn {
       payload: { source: this.#request.promptSource ?? "user" },
     });
 
+    if (this.#request.operation === "compact") {
+      if (this.#cancelled()) return this.#fail("cancelled", "The turn was cancelled.");
+      const result = await this.#compact("manual");
+      if (!result.ok)
+        return this.#fail(this.#cancelled() ? "cancelled" : "internal", result.message);
+      return this.#complete();
+    }
+
     for (;;) {
       if (this.#cancelled()) return this.#fail("cancelled", "The turn was cancelled.");
 
+      const contextFailure = await this.#checkContext();
+      if (this.#cancelled()) return this.#fail("cancelled", "The turn was cancelled.");
+      if (contextFailure !== undefined) return this.#fail("internal", contextFailure);
+      const input = this.#estimate();
+      if (
+        (this.#request.context.budgetTokens !== undefined &&
+          input > this.#request.context.budgetTokens) ||
+        (this.#turn.contextWindowTokens !== undefined &&
+          input + this.#headroom() >= this.#turn.contextWindowTokens)
+      )
+        return this.#fail(
+          "budget_exceeded",
+          "The context is full. Compaction could not make enough room while preserving your instructions.",
+        );
+      if (
+        this.#request.context.budgetTokens !== undefined &&
+        input > this.#budget.remaining().tokens
+      )
+        return this.#fail(
+          "budget_exceeded",
+          "The remaining turn budget cannot cover the next model request.",
+        );
       this.#budget.recordStep();
       const stepBudget = this.#budget.check();
       if (!stepBudget.ok) return this.#failWith(stepBudget.failure);
@@ -140,7 +179,7 @@ class Turn {
       const completed = await stopAware(
         this.#turn.complete({
           systemPrompt: this.#request.context.systemPrompt,
-          messages: this.#messages,
+          messages: [...this.#messages],
           tools: TOOL_DEFINITIONS,
           onThinkingDelta: (delta) => thinking.push(delta),
           onTextDelta: (delta) => prose.push(delta),
@@ -153,6 +192,23 @@ class Turn {
         return this.#fail("cancelled", "The turn was cancelled.");
       }
       const result = completed;
+      this.#budget.recordUsage(result.usage);
+      this.#reportedInput = result.usage.inputTokens > 0 ? result.usage.inputTokens : undefined;
+      this.#inputEstimate = estimateContextTokens({
+        systemPrompt: this.#request.context.systemPrompt,
+        messages: this.#messages,
+        tools: TOOL_DEFINITIONS,
+      });
+      if (this.#request.context.budgetTokens !== undefined)
+        this.#emit({
+          type: "context.usage",
+          payload: {
+            inputTokens: this.#reportedInput ?? this.#inputEstimate,
+            source: this.#reportedInput === undefined ? "estimated" : "reported",
+            budgetTokens: this.#request.context.budgetTokens,
+            windowTokens: this.#turn.contextWindowTokens ?? null,
+          },
+        });
 
       thinking.flush();
       prose.flush();
@@ -167,7 +223,6 @@ class Turn {
         return this.#fail(result.retryable ? "model_unavailable" : "internal", result.message);
       }
 
-      this.#budget.recordUsage(result.usage);
       const tokenBudget = this.#budget.check();
       if (!tokenBudget.ok) return this.#failWith(tokenBudget.failure);
 
@@ -182,6 +237,163 @@ class Turn {
       const cancelled = await this.#runTools(result.text, result.toolCalls);
       if (cancelled) return this.#fail("cancelled", "The turn was cancelled.");
     }
+  }
+
+  #estimate(): number {
+    const estimate = estimateContextTokens({
+      systemPrompt: this.#request.context.systemPrompt,
+      messages: this.#messages,
+      tools: TOOL_DEFINITIONS,
+    });
+    const calibrated = (this.#reportedInput ?? 0) + estimate - this.#inputEstimate;
+    return this.#nativeContext && this.#reportedInput !== undefined
+      ? Math.max(0, calibrated)
+      : Math.max(estimate, calibrated);
+  }
+
+  #headroom(): number {
+    return Math.min(
+      8_192,
+      Math.floor(
+        Math.min(
+          this.#request.context.budgetTokens ?? Number.POSITIVE_INFINITY,
+          this.#turn.contextWindowTokens ?? Number.POSITIVE_INFINITY,
+        ) / 5,
+      ),
+    );
+  }
+
+  async #checkContext(): Promise<string | undefined> {
+    const ceiling = this.#request.context.budgetTokens;
+    if (ceiling === undefined) return;
+    const input = this.#estimate();
+    this.#emit({
+      type: "context.usage",
+      payload: {
+        inputTokens: input,
+        source: "estimated",
+        budgetTokens: ceiling,
+        windowTokens: this.#turn.contextWindowTokens ?? null,
+      },
+    });
+    const available = this.#budget.remaining();
+    const headroom = this.#headroom();
+    const windowPressure =
+      this.#turn.contextWindowTokens !== undefined &&
+      input + headroom >= this.#turn.contextWindowTokens;
+    const repeatedCost =
+      input >= 24_000 && input * Math.min(3, available.steps) > available.tokens / 2;
+    const pressure =
+      input + headroom >= ceiling ||
+      windowPressure ||
+      repeatedCost ||
+      (this.#request.context.needsCompaction && this.#budget.spent().steps === 0);
+    if (
+      pressure &&
+      (input >= ceiling ||
+        windowPressure ||
+        this.#budget.spent().steps - this.#lastCompactionStep >= 3) &&
+      available.steps > 1
+    ) {
+      const result = await this.#compact("automatic");
+      if (!result.ok && this.#turn.compact !== undefined) return result.message;
+    }
+    return undefined;
+  }
+
+  async #compact(
+    trigger: "manual" | "automatic",
+  ): Promise<{ ok: true } | { ok: false; message: string }> {
+    this.#lastCompactionStep = this.#budget.spent().steps;
+    if (this.#request.compactContext === undefined)
+      return { ok: false, message: "Context compaction is unavailable for this session." };
+    const complete = async (request: LLMRequest): Promise<LLMTurnResult> => {
+      const estimate = estimateContextTokens(request);
+      const remaining = this.#budget.remaining();
+      const reserve = trigger === "automatic" ? 4_096 : 0;
+      if (
+        remaining.steps <= (trigger === "automatic" ? 1 : 0) ||
+        estimate + (request.maxOutputTokens ?? 4_096) + reserve > remaining.tokens
+      )
+        throw new Error("Not enough turn budget remains for compaction and continuation.");
+      if (
+        estimate + (request.maxOutputTokens ?? 4_096) >
+        (this.#turn.contextWindowTokens ?? Number.POSITIVE_INFINITY)
+      )
+        throw new Error("The compaction request exceeds this model's context window.");
+      this.#budget.recordStep();
+      const result = await stopAware(this.#turn.complete(request), this.#request.signal);
+      if (result === CANCELLED) throw new Error("Compaction cancelled.");
+      this.#budget.recordUsage(result.usage);
+      return result;
+    };
+    const native = this.#turn.compact;
+    const result = await this.#request.compactContext({
+      messages: this.#messages,
+      tools: TOOL_DEFINITIONS,
+      systemPrompt: this.#request.context.systemPrompt,
+      trigger,
+      complete,
+      signal: this.#request.signal,
+      native:
+        native === undefined
+          ? undefined
+          : async (request) => {
+              const reserve = this.#estimate() + 4_096;
+              if (this.#budget.remaining().tokens < reserve || this.#budget.remaining().steps < 1)
+                throw new Error("Not enough turn budget remains for native compaction.");
+              this.#budget.recordStep();
+              let result: Awaited<ReturnType<typeof native>>;
+              try {
+                result = await native({
+                  ...request,
+                  trustedInstructions:
+                    this.#request.context.trustedInstructions ?? request.trustedInstructions,
+                  untrustedContext: JSON.stringify({
+                    workingContext: request.trustedInstructions,
+                    conversation: request.untrustedContext,
+                  }),
+                });
+              } catch (error) {
+                // No refund for a native command whose outcome/cost was not delivered.
+                this.#budget.recordUsage({ inputTokens: reserve, outputTokens: 0 });
+                throw error;
+              }
+              this.#budget.recordUsage(result.usage ?? { inputTokens: reserve, outputTokens: 0 });
+              if (result.usage !== null) {
+                this.#nativeUsage.inputTokens += result.usage.inputTokens;
+                this.#nativeUsage.outputTokens += result.usage.outputTokens;
+              } else this.#usageIncomplete = true;
+              return result;
+            },
+    });
+    this.#lastCompactionStep = this.#budget.spent().steps;
+    if (result.ok) {
+      this.#messages.splice(0, this.#messages.length, ...result.messages);
+      this.#nativeContext = native !== undefined;
+      this.#reportedInput = result.contextTokens;
+      this.#inputEstimate =
+        result.contextTokens === undefined
+          ? 0
+          : estimateContextTokens({
+              systemPrompt: this.#request.context.systemPrompt,
+              messages: this.#messages,
+              tools: TOOL_DEFINITIONS,
+            });
+      if (this.#request.context.budgetTokens !== undefined)
+        this.#emit({
+          type: "context.usage",
+          payload: {
+            inputTokens: this.#estimate(),
+            source: result.contextTokens === undefined ? "estimated" : "reported",
+            budgetTokens: this.#request.context.budgetTokens,
+            windowTokens: this.#turn.contextWindowTokens ?? null,
+          },
+        });
+    }
+    const verdict = this.#budget.check();
+    if (!verdict.ok) return { ok: false, message: verdict.failure.message };
+    return result;
   }
 
   /**
@@ -230,7 +442,11 @@ class Turn {
     this.#emit({
       type: "turn.completed",
       payload: {
-        usage: this.#turn.usage(),
+        ...(this.#usageIncomplete ? { usageIncomplete: true as const } : {}),
+        usage: {
+          inputTokens: this.#turn.usage().inputTokens + this.#nativeUsage.inputTokens,
+          outputTokens: this.#turn.usage().outputTokens + this.#nativeUsage.outputTokens,
+        },
         durationMs: this.#clock() - this.#startedAt,
         commitSha: finalized?.commitSha ?? null,
       },
