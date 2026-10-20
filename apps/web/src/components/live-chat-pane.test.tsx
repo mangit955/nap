@@ -127,7 +127,7 @@ describe("LiveChatPane", () => {
     expect(screen.getByRole("textbox", { name: "Message" })).toBeEnabled();
     expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();
     expect(screen.queryByRole("status", { name: "Agent is working" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByText("Context"));
+    fireEvent.click(screen.getByLabelText("Context, usage not reported"));
     expect(screen.getByRole("button", { name: "Compact context" })).toBeEnabled();
     fireEvent.change(screen.getByRole("textbox", { name: "Message" }), {
       target: { value: "Add a footer" },
@@ -175,7 +175,7 @@ describe("LiveChatPane", () => {
     expect(screen.getByRole("textbox", { name: "Message" })).toBeEnabled();
     expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();
     expect(screen.queryByRole("status", { name: "Agent is working" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByText("Context"));
+    fireEvent.click(screen.getByLabelText("Context, usage not reported"));
     expect(screen.getByRole("button", { name: "Compact context" })).toBeEnabled();
     fireEvent.change(screen.getByRole("textbox", { name: "Message" }), {
       target: { value: "Add a footer" },
@@ -592,7 +592,7 @@ it("shares reconciled legacy activity with composer, Context and the visible clo
     expect(screen.queryByRole("status", { name: "Agent is working" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Message" })).toBeEnabled();
-    fireEvent.click(screen.getByText("Context"));
+    fireEvent.click(screen.getByLabelText("Context, usage not reported"));
     expect(screen.getByRole("button", { name: "Compact context" })).toBeEnabled();
   } finally {
     view.unmount();

@@ -45,8 +45,7 @@ export function WorkingIndicator({
    */
   startedAt?: string | undefined;
 }) {
-  // Tenths, because the server replaces this a moment later with its own `Done · 12.4s` and
-  // the handover should read as one measurement rather than two.
+  // The server's start time keeps the active clock stable across reloads.
   const elapsed = useElapsed({ startedAt, precision: 1, tickMs: TICK_MS });
 
   return (

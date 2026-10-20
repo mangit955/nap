@@ -9,6 +9,17 @@ also follow that implementation. Pinned source revision:
 [e3b35d1b2440b104f0bc2e357377c348121234dd](https://github.com/pingdotgg/t3code/tree/e3b35d1b2440b104f0bc2e357377c348121234dd).
 The API summary/checkpoint implementation is nap-specific.
 
+The circular input-budget meter and popup in `apps/web/src/chat/context-control.tsx`
+and the quiet compaction timeline in `apps/web/src/chat/compaction-row.tsx` adapt
+`ContextWindowMeter.tsx` and `ContextCompactionTimelineRow`. The attached queued-prompt panel
+in `apps/web/src/chat/chat-input.tsx` adapts `QueuedRunsControl.tsx`, `ComposerBanner.tsx`
+and `ComposerSurface.tsx`. The scroll-resting composer in `chat-input.tsx`,
+`use-composer-scroll.ts` and `chat-pane.tsx` adapts `ChatComposer.tsx`,
+`composerScrollGesture.ts`, `timelineScrollTarget.ts` and `composerFooterLayout.ts`.
+These components come from T3 Code revision
+[67c0fc0cdaf963b103518862dd7b68a9c758ecf2](https://github.com/pingdotgg/t3code/tree/67c0fc0cdaf963b103518862dd7b68a9c758ecf2).
+Nap uses its configured input budget, existing event lifecycle and theme tokens.
+
 The upstream license follows in full:
 
 MIT License

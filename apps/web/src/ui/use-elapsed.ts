@@ -9,8 +9,7 @@
  * that it is the one number on screen a person can trust.
  *
  * Two callers want different faces on the same idea. The transcript's working indicator counts
- * in tenths, because the server replaces it a moment later with `Done · 12.4s` and the handover
- * should read as one measurement. A pane waiting on a sandbox counts in whole seconds: a tenths
+ * in tenths during an active turn. A pane waiting on a sandbox counts in whole seconds: a tenths
  * digit flickering ten times a second beside a large mark is noise pretending to be progress.
  */
 

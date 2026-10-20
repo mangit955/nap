@@ -24,6 +24,7 @@ import { Fragment } from "react";
 import { NapMark } from "../brand/nap-mark.tsx";
 import { turnFailureCopy } from "../errors/failure-copy.ts";
 import { AlertIcon, CopyIcon } from "../ui/icons.tsx";
+import { CompactionRow } from "./compaction-row.tsx";
 import { OutputBlock } from "./output-block.tsx";
 import type { DisplayItem } from "./step-group.ts";
 import { StepGroupCard } from "./step-group-card.tsx";
@@ -65,6 +66,21 @@ export function ChatTranscript({
   // bug — a client that reconnected mid-turn has no `turn.started` in its log, and the
   // passage the model is writing right now is exactly what it would refuse to animate.
   const liveKey = items.at(-1)?.key;
+  const compactionFailures = new Map<
+    number,
+    Extract<DisplayItem, { kind: "turn-end"; outcome: "failed" }>
+  >();
+  const foldedFailures = new Set<number>();
+  for (const item of items) {
+    if (
+      item.kind !== "turn-end" ||
+      item.outcome !== "failed" ||
+      item.compactionFailureKey === undefined
+    )
+      continue;
+    compactionFailures.set(item.compactionFailureKey, item);
+    foldedFailures.add(item.key);
+  }
 
   return (
     <div
@@ -79,15 +95,18 @@ export function ChatTranscript({
       {items.map((item, index) => (
         <Fragment key={item.key}>
           {item.key === seam && <UnseenSeam seamRef={seamRef} />}
-          <Item
-            item={item}
-            live={item.key === liveKey}
-            // Whether the agent has already spoken since the last thing the user said. Its prose
-            // is labelled once per block rather than once per paragraph, the way a chat names a
-            // speaker only when the speaker changes.
-            opensBlock={opensBlock(items, index)}
-            onRetry={onRetry}
-          />
+          {!foldedFailures.has(item.key) && (
+            <Item
+              compactionFailure={compactionFailures.get(item.key)}
+              item={item}
+              live={item.key === liveKey}
+              // Whether the agent has already spoken since the last thing the user said. Its prose
+              // is labelled once per block rather than once per paragraph, the way a chat names a
+              // speaker only when the speaker changes.
+              opensBlock={opensBlock(items, index)}
+              onRetry={onRetry}
+            />
+          )}
         </Fragment>
       ))}
     </div>
@@ -113,8 +132,10 @@ function Item({
   live,
   opensBlock,
   onRetry,
+  compactionFailure,
 }: {
   item: DisplayItem;
+  compactionFailure?: Extract<DisplayItem, { kind: "turn-end"; outcome: "failed" }> | undefined;
   /** Whether this item can still be added to. Only ever true of the last one, mid-turn. */
   live: boolean;
   opensBlock: boolean;
@@ -123,12 +144,14 @@ function Item({
   switch (item.kind) {
     case "compaction":
       return (
-        <div
-          role="status"
-          className={`rounded-lg border border-white/10 px-3 py-2 font-mono text-xs ${item.status === "failed" ? "text-amber-300" : "text-muted"}`}
-        >
-          {item.text}
-        </div>
+        <CompactionRow
+          item={item}
+          recovery={
+            compactionFailure !== undefined ? (
+              <TurnFailure item={compactionFailure} onRetry={onRetry} insideCompaction />
+            ) : undefined
+          }
+        />
       );
     case "message":
       // A prompt the verifier wrote is neither of the two voices below, and drawing it as
@@ -290,21 +313,7 @@ function Item({
       );
 
     case "turn-end":
-      return item.outcome === "completed" ? (
-        <Meta>
-          {/*
-            Just how long it took, and whether anything changed. The token counts and the commit
-            SHA used to be here and are instrumentation rather than something a person reads
-            between turns — forty characters of hex that also pushed this row wider than the
-            pane and gave the whole transcript a horizontal scrollbar. Both are still in the
-            event log for anything that wants them.
-          */}
-          Done · {(item.durationMs / 1000).toFixed(1)}s
-          {item.commitSha === null ? " · no file changes" : ""}
-        </Meta>
-      ) : (
-        <TurnFailure item={item} onRetry={onRetry} />
-      );
+      return item.outcome === "completed" ? null : <TurnFailure item={item} onRetry={onRetry} />;
   }
 }
 
@@ -433,9 +442,11 @@ function Meta({ children }: { children: React.ReactNode }) {
 function TurnFailure({
   item,
   onRetry,
+  insideCompaction = false,
 }: {
   item: Extract<DisplayItem, { kind: "turn-end" }> & { outcome: "failed" };
   onRetry?: ((message: string, attachments?: MediaAttachment[]) => void) | undefined;
+  insideCompaction?: boolean;
 }) {
   const message = item.retryMessage;
   const copy =
@@ -451,10 +462,22 @@ function TurnFailure({
     copy.recovery === "retry" && onRetry !== undefined && message !== undefined && message !== "";
 
   return (
-    <div className="flex flex-col gap-1 rounded-xl border border-danger/30 bg-danger/[0.06] px-3 py-2.5">
-      <p className="font-medium text-[13px] text-danger">{copy.title}</p>
+    <div
+      className={
+        insideCompaction
+          ? "flex flex-col gap-1"
+          : `flex flex-col gap-1 rounded-xl border px-3 py-2.5 ${item.reason === "cancelled" ? "border-edge" : "border-danger/30 bg-danger/[0.06]"}`
+      }
+    >
+      {!insideCompaction && (
+        <p
+          className={`font-medium text-[13px] ${item.reason === "cancelled" ? "text-muted" : "text-danger"}`}
+        >
+          {copy.title}
+        </p>
+      )}
       {/* Mono, because this half is the machine talking — the same split the rest of the pane uses. */}
-      <p className="font-mono text-[11px] text-muted">{copy.detail}</p>
+      <p className="break-words font-mono text-[11px] text-muted">{copy.detail}</p>
       <p className="text-[12px] text-muted">{copy.action}</p>
 
       {canRetry && (
@@ -465,7 +488,7 @@ function TurnFailure({
               ? onRetry(message)
               : onRetry(message, item.retryAttachments)
           }
-          className="mt-1.5 self-start rounded-chip border border-edge px-2 py-1 text-[11px] text-ink-2 transition-colors hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
+          className={`mt-1.5 self-start rounded-chip border border-edge px-2 py-1 text-[11px] text-ink-2 transition-colors hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent ${insideCompaction ? "min-h-8" : ""}`}
         >
           Try again
         </button>

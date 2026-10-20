@@ -15,9 +15,10 @@ export function CompactionPreview() {
     baseUrl: "http://localhost:3036",
   });
   const [mode, setMode] = useState("success");
+  const [narrow, setNarrow] = useState(false);
   return (
     <main className="h-dvh bg-canvas text-ink">
-      <div className="flex h-12 items-center gap-4 px-5 text-sm">
+      <div className="flex h-20 flex-wrap items-center gap-x-4 px-5 text-xs sm:h-12 sm:text-sm">
         <strong>Compaction verification · scripted model</strong>
         <label>
           Next summary{" "}
@@ -35,13 +36,39 @@ export function CompactionPreview() {
             <option value="slow">Wait for cancellation</option>
           </select>
         </label>
+        <label className="flex items-center gap-1.5">
+          <input
+            type="checkbox"
+            checked={narrow}
+            onChange={(event) => setNarrow(event.target.checked)}
+          />
+          Narrow chat pane
+        </label>
       </div>
-      <div className="mx-auto h-[calc(100dvh-3rem)] max-w-3xl border-x border-edge">
+      <div
+        className={`mx-auto h-[calc(100dvh-5rem)] sm:h-[calc(100dvh-3rem)] border-x border-edge ${narrow ? "max-w-[440px]" : "max-w-3xl"}`}
+      >
         <ChatPane
+          models={[
+            { id: "fixture/free", label: "Scripted model", available: true, free: true },
+            {
+              id: "fixture/unavailable",
+              label: "Unavailable fixture model",
+              available: false,
+              free: false,
+            },
+          ]}
+          model="fixture/free"
           events={log.events}
           jobs={log.jobs}
           loading={!log.replayed}
           pending={turn.pending}
+          pendingAttachments={turn.pendingAttachments}
+          pendingAfterCompaction={turn.pendingAfterCompaction}
+          activity={{ startedAt: turn.startedAt }}
+          onRetry={(message, attachments) => {
+            void turn.submit(message, undefined, attachments);
+          }}
           running={turn.running}
           error={turn.error}
           onSubmit={(message, attachments) => {
