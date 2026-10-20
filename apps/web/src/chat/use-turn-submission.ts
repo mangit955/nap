@@ -35,6 +35,7 @@ import { z } from "zod";
 import { credentialedFetch } from "../api/credentialed-fetch.ts";
 import { requestFailureCopy } from "../errors/failure-copy.ts";
 import type { StreamStatus } from "../hooks/use-event-stream.ts";
+import { buildTranscript } from "./transcript.ts";
 import { inFlightTurn } from "./working-state.ts";
 
 /**
@@ -52,6 +53,7 @@ export type TurnSubmission = {
   cancel: () => Promise<void>;
   /** The message the user sent that the log has not caught up with yet. */
   pending: string | undefined;
+  pendingAfterCompaction: boolean;
   running: boolean;
   startedAt: string | undefined;
   error: string | undefined;
@@ -63,6 +65,7 @@ type PendingSubmission = {
   key: symbol;
   sessionId: string;
   text: string;
+  afterCompaction: boolean;
 } & ({ kind: "posting" | "unconfirmed" } | { kind: "accepted"; requestId: string });
 
 /**
@@ -270,7 +273,18 @@ export function useTurnSubmission(options: {
 
     const key = Symbol();
     active.current = key;
-    setPending({ key, sessionId, text, kind: "posting" });
+    setPending({
+      key,
+      sessionId,
+      text,
+      kind: "posting",
+      afterCompaction:
+        turn !== undefined &&
+        buildTranscript(events.filter((event) => event.sessionId === sessionId)).some(
+          (item) =>
+            item.kind === "compaction" && item.turnId === turn.turnId && item.status === "running",
+        ),
+    });
     setError(undefined);
 
     try {
@@ -342,6 +356,7 @@ export function useTurnSubmission(options: {
     submit,
     cancel,
     pending: pending?.sessionId === sessionId ? pending?.text : undefined,
+    pendingAfterCompaction: pending?.sessionId === sessionId && pending?.afterCompaction === true,
     running:
       (pending !== undefined && pending.sessionId === sessionId) ||
       observation?.active === true ||

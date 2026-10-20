@@ -147,3 +147,13 @@ describe("ChatPane", () => {
     expect(screen.getByRole("status", { name: "Agent is working" })).toBeInTheDocument();
   });
 });
+
+it("labels only the optimistic message queued after compaction", () => {
+  const { rerender } = render(
+    <ChatPane events={[message]} pending="Next request" pendingAfterCompaction running />,
+  );
+  expect(screen.getByText("Queued after compaction")).toBeVisible();
+  expect(screen.getByText("Next request")).toBeVisible();
+  rerender(<ChatPane events={[message]} />);
+  expect(screen.queryByText("Queued after compaction")).toBeNull();
+});

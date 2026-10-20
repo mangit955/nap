@@ -17,7 +17,7 @@ export function CompactionPreview() {
   const [mode, setMode] = useState("success");
   return (
     <main className="h-dvh bg-canvas text-ink">
-      <div className="flex h-12 items-center gap-4 px-5 text-sm">
+      <div className="flex h-20 flex-wrap items-center gap-x-4 px-5 text-xs sm:h-12 sm:text-sm">
         <strong>Compaction verification · scripted model</strong>
         <label>
           Next summary{" "}
@@ -36,12 +36,17 @@ export function CompactionPreview() {
           </select>
         </label>
       </div>
-      <div className="mx-auto h-[calc(100dvh-3rem)] max-w-3xl border-x border-edge">
+      <div className="mx-auto h-[calc(100dvh-5rem)] sm:h-[calc(100dvh-3rem)] max-w-3xl border-x border-edge">
         <ChatPane
           events={log.events}
           jobs={log.jobs}
           loading={!log.replayed}
           pending={turn.pending}
+          pendingAfterCompaction={turn.pendingAfterCompaction}
+          activity={{ startedAt: turn.startedAt }}
+          onRetry={(message, attachments) => {
+            void turn.submit(message, undefined, attachments);
+          }}
           running={turn.running}
           error={turn.error}
           onSubmit={(message, attachments) => {

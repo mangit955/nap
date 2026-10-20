@@ -47,6 +47,19 @@ export type StepStatus = "running" | "ok" | "failed";
  */
 export type Speaker = "user" | "agent" | "verifier";
 
+export type CompactionItem = {
+  kind: "compaction";
+  key: number;
+  id: string;
+  turnId: string;
+  trigger: NapEventOf<"compaction.started">["payload"]["trigger"] | null;
+  startedAt: string | null;
+} & (
+  | { status: "running" }
+  | ({ status: "completed"; finishedAt: string } & NapEventOf<"compaction.completed">["payload"])
+  | ({ status: "failed"; finishedAt: string } & NapEventOf<"compaction.failed">["payload"])
+);
+
 export type TranscriptItem =
   | {
       kind: "message";
@@ -55,14 +68,7 @@ export type TranscriptItem =
       text: string;
       attachments?: MediaAttachment[] | undefined;
     }
-  | {
-      kind: "compaction";
-      key: number;
-      id: string;
-      turnId: string;
-      status: "running" | "completed" | "failed";
-      text: string;
-    }
+  | CompactionItem
   | { kind: "thinking"; key: number; text: string }
   | {
       kind: "step";
@@ -104,6 +110,7 @@ type TurnOutcome =
     }
   | {
       outcome: "failed";
+      turnId: string;
       reason: NapEventOf<"turn.failed">["payload"]["reason"];
       message: string;
       /**
@@ -116,6 +123,8 @@ type TurnOutcome =
        */
       retryMessage: string | undefined;
       retryAttachments?: MediaAttachment[] | undefined;
+      /** A matching immediate compaction terminal, or the running compaction this failure ends. */
+      compactionFailureKey?: number;
     };
 
 type Step = Extract<TranscriptItem, { kind: "step" }>;
@@ -174,7 +183,7 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
   // Only a known verification turn can inherit another turn's user request.
   let lastUserRequest: RetryRequest | undefined;
 
-  for (const event of events) {
+  for (const [eventIndex, event] of events.entries()) {
     // `seq` is unique per session and never reused, so it is a stable React key for free —
     // an index would re-key the whole list on every new event, springing collapsed steps open.
     const key = event.seq;
@@ -192,32 +201,34 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
           id: event.payload.id,
           turnId: event.turnId,
           status: "running",
-          text: "Compacting context…",
+          trigger: event.payload.trigger,
+          startedAt: event.createdAt,
         });
         break;
       case "compaction.completed":
       case "compaction.failed": {
-        const item = items.find(
+        const index = items.findIndex(
           (item) => item.kind === "compaction" && item.id === event.payload.id,
         );
-        const status = event.type === "compaction.completed" ? "completed" : "failed";
-        const usage = event.payload.usage;
-        const text =
-          event.type === "compaction.failed"
-            ? event.payload.message
-            : `Context compacted${usage === null ? "" : ` · ${usage.inputTokens.toLocaleString()} input / ${usage.outputTokens.toLocaleString()} output tokens`}`;
-        if (item?.kind === "compaction") {
-          item.status = status;
-          item.text = text;
-        } else
-          items.push({
-            kind: "compaction",
-            key,
-            id: event.payload.id,
-            turnId: event.turnId,
-            status,
-            text,
-          });
+        const previous = items[index];
+        const identity =
+          previous?.kind === "compaction"
+            ? {
+                key: previous.key,
+                trigger: previous.trigger,
+                startedAt: previous.startedAt,
+              }
+            : { key, trigger: null, startedAt: null };
+        const item: CompactionItem = {
+          kind: "compaction",
+          turnId: event.turnId,
+          ...identity,
+          ...(event.type === "compaction.completed"
+            ? { status: "completed", finishedAt: event.createdAt, ...event.payload }
+            : { status: "failed", finishedAt: event.createdAt, ...event.payload }),
+        };
+        if (index === -1) items.push(item);
+        else items[index] = item;
         break;
       }
       case "user.message": {
@@ -385,14 +396,33 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
         break;
 
       case "turn.failed": {
-        for (const item of items)
+        let compactionFailureKey: number | undefined;
+        const previous = events[eventIndex - 1];
+        if (
+          previous?.type === "compaction.failed" &&
+          previous.turnId === event.turnId &&
+          (previous.payload.message === event.payload.message ||
+            (previous.payload.cancelled && event.payload.reason === "cancelled"))
+        ) {
+          compactionFailureKey = items.find(
+            (item) => item.kind === "compaction" && item.id === previous.payload.id,
+          )?.key;
+        }
+        for (const [index, item] of items.entries())
           if (
             item.kind === "compaction" &&
             item.turnId === event.turnId &&
             item.status === "running"
           ) {
-            item.status = "failed";
-            item.text = "Compaction interrupted.";
+            compactionFailureKey = item.key;
+            items[index] = {
+              ...item,
+              status: "failed",
+              finishedAt: event.createdAt,
+              message: event.payload.message,
+              cancelled: event.payload.reason === "cancelled",
+              usage: null,
+            };
           }
 
         const retry = retryByTurn.get(event.turnId);
@@ -400,9 +430,11 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
           kind: "turn-end",
           key,
           outcome: "failed",
+          turnId: event.turnId,
           reason: event.payload.reason,
           message: event.payload.message,
           retryMessage: retry?.text,
+          ...(compactionFailureKey === undefined ? {} : { compactionFailureKey }),
           ...(retry?.attachments === undefined ? {} : { retryAttachments: retry.attachments }),
         });
         break;

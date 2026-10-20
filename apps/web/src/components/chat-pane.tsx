@@ -52,6 +52,7 @@ export function ChatPane({
   jobs = NO_JOBS,
   loading = false,
   pending,
+  pendingAfterCompaction = false,
   running = false,
   activity,
   error,
@@ -86,6 +87,7 @@ export function ChatPane({
    */
   loading?: boolean;
   pending?: string | undefined;
+  pendingAfterCompaction?: boolean;
   running?: boolean;
   activity?: { startedAt: string | undefined };
   error?: string | undefined;
@@ -201,7 +203,9 @@ export function ChatPane({
                 {events.length > 0 && (
                   <ChatTranscript items={items} seam={seam} seamRef={seamRef} onRetry={onRetry} />
                 )}
-                {pending !== undefined && <PendingMessage text={pending} />}
+                {pending !== undefined && (
+                  <PendingMessage text={pending} afterCompaction={pendingAfterCompaction} />
+                )}
               </>
             )}
 
@@ -250,13 +254,18 @@ export function ChatPane({
  * the same message. A differently-styled placeholder that swaps for the real thing a moment later
  * is a flicker with no meaning behind it.
  */
-function PendingMessage({ text }: { text: string }) {
+function PendingMessage({ text, afterCompaction }: { text: string; afterCompaction: boolean }) {
   return (
     <div className="mx-auto flex max-w-[46rem] justify-end px-5 pb-4">
-      <p className="chat-user-message whitespace-pre-wrap">
+      <div className="chat-user-message whitespace-pre-wrap">
         <span className="sr-only">You: </span>
         {text}
-      </p>
+        {afterCompaction && (
+          <p role="status" className="mt-2 font-sans text-[11px] text-muted">
+            Queued after compaction
+          </p>
+        )}
+      </div>
     </div>
   );
 }
@@ -326,13 +335,14 @@ export function LiveChatPane({
   // decided over an empty one.
   const { card, dismiss } = useUnseenCard(events, seen, replayed, active);
   const injected = fetchJson === undefined ? {} : { fetchJson };
-  const { submit, cancel, pending, running, startedAt, error } = useTurnSubmission({
-    sessionId,
-    events,
-    connectionStatus: log.status,
-    replayed,
-    ...injected,
-  });
+  const { submit, cancel, pending, pendingAfterCompaction, running, startedAt, error } =
+    useTurnSubmission({
+      sessionId,
+      events,
+      connectionStatus: log.status,
+      replayed,
+      ...injected,
+    });
   const { models } = useModels(injected);
   // Somebody who meets a locked model, or a turn refused for want of a key, should be able to
   // fix it here rather than being sent to the dashboard and back.
@@ -371,6 +381,7 @@ export function LiveChatPane({
         // its way, so the log this pane will show has not even been subscribed to.
         loading={sessionId === undefined || (!replayed && events.length === 0)}
         pending={pending}
+        pendingAfterCompaction={pendingAfterCompaction}
         running={running}
         activity={{ startedAt }}
         error={error}
