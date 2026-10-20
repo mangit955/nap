@@ -249,7 +249,8 @@ automatically, or as a queued turn request of kind `publish` that spends no mode
 
 **PR refresh** — rereading one repository job's pull request — its state, checks, reviews and
 comments — and writing down what it found, including **PR feedback**. A webhook delivery triggers
-one; a pull request nothing has refreshed for five minutes gets one from the backstop. Not
+one, approving PR feedback rechecks with one first, and a pull request nothing has refreshed for
+five minutes gets one from the backstop. Not
 **reconciliation**, which is about sandbox capacity.
 
 **PR feedback** — a failed check, or a `/nap <instruction>` comment from the connected GitHub user,
@@ -257,7 +258,7 @@ found by a PR refresh and held as *pending* until the Nap owner approves it. App
 an ordinary turn request; nothing a webhook brings in ever starts one by itself.
 
 **Webhook inbox** — the table signed GitHub deliveries are written to by the API and read from by the
-**GitHub sweep**: deduplicated by delivery id, claimed under a lease, retried up to five times.
+**GitHub sweep**: deduplicated by delivery id, claimed under a lease, given up after five attempts.
 Receiving a delivery and acting on it are separate on purpose, so an API pod never calls GitHub
 on a webhook's behalf.
 

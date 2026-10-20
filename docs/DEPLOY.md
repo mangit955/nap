@@ -25,7 +25,7 @@ The binary is split (`docs/scaling-design.md` §4 and §13). One image, three co
 |---|---|---|---|---|
 | API | `bun apps/api/src/index.ts` (the Dockerfile's default) | HTTP, WebSockets, auth, admission | nothing | as many as you like; one on Railway today |
 | Worker | `bun apps/api/src/worker.ts` | nothing | turns | as many as you like; one on Railway today |
-| Reaper | `bun apps/api/src/reaper.ts` | nothing | the idle sweep, capacity reconciliation, the rate-event sweep, the janitor | **exactly one** |
+| Reaper | `bun apps/api/src/reaper.ts` | nothing | the idle sweep, capacity reconciliation, the rate-event sweep, the janitor, and with a GitHub App configured the GitHub sweep | **exactly one** |
 
 All three call `bootNap` in `apps/api/src/boot.ts` and differ only by the role they pass, so
 there is one composition rather than three that drift. A turn reaches a worker through

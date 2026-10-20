@@ -200,7 +200,8 @@ Automated coverage includes real local Git clone/import, complete refs and HEAD 
 idempotent push and divergence refusal; real Postgres owner isolation, atomic import/approval and
 inbox retry; controlled GitHub HTTP for callback authority, token refresh, PR retries, revocation,
 rename and feedback. A composed test drives the real API/queue/runtime with simulated sandbox and
-GitHub transports. UI checks exercise Connections, import, PR retry and approval in T3's browser.
+GitHub transports. Component tests (jsdom) exercise the Connections page, import, PR publication
+retry and feedback approval; no browser session was recorded for this change.
 No registered GitHub App, live GitHub push/webhook or E2B import was exercised in this checkout.
 
 For live acceptance, use a disposable repository and selected-only installation: connect, import,
