@@ -10,3 +10,7 @@ Captured with T3 collaborative Chromium, Darwin 27 arm64, Bun 1.4.2, Node 24.7.0
 Recordings show the Context popup, manual compaction and the same queued follow-up. Screenshots show before/after desktop controls, narrow popup, queued feedback and repaired short-viewport scrolling. No paid model or native-provider behavior is claimed.
 
 This branch contains review evidence only. Preserve it so PR media links remain accessible.
+
+## Revised composer placement and attached queue
+
+The final-* assets show snapshot f00255eb4938f0b9318033f2d343a22ad488a512, tree a9d2c59dadd9214fc591cfd45c0be7c595e01166: ring inside the composer, right-aligned popup and attached queued prompt. These supersede the earlier after-* and repair-1-* assets. Recorded with the same scripted Chromium fixture at desktop 1280x800 and narrow 390x844. The final MP4 shows opening the popup, compaction, queueing and completion.
