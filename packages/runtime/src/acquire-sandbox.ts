@@ -8,8 +8,10 @@
  * somebody's work rather than merely failing their turn.
  */
 
+import { RESERVATION_TTL_MS } from "@nap/shared/capacity-windows";
 import { getLogger } from "@nap/shared/logging";
 import type { ObjectStore } from "@nap/shared/ports/object-store";
+import type { RepositorySource, RepositoryWorkspace } from "@nap/shared/ports/repository-workspace";
 import type {
   ActivationFailure,
   Reservation,
@@ -19,6 +21,7 @@ import type { SandboxError, SandboxManager } from "@nap/shared/ports/sandbox-man
 import type { SessionRecord, SessionStore } from "@nap/shared/ports/session-store";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
 import type { Result, VoidResult } from "@nap/shared/result";
+import { readRepositoryPreviewPort } from "./repository-environment.ts";
 import { openProject } from "./restore.ts";
 
 /** A sandbox to work in, whether this call created it, and anything the user should be told. */
@@ -26,6 +29,7 @@ export type AcquiredSandbox = {
   id: string;
   created: boolean;
   notices: { level: "info" | "warning"; text: string }[];
+  repository?: RepositorySource;
 };
 
 /**
@@ -47,6 +51,9 @@ export type AcquireOptions = {
    * wants and what no deployment does — see `composeNap`, which always supplies one.
    */
   capacity?: SandboxCapacity;
+  repository?: RepositoryWorkspace;
+  signal?: AbortSignal | undefined;
+  source?: RepositorySource;
 };
 
 /**
@@ -69,6 +76,43 @@ export async function acquireSandbox(
   options: AcquireOptions,
   session: SessionRecord,
 ): Promise<Result<AcquiredSandbox, SandboxError>> {
+  if (options.signal?.aborted) return cancelledAcquire();
+  const source = await options.repository?.source(session, options.signal);
+  if (source !== undefined && !source.ok) {
+    return { ok: false, error: { code: "unavailable", message: source.error.message } };
+  }
+  const repository = source?.value ?? null;
+  const acquired = await acquireAuthorizedSandbox(
+    repository === null ? options : { ...options, source: repository },
+    session,
+  );
+  if (!acquired.ok || repository === null) return acquired;
+  const preview = acquired.value.created
+    ? { ok: true as const, value: repository.previewPort }
+    : await readRepositoryPreviewPort({
+        sandbox: options.sandbox,
+        sandboxId: acquired.value.id,
+        fallback: repository.previewPort,
+      });
+  if (!preview.ok)
+    return { ok: false, error: { code: "unavailable", message: preview.error.message } };
+  return {
+    ok: true,
+    value: {
+      ...acquired.value,
+      repository: { ...repository, previewPort: preview.value },
+      notices: acquired.value.created
+        ? [...acquired.value.notices, { level: "info", text: "Repository workspace ready." }]
+        : acquired.value.notices,
+    },
+  };
+}
+
+async function acquireAuthorizedSandbox(
+  options: AcquireOptions,
+  session: SessionRecord,
+): Promise<Result<AcquiredSandbox, SandboxError>> {
+  if (options.signal?.aborted) return cancelledAcquire();
   if (session.sandboxId === null) return await open(options, session);
 
   const resumed = await options.sandbox.resume(session.sandboxId);
@@ -106,9 +150,9 @@ export async function acquireSandbox(
  * decision, which is what stops a hundred simultaneous turns each finding themselves under a cap
  * of ten.
  *
- * Reserved, created, activated — and released on every path where the sandbox did not come into
- * existence, immediately rather than by a sweep, because a slot held by a creation that already
- * failed is one somebody else could have had.
+ * Reserved, renewed until it is ready, activated — and released on every path where the sandbox
+ * did not come into existence, immediately rather than by a sweep, because a slot held by a
+ * creation that already failed is one somebody else could have had.
  *
  * The one path that runs the other way is a creation that outlived its reservation: the row was
  * reclaimed while the provider was still working, so the sandbox that arrives is real and counted
@@ -123,10 +167,21 @@ async function open(
   if (!reserved.ok) return reserved;
   const reservation = reserved.value;
 
-  const opened = await create(options, session);
+  const heartbeat = holdWhilePreparing(options, reservation);
+  let opened: Result<AcquiredSandbox, SandboxError>;
+  try {
+    opened = await create(options, session, heartbeat.created);
+  } finally {
+    await heartbeat.stop();
+  }
   if (!opened.ok) {
     await releaseQuietly(options, reservation);
     return opened;
+  }
+  if (options.signal?.aborted) {
+    await destroyQuietly(options, opened.value.id);
+    await releaseQuietly(options, reservation);
+    return cancelledAcquire();
   }
 
   // Activated before the session is told. The order is what decides how a half-finished acquire
@@ -143,6 +198,62 @@ async function open(
   await options.sessions.setSandboxId(session.sessionId, opened.value.id);
 
   return opened;
+}
+
+/** How often a reservation is renewed while its sandbox is being prepared — well inside its TTL. */
+const RENEW_EVERY_MS = RESERVATION_TTL_MS / 4;
+
+/**
+ * Keeps the reservation from lapsing between being taken and the sandbox being ready.
+ *
+ * Two waits can each outlast a reservation's two minutes. Before the sandbox exists, an imported
+ * repository's first bundle is fetched, and that fetch may queue behind the broker's transfer
+ * slots; after it exists, a setup command may run for ten. Without this either one lets the reaper
+ * reclaim the row, and the finished sandbox is refused as uncounted. So renewal starts with the
+ * reservation, renewing the expiry alone until there is a sandbox to name. It keeps the row
+ * `reserved` rather than activating it early, so a process that dies mid-setup still gives the
+ * slot back within one TTL — and once it records the sandbox id, the inventory sweep sees the
+ * sandbox as referenced meanwhile.
+ *
+ * A failed renewal is only logged: `activate` at the end asks the same question authoritatively,
+ * and a renewal that could not reach the database says nothing about whether the row survives.
+ */
+function holdWhilePreparing(
+  options: AcquireOptions,
+  reservation: Reservation | null,
+): { created: (sandboxId: string) => void; stop: () => Promise<void> } {
+  const capacity = options.capacity;
+  if (reservation === null || capacity === undefined) {
+    return { created: () => {}, stop: async () => {} };
+  }
+
+  let sandboxId: string | null = null;
+  let inFlight: Promise<void> = Promise.resolve();
+  const renew = () => {
+    inFlight = inFlight.then(async () => {
+      try {
+        const renewed = await capacity.renew(reservation.id, sandboxId);
+        if (!renewed.ok) getLogger().warn({ sandboxId }, renewed.error.message);
+      } catch (error) {
+        getLogger().warn({ sandboxId, err: error }, "could not renew a sandbox reservation");
+      }
+    });
+  };
+  // Not renewed now: the reservation was taken a moment ago, so its first full TTL is still ahead.
+  const timer = setInterval(renew, RENEW_EVERY_MS);
+
+  return {
+    created: (id) => {
+      sandboxId = id;
+      // At once rather than at the next tick, so the inventory sweep sees the sandbox referenced
+      // from the moment it exists.
+      renew();
+    },
+    stop: async () => {
+      clearInterval(timer);
+      await inFlight;
+    },
+  };
 }
 
 /**
@@ -176,9 +287,9 @@ async function releaseQuietly(
  * thrown error means the bookkeeping could not be done and nothing is known: the sandbox exists,
  * the session is about to be told where it is, and the row expires on its own, so the turn goes
  * ahead and a ceiling loses some accuracy for a couple of minutes. A returned failure means the
- * reservation was reclaimed while the sandbox was being created — a create slower than the
- * two-minute TTL needs no crash and no concurrency — and the sandbox in hand is running, billed
- * and counted by nothing. That one the caller has to act on.
+ * reservation was reclaimed while the sandbox was being created — renewal keeps a slow create's
+ * row alive, so it takes two minutes in which no renewal reached the store — and the sandbox in
+ * hand is running, billed and counted by nothing. That one the caller has to act on.
  */
 async function recordActivation(
   options: AcquireOptions,
@@ -254,8 +365,15 @@ async function reserve(
 async function create(
   options: AcquireOptions,
   session: SessionRecord,
+  onCreated: (sandboxId: string) => void,
 ): Promise<Result<AcquiredSandbox, SandboxError>> {
   if (options.restore === null) {
+    if (options.source !== undefined) {
+      return {
+        ok: false,
+        error: { code: "unavailable", message: "Repository workspaces require snapshot storage." },
+      };
+    }
     const created = await options.sandbox.create(session.projectId);
     if (!created.ok) return created;
     return { ok: true, value: { id: created.value.id, created: true, notices: [] } };
@@ -266,6 +384,9 @@ async function create(
     objects: options.restore.objects,
     snapshots: options.restore.snapshots,
     projectId: session.projectId,
+    ...(options.source === undefined ? {} : { source: options.source }),
+    signal: options.signal,
+    onCreated,
   });
   if (!opened.ok) {
     // Flattened to the one code a turn can report. The distinction between "no sandbox" and "no
@@ -281,6 +402,13 @@ async function create(
       notices:
         opened.value.warning === null ? [] : [{ level: "warning", text: opened.value.warning }],
     },
+  };
+}
+
+function cancelledAcquire(): Result<never, SandboxError> {
+  return {
+    ok: false,
+    error: { code: "unavailable", message: "Opening this workspace was cancelled." },
   };
 }
 

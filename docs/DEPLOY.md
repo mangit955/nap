@@ -25,7 +25,7 @@ The binary is split (`docs/scaling-design.md` §4 and §13). One image, three co
 |---|---|---|---|---|
 | API | `bun apps/api/src/index.ts` (the Dockerfile's default) | HTTP, WebSockets, auth, admission | nothing | as many as you like; one on Railway today |
 | Worker | `bun apps/api/src/worker.ts` | nothing | turns | as many as you like; one on Railway today |
-| Reaper | `bun apps/api/src/reaper.ts` | nothing | the idle sweep, capacity reconciliation, the rate-event sweep, the janitor | **exactly one** |
+| Reaper | `bun apps/api/src/reaper.ts` | nothing | the idle sweep, capacity reconciliation, the rate-event sweep, the janitor, and with a GitHub App configured the GitHub sweep | **exactly one** |
 
 All three call `bootNap` in `apps/api/src/boot.ts` and differ only by the role they pass, so
 there is one composition rather than three that drift. A turn reaches a worker through
@@ -499,3 +499,14 @@ what that run measured, and which of the design's invariants it did and did not 
 ## Things that are not deployed, deliberately
 
 - **The integration suite.** It spends real money and stays a manual, local step.
+
+## GitHub repository connections
+
+Register a separate GitHub App and configure all six `NAP_GITHUB_*` variables on the API,
+workers and reaper. On Railway they are `preserve()` in `.railway/railway.ts`, so they are set on the
+services like the other credentials; on Kubernetes they go in `nap-secrets`, where
+`infra/k8s/base/secret.example.yaml` lists them commented out. Apply migrations 0009 and 0010 before
+starting the updated processes. The container includes Git for the server broker. Run the reaper for
+signed webhook processing and the PR refresh that catches missed deliveries. The exact URLs, permissions, setup steps and rollout limits are in
+[GitHub integration](github-integration.md). The existing `GITHUB_CLIENT_*` sign-in app and
+model-provider credentials have separate purposes.

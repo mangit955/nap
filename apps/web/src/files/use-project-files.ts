@@ -275,7 +275,8 @@ export function useFileContent(
  * because a command like `bun add` changes a project without producing a single `file.changed`.
  * A sandbox coming up is the third: it is a *new filesystem*, and the moment the endpoint stops
  * answering `ready: false` — without it the tree sits on that answer until the agent happens to
- * write something.
+ * write something. Repository workspaces without a preview announce readiness through a system
+ * notice, which also invalidates reads without coupling this hook to the notice's prose.
  *
  * One function for the listing and the file cache, so the two cannot disagree about when the
  * project moved underneath them.
@@ -283,7 +284,10 @@ export function useFileContent(
 function stalenessOf(events: readonly StoredEvent[]): number {
   return (
     changeCount(events) +
-    events.filter((e) => e.type === "turn.completed" || e.type === "preview.ready").length
+    events.filter(
+      (e) =>
+        e.type === "turn.completed" || e.type === "preview.ready" || e.type === "system.notice",
+    ).length
   );
 }
 

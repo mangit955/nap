@@ -54,6 +54,7 @@ export type ContextRequest = {
   continuation?: boolean;
   sessionId: string;
   sandboxId: string;
+  workspace?: "repository";
   /** The message this turn is being built for. */
   userMessage: string;
   /** The resolved selection. Unknown or absent models receive text-only context. */

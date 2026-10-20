@@ -12,6 +12,7 @@
  * did not ask for would refuse a turn for reasons their test never mentions.
  */
 
+import { RESERVATION_TTL_MS } from "@nap/shared/capacity-windows";
 import type {
   ActivationFailure,
   CapacityRefusal,
@@ -28,6 +29,8 @@ export type FakeReservation = {
   userId: string;
   state: "reserved" | "active";
   sandboxId: string | null;
+  /** When a `reserved` row lapses, by `Date.now` — so a test's fake timers move it. */
+  expiresAt: number;
 };
 
 export class InMemorySandboxCapacity implements SandboxCapacity {
@@ -82,7 +85,12 @@ export class InMemorySandboxCapacity implements SandboxCapacity {
       if (held.state === "reserved") {
         return refuse("project_held", "This project is already opening a sandbox.");
       }
-      this.#rows.set(held.id, { ...held, state: "reserved", sandboxId: null });
+      this.#rows.set(held.id, {
+        ...held,
+        state: "reserved",
+        sandboxId: null,
+        expiresAt: Date.now() + RESERVATION_TTL_MS,
+      });
       return { ok: true, value: { id: held.id } };
     }
 
@@ -95,7 +103,13 @@ export class InMemorySandboxCapacity implements SandboxCapacity {
 
     this.#next += 1;
     const id = `reservation-${this.#next}`;
-    this.#rows.set(id, { id, ...request, state: "reserved", sandboxId: null });
+    this.#rows.set(id, {
+      id,
+      ...request,
+      state: "reserved",
+      sandboxId: null,
+      expiresAt: Date.now() + RESERVATION_TTL_MS,
+    });
     return { ok: true, value: { id } };
   }
 
@@ -119,8 +133,50 @@ export class InMemorySandboxCapacity implements SandboxCapacity {
       };
     }
 
-    this.#rows.set(reservationId, { ...row, state: "active", sandboxId });
+    this.#rows.set(reservationId, {
+      ...row,
+      state: "active",
+      sandboxId,
+      expiresAt: Number.POSITIVE_INFINITY,
+    });
     return { ok: true, value: undefined };
+  }
+
+  async renew(
+    reservationId: string,
+    sandboxId: string | null,
+  ): Promise<VoidResult<ActivationFailure>> {
+    this.#refuseIfBroken();
+
+    const row = this.#rows.get(reservationId);
+    if (row === undefined || row.state !== "reserved") {
+      return {
+        ok: false,
+        error: {
+          reason: "reservation_reclaimed",
+          message: `Nothing is counting sandbox ${sandboxId ?? "(not yet created)"}: its reservation is gone.`,
+        },
+      };
+    }
+
+    this.#rows.set(reservationId, {
+      ...row,
+      sandboxId: sandboxId ?? row.sandboxId,
+      expiresAt: Date.now() + RESERVATION_TTL_MS,
+    });
+    return { ok: true, value: undefined };
+  }
+
+  /** The reaper's rule for `reserved` rows: delete whichever has lapsed. Returns their ids. */
+  reclaimExpired(): string[] {
+    const reclaimed: string[] = [];
+    for (const [id, row] of this.#rows) {
+      if (row.state === "reserved" && row.expiresAt < Date.now()) {
+        this.#rows.delete(id);
+        reclaimed.push(id);
+      }
+    }
+    return reclaimed;
   }
 
   async release(reservationId: string): Promise<void> {

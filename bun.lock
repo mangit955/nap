@@ -159,6 +159,7 @@
       "name": "@nap/runtime",
       "version": "0.0.0",
       "dependencies": {
+        "@nap/context": "workspace:*",
         "@nap/sandbox": "workspace:*",
         "@nap/shared": "workspace:*",
         "@nap/storage": "workspace:*",
@@ -167,7 +168,6 @@
       "devDependencies": {
         "@nap/agent": "workspace:*",
         "@nap/capture": "workspace:*",
-        "@nap/context": "workspace:*",
         "@nap/db": "workspace:*",
       },
     },
@@ -177,6 +177,7 @@
       "dependencies": {
         "@nap/shared": "workspace:*",
         "e2b": "2.38.0",
+        "zod": "4.4.3",
       },
     },
     "packages/shared": {

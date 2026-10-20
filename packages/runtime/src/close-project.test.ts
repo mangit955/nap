@@ -224,7 +224,7 @@ describe("the capacity the sandbox was occupying", () => {
 });
 
 describe("closing a project that a turn has already snapshotted", () => {
-  it("points the project at the existing snapshot instead of writing a second one", async () => {
+  it("captures refs again and points the project at its latest snapshot", async () => {
     // The ordinary case now: a turn snapshots its own work, and minutes later the reaper — or
     // the user — closes the project at the same commit. Capturing again would upload a
     // byte-identical bundle and leave the project with two rows describing one tree.
@@ -236,13 +236,16 @@ describe("closing a project that a turn has already snapshotted", () => {
 
     const result = await close();
 
-    expect(result).toMatchObject({ outcome: "put_away", key: "projects/p/from-the-turn.bundle" });
-    expect(objects.puts).toBe(0);
-    expect(snapshots.all()).toHaveLength(1);
+    expect(result).toMatchObject({
+      outcome: "put_away",
+      key: expect.stringContaining(`projects/${PROJECT}/`),
+    });
+    expect(objects.puts).toBe(1);
+    expect(snapshots.all()).toHaveLength(2);
     // The row still has to name a snapshot that exists, or the next open restores from nothing.
     expect(projects.get(PROJECT)).toMatchObject({
       sandboxId: null,
-      snapshotKey: "projects/p/from-the-turn.bundle",
+      snapshotKey: expect.stringContaining(`projects/${PROJECT}/`),
     });
   });
 });

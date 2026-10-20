@@ -39,7 +39,7 @@ import type { LLMContentBlock, LLMMessage } from "@nap/shared/ports/llm-provider
 import type { Memory } from "@nap/shared/ports/memory-provider";
 import { buildFileTreeDigest } from "./file-tree.ts";
 import { renderJobBrief } from "./job-brief.ts";
-import { SYSTEM_PROMPT } from "./system-prompt.ts";
+import { REPOSITORY_SYSTEM_PROMPT, SYSTEM_PROMPT } from "./system-prompt.ts";
 import { estimateTokens } from "./tokens.ts";
 
 /**
@@ -437,7 +437,7 @@ export class NapContextEngine implements ContextEngine {
           });
 
     const cost = (): number =>
-      estimateTokens(systemPrompt(digest, remembered, brief())) +
+      estimateTokens(systemPrompt(digest, remembered, brief(), request.workspace)) +
       messagesTokens([...protectedMessages(), ...turns.flatMap((turn) => turn.messages)]) +
       estimateTokens(userMessage) +
       mediaTokens;
@@ -499,7 +499,7 @@ export class NapContextEngine implements ContextEngine {
       // what is currently spent — and with the turn's own message still paid for, so shrinking
       // a quote can never be what silences the instruction the turn is actually carrying.
       outputTokens = 0;
-      const floor = estimateTokens(systemPrompt(digest, remembered, brief()));
+      const floor = estimateTokens(systemPrompt(digest, remembered, brief(), request.workspace));
       outputTokens = Math.max(
         this.#budgetTokens -
           floor -
@@ -520,11 +520,11 @@ export class NapContextEngine implements ContextEngine {
         ? []
         : [{ role: "user", content: [...media, textBlock(userMessage)] } satisfies LLMMessage]),
     ];
-    const prompt = systemPrompt(digest, remembered, brief());
+    const prompt = systemPrompt(digest, remembered, brief(), request.workspace);
 
     return {
       systemPrompt: prompt,
-      trustedInstructions: SYSTEM_PROMPT,
+      trustedInstructions: basePrompt(request.workspace),
       budgetTokens: this.#budgetTokens,
       needsCompaction,
       messages,
@@ -533,14 +533,24 @@ export class NapContextEngine implements ContextEngine {
   }
 }
 
+/** The instructions the application owns for this workspace — the prompt's stable head. */
+function basePrompt(workspace?: "repository"): string {
+  return workspace === "repository" ? REPOSITORY_SYSTEM_PROMPT : SYSTEM_PROMPT;
+}
+
 /**
  * Stable content first, volatile content after — the order prompt caching requires, since a
  * cache entry is matched by a byte-identical prefix and anything above a change is lost.
  * Placing the cache breakpoint is the provider's job; leaving it somewhere worth placing is
  * this one's.
  */
-function systemPrompt(digest: string, memories: Memory[], job: string): string {
-  const sections = [SYSTEM_PROMPT];
+function systemPrompt(
+  digest: string,
+  memories: Memory[],
+  job: string,
+  workspace?: "repository",
+): string {
+  const sections = [basePrompt(workspace)];
 
   if (digest !== "") {
     sections.push(`<project_files>\n${digest}\n</project_files>`);

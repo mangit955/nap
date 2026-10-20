@@ -10,6 +10,7 @@
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { E2BSandboxManager } from "./e2b-sandbox-manager.ts";
 import { bundle, commitAll, currentSha, restoreBundle } from "./git.ts";
+import { decodeRepositoryBundle } from "./git-bundle.ts";
 import { NAP_TEMPLATE, TEMPLATE_WORKDIR } from "./template.ts";
 
 if (process.env.E2B_API_KEY === undefined || process.env.E2B_API_KEY === "") {
@@ -81,7 +82,9 @@ it("round-trips the repository through a bundle", async () => {
   if (!snapshot.ok || !expectedSha.ok) return;
   // A git bundle starts with a signature line; anything else means we captured stray
   // output rather than a bundle.
-  expect(new TextDecoder().decode(snapshot.value.slice(0, 22))).toContain("# v2 git bundle");
+  const decoded = decodeRepositoryBundle(snapshot.value);
+  if (!decoded.ok) throw new Error(decoded.error.message);
+  expect(new TextDecoder().decode(decoded.value.bundle.slice(0, 22))).toContain("# v2 git bundle");
 
   // Destroy the working state as thoroughly as a fresh sandbox would: lose the commit,
   // lose the file, and add junk that the restore is expected to sweep away.

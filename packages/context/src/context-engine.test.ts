@@ -14,13 +14,22 @@ import {
   STALE_TOOL_OUTPUT,
 } from "./context-engine.ts";
 import { NoopMemoryProvider } from "./noop-memory-provider.ts";
-import { SYSTEM_PROMPT } from "./system-prompt.ts";
+import { REPOSITORY_SYSTEM_PROMPT, SYSTEM_PROMPT } from "./system-prompt.ts";
 import { type FileTree, stubSandbox } from "./testing/stub-sandbox.ts";
 import { estimateTokens } from "./tokens.ts";
 
 const SESSION = "6f1c1d3e-2b7a-4c5e-8f9a-0d1e2f3a4b5c";
 const SANDBOX = "sbx_1";
 const ROOT = "/home/user/app";
+
+it("uses repository guidance without the starter stack assumptions", async () => {
+  const built = await new NapContextEngine().build(request({ workspace: "repository" }));
+  expect(built.systemPrompt.startsWith(REPOSITORY_SYSTEM_PROMPT)).toBe(true);
+  expect(built.systemPrompt).not.toContain(SYSTEM_PROMPT);
+  // Compaction keeps these as the trusted half, so they must be the instructions this workspace ran under.
+  expect(built.trustedInstructions).toBe(REPOSITORY_SYSTEM_PROMPT);
+  expect(built.estimatedTokens).toBeLessThanOrEqual(DEFAULT_BUDGET_TOKENS);
+});
 
 // ---------------------------------------------------------------------------
 // Event builders — `seq` is assigned in creation order, as the store would.

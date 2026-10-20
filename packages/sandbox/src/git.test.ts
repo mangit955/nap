@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { shellQuote } from "@nap/shared/shell";
 import { describe, expect, it } from "vitest";
 import { bundle, commitAll, currentSha, restoreBundle } from "./git.ts";
+import { decodeRepositoryBundle } from "./git-bundle.ts";
 import { TEMPLATE_WORKDIR } from "./template.ts";
 import { InMemorySandboxManager } from "./testing/in-memory-sandbox-manager.ts";
 
@@ -153,6 +154,7 @@ describe("bundle", () => {
   it("creates a bundle of every ref and returns its bytes", async () => {
     const bytes = new Uint8Array([0x50, 0x41, 0x43, 0x4b, 0x00, 0xff]);
     const manager = new InMemorySandboxManager();
+    manager.script(/git symbolic-ref/, { stdout: "refs/heads/main" });
     manager.script(/git bundle create/, { stdout: Buffer.from(bytes).toString("base64") });
     const { sandboxId } = await gitSandbox(manager);
 
@@ -160,15 +162,19 @@ describe("bundle", () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value).toEqual(bytes);
+    expect(decodeRepositoryBundle(result.value)).toEqual({
+      ok: true,
+      value: { bundle: Buffer.from(bytes), head: "refs/heads/main" },
+    });
     // `--all`, because a snapshot of only the current branch silently loses history.
-    expect(gitCommands(manager, sandboxId)[0]).toContain("--all");
+    expect(gitCommands(manager, sandboxId)[1]).toContain("--all");
   });
 
   it("tolerates the line wrapping base64 tools add", async () => {
     const bytes = new Uint8Array([1, 2, 3, 4, 5]);
     const wrapped = `${Buffer.from(bytes).toString("base64")}\n`;
     const manager = new InMemorySandboxManager();
+    manager.script(/git symbolic-ref/, { stdout: "refs/heads/main" });
     manager.script(/git bundle create/, { stdout: wrapped });
     const { sandboxId } = await gitSandbox(manager);
 
@@ -176,11 +182,15 @@ describe("bundle", () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value).toEqual(bytes);
+    expect(decodeRepositoryBundle(result.value)).toEqual({
+      ok: true,
+      value: { bundle: Buffer.from(bytes), head: "refs/heads/main" },
+    });
   });
 
   it("reports a failed bundle instead of returning empty bytes", async () => {
     const manager = new InMemorySandboxManager();
+    manager.script(/git symbolic-ref/, { stdout: "refs/heads/main" });
     manager.script(/git bundle create/, { exitCode: 128, stderr: "fatal: Refusing to create" });
     const { sandboxId } = await gitSandbox(manager);
 
@@ -202,9 +212,9 @@ describe("restoreBundle", () => {
     expect(result.ok).toBe(true);
     const commands = gitCommands(manager, sandboxId);
     expect(commands[0]).toContain("base64 -d");
-    expect(commands[1]).toContain("git fetch");
-    expect(commands[2]).toContain("git reset --hard FETCH_HEAD");
-    expect(commands[3]).toContain("git clean -fd");
+    expect(commands[1]).toContain("clone --mirror");
+    expect(commands[3]).toContain("git reset --hard HEAD");
+    expect(commands[4]).toContain("git clean -fd");
   });
 
   it("writes the payload as base64 rather than raw bytes", async () => {
@@ -244,7 +254,7 @@ describe("restoreBundle", () => {
   it("reports a corrupt bundle as exec_failed", async () => {
     const manager = new InMemorySandboxManager();
     manager.script(/base64 -d/, { exitCode: 0 });
-    manager.script(/git fetch/, { exitCode: 128, stderr: "fatal: not a bundle" });
+    manager.script(/git bundle verify/, { exitCode: 128, stderr: "fatal: not a bundle" });
     const { sandboxId } = await gitSandbox(manager);
 
     const result = await restoreBundle(manager, sandboxId, new Uint8Array([1, 2]));

@@ -32,6 +32,7 @@ import {
   createLockConnection,
   pingDatabase,
 } from "@nap/db/client";
+import { PostgresGitHubStore } from "@nap/db/github-store";
 import { InProcessEventBus } from "@nap/db/in-process-event-bus";
 import { PostgresAdvisoryLock } from "@nap/db/postgres-advisory-lock";
 import { PostgresCapacityReconciler } from "@nap/db/postgres-capacity-reconciler";
@@ -57,6 +58,8 @@ import { encryptionKeyFrom } from "./account/secret-box.ts";
 import { createAuth } from "./auth/auth.ts";
 import { type ComposedNap, composeNap, type NapRole } from "./compose.ts";
 import { type Env, EnvValidationError, parseEnv } from "./env.ts";
+import { GitHubApp } from "./github/app.ts";
+import { githubConfigFromEnv } from "./github/config.ts";
 import { createHealthProbe } from "./health.ts";
 import { createLogger } from "./logger.ts";
 import { createHeartbeatWriter } from "./worker-heartbeat.ts";
@@ -277,7 +280,12 @@ export async function bootNap(role: NapRole): Promise<NapProcess> {
     allowAnonymous: env.NAP_ALLOW_DEMO,
   });
 
+  const githubConfig = githubConfigFromEnv(env);
   const composed = composeNap({
+    github: {
+      store: new PostgresGitHubStore(db),
+      app: githubConfig === null ? null : new GitHubApp(githubConfig),
+    },
     config: env,
     role,
     logger,
@@ -417,6 +425,7 @@ export async function bootNap(role: NapRole): Promise<NapProcess> {
     // race to `process.exit` while the turns they were both waiting for were still running.
     shuttingDown ??= (async () => {
       composed.reaper.stop();
+      composed.github.stop();
       composed.janitor.stop();
       await composed.worker.stop();
       // Handed over explicitly rather than left to the connection dropping: the next reaper is

@@ -90,6 +90,219 @@ beforeEach(() => {
 });
 
 describe("opening a put-away project", () => {
+  it.each([null, 5173])(
+    "uses the running sandbox's preview port %s after a full page load",
+    async (runningPreviewPort) => {
+      const read = async (url: string, init?: RequestInit) => {
+        if (url.endsWith("/github"))
+          return Response.json({
+            repository: {
+              projectId: PROJECT_ID,
+              sessionId: SESSION_ID,
+              userId: PROJECT_ID,
+              installationId: 42,
+              repository: {
+                id: 101,
+                fullName: "owner/repository",
+                defaultBranch: "main",
+                private: true,
+              },
+              baseBranch: "main",
+              environment: {
+                setupCommand: null,
+                devCommand: runningPreviewPort === null ? "npm run dev" : null,
+                previewPort: runningPreviewPort === null ? 5173 : null,
+              },
+              autoPublish: true,
+            },
+            runningPreviewPort,
+            jobs: [],
+            feedback: [],
+            followUpPolicy: "owner_approval",
+          });
+        if (url.endsWith(`/projects/${PROJECT_ID}`))
+          return Response.json({
+            projectId: PROJECT_ID,
+            name: "Repository",
+            status: "ready",
+            sandboxId: "existing-repository-sandbox",
+            updatedAt: "2026-08-09T12:30:00.000Z",
+            sessionIds: [SESSION_ID],
+          });
+        return fetchJson(url, init);
+      };
+      render(<AppShell projectId={PROJECT_ID} fetchJson={read} createSocket={net.createSocket} />);
+      await waitFor(() => expect(net.opened).toHaveLength(1));
+      await act(async () => {
+        net.latest.open();
+        net.latest.deliver({
+          type: "event",
+          event: ev("user.message", { text: "Work on the repository" }, 1),
+        });
+        if (runningPreviewPort !== null)
+          net.latest.deliver({
+            type: "event",
+            event: ev(
+              "preview.ready",
+              { url: "https://5173-existing.e2b.app", port: runningPreviewPort },
+              2,
+            ),
+          });
+        net.latest.deliver({ type: "ready" });
+      });
+      if (runningPreviewPort === null)
+        expect(await screen.findByText("No preview configured")).toBeVisible();
+      else
+        expect(await screen.findByTitle(PREVIEW_TITLE)).toHaveAttribute(
+          "src",
+          "https://5173-existing.e2b.app",
+        );
+    },
+  );
+
+  it("applies a saved preview configuration only after the sandbox changes", async () => {
+    let previewPort: number | null = null;
+    let sandboxId = "first-repository-sandbox";
+    let repositoryReads = 0;
+    const read = async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/github")) {
+        repositoryReads += 1;
+        return Response.json({
+          repository: {
+            projectId: PROJECT_ID,
+            sessionId: SESSION_ID,
+            userId: PROJECT_ID,
+            installationId: 42,
+            repository: {
+              id: 101,
+              fullName: "owner/repository",
+              defaultBranch: "main",
+              private: true,
+            },
+            baseBranch: "main",
+            environment: {
+              setupCommand: null,
+              devCommand: previewPort === null ? null : "npm run dev",
+              previewPort,
+            },
+            autoPublish: true,
+          },
+          jobs: [],
+          feedback: [],
+          followUpPolicy: "owner_approval",
+        });
+      }
+      if (url.endsWith(`/projects/${PROJECT_ID}`))
+        return Response.json({
+          projectId: PROJECT_ID,
+          name: "Repository",
+          status: "ready",
+          sandboxId,
+          updatedAt: "2026-08-09T12:30:00.000Z",
+          sessionIds: [SESSION_ID],
+        });
+      return fetchJson(url, init);
+    };
+    render(<AppShell projectId={PROJECT_ID} fetchJson={read} createSocket={net.createSocket} />);
+    await waitFor(() => expect(net.opened).toHaveLength(1));
+    await act(async () => {
+      net.latest.open();
+      net.latest.deliver({
+        type: "event",
+        event: ev("user.message", { text: "Work on the repository" }, 1),
+      });
+      net.latest.deliver({ type: "ready" });
+    });
+    expect(await screen.findByText("No preview configured")).toBeVisible();
+    const previousReads = repositoryReads;
+    previewPort = 5173;
+    await act(async () => {
+      net.latest.deliver({
+        type: "event",
+        event: ev("system.notice", { level: "info", text: "Environment settings saved." }, 2),
+      });
+    });
+    await waitFor(() => expect(repositoryReads).toBeGreaterThan(previousReads));
+    expect(screen.getByText("No preview configured")).toBeVisible();
+    sandboxId = "second-repository-sandbox";
+    await act(async () => {
+      net.latest.deliver({
+        type: "event",
+        event: ev("system.notice", { level: "info", text: "Repository workspace ready." }, 3),
+      });
+    });
+    await waitFor(() => expect(screen.queryByText("No preview configured")).toBeNull());
+    await act(async () => {
+      net.latest.deliver({
+        type: "event",
+        event: ev("preview.ready", { url: "https://5173-new.e2b.app", port: 5173 }, 4),
+      });
+    });
+    expect(await screen.findByTitle(PREVIEW_TITLE)).toHaveAttribute(
+      "src",
+      "https://5173-new.e2b.app",
+    );
+  });
+
+  it("restores a repository with no preview and refreshes its files from a workspace notice", async () => {
+    let ready = false;
+    const repository = {
+      projectId: PROJECT_ID,
+      sessionId: SESSION_ID,
+      userId: PROJECT_ID,
+      installationId: 42,
+      repository: { id: 101, fullName: "owner/repository", defaultBranch: "main", private: true },
+      baseBranch: "main",
+      environment: { setupCommand: null, devCommand: null, previewPort: null },
+      autoPublish: true,
+    };
+    const read = async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/github"))
+        return Response.json({
+          repository,
+          jobs: [],
+          feedback: [],
+          followUpPolicy: "owner_approval",
+        });
+      if (url.includes("/files"))
+        return Response.json({ files: ready ? ["README.md"] : [], ready, truncated: false });
+      if (url.endsWith("/open")) {
+        opens += 1;
+        return Response.json({}, { status: 202 });
+      }
+      if (url.endsWith(`/projects/${PROJECT_ID}`))
+        return Response.json({
+          projectId: PROJECT_ID,
+          name: "Repository",
+          status: ready ? "ready" : "idle",
+          sandboxId: ready ? "repository-sandbox" : null,
+          updatedAt: "2026-08-09T12:30:00.000Z",
+          sessionIds: [SESSION_ID],
+        });
+      return fetchJson(url, init);
+    };
+    render(<AppShell projectId={PROJECT_ID} fetchJson={read} createSocket={net.createSocket} />);
+    await waitFor(() => expect(opens).toBe(1));
+    await act(async () => {
+      net.latest.open();
+      net.latest.deliver({ type: "ready" });
+    });
+    expect(screen.queryByText("No preview configured")).toBeNull();
+    ready = true;
+    await act(async () => {
+      net.latest.deliver({
+        type: "event",
+        event: ev("system.notice", { level: "info", text: "Repository workspace ready." }, 9),
+      });
+    });
+    expect(await screen.findByText("No preview configured")).toBeVisible();
+    expect(screen.queryByText(/starting the dev server/i)).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: "Code" }));
+    expect(await screen.findByRole("button", { name: /README.md/ })).toBeVisible();
+    expect(net.opened).toHaveLength(1);
+    expect(opens).toBe(1);
+  });
+
   it("starts it without anybody pressing anything", async () => {
     // Nobody navigates to their own app to be asked whether they meant it.
     open();

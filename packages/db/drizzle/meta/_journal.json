@@ -64,6 +64,20 @@
       "when": 1792373345498,
       "tag": "0008_brave_silver_samurai",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1792415355816,
+      "tag": "0009_github_app_integration",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1792429376711,
+      "tag": "0010_repository_job_created_at",
+      "breakpoints": true
     }
   ]
 }

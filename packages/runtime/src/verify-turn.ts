@@ -40,7 +40,7 @@ export type VerifyTurnOptions = {
   sandbox: SandboxManager;
   sandboxId: string;
   /** The port the project's dev server listens on — the same one the preview is announced at. */
-  previewPort: number;
+  previewPort: number | null;
   /** How long to give the public preview URL before probing the port from inside. */
   previewTimeoutMs?: number;
 };
@@ -54,10 +54,16 @@ export async function verifyTurn(options: VerifyTurnOptions): Promise<Verificati
   }
 
   return await runChecks(sandbox, sandboxId, discoverChecks(manifest.value), {
-    preview: {
-      port: previewPort,
-      ...(options.previewTimeoutMs === undefined ? {} : { timeoutMs: options.previewTimeoutMs }),
-    },
+    ...(previewPort === null
+      ? {}
+      : {
+          preview: {
+            port: previewPort,
+            ...(options.previewTimeoutMs === undefined
+              ? {}
+              : { timeoutMs: options.previewTimeoutMs }),
+          },
+        }),
   });
 }
 

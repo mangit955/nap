@@ -36,6 +36,7 @@ import type { Logger } from "@nap/shared/logging";
 import type { CapacityReconciler } from "@nap/shared/ports/capacity-reconciler";
 import type { EventBus } from "@nap/shared/ports/event-bus";
 import type { EventStore } from "@nap/shared/ports/event-store";
+import type { GitHubStore } from "@nap/shared/ports/github-store";
 import type { LLMProvider } from "@nap/shared/ports/llm-provider";
 import type { ObjectStore } from "@nap/shared/ports/object-store";
 import type { PageCapture } from "@nap/shared/ports/page-capture";
@@ -57,6 +58,10 @@ import { createApp, type UpgradeWebSocket } from "./app.ts";
 import type { Authenticate, AuthInstance } from "./auth/auth.ts";
 import type { AuthVariables } from "./auth/require-user.ts";
 import type { Env } from "./env.ts";
+import type { GitHubApp } from "./github/app.ts";
+import { type GitBroker, ServerGitBroker } from "./github/git-broker.ts";
+import { GitHubIntegration } from "./github/integration.ts";
+import { GitHubEventProcessor } from "./github/webhook.ts";
 import type { HealthProbe } from "./health.ts";
 import { createMetrics, type Metrics } from "./metrics.ts";
 import type { CreatedProject } from "./projects/routes.ts";
@@ -112,6 +117,7 @@ export type NapConfig = Pick<
 export type NapRole = "api" | "worker" | "reaper" | "all";
 
 export type NapDeps = {
+  github?: { store: GitHubStore; app: GitHubApp | null; broker?: GitBroker };
   config: NapConfig;
   /** Defaults to `all`: a composition that was not told is one process doing everything. */
   role?: NapRole;
@@ -240,6 +246,7 @@ const NOT_STARTED = { stop: () => {} };
 const NOT_CLAIMING: TurnWorker = { stop: async () => {} };
 
 export type ComposedNap = {
+  github: { stop: () => void };
   app: Hono<{ Variables: AuthVariables }>;
   runtime: SingleAgentRuntime;
   /**
@@ -284,7 +291,22 @@ export function composeNap(deps: NapDeps): ComposedNap {
   // test that wants a stub caller passes one directly rather than assembling a whole library.
   const authenticate = deps.authenticate ?? deps.auth?.getUser;
 
+  const github =
+    deps.github === undefined
+      ? undefined
+      : new GitHubIntegration({
+          store: deps.github.store,
+          app: deps.github.app,
+          broker: deps.github.broker ?? new ServerGitBroker(),
+          sandbox: deps.sandbox,
+          sessions: deps.sessions,
+          objects: deps.objects,
+          snapshots: deps.snapshots,
+          events: deps.events,
+          bus: deps.bus,
+        });
   const runtime = new SingleAgentRuntime({
+    ...(github === undefined ? {} : { repository: github }),
     sessions: deps.sessions,
     sandbox: deps.sandbox,
     // With these, a project outlives its sandbox: a session whose sandbox is gone is restored
@@ -341,7 +363,53 @@ export function composeNap(deps: NapDeps): ComposedNap {
   // missing series — and one composition means nobody has to remember which roles have a gauge.
   const metrics = createMetrics();
 
+  const githubSchedule =
+    !sweeps || github === undefined || deps.github?.app === null
+      ? NOT_STARTED
+      : startSweeping({
+          intervalMs: 15_000,
+          holdProcessOpen: role === "reaper",
+          sweep: async () => {
+            if (deps.sweepLock !== undefined && !(await deps.sweepLock.held())) return;
+            await new GitHubEventProcessor(github).tick();
+          },
+          onError: (error) =>
+            logger.warn(
+              { err: error },
+              "GitHub sweep was interrupted; durable deliveries will retry.",
+            ),
+        });
   const app = createApp({
+    ...(github === undefined || deps.github === undefined
+      ? {}
+      : {
+          github: {
+            store: deps.github.store,
+            app: deps.github.app,
+            integration: github,
+            projects: deps.projects,
+            queue: deps.queue,
+            webOrigin: config.NAP_WEB_ORIGIN,
+            admission: {
+              keys: openCallerKey,
+              allowedModels: config.NAP_ALLOWED_MODELS,
+              freeModel: config.NAP_FREE_MODEL,
+              defaultModel: config.NAP_MODEL,
+              limits: {
+                ...deps.rateLimits,
+                projects: deps.projects,
+                sandboxes: {
+                  perUser: config.NAP_MAX_SANDBOXES_PER_USER,
+                  total: config.NAP_MAX_SANDBOXES_TOTAL,
+                },
+                freeSandboxes: {
+                  perUser: config.NAP_FREE_MAX_SANDBOXES_PER_USER,
+                  total: config.NAP_MAX_SANDBOXES_TOTAL,
+                },
+              },
+            },
+          },
+        }),
     logger,
     metrics,
     ...(deps.health === undefined ? {} : { health: deps.health }),
@@ -560,6 +628,9 @@ export function composeNap(deps: NapDeps): ComposedNap {
     : startTurnWorker({
         queue: deps.queue,
         runtime,
+        ...(github === undefined
+          ? {}
+          : { publish: (request, signal) => github.publishQueued(request, signal) }),
         concurrency: config.NAP_WORKER_CONCURRENCY,
         // How long a shutdown waits for turns in flight before aborting them. Config rather than
         // the port's default, because what fits depends on the platform's grace period.
@@ -624,5 +695,5 @@ export function composeNap(deps: NapDeps): ComposedNap {
         onError: (error) => logger.error({ err: error }, "janitor sweep threw"),
       });
 
-  return { app, runtime, registry, worker, reaper, janitor, metrics };
+  return { github: githubSchedule, app, runtime, registry, worker, reaper, janitor, metrics };
 }

@@ -55,6 +55,14 @@ const napEnv = {
   OPENROUTER_API_KEY: preserve(),
   GITHUB_CLIENT_ID: preserve(),
   GITHUB_CLIENT_SECRET: preserve(),
+  // The repository-connection App, separate from the sign-in pair above. All six or none: an unset
+  // set leaves GitHub connections off, and a partial one fails boot. See docs/github-integration.md.
+  NAP_GITHUB_APP_ID: preserve(),
+  NAP_GITHUB_APP_SLUG: preserve(),
+  NAP_GITHUB_CLIENT_ID: preserve(),
+  NAP_GITHUB_CLIENT_SECRET: preserve(),
+  NAP_GITHUB_PRIVATE_KEY: preserve(),
+  NAP_GITHUB_WEBHOOK_SECRET: preserve(),
   R2_ACCOUNT_ID: preserve(),
   R2_BUCKET: preserve(),
   R2_ACCESS_KEY_ID: preserve(),

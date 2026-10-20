@@ -228,15 +228,14 @@ export function Sidebar({
         >
           <HelpIcon />
         </a>
-        <button
-          type="button"
-          aria-label="Settings"
-          title="API key settings"
-          onClick={onApiKey}
+        <a
+          href="/settings/connections"
+          aria-label="Connections settings"
+          title="Connections settings"
           className="rounded-lg p-1.5 text-muted hover:bg-hover hover:text-ink"
         >
           <SettingsIcon />
-        </button>
+        </a>
       </div>
     </nav>
   );
@@ -320,6 +319,14 @@ export function AccountMenu({
       {open && (
         <div role="menu" aria-label="Account" className="absolute right-0 bottom-full left-0 pb-2">
           <div className="flex flex-col gap-0.5 rounded-xl border border-edge bg-panel p-1.5 shadow-[0_16px_40px_-12px_rgba(0,0,0,0.7)]">
+            <a
+              role="menuitem"
+              href="/settings/connections"
+              className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] text-ink-2 hover:bg-hover hover:text-ink"
+            >
+              <SettingsIcon />
+              Connections
+            </a>
             <MenuItem onClick={onApiKey}>
               <KeyIcon />
               {keyHint === undefined ? "Add your API key" : `API key · ${keyHint}`}

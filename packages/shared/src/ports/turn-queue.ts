@@ -39,7 +39,7 @@ import type { MediaAttachment } from "../media.ts";
  * Both go through the same lease, and that is what makes offering the second safe at all — they
  * both create a sandbox when the project has none.
  */
-export const TURN_REQUEST_KINDS = ["turn", "resume"] as const;
+export const TURN_REQUEST_KINDS = ["turn", "resume", "publish"] as const;
 export type TurnRequestKind = (typeof TURN_REQUEST_KINDS)[number];
 
 /** Where a request is in its life. Terminal states are never left, and none returns to `queued`. */

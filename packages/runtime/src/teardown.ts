@@ -54,14 +54,8 @@ export type TeardownResult = {
    * outlived it — which is a billing problem for whoever runs next, not a failed teardown.
    */
   destroyed: boolean;
-  /**
-   * Whether this teardown wrote a new snapshot, or reused one that already held this commit.
-   *
-   * False is now the ordinary case rather than an oddity: a turn snapshots its own work, so by
-   * the time the reaper arrives the project is usually still sitting on that commit. The field
-   * exists so a caller can say which happened without diffing the key it got back.
-   */
-  captured: boolean;
+  /** Every close captures refs as well as HEAD, even if the current commit did not move. */
+  captured: true;
 };
 
 /** What `captureSnapshot` needs — a teardown minus the part that destroys anything. */
@@ -80,19 +74,18 @@ export type TearDownOptions = {
   snapshots: SnapshotStore;
   projectId: string;
   sandboxId: string;
-  /** Injected so a test can assert on a whole key rather than on everything except the clock. */
+  /** The timestamp recorded in the object key. */
   now?: () => number;
 };
 
 /**
  * Where a project's snapshot lives.
  *
- * Prefixed per project so deleting one is a bounded operation, and suffixed with a timestamp
- * because tearing down twice at the same commit is ordinary — two rows pointing at one object
- * would make deleting either of them break the other.
+ * Prefixed per project so deleting one is bounded. Each capture gets its own random identity,
+ * including two captures at the same SHA within one millisecond.
  */
 export function snapshotKey(projectId: string, gitSha: string, at: number): string {
-  return `projects/${projectId}/${at}-${gitSha}.bundle`;
+  return `projects/${projectId}/${at}-${gitSha}-${crypto.randomUUID()}.bundle`;
 }
 
 /**
@@ -127,7 +120,7 @@ export async function captureSnapshot(
 export async function tearDownProject(
   options: TearDownOptions,
 ): Promise<Result<TeardownResult, TeardownError>> {
-  const { sandbox, snapshots, projectId, sandboxId } = options;
+  const { sandbox, sandboxId } = options;
   const now = options.now ?? Date.now;
 
   const sha = await currentSha(sandbox, sandboxId);
@@ -135,23 +128,8 @@ export async function tearDownProject(
     return fail(reasonFor(sha.error), `could not read HEAD: ${sha.error.message}`);
   }
 
-  // Now that a turn snapshots its own work, arriving here at a commit that is already stored is
-  // the normal case rather than the exception — and re-bundling it would write a second object
-  // holding byte-identical content, which costs money and gives a project two rows where one
-  // would do. A lookup that *fails* is not allowed to stop the teardown: knowing whether it
-  // changed is an optimisation, and the snapshot is not.
-  const existing = await latestOrNull(snapshots, projectId);
-
-  if (existing !== null && existing.gitSha === sha.value) {
-    const destroyed = await sandbox.destroy(sandboxId);
-    // The existing key, so the caller writes the project back onto the snapshot that really
-    // holds it. A fresh key here would point at an object nothing ever uploaded.
-    return {
-      ok: true,
-      value: { key: existing.key, gitSha: sha.value, destroyed: destroyed.ok, captured: false },
-    };
-  }
-
+  // HEAD alone cannot identify a snapshot: another ref or the current branch can change
+  // at the same commit. Capture all refs and exact HEAD on every close.
   const captured = await captureAt(options, sha.value, now);
   if (!captured.ok) return captured;
 
@@ -199,15 +177,6 @@ async function captureAt(
   }
 
   return { ok: true, value: { key } };
-}
-
-/** The newest snapshot, or null — including when the store cannot say. */
-async function latestOrNull(snapshots: SnapshotStore, projectId: string) {
-  try {
-    return await snapshots.latestFor(projectId);
-  } catch {
-    return null;
-  }
 }
 
 /**

@@ -8,9 +8,7 @@
  * two faces, and a Reload button that lived inside the preview would disappear when somebody
  * switched to the code — while still being the control they wanted.
  *
- * **Nothing here is decoration.** There is no Share, Publish or Upgrade: this deployment has no
- * such features, and a button that does nothing teaches people that the other buttons might not
- * work either. Which is the test the job phase passes: the strip that otherwise carries it lives
+ * Repository controls appear only for connected projects. The job strip lives
  * *inside the chat pane*, and the button two elements to its left collapses that pane — so
  * hiding the chat to give the preview the whole window used to take the one signal saying
  * whether the project works off the screen with it.
@@ -37,6 +35,7 @@ export function WorkspaceHeader({
   onReload,
   onRouteChange,
   onToggleChat,
+  repositoryControl,
 }: {
   projectName: string;
   /** Absent while the bar is showing a sentence rather than a name; see below. */
@@ -57,6 +56,7 @@ export function WorkspaceHeader({
   onReload: () => void;
   onRouteChange: (route: string) => void;
   onToggleChat: () => void;
+  repositoryControl?: ReactNode;
 }) {
   return (
     <header className="workspace-header flex min-h-14 shrink-0 flex-wrap items-center gap-3 px-4 py-2 pl-14 md:pl-3">
@@ -114,6 +114,8 @@ export function WorkspaceHeader({
           </button>
         ))}
       </div>
+
+      {repositoryControl}
 
       {previewUrl !== undefined && (
         <div className="flex w-full min-w-0 items-center justify-end gap-2 sm:w-auto sm:flex-1">

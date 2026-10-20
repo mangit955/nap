@@ -46,6 +46,9 @@ const INTERRUPTED_MESSAGE =
   "This turn was interrupted: the worker running it stopped responding, so it never finished.";
 const RESUME_NOTICE =
   "Nothing was lost — the work so far is saved. Reopen the project to pick it up from where it stopped.";
+/** A publish ran no turn, so there is nothing to reopen — what is left to do is publish again. */
+const PUBLISH_INTERRUPTED_NOTICE =
+  "Publishing was interrupted. Your saved work is safe; retry publishing from this project.";
 
 export type JanitorFailure = {
   /** Which request could not be closed out, or null when the queue itself could not be asked. */
@@ -171,14 +174,15 @@ async function announce(
         createdAt,
       });
     }
+    const notice = request.kind === "publish" ? PUBLISH_INTERRUPTED_NOTICE : RESUME_NOTICE;
     if (
       !requestHistory.some(
-        (event) => event.type === "system.notice" && event.payload.text === RESUME_NOTICE,
+        (event) => event.type === "system.notice" && event.payload.text === notice,
       )
     )
       sink.emit({
         type: "system.notice",
-        payload: { level: "warning", text: RESUME_NOTICE },
+        payload: { level: "warning", text: notice },
         sessionId: request.sessionId,
         turnId: request.id,
         createdAt,

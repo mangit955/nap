@@ -47,8 +47,9 @@ export type CapacityRefusal = {
  * The one way activating can fail: the reservation is no longer there to activate.
  *
  * A reservation expires while it is still `reserved`, because a caller that dies between reserving
- * and creating must not hold a slot forever — so a creation slower than the TTL comes back to find
- * its row reclaimed. An answer rather than an exception, because by then the caller is holding a
+ * and creating must not hold a slot forever — so a creation whose renewals stopped landing for
+ * longer than the TTL comes back to find its row reclaimed. An answer rather than an exception,
+ * because by then the caller is holding a
  * real, running, billed sandbox that this deployment's ceiling is not counting, and it has to be
  * told so it can do something about it.
  */
@@ -77,6 +78,22 @@ export interface SandboxCapacity {
    * sandbox running outside the ceiling that bounds this deployment's bill.
    */
   activate(reservationId: string, sandboxId: string): Promise<VoidResult<ActivationFailure>>;
+
+  /**
+   * Keeps a reservation whose sandbox is still being created or prepared from expiring, and
+   * records which sandbox that is once there is one.
+   *
+   * Opening an imported repository can take minutes before the sandbox exists — the first fetch
+   * may wait for a transfer slot — and minutes after, in a dependency install; either is longer
+   * than a reservation lives. Activating early is not the answer: an active row is counted as a
+   * finished creation, and the project would have to name a sandbox it cannot yet use. A renewed
+   * row stays `reserved`, so a process that dies mid-setup still loses its slot within one TTL,
+   * and names its sandbox, so the inventory sweep does not destroy it as unreferenced. `null`
+   * renews the expiry alone, before the sandbox exists, and never clears a name already recorded.
+   *
+   * Fails the way `activate` does when the row has already been reclaimed.
+   */
+  renew(reservationId: string, sandboxId: string | null): Promise<VoidResult<ActivationFailure>>;
 
   /** Gives back capacity a creation never used. */
   release(reservationId: string): Promise<void>;

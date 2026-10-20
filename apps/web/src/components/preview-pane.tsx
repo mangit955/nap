@@ -64,6 +64,7 @@ export type PreviewPaneProps = {
   route?: string | undefined;
   /** Bumped by the bar's Reload button; the frame's key reads it. */
   reloads?: number | undefined;
+  previewRequired?: boolean;
 };
 
 export function PreviewPane({
@@ -72,6 +73,7 @@ export function PreviewPane({
   resumeError,
   route = "/",
   reloads = 0,
+  previewRequired = true,
 }: PreviewPaneProps) {
   return (
     // No title bar: the workbench's tabs say which half this is, and the controls that used to
@@ -82,6 +84,7 @@ export function PreviewPane({
       {phase.kind !== "running" ? (
         <Waiting
           phase={phase}
+          previewRequired={previewRequired}
           {...(onResume === undefined ? {} : { onResume })}
           {...(resumeError === undefined ? {} : { resumeError })}
         />
@@ -107,10 +110,12 @@ function Waiting({
   phase,
   onResume,
   resumeError,
+  previewRequired,
 }: {
   phase: Exclude<ProjectPhase, { kind: "running" }>;
   onResume?: (() => void) | undefined;
   resumeError?: string | undefined;
+  previewRequired: boolean;
 }) {
   return (
     // No box. The workbench already draws a bordered panel around this, so a second frame two
@@ -118,6 +123,14 @@ function Waiting({
     // waiting for content rather than as a state the project is in.
     <div className="flex h-full items-center justify-center p-8">
       <div className="flex max-w-sm flex-col items-center gap-3 text-center">
+        {phase.kind === "no-preview" && (
+          <>
+            <p className="font-display font-semibold text-[15px] text-ink">No preview configured</p>
+            <p className="text-[12.5px] text-muted leading-relaxed">
+              This repository is ready to work on. Browse its files in Code and send a task in chat.
+            </p>
+          </>
+        )}
         {phase.kind === "idle" && (
           <>
             {/*
@@ -131,7 +144,9 @@ function Waiting({
           </>
         )}
 
-        {(phase.kind === "starting" || phase.kind === "opening") && <StartingUp />}
+        {(phase.kind === "starting" || phase.kind === "opening") && (
+          <StartingUp previewRequired={previewRequired} />
+        )}
 
         {phase.kind === "put-away" && <PutAway onResume={onResume} error={resumeError} />}
 
@@ -154,7 +169,7 @@ function Waiting({
  * Only the fixed line is announced. A reader gets "Starting the dev server" once rather than a
  * new word every three seconds, and a clock that would be read out on every tick.
  */
-function StartingUp() {
+function StartingUp({ previewRequired }: { previewRequired: boolean }) {
   const word = useRotating(WAITING_WORDS, WORD_MS);
   const elapsed = useElapsed({ precision: 0 });
 
@@ -173,7 +188,8 @@ function StartingUp() {
           {word}…
         </p>
         <p className="font-mono text-[11px] text-muted tabular-nums">
-          Starting the dev server · <span aria-hidden="true">{elapsed}</span>
+          {previewRequired ? "Starting the dev server" : "Starting the workspace"} ·{" "}
+          <span aria-hidden="true">{elapsed}</span>
         </p>
       </div>
     </>

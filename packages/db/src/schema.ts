@@ -1,3 +1,8 @@
+import type {
+  GitHubInstallation,
+  RepositoryFeedback,
+  RepositoryJob,
+} from "@nap/shared/github-protocol";
 import type { MediaAttachment } from "@nap/shared/media";
 /**
  * The Postgres schema, per docs/PLAN.md §5.
@@ -26,7 +31,9 @@ import type { NapEvent, NapEventType } from "@nap/shared/events";
 import { TURN_REQUEST_KINDS, TURN_REQUEST_STATES } from "@nap/shared/ports/turn-queue";
 import { sql } from "drizzle-orm";
 import {
+  bigint,
   boolean,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -430,3 +437,138 @@ export const snapshots = pgTable("snapshots", {
   gitSha: text("git_sha").notNull(),
   createdAt,
 });
+
+export const githubConnectionStates = pgTable("github_connection_states", {
+  hash: text("hash").primaryKey(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  installationId: bigint("installation_id", { mode: "number" }),
+  stage: text("stage").$type<"install" | "authorize">().notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+});
+
+/** Disconnection retains the owner, so another account cannot claim an existing installation. */
+export const githubInstallations = pgTable(
+  "github_installations",
+  {
+    installationId: bigint("installation_id", { mode: "number" }).primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    githubUserId: bigint("github_user_id", { mode: "number" }).notNull(),
+    githubLogin: text("github_login").notNull(),
+    accountLogin: text("account_login").notNull(),
+    accountType: text("account_type").$type<GitHubInstallation["accountType"]>().notNull(),
+    status: text("status").$type<GitHubInstallation["status"]>().notNull(),
+  },
+  (t) => [index("github_installations_owner").on(t.userId)],
+);
+
+export const projectRepositories = pgTable(
+  "project_repositories",
+  {
+    projectId: uuid("project_id")
+      .primaryKey()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    sessionId: uuid("session_id")
+      .notNull()
+      .unique()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    installationId: bigint("installation_id", { mode: "number" }).notNull(),
+    repository: jsonb("repository").$type<unknown>().notNull(),
+    baseBranch: text("base_branch").notNull(),
+    environment: jsonb("environment").$type<unknown>().notNull(),
+    autoPublish: boolean("auto_publish").notNull(),
+  },
+  (t) => [
+    index("project_repositories_installation").on(t.installationId),
+    foreignKey({
+      name: "project_repositories_installation_fk",
+      columns: [t.installationId],
+      foreignColumns: [githubInstallations.installationId],
+    }),
+  ],
+);
+
+/** Repository publication accompanies the event-folded Job; it never determines the Job's phase. */
+export const repositoryJobs = pgTable(
+  "repository_jobs",
+  {
+    jobId: uuid("job_id").primaryKey(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projectRepositories.projectId, { onDelete: "cascade" }),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    baseBranch: text("base_branch").notNull(),
+    headBranch: text("head_branch").notNull(),
+    baseSha: text("base_sha").notNull(),
+    headSha: text("head_sha"),
+    pushedSha: text("pushed_sha"),
+    pullRequestNumber: integer("pull_request_number"),
+    pullRequestUrl: text("pull_request_url"),
+    pullRequestState: text("pull_request_state")
+      .$type<RepositoryJob["pullRequestState"]>()
+      .notNull(),
+    publishState: text("publish_state").$type<RepositoryJob["publishState"]>().notNull(),
+    checkState: text("check_state").$type<RepositoryJob["checkState"]>().notNull(),
+    reviewState: text("review_state").$type<RepositoryJob["reviewState"]>().notNull(),
+    error: text("error"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    // Which job is newest on a pull request. `updated_at` cannot say: refreshing an older job
+    // bumps it, and the follow-up that superseded it would then lose to its own predecessor.
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("repository_jobs_project_branch").on(t.projectId, t.headBranch),
+    index("repository_jobs_open_pr").on(t.updatedAt).where(sql`${t.pullRequestState} = 'open'`),
+  ],
+);
+
+export const repositoryFeedback = pgTable(
+  "repository_feedback",
+  {
+    id: text("id").primaryKey(),
+    projectId: uuid("project_id").notNull(),
+    jobId: uuid("job_id")
+      .notNull()
+      .references(() => repositoryJobs.jobId, { onDelete: "cascade" }),
+    kind: text("kind").$type<RepositoryFeedback["kind"]>().notNull(),
+    summary: text("summary").notNull(),
+    requestId: uuid("request_id").references(() => turnRequests.id),
+    createdAt,
+  },
+  (t) => [
+    index("repository_feedback_project").on(t.projectId, t.createdAt),
+    foreignKey({
+      name: "repository_feedback_project_fk",
+      columns: [t.projectId],
+      foreignColumns: [projectRepositories.projectId],
+    }).onDelete("cascade"),
+  ],
+);
+
+export const githubDeliveries = pgTable(
+  "github_deliveries",
+  {
+    id: text("id").primaryKey(),
+    event: text("event").notNull(),
+    payload: jsonb("payload").$type<unknown>().notNull(),
+    state: text("state")
+      .$type<"pending" | "processing" | "done" | "failed">()
+      .notNull()
+      .default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+    lastError: text("last_error"),
+    createdAt,
+  },
+  (t) => [
+    index("github_deliveries_pending")
+      .on(t.nextAttemptAt)
+      .where(sql`${t.state} in ('pending', 'processing')`),
+  ],
+);

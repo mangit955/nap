@@ -187,9 +187,10 @@ export class PostgresSandboxCapacity implements SandboxCapacity {
   }
 
   /**
-   * **The rowcount is the whole point.** A creation slower than `RESERVATION_TTL` comes back to
-   * find the reclaiming sweep has already deleted its row — no crash and no concurrency needed,
-   * one slow cold start is enough. The update then matches nothing, and reporting that as success
+   * **The rowcount is the whole point.** A creation whose renewals stop reaching the store for
+   * longer than `RESERVATION_TTL` — a database outage during a cold start or a repository setup is
+   * enough — comes back to find the reclaiming sweep has already deleted its row. The update then
+   * matches nothing, and reporting that as success
    * would leave a real, running, billed sandbox that no row counts: a sandbox outside the ceiling,
    * which is the only thing bounding this deployment's bill.
    *
@@ -206,11 +207,35 @@ export class PostgresSandboxCapacity implements SandboxCapacity {
         // Nothing is waiting on this row any more, so nothing should reclaim it on a timer: it
         // is released by the teardown that destroys the sandbox it names.
         expiresAt: sql`'infinity'`,
+        // The reaper's orphan rule spares an active row for a grace period measured from this
+        // column, to cover the moment before the project names its sandbox. A repository setup
+        // can keep a row reserved for longer than that grace, so the clock restarts here, where
+        // that moment begins, rather than at reservation.
+        createdAt: sql`now()`,
       })
       .where(eq(sandboxReservations.id, reservationId))
       .returning({ id: sandboxReservations.id });
 
     if (rows.length === 0) return reclaimed(sandboxId);
+    return { ok: true, value: undefined };
+  }
+
+  async renew(
+    reservationId: string,
+    sandboxId: string | null,
+  ): Promise<VoidResult<ActivationFailure>> {
+    const rows = await this.#db
+      .update(sandboxReservations)
+      .set({
+        ...(sandboxId === null ? {} : { sandboxId }),
+        expiresAt: sql`now() + ${RESERVATION_TTL}::interval`,
+      })
+      .where(
+        and(eq(sandboxReservations.id, reservationId), eq(sandboxReservations.state, "reserved")),
+      )
+      .returning({ id: sandboxReservations.id });
+
+    if (rows.length === 0) return reclaimed(sandboxId ?? "not yet created");
     return { ok: true, value: undefined };
   }
 

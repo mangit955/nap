@@ -28,7 +28,7 @@ WORKDIR /app
 #
 # Before `COPY . .` so a code change does not reinstall a browser on every deploy.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends chromium fonts-liberation \
+  && apt-get install -y --no-install-recommends chromium fonts-liberation git ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
 # Set here rather than as a platform variable, because the binary and the path to it are two

@@ -19,6 +19,7 @@
     "typecheck": "turbo run typecheck && tsc --noEmit",
     "harness": "bun run packages/runtime/scripts/harness.ts",
     "db:migrate": "bun run packages/db/scripts/migrate.ts",
+    "github:manifest": "bun run apps/api/scripts/github-manifest.ts",
     "ws:smoke": "bun run apps/api/scripts/ws-smoke.ts",
     "loadgen": "bun run apps/api/scripts/loadgen.ts",
     "loadgen:ramp": "bun run apps/api/scripts/loadgen-ramp.ts",

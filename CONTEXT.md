@@ -153,10 +153,10 @@ composition given a different role, so it names a *process's job* and never a bu
 code path. `all` is the three in one process, which is what tests and the load harness compose.
 
 **Sweep lock** — what makes the reaper one sweeper rather than one replica. A session-level advisory
-lock, asked at the top of every idle-sweep tick and held on a connection of its own; a process that
-does not hold it does nothing that tick. It exists for the seconds of a rolling update when two
-reapers are running, and it guards the idle sweep alone — the **janitor** beside it is safe to run
-twice over and deliberately unguarded.
+lock, asked at the top of every idle-sweep tick and every **GitHub sweep** tick and held on a
+connection of its own; a process that does not hold it does nothing that tick. It exists for the
+seconds of a rolling update when two reapers are running, and it guards those two sweeps alone —
+the **janitor** beside them is safe to run twice over and deliberately unguarded.
 
 **Busy** — whether any of a project's sessions holds a *lease* right now. One question with one
 answer for the whole cluster (`TurnQueue.anyLeased`), asked by closing a project, deleting one, and
@@ -220,7 +220,8 @@ no ordinary path gave back. Three things it finds — a reservation whose proces
 created anything, a reservation whose sandbox the provider has since reclaimed, and a sandbox the
 provider is running that nothing in the database references. Only the third destroys anything, and
 only outside a grace window, because a sandbox seconds old and referenced by nothing is far more
-likely to be a creation in flight than a leak.
+likely to be a creation in flight than a leak. Rereading a GitHub pull request is a **PR refresh**,
+never reconciliation.
 
 **Put away** — a project whose sandbox has been destroyed on purpose, its work preserved in a
 snapshot. Not an error and not an empty project: its files are safe, and starting it back up takes
@@ -239,6 +240,39 @@ the work has got.
 **Preview** — the user's app, running in a sandbox and reachable at a URL announced by
 `preview.ready`. The `seq` of that announcement, not its URL, is what identifies *which* preview:
 a project put away and restarted has two announcements and only one live sandbox.
+
+**Installation** — one GitHub App installation on a personal account or organization, bound to the
+one Nap owner who connected it; what the UI calls a **GitHub connection**. It stays reserved to that
+owner across a disconnect. Only GitHub answering 404 for it marks it *removed*; a rate limit or an
+outage changes nothing stored. See `docs/github-integration.md` and `docs/adr/0016`.
+
+**Repository job** — the GitHub side of a **Job** in an imported project: its `nap/<job-id>` branch,
+base and head commits, the commit it pushed, and its pull request. A row in `repository_jobs`, keyed
+by the Job's id; it records where the work went, while the Job itself still says how far it got.
+
+**Publication** — pushing a repository job's *verified* commit to its branch and opening, or
+finding, its draft pull request. Never a force-push, and never from an unverified commit. It runs
+under the session's lease, either at the end of a job when the import chose to publish
+automatically, or as a queued turn request of kind `publish` that spends no model tokens.
+
+**PR refresh** — rereading one repository job's pull request — its state, checks, reviews and
+comments — and writing down what it found, including **PR feedback**. A webhook delivery triggers
+one, approving PR feedback rechecks with one first, and a pull request nothing has refreshed for
+five minutes gets one from the backstop. Not
+**reconciliation**, which is about sandbox capacity.
+
+**PR feedback** — a failed check, or a `/nap <instruction>` comment from the connected GitHub user,
+found by a PR refresh and held as *pending* until the Nap owner approves it. Approval turns it into
+an ordinary turn request; nothing a webhook brings in ever starts one by itself.
+
+**Webhook inbox** — the table signed GitHub deliveries are written to by the API and read from by the
+**GitHub sweep**: deduplicated by delivery id, claimed under a lease, given up after five attempts.
+Receiving a delivery and acting on it are separate on purpose, so an API pod never calls GitHub
+on a webhook's behalf.
+
+**GitHub sweep** — a third timer in the reaper process, every 15 seconds and behind the **sweep
+lock**: it works through the webhook inbox, then gives a bounded number of stale pull requests a PR
+refresh. Started only in the reaper (or `all`), and only when a GitHub App is configured.
 
 ## NapBench glossary
 
