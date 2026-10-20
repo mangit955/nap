@@ -5,7 +5,13 @@ import { useEffect } from "react";
 import { authClient } from "../auth/client.ts";
 import { GitHubConnections } from "./connections.tsx";
 
-export function LiveGitHubConnections({ callbackStatus }: { callbackStatus?: string | undefined }) {
+export function LiveGitHubConnections({
+  callbackStatus,
+  draftId,
+}: {
+  callbackStatus?: string | undefined;
+  draftId?: string | undefined;
+}) {
   const router = useRouter();
   const { data: session, isPending } = authClient.useSession();
   useEffect(() => {
@@ -37,5 +43,5 @@ export function LiveGitHubConnections({ callbackStatus }: { callbackStatus?: str
         </div>
       </main>
     );
-  return <GitHubConnections callbackStatus={callbackStatus} />;
+  return <GitHubConnections callbackStatus={callbackStatus} draftId={draftId} />;
 }

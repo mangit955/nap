@@ -14,6 +14,7 @@ export type GitHubConnectionState = {
   installationId: number | null;
   stage: "install" | "authorize";
   expiresAt: Date;
+  draftId?: string | null;
 };
 
 export type ImportRepository = Pick<

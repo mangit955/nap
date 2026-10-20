@@ -47,6 +47,7 @@ const NO_JOBS = jobView([]);
  * `use-turn-submission.ts` for why that boundary is worth keeping.
  */
 export function ChatPane({
+  draftIdentity,
   active = true,
   events,
   jobs = NO_JOBS,
@@ -68,6 +69,7 @@ export function ChatPane({
   card,
   onDismissCard = () => {},
 }: {
+  draftIdentity?: { ownerId: string; projectId: string } | undefined;
   active?: boolean;
   events: readonly StoredEvent[];
   /**
@@ -220,6 +222,7 @@ export function ChatPane({
               onCompact={() => onSubmit("/compact")}
             />
             <ChatInput
+              draftIdentity={draftIdentity}
               queueing={
                 pending === undefined &&
                 transcript.some((item) => item.kind === "compaction" && item.status === "running")
@@ -298,6 +301,7 @@ function EmptyState() {
 }
 
 export function LiveChatPane({
+  ownerId,
   active = true,
   sessionId,
   projectId,
@@ -305,6 +309,7 @@ export function LiveChatPane({
   files,
   fetchJson,
 }: {
+  ownerId?: string | undefined;
   active?: boolean;
   sessionId: string | undefined;
   /** Only so a prompt typed on the front page can be claimed by the project it was meant for. */
@@ -364,6 +369,7 @@ export function LiveChatPane({
       <ApiKeyPanel open={keyPanelOpen} onClose={() => setKeyPanelOpen(false)} keyState={key} />
 
       <ChatPane
+        draftIdentity={ownerId && projectId ? { ownerId, projectId } : undefined}
         active={active}
         events={events}
         jobs={jobs}

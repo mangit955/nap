@@ -3,9 +3,10 @@
 import type { MediaAttachment } from "@nap/shared/media";
 import { MODEL_MEDIA_UNSUPPORTED, modelSupportsImages } from "@nap/shared/model-capabilities";
 import type { ModelChoice } from "@nap/shared/models-protocol";
-import { useEffect, useRef } from "react";
+import { type ReactNode, useEffect, useRef } from "react";
 import { NapMark } from "../brand/nap-mark.tsx";
-import { AttachmentButton, AttachmentTray, DictationButton } from "../chat/composer-controls.tsx";
+import { ComposerAddMenu } from "../chat/composer-add-menu.tsx";
+import { AttachmentTray, DictationButton } from "../chat/composer-controls.tsx";
 import { ModelPicker } from "../chat/model-picker.tsx";
 import { useMediaAttachments } from "../chat/use-media-attachments.ts";
 
@@ -13,6 +14,11 @@ import { appendDictation, useDictation } from "./use-dictation.ts";
 
 export function DashboardHero({
   value,
+  source,
+  picker,
+  onRepositories,
+  mediaState,
+  canOpenWorkspace = false,
   busy = false,
   error,
   models = [],
@@ -24,6 +30,11 @@ export function DashboardHero({
   onSubmit,
 }: {
   value: string;
+  source?: ReactNode;
+  picker?: ReactNode;
+  onRepositories?: (() => void) | undefined;
+  mediaState?: ReturnType<typeof useMediaAttachments>;
+  canOpenWorkspace?: boolean;
   busy?: boolean;
   error?: string | undefined;
   models?: readonly ModelChoice[];
@@ -35,7 +46,8 @@ export function DashboardHero({
   onSubmit: (message: string, attachments?: MediaAttachment[]) => void;
 }) {
   const box = useRef<HTMLTextAreaElement>(null);
-  const media = useMediaAttachments();
+  const localMedia = useMediaAttachments();
+  const media = mediaState ?? localMedia;
   const images = modelSupportsImages(model);
   const incompatibleMedia = media.attachments.length > 0 && !images;
   const dictation = useDictation((spoken) => onChange(appendDictation(value, spoken)));
@@ -51,7 +63,7 @@ export function DashboardHero({
   const send = () => {
     const message =
       value.trim() || (media.attachments.length > 0 ? "Build an app using these references." : "");
-    if (message === "" || disabled || incompatibleMedia) return;
+    if ((!canOpenWorkspace && message === "") || disabled || incompatibleMedia) return;
     dictation.stop();
     if (media.attachments.length === 0) onSubmit(message);
     else
@@ -79,6 +91,7 @@ export function DashboardHero({
             if (!disabled) void media.add(Array.from(event.dataTransfer.files));
           }}
         >
+          {source}
           <AttachmentTray
             attachments={media.attachments}
             disabled={disabled}
@@ -106,11 +119,16 @@ export function DashboardHero({
             placeholder="Ask nap to build an app, fix a bug, or explore an idea…"
             className="block h-24 min-h-24 w-full resize-none bg-transparent px-4 pt-4 pb-2 text-sm leading-relaxed text-ink outline-none placeholder:text-muted disabled:text-muted"
           />
+          {picker}
           <div className="composer-toolbar flex items-center justify-between gap-2 px-3 pb-3 sm:px-4 sm:pb-4">
             <div className="flex min-w-0 items-center gap-1">
-              <AttachmentButton
-                disabled={disabled || !images}
+              <ComposerAddMenu
+                disabled={disabled}
+                mediaSupported={images}
                 onFiles={(files) => void media.add(files)}
+                onRepositories={
+                  onRepositories ?? (() => window.location.assign("/dashboard?repositories=1"))
+                }
               />
               <ModelPicker
                 models={models}
@@ -126,12 +144,16 @@ export function DashboardHero({
               <DictationButton dictation={dictation} disabled={disabled} />
               <button
                 type="button"
-                aria-label="Send"
+                aria-label={
+                  canOpenWorkspace && !value.trim() && !media.attachments.length
+                    ? "Open workspace"
+                    : "Send"
+                }
                 onClick={send}
                 disabled={
                   disabled ||
                   incompatibleMedia ||
-                  (value.trim() === "" && media.attachments.length === 0)
+                  (!canOpenWorkspace && value.trim() === "" && media.attachments.length === 0)
                 }
                 className="composer-send grid size-8 place-items-center rounded-full bg-accent text-white transition-colors hover:bg-accent/90 disabled:bg-hover disabled:text-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
               >
@@ -151,12 +173,6 @@ export function DashboardHero({
             </div>
           </div>
         </fieldset>
-        <a
-          href="/settings/connections#import"
-          className="mt-5 inline-block text-sm text-muted underline underline-offset-4 hover:text-ink"
-        >
-          Import from GitHub
-        </a>
         {media.processing && (
           <p role="status" className="mt-3 text-xs text-muted">
             Preparing attachments…

@@ -1,4 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { IDBFactory } from "fake-indexeddb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mediaBrowser } from "../testing/media-browser.ts";
 import { ChatInput } from "./chat-input.tsx";
@@ -93,7 +94,11 @@ describe("reference inputs", () => {
 
   it("does not offer new attachments for a selected text-only model", () => {
     show({ models, model: "nvidia/nemotron-3-ultra-550b-a55b:free" });
-    expect(screen.getByRole("button", { name: "Add images or videos" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Add to prompt" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Add to prompt" }));
+    expect(screen.getByRole("menuitem", { name: "Upload media" })).toBeDisabled();
+    expect(screen.getByRole("menuitem", { name: "Repositories" })).toBeEnabled();
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
     type("Build a text-only page");
     expect(screen.getByRole("button", { name: "Send" })).toBeEnabled();
   });
@@ -493,4 +498,17 @@ it("allows a queued prompt during compaction while preserving the Stop control",
   fireEvent.click(screen.getByRole("button", { name: "Queue message" }));
   expect(onSubmit).toHaveBeenCalledWith("Continue with the filter");
   expect(screen.getByRole("button", { name: "Stop" })).toBeEnabled();
+});
+
+it("restores an owner-bound workspace draft after navigating away", async () => {
+  vi.stubGlobal("indexedDB", new IDBFactory());
+  const draftIdentity = { ownerId: crypto.randomUUID(), projectId: crypto.randomUUID() };
+  const props = { draftIdentity, model: "openai/gpt-5.6-luna" };
+  const view = show(props);
+  await waitFor(() => expect(box()).toBeEnabled());
+  type("Keep this follow-up");
+  view.unmount();
+  show(props);
+  await waitFor(() => expect(box()).toHaveValue("Keep this follow-up"));
+  vi.unstubAllGlobals();
 });

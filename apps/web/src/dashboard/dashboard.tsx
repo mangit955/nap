@@ -1,7 +1,15 @@
 "use client";
 
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { PanelIcon } from "../ui/icons.tsx";
+import { Splitter } from "../ui/splitter.tsx";
 import { useDocumentScrollLock } from "../ui/use-document-scroll-lock.ts";
 
 export function Dashboard({
@@ -20,6 +28,35 @@ export function Dashboard({
   const Content = contentLandmark ? "main" : "div";
   useDocumentScrollLock();
   const [collapsed, setCollapsed] = useState(false);
+  const [width, setWidth] = useState(256);
+  const resize = useCallback((next: number) => {
+    const value = Math.round(
+      Math.max(208, Math.min(Math.max(208, Math.min(420, window.innerWidth - 400)), next)),
+    );
+    setWidth(value);
+    try {
+      localStorage.setItem("nap.sidebar.width", String(value));
+    } catch {
+      /* Width still applies for this page. */
+    }
+  }, []);
+  useEffect(() => {
+    try {
+      const saved = Number(localStorage.getItem("nap.sidebar.width"));
+      if (saved > 0 && Number.isFinite(saved)) resize(saved);
+      setCollapsed(localStorage.getItem("nap.sidebar.collapsed") === "true");
+    } catch {
+      /* Storage is optional for layout. */
+    }
+  }, [resize]);
+  useEffect(() => {
+    const clamp = () => resize(width);
+    window.addEventListener("resize", clamp);
+    return () => window.removeEventListener("resize", clamp);
+  }, [resize, width]);
+  const frameStyle: CSSProperties & { "--sidebar-width": string } = {
+    "--sidebar-width": `${width}px`,
+  };
   const [navigationOpen, setNavigationOpen] = useState(false);
   const mobileTrigger = useRef<HTMLButtonElement>(null);
   const navigation = useRef<HTMLDivElement>(null);
@@ -72,6 +109,7 @@ export function Dashboard({
 
   return (
     <div
+      style={frameStyle}
       aria-busy={fading}
       className={`dashboard-frame relative grid h-dvh overflow-hidden bg-surface text-ink transition-opacity duration-200 ${fading ? "opacity-60" : "opacity-100"}`}
       data-signing-out={fading}
@@ -82,7 +120,14 @@ export function Dashboard({
         type="button"
         aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         aria-expanded={!collapsed}
-        onClick={() => setCollapsed(!collapsed)}
+        onClick={() => {
+          setCollapsed(!collapsed);
+          try {
+            localStorage.setItem("nap.sidebar.collapsed", String(!collapsed));
+          } catch {
+            /* Optional preference. */
+          }
+        }}
         className="sidebar-toggle desktop-sidebar-toggle"
         title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
       >
@@ -120,6 +165,41 @@ export function Dashboard({
       >
         {sidebar}
       </div>
+      {!collapsed && (
+        <div className="sidebar-resize">
+          <Splitter
+            label="Sidebar width"
+            value={width}
+            onGrab={(event) => {
+              event.preventDefault();
+              const target = event.currentTarget;
+              if (target instanceof HTMLElement) target.focus();
+              target.setPointerCapture(event.pointerId);
+              const move = (next: Event) => {
+                if (next instanceof PointerEvent) resize(next.clientX);
+              };
+              const stop = () => {
+                target.removeEventListener("pointermove", move);
+                target.removeEventListener("lostpointercapture", stop);
+              };
+              target.addEventListener("pointermove", move);
+              target.addEventListener("lostpointercapture", stop, { once: true });
+            }}
+            onKeyDown={(event) => {
+              if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+                event.preventDefault();
+                resize(
+                  event.key === "Home"
+                    ? 208
+                    : event.key === "End"
+                      ? 420
+                      : width + (event.key === "ArrowLeft" ? -16 : 16),
+                );
+              }
+            }}
+          />
+        </div>
+      )}
       <Content
         inert={navigationOpen}
         className="dashboard-content nap-scroll-hidden relative min-h-0 min-w-0 overflow-y-auto"

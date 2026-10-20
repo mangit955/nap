@@ -1,3 +1,5 @@
+import { PostgresSessionNavigationStore } from "@nap/db/session-navigation-store";
+import { PostgresSessionStartStore } from "@nap/db/session-start-store";
 /**
  * What a *process* does, for each of the three processes Nap runs.
  *
@@ -344,6 +346,8 @@ export async function bootNap(role: NapRole): Promise<NapProcess> {
     // typo before it is stored.
     encryptionKey: encryptionKeyFrom(env.NAP_KEY_ENCRYPTION_SECRET),
     verifyKey: createKeyVerifier(),
+    sessionStarts: new PostgresSessionStartStore(db),
+    sessionNavigation: new PostgresSessionNavigationStore(db),
     createProject: (options) => createProjectSession(db, options),
     upgradeWebSocket,
     // The file a worker pod's liveness probe reads. Built here rather than in the composition

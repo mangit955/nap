@@ -13,7 +13,8 @@
       "!**/dist",
       "!**/.turbo",
       "!packages/db/drizzle",
-      "!apps/napbench/fixtures"
+      "!apps/napbench/fixtures",
+      "!docs/nap-navigation-plan.html"
     ]
   },
   "formatter": {

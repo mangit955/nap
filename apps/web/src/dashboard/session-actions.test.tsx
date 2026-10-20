@@ -30,7 +30,7 @@ it("deletes only after the confirmation and allows cancelling", () => {
   render(<SessionActions name="Portfolio" onDelete={onDelete} />);
   const open = () => {
     fireEvent.click(screen.getByRole("button", { name: "Session actions for Portfolio" }));
-    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete project" }));
   };
   open();
   expect(onDelete).not.toHaveBeenCalled();

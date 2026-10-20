@@ -97,3 +97,30 @@ describe("GitHub installation authority", () => {
     expect(JSON.stringify(result)).not.toContain("credential-secret");
   });
 });
+
+it("reads every repository page beyond the old thousand-repository cap", async () => {
+  const pages: number[] = [];
+  const app = new GitHubApp(config, async (url) => {
+    const target = new URL(String(url));
+    if (target.pathname.endsWith("/access_tokens"))
+      return Response.json({
+        token: "installation",
+        expires_at: new Date(Date.now() + 3600000).toISOString(),
+      });
+    const page = Number(target.searchParams.get("page"));
+    pages.push(page);
+    return Response.json({
+      repositories: Array.from({ length: page <= 11 ? 100 : 1 }, (_, i) => ({
+        id: page * 100 + i,
+        full_name: `example/repo-${page}-${i}`,
+        default_branch: "main",
+        private: true,
+        archived: false,
+        disabled: false,
+      })),
+    });
+  });
+  const result = await app.repositories(99);
+  expect(result.ok && result.value.length).toBe(1101);
+  expect(pages).toHaveLength(12);
+});

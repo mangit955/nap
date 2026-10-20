@@ -1,0 +1,3 @@
+ALTER TABLE "projects" ADD COLUMN "navigation" jsonb DEFAULT '{"pinned":false,"position":null,"doneAt":null,"archivedAt":null,"snoozedUntil":null,"readAt":null,"unread":false}'::jsonb NOT NULL;--> statement-breakpoint
+ALTER TABLE "projects" ADD COLUMN "navigation_revision" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+CREATE INDEX "turn_requests_session_created" ON "turn_requests" USING btree ("session_id","created_at");

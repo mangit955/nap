@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Nap navigation and GitHub entry plan</title>
+<style>
+:root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:transparent;color:var(--foreground,#e7e7e7);font:14px/1.55 var(--font-sans,system-ui)}button,input,textarea{font:inherit}button{cursor:pointer}a{color:var(--info,#77aaff);text-underline-offset:3px}p{margin:0 0 14px}
+.lead{font-size:20px;line-height:1.4;font-weight:550;letter-spacing:-.4px}.sub{color:var(--muted-foreground,#96969c);font-size:13px}
+.viewbar{display:flex;gap:6px;flex-wrap:wrap;margin:20px 0 12px}.viewbar button{border:1px solid var(--border,#3c3c40);padding:8px 12px;border-radius:8px;background:transparent;color:inherit;font-size:12px}.viewbar button[aria-pressed=true]{background:var(--foreground,#eee);color:var(--background,#111)}
+.mock{--s:#19191b;--m:#141416;--line:#303034;--fg:#eeedf0;--dim:#96949c;position:relative;overflow:hidden;border:1px solid #343438;border-radius:14px;background:var(--m);color:var(--fg);font:12px/1.5 system-ui;text-align:left}
+.mock button{border:0;color:inherit;background:transparent;border-radius:6px}.mock button:hover{background:#ffffff0b}.mock button:focus-visible{outline:2px solid #a7b4fc;outline-offset:2px}
+.mock svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;vertical-align:middle}
+.mock .tiny{width:13px;height:13px}.bar{height:38px;display:flex;align-items:center;padding:0 16px;gap:7px;border-bottom:1px solid var(--line);color:var(--dim);font-size:10px}
+.dot{width:6px;height:6px;background:#4c4c52;border-radius:50%}.bar .label{margin-left:7px}.bar .flag{margin-left:auto;color:#aaa7b4;font-size:9px;text-transform:uppercase;letter-spacing:1px}
+.shell{display:grid;grid-template-columns:248px minmax(0,1fr);height:650px;min-height:608px}
+.rail{padding:16px 12px;background:var(--s);border-right:1px solid var(--line);display:flex;flex-direction:column;min-width:0;min-height:0;position:relative}.sessionlist{flex:1;min-height:0;overflow-y:auto;scrollbar-width:none;-ms-overflow-style:none}.sessionlist::-webkit-scrollbar{display:none;width:0;height:0}
+.workspace{display:flex;align-items:center;gap:8px;padding:0 5px 19px;font-weight:600}.logo{display:inline-flex;width:25px;height:25px;border-radius:8px;background:#ecebe8;color:#232326;align-items:center;justify-content:center;font-weight:750;font-size:15px}.workspace .spacer{flex:1}.iconbtn{padding:5px;line-height:1}
+.navitem{display:flex;align-items:center;gap:10px;padding:9px 10px;width:100%;text-align:left;margin-bottom:3px;font-size:12px}.navitem.on{background:#29292d}.navitem svg{color:#a8a6ae}
+.sectionhead{display:flex;align-items:center;gap:6px;padding:23px 8px 8px;color:#b8b5bf;font-size:11px}.sectionhead strong{flex:1;font-weight:550}.sectionhead button{padding:3px}.scope{display:flex;gap:8px;align-items:center;padding:5px 8px 14px;color:#89868f;font-size:10px}.scope span{flex:1}
+.grouphead{font-size:10px;color:#85828e;display:flex;gap:6px;align-items:center;padding:10px 8px 6px}.grouphead .count{margin-left:auto;font-variant-numeric:tabular-nums}
+.thread{position:relative;width:100%;text-align:left!important;padding:10px!important;min-height:76px;border-radius:8px!important;margin-bottom:3px}.thread.selected{background:#2c2c31!important;box-shadow:inset 0 0 0 1px #3b3b42}.thread .meta{display:flex;align-items:center;gap:5px;color:#94919d;font-size:9px;line-height:16px}.thread .meta .state{margin-left:auto;font-size:9px;white-space:nowrap}.thread .title{display:block;margin:4px 0;font-size:12px;font-weight:500;line-height:17px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.thread .detail{display:flex;align-items:center;gap:5px;color:#827f8b;font-size:9px}.thread .detail .pr{margin-left:auto;color:#9dafbc}.blue{color:#86b9f2!important}.green{color:#93caaa!important}.amber{color:#dab778!important}.unread{display:inline-block;width:5px;height:5px;background:#e7e2ef;border-radius:50%;margin-left:4px}
+.shelf{display:flex;align-items:center;gap:7px;padding:12px 8px 4px;color:#898591;font-size:10px}.shelf span{margin-left:auto}.footer{margin-top:auto;padding:19px 3px 0;display:flex;gap:8px;align-items:center}.avatar{width:28px;height:28px;border:1px solid #48434f;border-radius:50%;background:#39313e;display:grid;place-items:center;font-size:10px}.account{flex:1;line-height:16px}.account small{color:#85828d;font-size:9px}
+.main{position:relative;min-width:0;display:flex;flex-direction:column;padding:20px}.crumb{font-size:10px;color:#827f8a;display:flex;align-items:center;gap:6px}.crumb .right{margin-left:auto}.stage{display:flex;flex-direction:column;justify-content:center;flex:1;padding-bottom:90px}.greeting{font-size:24px;letter-spacing:-.8px;line-height:1.25;font-weight:450;margin-bottom:9px}.caption{color:#8a8793;font-size:11px;margin-bottom:23px}
+.composer{position:relative;background:#202023;border:1px solid #3b3a40;border-radius:13px;box-shadow:0 12px 40px #0002;padding:12px}.composer textarea{width:100%;border:0;resize:none;background:transparent;color:#dfdde4;outline:none;height:94px;line-height:1.7;font-size:12px}.tools{display:flex;align-items:center;gap:5px;margin-top:3px}.tools .model{font-size:10px;color:#c9c5d0;white-space:nowrap}.tools .push{margin-left:auto}.tools .send{background:#e9e7ed;color:#18171b;border-radius:50%;width:28px;height:28px;display:grid;place-items:center}.tools .plus{width:29px;height:29px;font-size:21px}.tools .plus.open{background:#36343c}
+.chip{display:inline-flex;gap:5px;align-items:center;padding:4px 7px;border:1px solid #47414f;background:#2c2731;border-radius:6px;color:#d5cddd;font-size:9px;margin-bottom:10px}.chip button{padding:0 2px;color:#9d93a7}.hint{color:#6e6a77;font-size:9px;margin-top:13px;text-align:center}
+.addmenu{position:absolute;left:10px;top:calc(100% + 8px);z-index:4;width:min(270px,calc(100% - 10px));padding:6px;background:#28272c;border:1px solid #414047;border-radius:10px;box-shadow:0 12px 36px #0007;max-height:240px;overflow-y:auto}.addmenu button{display:flex;align-items:center;gap:11px;width:100%;text-align:left;padding:11px 10px}.addmenu .text{display:flex;flex-direction:column;gap:2px;font-size:12px}.addmenu small{font-size:9px;color:#a29baa}.addmenu .chev{margin-left:auto;color:#8b8395}
+.number{display:inline-grid;place-items:center;width:17px;height:17px;border-radius:50%;font-size:9px;font-weight:700;color:#d4c9e5;background:#51405f;border:1px solid #755787;flex-shrink:0}
+.mention{position:relative;margin:2px 0 10px;font-size:14px;color:#e1dfe4}.mentionline{display:flex;align-items:center;gap:3px;min-height:29px}.mention input{width:100%;min-width:0;padding:0;border:0;outline:0;background:transparent;color:#e1dfe4;font-size:14px}.repopop{position:absolute;left:0;top:calc(100% + 5px);width:min(350px,100%);z-index:8;padding:9px;background:#202023;border:1px solid #3d3c42;border-radius:13px;box-shadow:0 14px 35px #0005}.repotitle{padding:3px 6px 9px;font-size:12px;color:#99969e}.repoList{max-height:204px;overflow-y:auto;scrollbar-width:none}.repoList::-webkit-scrollbar{display:none}.repo{display:flex;gap:10px;align-items:center;width:100%;padding:8px!important;border-radius:6px!important;text-align:left!important;font-size:12px;min-height:34px}.repo:hover,.repo.highlighted{background:#343338!important}.repo svg{width:15px;height:15px;color:#d5d2da}.repo .repoCheck{margin-left:auto;color:#a2a0ad}.emptyrepos{padding:6px;font-size:12px;color:#99969e;line-height:1.6}.chip .switchRepo{color:inherit}.mention input::placeholder{color:#6e6b74;font-size:11px}
+.actionmenu{position:absolute;z-index:10;left:185px;top:258px;background:#29262f;border:1px solid #4b4254;width:205px;padding:6px;border-radius:10px;box-shadow:0 20px 55px #0009}.actionmenu .menutitle{font-size:9px;color:#a191ac;padding:6px 8px}.actionmenu button{display:flex;gap:8px;align-items:center;width:100%;text-align:left;padding:7px 9px;font-size:11px}.actionmenu .divider{border-top:1px solid #423a4a;margin:4px 5px}.actionmenu .danger{color:#dca6ad}.actionmenu small{margin-left:auto;color:#94879e;font-size:9px}
+.chatview{padding-top:30px}.chatview h2{font-size:18px;font-weight:500;margin:0 0 20px}.bubble{padding:13px;border:1px solid #36323b;background:#27232c;border-radius:10px;font-size:11px;line-height:1.65}.agent{font-size:11px;padding:20px 3px;color:#b5adbf;line-height:1.7}.agent strong{display:block;color:#e4ddea;margin-bottom:8px;font-weight:500}.prcard{padding:12px;border:1px solid #45404d;border-radius:9px;font-size:11px;background:#211e26}.prcard .details{display:flex;align-items:center;gap:7px;margin-top:6px;font-size:9px;color:#8d8299}.composer.compact{margin-top:25px}.composer.compact textarea{height:55px}
+.toast{position:absolute;bottom:18px;left:18px;z-index:11;padding:10px 14px;border:1px solid #665474;background:#302837;border-radius:8px;font-size:11px;box-shadow:0 5px 20px #0007}.toast button{color:#d2b3ed;font-weight:600;margin-left:12px}
+.annotations{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:18px}.annotation{font-size:12px;color:var(--muted-foreground,#a6a3ad)}.annotation strong{display:block;margin:8px 0 4px;color:var(--foreground,#eee);font-size:13px;font-weight:550}.annotation p{margin:0}
+.plan{margin-top:28px}.plan details{border-top:1px solid var(--border,#38343e);padding:16px 0}.plan summary{cursor:pointer;font-size:15px;font-weight:550}.plan details p{margin-top:12px}.plan ol,.plan ul{padding-left:20px;margin:12px 0}.plan li{margin-bottom:10px;font-size:13px}.plan small{color:var(--muted-foreground,#a29aa9)}
+.flow{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin:16px 0}.flow span{border:1px solid var(--border,#443b4c);border-radius:7px;padding:7px 9px;font-size:11px}.flow b{font-weight:400;color:var(--muted-foreground,#8d8299)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:16px 0}.box{padding:16px;border:1px solid var(--border,#443b4c);border-radius:12px;background:var(--card,transparent);font-size:12px}.box strong{display:block;margin-bottom:6px}.box p{margin:0!important;font-size:12px}table{border-collapse:collapse;width:100%;font-size:12px;margin-top:14px}td,th{border-bottom:1px solid var(--border,#3a343f);padding:10px 8px;text-align:left;vertical-align:top}td:first-child,th:first-child{padding-left:0;width:28%}th{font-weight:500;color:var(--muted-foreground,#a49aa9)}code{font-size:11px;overflow-wrap:anywhere}.sources{font-size:11px;color:var(--muted-foreground,#a89eaf)}
+.mobileMenu{display:none}.mobile-close{display:none}
+[hidden]{display:none!important}
+@media(max-width:560px){.shell{grid-template-columns:1fr;min-height:570px}.rail{display:none}.mock.drawer .rail{display:flex;position:absolute;left:0;top:38px;bottom:0;width:258px;z-index:6;box-shadow:20px 0 70px #000b}.mobileMenu,.mobile-close{display:inline-block}.main{padding:22px}.greeting{font-size:25px}.stage{padding-bottom:80px}.annotations{grid-template-columns:1fr;gap:10px}.annotation{display:grid;grid-template-columns:20px 1fr;gap:0 9px}.annotation strong{margin:0 0 4px}.annotation p{grid-column:2}.actionmenu{left:95px;top:240px}.two{grid-template-columns:1fr}.bar .flag{font-size:8px}.lead{font-size:18px}}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto}}
+</style>
+<body>
+<p class="lead">Devin's navigation. T3's thread interactions. Nap's workspaces.</p>
+<p class="sub">A proposed experience, with illustrative data. Open + → Repositories, type to filter, and choose a repository. Use the tabs to explore sessions. These controls only change the mockup.</p>
+<div class="viewbar" aria-label="Proposal views">
+<button data-view="compose" aria-pressed="true">1 · New session</button>
+<button data-view="github" aria-pressed="false">2 · Choose or switch repository</button>
+<button data-view="threads" aria-pressed="false">3 · Manage sessions</button>
+</div>
+<div class="mock" id="mock">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="plus" viewBox="0 0 20 20"><path d="M10 4v12M4 10h12"/></symbol>
+<symbol id="search" viewBox="0 0 20 20"><circle cx="8.5" cy="8.5" r="5.5"/><path d="m13 13 4 4"/></symbol>
+<symbol id="panel" viewBox="0 0 20 20"><rect x="3" y="3" width="14" height="14" rx="2"/><path d="M8 3v14"/></symbol>
+<symbol id="repo" viewBox="0 0 20 20"><rect x="4" y="2" width="12" height="16" rx="2"/><path d="M4 14h12M8 5h4M8 8h3"/></symbol>
+<symbol id="github" viewBox="0 0 24 24"><path d="M9 19c-4.3 1.3-4.3-2.2-6-2.7M15 22v-3.4a3 3 0 0 0-.8-2.3c2.7-.3 5.6-1.3 5.6-6a4.7 4.7 0 0 0-1.3-3.3 4.4 4.4 0 0 0-.1-3.3S17.4 3.4 15 5a11.5 11.5 0 0 0-6 0C6.6 3.4 5.6 3.7 5.6 3.7A4.4 4.4 0 0 0 5.5 7a4.7 4.7 0 0 0-1.3 3.3c0 4.7 2.9 5.7 5.6 6a3 3 0 0 0-.8 2.3V22"/></symbol>
+<symbol id="git" viewBox="0 0 20 20"><circle cx="6" cy="4" r="2"/><circle cx="6" cy="16" r="2"/><circle cx="15" cy="5" r="2"/><path d="M6 6v8M15 7c0 5-9 3-9 7"/></symbol>
+<symbol id="image" viewBox="0 0 20 20"><rect x="2" y="3" width="16" height="14" rx="2"/><circle cx="6" cy="7" r="1"/><path d="m3 15 5-5 3 3 3-4 4 5"/></symbol>
+<symbol id="settings" viewBox="0 0 20 20"><circle cx="10" cy="10" r="3"/><path d="m8 2-1 3-3 1-2 4 2 4 3 1 1 3h4l1-3 3-1 2-4-2-4-3-1-1-3z"/></symbol>
+<symbol id="check" viewBox="0 0 20 20"><path d="m4 10 4 4 8-8"/></symbol>
+<symbol id="pin" viewBox="0 0 20 20"><path d="m7 3 7 2-2 5 2 3-9-2 2-2zM8 12l-2 5"/></symbol>
+<symbol id="filter" viewBox="0 0 20 20"><path d="M3 5h14M6 10h8M8 15h4"/></symbol>
+<symbol id="clock" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7"/><path d="M10 5v5l3 2"/></symbol>
+<symbol id="arrow" viewBox="0 0 20 20"><path d="M10 16V4m-5 5 5-5 5 5"/></symbol>
+<symbol id="link" viewBox="0 0 20 20"><path d="m8 6 2-2a4 4 0 0 1 6 6l-2 2M12 14l-2 2a4 4 0 0 1-6-6l2-2M7 13l6-6"/></symbol>
+</defs></svg>
+<div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="label">nap / your workspace</span><span class="flag">Design proposal · sample data</span></div>
+<div class="shell">
+<aside class="rail">
+<div class="workspace"><span class="logo">n</span><span>My workspace</span><span class="spacer"></span><button class="iconbtn" data-action="search" aria-label="Search sessions"><svg><use href="#search"/></svg></button><button class="iconbtn" data-action="drawer" aria-label="Toggle sidebar"><svg><use href="#panel"/></svg></button></div>
+<button class="navitem on" id="newNav" data-action="new"><svg><use href="#plus"/></svg>New session <span style="margin-left:auto" class="number">1</span></button>
+<button class="navitem" data-action="connections"><svg><use href="#git"/></svg>Connections</button>
+<div class="sessionlist" role="region" aria-label="Session list" tabindex="0">
+<div class="sectionhead"><strong>Sessions</strong><span class="number">2</span><button data-action="new" aria-label="New session"><svg><use href="#plus"/></svg></button><button data-action="filter" aria-label="Filter sessions"><svg><use href="#filter"/></svg></button></div>
+<div class="scope"><svg class="tiny"><use href="#repo"/></svg><span id="scopeText">All repositories</span><span style="flex:none">⌄</span></div>
+<div class="grouphead"><svg class="tiny"><use href="#pin"/></svg>Pinned<span class="count">1</span></div>
+<button class="thread" data-action="thread"><span class="meta"><svg class="tiny"><use href="#repo"/></svg>acme / storefront<span class="state blue">Working</span></span><span class="title">Improve the checkout flow</span><span class="detail"><svg class="tiny"><use href="#git"/></svg>nap/checkout<span class="pr">#42</span></span></button>
+<div class="grouphead">Active<span class="count" id="activeCount">2</span></div>
+<button class="thread" id="primaryThread" data-action="thread" aria-label="Manage Add account settings session"><span class="meta"><svg class="tiny"><use href="#repo"/></svg>acme / storefront<span class="state green">Completed</span></span><span class="title">Add account settings <span class="unread"></span></span><span class="detail"><svg class="tiny"><use href="#git"/></svg>nap/settings<span class="pr">#43 · Draft</span></span></button>
+<button class="thread" data-action="thread"><span class="meta"><svg class="tiny"><use href="#repo"/></svg>Portfolio<span class="state amber">Needs attention</span></span><span class="title">Adjust the mobile layout</span><span class="detail">Setup failed<span class="pr">2m ago</span></span></button>
+<button class="shelf" data-action="snoozed"><svg class="tiny"><use href="#clock"/></svg>Snoozed<span>1 ⌄</span></button>
+<button class="shelf" data-action="done"><svg class="tiny"><use href="#check"/></svg>Done<span id="doneCount">8 ⌄</span></button>
+</div>
+<div class="footer"><span class="avatar">M</span><div class="account">Your account<br><small>Personal workspace</small></div><button class="iconbtn" data-action="help" aria-label="Help">?</button><button class="iconbtn" data-action="settings" aria-label="Settings"><svg><use href="#settings"/></svg></button></div>
+</aside>
+<main class="main">
+<div class="crumb"><button class="mobileMenu iconbtn" data-action="drawer" aria-label="Open sidebar"><svg><use href="#panel"/></svg></button><span id="crumb">New session</span><span class="right">Cloud workspace</span></div>
+<div class="stage" id="composeStage">
+<div class="greeting">What would you like<br>to work on?</div><div class="caption">Start fresh, or bring a repository.</div>
+<div class="composer">
+<div class="chip" id="repoChip" hidden><svg class="tiny"><use href="#repo"/></svg><button class="switchRepo" data-action="github" aria-label="Switch repository"><span id="repoName">acme/storefront</span> ⌄</button><button data-action="removeRepo" aria-label="Remove repository">×</button></div>
+<textarea aria-label="Illustrative task draft" id="draft">Add an account settings page with profile and notification preferences.</textarea>
+<div class="mention" id="repoMention" hidden>
+<div class="mentionline"><label for="repoSearch">@repos:</label><input id="repoSearch" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="repoList" aria-label="Filter authorized repositories" autocomplete="off" placeholder="Filter repositories…"></div>
+<div class="repopop" id="repoPopup"><div class="repotitle">Repositories</div><div class="repoList" id="repoList" role="listbox" aria-label="Authorized GitHub repositories"><button class="repo" role="option" aria-selected="false" id="repoOption0" data-action="selectRepo" data-repo="storefront" title="acme/storefront" tabindex="-1"><svg aria-hidden="true"><use href="#github"/></svg><span>storefront</span><svg class="repoCheck" hidden aria-hidden="true"><use href="#check"/></svg></button>
+<button class="repo" role="option" aria-selected="false" id="repoOption1" data-action="selectRepo" data-repo="design-system" title="acme/design-system" tabindex="-1"><svg aria-hidden="true"><use href="#github"/></svg><span>design-system</span><svg class="repoCheck" hidden aria-hidden="true"><use href="#check"/></svg></button>
+<button class="repo" role="option" aria-selected="false" id="repoOption2" data-action="selectRepo" data-repo="api" title="acme/api" tabindex="-1"><svg aria-hidden="true"><use href="#github"/></svg><span>api</span><svg class="repoCheck" hidden aria-hidden="true"><use href="#check"/></svg></button>
+<button class="repo" role="option" aria-selected="false" id="repoOption3" data-action="selectRepo" data-repo="docs" title="acme/docs" tabindex="-1"><svg aria-hidden="true"><use href="#github"/></svg><span>docs</span><svg class="repoCheck" hidden aria-hidden="true"><use href="#check"/></svg></button>
+<button class="repo" role="option" aria-selected="false" id="repoOption4" data-action="selectRepo" data-repo="mobile" title="acme/mobile" tabindex="-1"><svg aria-hidden="true"><use href="#github"/></svg><span>mobile</span><svg class="repoCheck" hidden aria-hidden="true"><use href="#check"/></svg></button>
+<button class="repo" role="option" aria-selected="false" id="repoOption5" data-action="selectRepo" data-repo="dashboard" title="acme/dashboard" tabindex="-1"><svg aria-hidden="true"><use href="#github"/></svg><span>dashboard</span><svg class="repoCheck" hidden aria-hidden="true"><use href="#check"/></svg></button>
+<button class="repo" role="option" aria-selected="false" id="repoOption6" data-action="selectRepo" data-repo="website" title="acme/website" tabindex="-1"><svg aria-hidden="true"><use href="#github"/></svg><span>website</span><svg class="repoCheck" hidden aria-hidden="true"><use href="#check"/></svg></button>
+<button class="repo" role="option" aria-selected="false" id="repoOption7" data-action="selectRepo" data-repo="worker" title="acme/worker" tabindex="-1"><svg aria-hidden="true"><use href="#github"/></svg><span>worker</span><svg class="repoCheck" hidden aria-hidden="true"><use href="#check"/></svg></button>
+<button class="repo" role="option" aria-selected="false" id="repoOption8" data-action="selectRepo" data-repo="integrations" title="acme/integrations" tabindex="-1"><svg aria-hidden="true"><use href="#github"/></svg><span>integrations</span><svg class="repoCheck" hidden aria-hidden="true"><use href="#check"/></svg></button>
+<button class="repo" role="option" aria-selected="false" id="repoOption9" data-action="selectRepo" data-repo="cli" title="acme/cli" tabindex="-1"><svg aria-hidden="true"><use href="#github"/></svg><span>cli</span><svg class="repoCheck" hidden aria-hidden="true"><use href="#check"/></svg></button></div><div class="emptyrepos" id="noRepos" hidden>No matching repositories.</div></div>
+</div>
+<div class="tools"><button class="plus open" id="plusButton" data-action="plus" aria-label="Add media or GitHub repository" aria-expanded="true">+</button><button class="model" data-action="model">Selected model ⌄</button><span class="push"></span><span class="number">3</span><button class="send" data-action="send" aria-label="Preview start behavior"><svg><use href="#arrow"/></svg></button></div>
+<div class="addmenu" id="addMenu"><button data-action="media"><svg><use href="#image"/></svg><span class="text">Upload media<small>Images and videos</small></span></button><button data-action="github"><svg><use href="#repo"/></svg><span class="text"><span id="gitLabel">Repositories</span><small id="gitHint">Choose or switch a GitHub repository</small></span><span class="chev">›</span></button></div>
+</div><div class="hint">Choose a repository. Your prompt and attachments stay in place.</div>
+</div>
+<div class="chatview" id="threadStage" hidden>
+<h2>Add account settings</h2><div class="bubble">Add an account settings page with profile and notification preferences.</div><div class="agent"><strong>nap</strong>The settings page is ready. Profile changes and notification preferences are covered by checks.</div><div class="prcard"><svg><use href="#git"/></svg> #43 · Add account settings<div class="details"><span class="green">Checks passed</span><span>·</span><span>Draft PR</span><span style="margin-left:auto">Open ↗</span></div></div><div class="composer compact"><textarea aria-label="Illustrative follow-up">Make the notification controls more compact.</textarea><div class="tools"><button class="plus" data-action="existingPlus" aria-label="Add to existing session">+</button><span class="model">Selected model</span><span class="push"></span><button class="send" data-action="send" aria-label="Preview follow-up"><svg><use href="#arrow"/></svg></button></div></div>
+</div>
+</main></div>
+<div class="actionmenu" id="threadMenu" hidden>
+<div class="menutitle">SESSION ACTIONS</div>
+<button data-action="pin"><svg><use href="#pin"/></svg>Pin session</button>
+<button data-action="settle"><svg><use href="#check"/></svg>Mark done<small>Undo</small></button>
+<button data-action="snooze"><svg><use href="#clock"/></svg>Snooze<small>›</small></button>
+<div class="divider"></div>
+<button data-action="rename">Rename</button><button data-action="unread">Mark unread</button><button data-action="copy"><svg><use href="#link"/></svg>Copy session link</button><button data-action="move">Move up / down</button>
+<div class="divider"></div>
+<button data-action="putAway">Put away workspace</button><button data-action="archive">Archive session<small>Undo</small></button><button class="danger" data-action="delete">Delete project…</button>
+</div>
+<div class="toast" role="status" id="toast" hidden><span id="toastText"></span><button data-action="undo" id="undoBtn" hidden>Undo</button><button data-action="dismiss" aria-label="Dismiss">×</button></div>
+</div>
+<div class="annotations">
+<div class="annotation"><span class="number">1</span><strong>No visible sidebar scrollbar</strong><p>The session list scrolls normally with its scrollbar hidden. Account, help, and settings stay fixed at the bottom.</p></div>
+<div class="annotation"><span class="number">2</span><strong>T3's session behavior</strong><p>Repository context, clear run status, pinning, ordered groups, and actions on the row. Select a session to inspect the menu.</p></div>
+<div class="annotation"><span class="number">3</span><strong>Repositories inside the composer</strong><p>Two actions under +. Repositories opens an inline @repos: list like your Devin recording. Click a repo to select it; no side panel.</p></div>
+</div>
+<div class="plan">
+<details open><summary>The proposed flow and what changes</summary>
+<div class="flow"><span>Write prompt / add media</span><b>→</b><span>+ · Repositories</span><b>→</b><span>@repos: · choose or switch repo</span><b>→</b><span>Repo chip in draft</span><b>→</b><span>Send / start workspace</span></div>
+<ul>
+<li>The + button opens a two-row popover. Use a maximum height and scrolling when space requires it; two rows should not need an artificial scrollbar. The menu and repository autocomplete stay anchored to the composer on desktop and mobile, sized to fit the viewport.</li>
+<li><strong>Upload media</strong> retains the current image/video picker, paste, drag-and-drop, previews, and model restrictions. Disable only that menu item when images are unsupported. Today the entire + button is disabled in that situation.</li>
+<li><strong>Repositories</strong> is the permanent second menu item. After the GitHub App is connected, it opens the authorized repository list directly. Reopen it to switch repositories before starting; the selected repository chip updates while the prompt, model, and media stay intact. If GitHub is disconnected, show a short empty-state message linking to Settings → Connections. Keep authorization there and return to the saved draft and picker afterward. Do not open a connection panel or right sidebar from this menu.</li>
+<li>Match the recording’s compact dark dropdown: a muted Repositories heading, GitHub icons, simple repository-name rows, rounded hover highlights, and full owner/repository details on hover or focus. Typing after @repos: filters the list; arrows and Enter choose a row, and Escape dismisses it. Show all repositories available to the connected GitHub App, including ones not yet imported into Nap. Fetch every page; do not restrict the list to existing Nap projects. Respect installation access and Nap’s permission requirements. Loading, empty, revoked-access, and retry states stay inside this popover.</li>
+<li>Selection immediately updates the draft’s repository chip and closes the list. There is no Add to session confirmation. Branch and environment configuration remain outside the picker, in source settings before starting; keep preview optional and draft-PR publication configurable. Connecting and selecting are preparation steps. Create the imported project when the user sends the task. If only a repository is selected, offer <strong>Open workspace</strong> without inventing a task or starting a model run.</li>
+<li>In an existing workspace, its repository stays bound. The GitHub action opens its details or offers <strong>Start new session from GitHub</strong>. It must not silently replace the current codebase.</li>
+</ul>
+<p><small>The inline @repos: list, row styling, and absence of a connection drawer are observed in your recording. Nap’s two-action menu, single selected source chip, and switching behavior are proposed adaptations. The recording does not show the final selection result. Nap will not require Devin-style indexing to list authorized repositories.</small></p>
+</details>
+<details><summary>Sidebar and thread management scope</summary>
+<p>Match Devin's spacing, navigation hierarchy, low-contrast surfaces, and footer placement. Use T3's richer thread cards for active work and compact rows for parked work. Start around a 256px desktop sidebar with a saved resize width, collapse control, and mobile drawer. The sidebar scrollbar must never be visible, including on hover or while scrolling. Keep wheel, trackpad, touch, and keyboard scrolling functional, with the account footer fixed outside the scrolling list.</p>
+<table><thead><tr><th>Include</th><th>Behavior in Nap</th></tr></thead><tbody>
+<tr><td>Navigation</td><td>New session and Connections, followed by Sessions. Keep API keys, account, sign out, and Help reachable. Add a true settings menu so the gear no longer means only API keys. No empty Automations, Security, or Wiki destinations.</td></tr>
+<tr><td>Groups and filtering</td><td>Pinned, Active, Snoozed, and Done. Archive is accessible through filtering. Keep Running and Put away as workspace filters, and add repository scope and title search.</td></tr>
+<tr><td>Thread cards</td><td>Task title, repo/project name, truthful status, branch and PR badge when present, unread marker, and unsent-draft marker. Hover/focus reveals actions; touch gets an explicit menu.</td></tr>
+<tr><td>Ordering</td><td>Pin/unpin and drag to reorder with visible drop positions. Save order on the server. Offer Move up/down for keyboard and touch. Activity should not undo manual ordering.</td></tr>
+<tr><td>Row menu</td><td>Rename, pin, mark unread, copy session link/branch, mark done/reopen, snooze/wake, archive/restore. Keep Put away workspace and Delete project explicit and separate.</td></tr>
+<tr><td>Reversible changes</td><td>Undo for pin/unpin, done, snooze, and archive. Preserve scroll position and keep the selected row discoverable after filtering or navigation. Delete remains confirmed and has no false Undo promise.</td></tr>
+<tr><td>Later parity</td><td>Multi-select bulk actions, cross-section drag, message search, automatic settling after PR merge/inactivity, and title regeneration follow the core behavior. Local machines, worktree controls, and provider orchestration do not belong in Nap's sidebar.</td></tr>
+</tbody></table>
+<p>Use <strong>Sessions</strong> in Nap's UI. The mockup labels T3's “Settled” state <strong>Done</strong> for clarity. Done means you have finished organizing that task; a successful model turn alone does not mark it Done.</p>
+</details>
+<details><summary>The important app and data changes</summary>
+<div class="two"><div class="box"><strong>Organizing work</strong><p>Pin, order, unread, done, snooze, and archive determine where a row appears. These are new durable navigation metadata.</p></div><div class="box"><strong>Running a workspace</strong><p>Queued, working, failed, ready, and put away describe execution and sandbox state. A running sandbox is not proof that the agent is working.</p></div></div>
+<ol>
+<li><strong>Preserve the current isolation model.</strong> Initially, one sidebar session continues to map to one Nap project and its current conversation. Starting another task on the same repo creates another isolated workspace. Existing project URLs and histories remain valid. Multiple independent conversations sharing one sandbox would require separate routing, lease, snapshot, and Git branch work; that is outside this navigation plan.</li>
+<li><strong>Preserve drafts across authorization.</strong> The dashboard currently holds its draft in React state, while GitHub returns to Settings. Add an owner-bound draft ID and an allowlisted return destination to the connection flow. Save text, model, repo choice, and media before leaving; restore on success, cancellation, or failure. Use browser storage suited to media, such as IndexedDB, with expiry and sign-out cleanup. Stop navigation with a recoverable message if draft storage fails.</li>
+<li><strong>Unify session creation.</strong> Extend the start flow to distinguish template and GitHub sources. Reuse #117's owner checks and import service. Carry the first prompt/model/media into the imported session and sequence it after workspace preparation. Use a stable operation ID so callback reloads, network retries, and repeated Send cannot create duplicate workspaces or submit the first task twice.</li>
+<li><strong>Add navigation metadata and summaries.</strong> Store pin/order, done/archive state, snooze time, and a read watermark per owner/project. Use revision checks for ordering and Undo so a stale browser cannot overwrite a newer action. Return summary status, repo, PR, and pending-feedback count in a list endpoint; avoid opening every transcript or polling GitHub once per row.</li>
+<li><strong>Make status truthful.</strong> Derive agent activity from the queue/job lifecycle and completed work from its terminal events. Use a separate workspace-running indicator if needed. New activity should clear or supersede stale Done/read state according to documented rules. Snooze hides the row until a time; it does not schedule a model run.</li>
+<li><strong>Keep cloud lifecycle explicit.</strong> Done, snooze, and archive do not shut down a sandbox or merge a PR. Keep Put away as the resource-release action. Disable archive/done for active work in the first release rather than hiding a task that still needs attention; retain existing busy checks for deletion and shutdown.</li>
+</ol>
+</details>
+<details><summary>Implementation order and acceptance checks</summary>
+<ol>
+<li><strong>Composer entry and GitHub return.</strong> Extract a shared plus-menu component and GitHub picker, persist the draft, add the return target, and integrate repo selection with session start. Check direct inline opening, every authorized repository page, filtering, keyboard selection, switching without losing the draft, disconnected/connected states, revoked access, no repos, cancel, failed setup, media-model restrictions, and double-submit recovery. Assert that no connection drawer, side panel, or dim backdrop opens.</li>
+<li><strong>Shared sidebar shell.</strong> Refactor the existing sidebar used by both the dashboard and workspace. Apply the Devin layout, T3 card anatomy, settings footer, selected states, responsive drawer, and resize persistence. Preserve New session, search, rename, put away, delete, and account actions. Verify long-list scrolling with no visible scrollbar on desktop and mobile, including systems configured to always show scrollbars.</li>
+<li><strong>Durable management.</strong> Add metadata and list summaries, then pin/order, read state, Done/reopen, archive/restore, snooze/wake, and Undo. Verify refresh, two tabs/devices, failed saves, old sessions, and status updates while another workspace is open.</li>
+<li><strong>Interaction polish and parity.</strong> Add keyboard navigation, row context menus, focus restoration, accessible reorder, drag feedback, reduced motion, and large-list pagination. Then extend to bulk actions and optional automation policies after core state transitions are proven.</li>
+</ol>
+<p>The finished path should let someone type a prompt, attach images, connect GitHub, pick a repo, and start work without reconstructing their draft. They should then be able to find, pin, reorder, park, and resume that work with the same sidebar on every Nap page.</p>
+<p><small>Existing-PR import and a PR inbox remain in the broader GitHub roadmap from the previous comparison. A third plus-menu option or Review destination should appear only when that backend exists.</small></p>
+</details>
+<details><summary>Components affected and source evidence</summary>
+<table><thead><tr><th>Area</th><th>Expected work</th></tr></thead><tbody>
+<tr><td>Composer</td><td><code>dashboard/dashboard-hero.tsx</code>, <code>chat/composer-controls.tsx</code>, and the workspace composer. Add a shared Add menu, source chip, and draft storage.</td></tr>
+<tr><td>GitHub</td><td>Reuse repository data from <code>github/connections.tsx</code> in a composer autocomplete. Keep authorization and setup in Settings, outside the picker. Extend <code>api/src/github/routes.ts</code>, connection state, and import/start coordination.</td></tr>
+<tr><td>Sidebar</td><td><code>dashboard/sidebar.tsx</code>, <code>dashboard/session-actions.tsx</code>, <code>workspace/session-sidebar.tsx</code>, dashboard shell, and styles. Introduce focused row, section, menu, and status components.</td></tr>
+<tr><td>Data</td><td><code>projects-protocol.ts</code>, project routes/store and DB migration for navigation metadata and summaries. Extend list refresh/event handling. Preserve existing project IDs and default older rows into Active.</td></tr>
+</tbody></table>
+<ul class="sources">
+<li>Nap baseline: <a href="https://github.com/mangit955/nap/pull/117">merged GitHub PR #117</a>, commit <code>d0c4a0d</code>. The working checkout is older, so the plan reads its merged source directly and should be implemented on integrated main.</li>
+<li>Devin layout: <a href="https://devin.ai/">official product preview</a> and <a href="https://docs.devin.ai/work-with-devin/devin-review">official Review demo</a>. These show product navigation, grouped sessions, and the fixed account footer. The user’s October 20 screenshot and recording now provide the signed-in repository picker reference: @repos: anchor, populated rows, hover details, and empty state.</li>
+<li>GitHub behavior: <a href="https://docs.devin.ai/integrations/gh">Devin GitHub integration</a>. The proposed two-action Nap menu is our adaptation.</li>
+<li>T3 source pinned to <code>67c0fc0</code>: <a href="https://github.com/pingdotgg/t3code/blob/67c0fc0cdaf963b103518862dd7b68a9c758ecf2/apps/web/src/components/Sidebar.tsx">sidebar rows and sections</a>, <a href="https://github.com/pingdotgg/t3code/blob/67c0fc0cdaf963b103518862dd7b68a9c758ecf2/apps/web/src/components/threadActionMenu.logic.ts">action menu</a>, <a href="https://github.com/pingdotgg/t3code/blob/67c0fc0cdaf963b103518862dd7b68a9c758ecf2/apps/web/src/components/Sidebar.logic.ts">status and ordering logic</a>, and <a href="https://github.com/pingdotgg/t3code/blob/67c0fc0cdaf963b103518862dd7b68a9c758ecf2/apps/web/src/components/threadSidebarWidth.ts">sidebar sizing</a>.</li>
+<li>Adapt T3's interaction logic and visual structure to Nap's stores rather than importing its provider/runtime dependencies. Preserve upstream attribution for any copied MIT code.</li>
+</ul>
+<p class="sources">Research and design only, October 20, 2026. No application components, database, GitHub settings, or live sessions were changed. This revision changes only this HTML plan.</p>
+</details>
+</div>
+<script>
+const $=id=>document.getElementById(id);let selectedRepo=null;let settled=false;let highlighted=0;
+const repoRows=[...document.querySelectorAll('.repo')];
+function toast(text,undo=false){$('toastText').textContent=text;$('toast').hidden=false;$('undoBtn').hidden=!undo}
+function view(name){
+ document.querySelectorAll('[data-view]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.view===name)));
+ $('newNav').classList.toggle('on',name!=='threads');$('primaryThread').classList.toggle('selected',name==='threads');
+ $('composeStage').hidden=name==='threads';$('threadStage').hidden=name!=='threads';$('repoMention').hidden=name!=='github';$('repoSearch').setAttribute('aria-expanded',String(name==='github'));$('threadMenu').hidden=name!=='threads';$('addMenu').hidden=name!=='compose';$('plusButton').setAttribute('aria-expanded',String(name==='compose'));$('crumb').textContent=name==='threads'?'acme / storefront':'New session';$('toast').hidden=true;
+ $('mock').classList.toggle('drawer',name==='threads'&&window.innerWidth<561);
+ if(name==='github'){$('repoSearch').value='';filterRepos();$('repoSearch').focus({preventScroll:true})}
+}
+function visibleRepos(){return repoRows.filter(r=>!r.hidden)}
+function highlightRepo(index){const rows=visibleRepos();highlighted=rows.length?(index+rows.length)%rows.length:0;repoRows.forEach(r=>r.classList.remove('highlighted'));if(rows.length){rows[highlighted].classList.add('highlighted');$('repoSearch').setAttribute('aria-activedescendant',rows[highlighted].id)}else $('repoSearch').removeAttribute('aria-activedescendant')}
+function filterRepos(){const query=$('repoSearch').value.toLowerCase().trim();repoRows.forEach(r=>{r.hidden=!('acme/'+r.dataset.repo).includes(query);r.setAttribute('aria-selected',String(r.dataset.repo===selectedRepo));r.querySelector('.repoCheck').hidden=r.dataset.repo!==selectedRepo});$('noRepos').hidden=visibleRepos().length>0;highlightRepo(0)}
+function closePicker(focus=true){$('repoMention').hidden=true;$('repoSearch').setAttribute('aria-expanded','false');$('repoSearch').removeAttribute('aria-activedescendant');if(focus)$('plusButton').focus({preventScroll:true})}
+document.querySelectorAll('[data-view]').forEach(b=>b.addEventListener('click',()=>view(b.dataset.view)));
+document.addEventListener('click',e=>{
+ const b=e.target.closest('[data-action]');if(!b)return;const a=b.dataset.action;
+ if(a==='plus'){closePicker(false);$('addMenu').hidden=!$('addMenu').hidden;$('plusButton').setAttribute('aria-expanded',String(!$('addMenu').hidden));return}
+ if(a==='github'){view('github');return}
+ if(a==='new'){view('compose');$('mock').classList.remove('drawer');return}
+ if(a==='selectRepo'){selectedRepo=b.dataset.repo;$('repoChip').hidden=false;$('repoName').textContent='acme/'+selectedRepo;closePicker(false);$('draft').focus({preventScroll:true});return}
+ if(a==='removeRepo'){$('repoChip').hidden=true;selectedRepo=null;return}
+ if(a==='thread'){view('threads');return}
+ if(a==='drawer'){$('mock').classList.toggle('drawer');if(window.innerWidth>=561)toast('The app sidebar will collapse or resize. This desktop mock stays expanded.');return}
+ if(a==='settle'){settled=true;$('primaryThread').hidden=true;$('activeCount').textContent='1';$('doneCount').textContent='9 ⌄';$('threadMenu').hidden=true;toast('Moved to Done. Workspace lifecycle is unchanged.',true);return}
+ if(a==='undo'){if(settled){settled=false;$('primaryThread').hidden=false;$('activeCount').textContent='2';$('doneCount').textContent='8 ⌄'}toast('Previous organization state restored.');return}
+ if(a==='dismiss'){$('toast').hidden=true;return}
+ const messages={
+ media:'The app opens the existing image/video picker. This mock does not read files.',
+ send:'The app will create or open the chosen workspace, then queue this task once.',
+ existingPlus:'Upload media here, or start a new session from GitHub. This workspace keeps its repo.',
+ pin:'Pinning will move this session to Pinned and save its position.',
+ snooze:'Choose a wake time. Snoozing will not send a prompt or stop a sandbox.',
+ rename:'Rename inline, then save or cancel. The project URL remains the same.',
+ unread:'Mark unread will update the saved read state without changing the conversation.',
+ copy:'The app will copy this Nap session URL. Nothing was copied by this mock.',
+ move:'Keyboard Move up/down complements drag-and-drop ordering.',
+ putAway:'Put away uses Nap’s existing snapshot and shutdown flow, with busy checks.',
+ archive:'Archive hides an idle session from the default list, with Restore and Undo.',
+ delete:'Delete project requires confirmation and removes its history. No action taken.',
+ done:'Done holds finished tasks. Reopen returns a task to Active.',
+ snoozed:'Snoozed tasks return at their wake time without starting a model run.',
+ search:'Search session titles first; message search is a later extension.',
+ filter:'Filter by repository, workspace state, or archived sessions.',
+ settings:'Settings opens API keys and Connections; account actions remain available.',
+ connections:'GitHub authorization and access management live in Settings → Connections. The repository picker has no connection panel.',
+ help:'Help continues to open Nap’s documentation.',
+ missing:'The app opens GitHub access management, then refreshes this picker on return.',
+ model:'Model selection stays as it is today. GitHub does not depend on image support.'
+ };toast(messages[a]||'Illustrative control. No live action.');if(['pin','snooze','rename','unread','copy','move','putAway','archive','delete'].includes(a))$('threadMenu').hidden=true;
+});
+$('repoSearch').addEventListener('input',filterRepos);
+$('repoSearch').addEventListener('keydown',e=>{if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();highlightRepo(highlighted+(e.key==='ArrowDown'?1:-1));visibleRepos()[highlighted]?.scrollIntoView({block:'nearest'})}if(e.key==='Enter'){e.preventDefault();visibleRepos()[highlighted]?.click()}if(e.key==='Tab')closePicker(false)});
+document.addEventListener('click',e=>{if(!$('repoMention').hidden&&!e.target.closest('#repoMention,[data-action="github"],[data-view="github"]'))closePicker(false)});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closePicker();$('threadMenu').hidden=true;$('addMenu').hidden=true;$('plusButton').setAttribute('aria-expanded','false');$('mock').classList.remove('drawer')}});
+view('github');
+</script>
+</body>
+</html>

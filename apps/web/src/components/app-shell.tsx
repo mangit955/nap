@@ -50,10 +50,12 @@ import { PreviewPane } from "./preview-pane.tsx";
  * grew another.
  */
 export function AppShell({
+  ownerId,
   projectId,
   fetchJson,
   createSocket,
 }: {
+  ownerId?: string | undefined;
   projectId: string;
   /**
    * The two ways out of this page — HTTP and a socket — as arguments rather than as imports.
@@ -274,6 +276,7 @@ export function AppShell({
       >
         <div hidden={!chatOpen} className="workspace-chat min-h-0 min-w-0">
           <LiveChatPane
+            ownerId={ownerId}
             active={chatOpen}
             sessionId={sessionId}
             projectId={projectId}

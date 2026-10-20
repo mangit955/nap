@@ -5,10 +5,50 @@ Connections, choose Connect GitHub, select a personal account or organization an
 GitHub should grant. GitHub then asks for separate user authorization so Nap can verify who may
 bind that installation. Signing in with GitHub alone does not grant repository access.
 
-The repository picker shows selected repositories on which the connected GitHub user currently
-has write, maintain or admin access. Import a branch and configure its environment. Import creates
-a project and queues its first workspace open atomically. The existing template creation flow is
-still available.
+On New session, the composer's + menu contains Upload media and Repositories. Repositories
+opens an inline `@repos:` autocomplete across every authorized installation and repository page,
+including repositories never imported into Nap. The connected GitHub user must retain write,
+maintain or admin access. Selecting a repository closes the list and updates the source chip;
+switching it preserves the prompt, model and media. Source settings holds the branch, optional
+setup/preview commands and draft-PR publication choice.
+
+Sending creates an isolated project with its first queued task atomically. Workspace preparation
+precedes that task. A repository without a task offers Open workspace, which does not call a model.
+An owner-scoped operation ID and receipt recover a lost response without creating a second project
+or task. Pending starts retain their original request until the server resolves it. Existing
+workspaces keep their repository binding; start a new session to use another codebase.
+
+Authorization stays in Settings → Connections. Before going there from the picker, Nap saves an
+owner-bound draft in IndexedDB, including prepared media. The callback carries only its opaque ID
+and returns to the allowlisted dashboard path. Success, cancellation and failure restore the draft.
+Drafts expire after seven days and are removed on sign-out. A storage failure prevents leaving the
+composer. Drafts are local to that browser; navigation metadata is stored on the server.
+
+## Session organization
+
+The shared dashboard/workspace sidebar groups sessions into Pinned, Active, Snoozed and Done.
+Archived sessions are available through Filter sessions. Repository and workspace filters and
+title search retain the selected session under Current session when it falls outside the result.
+Pinning, manual order, read state, Done, archive and snooze survive refresh and other devices.
+Revision checks reject stale changes and Undo instead of overwriting a newer action. Drag within
+a section or use Move up/down; keyboard arrows and Home/End navigate rows.
+
+Done and archive apply to idle work. Queued/working sessions cannot be parked, deleted or put away
+through the row menu. New requests supersede an older Done/archive timestamp and make the row
+active again. Snooze ends at its wake time without scheduling a task. None of these organization
+actions stops a sandbox or merges a PR; Put away workspace and confirmed Delete project retain
+their existing lifecycle behavior. A completed turn does not automatically mark a session Done.
+
+Activity comes from queued/leased requests and terminal events; sandbox presence is displayed
+separately. Read markers acknowledge only observed activity. Summaries include repository, branch,
+PR state and pending feedback without opening transcripts or calling GitHub for each row. The list
+loads pages of 100 sessions, refreshes every ten seconds while visible, and refreshes on focus and
+same-browser navigation updates. Follow-up drafts show a local Draft marker.
+
+The session list keeps scrolling with its scrollbar hidden; the account footer stays outside it.
+Sidebar width/collapse preferences are saved locally. Small screens use the existing modal drawer.
+Bulk actions, cross-section drag, message search, automatic settling, title regeneration and
+existing-PR import remain deferred as specified in `docs/nap-navigation-plan.html`.
 
 ## Register the deployment's GitHub App
 
@@ -72,7 +112,9 @@ credentials in a Nap conversation.
 
 5. Run `bun run db:migrate`. Migration 0009 adds installations, callback states, repository
    bindings, repository jobs, feedback and a webhook inbox; 0010 records when each job was created,
-   which is how the newest job on a pull request is told apart from earlier ones. Stop old workers before enabling the
+   which is how the newest job on a pull request is told apart from earlier ones. Migrations 0011
+   and 0012 add start receipts, callback draft IDs, navigation metadata and a queue-summary index.
+   Apply migrations before deploying the new API/web. Stop old workers before enabling the
    new UI: old workers do not understand queue requests with kind `publish`. Deploy API, workers,
    reaper and web from the same version. Run one reaper with the existing leader lease. Its GitHub
    sweep runs every 15 seconds separately from sandbox cleanup; each sweep processes new webhook

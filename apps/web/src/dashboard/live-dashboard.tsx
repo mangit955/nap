@@ -6,12 +6,12 @@ import { ApiKeyPanel } from "../account/api-key-panel.tsx";
 import { useApiKey } from "../account/use-api-key.ts";
 import { authClient } from "../auth/client.ts";
 import { useModels } from "../chat/use-models.ts";
-import { useProjects } from "../projects/use-projects.ts";
-import { useStartProject } from "../projects/use-start-project.ts";
+import { ComposerDraftStore } from "../projects/composer-draft.ts";
+import { useSessionNavigation } from "../projects/use-session-navigation.ts";
 import { SpinnerIcon } from "../ui/icons.tsx";
 import { Dashboard } from "./dashboard.tsx";
-import { DashboardHero } from "./dashboard-hero.tsx";
 import { greetingName, type ProjectScope, recentProjects, scopeCounts } from "./filters.ts";
+import { NewSessionComposer } from "./new-session-composer.tsx";
 import { Sidebar } from "./sidebar.tsx";
 
 export function LiveDashboard() {
@@ -51,6 +51,7 @@ function SignedInDashboard({
   user,
 }: {
   user: {
+    id: string;
     name?: string | null;
     email?: string | null;
     image?: string | null | undefined;
@@ -58,8 +59,8 @@ function SignedInDashboard({
   };
 }) {
   const router = useRouter();
-  const { projects, status, actionError, close, remove, rename } = useProjects();
-  const { busy, error, start } = useStartProject();
+  const navigation = useSessionNavigation();
+  const { projects, status, actionError, close, remove, rename } = navigation;
   const { models, loading: modelsLoading } = useModels();
   // The same hook the welcome step uses, so the rail's label and that page cannot disagree
   // about whether a key is saved.
@@ -67,11 +68,7 @@ function SignedInDashboard({
   const [keyPanelOpen, setKeyPanelOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
 
-  const [prompt, setPrompt] = useState("");
   const [draftVersion, setDraftVersion] = useState(0);
-  // `undefined` is intentional: it sends no model key, so the server owns the default until
-  // the person makes an explicit choice. The fallback is still shown in the picker below.
-  const [model, setModel] = useState<string | undefined>(undefined);
   const [scope, setScope] = useState<ProjectScope>("all");
   const [busyProjectId, setBusyProjectId] = useState<string | undefined>(undefined);
 
@@ -89,6 +86,8 @@ function SignedInDashboard({
         fading={signingOut}
         sidebar={
           <Sidebar
+            navigation={navigation}
+            ownerId={user.id}
             name={user.isAnonymous ? "Guest" : user.name || greetingName(user)}
             email={user.isAnonymous ? undefined : (user.email ?? undefined)}
             avatarUrl={user.image ?? undefined}
@@ -97,7 +96,7 @@ function SignedInDashboard({
             onClose={(id) => run(id, close)}
             error={actionError ?? (status === "error" ? "Could not load sessions." : undefined)}
             loading={status === "loading"}
-            busyProjectId={busyProjectId}
+            busyProjectId={navigation.busyProjectId ?? busyProjectId}
             scope={scope}
             counts={scopeCounts(projects)}
             recents={recentProjects(projects, projects.length)}
@@ -105,7 +104,8 @@ function SignedInDashboard({
             onApiKey={() => setKeyPanelOpen(true)}
             keyHint={key.state?.configured === true ? key.state.hint : undefined}
             onNewProject={() => {
-              setPrompt("");
+              window.history.replaceState(null, "", "/dashboard");
+              sessionStorage.removeItem(`nap.composer.${user.id}`);
               setDraftVersion((version) => version + 1);
               requestAnimationFrame(() =>
                 document
@@ -120,7 +120,9 @@ function SignedInDashboard({
               setSigningOut(true);
               void authClient
                 .signOut()
-                .then(() => {
+                .then(async () => {
+                  await new ComposerDraftStore().clearOwner(user.id).catch(() => {});
+                  sessionStorage.removeItem(`nap.composer.${user.id}`);
                   // The session hook and the project list both hold answers that are now wrong,
                   // and the landing page is where a signed-out visitor belongs. The rail is left
                   // marked busy through the redirect: releasing it first invites a second press
@@ -137,18 +139,13 @@ function SignedInDashboard({
           />
         }
         hero={
-          <DashboardHero
+          <NewSessionComposer
             key={draftVersion}
-            value={prompt}
-            busy={busy}
-            error={error}
+            ownerId={user.id}
             models={models?.models ?? []}
             modelsLoading={modelsLoading}
-            model={model ?? models?.fallback}
-            onModelChange={setModel}
+            fallback={models?.fallback}
             onAddKey={() => setKeyPanelOpen(true)}
-            onChange={setPrompt}
-            onSubmit={(message, attachments) => void start(message, model, attachments)}
           />
         }
       />

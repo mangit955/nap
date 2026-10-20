@@ -138,7 +138,7 @@ describe("the dashboard sidebar", () => {
   it("links each recent project to its workspace", () => {
     show({ recents: [project({ projectId: "abc", name: "Todo Landing Page" })] });
 
-    expect(screen.getByRole("link", { name: /^Todo Landing Page/ })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: /Todo Landing Page/ })).toHaveAttribute(
       "href",
       "/p/abc",
     );

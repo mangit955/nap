@@ -163,7 +163,7 @@ describe("GitHub callback binding", () => {
     const results = await Promise.all(
       Array.from({ length: 8 }, () => store.consumeState(state.hash, owner, "install")),
     );
-    expect(results.filter(Boolean)).toEqual([state]);
+    expect(results.filter(Boolean)).toEqual([{ ...state, draftId: null }]);
   });
 
   it("rejects expired state without binding an installation", async () => {

@@ -1,4 +1,5 @@
 import type { ProjectSummaryPayload } from "@nap/shared/projects-protocol";
+import { NavigationSchema } from "@nap/shared/session-navigation";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { PROJECT_ID, SESSION_ID } from "../testing/events.ts";
@@ -57,7 +58,23 @@ function server(deleteStatus: number) {
   const deleted: string[] = [];
   vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
     const path = new URL(url).pathname;
-    if (path === "/projects") return Response.json({ projects });
+    if (path === "/sessions")
+      return Response.json({
+        sessions: projects.map((row) => ({
+          ...row,
+          createdAt: row.updatedAt,
+          navigation: NavigationSchema.parse({}),
+          revision: 0,
+          activity: "ready",
+          activityAt: null,
+          requestedAt: null,
+          repository: null,
+          branch: null,
+          pullRequest: null,
+          pendingFeedback: 0,
+        })),
+        next: null,
+      });
     if (init?.method === "DELETE") {
       deleted.push(path);
       if (deleteStatus !== 200)
@@ -75,7 +92,7 @@ function server(deleteStatus: number) {
 
 async function remove(name: string) {
   fireEvent.click(await screen.findByRole("button", { name: `Session actions for ${name}` }));
-  fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+  fireEvent.click(screen.getByRole("button", { name: "Delete project" }));
   fireEvent.click(screen.getByRole("button", { name: "Delete session" }));
 }
 
