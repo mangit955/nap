@@ -1,10 +1,11 @@
-import { execFile } from "node:child_process";
+import { type ChildProcess, execFile } from "node:child_process";
 import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { decodeRepositoryBundle, encodeRepositoryBundle } from "@nap/sandbox/git-bundle";
 import { GitRefSchema } from "@nap/shared/github-protocol";
+import { getLogger } from "@nap/shared/logging";
 import type { GitHubResult } from "./app.ts";
 
 const execute = promisify(execFile);
@@ -22,6 +23,10 @@ const MAX_WORKING_BYTES = 4 * MAX_BUNDLE_BYTES;
 /** How many transfers may hold temporary disk at once, so the bound above is a bound per process. */
 const MAX_CONCURRENT_TRANSFERS = 2;
 const WATCH_EVERY_MS = 200;
+/** How long a stopped Git may take to exit before it is killed outright. */
+const EXIT_GRACE_MS = 5_000;
+const REMOVE_ATTEMPTS = 5;
+const REMOVE_RETRY_MS = 100;
 type Transfer = {
   fullName: string;
   branch: string;
@@ -109,7 +114,9 @@ export class ServerGitBroker implements GitBroker {
     // a fast transfer can finish between two samples.
     const watcher = setInterval(() => {
       void directorySize(directory).then((bytes) => {
-        if (bytes <= allowance) return;
+        // A Git already stopped by its caller may still write while it exits; that is a
+        // cancellation, not a repository too large to import.
+        if (bytes <= allowance || signal.aborted) return;
         oversized = true;
         limit.abort();
       });
@@ -129,7 +136,7 @@ export class ServerGitBroker implements GitBroker {
         GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${options.token}`).toString("base64")}`,
       };
       const git = async (...args: string[]) => {
-        const result = await execute(
+        const running = execute(
           "git",
           [
             "-c",
@@ -154,11 +161,19 @@ export class ServerGitBroker implements GitBroker {
             signal,
           },
         );
+        let stdout: string;
+        try {
+          ({ stdout } = await running);
+        } finally {
+          // A stopped Git rejects at once but exits later, still writing; nothing may clean up
+          // or start the next step under it.
+          await exited(running.child);
+        }
         if ((await directorySize(directory)) > allowance) {
           oversized = true;
           throw new Error("transfer exceeded its disk allowance");
         }
-        return result.stdout.trim();
+        return stdout.trim();
       };
       await git("init", "--bare", ".");
       return { ok: true, value: await operation(git, directory) };
@@ -183,8 +198,14 @@ export class ServerGitBroker implements GitBroker {
           };
     } finally {
       clearInterval(watcher);
-      await rm(directory, { recursive: true, force: true });
-      this.#release();
+      try {
+        await removeWorkingDirectory(directory);
+      } catch (error) {
+        // Thrown from here it would replace the answer above and keep the slot forever.
+        getLogger().warn({ err: error, directory }, "could not remove a Git working directory");
+      } finally {
+        this.#release();
+      }
     }
   }
 
@@ -244,6 +265,40 @@ export class ServerGitBroker implements GitBroker {
 
   #remote(fullName: string): string {
     return this.options.remoteFor?.(fullName) ?? `https://github.com/${fullName}.git`;
+  }
+}
+
+/** Resolves once a child has exited, killing it outright if it outlasts the grace period. */
+function exited(child: ChildProcess): Promise<void> {
+  if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null)
+    return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      child.off("exit", done);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      done();
+    }, EXIT_GRACE_MS);
+    child.once("exit", done);
+  });
+}
+
+/**
+ * Removes a working directory, retrying while it is not yet empty: Git's own helpers, such as
+ * the one writing the pack, can outlive a stopped Git by a moment.
+ */
+async function removeWorkingDirectory(directory: string): Promise<void> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await rm(directory, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      if (attempt >= REMOVE_ATTEMPTS) throw error;
+      await new Promise((resolve) => setTimeout(resolve, REMOVE_RETRY_MS * attempt));
+    }
   }
 }
 

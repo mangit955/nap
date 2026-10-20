@@ -1,16 +1,34 @@
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdirSync } from "node:fs";
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { existsSync, mkdirSync } from "node:fs";
+import { chmod, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { decodeRepositoryBundle, encodeRepositoryBundle } from "@nap/sandbox/git-bundle";
 import { localGitEnvironment } from "@nap/sandbox/testing/local-git-environment";
-import { afterEach, expect, it } from "vitest";
+import { type Logger, withLogContext } from "@nap/shared/logging";
+import { afterEach, expect, it, vi } from "vitest";
 import { ServerGitBroker } from "./git-broker.ts";
+
+/** How many coming removals of a broker's working directory fail as if Git were still writing. */
+const removal = vi.hoisted(() => ({ failures: 0 }));
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return {
+    ...actual,
+    rm: async (...args: Parameters<typeof actual.rm>) => {
+      if (String(args[0]).includes("nap-git-") && removal.failures > 0) {
+        removal.failures -= 1;
+        throw Object.assign(new Error("ENOTEMPTY: directory not empty"), { code: "ENOTEMPTY" });
+      }
+      return await actual.rm(...args);
+    },
+  };
+});
 
 const directories: string[] = [];
 afterEach(async () => {
+  removal.failures = 0;
   await Promise.all(
     directories.splice(0).map((path) => rm(path, { recursive: true, force: true })),
   );
@@ -202,4 +220,107 @@ it("gives up its place in line when cancelled while waiting", async () => {
   expect(
     await broker.fetch({ fullName: "org/repo", branch: "main", token: "secret" }),
   ).toMatchObject({ ok: true });
+});
+
+it("tries again to remove a working directory a Git helper is still writing in", async () => {
+  const dir = await repositoryWith(4 * 1024 * 1024);
+  const root = await mkdtemp(join(tmpdir(), "nap-broker-test-"));
+  directories.push(root);
+  const broker = new ServerGitBroker({
+    remoteFor: () => dir,
+    allowLocalTransport: true,
+    maxWorkingBytes: 1024 * 1024,
+    temporaryRoot: root,
+  });
+  removal.failures = 2;
+
+  expect(
+    await broker.fetch({ fullName: "org/repo", branch: "main", token: "secret" }),
+  ).toMatchObject({ ok: false, error: { message: expect.stringContaining("too large") } });
+  expect(removal.failures).toBe(0);
+  expect(await readdir(root)).toEqual([]);
+});
+
+it("keeps its answer and frees its slot when a working directory cannot be removed", async () => {
+  const dir = await repositoryWith(4 * 1024 * 1024);
+  const root = await mkdtemp(join(tmpdir(), "nap-broker-test-"));
+  directories.push(root);
+  const broker = new ServerGitBroker({
+    remoteFor: () => dir,
+    allowLocalTransport: true,
+    maxWorkingBytes: 1024 * 1024,
+    maxConcurrent: 1,
+    temporaryRoot: root,
+  });
+  const warnings: unknown[] = [];
+  const logger: Logger = {
+    child: () => logger,
+    debug: () => {},
+    info: () => {},
+    warn: (fields: unknown) => void warnings.push(fields),
+    error: () => {},
+  };
+  removal.failures = Number.POSITIVE_INFINITY;
+
+  const refused = await withLogContext(logger, {}, () =>
+    broker.fetch({ fullName: "org/repo", branch: "main", token: "secret" }),
+  );
+  removal.failures = 0;
+
+  expect(refused).toMatchObject({
+    ok: false,
+    error: { code: "conflict", message: expect.stringContaining("too large") },
+  });
+  expect(warnings).toMatchObject([{ directory: expect.stringContaining("nap-git-") }]);
+  // The only slot was given back: the next transfer runs rather than waiting for ever.
+  expect(
+    await broker.fetch({ fullName: "org/repo", branch: "main", token: "secret" }),
+  ).toMatchObject({ ok: false, error: { code: "conflict" } });
+});
+
+it("waits for a stopped Git to exit before answering", async () => {
+  const bin = await mkdtemp(join(tmpdir(), "nap-broker-test-"));
+  directories.push(bin);
+  const started = join(bin, "started");
+  const exited = join(bin, "exited");
+  const real = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
+  // A fetch that, like a real one with a helper still writing, takes a moment to stop — and
+  // writes past the allowance as it does, which must not turn the cancellation into a refusal.
+  await writeFile(
+    join(bin, "git"),
+    `#!/bin/sh
+case "$*" in
+  *" fetch "*)
+    trap 'head -c 2097152 /dev/zero > late; sleep 0.3; : > "${exited}"; exit 1' TERM
+    : > "${started}"
+    # Bounded, so a test that fails before cancelling does not leave this running.
+    for _ in $(seq 100); do sleep 0.05; done; exit 1 ;;
+esac
+exec "${real}" "$@"
+`,
+  );
+  await chmod(join(bin, "git"), 0o755);
+  const path = process.env.PATH;
+  process.env.PATH = `${bin}:${path ?? ""}`;
+  try {
+    const broker = new ServerGitBroker({
+      remoteFor: () => bin,
+      allowLocalTransport: true,
+      maxWorkingBytes: 1024 * 1024,
+    });
+    const cancel = new AbortController();
+    const transfer = broker.fetch({
+      fullName: "org/repo",
+      branch: "main",
+      token: "secret",
+      signal: cancel.signal,
+    });
+    await vi.waitFor(() => expect(existsSync(started)).toBe(true));
+    cancel.abort();
+
+    expect(await transfer).toMatchObject({ ok: false, error: { code: "cancelled" } });
+    expect(existsSync(exited)).toBe(true);
+  } finally {
+    process.env.PATH = path;
+  }
 });
