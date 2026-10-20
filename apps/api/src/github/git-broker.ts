@@ -43,6 +43,8 @@ export class ServerGitBroker implements GitBroker {
       allowLocalTransport?: boolean;
       maxWorkingBytes?: number;
       maxConcurrent?: number;
+      /** Where working directories are made; the system's by default. */
+      temporaryRoot?: string;
     } = {},
   ) {}
 
@@ -93,7 +95,7 @@ export class ServerGitBroker implements GitBroker {
       return { ok: false, error: { code: "cancelled", message: "Repository transfer cancelled." } };
     let directory: string;
     try {
-      directory = await mkdtemp(join(tmpdir(), "nap-git-"));
+      directory = await mkdtemp(join(this.options.temporaryRoot ?? tmpdir(), "nap-git-"));
     } catch (error) {
       this.#release();
       throw error;

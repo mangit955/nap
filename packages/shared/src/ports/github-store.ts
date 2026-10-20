@@ -91,4 +91,9 @@ export interface GitHubStore {
   claimDelivery(): Promise<ClaimedGitHubDelivery | null>;
   /** Attempt number fences a worker whose lease expired. Errors must already be safe to persist. */
   finishDelivery(deliveryId: string, attempts: number, error?: string): Promise<void>;
+  /**
+   * Extends a lease this attempt still holds, for a batch whose refreshes outlast one lease.
+   * False once it has lapsed: another worker may have the delivery, so it is not taken back.
+   */
+  renewDelivery(deliveryId: string, attempts: number): Promise<boolean>;
 }

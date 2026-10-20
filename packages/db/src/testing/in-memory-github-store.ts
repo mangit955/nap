@@ -362,4 +362,17 @@ export class InMemoryGitHubStore implements GitHubStore {
     delivery.state = error === undefined ? "done" : attempts >= 5 ? "failed" : "pending";
     delivery.availableAt = this.now() + Math.min(300, 2 ** attempts) * 1000;
   }
+
+  async renewDelivery(deliveryId: string, attempts: number): Promise<boolean> {
+    const delivery = this.deliveries.get(deliveryId);
+    if (
+      delivery === undefined ||
+      delivery.attempts !== attempts ||
+      delivery.state !== "processing" ||
+      delivery.availableAt <= this.now()
+    )
+      return false;
+    delivery.availableAt = this.now() + 60_000;
+    return true;
+  }
 }

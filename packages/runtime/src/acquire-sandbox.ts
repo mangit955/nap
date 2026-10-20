@@ -150,9 +150,9 @@ async function acquireAuthorizedSandbox(
  * decision, which is what stops a hundred simultaneous turns each finding themselves under a cap
  * of ten.
  *
- * Reserved, created, renewed while it is prepared, activated — and released on every path where the sandbox did not come into
- * existence, immediately rather than by a sweep, because a slot held by a creation that already
- * failed is one somebody else could have had.
+ * Reserved, renewed until it is ready, activated — and released on every path where the sandbox
+ * did not come into existence, immediately rather than by a sweep, because a slot held by a
+ * creation that already failed is one somebody else could have had.
  *
  * The one path that runs the other way is a creation that outlived its reservation: the row was
  * reclaimed while the provider was still working, so the sandbox that arrives is real and counted
@@ -204,13 +204,16 @@ async function open(
 const RENEW_EVERY_MS = RESERVATION_TTL_MS / 4;
 
 /**
- * Keeps the reservation from lapsing between the sandbox existing and the sandbox being ready.
+ * Keeps the reservation from lapsing between being taken and the sandbox being ready.
  *
- * A repository's setup command may run for ten minutes; a reservation lives for two. Without this
- * an ordinary dependency install outlives its row, the reaper reclaims it, and the finished
- * sandbox is refused as uncounted. Renewal keeps the row `reserved` rather than activating it
- * early, so a process that dies mid-setup still gives the slot back within one TTL — and it
- * records the sandbox id, so the inventory sweep sees the sandbox as referenced meanwhile.
+ * Two waits can each outlast a reservation's two minutes. Before the sandbox exists, an imported
+ * repository's first bundle is fetched, and that fetch may queue behind the broker's transfer
+ * slots; after it exists, a setup command may run for ten. Without this either one lets the reaper
+ * reclaim the row, and the finished sandbox is refused as uncounted. So renewal starts with the
+ * reservation, renewing the expiry alone until there is a sandbox to name. It keeps the row
+ * `reserved` rather than activating it early, so a process that dies mid-setup still gives the
+ * slot back within one TTL — and once it records the sandbox id, the inventory sweep sees the
+ * sandbox as referenced meanwhile.
  *
  * A failed renewal is only logged: `activate` at the end asks the same question authoritatively,
  * and a renewal that could not reach the database says nothing about whether the row survives.
@@ -224,9 +227,9 @@ function holdWhilePreparing(
     return { created: () => {}, stop: async () => {} };
   }
 
-  let timer: ReturnType<typeof setInterval> | undefined;
+  let sandboxId: string | null = null;
   let inFlight: Promise<void> = Promise.resolve();
-  const renew = (sandboxId: string) => {
+  const renew = () => {
     inFlight = inFlight.then(async () => {
       try {
         const renewed = await capacity.renew(reservation.id, sandboxId);
@@ -236,14 +239,18 @@ function holdWhilePreparing(
       }
     });
   };
+  // Not renewed now: the reservation was taken a moment ago, so its first full TTL is still ahead.
+  const timer = setInterval(renew, RENEW_EVERY_MS);
 
   return {
-    created: (sandboxId) => {
-      renew(sandboxId);
-      timer = setInterval(() => renew(sandboxId), RENEW_EVERY_MS);
+    created: (id) => {
+      sandboxId = id;
+      // At once rather than at the next tick, so the inventory sweep sees the sandbox referenced
+      // from the moment it exists.
+      renew();
     },
     stop: async () => {
-      if (timer !== undefined) clearInterval(timer);
+      clearInterval(timer);
       await inFlight;
     },
   };

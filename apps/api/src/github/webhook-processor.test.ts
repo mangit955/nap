@@ -579,6 +579,193 @@ describe("GitHubEventProcessor", () => {
     expect((await f.store.job(f.job.jobId))?.pullRequestState).toBe("merged");
   });
 
+  it("acknowledges every delivery a slow batch finished, however long the batch ran", async () => {
+    // Deliveries for two repositories, three open pull requests each, against a GitHub answering
+    // in three seconds a call: even one repository's share runs past one inbox lease. A delivery whose refresh
+    // completed must not be handed to the next tick to repeat — and eventually marked failed.
+    let now = Date.now();
+    const store = new InMemoryGitHubStore({ now: () => now });
+    const userId = randomUUID();
+    await store.bindInstallation({
+      installationId: 99,
+      userId,
+      githubUserId: 7,
+      githubLogin: "owner",
+      accountLogin: "org",
+      accountType: "Organization",
+      status: "active",
+    });
+    const repositories = [
+      { id: 123, fullName: "org/one" },
+      { id: 456, fullName: "org/two" },
+    ];
+    const branches = new Map<string, string>();
+    const sessions: { sessionId: string; projectId: string; userId: string; sandboxId: null }[] =
+      [];
+    for (const repository of repositories) {
+      const binding = await store.importRepository({
+        userId,
+        installationId: 99,
+        repository: { ...repository, defaultBranch: "main", private: true },
+        name: repository.fullName,
+        baseBranch: "main",
+        environment: { setupCommand: null, devCommand: null, previewPort: null },
+        autoPublish: false,
+      });
+      if (binding === null) throw new Error("Fixture import failed");
+      sessions.push({ ...binding, sandboxId: null });
+      for (const number of [10, 11, 12]) {
+        const headBranch = `nap/${repository.id}-${number}`;
+        branches.set(`${repository.fullName}/${number}`, headBranch);
+        await store.createJob({
+          jobId: randomUUID(),
+          projectId: binding.projectId,
+          sessionId: binding.sessionId,
+          baseBranch: "main",
+          headBranch,
+          baseSha: "b".repeat(40),
+          headSha: SHA,
+          pushedSha: SHA,
+          pullRequestNumber: number,
+          pullRequestUrl: `https://github.com/${repository.fullName}/pull/${number}`,
+          pullRequestState: "open",
+          publishState: "published",
+          checkState: "unknown",
+          reviewState: "unknown",
+          error: null,
+          updatedAt: new Date(now).toISOString(),
+        });
+      }
+    }
+    const slow: GitHubFetch = async (url) => {
+      now += 3_000;
+      const path = new URL(url).pathname;
+      if (path === "/app/installations/99")
+        return Response.json({
+          id: 99,
+          app_id: 42,
+          account: { id: 88, login: "org", type: "Organization" },
+          suspended_at: null,
+        });
+      if (path.endsWith("/access_tokens"))
+        return Response.json({
+          token: "private-installation-token",
+          expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+        });
+      const repository = repositories.find(
+        (item) => path === `/repos/${item.fullName}` || path.startsWith(`/repos/${item.fullName}/`),
+      );
+      if (repository === undefined) throw new Error(`Unhandled GitHub request ${path}`);
+      if (path === `/repos/${repository.fullName}`)
+        return Response.json({
+          id: repository.id,
+          full_name: repository.fullName,
+          default_branch: "main",
+          private: true,
+        });
+      if (path.endsWith("/permission"))
+        return Response.json({ permission: "write", user: { id: 7, login: "owner" } });
+      const pull = path.match(/\/pulls\/(\d+)$/)?.[1];
+      if (pull !== undefined)
+        return Response.json({
+          number: Number(pull),
+          html_url: `https://github.com/${repository.fullName}/pull/${pull}`,
+          state: "open",
+          merged_at: null,
+          head: {
+            sha: SHA,
+            ref: branches.get(`${repository.fullName}/${pull}`),
+            repo: { id: repository.id },
+          },
+          base: { ref: "main", repo: { id: repository.id } },
+        });
+      if (path.endsWith("/check-runs")) return Response.json({ check_runs: [] });
+      if (path.endsWith("/status")) return Response.json({ state: "success", statuses: [] });
+      if (path.endsWith("/comments") || path.endsWith("/reviews")) return Response.json([]);
+      throw new Error(`Unhandled GitHub request ${path}`);
+    };
+    const integration = new GitHubIntegration({
+      store,
+      app: new GitHubApp(config, slow),
+      broker: {
+        fetch: async () => {
+          throw new Error("Webhook must never clone");
+        },
+        push: async () => {
+          throw new Error("Webhook must never push");
+        },
+      },
+      sandbox: new InMemorySandboxManager(),
+      sessions: new InMemorySessionStore(sessions),
+      snapshots: new InMemorySnapshotStore(),
+      objects: new InMemoryObjectStore(),
+      events: new InMemoryEventStore(),
+      bus: new InMemoryEventBus(),
+    });
+    for (const repository of repositories)
+      await store.receiveDelivery({
+        id: randomUUID(),
+        event: "check_run",
+        payload: { installation: { id: 99 }, repository: { id: repository.id } },
+      });
+    const started = now;
+
+    await new GitHubEventProcessor(integration, () => now).tick();
+
+    expect(now - started).toBeGreaterThan(2 * 60_000);
+    now += 1;
+    expect(await store.claimDelivery()).toBeNull();
+    now += 60 * 60_000;
+    expect(await store.claimDelivery()).toBeNull();
+  });
+
+  it("reaches an older open pull request past newer closed ones", async () => {
+    // Every message on a clean tree starts a new branch, so closed and merged pull requests soon
+    // outnumber open ones. A check finishing on the older open one must still be read now, not
+    // five minutes later by the backstop.
+    const f = await fixture();
+    f.transport.checks = [{ name: "ci", status: "completed", conclusion: "success" }];
+    for (let index = 0; index < 6; index += 1)
+      await f.store.createJob({
+        ...f.job,
+        jobId: randomUUID(),
+        headBranch: `nap/later-${index}`,
+        pullRequestNumber: 20 + index,
+        pullRequestUrl: `https://github.com/org/app/pull/${20 + index}`,
+        pullRequestState: index % 2 === 0 ? "closed" : "merged",
+      });
+    await f.store.receiveDelivery({
+      id: randomUUID(),
+      event: "status",
+      payload: { installation: { id: 99 }, repository: { id: 123 } },
+    });
+
+    await f.processor.tick();
+
+    expect((await f.store.job(f.job.jobId))?.checkState).toBe("passed");
+    expect(f.transport.paths.filter((path) => /\/pulls\/2\d$/.test(path))).toEqual([]);
+  });
+
+  it("reads a closed pull request the delivery names, so a reopen is noticed", async () => {
+    const f = await fixture();
+    await f.store.updateJob(f.job.jobId, { pullRequestState: "closed" });
+    await f.store.receiveDelivery({
+      id: randomUUID(),
+      event: "pull_request",
+      payload: {
+        action: "reopened",
+        number: 10,
+        pull_request: { number: 10 },
+        installation: { id: 99 },
+        repository: { id: 123 },
+      },
+    });
+
+    await f.processor.tick();
+
+    expect((await f.store.job(f.job.jobId))?.pullRequestState).toBe("open");
+  });
+
   it("bounds inbox work per tick", async () => {
     const f = await fixture();
     for (let index = 0; index < 11; index += 1)

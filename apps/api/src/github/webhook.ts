@@ -18,6 +18,33 @@ const Delivery = z.object({
   installation: z.object({ id: z.number().int().positive() }).optional(),
   repository: z.object({ id: z.number().int().positive() }).optional(),
 });
+const PullRequestRef = z.object({ number: z.number().int().positive() });
+/** Every place GitHub names the pull requests an event is about. Status events name none. */
+const NamedPullRequests = z.object({
+  pull_request: PullRequestRef.optional(),
+  issue: PullRequestRef.optional(),
+  check_run: z.object({ pull_requests: z.array(PullRequestRef) }).optional(),
+  check_suite: z.object({ pull_requests: z.array(PullRequestRef) }).optional(),
+});
+
+/**
+ * Parsed apart from the routing fields, so an unexpected shape here costs only the hint, never the
+ * delivery.
+ */
+function namedPullRequests(payload: unknown): Set<number> {
+  const parsed = NamedPullRequests.safeParse(payload);
+  if (!parsed.success) return new Set();
+  const { pull_request, issue, check_run, check_suite } = parsed.data;
+  return new Set(
+    [
+      pull_request,
+      issue,
+      ...(check_run?.pull_requests ?? []),
+      ...(check_suite?.pull_requests ?? []),
+    ].flatMap((entry) => (entry === undefined ? [] : [entry.number])),
+  );
+}
+
 const RELEVANT_EVENTS = new Set([
   "installation",
   "installation_repositories",
@@ -72,6 +99,7 @@ export class GitHubEventProcessor {
         const parsed = Delivery.safeParse(delivery.payload);
         if (!parsed.success || parsed.data.installation === undefined) continue;
         const installationId = parsed.data.installation.id;
+        const named = namedPullRequests(delivery.payload);
         let status = installationStatus.get(installationId);
         if (status === undefined) {
           status = this.#refreshInstallation(installationId);
@@ -91,7 +119,7 @@ export class GitHubEventProcessor {
           )
           .slice(0, 20)) {
           const jobs = await store.jobs(binding.projectId, binding.userId);
-          for (const job of this.#latestBranches(jobs).slice(0, 5)) {
+          for (const job of this.#webhookTargets(jobs, named)) {
             const target = targets.get(job.jobId) ?? { binding, job, deliveries: [] };
             target.deliveries.push(delivery.id);
             targets.set(job.jobId, target);
@@ -101,7 +129,19 @@ export class GitHubEventProcessor {
         entry.failure = "GitHub delivery processing was interrupted.";
       }
     }
+    // Every claim's lease started above, but the refreshes below add up across every repository
+    // the batch names and can outlast it. A delivery is acknowledged as soon as its own targets are
+    // done, and the ones still waiting have their leases renewed before each refresh, so finished
+    // work is never handed to the next tick to repeat.
+    const remaining = new Map(claimed.map((entry) => [entry.id, 0]));
+    for (const { deliveries } of targets.values())
+      for (const id of new Set(deliveries)) remaining.set(id, (remaining.get(id) ?? 0) + 1);
+    const finish = async (entry: (typeof claimed)[number]) =>
+      await store.finishDelivery(entry.id, entry.attempts, entry.failure);
+    for (const entry of claimed) if (remaining.get(entry.id) === 0) await finish(entry);
     for (const { binding, job, deliveries } of targets.values()) {
+      for (const entry of claimed)
+        if ((remaining.get(entry.id) ?? 0) > 0) await store.renewDelivery(entry.id, entry.attempts);
       let failure: string | undefined;
       try {
         const result = await this.#refresh(binding, job, authorize);
@@ -109,11 +149,14 @@ export class GitHubEventProcessor {
       } catch {
         failure = "GitHub delivery processing was interrupted.";
       }
-      if (failure === undefined) continue;
-      for (const entry of claimed) if (deliveries.includes(entry.id)) entry.failure ??= failure;
+      for (const entry of claimed) {
+        if (!deliveries.includes(entry.id)) continue;
+        if (failure !== undefined) entry.failure ??= failure;
+        const left = (remaining.get(entry.id) ?? 1) - 1;
+        remaining.set(entry.id, left);
+        if (left === 0) await finish(entry);
+      }
     }
-    for (const entry of claimed)
-      await store.finishDelivery(entry.id, entry.attempts, entry.failure);
 
     const stale = new Date(this.now() - RECONCILE_AFTER_MS);
     for (const job of await store.listReconcileJobs(10, stale)) {
@@ -158,6 +201,22 @@ export class GitHubEventProcessor {
       }
       return result;
     };
+  }
+
+  /**
+   * The jobs a delivery refreshes: the latest on each branch whose pull request is open, or that the
+   * delivery names — a reopened one included — named first, so the cap never crowds out the very
+   * pull request the event is about. Closed and merged ones are otherwise skipped: every message
+   * starts a new branch, so they soon outnumber the open ones and would leave an older open pull
+   * request waiting for the backstop.
+   */
+  #webhookTargets(jobs: RepositoryJob[], named: Set<number>): RepositoryJob[] {
+    const isNamed = (job: RepositoryJob) =>
+      job.pullRequestNumber !== null && named.has(job.pullRequestNumber);
+    return this.#latestBranches(jobs)
+      .filter((job) => job.pullRequestState === "open" || isNamed(job))
+      .sort((a, b) => Number(isNamed(b)) - Number(isNamed(a)))
+      .slice(0, 5);
   }
 
   #latestBranches(jobs: RepositoryJob[]): RepositoryJob[] {

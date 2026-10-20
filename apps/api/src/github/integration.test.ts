@@ -56,6 +56,8 @@ class GitHubTransport {
   pullRequests: Pull[] = [];
   createBehavior: "success" | "error" | "lost-response" = "success";
   creates = 0;
+  /** What each branch on GitHub points at, as the broker's pushes left it. */
+  readonly branches = new Map<string, string>();
   readonly calls: { path: string; method: string; body: unknown }[] = [];
 
   readonly fetch: GitHubFetch = async (url, init) => {
@@ -104,6 +106,12 @@ class GitHubTransport {
         archived: false,
         disabled: false,
       });
+    if (path.startsWith("/repos/org/app/git/ref/heads/") && method === "GET") {
+      const head = this.branches.get(decodeURIComponent(path.slice(29)));
+      return head === undefined
+        ? json({ message: "Not Found" }, 404)
+        : json({ ref: path.slice(15), object: { sha: head } });
+    }
     if (path === "/repos/org/app/pulls" && method === "GET") return json(this.pullRequests);
     if (path === "/repos/org/app/pulls" && method === "POST") {
       this.creates += 1;
@@ -143,12 +151,14 @@ class RecordingBroker implements GitBroker {
   readonly pushes: Parameters<GitBroker["push"]>[0][] = [];
   afterPush: (() => void) | undefined;
   pushFailure: GitHubResult<void> | undefined;
+  constructor(readonly remote = new Map<string, string>()) {}
   async fetch(input: Parameters<GitBroker["fetch"]>[0]): Promise<GitHubResult<Uint8Array>> {
     this.fetches.push(input);
     return { ok: true, value: new TextEncoder().encode("repository bundle") };
   }
   async push(input: Parameters<GitBroker["push"]>[0]): Promise<GitHubResult<void>> {
     this.pushes.push(input);
+    if (this.pushFailure === undefined) this.remote.set(input.branch, input.sha);
     this.afterPush?.();
     return this.pushFailure ?? { ok: true, value: undefined };
   }
@@ -183,7 +193,7 @@ async function fixture() {
     sandboxId: null,
   };
   const transport = new GitHubTransport();
-  const broker = new RecordingBroker();
+  const broker = new RecordingBroker(transport.branches);
   const events = new InMemoryEventStore();
   const objects = new InMemoryObjectStore();
   const snapshots = new InMemorySnapshotStore();
@@ -458,6 +468,64 @@ describe("verified PR publication", () => {
       pullRequestNumber: 10,
       publishState: "published",
     });
+  });
+
+  it("opens the pull request for a pushed job after later work moved the workspace on", async () => {
+    // The push landed and the pull request did not; then the next message committed on top. The
+    // verified commit is already on GitHub, so the retry needs nothing from the workspace.
+    const f = await fixture();
+    await verified(f);
+    f.transport.createBehavior = "error";
+    expect(await publish(f)).toMatchObject({ ok: false });
+    expect(await f.store.job(f.job.jobId)).toMatchObject({
+      pushedSha: SHA,
+      publishState: "failed",
+    });
+    const later = "c".repeat(40);
+    await f.snapshots.record({
+      projectId: f.session.projectId,
+      key: "later.bundle",
+      gitSha: later,
+    });
+    const sandbox = await f.sandbox.create(f.session.projectId);
+    if (!sandbox.ok) throw new Error("Fixture sandbox failed");
+    f.sandbox.script(/status --porcelain/, { stdout: "" });
+    f.sandbox.script(/rev-parse HEAD/, { stdout: later });
+    f.transport.createBehavior = "success";
+
+    for (const sandboxId of [null, sandbox.value.id])
+      expect(
+        await f.service.publish({ session: f.session, jobId: f.job.jobId, sandboxId }),
+      ).toMatchObject({ ok: true });
+
+    expect(f.broker.pushes).toHaveLength(1);
+    expect(f.transport.creates).toBe(2);
+    expect(await f.store.job(f.job.jobId)).toMatchObject({
+      pushedSha: SHA,
+      pullRequestNumber: 10,
+      publishState: "published",
+      error: null,
+    });
+  });
+
+  it("still asks the workspace when the pushed branch has since moved on GitHub", async () => {
+    // Somebody else pushed to the job's branch: what is there is no longer what was verified, so
+    // the shortcut does not apply and the moved workspace refuses as before.
+    const f = await fixture();
+    await verified(f);
+    f.transport.createBehavior = "error";
+    expect(await publish(f)).toMatchObject({ ok: false });
+    f.transport.branches.set(f.job.headBranch, "d".repeat(40));
+    await f.snapshots.record({
+      projectId: f.session.projectId,
+      key: "later.bundle",
+      gitSha: "c".repeat(40),
+    });
+    f.transport.createBehavior = "success";
+
+    expect(await publish(f)).toMatchObject({ ok: false, error: { code: "conflict" } });
+    expect(f.broker.pushes).toHaveLength(1);
+    expect(f.transport.creates).toBe(1);
   });
 
   it("reconciles a lost creation response without making a duplicate PR", async () => {

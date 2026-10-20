@@ -132,6 +132,13 @@ describe("InMemorySandboxCapacity", () => {
       expect(capacity.reclaimExpired()).toEqual([]);
       expect(capacity.held()).toMatchObject([{ state: "reserved", sandboxId: "sb-1" }]);
 
+      // Renewing with no sandbox to name keeps the row alive and keeps the name it already has.
+      vi.advanceTimersByTime(RESERVATION_TTL_MS - 1);
+      expect(await capacity.renew(reserved.value.id, null)).toMatchObject({ ok: true });
+      vi.advanceTimersByTime(RESERVATION_TTL_MS - 1);
+      expect(capacity.reclaimExpired()).toEqual([]);
+      expect(capacity.held()).toMatchObject([{ state: "reserved", sandboxId: "sb-1" }]);
+
       await capacity.activate(reserved.value.id, "sb-1");
       expect(await capacity.renew(reserved.value.id, "sb-1")).toMatchObject({ ok: false });
       await capacity.release(reserved.value.id);

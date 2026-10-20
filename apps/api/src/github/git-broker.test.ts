@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { mkdirSync } from "node:fs";
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -121,16 +122,23 @@ async function repositoryWith(bytes: number): Promise<string> {
   return dir;
 }
 
-const brokerDirectories = async () =>
-  (await readdir(tmpdir())).filter((name) => name.startsWith("nap-git-"));
-
 it("stops a transfer that outgrows its disk allowance and leaves nothing behind", async () => {
   const dir = await repositoryWith(4 * 1024 * 1024);
-  const before = await brokerDirectories();
+  // A root of its own: other suites make `nap-git-` directories in the shared temp directory
+  // from parallel workers, and a listing of that would blame this broker for them.
+  const root = await mkdtemp(join(tmpdir(), "nap-broker-test-"));
+  directories.push(root);
   const broker = new ServerGitBroker({
-    remoteFor: () => dir,
+    remoteFor: () => {
+      // Another worker's directory appearing mid-transfer, which this test must not notice.
+      const elsewhere = join(tmpdir(), `nap-git-elsewhere-${randomBytes(4).toString("hex")}`);
+      mkdirSync(elsewhere);
+      directories.push(elsewhere);
+      return dir;
+    },
     allowLocalTransport: true,
     maxWorkingBytes: 1024 * 1024,
+    temporaryRoot: root,
   });
 
   const imported = await broker.fetch({ fullName: "org/repo", branch: "main", token: "secret" });
@@ -139,7 +147,7 @@ it("stops a transfer that outgrows its disk allowance and leaves nothing behind"
     ok: false,
     error: { code: "conflict", message: expect.stringContaining("too large") },
   });
-  expect(await brokerDirectories()).toEqual(before);
+  expect(await readdir(root)).toEqual([]);
   // The same repository fits a normal allowance, so the refusal above was the limit's doing.
   const roomy = new ServerGitBroker({ remoteFor: () => dir, allowLocalTransport: true });
   expect(

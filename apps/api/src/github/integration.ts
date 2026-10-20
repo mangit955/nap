@@ -347,42 +347,55 @@ export class GitHubIntegration implements RepositoryWorkspace {
         conflict("Only a verified job can publish a pull request."),
       );
     if (signal?.aborted) return stopped();
-    let bytes: Uint8Array;
-    const live =
-      options.sandboxId === null ? null : await this.deps.sandbox.resume(options.sandboxId);
-    if (live?.ok) {
-      const status = await this.#git(live.value.id, "status --porcelain");
-      const sha = await currentSha(this.deps.sandbox, live.value.id);
-      if (!status.ok || status.value !== "" || !sha.ok || sha.value !== state.checkpointSha)
-        return this.#publicationFailed(
-          jobId,
-          conflict(
-            "The workspace has changed since this job was verified. Finish and verify the current work before publishing.",
-          ),
-        );
-      const captured = await bundle(this.deps.sandbox, live.value.id, { signal });
-      if (!captured.ok)
-        return this.#publicationFailed(jobId, conflict("Could not read the workspace Git bundle."));
-      bytes = captured.value;
-    } else {
-      const snapshot = await this.deps.snapshots.latestFor(session.projectId);
-      if (snapshot === null || snapshot.gitSha !== state.checkpointSha)
-        return this.#publicationFailed(
-          jobId,
-          conflict(
-            "This job's verified snapshot is unavailable. Open the project before publishing.",
-          ),
-        );
-      const stored = await this.deps.objects.get(snapshot.key);
-      if (!stored.ok)
-        return this.#publicationFailed(
-          jobId,
-          conflict("The saved repository could not be read. Your project was not changed."),
-        );
-      bytes = stored.value;
-    }
     const app = this.deps.app;
     if (app === null) return denied();
+    // A retry after the push landed and the pull request did not. GitHub already holds exactly the
+    // verified commit on the job's branch, so the workspace has nothing left to prove — and it may
+    // rightly have moved on to later work since. Any other remote head goes the long way round.
+    const remoteHead =
+      job.pushedSha === state.checkpointSha
+        ? await app.branch(binding.installationId, repository, job.headBranch)
+        : null;
+    const alreadyPushed = remoteHead?.ok === true && remoteHead.value.object.sha === job.pushedSha;
+    let bytes: Uint8Array | null = null;
+    if (!alreadyPushed) {
+      const live =
+        options.sandboxId === null ? null : await this.deps.sandbox.resume(options.sandboxId);
+      if (live?.ok) {
+        const status = await this.#git(live.value.id, "status --porcelain");
+        const sha = await currentSha(this.deps.sandbox, live.value.id);
+        if (!status.ok || status.value !== "" || !sha.ok || sha.value !== state.checkpointSha)
+          return this.#publicationFailed(
+            jobId,
+            conflict(
+              "The workspace has changed since this job was verified. Finish and verify the current work before publishing.",
+            ),
+          );
+        const captured = await bundle(this.deps.sandbox, live.value.id, { signal });
+        if (!captured.ok)
+          return this.#publicationFailed(
+            jobId,
+            conflict("Could not read the workspace Git bundle."),
+          );
+        bytes = captured.value;
+      } else {
+        const snapshot = await this.deps.snapshots.latestFor(session.projectId);
+        if (snapshot === null || snapshot.gitSha !== state.checkpointSha)
+          return this.#publicationFailed(
+            jobId,
+            conflict(
+              "This job's verified snapshot is unavailable. Open the project before publishing.",
+            ),
+          );
+        const stored = await this.deps.objects.get(snapshot.key);
+        if (!stored.ok)
+          return this.#publicationFailed(
+            jobId,
+            conflict("The saved repository could not be read. Your project was not changed."),
+          );
+        bytes = stored.value;
+      }
+    }
     await this.deps.store.updateJob(jobId, {
       publishState: "publishing",
       headSha: state.checkpointSha,
@@ -409,29 +422,31 @@ export class GitHubIntegration implements RepositoryWorkspace {
         conflict("This pull request is closed or merged. Start a new job to propose more changes."),
       );
     if (signal?.aborted) return this.#publicationFailed(jobId, stopped());
-    const fresh = await this.authorize(session.userId, binding.installationId, repository);
-    if (!fresh.ok) return this.#publicationFailed(jobId, fresh);
-    const token = await app.token(
-      binding.installationId,
-      repository.id,
-      { contents: "write" },
-      true,
-    );
-    if (!token.ok) return this.#publicationFailed(jobId, token);
-    const pushed = await this.deps.broker.push({
-      fullName: repository.fullName,
-      branch: job.headBranch,
-      sha: state.checkpointSha,
-      bytes,
-      token: token.value,
-      signal,
-    });
-    if (!pushed.ok) return this.#publicationFailed(jobId, pushed);
-    await this.deps.store.updateJob(jobId, {
-      pushedSha: state.checkpointSha,
-      updatedAt: new Date().toISOString(),
-    });
-    if (signal?.aborted) return this.#publicationFailed(jobId, stopped());
+    if (bytes !== null) {
+      const fresh = await this.authorize(session.userId, binding.installationId, repository);
+      if (!fresh.ok) return this.#publicationFailed(jobId, fresh);
+      const token = await app.token(
+        binding.installationId,
+        repository.id,
+        { contents: "write" },
+        true,
+      );
+      if (!token.ok) return this.#publicationFailed(jobId, token);
+      const pushed = await this.deps.broker.push({
+        fullName: repository.fullName,
+        branch: job.headBranch,
+        sha: state.checkpointSha,
+        bytes,
+        token: token.value,
+        signal,
+      });
+      if (!pushed.ok) return this.#publicationFailed(jobId, pushed);
+      await this.deps.store.updateJob(jobId, {
+        pushedSha: state.checkpointSha,
+        updatedAt: new Date().toISOString(),
+      });
+      if (signal?.aborted) return this.#publicationFailed(jobId, stopped());
+    }
     let pr = known;
     if (pr === undefined) {
       const current = await this.authorize(session.userId, binding.installationId, repository);

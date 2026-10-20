@@ -79,18 +79,20 @@ export interface SandboxCapacity {
   activate(reservationId: string, sandboxId: string): Promise<VoidResult<ActivationFailure>>;
 
   /**
-   * Keeps a reservation whose sandbox exists but is still being prepared from expiring, and
-   * records which sandbox that is.
+   * Keeps a reservation whose sandbox is still being created or prepared from expiring, and
+   * records which sandbox that is once there is one.
    *
-   * Preparing an imported repository can take minutes — a dependency install — which is longer
+   * Opening an imported repository can take minutes before the sandbox exists — the first fetch
+   * may wait for a transfer slot — and minutes after, in a dependency install; either is longer
    * than a reservation lives. Activating early is not the answer: an active row is counted as a
    * finished creation, and the project would have to name a sandbox it cannot yet use. A renewed
    * row stays `reserved`, so a process that dies mid-setup still loses its slot within one TTL,
-   * and names its sandbox, so the inventory sweep does not destroy it as unreferenced.
+   * and names its sandbox, so the inventory sweep does not destroy it as unreferenced. `null`
+   * renews the expiry alone, before the sandbox exists, and never clears a name already recorded.
    *
    * Fails the way `activate` does when the row has already been reclaimed.
    */
-  renew(reservationId: string, sandboxId: string): Promise<VoidResult<ActivationFailure>>;
+  renew(reservationId: string, sandboxId: string | null): Promise<VoidResult<ActivationFailure>>;
 
   /** Gives back capacity a creation never used. */
   release(reservationId: string): Promise<void>;

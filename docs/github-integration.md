@@ -99,7 +99,9 @@ The first open imports full branch and tag history. Later opens restore Nap's sa
 including its exact branch or detached HEAD, then run setup again. A missing or unreadable imported
 snapshot fails visibly instead of replacing saved work with the remote repository. Nap does not
 fetch and reset over local work. Branch history stays in Git bundles; dependencies are rebuilt.
-Normal sandbox capacity, idle teardown, cancellation and durable queue rules apply.
+Normal sandbox capacity, idle teardown, cancellation and durable queue rules apply. The capacity
+slot is renewed from the moment it is reserved until the workspace is ready, so a first download
+that waits for a transfer slot, or a long setup, does not lose it.
 
 ## Jobs, pull requests and follow-ups
 
@@ -115,9 +117,13 @@ Existing verification checks the configured package scripts. A verified commit c
 proposed as a draft PR, automatically if selected at import. The panel records the base/head,
 successful pushed SHA, PR link, checks and reviews. Publication retries reuse the branch and find
 the exact repository/head/base PR before creating one. A failed PR request retains a successful
-push; a lost creation response is reconciled before retry. Cancellation does not automatically
-publish, even when verification has just passed. The saved verified result remains publishable.
-Use Check or retry publication after an interrupted worker. Normal GitHub branch protections apply.
+push; a lost creation response is reconciled before retry. Once the verified commit is pushed and
+the job's branch on GitHub still points at it, a retry needs nothing from the workspace, so later
+work does not block it. Before that push, a verified job publishes only while the workspace (or,
+with no live workspace, the latest saved snapshot) is still at its verified commit. Cancellation
+does not automatically publish, even when verification has just passed; publish it before sending
+another message, or publish the later job, whose branch contains the earlier commits. Use Check or
+retry publication after an interrupted worker. Normal GitHub branch protections apply.
 
 Follow-up policy is **owner approval**. Webhooks never start an LLM job or spend a user's model
 budget. Failed checks and `/nap <instruction>` comments from the connected GitHub user become
@@ -132,9 +138,13 @@ work, feedback refuses to reset it.
 
 Webhook signatures cover the raw request body. The inbox deduplicates delivery IDs and fences
 worker leases; transient failures retry up to five attempts. Each sweep handles at most ten
-deliveries plus ten open-PR reconciliation records. Deliveries in one sweep that name the same pull
+deliveries plus ten open-PR reconciliation records. A delivery refreshes up to five open pull
+requests in its repository, the one it names first; a closed or merged one is read only when the
+delivery names it, which is how a reopen is noticed. Deliveries in one sweep that name the same pull
 request share one refresh, and only the newest job on a pull request is refreshed; earlier jobs
-learn its closed or merged state from it. GitHub API collections stop at 1,000 records
+learn its closed or merged state from it. Each delivery is acknowledged as soon as its own
+refreshes finish, and the leases of those still waiting are renewed before each refresh, so a slow
+sweep does not redeliver finished work. GitHub API collections stop at 1,000 records
 and fail visibly rather than infer a passing status from incomplete data. Missed installation
 revocations are also checked before each repository operation. Repository renames recover by
 numeric ID in the App's current selected repositories, without following authenticated redirects.

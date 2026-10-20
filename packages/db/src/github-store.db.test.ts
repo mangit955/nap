@@ -7,7 +7,7 @@ import type {
 } from "@nap/shared/github-protocol";
 import type { ImportRepository } from "@nap/shared/ports/github-store";
 import type { EnqueueTurnRequest } from "@nap/shared/ports/turn-queue";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, inject, it } from "vitest";
@@ -49,6 +49,10 @@ beforeEach(async () => {
   await db.delete(githubDeliveries);
 });
 afterAll(async () => {
+  // Approval enqueues real turn requests, and feedback rows pin them by foreign key. Later files
+  // in the run clear the queue or claim its oldest row, so this file takes its own rows back.
+  await db.delete(repositoryFeedback);
+  await db.delete(turnRequests).where(inArray(turnRequests.userId, [owner, stranger]));
   await connection.end();
 });
 
@@ -658,6 +662,36 @@ describe("durable webhook inbox", () => {
     expect(
       await db.select().from(githubDeliveries).where(eq(githubDeliveries.id, delivery.id)),
     ).toMatchObject([{ state: "done", leaseExpiresAt: null }]);
+  });
+
+  it("renews a lease the attempt still holds, and never one that lapsed or moved on", async () => {
+    const delivery = { id: randomUUID(), event: "check_run", payload: {} };
+    await store.receiveDelivery(delivery);
+    expect(await store.claimDelivery()).toMatchObject({ id: delivery.id, attempts: 1 });
+    await db
+      .update(githubDeliveries)
+      .set({ leaseExpiresAt: sql`now() + interval '1 second'` })
+      .where(eq(githubDeliveries.id, delivery.id));
+
+    expect(await store.renewDelivery(delivery.id, 1)).toBe(true);
+    const [renewed] = await db
+      .select({
+        outlivesHalfAMinute: sql<boolean>`lease_expires_at > now() + interval '30 seconds'`,
+      })
+      .from(githubDeliveries)
+      .where(eq(githubDeliveries.id, delivery.id));
+    expect(renewed?.outlivesHalfAMinute).toBe(true);
+
+    await db
+      .update(githubDeliveries)
+      .set({ leaseExpiresAt: new Date(0) })
+      .where(eq(githubDeliveries.id, delivery.id));
+    expect(await store.renewDelivery(delivery.id, 1)).toBe(false);
+    expect(await store.claimDelivery()).toMatchObject({ id: delivery.id, attempts: 2 });
+    expect(await store.renewDelivery(delivery.id, 1)).toBe(false);
+    expect(await store.renewDelivery(delivery.id, 2)).toBe(true);
+    await store.finishDelivery(delivery.id, 2);
+    expect(await store.renewDelivery(delivery.id, 2)).toBe(false);
   });
 
   it("backs failures off and stops retrying after five attempts", async () => {

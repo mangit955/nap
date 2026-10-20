@@ -332,6 +332,25 @@ describe("activating", () => {
     expect(await db.$count(sandboxReservations)).toBe(0);
   });
 
+  it("restarts the orphan grace, so a long setup is not reclaimed the moment it activates", async () => {
+    // A repository setup can hold a row reserved for ten minutes. Activation is followed by the
+    // project being told its sandbox, and for that moment the row names a sandbox nothing else
+    // does — which the reaper forgives only while the row is young.
+    const userId = await seedUser();
+    const projectId = await seedProject(userId);
+    const reserved = await capacity.reserve({ projectId, userId });
+    if (!reserved.ok) throw new Error("expected the reservation to be admitted");
+    await db
+      .update(sandboxReservations)
+      .set({ createdAt: sqlOf`now() - interval '10 minutes'` })
+      .where(eq(sandboxReservations.id, reserved.value.id));
+
+    await capacity.activate(reserved.value.id, "sb-just-ready");
+
+    expect((await new PostgresCapacityReconciler(db).reclaimStranded()).orphaned).toEqual([]);
+    expect(await db.$count(sandboxReservations)).toBe(1);
+  });
+
   it("keeps occupying capacity once active", async () => {
     const userId = await seedUser();
     const [first = "", second = ""] = await seedProjects(2, userId);
@@ -377,6 +396,45 @@ describe("renewing", () => {
     expect(await new PostgresCapacityReconciler(db).referencedSandboxIds()).toContain(
       "sb-preparing",
     );
+  });
+
+  it("renews the expiry alone before there is a sandbox, and never forgets one it named", async () => {
+    // The first fetch of an imported repository runs before the sandbox exists and can outlast
+    // the TTL. Renewing then has no sandbox to name — and a later null must not erase a name the
+    // inventory sweep is relying on.
+    const userId = await seedUser();
+    const projectId = await seedProject(userId);
+    const reserved = await capacity.reserve({ projectId, userId });
+    if (!reserved.ok) throw new Error("expected the reservation to be admitted");
+    const lapsing = async () =>
+      await db
+        .update(sandboxReservations)
+        .set({ expiresAt: sqlOf`now() + interval '1 second'` })
+        .where(eq(sandboxReservations.id, reserved.value.id));
+    const read = async () =>
+      (
+        await db
+          .select({
+            state: sandboxReservations.state,
+            sandboxId: sandboxReservations.sandboxId,
+            outlivesAMinute: sqlOf<boolean>`${sandboxReservations.expiresAt} > now() + interval '1 minute'`,
+          })
+          .from(sandboxReservations)
+          .where(eq(sandboxReservations.id, reserved.value.id))
+      )[0];
+
+    await lapsing();
+    expect(await capacity.renew(reserved.value.id, null)).toMatchObject({ ok: true });
+    expect(await read()).toEqual({ state: "reserved", sandboxId: null, outlivesAMinute: true });
+
+    await capacity.renew(reserved.value.id, "sb-named");
+    await lapsing();
+    expect(await capacity.renew(reserved.value.id, null)).toMatchObject({ ok: true });
+    expect(await read()).toEqual({
+      state: "reserved",
+      sandboxId: "sb-named",
+      outlivesAMinute: true,
+    });
   });
 
   it("reports a reservation that was reclaimed before it could be renewed", async () => {

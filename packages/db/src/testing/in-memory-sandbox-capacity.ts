@@ -142,7 +142,10 @@ export class InMemorySandboxCapacity implements SandboxCapacity {
     return { ok: true, value: undefined };
   }
 
-  async renew(reservationId: string, sandboxId: string): Promise<VoidResult<ActivationFailure>> {
+  async renew(
+    reservationId: string,
+    sandboxId: string | null,
+  ): Promise<VoidResult<ActivationFailure>> {
     this.#refuseIfBroken();
 
     const row = this.#rows.get(reservationId);
@@ -151,14 +154,14 @@ export class InMemorySandboxCapacity implements SandboxCapacity {
         ok: false,
         error: {
           reason: "reservation_reclaimed",
-          message: `Nothing is counting sandbox ${sandboxId}: its reservation is gone.`,
+          message: `Nothing is counting sandbox ${sandboxId ?? "(not yet created)"}: its reservation is gone.`,
         },
       };
     }
 
     this.#rows.set(reservationId, {
       ...row,
-      sandboxId,
+      sandboxId: sandboxId ?? row.sandboxId,
       expiresAt: Date.now() + RESERVATION_TTL_MS,
     });
     return { ok: true, value: undefined };

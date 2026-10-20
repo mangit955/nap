@@ -428,6 +428,55 @@ describe("the capacity a new sandbox costs", () => {
       expect(capacity.held()).toMatchObject([{ state: "active", sandboxId: acquired.value.id }]);
     });
 
+    it("keeps its slot while the first download outlives a reservation, before any sandbox", async () => {
+      // The reservation is taken before the repository's first bundle is fetched, and that fetch
+      // can wait behind the broker's transfer slots for longer than a reservation lives. The
+      // reaper sweeps meanwhile; the slot must survive with no sandbox yet to name.
+      vi.useFakeTimers();
+      const capacity = new InMemorySandboxCapacity();
+      const sandbox = scriptGit(
+        new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0 }) }),
+      );
+      const swept: { reclaimed: string[]; held: ReturnType<typeof capacity.held> }[] = [];
+
+      const acquired = await acquireSandbox(
+        {
+          ...deps(sandbox, { restore: true }),
+          capacity,
+          repository: {
+            source: async () => ({
+              ok: true,
+              value: {
+                setupCommand: null,
+                devCommand: null,
+                previewPort: null,
+                initialBundle: async () => {
+                  for (let minute = 0; minute < 5; minute++) {
+                    await vi.advanceTimersByTimeAsync(60_000);
+                    swept.push({ reclaimed: capacity.reclaimExpired(), held: capacity.held() });
+                  }
+                  return { ok: true, value: Buffer.from("bundle") };
+                },
+              },
+            }),
+            prepareJob: async () => ({ ok: true, value: undefined }),
+            finishJob: async () => ({ ok: true, value: undefined }),
+          },
+        },
+        session(null),
+      );
+
+      expect(swept.length * 60_000).toBeGreaterThan(RESERVATION_TTL_MS * 2);
+      for (const sweep of swept) {
+        expect(sweep.reclaimed).toEqual([]);
+        expect(sweep.held).toMatchObject([{ state: "reserved", sandboxId: null }]);
+      }
+      expect(acquired.ok).toBe(true);
+      if (!acquired.ok) return;
+      expect(capacity.held()).toMatchObject([{ state: "active", sandboxId: acquired.value.id }]);
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
     it("still loses the slot within one TTL when nothing is renewing it", async () => {
       // The other half of the bargain: renewal must stop with the acquire, or a crashed process
       // would hold a slot forever. Here the creation fails after the sandbox exists.

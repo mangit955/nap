@@ -206,6 +206,11 @@ export class PostgresSandboxCapacity implements SandboxCapacity {
         // Nothing is waiting on this row any more, so nothing should reclaim it on a timer: it
         // is released by the teardown that destroys the sandbox it names.
         expiresAt: sql`'infinity'`,
+        // The reaper's orphan rule spares an active row for a grace period measured from this
+        // column, to cover the moment before the project names its sandbox. A repository setup
+        // can keep a row reserved for longer than that grace, so the clock restarts here, where
+        // that moment begins, rather than at reservation.
+        createdAt: sql`now()`,
       })
       .where(eq(sandboxReservations.id, reservationId))
       .returning({ id: sandboxReservations.id });
@@ -214,16 +219,22 @@ export class PostgresSandboxCapacity implements SandboxCapacity {
     return { ok: true, value: undefined };
   }
 
-  async renew(reservationId: string, sandboxId: string): Promise<VoidResult<ActivationFailure>> {
+  async renew(
+    reservationId: string,
+    sandboxId: string | null,
+  ): Promise<VoidResult<ActivationFailure>> {
     const rows = await this.#db
       .update(sandboxReservations)
-      .set({ sandboxId, expiresAt: sql`now() + ${RESERVATION_TTL}::interval` })
+      .set({
+        ...(sandboxId === null ? {} : { sandboxId }),
+        expiresAt: sql`now() + ${RESERVATION_TTL}::interval`,
+      })
       .where(
         and(eq(sandboxReservations.id, reservationId), eq(sandboxReservations.state, "reserved")),
       )
       .returning({ id: sandboxReservations.id });
 
-    if (rows.length === 0) return reclaimed(sandboxId);
+    if (rows.length === 0) return reclaimed(sandboxId ?? "not yet created");
     return { ok: true, value: undefined };
   }
 

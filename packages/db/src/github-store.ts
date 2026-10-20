@@ -552,6 +552,22 @@ export class PostgresGitHubStore implements GitHubStore {
         ),
       );
   }
+
+  async renewDelivery(deliveryId: string, attempts: number): Promise<boolean> {
+    const rows = await this.db
+      .update(githubDeliveries)
+      .set({ leaseExpiresAt: sql`now() + interval '60 seconds'` })
+      .where(
+        and(
+          eq(githubDeliveries.id, deliveryId),
+          eq(githubDeliveries.attempts, attempts),
+          eq(githubDeliveries.state, "processing"),
+          gt(githubDeliveries.leaseExpiresAt, sql`now()`),
+        ),
+      )
+      .returning({ id: githubDeliveries.id });
+    return rows.length > 0;
+  }
 }
 
 function toJob(row: typeof repositoryJobs.$inferSelect): RepositoryJob {
