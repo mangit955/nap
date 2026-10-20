@@ -208,7 +208,7 @@ export class InMemoryGitHubStore implements GitHubStore {
       });
   }
 
-  async listReconcileJobs(limit: number, notUpdatedSince: Date): Promise<RepositoryJob[]> {
+  async listJobsDueRefresh(limit: number, notUpdatedSince: Date): Promise<RepositoryJob[]> {
     const jobs = [...this.jobRows.values()];
     return structuredClone(
       jobs

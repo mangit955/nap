@@ -329,7 +329,7 @@ export class GitHubApp {
       error: {
         code: "unavailable",
         message:
-          "GitHub returned more than 1,000 records. Status could not be fully reconciled; review the pull request on GitHub.",
+          "GitHub returned more than 1,000 records. Status could not be fully read; review the pull request on GitHub.",
       },
     };
   }

@@ -73,6 +73,7 @@ function fixture() {
     checks: { name: string; status: string; conclusion: string | null }[];
   } = { headSha: "a".repeat(40), headRef: "nap/linked", state: "open", comments: [], checks: [] };
   const requests: string[] = [];
+  const selection: Record<string, unknown>[] = [repository];
   const github = new GitHubApp(config, async (url, options) => {
     const path = new URL(url).pathname;
     requests.push(path);
@@ -88,7 +89,7 @@ function fixture() {
         token: "do-not-persist-installation-token",
         expires_at: new Date(Date.now() + 3600000).toISOString(),
       });
-    if (path === "/installation/repositories") return Response.json({ repositories: [repository] });
+    if (path === "/installation/repositories") return Response.json({ repositories: selection });
     if (path.endsWith("/permission"))
       return Response.json({ permission, user: { id: 7, login: "owner" } });
     if (path === "/repos/owner/repo") return Response.json(repository);
@@ -179,6 +180,11 @@ function fixture() {
     readOnly: () => {
       permission = "read";
     },
+    /** An "All repositories" installation: `count` more repositories beside the one imported. */
+    selectMany: (count: number) => {
+      for (let index = 0; index < count; index += 1)
+        selection.push({ ...repository, id: 1000 + index, full_name: `owner/other-${index}` });
+    },
   };
 }
 
@@ -226,6 +232,38 @@ describe("GitHub connection routes", () => {
     ).toBe(403);
     f.setAnonymous();
     expect((await f.request("/github/connect")).status).toBe(403);
+  });
+  it("returns a repository-selection change to Connections without binding or granting anything", async () => {
+    // GitHub's redirect after Manage access carries `setup_action=update` and none of Nap's state.
+    const f = fixture();
+    await f.bind();
+    const update = "/github/setup?installation_id=99&setup_action=update";
+    const mints = () => f.requests.filter((path) => path.endsWith("/access_tokens")).length;
+    const github = f.integration.deps.app;
+    if (github === null) throw new Error("Fixture app missing");
+    await github.token(99, null, { metadata: "read" });
+    const response = await f.app.request(update);
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe(`${config.webOrigin}/settings/connections`);
+    // The selection changed, so a token minted before it is not reused.
+    await github.token(99, null, { metadata: "read" });
+    expect(mints()).toBe(2);
+    // Somebody else's installation: the same page, nothing bound, nothing of the owner's touched.
+    f.setUser(OTHER);
+    expect((await f.app.request(update)).headers.get("location")).toBe(
+      `${config.webOrigin}/settings/connections`,
+    );
+    await github.token(99, null, { metadata: "read" });
+    expect(mints()).toBe(2);
+    expect(await f.store.listInstallations(OTHER)).toEqual([]);
+    expect((await f.store.installation(FAKE_OWNER, 99))?.status).toBe("active");
+    expect(f.requests).not.toContain("/login/oauth/access_token");
+    // A stateless first install is still refused: only an update may skip Nap's state.
+    expect(
+      (await f.app.request("/github/setup?installation_id=99&setup_action=install")).headers.get(
+        "location",
+      ),
+    ).toContain("github=error");
   });
   it("cannot transfer a disconnected installation to another nap owner", async () => {
     const f = fixture();
@@ -279,7 +317,9 @@ async function feedbackFixture(kind: "comment" | "checks" = "comment") {
       },
     ];
   else f.feedbackState.checks = [{ name: "tests", status: "completed", conclusion: "failure" }];
-  expect(await new GitHubEventProcessor(f.integration).reconcile(binding, job)).toMatchObject({
+  expect(
+    await new GitHubEventProcessor(f.integration).refreshPullRequest(binding, job),
+  ).toMatchObject({
     ok: true,
   });
   const feedback = (await f.store.feedbackForProject(binding.projectId, FAKE_OWNER)).find(
@@ -381,6 +421,20 @@ describe("repository import and access", () => {
     expect(await (await f.app.request("/github/installations/99/repositories")).json()).toEqual({
       repositories: [],
     });
+  });
+  it("checks permission on the imported repository alone, however many the installation holds", async () => {
+    const f = fixture();
+    await f.bind();
+    f.selectMany(60);
+    expect((await f.request("/github/import", input)).status).toBe(201);
+    const permissions = f.requests.filter((path) => path.endsWith("/permission"));
+    expect(permissions).toEqual(["/repos/owner/repo/collaborators/owner/permission"]);
+    expect(f.requests.length).toBeLessThan(15);
+    // The checks import relied on still hold for the one repository: write permission is required.
+    const readOnly = fixture();
+    await readOnly.bind();
+    readOnly.readOnly();
+    expect((await readOnly.request("/github/import", input)).status).toBe(403);
   });
   it("refuses removed repository access rather than using a cached association", async () => {
     const f = fixture();

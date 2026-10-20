@@ -319,7 +319,7 @@ export class PostgresGitHubStore implements GitHubStore {
       .where(eq(repositoryJobs.jobId, jobId));
   }
 
-  async listReconcileJobs(limit: number, notUpdatedSince: Date): Promise<RepositoryJob[]> {
+  async listJobsDueRefresh(limit: number, notUpdatedSince: Date): Promise<RepositoryJob[]> {
     const newer = alias(repositoryJobs, "newer");
     const rows = await this.db
       .select({ job: repositoryJobs })

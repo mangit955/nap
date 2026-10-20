@@ -2,6 +2,7 @@ import { ScriptedLLMProvider } from "@nap/agent/testing/scripted-llm-provider";
 import { InMemoryCapacityReconciler } from "@nap/db/testing/in-memory-capacity-reconciler";
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
+import { InMemoryGitHubStore } from "@nap/db/testing/in-memory-github-store";
 import { InMemoryProjectSandboxStore } from "@nap/db/testing/in-memory-project-sandbox-store";
 import { FAKE_OWNER, InMemoryProjectStore } from "@nap/db/testing/in-memory-project-store";
 import { InMemorySandboxCapacity } from "@nap/db/testing/in-memory-sandbox-capacity";
@@ -18,9 +19,10 @@ import type { TurnQueue } from "@nap/shared/ports/turn-queue";
 import type { TurnRateLimiter } from "@nap/shared/ports/turn-rate-limit";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import type { WSEvents } from "hono/ws";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { encryptionKeyFrom } from "./account/secret-box.ts";
 import { composeNap, type NapDeps } from "./compose.ts";
+import { GitHubApp } from "./github/app.ts";
 import { createLogger } from "./logger.ts";
 
 /**
@@ -594,5 +596,94 @@ describe("composeNap", () => {
     await expect
       .poll(() => projectSandboxes.get("idle-project")?.sandboxId, { timeout: 2000 })
       .toBeNull();
+  });
+});
+
+describe("the GitHub sweep", () => {
+  /** Every tick that gets past the role, the App and the lock starts by reading the inbox. */
+  class CountingGitHubStore extends InMemoryGitHubStore {
+    claims = 0;
+    override async claimDelivery() {
+      this.claims += 1;
+      return await super.claimDelivery();
+    }
+  }
+  // Never reached: an empty inbox and no jobs ask GitHub nothing.
+  const configured = new GitHubApp(
+    {
+      appId: 1,
+      slug: "nap-test",
+      clientId: "client",
+      clientSecret: "secret",
+      privateKey: "unused",
+      webhookSecret: "a-webhook-secret-long-enough",
+      apiUrl: "https://api.example",
+      webOrigin: "https://web.example",
+    },
+    async () => {
+      throw new Error("The sweep was not expected to call GitHub");
+    },
+  );
+
+  /**
+   * Ticks counted over two of the sweep's 15-second intervals. Only intervals are faked: the
+   * worker's claiming loop polls on timeouts, and the reaper's and janitor's own intervals are a
+   * minute, so nothing else here fires.
+   */
+  async function ticks(overrides: Partial<NapDeps>, store = new CountingGitHubStore()) {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      const composed = compose({ github: { store, app: configured }, ...overrides });
+      await vi.advanceTimersByTimeAsync(30_000);
+      composed.github.stop();
+      composed.reaper.stop();
+      composed.janitor.stop();
+      return store.claims;
+    } finally {
+      vi.useRealTimers();
+    }
+  }
+
+  it.each([
+    ["reaper", 2],
+    ["all", 2],
+    ["api", 0],
+    ["worker", 0],
+  ] as const)("composed as %s, ticks %i times", async (role, expected) => {
+    // Several processes reading one inbox would race each other's leases, and an API or worker
+    // pod is many replicas: the sweep belongs where the idle sweep is.
+    expect(await ticks({ role })).toBe(expected);
+  });
+
+  it("reads no inbox without a configured App", async () => {
+    // Held twice over — the schedule is never started, and a tick returns before the inbox — so
+    // removing either one alone leaves this green. It pins the outcome, not which of them gives it.
+    const store = new CountingGitHubStore();
+    expect(await ticks({ role: "reaper", github: { store, app: null } }, store)).toBe(0);
+  });
+
+  it("asks the sweep lock before every tick", async () => {
+    // A rolling update runs two reapers for a few seconds; only the lock holder may read the inbox.
+    const lock = new InMemorySweepLock();
+    expect(await lock.held()).toBe(true);
+    expect(await ticks({ role: "reaper", sweepLock: lock.contender() })).toBe(0);
+  });
+
+  it("logs the error that interrupted a tick", async () => {
+    const lines: string[] = [];
+    class FailingGitHubStore extends CountingGitHubStore {
+      override async claimDelivery(): Promise<never> {
+        this.claims += 1;
+        throw new Error("inbox unreachable");
+      }
+    }
+    await ticks(
+      {
+        role: "reaper",
+        logger: createLogger({ level: "warn" }, { write: (line) => lines.push(line) }),
+      },
+      new FailingGitHubStore(),
+    );
+    expect(lines.join("")).toContain("inbox unreachable");
   });
 });

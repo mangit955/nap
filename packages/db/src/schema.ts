@@ -517,7 +517,7 @@ export const repositoryJobs = pgTable(
     reviewState: text("review_state").$type<RepositoryJob["reviewState"]>().notNull(),
     error: text("error"),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-    // Which job is newest on a pull request. `updated_at` cannot say: reconciling an older job
+    // Which job is newest on a pull request. `updated_at` cannot say: refreshing an older job
     // bumps it, and the follow-up that superseded it would then lose to its own predecessor.
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },

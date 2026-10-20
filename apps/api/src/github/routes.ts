@@ -138,6 +138,22 @@ export function registerGitHubRoutes(
   });
   router.get("/github/setup", async (c) => {
     if (deps.app === null) return c.redirect(failRedirect());
+    // GitHub sends the owner back here after they change the repository selection under Manage
+    // access, with `setup_action=update` and none of Nap's state. The change already happened on
+    // GitHub, so this grants and binds nothing: it drops cached tokens for an installation this
+    // user already holds and returns them to Connections, which rereads the installation.
+    const update = z
+      .object({
+        setup_action: z.literal("update"),
+        installation_id: z.coerce.number().int().positive().safe(),
+      })
+      .safeParse(c.req.query());
+    if (update.success && c.req.query("state") === undefined) {
+      const installationId = update.data.installation_id;
+      if ((await deps.store.installation(c.get("userId"), installationId)) !== null)
+        deps.app.invalidate(installationId);
+      return c.redirect(`${deps.webOrigin}/settings/connections`);
+    }
     const input = z
       .object({
         state: z.string().min(20).max(200),
@@ -201,19 +217,14 @@ export function registerGitHubRoutes(
     const input = RepositoryImportSchema.safeParse(await json(c.req.raw));
     if (!input.success)
       return c.json({ error: input.error.issues.map((issue) => issue.message).join(" ") }, 400);
-    const allowed = await deps.integration.repositories(c.get("userId"), input.data.installationId);
-    if (!allowed.ok)
-      return c.json({ error: allowed.error.message }, errorStatus(allowed.error.code));
-    const repository = allowed.value.find((entry) => entry.id === input.data.repositoryId);
-    if (repository === undefined)
-      return c.json({ error: "Repository is not available to this connection." }, 403);
-    const authorized = await deps.integration.authorize(
+    const authorized = await deps.integration.selectedRepository(
       c.get("userId"),
       input.data.installationId,
-      repository,
+      input.data.repositoryId,
     );
     if (!authorized.ok)
       return c.json({ error: authorized.error.message }, errorStatus(authorized.error.code));
+    const repository = authorized.value.repository;
     const branch = await deps.app.branch(
       input.data.installationId,
       repository,
@@ -349,13 +360,13 @@ export function registerGitHubRoutes(
     const job = await deps.store.job(feedback.jobId);
     if (job === null || job.pullRequestState !== "open")
       return c.json({ error: "The pull request is no longer open." }, 409);
-    const reconciled = await new GitHubEventProcessor(deps.integration).approve(
+    const rechecked = await new GitHubEventProcessor(deps.integration).approve(
       binding,
       job,
       feedback,
     );
-    if (!reconciled.ok)
-      return c.json({ error: reconciled.error.message }, errorStatus(reconciled.error.code));
+    if (!rechecked.ok)
+      return c.json({ error: rechecked.error.message }, errorStatus(rechecked.error.code));
     const current = await deps.store.job(job.jobId);
     if (current?.pullRequestState !== "open")
       return c.json({ error: "The pull request is no longer open." }, 409);

@@ -116,6 +116,26 @@ export class GitHubIntegration implements RepositoryWorkspace {
     return { ok: true, value: { installation: installation.value, repository: canonical.data } };
   }
 
+  /**
+   * One selected repository, authorized for this user — what import needs. It lists the selection
+   * (one call per hundred repositories) and checks permission on the requested one alone, where
+   * `repositories` checks every one, which on a large installation is hundreds of calls.
+   */
+  async selectedRepository(
+    userId: string,
+    installationId: number,
+    repositoryId: number,
+  ): Promise<GitHubResult<{ installation: GitHubInstallation; repository: GitHubRepository }>> {
+    const installation = await this.installation(userId, installationId);
+    if (!installation.ok || this.deps.app === null)
+      return installation.ok ? denied() : installation;
+    const all = await this.deps.app.repositories(installationId);
+    if (!all.ok) return all;
+    const repository = all.value.find((entry) => entry.id === repositoryId);
+    if (repository === undefined) return denied();
+    return this.authorize(userId, installationId, repository);
+  }
+
   async repositories(
     userId: string,
     installationId: number,
@@ -461,14 +481,14 @@ export class GitHubIntegration implements RepositoryWorkspace {
       if (created.ok) pr = created.value;
       else {
         // A timeout may have lost the response after GitHub committed the PR.
-        const reconciled = await app.findPullRequests(
+        const found = await app.findPullRequests(
           binding.installationId,
           repository,
           job.headBranch,
           job.baseBranch,
         );
-        pr = reconciled.ok
-          ? reconciled.value.find(
+        pr = found.ok
+          ? found.value.find(
               (entry) =>
                 entry.head.repo?.id === repository.id &&
                 entry.base.repo.id === repository.id &&

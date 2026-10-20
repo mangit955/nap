@@ -373,8 +373,11 @@ export function composeNap(deps: NapDeps): ComposedNap {
             if (deps.sweepLock !== undefined && !(await deps.sweepLock.held())) return;
             await new GitHubEventProcessor(github).tick();
           },
-          onError: () =>
-            logger.warn("GitHub reconciliation was interrupted; durable deliveries will retry."),
+          onError: (error) =>
+            logger.warn(
+              { err: error },
+              "GitHub sweep was interrupted; durable deliveries will retry.",
+            ),
         });
   const app = createApp({
     ...(github === undefined || deps.github === undefined

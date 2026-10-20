@@ -65,7 +65,7 @@ const RELEVANT_EVENTS = new Set([
  * costs about ten API calls against an installation's hourly allowance of 5,000, so refreshing
  * every open pull request on every 15-second tick would spend that allowance on two of them.
  */
-export const RECONCILE_AFTER_MS = 5 * 60_000;
+export const REFRESH_AFTER_MS = 5 * 60_000;
 
 type Authorize = GitHubIntegration["authorize"];
 
@@ -158,8 +158,8 @@ export class GitHubEventProcessor {
       }
     }
 
-    const stale = new Date(this.now() - RECONCILE_AFTER_MS);
-    for (const job of await store.listReconcileJobs(10, stale)) {
+    const stale = new Date(this.now() - REFRESH_AFTER_MS);
+    for (const job of await store.listJobsDueRefresh(10, stale)) {
       if (targets.has(job.jobId)) continue;
       const session = await this.integration.deps.sessions.get(job.sessionId);
       if (session === null) continue;
@@ -228,7 +228,10 @@ export class GitHubEventProcessor {
     });
   }
 
-  async reconcile(binding: ProjectRepository, job: RepositoryJob): Promise<GitHubResult<void>> {
+  async refreshPullRequest(
+    binding: ProjectRepository,
+    job: RepositoryJob,
+  ): Promise<GitHubResult<void>> {
     const result = await this.#refresh(
       binding,
       job,
@@ -267,7 +270,7 @@ export class GitHubEventProcessor {
     job: RepositoryJob,
     authorize: Authorize,
   ): Promise<GitHubResult<string[]>> {
-    const result = await this.#reconcile(binding, job, authorize);
+    const result = await this.#readPullRequest(binding, job, authorize);
     if (!result.ok)
       await this.integration.deps.store.updateJob(job.jobId, {
         checkState: "unknown",
@@ -278,7 +281,7 @@ export class GitHubEventProcessor {
     return result;
   }
 
-  async #reconcile(
+  async #readPullRequest(
     binding: ProjectRepository,
     job: RepositoryJob,
     authorize: Authorize,
@@ -411,7 +414,7 @@ export class GitHubEventProcessor {
     await store.discardStaleFeedback(job.jobId, currentFeedback);
     await store.updateJob(job.jobId, update);
     if (state !== "open") {
-      // Earlier jobs on this pull request are no longer reconciled, so they learn it closed here.
+      // Earlier jobs on this pull request are no longer refreshed, so they learn it closed here.
       for (const earlier of await store.jobs(binding.projectId, binding.userId))
         if (
           earlier.jobId !== job.jobId &&

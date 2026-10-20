@@ -442,8 +442,10 @@ what that run measured, and which of the design's invariants it did and did not 
 ## GitHub repository connections
 
 Register a separate GitHub App and configure all six `NAP_GITHUB_*` variables on the API,
-workers and reaper. Apply migrations 0009 and 0010 before starting the updated processes. The container
-includes Git for the server broker. Run the reaper for signed webhook processing and missed
-delivery reconciliation. The exact URLs, permissions, setup steps and rollout limits are in
+workers and reaper. On Railway they are `preserve()` in `.railway/railway.ts`, so they are set on the
+services like the other credentials; on Kubernetes they go in `nap-secrets`, where
+`infra/k8s/base/secret.example.yaml` lists them commented out. Apply migrations 0009 and 0010 before
+starting the updated processes. The container includes Git for the server broker. Run the reaper for
+signed webhook processing and the PR refresh that catches missed deliveries. The exact URLs, permissions, setup steps and rollout limits are in
 [GitHub integration](github-integration.md). The existing `GITHUB_CLIENT_*` sign-in app and
 model-provider credentials have separate purposes.

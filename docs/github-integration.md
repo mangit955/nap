@@ -30,7 +30,9 @@ credentials in a Nap conversation.
 2. Set the homepage to the web origin. Set the user authorization callback to
    `https://api.example.com/github/callback`, setup URL to
    `https://api.example.com/github/setup`, and webhook URL to
-   `https://api.example.com/github/webhook`. Enable redirect on installation updates. Leave
+   `https://api.example.com/github/webhook`. Enable redirect on installation updates: after an
+   owner changes the repository selection under Manage access, GitHub sends them back through the
+   setup URL, which returns them to Connections without binding or granting anything. Leave
    **Request user authorization during installation** off. Nap's setup callback starts the
    separate authorization step with fresh owner-bound state. Allow installation on **Any account**
    for a cloud deployment serving other users. A private App is suitable only for an installation
@@ -117,40 +119,41 @@ Existing verification checks the configured package scripts. A verified commit c
 proposed as a draft PR, automatically if selected at import. The panel records the base/head,
 successful pushed SHA, PR link, checks and reviews. Publication retries reuse the branch and find
 the exact repository/head/base PR before creating one. A failed PR request retains a successful
-push; a lost creation response is reconciled before retry. Once the verified commit is pushed and
-the job's branch on GitHub still points at it, a retry needs nothing from the workspace, so later
-work does not block it. Before that push, a verified job publishes only while the workspace (or,
-with no live workspace, the latest saved snapshot) is still at its verified commit. Cancellation
-does not automatically publish, even when verification has just passed; publish it before sending
-another message, or publish the later job, whose branch contains the earlier commits. Use Check or
-retry publication after an interrupted worker. Normal GitHub branch protections apply.
+push; a lost creation response is found by exact head and base lookup before retry. Once the
+verified commit is pushed and the job's branch on GitHub still points at it, a retry needs nothing
+from the workspace, so later work does not block it. Before that push, a verified job publishes only
+while the workspace (or, with no live workspace, the latest saved snapshot) is still at its verified
+commit. Cancellation does not automatically publish, even when verification has just passed; publish
+it before sending another message, or publish the later job, whose branch contains the earlier
+commits. Use Check or retry publication after an interrupted worker. Normal GitHub branch
+protections apply.
 
 Follow-up policy is **owner approval**. Webhooks never start an LLM job or spend a user's model
 budget. Failed checks and `/nap <instruction>` comments from the connected GitHub user become
 pending feedback. Nap verifies that user's stable GitHub ID and current write authority. Other
-comments and review bodies are not instructions; review decisions appear as status. The owner
-must click Ask nap to address feedback. Nap rereads the PR, checks, comment version and current
-authority before admission. Deleted or edited comments, closed PRs and a remote head changed by
-someone else cannot queue stale instructions. Reconciliation removes stale pending feedback and
-keeps approved requests for retry identity. Approved feedback uses the linked branch/PR and the
-existing rate, credential, quota, repair and Stop controls. If the workspace has moved to other
-work, feedback refuses to reset it.
+comments and review bodies are not instructions; review decisions appear as status. The owner must
+click Ask nap to address feedback. Nap rereads the PR, checks, comment version and current authority
+before admission. Deleted or edited comments, closed PRs and a remote head changed by someone else
+cannot queue stale instructions. Each PR refresh removes stale pending feedback and keeps approved
+requests for retry identity. Approved feedback uses the linked branch/PR and the existing rate,
+credential, quota, repair and Stop controls. If the workspace has moved to other work, feedback
+refuses to reset it.
 
-Webhook signatures cover the raw request body. The inbox deduplicates delivery IDs and fences
-worker leases; transient failures retry up to five attempts. Each sweep handles at most ten
-deliveries plus ten open-PR reconciliation records. A delivery refreshes up to five open pull
-requests in its repository, the one it names first; a closed or merged one is read only when the
-delivery names it, which is how a reopen is noticed. Deliveries in one sweep that name the same pull
-request share one refresh, and only the newest job on a pull request is refreshed; earlier jobs
-learn its closed or merged state from it. Each delivery is acknowledged as soon as its own
-refreshes finish, and the leases of those still waiting are renewed before each refresh, so a slow
-sweep does not redeliver finished work. GitHub API collections stop at 1,000 records
-and fail visibly rather than infer a passing status from incomplete data. Missed installation
-revocations are also checked before each repository operation. Repository renames recover by
-numeric ID in the App's current selected repositories, without following authenticated redirects.
-Only a 404 from GitHub's installation endpoint marks an installation removed. Rate limiting (a 403
-or 429 carrying GitHub's rate-limit headers) and failures of the App's own credentials are
-reported as temporary and change no stored state.
+Webhook signatures cover the raw request body. The inbox deduplicates delivery IDs and fences worker
+leases; transient failures retry up to five attempts. Each sweep handles at most ten deliveries,
+plus a PR refresh of at most ten open pull requests that nothing has refreshed for five minutes. A
+delivery refreshes up to five open pull requests in its repository, the one it names first; a closed
+or merged one is read only when the delivery names it, which is how a reopen is noticed. Deliveries
+in one sweep that name the same pull request share one refresh, and only the newest job on a pull
+request is refreshed; earlier jobs learn its closed or merged state from it. Each delivery is
+acknowledged as soon as its own refreshes finish, and the leases of those still waiting are renewed
+before each refresh, so a slow sweep does not redeliver finished work. GitHub API collections stop
+at 1,000 records and fail visibly rather than infer a passing status from incomplete data. Missed
+installation revocations are also checked before each repository operation. Repository renames
+recover by numeric ID in the App's current selected repositories, without following authenticated
+redirects. Only a 404 from GitHub's installation endpoint marks an installation removed. Rate
+limiting (a 403 or 429 carrying GitHub's rate-limit headers) and failures of the App's own
+credentials are reported as temporary and change no stored state.
 
 ## Credential boundary
 
@@ -178,6 +181,13 @@ that changes `.github/workflows`. Git operations have a two-minute deadline and 
 Each transfer may use at most 256 MiB of server temporary disk, checked while Git runs and after
 each step; at most two transfers run at once per process. A repository over either limit is
 refused as too large. Raising the bundle cap needs a matching review of those bounds.
+
+The repository picker checks the connected user's permission on every selected repository, one at
+a time, at about two GitHub API calls each. On an installation granting hundreds of repositories it
+is slow, and repeated loads spend the installation's hourly API allowance (5,000 calls for most
+installations); when that runs out, every operation on the installation is refused as temporarily
+unavailable until it resets. Prefer **Only
+select repositories**. Import checks only the repository being imported.
 
 The verifier retains Nap's Bun/package-script checks and optional preview probe. There is no
 language-specific verifier for arbitrary non-JavaScript repositories. Absent checks retain the

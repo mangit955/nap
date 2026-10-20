@@ -29,7 +29,7 @@ Only verified checkpoints can publish draft PRs. Persisted pushed SHAs and exact
 retries recover successful remote work without creating a second PR. GitHub remains responsible
 for branch protections and human merge review.
 
-Signed webhooks enter a durable inbox. Bounded reconciliation repairs missed PR deliveries.
+Signed webhooks enter a durable inbox. A bounded PR refresh repairs missed PR deliveries.
 They update product state and pending feedback, not model instructions. Only the connected
 GitHub user's explicit `/nap` commands and failed checks can propose follow-ups. The Nap owner
 approves each through ordinary model, rate and quota admission. Approval rechecks the current

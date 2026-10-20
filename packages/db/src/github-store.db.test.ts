@@ -396,7 +396,7 @@ describe("repository job identity", () => {
     );
   });
 
-  it("reconciles a bounded oldest-first set of open PRs with active access", async () => {
+  it("lists a bounded oldest-first set of open PRs due a refresh, with active access", async () => {
     // Dated long ago so the cutoff below excludes every other test's jobs in this shared database.
     const repository = await imported();
     const earlier = await store.createJob({
@@ -412,7 +412,7 @@ describe("repository job identity", () => {
       updatedAt: "2001-01-01T00:00:00.000Z",
     });
     const ids = async (limit: number, cutoff: string) =>
-      (await store.listReconcileJobs(limit, new Date(cutoff))).map((job) => job.jobId);
+      (await store.listJobsDueRefresh(limit, new Date(cutoff))).map((job) => job.jobId);
 
     expect(await ids(1, "2002-01-01T00:00:00.000Z")).toEqual([earlier.jobId]);
     expect(await ids(2, "2002-01-01T00:00:00.000Z")).toEqual([earlier.jobId, later.jobId]);

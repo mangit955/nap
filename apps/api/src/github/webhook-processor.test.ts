@@ -10,7 +10,7 @@ import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store
 import { describe, expect, it } from "vitest";
 import { GitHubApp, type GitHubFetch } from "./app.ts";
 import { GitHubIntegration } from "./integration.ts";
-import { GitHubEventProcessor, RECONCILE_AFTER_MS } from "./webhook.ts";
+import { GitHubEventProcessor, REFRESH_AFTER_MS } from "./webhook.ts";
 
 const key = generateKeyPairSync("rsa", { modulusLength: 2048 })
   .privateKey.export({ type: "pkcs8", format: "pem" })
@@ -195,16 +195,16 @@ function ownerComment(id: number, body = "/nap Fix the regression"): Comment {
   return { id, body, user: { id: 7, login: "owner" }, updated_at: "2026-10-19T12:00:00Z" };
 }
 
-async function reconcile(f: Awaited<ReturnType<typeof fixture>>) {
+async function refresh(f: Awaited<ReturnType<typeof fixture>>) {
   const job = await f.store.job(f.job.jobId);
   if (job === null) throw new Error("Missing fixture job");
-  return f.processor.reconcile(f.binding, job);
+  return f.processor.refreshPullRequest(f.binding, job);
 }
 
 async function pendingComment() {
   const f = await fixture();
   f.transport.comments = [ownerComment(50)];
-  expect(await reconcile(f)).toMatchObject({ ok: true });
+  expect(await refresh(f)).toMatchObject({ ok: true });
   const feedback = (await f.store.feedbackForProject(f.binding.projectId, f.binding.userId)).find(
     (entry) => entry.kind === "comment",
   );
@@ -247,7 +247,7 @@ describe("GitHub feedback approval validation", () => {
   it("rejects a repair request after the checks recover", async () => {
     const f = await fixture();
     f.transport.checks = [{ name: "tests", status: "completed", conclusion: "failure" }];
-    await reconcile(f);
+    await refresh(f);
     const feedback = (await f.store.feedbackForProject(f.binding.projectId, f.binding.userId)).find(
       (entry) => entry.kind === "checks",
     );
@@ -295,7 +295,7 @@ describe("GitHubEventProcessor", () => {
       })),
       { name: "last-page-test", status: "completed", conclusion: "failure" },
     ];
-    expect(await reconcile(f)).toMatchObject({ ok: true });
+    expect(await refresh(f)).toMatchObject({ ok: true });
     expect(await f.store.job(f.job.jobId)).toMatchObject({ checkState: "failed" });
     expect(
       (await f.store.feedbackForProject(f.binding.projectId, f.binding.userId))[0]?.summary,
@@ -305,7 +305,7 @@ describe("GitHubEventProcessor", () => {
       status: "completed",
       conclusion: "success",
     }));
-    expect(await reconcile(f)).toMatchObject({ ok: false, error: { code: "unavailable" } });
+    expect(await refresh(f)).toMatchObject({ ok: false, error: { code: "unavailable" } });
     expect(await f.store.job(f.job.jobId)).toMatchObject({
       checkState: "unknown",
       reviewState: "unknown",
@@ -320,10 +320,10 @@ describe("GitHubEventProcessor", () => {
       { ...ownerComment(22), user: { id: 55, login: "owner" } },
     ];
     f.transport.installationStatus = 503;
-    expect(await reconcile(f)).toMatchObject({ ok: false });
+    expect(await refresh(f)).toMatchObject({ ok: false });
     expect((await f.store.job(f.job.jobId))?.error).not.toBeNull();
     f.transport.installationStatus = 200;
-    expect(await reconcile(f)).toMatchObject({ ok: true });
+    expect(await refresh(f)).toMatchObject({ ok: true });
     expect(await f.store.job(f.job.jobId)).toMatchObject({ error: null });
     expect(await f.store.feedbackForProject(f.binding.projectId, f.binding.userId)).toMatchObject([
       { summary: "Fix this line", requestId: null },
@@ -378,14 +378,14 @@ describe("GitHubEventProcessor", () => {
       ownerComment(3, "I have a suggestion"),
       ownerComment(4, "/nap   "),
     ];
-    expect(await reconcile(f)).toMatchObject({ ok: true });
+    expect(await refresh(f)).toMatchObject({ ok: true });
     expect(await f.store.feedbackForProject(f.binding.projectId, f.binding.userId)).toEqual([]);
     f.transport.comments.push({ ...ownerComment(5), user: { id: 7, login: "renamed-owner" } });
-    expect(await reconcile(f)).toMatchObject({ ok: true });
+    expect(await refresh(f)).toMatchObject({ ok: true });
     expect(await f.store.feedbackForProject(f.binding.projectId, f.binding.userId)).toHaveLength(1);
     f.transport.permission = "read";
     f.transport.comments.push(ownerComment(6));
-    expect(await reconcile(f)).toMatchObject({ ok: false, error: { code: "access_denied" } });
+    expect(await refresh(f)).toMatchObject({ ok: false, error: { code: "access_denied" } });
     expect(await f.store.feedbackForProject(f.binding.projectId, f.binding.userId)).toHaveLength(1);
     expect(f.store.enqueued).toEqual([]);
   });
@@ -398,11 +398,11 @@ describe("GitHubEventProcessor", () => {
       { ...f.transport.head, ref: "main" },
     ]) {
       f.transport.head = replacement;
-      expect(await reconcile(f)).toMatchObject({ ok: false, error: { code: "access_denied" } });
+      expect(await refresh(f)).toMatchObject({ ok: false, error: { code: "access_denied" } });
     }
     f.transport.head = { sha: SHA, ref: "nap/job", repo: { id: 123 } };
     f.transport.base.repo.id = 999;
-    expect(await reconcile(f)).toMatchObject({ ok: false, error: { code: "access_denied" } });
+    expect(await refresh(f)).toMatchObject({ ok: false, error: { code: "access_denied" } });
     expect(await f.store.feedbackForProject(f.binding.projectId, f.binding.userId)).toEqual([]);
     expect(f.transport.requestedShas).toEqual([]);
   });
@@ -412,7 +412,7 @@ describe("GitHubEventProcessor", () => {
     f.transport.head.sha = "c".repeat(40);
     f.transport.comments = [ownerComment(16)];
     f.transport.checks = [{ name: "tests", status: "completed", conclusion: "failure" }];
-    expect(await reconcile(f)).toMatchObject({ ok: true });
+    expect(await refresh(f)).toMatchObject({ ok: true });
     expect(f.transport.requestedShas).toEqual(["c".repeat(40)]);
     expect(await f.store.job(f.job.jobId)).toMatchObject({ checkState: "failed", pushedSha: SHA });
     expect(await f.store.feedbackForProject(f.binding.projectId, f.binding.userId)).toEqual([]);
@@ -430,7 +430,7 @@ describe("GitHubEventProcessor", () => {
         submitted_at: "2026-10-19T12:00:00Z",
       },
     ];
-    await reconcile(f);
+    await refresh(f);
     expect(await f.store.job(f.job.jobId)).toMatchObject({
       checkState: "pending",
       reviewState: "changes_requested",
@@ -443,19 +443,19 @@ describe("GitHubEventProcessor", () => {
       body: null,
       submitted_at: "2026-10-19T13:00:00Z",
     });
-    await reconcile(f);
+    await refresh(f);
     expect(await f.store.job(f.job.jobId)).toMatchObject({
       checkState: "passed",
       reviewState: "approved",
     });
     f.transport.state = "closed";
     f.transport.mergedAt = "2026-10-19T14:00:00Z";
-    await reconcile(f);
+    await refresh(f);
     expect(await f.store.job(f.job.jobId)).toMatchObject({ pullRequestState: "merged" });
     expect(f.store.enqueued).toEqual([]);
   });
 
-  it("reconciles installation removal and suspension while preserving explicit disconnect", async () => {
+  it("records installation removal and suspension while preserving explicit disconnect", async () => {
     const f = await fixture();
     f.transport.installationStatus = 404;
     await f.store.receiveDelivery({
@@ -550,14 +550,14 @@ describe("GitHubEventProcessor", () => {
 
   it("reads an unchanged pull request again only after the backstop interval", async () => {
     const f = await fixture();
-    f.advance(RECONCILE_AFTER_MS + 1);
+    f.advance(REFRESH_AFTER_MS + 1);
     const pullReads = () =>
       f.transport.paths.filter((path) => path === "/repos/org/app/pulls/10").length;
 
     await f.processor.tick();
     expect(pullReads()).toBe(1);
     await f.processor.tick();
-    f.advance(RECONCILE_AFTER_MS - 1_000);
+    f.advance(REFRESH_AFTER_MS - 1_000);
     await f.processor.tick();
     expect(pullReads()).toBe(1);
     f.advance(2_000);
@@ -571,7 +571,7 @@ describe("GitHubEventProcessor", () => {
     await f.store.createJob({ ...f.job, jobId: followUp });
     f.transport.state = "closed";
     f.transport.mergedAt = "2026-10-19T15:00:00Z";
-    f.advance(RECONCILE_AFTER_MS + 1);
+    f.advance(REFRESH_AFTER_MS + 1);
 
     await f.processor.tick();
 

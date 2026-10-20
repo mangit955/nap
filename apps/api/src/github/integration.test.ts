@@ -528,7 +528,7 @@ describe("verified PR publication", () => {
     expect(f.transport.creates).toBe(1);
   });
 
-  it("reconciles a lost creation response without making a duplicate PR", async () => {
+  it("recovers a lost creation response without making a duplicate PR", async () => {
     const f = await fixture();
     await verified(f);
     f.transport.createBehavior = "lost-response";
