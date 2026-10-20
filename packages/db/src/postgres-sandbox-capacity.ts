@@ -187,9 +187,10 @@ export class PostgresSandboxCapacity implements SandboxCapacity {
   }
 
   /**
-   * **The rowcount is the whole point.** A creation slower than `RESERVATION_TTL` comes back to
-   * find the reclaiming sweep has already deleted its row — no crash and no concurrency needed,
-   * one slow cold start is enough. The update then matches nothing, and reporting that as success
+   * **The rowcount is the whole point.** A creation whose renewals stop reaching the store for
+   * longer than `RESERVATION_TTL` — a database outage during a cold start or a repository setup is
+   * enough — comes back to find the reclaiming sweep has already deleted its row. The update then
+   * matches nothing, and reporting that as success
    * would leave a real, running, billed sandbox that no row counts: a sandbox outside the ceiling,
    * which is the only thing bounding this deployment's bill.
    *

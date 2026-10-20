@@ -47,8 +47,9 @@ export type CapacityRefusal = {
  * The one way activating can fail: the reservation is no longer there to activate.
  *
  * A reservation expires while it is still `reserved`, because a caller that dies between reserving
- * and creating must not hold a slot forever — so a creation slower than the TTL comes back to find
- * its row reclaimed. An answer rather than an exception, because by then the caller is holding a
+ * and creating must not hold a slot forever — so a creation whose renewals stopped landing for
+ * longer than the TTL comes back to find its row reclaimed. An answer rather than an exception,
+ * because by then the caller is holding a
  * real, running, billed sandbox that this deployment's ceiling is not counting, and it has to be
  * told so it can do something about it.
  */

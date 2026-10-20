@@ -326,8 +326,9 @@ describe("the capacity a new sandbox costs", () => {
   });
 
   it("destroys the sandbox and refuses when the reservation was reclaimed mid-create", async () => {
-    // A create slower than the reservation's two-minute TTL: the reaper reclaims the row while it
-    // is still running, and the sandbox that then arrives is counted by nothing. Keeping it would
+    // A create whose renewals stopped landing for the reservation's two-minute TTL: the reaper
+    // reclaims the row while it is still running, and the sandbox that then arrives is counted by
+    // nothing. Keeping it would
     // run a turn on capacity nobody granted and leave the ceiling under-counting for as long as
     // the sandbox lives; nothing is lost by refusing, because nothing has happened in it yet.
     const manager = new InMemorySandboxManager();

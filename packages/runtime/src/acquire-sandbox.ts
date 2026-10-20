@@ -287,9 +287,9 @@ async function releaseQuietly(
  * thrown error means the bookkeeping could not be done and nothing is known: the sandbox exists,
  * the session is about to be told where it is, and the row expires on its own, so the turn goes
  * ahead and a ceiling loses some accuracy for a couple of minutes. A returned failure means the
- * reservation was reclaimed while the sandbox was being created — a create slower than the
- * two-minute TTL needs no crash and no concurrency — and the sandbox in hand is running, billed
- * and counted by nothing. That one the caller has to act on.
+ * reservation was reclaimed while the sandbox was being created — renewal keeps a slow create's
+ * row alive, so it takes two minutes in which no renewal reached the store — and the sandbox in
+ * hand is running, billed and counted by nothing. That one the caller has to act on.
  */
 async function recordActivation(
   options: AcquireOptions,

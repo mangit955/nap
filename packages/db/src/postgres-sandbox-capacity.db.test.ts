@@ -307,9 +307,9 @@ describe("activating", () => {
   });
 
   it("reports a reservation the reaper reclaimed while the sandbox was being created", async () => {
-    // The whole failure this file exists to stop, in the one shape that needs no crash and no
-    // concurrency: a create slower than the reservation's two-minute TTL. The reaper reclaims the
-    // row, the create then succeeds, and an `activate` that resolved silently would leave a real,
+    // The whole failure this file exists to stop: a create whose renewals stopped reaching the
+    // store for the reservation's two-minute TTL. The reaper reclaims the row, the create then
+    // succeeds, and an `activate` that resolved silently would leave a real,
     // running, billed sandbox that nothing counts — a sandbox outside the ceiling.
     const userId = await seedUser();
     const projectId = await seedProject(userId);
