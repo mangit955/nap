@@ -3,6 +3,10 @@
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { useCallback, useEffect, useId, useRef } from "react";
 
+function formatTokens(tokens: number): string {
+  return tokens < 1000 ? String(tokens) : `${Math.round(tokens / 100) / 10}k`;
+}
+
 export function ContextControl({
   events,
   running,
@@ -40,12 +44,19 @@ export function ContextControl({
     const panel = popup.current;
     if (!details?.open || !panel) return;
     let top = window.visualViewport?.offsetTop ?? 0;
+    let left = window.visualViewport?.offsetLeft ?? 0;
     for (let parent = details.parentElement; parent; parent = parent.parentElement) {
-      if (/(auto|scroll|hidden|clip)/.test(getComputedStyle(parent).overflowY)) {
+      const style = getComputedStyle(parent);
+      if (/(auto|scroll|hidden|clip)/.test(style.overflowY)) {
         top = Math.max(top, parent.getBoundingClientRect().top + parent.clientTop);
       }
+      if (/(auto|scroll|hidden|clip)/.test(style.overflowX)) {
+        left = Math.max(left, parent.getBoundingClientRect().left + parent.clientLeft);
+      }
     }
-    panel.style.maxHeight = `${Math.max(0, details.getBoundingClientRect().top - top - 4)}px`;
+    const anchor = details.getBoundingClientRect();
+    panel.style.maxHeight = `${Math.max(0, anchor.top - top - 4)}px`;
+    panel.style.maxWidth = `${Math.max(0, anchor.right - left - 4)}px`;
   }, []);
 
   useEffect(() => {
@@ -94,7 +105,7 @@ export function ContextControl({
     <details
       ref={disclosure}
       onToggle={sizePopup}
-      className="pointer-events-auto relative mx-4 mb-1 text-xs text-muted"
+      className="context-control relative shrink-0 text-xs text-muted"
       onBlur={(event) => {
         if (
           event.relatedTarget instanceof Node &&
@@ -106,7 +117,7 @@ export function ContextControl({
     >
       <summary
         ref={trigger}
-        className="flex min-h-9 w-fit list-none items-center gap-2 rounded-chip bg-panel px-2 py-1 hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent [&::-webkit-details-marker]:hidden"
+        className="grid size-8 cursor-pointer list-none place-items-center rounded-chip hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent [&::-webkit-details-marker]:hidden"
         aria-label={
           percentageLabel === null
             ? "Context, usage not reported"
@@ -122,7 +133,14 @@ export function ContextControl({
             viewBox="0 0 24 24"
             className="absolute inset-0 size-full -rotate-90"
           >
-            <circle cx="12" cy="12" r="9.75" fill="none" className="stroke-edge" strokeWidth="3" />
+            <circle
+              cx="12"
+              cy="12"
+              r="9.75"
+              fill="none"
+              className="stroke-muted/40"
+              strokeWidth="3"
+            />
             {percentage !== null && (
               <circle
                 cx="12"
@@ -140,21 +158,21 @@ export function ContextControl({
           </svg>
           {percentage === null && <span className="text-[10px]">?</span>}
         </span>
-        <span>
-          Context
-          {tokens === undefined
-            ? ""
-            : ` · ${tokens.source === "estimated" ? "~" : ""}${tokens.inputTokens < 1000 ? tokens.inputTokens : `${Math.round(tokens.inputTokens / 100) / 10}k`}`}
-        </span>
       </summary>
       <div
         ref={popup}
-        className="nap-scroll absolute bottom-full left-0 z-20 mb-1 flex w-80 max-w-full flex-col gap-2 overflow-y-auto rounded-xl border border-edge bg-panel p-3 shadow-raised"
+        className="nap-scroll absolute right-0 bottom-full z-20 mb-1 flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2 overflow-y-auto rounded-xl border border-edge bg-panel p-3 shadow-raised"
       >
-        <div className="flex flex-wrap items-center justify-between gap-1">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="font-medium text-ink-2">Input budget</span>
-          {percentageLabel !== null && (
-            <span className="tabular-nums">{percentageLabel} of input budget</span>
+          {tokens !== undefined && (
+            <span
+              className="text-[11px] tabular-nums"
+              title={`${tokens.inputTokens.toLocaleString()} / ${tokens.budgetTokens.toLocaleString()} tokens`}
+            >
+              {percentageLabel} · {tokens.source === "estimated" ? "~" : ""}
+              {formatTokens(tokens.inputTokens)}/{formatTokens(tokens.budgetTokens)}
+            </span>
           )}
         </div>
         {tokens !== undefined && (
@@ -173,18 +191,15 @@ export function ContextControl({
             />
           </div>
         )}
-        <p>
-          {tokens === undefined
-            ? "Usage not reported yet"
-            : `${tokens.source === "estimated" ? "Estimated input" : "Last reported input"}: ${tokens.inputTokens.toLocaleString()} tokens`}
-        </p>
-        {tokens !== undefined && <p>Input budget: {tokens.budgetTokens.toLocaleString()} tokens</p>}
+        {tokens === undefined && <p>Usage not reported yet</p>}
         {tokens?.windowTokens != null && (
           <p>Model window: {tokens.windowTokens.toLocaleString()} tokens</p>
         )}
         <p className="leading-relaxed">
+          {tokens !== undefined &&
+            `${tokens.source === "estimated" ? "Estimated input" : "Last reported input"} usage. `}
           Nap compacts automatically when needed, based on input budget, response headroom and turn
-          spending. Your original conversation stays available.
+          spending.
         </p>
         <button
           type="button"
@@ -195,8 +210,20 @@ export function ContextControl({
             trigger.current?.focus();
             onCompact();
           }}
-          className="mt-1 min-h-9 w-full rounded-chip border border-edge px-2 py-1.5 font-medium text-ink-2 transition-colors hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent disabled:opacity-40 motion-reduce:transition-none"
+          className="mt-1 flex min-h-8 w-full shrink-0 items-center justify-center gap-1.5 rounded-chip border border-edge px-2 py-1 font-medium text-ink-2 transition-colors hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent disabled:opacity-40 motion-reduce:transition-none"
         >
+          <svg
+            aria-hidden="true"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="size-3.5"
+          >
+            <path d="m4 20 6-6m4-4 6-6M4 14h6v6M14 4v6h6" />
+          </svg>
           Compact context
         </button>
         {disabledReason !== undefined && <p id={reasonId}>{disabledReason}</p>}

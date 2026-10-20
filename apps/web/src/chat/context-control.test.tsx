@@ -5,7 +5,7 @@ import { ContextControl } from "./context-control.tsx";
 it("offers manual compaction without inventing a usage percentage", () => {
   const compact = vi.fn();
   render(<ContextControl events={[]} running={false} onCompact={compact} />);
-  fireEvent.click(screen.getByText("Context"));
+  fireEvent.click(screen.getByLabelText("Context, usage not reported"));
   expect(screen.getByText("Usage not reported yet")).toBeTruthy();
   expect(screen.getByRole("button", { name: "Compact context" })).toBeDisabled();
 });
@@ -33,8 +33,10 @@ it("labels estimates and submits the context action", () => {
       onCompact={compact}
     />,
   );
-  fireEvent.click(screen.getByText("Context · ~40k"));
+  fireEvent.click(screen.getByLabelText("Context, estimated 50% of Nap input budget"));
   expect(screen.getByText(/Estimated input/)).toBeTruthy();
+  expect(screen.getByText("50% · ~40k/80k")).toBeVisible();
+  expect(screen.getByLabelText("Context, estimated 50% of Nap input budget").textContent).toBe("");
   fireEvent.click(screen.getByRole("button", { name: "Compact context" }));
   expect(compact).toHaveBeenCalledOnce();
 });
@@ -61,11 +63,11 @@ it("names the input budget denominator and closes with Escape, returning focus",
       onCompact={vi.fn()}
     />,
   );
-  const trigger = screen.getByText(/Context ·/).closest("summary");
+  const trigger = screen.getByLabelText("Context, reported 113% of Nap input budget");
   expect(trigger).not.toBeNull();
   if (!trigger) return;
   fireEvent.click(trigger);
-  expect(screen.getByText("113% of input budget")).toBeVisible();
+  expect(screen.getByText("113% · 90k/80k")).toBeVisible();
   expect(screen.getByRole("progressbar", { name: "Nap input budget usage" })).toHaveAttribute(
     "aria-valuenow",
     "100",
@@ -80,7 +82,7 @@ it("names the input budget denominator and closes with Escape, returning focus",
 
 it("explains a disabled action and dismisses the popup on an outside press", () => {
   render(<ContextControl events={[]} running onCompact={vi.fn()} />);
-  const trigger = screen.getByText("Context");
+  const trigger = screen.getByLabelText("Context, usage not reported");
   fireEvent.click(trigger);
   expect(screen.getByText("Available when the current operation finishes.")).toBeVisible();
   expect(screen.queryByRole("progressbar")).toBeNull();
@@ -105,7 +107,7 @@ it("allows compaction of known history even when usage is unknown", () => {
       onCompact={vi.fn()}
     />,
   );
-  fireEvent.click(screen.getByText("Context"));
+  fireEvent.click(screen.getByLabelText("Context, usage not reported"));
   expect(screen.getByRole("button", { name: "Compact context" })).toBeEnabled();
   expect(screen.queryByRole("progressbar")).toBeNull();
   expect(screen.queryByText(/0%/)).toBeNull();
@@ -118,7 +120,7 @@ it("fits the popup above its anchor inside the clipping pane as the composer gro
     </section>,
   );
   const pane = screen.getByRole("region", { name: "Chat pane" });
-  const trigger = screen.getByText("Context").closest("summary");
+  const trigger = screen.getByLabelText("Context, usage not reported").closest("summary");
   const details = trigger?.closest("details");
   if (!trigger || !details) throw new Error("Missing disclosure");
   vi.spyOn(pane, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 80, 390, 420));

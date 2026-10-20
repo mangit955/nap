@@ -12,9 +12,10 @@ import type { MediaAttachment } from "@nap/shared/media";
  * **The optimistic message is held beside the transcript, never inside it.** A message has to
  * appear the moment it is typed, but the transcript is folded from `StoredEvent`s, and
  * inventing one would mean inventing a `seq` and a `turnId` — a fabricated row in the single
- * contract every part of this app agrees on. So `pending` is a string the pane renders after
- * the transcript. Admission's request ID correlates it with its durable event or terminal
- * queue status. Text cannot identify it across clients, and a queued cancellation has no event.
+ * contract every part of this app agrees on. So `pending` is a string the pane renders beside
+ * the transcript or in the attached queue. Admission's request ID correlates it with its
+ * durable event or terminal queue status. Text cannot identify it across clients, and a
+ * queued cancellation has no event.
  *
  * Activity follows turn identity in the log. A queue observation can retire a covered idle
  * prefix, including legacy repair turns whose original request was never recorded. This
@@ -53,6 +54,7 @@ export type TurnSubmission = {
   cancel: () => Promise<void>;
   /** The message the user sent that the log has not caught up with yet. */
   pending: string | undefined;
+  pendingAttachments: MediaAttachment[] | undefined;
   pendingAfterCompaction: boolean;
   running: boolean;
   startedAt: string | undefined;
@@ -65,6 +67,7 @@ type PendingSubmission = {
   key: symbol;
   sessionId: string;
   text: string;
+  attachments: MediaAttachment[] | undefined;
   afterCompaction: boolean;
 } & ({ kind: "posting" | "unconfirmed" } | { kind: "accepted"; requestId: string });
 
@@ -277,6 +280,7 @@ export function useTurnSubmission(options: {
       key,
       sessionId,
       text,
+      attachments,
       kind: "posting",
       afterCompaction:
         turn !== undefined &&
@@ -356,6 +360,7 @@ export function useTurnSubmission(options: {
     submit,
     cancel,
     pending: pending?.sessionId === sessionId ? pending?.text : undefined,
+    pendingAttachments: pending?.sessionId === sessionId ? pending?.attachments : undefined,
     pendingAfterCompaction: pending?.sessionId === sessionId && pending?.afterCompaction === true,
     running:
       (pending !== undefined && pending.sessionId === sessionId) ||

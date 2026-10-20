@@ -42,9 +42,9 @@ const NO_JOBS = jobView([]);
  * is what every test mounts, and the half that subscribes owns the socket. That is what keeps
  * two dozen render tests free of the network.
  *
- * The optimistic message is rendered *after* the transcript rather than inside it: the
- * transcript is folded from stored events, and this one has not been stored yet. See
- * `use-turn-submission.ts` for why that boundary is worth keeping.
+ * The optimistic message stays outside the transcript fold: it has not been stored yet.
+ * Requests queued after compaction attach to the composer; ordinary requests appear below
+ * the transcript. See `use-turn-submission.ts` for the request reconciliation.
  */
 export function ChatPane({
   active = true,
@@ -52,6 +52,7 @@ export function ChatPane({
   jobs = NO_JOBS,
   loading = false,
   pending,
+  pendingAttachments,
   pendingAfterCompaction = false,
   running = false,
   activity,
@@ -87,6 +88,7 @@ export function ChatPane({
    */
   loading?: boolean;
   pending?: string | undefined;
+  pendingAttachments?: MediaAttachment[] | undefined;
   pendingAfterCompaction?: boolean;
   running?: boolean;
   activity?: { startedAt: string | undefined };
@@ -203,8 +205,8 @@ export function ChatPane({
                 {events.length > 0 && (
                   <ChatTranscript items={items} seam={seam} seamRef={seamRef} onRetry={onRetry} />
                 )}
-                {pending !== undefined && (
-                  <PendingMessage text={pending} afterCompaction={pendingAfterCompaction} />
+                {pending !== undefined && !pendingAfterCompaction && (
+                  <PendingMessage text={pending} />
                 )}
               </>
             )}
@@ -218,12 +220,19 @@ export function ChatPane({
           </div>
 
           <div ref={composerDock} className="chat-composer-dock absolute inset-x-0 bottom-0 z-10">
-            <ContextControl
-              events={events}
-              running={running}
-              onCompact={() => onSubmit("/compact")}
-            />
             <ChatInput
+              contextControl={
+                <ContextControl
+                  events={events}
+                  running={running}
+                  onCompact={() => onSubmit("/compact")}
+                />
+              }
+              queued={
+                pending !== undefined && pendingAfterCompaction
+                  ? { text: pending, attachments: pendingAttachments }
+                  : undefined
+              }
               queueing={
                 pending === undefined &&
                 transcript.some((item) => item.kind === "compaction" && item.status === "running")
@@ -254,17 +263,12 @@ export function ChatPane({
  * the same message. A differently-styled placeholder that swaps for the real thing a moment later
  * is a flicker with no meaning behind it.
  */
-function PendingMessage({ text, afterCompaction }: { text: string; afterCompaction: boolean }) {
+function PendingMessage({ text }: { text: string }) {
   return (
     <div className="mx-auto flex max-w-[46rem] justify-end px-5 pb-4">
       <div className="chat-user-message whitespace-pre-wrap">
         <span className="sr-only">You: </span>
         {text}
-        {afterCompaction && (
-          <p role="status" className="mt-2 font-sans text-[11px] text-muted">
-            Queued after compaction
-          </p>
-        )}
       </div>
     </div>
   );
@@ -335,14 +339,22 @@ export function LiveChatPane({
   // decided over an empty one.
   const { card, dismiss } = useUnseenCard(events, seen, replayed, active);
   const injected = fetchJson === undefined ? {} : { fetchJson };
-  const { submit, cancel, pending, pendingAfterCompaction, running, startedAt, error } =
-    useTurnSubmission({
-      sessionId,
-      events,
-      connectionStatus: log.status,
-      replayed,
-      ...injected,
-    });
+  const {
+    submit,
+    cancel,
+    pending,
+    pendingAttachments,
+    pendingAfterCompaction,
+    running,
+    startedAt,
+    error,
+  } = useTurnSubmission({
+    sessionId,
+    events,
+    connectionStatus: log.status,
+    replayed,
+    ...injected,
+  });
   const { models } = useModels(injected);
   // Somebody who meets a locked model, or a turn refused for want of a key, should be able to
   // fix it here rather than being sent to the dashboard and back.
@@ -381,6 +393,7 @@ export function LiveChatPane({
         // its way, so the log this pane will show has not even been subscribed to.
         loading={sessionId === undefined || (!replayed && events.length === 0)}
         pending={pending}
+        pendingAttachments={pendingAttachments}
         pendingAfterCompaction={pendingAfterCompaction}
         running={running}
         activity={{ startedAt }}

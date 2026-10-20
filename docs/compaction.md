@@ -23,8 +23,11 @@ The circular meter and quiet timeline adapt T3 Code's components at
 [67c0fc0cdaf963b103518862dd7b68a9c758ecf2](https://github.com/pingdotgg/t3code/tree/67c0fc0cdaf963b103518862dd7b68a9c758ecf2).
 The popup percentage names Nap's configured **input budget**. It is not the provider's window
 or an exact automatic trigger. Missing usage stays unknown, and a missing usage report does
-not prevent manual compaction of existing history. Click or tap Context to open; Tab reaches
-the action, Escape returns focus to Context, and an outside press dismisses the popup.
+not prevent manual compaction of existing history. The icon-only circular control sits inside
+the composer immediately left of Send or Stop. Click or tap it to open the popup above it,
+aligned to its right edge. Tab reaches the action, Escape returns focus to the icon, and an
+outside press dismisses the popup. The header pairs the percentage with used/budget tokens;
+estimates and provider reports stay labelled. The popup scrolls within the available pane.
 
 The transcript retains trigger and timestamps when recorded. Terminal-only replay leaves the
 trigger unknown. Completed API rows show estimated before/after context sizes and a collapsed,
@@ -34,9 +37,12 @@ Native results may supply neither context counts nor a portable summary.
 
 A cancelled operation has a neutral stopped row. A failed manual operation and its matching
 turn failure share one presentation and the existing exact-command retry. Ordinary turn
-failures retain their request-specific retry. The pending bubble records that it was queued
-after compaction until its exact request is acknowledged or settled, using the existing
-session and request reconciliation.
+failures retain their request-specific retry. A prompt queued after compaction appears once
+in a collapsible panel attached above the composer, with its text and reference thumbnails.
+The panel retains that prompt until its exact request is acknowledged or settled, using the
+existing session and request reconciliation. Ordinary optimistic messages stay in the
+transcript area. The queue has no edit, steer, reorder or individual cancel action; Stop keeps
+Nap's existing session cancellation behavior.
 
 ## Persistence and safety
 

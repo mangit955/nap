@@ -42,6 +42,7 @@ export function CompactionPreview() {
           jobs={log.jobs}
           loading={!log.replayed}
           pending={turn.pending}
+          pendingAttachments={turn.pendingAttachments}
           pendingAfterCompaction={turn.pendingAfterCompaction}
           activity={{ startedAt: turn.startedAt }}
           onRetry={(message, attachments) => {

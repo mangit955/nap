@@ -3,7 +3,7 @@
 import type { MediaAttachment } from "@nap/shared/media";
 import { MODEL_MEDIA_UNSUPPORTED, modelSupportsImages } from "@nap/shared/model-capabilities";
 import type { ModelChoice } from "@nap/shared/models-protocol";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { appendDictation, useDictation } from "../dashboard/use-dictation.ts";
 import { AttachmentButton, AttachmentTray, DictationButton } from "./composer-controls.tsx";
 import { applyPick, menuRows, parseToken } from "./composer-menu.ts";
@@ -19,6 +19,8 @@ export function ChatInput({
   visible = true,
   running,
   queueing = false,
+  queued,
+  contextControl,
   error,
   firstPrompt,
   onSubmit,
@@ -32,6 +34,8 @@ export function ChatInput({
   visible?: boolean;
   running: boolean;
   queueing?: boolean;
+  queued?: Pick<FirstPrompt, "text" | "attachments"> | undefined;
+  contextControl?: ReactNode;
   error: string | undefined;
   firstPrompt?: FirstPrompt | undefined;
   onSubmit: (message: string, attachments?: MediaAttachment[]) => void;
@@ -207,6 +211,7 @@ export function ChatInput({
           {dictation.interim || "Listening…"}
         </p>
       )}
+      {queued !== undefined && <QueuedMessage {...queued} />}
       <fieldset
         aria-label="Message composer"
         className="workspace-composer relative"
@@ -300,6 +305,7 @@ export function ChatInput({
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
             <DictationButton dictation={dictation} disabled={running || media.processing} />
+            {contextControl}
             {running && (
               <button
                 type="button"
@@ -319,7 +325,7 @@ export function ChatInput({
                 </svg>
               </button>
             )}
-            {(!running || queueing) && (
+            {(!running || (queueing && !empty)) && (
               <button
                 type="button"
                 onClick={send}
@@ -346,5 +352,70 @@ export function ChatInput({
         </div>
       </fieldset>
     </div>
+  );
+}
+
+function QueuedMessage({ text, attachments }: Pick<FirstPrompt, "text" | "attachments">) {
+  return (
+    <details
+      open
+      aria-label="Queued messages"
+      className="composer-queue group mx-[22px] -mb-[17px] rounded-t-2xl border border-b-0 px-1 pt-1 pb-[21px] text-xs text-muted"
+    >
+      <summary
+        aria-label="Queued messages, 1"
+        className="flex min-h-8 cursor-pointer list-none items-center gap-2 rounded-t-xl px-2 focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent [&::-webkit-details-marker]:hidden"
+      >
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="size-3.5 shrink-0"
+        >
+          <path d="M10 6h10M10 12h10M10 18h10M4 5h1v4M4 9h2M3.5 15a1.5 1.5 0 0 1 3 0c0 1-3 2-3 3h3" />
+        </svg>
+        <span className="flex-1">Queued</span>
+        <span className="tabular-nums">1</span>
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          className="ml-2 size-3.5 -rotate-90 group-open:rotate-0"
+        >
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </summary>
+      <div className="nap-scroll max-h-32 overflow-y-auto px-2 pb-1">
+        <p role="status" className="sr-only">
+          Queued after compaction
+        </p>
+        <ol aria-label="Queued prompts">
+          <li className="flex min-h-7 min-w-0 items-start gap-2 pl-[22px] text-ink-2">
+            {attachments?.map((attachment) => {
+              const frame = attachment.frames[0];
+              return frame === undefined ? null : (
+                // biome-ignore lint/performance/noImgElement: prepared references already contain inline JPEG data.
+                <img
+                  key={attachment.name}
+                  src={`data:${frame.mediaType};base64,${frame.data}`}
+                  alt={attachment.name}
+                  title={attachment.name}
+                  className="mt-0.5 size-5 shrink-0 rounded border border-edge object-cover"
+                />
+              );
+            })}
+            <span className="min-w-0 whitespace-pre-wrap break-words leading-6 [overflow-wrap:anywhere]">
+              {text}
+            </span>
+          </li>
+        </ol>
+      </div>
+    </details>
   );
 }
