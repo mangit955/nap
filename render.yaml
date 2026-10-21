@@ -1,0 +1,119 @@
+# The Render deployment: three services and their database, one image, one source of truth.
+#
+# The same shape as `.railway/railway.ts`, for the platform that replaced it: the API serves, the
+# worker executes, the reaper sweeps, and all three are the one Dockerfile with a different
+# entrypoint. See docs/DEPLOY.md for what each process owns and why the reaper is exactly one.
+#
+# Secrets are `sync: false` — Render asks for each value once, when the Blueprint is first created,
+# and never writes one back here. This file is committed; the values are not.
+#
+# `render blueprints validate render.yaml` checks it.
+
+databases:
+  # The free plan expires thirty days after creation; `basic-256mb` is the paid plan that keeps it.
+  # Render Postgres rather than Neon's free tier because three processes each hold a permanent
+  # LISTEN connection, so the compute never scales to zero and a free Neon quota runs out monthly.
+  - name: nap-db
+    plan: free
+    region: oregon
+    postgresMajorVersion: "17"
+
+services:
+  - type: web
+    name: nap-api
+    runtime: docker
+    repo: https://github.com/mangit955/nap
+    branch: main
+    region: oregon
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    # Migrations are a deploy step, run once per release rather than once per replica at boot.
+    preDeployCommand: bun packages/db/scripts/migrate.ts
+    # Closing a socket is quick, and clients reconnect with `?afterSeq=` against the event log.
+    maxShutdownDelaySeconds: 60
+    numInstances: 1
+    envVars: &env
+      - key: NAP_EVENT_BUS
+        value: postgres
+      - key: NODE_ENV
+        value: production
+      - key: NAP_API_URL
+        value: https://nap-api.onrender.com
+      - key: NAP_WEB_ORIGIN
+        value: https://nap-tawny.vercel.app
+      # Render Postgres is reached directly, with no pooler in between, so one URL serves both the
+      # queries and the LISTEN connection the event bus holds open.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: nap-db
+          property: connectionString
+      - key: NAP_LISTEN_DATABASE_URL
+        fromDatabase:
+          name: nap-db
+          property: connectionString
+      # Only the worker reads this. Render allows at most 300 seconds between SIGTERM and SIGKILL,
+      # so the drain has to finish inside that rather than the 600-second default.
+      - key: NAP_DRAIN_TIMEOUT_SECONDS
+        value: "270"
+      - key: BETTER_AUTH_SECRET
+        sync: false
+      - key: NAP_KEY_ENCRYPTION_SECRET
+        sync: false
+      - key: E2B_API_KEY
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: GITHUB_CLIENT_ID
+        sync: false
+      - key: GITHUB_CLIENT_SECRET
+        sync: false
+      - key: NAP_GITHUB_APP_ID
+        sync: false
+      - key: NAP_GITHUB_APP_SLUG
+        sync: false
+      - key: NAP_GITHUB_CLIENT_ID
+        sync: false
+      - key: NAP_GITHUB_CLIENT_SECRET
+        sync: false
+      - key: NAP_GITHUB_PRIVATE_KEY
+        sync: false
+      - key: NAP_GITHUB_WEBHOOK_SECRET
+        sync: false
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_BUCKET
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+
+  # Chromium photographs each turn's preview, so 512 MB is not enough here; the Kubernetes
+  # manifests request 1 GiB for the same process.
+  - type: worker
+    name: nap-worker
+    runtime: docker
+    repo: https://github.com/mangit955/nap
+    branch: main
+    region: oregon
+    plan: standard
+    dockerfilePath: ./Dockerfile
+    dockerCommand: bun apps/api/src/worker.ts
+    maxShutdownDelaySeconds: 300
+    numInstances: 1
+    envVars: *env
+
+  # Exactly one. A second would wait on the advisory lock and do nothing, but it would still bill.
+  - type: worker
+    name: nap-reaper
+    runtime: docker
+    repo: https://github.com/mangit955/nap
+    branch: main
+    region: oregon
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    dockerCommand: bun apps/api/src/reaper.ts
+    maxShutdownDelaySeconds: 60
+    numInstances: 1
+    envVars: *env

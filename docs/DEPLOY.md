@@ -1,21 +1,48 @@
 # Deploying Nap
 
 **Live:** the app is at <https://nap-tawny.vercel.app> and the API at
-<https://nap-api-production-731a.up.railway.app>.
+<https://nap-api.onrender.com>.
 
-Two services and four accounts. The web app is on Vercel, the API on Railway, and the
+Two services and four accounts. The web app is on Vercel, the API on Render, and the
 API is the one that holds all the state and spends all the money.
 
 | Piece | Where | Notes |
 |---|---|---|
 | `apps/web` | Vercel | Next 16, root directory `apps/web` |
-| `apps/api` | Railway | This repo's `Dockerfile`, **one replica as deployed, which is a choice and no longer a rule** — see below |
-| `apps/api`'s worker | Railway | The *same image*, started as `bun apps/api/src/worker.ts`. Also one as deployed, also scalable |
-| `apps/api`'s reaper | Railway | The same image again, `bun apps/api/src/reaper.ts`, **exactly one replica** |
-| Postgres | Neon | A database of its own, not the development one |
+| `apps/api` | Render | This repo's `Dockerfile`, **one replica as deployed, which is a choice and no longer a rule** — see below |
+| `apps/api`'s worker | Render | The *same image*, started as `bun apps/api/src/worker.ts`. Also one as deployed, also scalable |
+| `apps/api`'s reaper | Render | The same image again, `bun apps/api/src/reaper.ts`, **exactly one replica** |
+| Postgres | Render | `nap-db`, in the same region as the services, reached on Render's private network |
 | Object storage | Cloudflare R2 | Snapshots of projects nobody is using |
 | Sandboxes | E2B | Created per project, billed by the second |
 | Model | OpenRouter | `openai/gpt-5.6-luna` by default |
+
+## Render
+
+`render.yaml` is the deployment: the three services and their database, with every secret
+`sync: false`. `render blueprints validate render.yaml` checks it. It replaced Railway, whose
+trial accounts stopped accepting deploys or even new projects; `.railway/railway.ts` still
+describes that deployment, and the sections below that name Railway describe the same three
+processes on it. What is different here, and why:
+
+- **The worker drains in 270 seconds, not 600.** Render allows at most 300 between SIGTERM and
+  SIGKILL (`maxShutdownDelaySeconds`), so `NAP_DRAIN_TIMEOUT_SECONDS` has to fit inside it. A
+  turn still running 270 seconds into a deploy is aborted rather than killed mid-write.
+- **Migrations run as the API's pre-deploy command**, once per release and before the new API
+  takes traffic, not at boot. A release that adds tables still needs the API deployed before the
+  worker and the reaper, which would otherwise start against a schema that is not there yet.
+- **One database URL serves both connections.** Render Postgres has no pooler in front of it, so
+  `DATABASE_URL` and `NAP_LISTEN_DATABASE_URL` are the same internal connection string, and the
+  database accepts no connections from outside Render.
+- **The worker is the 2 GB plan.** It runs Chromium for the preview screenshots; the Kubernetes
+  manifests request 1 GiB for the same process, and 512 MB is where it runs out.
+- **Nothing deploys on push.** The services build the public repository by URL, so no webhook
+  reaches them; a release is `render deploys create <service-id> --commit <sha>`, in the order
+  above. That is also what the ordered rollouts below require.
+- **The free database expires after thirty days.** Upgrade `nap-db` to `basic-256mb` before then,
+  or its data goes with it. Render Postgres rather than Neon's free tier because three processes
+  each hold a permanent `LISTEN` connection, so a Neon compute never scales to zero and its free
+  quota runs out within the month.
 
 ## Three entrypoints, one image
 

@@ -144,8 +144,12 @@ A lefthook pre-commit hook runs `biome check` + `typecheck` + `vitest --changed`
 packages/  shared  db  sandbox  storage  capture  agent  context  runtime  verify  bench  loadgen
 apps/      web (Next.js)   api (Hono, runs on Bun)   napbench (the benchmark CLI)
 harbor/    the benchmark as an external harness's agent — Python, outside the workspace
-.railway/  the Railway deployment as TypeScript — three services, one image. See docs/DEPLOY.md
+render.yaml  the deployment — three services and their database, one image. See docs/DEPLOY.md
+.railway/  the previous deployment, on Railway, as TypeScript
 ```
+
+**`render.yaml` is YAML, so no gate here reads it.** `render blueprints validate render.yaml`
+checks it against Render's own schema and needs the Render CLI and a login.
 
 `.railway/railway.ts` belongs to no workspace, so the root `tsconfig.json` names it **as a file**:
 a bare directory there expands to a wildcard, and TypeScript's wildcards skip dot-prefixed paths,
