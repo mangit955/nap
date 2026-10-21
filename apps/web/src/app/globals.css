@@ -1532,12 +1532,16 @@ body {
   }
 }
 
-/* Keep the workspace dark even when the OS uses a light appearance. */
+/*
+ * Keep the workspace dark even when the OS uses a light appearance. Surface, panel and sidebar
+ * are T3 Code's dark canvas, raised surface and sidebar, so the chat reads the same in both.
+ */
 :root:has(.dashboard-frame),
 .dashboard-frame {
   color-scheme: dark;
-  --color-surface: #111111;
+  --color-surface: #0a0a0a;
   --color-panel: #111111;
+  --color-sidebar: #000000;
   --color-field: #1e1e1e;
   --color-edge: #242424;
   --color-line-strong: #383838;
@@ -1601,21 +1605,43 @@ body {
   max-width: 46rem;
   margin-top: -48px;
 }
+/*
+ * The glass is a layer behind the composer, not the composer itself. An element with a backdrop
+ * filter is a backdrop root: any filter inside it sees only what the composer painted, never
+ * the transcript. The resting composer's model strip hangs below the pill, so its blur had
+ * nothing to blur and the transcript showed through it sharp. `isolation` keeps the layer under
+ * the composer's content without making the composer a backdrop root.
+ */
 .workspace-composer,
 .composer-queue {
   position: relative;
+  isolation: isolate;
   min-width: 0;
-  border: 1px solid color-mix(in srgb, var(--color-ink) 8%, transparent);
-  background: color-mix(in srgb, var(--color-field) 80%, transparent);
+  border: 1px solid transparent;
+}
+.workspace-composer::before,
+.composer-queue::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  z-index: -1;
+  border: 1px solid rgb(255 255 255 / 5%);
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--color-panel) 80%, transparent);
   -webkit-backdrop-filter: blur(16px) saturate(1.08);
   backdrop-filter: blur(16px) saturate(1.08);
   box-shadow: inset 0 1px rgb(255 255 255 / 3%);
+  pointer-events: none;
 }
 .workspace-composer {
   border-radius: 24px;
 }
 .composer-queue {
   border-radius: 16px 16px 0 0;
+  border-bottom: 0;
+}
+.composer-queue::before {
+  inset: -1px -1px 0;
   border-bottom: 0;
 }
 .context-control[open] > summary {
@@ -1672,8 +1698,11 @@ body {
   overflow-wrap: anywhere;
 }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .workspace-composer,
-  .composer-queue,
+  .workspace-composer::before,
+  .composer-queue::before,
+  .workspace-composer[data-resting="true"] .composer-model-controls {
+    background: var(--color-panel);
+  }
   .composer-menu {
     background: var(--color-field);
   }
@@ -1692,8 +1721,12 @@ body {
   }
 }
 @media (prefers-reduced-transparency: reduce) {
-  .workspace-composer,
-  .composer-queue,
+  .workspace-composer::before,
+  .composer-queue::before {
+    background: var(--color-panel);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
   .composer-menu {
     background: var(--color-field);
     -webkit-backdrop-filter: none;
@@ -1736,10 +1769,10 @@ body {
   inset: 100% 22px auto;
   height: 32px;
   padding: 0 8px;
-  border: 1px solid color-mix(in srgb, var(--color-ink) 8%, transparent);
+  border: 1px solid rgb(255 255 255 / 5%);
   border-top: 0;
   border-radius: 0 0 16px 16px;
-  background: color-mix(in srgb, var(--color-field) 80%, transparent);
+  background: color-mix(in srgb, var(--color-panel) 80%, transparent);
   -webkit-backdrop-filter: blur(16px) saturate(1.08);
   backdrop-filter: blur(16px) saturate(1.08);
 }
@@ -1784,7 +1817,7 @@ body {
 }
 @media (prefers-reduced-transparency: reduce) {
   .workspace-composer[data-resting="true"] .composer-model-controls {
-    background: var(--color-field);
+    background: var(--color-panel);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
