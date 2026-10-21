@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeAll, describe, expect, it } from "vitest";
 import { ConnectionsOverview } from "./connections-overview.tsx";
 
@@ -51,9 +51,51 @@ describe("Connections overview", () => {
       "href",
       `/dashboard?draft=${draftId}&repositories=1`,
     );
+    const rail = within(screen.getByRole("navigation", { name: "Settings" }));
+    const railLink = rail.getByRole("link", { name: "Connections" });
+    expect(railLink).toHaveAttribute("href", `/settings/connections?draft=${draftId}`);
+    expect(railLink).toHaveAttribute("aria-current", "page");
 
     fireEvent.click(key);
     expect(screen.getByRole("dialog", { name: "Your API key" })).toBeVisible();
+  });
+
+  it("marks GitHub as needing attention when its only connections are in trouble", async () => {
+    const view = render(
+      <ConnectionsOverview
+        fetchJson={api(
+          {
+            configured: true,
+            installations: [
+              { ...installation, status: "suspended" },
+              { ...installation, installationId: 43, status: "disconnected" },
+            ],
+          },
+          { configured: false },
+        )}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("link", { name: "GitHub" })).toHaveAccessibleDescription(
+        "Needs attention",
+      ),
+    );
+    view.unmount();
+
+    // Disconnecting was the owner's own choice, so on its own it is not trouble.
+    render(
+      <ConnectionsOverview
+        fetchJson={api(
+          { configured: true, installations: [{ ...installation, status: "disconnected" }] },
+          { configured: false },
+        )}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("link", { name: "GitHub" })).toHaveAccessibleDescription(
+        "Not connected",
+      ),
+    );
   });
 
   it("says when a provider is not connected or not offered by this deployment", async () => {

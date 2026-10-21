@@ -120,6 +120,10 @@ describe("project GitHub controls", () => {
       "Set both the development command and preview port",
     );
     expect(fetchJson.mock.calls.every(([, init]) => init?.method !== "PATCH")).toBe(true);
+    expect(screen.getByRole("link", { name: "Manage GitHub access" })).toHaveAttribute(
+      "href",
+      "/settings/connections/github",
+    );
   });
 
   it("offers an idempotent retry when an interrupted worker left publication in progress", async () => {

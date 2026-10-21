@@ -13,21 +13,27 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { ApiKeyPanel } from "../account/api-key-panel.tsx";
 import { useApiKey } from "../account/use-api-key.ts";
 import { ArrowLeftIcon, ConnectionsIcon, HelpIcon, KeyIcon, SearchIcon } from "../ui/icons.tsx";
+import { FOCUS } from "./settings-ui.tsx";
 
 export type Crumb = { label: string; href?: string };
 
-const FOCUS = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
 const ITEM = `flex h-8 w-full items-center gap-2.5 rounded-md px-2 text-left text-[13px] transition-colors ${FOCUS}`;
 
 export function SettingsShell({
   crumbs,
   appHref = "/dashboard",
+  connectionsHref = "/settings/connections",
+  nested = false,
   onApiKey,
   children,
 }: {
   crumbs: readonly Crumb[];
   /** Where "Back to app" goes — a draft's own address when the visit started from one. */
   appHref?: string;
+  /** Where the rail's Connections entry goes, carrying the draft for the same reason. */
+  connectionsHref?: string;
+  /** The page sits beneath the rail's Connections entry rather than being it. */
+  nested?: boolean;
   /**
    * Opens the API key dialog. A page that already shows the key's state passes its own, so the
    * rail and the page answer from one state; without it the rail opens a dialog of its own.
@@ -36,11 +42,15 @@ export function SettingsShell({
   children: ReactNode;
 }) {
   const [query, setQuery] = useState("");
-  const [keyOpen, setKeyOpen] = useState(false);
+  // Undefined until the rail's own key dialog is first opened. After that it stays mounted, so
+  // closing it goes through the element's `close()` and focus returns to the button — a dialog
+  // unmounted while open drops focus on <body>.
+  const [keyOpen, setKeyOpen] = useState<boolean>();
   const search = useRef<HTMLInputElement>(null);
 
   // `/` jumps to the settings search, as the hint inside the field says — unless the key is
-  // being typed into something.
+  // being typed into something. The key is only taken if the field took focus: below `md` the
+  // rail is hidden, and under a dialog it is inert, and either way `/` should do what it did.
   useEffect(() => {
     const focusSearch = (event: KeyboardEvent) => {
       if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return;
@@ -50,8 +60,8 @@ export function SettingsShell({
         (target.isContentEditable || target.closest("input, textarea, select") !== null)
       )
         return;
-      event.preventDefault();
       search.current?.focus();
+      if (document.activeElement === search.current) event.preventDefault();
     };
     window.addEventListener("keydown", focusSearch);
     return () => window.removeEventListener("keydown", focusSearch);
@@ -73,7 +83,7 @@ export function SettingsShell({
           </a>
         </div>
         <div className="px-3 pt-1">
-          <label className="flex h-8 items-center gap-2 rounded-lg border border-edge bg-field px-2.5 text-muted focus-within:border-line-strong">
+          <label className="flex h-8 items-center gap-2 rounded-lg border border-edge bg-field px-2.5 text-muted focus-within:border-accent">
             <SearchIcon className="size-3.5 shrink-0" />
             <input
               ref={search}
@@ -95,8 +105,8 @@ export function SettingsShell({
             {matches("Connections") && (
               <li>
                 <a
-                  href="/settings/connections"
-                  aria-current="true"
+                  href={connectionsHref}
+                  aria-current={nested ? "true" : "page"}
                   className={`${ITEM} bg-hover text-ink`}
                 >
                   <ConnectionsIcon className="size-4 text-ink-2" />
@@ -168,13 +178,13 @@ export function SettingsShell({
         <main className="min-h-0 flex-1 overflow-y-auto px-5 pb-20 pt-5 sm:px-6">{children}</main>
       </div>
 
-      {keyOpen && <RailKeyDialog onClose={() => setKeyOpen(false)} />}
+      {keyOpen !== undefined && <RailKeyDialog open={keyOpen} onClose={() => setKeyOpen(false)} />}
     </div>
   );
 }
 
-/** Mounted only while open, so a settings page that never opens it never asks for the key. */
-function RailKeyDialog({ onClose }: { onClose: () => void }) {
+/** Mounted on first open, so a settings page that never opens it never asks for the key. */
+function RailKeyDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const key = useApiKey();
-  return <ApiKeyPanel open onClose={onClose} keyState={key} />;
+  return <ApiKeyPanel open={open} onClose={onClose} keyState={key} />;
 }

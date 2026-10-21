@@ -14,6 +14,7 @@ import { ApiKeyPanel } from "../account/api-key-panel.tsx";
 import { useApiKey } from "../account/use-api-key.ts";
 import { credentialedFetch } from "../api/credentialed-fetch.ts";
 import type { FetchJson } from "../files/use-project-files.ts";
+import { TROUBLE } from "../github/connection-drawer.tsx";
 import { GITHUB_API_URL, githubRequest } from "../github/request.ts";
 import { ChevronRight, GithubIcon, KeyIcon } from "../ui/icons.tsx";
 import { SettingsShell } from "./settings-shell.tsx";
@@ -54,10 +55,8 @@ export function ConnectionsOverview({
     };
   }, [fetchJson, baseUrl]);
 
-  const accounts =
-    github.kind === "loaded"
-      ? github.value.installations.filter((item) => item.status === "active").length
-      : 0;
+  const installations = github.kind === "loaded" ? github.value.installations : [];
+  const accounts = installations.filter((item) => item.status === "active").length;
   const githubStatus =
     github.kind === "loading" ? (
       "Checking…"
@@ -69,6 +68,9 @@ export function ConnectionsOverview({
       <span className="text-ink-2">
         Connected · {accounts} {accounts === 1 ? "account" : "accounts"}
       </span>
+    ) : installations.some((item) => TROUBLE.has(item.status)) ? (
+      // Suspended or uninstalled on GitHub: not the same as never having connected.
+      <span className="text-danger">Needs attention</span>
     ) : (
       "Not connected"
     );
@@ -86,6 +88,7 @@ export function ConnectionsOverview({
     <SettingsShell
       crumbs={[{ label: "Settings" }, { label: "Connections" }]}
       appHref={appHref}
+      connectionsHref={`/settings/connections${draft}`}
       onApiKey={() => setKeyOpen(true)}
     >
       <BackLink href={appHref}>{draftId ? "Back to your draft" : "Back to workspace"}</BackLink>

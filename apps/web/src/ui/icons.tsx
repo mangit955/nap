@@ -271,7 +271,7 @@ export function InfoIcon({ className = "size-4" }: IconProps) {
   );
 }
 
-/** Four linked nodes: the settings rail's mark for the services nap is connected to. */
+/** Four nodes in a square: the settings rail's mark for the services nap is connected to. */
 export function ConnectionsIcon({ className = "size-4" }: IconProps) {
   return (
     <svg aria-hidden="true" {...STROKE} className={className}>

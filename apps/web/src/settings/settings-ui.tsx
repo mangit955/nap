@@ -10,15 +10,21 @@
 import type { ReactNode } from "react";
 import { ArrowLeftIcon, InfoIcon } from "../ui/icons.tsx";
 
-const FOCUS = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
+export const FOCUS =
+  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
 const BASE_BUTTON = `inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg px-3 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${FOCUS}`;
 
 export const BUTTON = `${BASE_BUTTON} border border-edge bg-field text-ink-2 hover:bg-hover hover:text-ink`;
 /** The one filled control on a page. `ink` as a fill rather than the accent, which means "in progress" here. */
 export const PRIMARY_BUTTON = `${BASE_BUTTON} bg-ink text-surface hover:bg-ink-2`;
 export const DANGER_BUTTON = `${BASE_BUTTON} border border-danger/30 bg-danger/10 text-danger hover:bg-danger/20`;
-/** A whole row that opens something. */
-export const ROW_BUTTON = `flex w-full items-center gap-4 px-5 py-4 text-left transition-colors hover:bg-hover ${FOCUS} focus-visible:-outline-offset-2`;
+/**
+ * A whole row that opens something. Its ring is drawn inside the row rather than through `FOCUS`:
+ * the row fills a `Card`, which clips anything outside it, and the two offsets cannot be stacked
+ * in one class list — whichever rule comes later in the stylesheet wins, not the later class.
+ */
+export const ROW_BUTTON =
+  "flex w-full items-center gap-4 px-5 py-4 text-left transition-colors hover:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent";
 
 export function BackLink({ href, children }: { href: string; children: ReactNode }) {
   return (

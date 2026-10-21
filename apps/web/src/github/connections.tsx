@@ -104,7 +104,9 @@ export function GitHubConnections({
       { method: "DELETE" },
     );
     if (result.ok) {
-      setOpenId(undefined);
+      // Only this connection's drawer: it may have been closed while the request was out, and
+      // another one opened in its place.
+      setOpenId((current) => (current === installationId ? undefined : current));
       await reload();
     } else setError(result.error);
     setBusy(false);
@@ -122,11 +124,13 @@ export function GitHubConnections({
         { label: "GitHub" },
       ]}
       appHref={appHref}
+      connectionsHref={`/settings/connections${draft}`}
+      nested
     >
       <BackLink href={`/settings/connections${draft}`}>Back to Connections</BackLink>
       <div className="mx-auto mt-8 max-w-[720px]">
-        <h1 className="flex items-center gap-2.5 text-xl font-medium text-ink">
-          <GithubIcon className="size-6" />
+        <h1 className="flex items-center gap-2.5 text-lg font-medium text-ink">
+          <GithubIcon className="size-5" />
           GitHub
         </h1>
         <p className="mt-1.5 text-[13px] text-muted">
@@ -204,7 +208,11 @@ export function GitHubConnections({
               <button
                 key={item.installationId}
                 type="button"
-                onClick={() => setOpenId(item.installationId)}
+                onClick={() => {
+                  // A drawer shows only what happens inside it, not the page's last failure.
+                  setError(undefined);
+                  setOpenId(item.installationId);
+                }}
                 className={ROW_BUTTON}
               >
                 <span className="min-w-0 flex-1">

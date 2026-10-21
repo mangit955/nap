@@ -7,7 +7,9 @@
  * **A real `<dialog>` opened with `showModal`**, for the reasons `ApiKeyPanel` gives: focus is
  * trapped inside, Escape closes, and the page behind is inert. Every way of closing — Escape,
  * the backdrop, ✕, the breadcrumb — goes through the element's own `close()`, so the parent
- * hears about it from one `close` event and unmounts it.
+ * hears about it from one `close` event and unmounts it. When the parent unmounts it first, as
+ * after a disconnect, the drawer still calls `close()` on its way out, so the browser hands focus
+ * back to the row that opened it either way.
  */
 
 import {
@@ -15,7 +17,7 @@ import {
   GitHubRepositoriesSchema,
   type GitHubRepository,
 } from "@nap/shared/github-protocol";
-import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
+import { type KeyboardEvent, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { relativeTime } from "../dashboard/relative-time.ts";
 import type { FetchJson } from "../files/use-project-files.ts";
 import { Badge, BUTTON, Card, DANGER_BUTTON, Row, Section } from "../settings/settings-ui.tsx";
@@ -72,9 +74,15 @@ export function ConnectionDrawer({
   const [visited, setVisited] = useState(false);
   const id = useId();
 
-  useEffect(() => {
+  // A layout cleanup, because it runs while the element is still in the page: removing a dialog
+  // that is open drops focus on <body>, where `close()` returns it to whatever opened the dialog.
+  useLayoutEffect(() => {
     const element = dialog.current;
-    if (element !== null && !element.open) element.showModal();
+    if (element === null) return;
+    if (!element.open) element.showModal();
+    return () => {
+      if (element.open) element.close();
+    };
   }, []);
 
   const close = () => dialog.current?.close();
@@ -95,8 +103,12 @@ export function ConnectionDrawer({
       ref={dialog}
       aria-labelledby={`${id}-title`}
       closedby="any"
-      onClose={onClose}
-      className="nap-sheet m-0 ml-auto h-dvh max-h-none w-full max-w-2xl border-l border-edge bg-panel p-0 text-ink shadow-raised backdrop:bg-black/55 open:flex open:flex-col"
+      // A `close` that finds the dialog open again is stale. Browsers queue the event, and
+      // StrictMode's rehearsal unmount closes and reopens the dialog before it arrives.
+      onClose={(event) => {
+        if (!event.currentTarget.open) onClose();
+      }}
+      className="nap-sheet m-0 ml-auto h-dvh max-h-none w-full max-w-2xl border-l border-edge bg-panel p-0 text-ink shadow-raised backdrop:bg-black/60 open:flex open:flex-col"
     >
       <div className="flex h-11 shrink-0 items-center justify-between gap-3 px-5 sm:px-6">
         <p className="flex min-w-0 items-center gap-2 text-[13px]">
@@ -154,6 +166,18 @@ export function ConnectionDrawer({
             </button>
           ))}
         </div>
+
+        {/* Above the panels, so an action's outcome is seen from either tab. */}
+        {busy && (
+          <p role="status" className="mt-4 text-[13px] text-muted">
+            Updating GitHub access…
+          </p>
+        )}
+        {error && (
+          <p role="alert" className="mt-4 text-[13px] text-danger">
+            {error}
+          </p>
+        )}
 
         <div
           role="tabpanel"
@@ -233,28 +257,20 @@ export function ConnectionDrawer({
               </Card>
             </Section>
           )}
-          {busy && (
-            <p role="status" className="mt-4 text-[13px] text-muted">
-              Updating GitHub access…
-            </p>
-          )}
-          {error && (
-            <p role="alert" className="mt-4 text-[13px] text-danger">
-              {error}
-            </p>
-          )}
         </div>
 
-        {visited && (
-          <div
-            role="tabpanel"
-            id={`${id}-repositories-panel`}
-            aria-labelledby={`${id}-repositories-tab`}
-            hidden={tab !== "repositories"}
-          >
+        {/* The panel always exists, so its tab's `aria-controls` names something; only its
+            contents wait for the first visit. */}
+        <div
+          role="tabpanel"
+          id={`${id}-repositories-panel`}
+          aria-labelledby={`${id}-repositories-tab`}
+          hidden={tab !== "repositories"}
+        >
+          {visited && (
             <Repositories installation={installation} fetchJson={fetchJson} baseUrl={baseUrl} />
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </dialog>
   );
@@ -323,7 +339,7 @@ function Repositories({
         {active ? (
           <>
             <Card>
-              <div className="flex items-center gap-2 border-b border-edge pl-3 pr-1.5">
+              <div className="flex items-center gap-2 border-b border-edge pl-3 pr-1.5 has-[input:focus-visible]:outline-2 has-[input:focus-visible]:-outline-offset-2 has-[input:focus-visible]:outline-accent">
                 <SearchIcon className="size-3.5 shrink-0 text-muted" />
                 <input
                   type="search"

@@ -1,9 +1,10 @@
 # GitHub repository integration
 
 Nap connects a GitHub App installation to the signed-in Nap project owner. In Settings →
-Connections, choose Connect GitHub, select a personal account or organization and the repositories
-GitHub should grant. GitHub then asks for separate user authorization so Nap can verify who may
-bind that installation. Signing in with GitHub alone does not grant repository access.
+Connections → GitHub, choose Add connection, select a personal account or organization and the
+repositories GitHub should grant. GitHub then asks for separate user authorization so Nap can
+verify who may bind that installation. Signing in with GitHub alone does not grant repository
+access.
 
 On New session, the composer's + menu contains Upload media and Repositories. Repositories
 opens an inline `@repos:` autocomplete across every authorized installation and repository page,
@@ -120,11 +121,13 @@ credentials in a Nap conversation.
    sweep runs every 15 seconds separately from sandbox cleanup; each sweep processes new webhook
    deliveries, and rereads an open pull request only when nothing has refreshed it for five minutes.
 
-6. Sign into a permanent Nap account and connect from Settings → Connections. Use GitHub's
-   selected-repositories option. On the Connections page, Manage access opens GitHub settings;
-   Reconnect revalidates authority; Disconnect revokes Nap's binding without uninstalling the App
-   or deleting saved projects. An installation remains reserved to its original Nap owner across
-   disconnects. There is no organization sharing or installation-transfer workflow in this release.
+6. Sign into a permanent Nap account and connect from Settings → Connections → GitHub. Use
+   GitHub's selected-repositories option. Each connection opens a drawer: Manage opens GitHub
+   settings; Reconnect revalidates authority; Disconnect connection revokes Nap's binding without
+   uninstalling the App or deleting saved projects. Repositories are imported from the
+   dashboard's new-session composer, not from Settings. An installation remains reserved to its
+   original Nap owner across disconnects. There is no organization sharing or
+   installation-transfer workflow in this release.
 
 ## Repository environments and snapshots
 
@@ -242,8 +245,9 @@ Automated coverage includes real local Git clone/import, complete refs and HEAD 
 idempotent push and divergence refusal; real Postgres owner isolation, atomic import/approval and
 inbox retry; controlled GitHub HTTP for callback authority, token refresh, PR retries, revocation,
 rename and feedback. A composed test drives the real API/queue/runtime with simulated sandbox and
-GitHub transports. Component tests (jsdom) exercise the Connections page, import, PR publication
-retry and feedback approval; no browser session was recorded for this change.
+GitHub transports. Component tests (jsdom) exercise the Connections pages and drawer, the
+composer's repository picker, PR publication retry and feedback approval; no browser session was
+recorded for this change.
 No registered GitHub App, live GitHub push/webhook or E2B import was exercised in this checkout.
 
 For live acceptance, use a disposable repository and selected-only installation: connect, import,

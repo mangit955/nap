@@ -71,6 +71,30 @@ it("keeps the operation identity through a lost response and a refused overlappi
   expect(fetchJson.mock.calls[2]?.[1]?.body).toBe(fetchJson.mock.calls[0]?.[1]?.body);
 });
 
+it("opens GitHub's settings page carrying the draft when there is nothing to pick", async () => {
+  const draft = await seedDraft();
+  const fetchJson = vi.fn(async (_url: string, _init?: RequestInit) =>
+    Response.json({ configured: true, installations: [] }),
+  );
+  render(
+    <NewSessionComposer
+      ownerId={draft.ownerId}
+      models={[]}
+      modelsLoading={false}
+      onAddKey={vi.fn()}
+      fetchJson={fetchJson}
+    />,
+  );
+  const box = screen.getByRole("textbox", { name: "Describe the app you want" });
+  await waitFor(() => expect(box).toHaveValue(draft.text));
+  fireEvent.click(screen.getByRole("button", { name: "Add to prompt" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Repositories" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Settings → Connections" }));
+  await waitFor(() =>
+    expect(push).toHaveBeenCalledWith(`/settings/connections/github?draft=${draft.id}`),
+  );
+});
+
 it("retains the operation ID for an edited refused draft, and a new draft gets a new ID", async () => {
   const draft = await seedDraft();
   const fetchJson = vi.fn(async (_url: string, _init?: RequestInit) =>
