@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const useSession = vi.fn();
 const replace = vi.fn();
 const connections = vi.fn();
+const overview = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace }) }));
 vi.mock("../auth/client.ts", () => ({ authClient: { useSession: () => useSession() } }));
 vi.mock("./connections.tsx", () => ({
@@ -12,7 +13,13 @@ vi.mock("./connections.tsx", () => ({
     return <p>Connected account</p>;
   },
 }));
-const { LiveGitHubConnections } = await import("./live-connections.tsx");
+vi.mock("../settings/connections-overview.tsx", () => ({
+  ConnectionsOverview: () => {
+    overview();
+    return <p>Every connection</p>;
+  },
+}));
+const { LiveConnectionsOverview, LiveGitHubConnections } = await import("./live-connections.tsx");
 
 beforeEach(() => vi.clearAllMocks());
 describe("GitHub connection account gate", () => {
@@ -39,5 +46,16 @@ describe("GitHub connection account gate", () => {
     useSession.mockReturnValue({ data: { user: { isAnonymous: false } }, isPending: false });
     render(<LiveGitHubConnections />);
     expect(screen.getByText("Connected account")).toBeVisible();
+  });
+  it("gates the overview behind the same account check", async () => {
+    useSession.mockReturnValue({ data: null, isPending: false });
+    const signedOut = render(<LiveConnectionsOverview />);
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/sign-in"));
+    expect(overview).not.toHaveBeenCalled();
+    signedOut.unmount();
+
+    useSession.mockReturnValue({ data: { user: { isAnonymous: false } }, isPending: false });
+    render(<LiveConnectionsOverview />);
+    expect(screen.getByText("Every connection")).toBeVisible();
   });
 });

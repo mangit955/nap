@@ -1,8 +1,9 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { type ReactNode, useEffect } from "react";
 import { authClient } from "../auth/client.ts";
+import { ConnectionsOverview } from "../settings/connections-overview.tsx";
 import { GitHubConnections } from "./connections.tsx";
 
 export function LiveGitHubConnections({
@@ -12,6 +13,23 @@ export function LiveGitHubConnections({
   callbackStatus?: string | undefined;
   draftId?: string | undefined;
 }) {
+  return (
+    <AccountGate>
+      <GitHubConnections callbackStatus={callbackStatus} draftId={draftId} />
+    </AccountGate>
+  );
+}
+
+export function LiveConnectionsOverview({ draftId }: { draftId?: string | undefined }) {
+  return (
+    <AccountGate>
+      <ConnectionsOverview draftId={draftId} />
+    </AccountGate>
+  );
+}
+
+/** Connections belong to a permanent account, so nothing is fetched until one is known. */
+function AccountGate({ children }: { children: ReactNode }) {
   const router = useRouter();
   const { data: session, isPending } = authClient.useSession();
   useEffect(() => {
@@ -43,5 +61,5 @@ export function LiveGitHubConnections({
         </div>
       </main>
     );
-  return <GitHubConnections callbackStatus={callbackStatus} draftId={draftId} />;
+  return children;
 }

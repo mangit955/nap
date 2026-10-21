@@ -1,33 +1,37 @@
 "use client";
 
-import {
-  GitHubConnectionsSchema,
-  GitHubConnectResponseSchema,
-  type GitHubInstallation,
-  GitHubRepositoriesSchema,
-  type GitHubRepository,
-  RepositoryImportSchema,
-} from "@nap/shared/github-protocol";
-import { CreatedProjectSchema } from "@nap/shared/projects-protocol";
+/**
+ * The GitHub page of Connections: the accounts nap's App is installed on, and a way to add one.
+ *
+ * Each account opens a drawer with its access and its repositories. Importing a repository is
+ * not done here — the dashboard's new-session composer is where a repository becomes a
+ * workspace, so this page only manages what nap can reach.
+ */
+
+import { GitHubConnectionsSchema, GitHubConnectResponseSchema } from "@nap/shared/github-protocol";
 import { useCallback, useEffect, useState } from "react";
 import { z } from "zod";
 import { credentialedFetch } from "../api/credentialed-fetch.ts";
-import { NapMark } from "../brand/nap-mark.tsx";
 import type { FetchJson } from "../files/use-project-files.ts";
+import { SettingsShell } from "../settings/settings-shell.tsx";
+import {
+  BackLink,
+  BUTTON,
+  Callout,
+  Card,
+  PRIMARY_BUTTON,
+  ROW_BUTTON,
+  Row,
+  Section,
+} from "../settings/settings-ui.tsx";
+import { ChevronRight, ExternalIcon, GithubIcon, PlusIcon } from "../ui/icons.tsx";
+import { ConnectionDrawer, STATUS, TROUBLE } from "./connection-drawer.tsx";
 import { GITHUB_API_URL, githubRequest } from "./request.ts";
 
-const BUTTON =
-  "rounded-lg border border-edge bg-panel px-3 py-2 text-sm font-medium text-ink transition-colors hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-accent";
-const INPUT =
-  "mt-2 w-full rounded-lg border border-edge bg-field px-3 py-2.5 text-sm text-ink outline-none focus:border-accent disabled:opacity-50";
 const disconnectSchema = z.object({ disconnected: z.literal(true) });
 const navigateTo = (url: string) => window.location.assign(url);
-const STATUS = {
-  active: "Connected",
-  suspended: "Suspended",
-  removed: "Uninstalled",
-  disconnected: "Disconnected",
-};
+const GITHUB_APPS_DOCS =
+  "https://docs.github.com/en/apps/using-github-apps/reviewing-and-modifying-installed-github-apps";
 
 export function GitHubConnections({
   fetchJson = credentialedFetch,
@@ -45,6 +49,7 @@ export function GitHubConnections({
   const [connection, setConnection] = useState<z.infer<typeof GitHubConnectionsSchema>>();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const [openId, setOpenId] = useState<number>();
 
   const reload = useCallback(async () => {
     const result = await githubRequest(
@@ -98,434 +103,194 @@ export function GitHubConnections({
       disconnectSchema,
       { method: "DELETE" },
     );
-    if (result.ok) await reload();
-    else setError(result.error);
+    if (result.ok) {
+      // Only this connection's drawer: it may have been closed while the request was out, and
+      // another one opened in its place.
+      setOpenId((current) => (current === installationId ? undefined : current));
+      await reload();
+    } else setError(result.error);
     setBusy(false);
   };
-  const active = connection?.installations.filter((item) => item.status === "active") ?? [];
+
+  const draft = draftId ? `?draft=${draftId}` : "";
+  const appHref = draftId ? `/dashboard?draft=${draftId}&repositories=1` : "/dashboard";
+  const open = connection?.installations.find((item) => item.installationId === openId);
 
   return (
-    <main className="min-h-dvh bg-surface px-5 py-8 text-ink sm:px-8 sm:py-12">
-      <div className="mx-auto max-w-3xl">
-        <a
-          href={draftId ? `/dashboard?draft=${draftId}&repositories=1` : "/dashboard"}
-          className="inline-flex items-center gap-2 text-sm text-muted hover:text-ink"
-        >
-          <NapMark className="size-6" /> Back to workspace
-        </a>
-        <header className="mb-8 mt-10">
-          <p className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-muted">
-            Settings
-          </p>
-          <h1 className="text-3xl font-medium tracking-tight">Connections</h1>
-          <p className="mt-3 max-w-xl text-sm leading-relaxed text-ink-2">
-            Choose the repositories nap can work on. GitHub repository access is separate from
-            signing in and your model provider.
-          </p>
-        </header>
-
-        {callbackStatus && (
-          <p
-            role={callbackStatus === "connected" ? "status" : "alert"}
-            className={`mb-5 rounded-xl border border-edge bg-panel p-4 text-sm ${callbackStatus === "connected" ? "text-ink" : "text-danger"}`}
+    <SettingsShell
+      crumbs={[
+        { label: "Settings" },
+        { label: "Connections", href: `/settings/connections${draft}` },
+        { label: "GitHub" },
+      ]}
+      appHref={appHref}
+      connectionsHref={`/settings/connections${draft}`}
+      nested
+    >
+      <BackLink href={`/settings/connections${draft}`}>Back to Connections</BackLink>
+      <div className="mx-auto mt-8 max-w-[720px]">
+        <h1 className="flex items-center gap-2.5 text-lg font-medium text-ink">
+          <GithubIcon className="size-5" />
+          GitHub
+        </h1>
+        <p className="mt-1.5 text-[13px] text-muted">
+          Let nap work in your repositories. Pull requests stay yours to review and merge.{" "}
+          <a
+            href={GITHUB_APPS_DOCS}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-accent-ink underline-offset-4 hover:underline"
           >
-            {callbackStatus === "connected"
-              ? "GitHub connected. Choose a repository to import."
-              : "The GitHub connection could not be completed. Reconnect to try again."}
-          </p>
-        )}
+            Documentation
+          </a>
+        </p>
 
-        <section
-          aria-labelledby="github-title"
-          className="rounded-2xl border border-edge bg-panel p-5 sm:p-6"
-        >
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <h2 id="github-title" className="text-lg font-medium">
-                GitHub
-              </h2>
-              <p className="mt-1 text-sm text-muted">
-                Install the nap GitHub App on your account or organization.
-              </p>
-            </div>
-            {connection?.configured && (
+        {callbackStatus &&
+          (callbackStatus === "connected" ? (
+            <Callout
+              role="status"
+              title="GitHub connected"
+              action={
+                <a href={appHref} className={PRIMARY_BUTTON}>
+                  {draftId ? "Back to draft" : "Open dashboard"}
+                </a>
+              }
+            >
+              Choose one of its repositories in the new-session composer to start working on it.
+            </Callout>
+          ) : (
+            <Callout role="alert" tone="danger" title="GitHub was not connected">
+              The GitHub connection could not be completed. Add the connection again to retry.
+            </Callout>
+          ))}
+
+        <Section
+          title="Connections"
+          description="Integrate nap with GitHub"
+          action={
+            connection?.configured && (
               <button
                 type="button"
-                className={BUTTON}
+                className={PRIMARY_BUTTON}
                 disabled={busy}
                 onClick={() => void connect()}
               >
-                Connect GitHub
+                <PlusIcon className="size-3.5" />
+                Add connection
               </button>
+            )
+          }
+        >
+          <Card>
+            {!connection && !error && (
+              <p role="status" className="px-5 py-4 text-[13px] text-muted">
+                Loading connections…
+              </p>
             )}
-          </div>
-          {!connection && !error && (
-            <p role="status" className="mt-5 text-sm text-muted">
-              Loading connections…
-            </p>
-          )}
-          {connection?.configured === false && (
-            <p className="mt-5 rounded-lg bg-field p-4 text-sm text-ink-2">
-              GitHub is not configured for this nap deployment yet. The deployment administrator
-              needs to register the GitHub App and configure its credentials.
-            </p>
-          )}
-          {connection?.configured && connection.installations.length === 0 && (
-            <p className="mt-5 text-sm text-muted">No GitHub connections yet.</p>
-          )}
-          <ul className="mt-5 space-y-3">
-            {connection?.installations.map((item) => (
-              <li key={item.installationId} className="rounded-xl border border-edge p-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <p className="font-medium">{item.accountLogin}</p>
-                    <p className="mt-1 text-xs text-muted">
-                      {item.accountType === "Organization" ? "Organization" : "Personal account"} ·{" "}
-                      {STATUS[item.status]}
-                    </p>
-                  </div>
-                  <span className="rounded-full border border-edge px-2.5 py-1 text-xs text-ink-2">
-                    {STATUS[item.status]}
-                  </span>
-                </div>
-                <p className="mt-3 text-xs leading-relaxed text-muted">
-                  Connected by {item.githubLogin}. Repository access follows the App selection on
-                  GitHub.
+            {connection?.configured === false && (
+              <p className="px-5 py-4 text-[13px] leading-relaxed text-ink-2">
+                GitHub is not configured for this nap deployment yet. The deployment administrator
+                needs to register the GitHub App and configure its credentials.
+              </p>
+            )}
+            {connection?.configured && connection.installations.length === 0 && (
+              <div className="px-5 py-4">
+                <p className="text-sm text-ink">No GitHub connections yet.</p>
+                <p className="mt-0.5 text-[13px] text-muted">
+                  Add a connection to choose which repositories nap can reach.
                 </p>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <a
-                    href={installationUrl(item)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    aria-label={`Manage access for ${item.accountLogin}`}
-                    className={BUTTON}
-                  >
-                    Manage access
-                  </a>
-                  {item.status !== "active" && (
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => void connect(item.installationId)}
-                      className={BUTTON}
-                    >
-                      Reconnect {item.accountLogin}
-                    </button>
-                  )}
-                  {item.status !== "disconnected" && (
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => void disconnect(item.installationId)}
-                      className={BUTTON}
-                    >
-                      Disconnect {item.accountLogin}
-                    </button>
-                  )}
-                </div>
-              </li>
+              </div>
+            )}
+            {error && !connection && (
+              <p className="px-5 py-4 text-[13px] text-muted">Connections are unavailable.</p>
+            )}
+            {connection?.installations.map((item) => (
+              <button
+                key={item.installationId}
+                type="button"
+                onClick={() => {
+                  // A drawer shows only what happens inside it, not the page's last failure.
+                  setError(undefined);
+                  setOpenId(item.installationId);
+                }}
+                className={ROW_BUTTON}
+              >
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm text-ink">@{item.accountLogin}</span>
+                  <span className="mt-0.5 block text-[13px] text-muted">
+                    github.com
+                    {item.status !== "active" && (
+                      <>
+                        {" · "}
+                        <span className={TROUBLE.has(item.status) ? "text-danger" : undefined}>
+                          {STATUS[item.status]}
+                        </span>
+                      </>
+                    )}
+                  </span>
+                </span>
+                <ChevronRight className="size-4 shrink-0 text-muted" />
+              </button>
             ))}
-          </ul>
-          {error && (
-            <div className="mt-5">
-              <p role="alert" className="text-sm text-danger">
+          </Card>
+          {error && !open && (
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <p role="alert" className="text-[13px] text-danger">
                 {error}
               </p>
-              <button type="button" onClick={() => void reload()} className={`${BUTTON} mt-3`}>
+              <button type="button" onClick={() => void reload()} className={BUTTON}>
                 Refresh connections
               </button>
             </div>
           )}
-          {busy && (
-            <p role="status" className="mt-4 text-sm text-muted">
+          {busy && !open && (
+            <p role="status" className="mt-3 text-[13px] text-muted">
               Updating GitHub access…
             </p>
           )}
-          <p className="mt-5 text-xs leading-relaxed text-muted">
-            Disconnecting stops nap from using this connection. To remove the App from GitHub, use
-            Manage access.
-          </p>
-        </section>
+        </Section>
 
-        {connection?.configured && active.length > 0 && (
-          <RepositoryImport
-            installations={active}
-            baseUrl={baseUrl}
-            fetchJson={fetchJson}
-            navigate={navigate}
-          />
+        {connection?.configured && (
+          <Section title="General" description="How nap acts on GitHub">
+            <Card>
+              <Row
+                title="Pull request author"
+                description="Pull requests open as the nap GitHub App. Your own GitHub authorization only proves access, and is revoked straight after."
+              >
+                <span className="text-[13px] text-ink-2">GitHub App</span>
+              </Row>
+              <Row
+                title="Review feedback"
+                description="Comments on nap's pull requests wait for your approval before nap acts on them."
+              >
+                <span className="text-[13px] text-ink-2">Always asks</span>
+              </Row>
+            </Card>
+            <a
+              href="https://github.com/settings/installations"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-3 inline-flex items-center gap-1.5 px-3 text-[13px] text-muted transition-colors hover:text-ink"
+            >
+              Manage installations on GitHub
+              <ExternalIcon className="size-3.5" />
+            </a>
+          </Section>
         )}
       </div>
-    </main>
-  );
-}
 
-function installationUrl(item: GitHubInstallation): string {
-  return item.accountType === "Organization"
-    ? `https://github.com/organizations/${encodeURIComponent(item.accountLogin)}/settings/installations/${item.installationId}`
-    : `https://github.com/settings/installations/${item.installationId}`;
-}
-
-function RepositoryImport({
-  installations,
-  baseUrl,
-  fetchJson,
-  navigate,
-}: {
-  installations: GitHubInstallation[];
-  baseUrl: string;
-  fetchJson: FetchJson;
-  navigate: (url: string) => void;
-}) {
-  const [selectedInstallation, setSelectedInstallation] = useState(
-    installations[0]?.installationId,
-  );
-  const installationId = installations.some((item) => item.installationId === selectedInstallation)
-    ? selectedInstallation
-    : installations[0]?.installationId;
-  const [repositories, setRepositories] = useState<GitHubRepository[]>([]);
-  const [repositoryId, setRepositoryId] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string>();
-  const [busy, setBusy] = useState(false);
-  const [name, setName] = useState("");
-  const [branch, setBranch] = useState("");
-  const [setup, setSetup] = useState("bun install --frozen-lockfile");
-  const [dev, setDev] = useState("");
-  const [port, setPort] = useState("");
-  const [autoPublish, setAutoPublish] = useState(true);
-  const [revision, setRevision] = useState(0);
-
-  useEffect(() => {
-    void revision;
-    let live = true;
-    setLoading(true);
-    setRepositories([]);
-    setRepositoryId("");
-    setError(undefined);
-    void githubRequest(
-      fetchJson,
-      `${baseUrl}/github/installations/${installationId}/repositories`,
-      GitHubRepositoriesSchema,
-    ).then((result) => {
-      if (!live) return;
-      if (result.ok) setRepositories(result.value.repositories);
-      else setError(result.error);
-      setLoading(false);
-    });
-    return () => {
-      live = false;
-    };
-  }, [installationId, baseUrl, fetchJson, revision]);
-
-  const submit = async () => {
-    const request = RepositoryImportSchema.safeParse({
-      installationId,
-      repositoryId: Number(repositoryId),
-      name,
-      baseBranch: branch,
-      environment: {
-        setupCommand: setup.trim() || null,
-        devCommand: dev.trim() || null,
-        previewPort: port === "" ? null : Number(port),
-      },
-      autoPublish,
-    });
-    if (!request.success) {
-      setError(request.error.issues[0]?.message ?? "Check the repository settings.");
-      return;
-    }
-    setBusy(true);
-    setError(undefined);
-    const result = await githubRequest(
-      fetchJson,
-      `${baseUrl}/github/import`,
-      CreatedProjectSchema,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(request.data),
-      },
-    );
-    if (result.ok) navigate(`/p/${result.value.projectId}`);
-    else {
-      setError(result.error);
-      setBusy(false);
-    }
-  };
-
-  return (
-    <section
-      aria-labelledby="import-title"
-      id="import"
-      className="mt-6 rounded-2xl border border-edge bg-panel p-5 sm:p-6"
-    >
-      <h2 id="import-title" className="text-lg font-medium">
-        Import a repository
-      </h2>
-      <p className="mt-2 text-sm leading-relaxed text-muted">
-        Start an isolated cloud workspace from an existing branch. Nap keeps its history and works
-        on dedicated branches.
-      </p>
-      <form
-        className="mt-6 space-y-5"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void submit();
-        }}
-      >
-        <label className="block text-sm">
-          GitHub account
-          <select
-            className={INPUT}
-            value={installationId ?? ""}
-            disabled={busy}
-            onChange={(event) => setSelectedInstallation(Number(event.target.value))}
-          >
-            {installations.map((item) => (
-              <option key={item.installationId} value={item.installationId}>
-                {item.accountLogin}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="block text-sm">
-          Repository
-          <select
-            className={INPUT}
-            value={repositoryId}
-            required
-            disabled={busy || loading}
-            onChange={(event) => {
-              setRepositoryId(event.target.value);
-              const repo = repositories.find((item) => String(item.id) === event.target.value);
-              setName(repo?.fullName.split("/")[1] ?? "");
-              setBranch(repo?.defaultBranch ?? "");
-            }}
-          >
-            <option value="">{loading ? "Loading repositories…" : "Choose a repository"}</option>
-            {repositories.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.fullName}
-                {item.private ? " · private" : " · public"}
-              </option>
-            ))}
-          </select>
-        </label>
-        {!loading && repositories.length === 0 && (
-          <p className="text-sm text-muted">
-            No repositories available. Choose repositories in Manage access, then refresh.
-          </p>
-        )}
-        <button
-          type="button"
-          className="text-xs text-ink-2 underline underline-offset-4"
-          disabled={busy || loading}
-          onClick={() => setRevision((value) => value + 1)}
-        >
-          Refresh repositories
-        </button>
-        <div className="grid gap-5 sm:grid-cols-2">
-          <label className="block text-sm">
-            Project name
-            <input
-              className={INPUT}
-              value={name}
-              required
-              maxLength={100}
-              disabled={busy}
-              onChange={(event) => setName(event.target.value)}
-            />
-          </label>
-          <label className="block text-sm">
-            Base branch
-            <input
-              className={INPUT}
-              value={branch}
-              required
-              disabled={busy}
-              spellCheck={false}
-              onChange={(event) => setBranch(event.target.value)}
-            />
-          </label>
-        </div>
-        <fieldset className="space-y-4 rounded-xl border border-edge p-4">
-          <legend className="px-2 text-sm font-medium">Environment setup</legend>
-          <p className="text-xs leading-relaxed text-muted">
-            Commands run inside the sandbox at the repository root. Choose commands supported by
-            this repository. Setup runs on import and restore; leave it empty to skip dependency
-            installation. Setup must leave tracked files unchanged. Use a frozen lockfile and add
-            generated outputs to .gitignore.
-          </p>
-          <label className="block text-sm">
-            Setup command
-            <input
-              className={`${INPUT} font-mono`}
-              value={setup}
-              disabled={busy}
-              spellCheck={false}
-              placeholder="npm ci"
-              onChange={(event) => setSetup(event.target.value)}
-            />
-          </label>
-          <label className="block text-sm">
-            Development command
-            <input
-              className={`${INPUT} font-mono`}
-              value={dev}
-              disabled={busy}
-              spellCheck={false}
-              placeholder="npm run dev -- --host 0.0.0.0"
-              onChange={(event) => setDev(event.target.value)}
-            />
-          </label>
-          <label className="block text-sm">
-            Preview port
-            <input
-              className={INPUT}
-              type="number"
-              min={1024}
-              max={65535}
-              value={port}
-              disabled={busy}
-              placeholder="5173"
-              onChange={(event) => setPort(event.target.value)}
-            />
-          </label>
-          <p className="text-xs leading-relaxed text-muted">
-            A preview is optional. Set both the development command and its port, and bind the
-            server to 0.0.0.0.
-          </p>
-        </fieldset>
-        <label className="flex items-start gap-3 text-sm">
-          <input
-            type="checkbox"
-            checked={autoPublish}
-            disabled={busy}
-            onChange={(event) => setAutoPublish(event.target.checked)}
-            className="mt-0.5 accent-accent"
-          />
-          <span>
-            Create a draft pull request after verified work
-            <span className="mt-1 block text-xs leading-relaxed text-muted">
-              Nap pushes its dedicated branch. You review and merge on GitHub. Feedback always waits
-              for your approval.
-            </span>
-          </span>
-        </label>
-        {error && (
-          <p role="alert" className="text-sm text-danger">
-            {error}
-          </p>
-        )}
-        <button
-          type="submit"
-          disabled={busy || loading || !repositoryId}
-          className="rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-white hover:bg-accent/90 disabled:opacity-50"
-        >
-          {busy ? "Importing…" : "Import repository"}
-        </button>
-      </form>
-    </section>
+      {open && (
+        <ConnectionDrawer
+          installation={open}
+          busy={busy}
+          error={error}
+          fetchJson={fetchJson}
+          baseUrl={baseUrl}
+          onClose={() => setOpenId(undefined)}
+          onReconnect={() => void connect(open.installationId)}
+          onDisconnect={() => void disconnect(open.installationId)}
+        />
+      )}
+    </SettingsShell>
   );
 }
