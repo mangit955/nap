@@ -1,6 +1,4 @@
-import { AppShell } from "../../../components/app-shell.tsx";
-import { Dashboard } from "../../../dashboard/dashboard.tsx";
-import { SessionSidebar } from "../../../workspace/session-sidebar.tsx";
+import { LiveWorkspace } from "../../../workspace/live-workspace.tsx";
 
 /**
  * One project's workspace.
@@ -13,11 +11,5 @@ import { SessionSidebar } from "../../../workspace/session-sidebar.tsx";
 export default async function Page({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params;
 
-  return (
-    <Dashboard
-      contentLandmark={false}
-      sidebar={<SessionSidebar projectId={projectId} />}
-      hero={<AppShell projectId={projectId} />}
-    />
-  );
+  return <LiveWorkspace projectId={projectId} />;
 }

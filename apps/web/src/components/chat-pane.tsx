@@ -47,6 +47,7 @@ const NO_JOBS = jobView([]);
  * the transcript. See `use-turn-submission.ts` for the request reconciliation.
  */
 export function ChatPane({
+  draftIdentity,
   active = true,
   events,
   jobs = NO_JOBS,
@@ -70,6 +71,7 @@ export function ChatPane({
   card,
   onDismissCard = () => {},
 }: {
+  draftIdentity?: { ownerId: string; projectId: string } | undefined;
   active?: boolean;
   events: readonly StoredEvent[];
   /**
@@ -228,6 +230,7 @@ export function ChatPane({
 
           <div ref={composerDock} className="chat-composer-dock absolute inset-x-0 bottom-0 z-10">
             <ChatInput
+              draftIdentity={draftIdentity}
               timeline={empty ? undefined : scroller}
               contextControl={
                 <ContextControl
@@ -319,6 +322,7 @@ function EmptyState() {
 }
 
 export function LiveChatPane({
+  ownerId,
   active = true,
   sessionId,
   projectId,
@@ -326,6 +330,7 @@ export function LiveChatPane({
   files,
   fetchJson,
 }: {
+  ownerId?: string | undefined;
   active?: boolean;
   sessionId: string | undefined;
   /** Only so a prompt typed on the front page can be claimed by the project it was meant for. */
@@ -394,6 +399,7 @@ export function LiveChatPane({
       <ApiKeyPanel open={keyPanelOpen} onClose={() => setKeyPanelOpen(false)} keyState={key} />
 
       <ChatPane
+        draftIdentity={ownerId && projectId ? { ownerId, projectId } : undefined}
         active={active}
         events={events}
         jobs={jobs}

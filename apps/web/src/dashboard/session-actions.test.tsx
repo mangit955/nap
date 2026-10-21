@@ -30,7 +30,7 @@ it("deletes only after the confirmation and allows cancelling", () => {
   render(<SessionActions name="Portfolio" onDelete={onDelete} />);
   const open = () => {
     fireEvent.click(screen.getByRole("button", { name: "Session actions for Portfolio" }));
-    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete project" }));
   };
   open();
   expect(onDelete).not.toHaveBeenCalled();
@@ -48,4 +48,13 @@ it("dismisses actions on Escape and restores the trigger", () => {
   fireEvent.keyDown(document, { key: "Escape" });
   expect(screen.queryByRole("button", { name: "Rename" })).not.toBeInTheDocument();
   expect(trigger).toHaveFocus();
+});
+
+it("keeps actions open while their menu scrolls, but closes when the anchor moves", () => {
+  render(<SessionActions name="Portfolio" onRename={vi.fn()} onDelete={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "Session actions for Portfolio" }));
+  fireEvent.scroll(screen.getByRole("group", { name: "Actions for Portfolio" }));
+  expect(screen.getByRole("button", { name: "Delete project" })).toBeInTheDocument();
+  fireEvent.scroll(window);
+  expect(screen.queryByRole("button", { name: "Delete project" })).not.toBeInTheDocument();
 });

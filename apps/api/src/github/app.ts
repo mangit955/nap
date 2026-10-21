@@ -341,7 +341,7 @@ export class GitHubApp {
     const token = await this.token(installationId, null, { metadata: "read" }, refresh);
     if (!token.ok) return token;
     const repositories: GitHubRepository[] = [];
-    for (let page = 1; page <= 10; page += 1) {
+    for (let page = 1; ; page += 1) {
       const response = await this.#http(
         `/installation/repositories?per_page=100&page=${page}`,
         `Bearer ${token.value}`,
@@ -361,13 +361,6 @@ export class GitHubApp {
       }
       if (response.value.repositories.length < 100) return { ok: true, value: repositories };
     }
-    return {
-      ok: false,
-      error: {
-        code: "unavailable",
-        message: "Select fewer than 1,000 repositories in GitHub's app settings, then refresh.",
-      },
-    };
   }
 
   permission(installationId: number, repository: GitHubRepository, login: string) {

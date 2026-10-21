@@ -1,24 +1,39 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ApiKeyPanel } from "../account/api-key-panel.tsx";
 import { useApiKey } from "../account/use-api-key.ts";
 import { authClient } from "../auth/client.ts";
 import { type ProjectScope, recentProjects, scopeCounts } from "../dashboard/filters.ts";
 import { Sidebar } from "../dashboard/sidebar.tsx";
-import { useProjects } from "../projects/use-projects.ts";
+import { ComposerDraftStore } from "../projects/composer-draft.ts";
+import { useSessionNavigation } from "../projects/use-session-navigation.ts";
 
 export function SessionSidebar({ projectId }: { projectId: string }) {
   const router = useRouter();
   const { data } = authClient.useSession();
-  const { projects, status, actionError, rename, remove, close } = useProjects();
+  const navigation = useSessionNavigation();
+  const { projects, status, actionError, rename, remove, close } = navigation;
+  const lastRead = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const row = projects.find((item) => item.projectId === projectId);
+    if (!row || document.hidden) return;
+    const stamp = `${projectId}:${row.activityAt}`;
+    if (lastRead.current === stamp) return;
+    lastRead.current = stamp;
+    if (
+      row.navigation.unread ||
+      (row.activityAt && (!row.navigation.readAt || row.activityAt > row.navigation.readAt))
+    )
+      void navigation.change(projectId, { kind: "read", at: row.activityAt, unread: false });
+  }, [projectId, projects, navigation]);
   const [scope, setScope] = useState<ProjectScope>("all");
   const [settings, setSettings] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [busyProjectId, setBusyProjectId] = useState<string>();
   const key = useApiKey();
-  const run = (id: string, action: (id: string) => Promise<void>) => {
+  const run = (id: string, action: (id: string) => Promise<unknown>) => {
     setBusyProjectId(id);
     void action(id).finally(() => setBusyProjectId(undefined));
   };
@@ -26,6 +41,8 @@ export function SessionSidebar({ projectId }: { projectId: string }) {
     <>
       <ApiKeyPanel open={settings} onClose={() => setSettings(false)} keyState={key} />
       <Sidebar
+        navigation={navigation}
+        ownerId={data?.user.id}
         name={data?.user.isAnonymous ? "Guest" : data?.user.name || "Your account"}
         email={data?.user.isAnonymous ? undefined : data?.user.email}
         avatarUrl={data?.user.image ?? undefined}
@@ -40,7 +57,7 @@ export function SessionSidebar({ projectId }: { projectId: string }) {
         signingOut={signingOut}
         loading={status === "loading"}
         error={actionError ?? (status === "error" ? "Could not load sessions." : undefined)}
-        busyProjectId={busyProjectId}
+        busyProjectId={navigation.busyProjectId ?? busyProjectId}
         onRename={(id, name) => void rename(id, name)}
         onDelete={(id) =>
           run(id, async (removedId) => {
@@ -52,7 +69,13 @@ export function SessionSidebar({ projectId }: { projectId: string }) {
           setSigningOut(true);
           void authClient
             .signOut()
-            .then(() => router.replace("/"))
+            .then(async () => {
+              if (data?.user.id) {
+                await new ComposerDraftStore().clearOwner(data.user.id).catch(() => {});
+                sessionStorage.removeItem(`nap.composer.${data.user.id}`);
+              }
+              router.replace("/");
+            })
             .catch(() => setSigningOut(false));
         }}
       />

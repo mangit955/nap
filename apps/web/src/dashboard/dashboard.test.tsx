@@ -63,11 +63,11 @@ it("keeps every portalled session action reachable by Tab inside mobile sessions
     openSessionActions();
     expect(screen.getByRole("button", { name: "Rename" })).toHaveFocus();
     fireEvent.keyDown(document.activeElement ?? document.body, { key: "Tab" });
-    expect(screen.getByRole("button", { name: "Put away" })).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Put away workspace" })).toHaveFocus();
     fireEvent.keyDown(document.activeElement ?? document.body, { key: "Tab" });
-    expect(screen.getByRole("button", { name: "Delete" })).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Delete project" })).toHaveFocus();
     fireEvent.keyDown(document.activeElement ?? document.body, { key: "Tab", shiftKey: true });
-    expect(screen.getByRole("button", { name: "Put away" })).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Put away workspace" })).toHaveFocus();
   } finally {
     rects.mockRestore();
   }
@@ -203,4 +203,42 @@ it("closes mobile sessions when New session is chosen", () => {
     "aria-expanded",
     "false",
   );
+});
+
+it("includes repository scope and Settings in the real mobile sidebar's Tab order", () => {
+  const rects = vi
+    .spyOn(HTMLElement.prototype, "getClientRects")
+    .mockReturnValue(
+      Object.assign([new DOMRect(0, 0, 100, 30)], { item: () => new DOMRect(0, 0, 100, 30) }),
+    );
+  try {
+    render(<Dashboard sidebar={interactiveSidebar()} hero={<p>Composer</p>} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open sessions" }));
+    const reached = new Set<Element | null>();
+    for (let index = 0; index < 30; index++) {
+      fireEvent.keyDown(document.activeElement ?? document.body, { key: "Tab" });
+      reached.add(document.activeElement);
+    }
+    expect(reached.has(screen.getByRole("combobox", { name: "Repository scope" }))).toBe(true);
+    expect(reached.has(screen.getByLabelText("Settings", { selector: "summary" }))).toBe(true);
+    expect(reached.has(screen.getByRole("button", { name: "Close sessions" }))).toBe(true);
+  } finally {
+    rects.mockRestore();
+  }
+});
+
+it("resizes the shared sidebar by keyboard and restores its width", () => {
+  localStorage.clear();
+  const view = render(<Dashboard sidebar={<p>Sessions</p>} hero={<p>Composer</p>} />);
+  const handle = screen.getByRole("separator", { name: "Sidebar width" });
+  expect(handle).toHaveAttribute("aria-valuenow", "256");
+  fireEvent.keyDown(handle, { key: "ArrowRight" });
+  expect(handle).toHaveAttribute("aria-valuenow", "272");
+  view.unmount();
+  render(<Dashboard sidebar={<p>Sessions</p>} hero={<p>Composer</p>} />);
+  expect(screen.getByRole("separator", { name: "Sidebar width" })).toHaveAttribute(
+    "aria-valuenow",
+    "272",
+  );
+  localStorage.clear();
 });

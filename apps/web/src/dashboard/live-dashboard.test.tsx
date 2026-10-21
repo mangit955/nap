@@ -23,8 +23,8 @@ vi.mock("../auth/client.ts", () => ({
   authClient: { useSession: () => useSession(), signOut: () => signOut() },
 }));
 
-vi.mock("../projects/use-projects.ts", () => ({
-  useProjects: () => {
+vi.mock("../projects/use-session-navigation.ts", () => ({
+  useSessionNavigation: () => {
     useProjects();
     return {
       projects: [],
@@ -82,7 +82,13 @@ describe("the dashboard, before there is a session", () => {
 
   it("draws the page once there is somebody to draw it for", () => {
     useSession.mockReturnValue({
-      data: { user: { name: "Manas Raghuwanshi", email: "manas@example.com" } },
+      data: {
+        user: {
+          id: "00000000-0000-4000-8000-000000000001",
+          name: "Manas Raghuwanshi",
+          email: "manas@example.com",
+        },
+      },
       isPending: false,
     });
 
@@ -97,7 +103,13 @@ describe("the dashboard, before there is a session", () => {
 describe("signing out", () => {
   beforeEach(() => {
     useSession.mockReturnValue({
-      data: { user: { name: "Manas Raghuwanshi", email: "manas@example.com" } },
+      data: {
+        user: {
+          id: "00000000-0000-4000-8000-000000000001",
+          name: "Manas Raghuwanshi",
+          email: "manas@example.com",
+        },
+      },
       isPending: false,
     });
   });

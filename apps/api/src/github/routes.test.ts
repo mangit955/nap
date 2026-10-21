@@ -495,3 +495,22 @@ it("authenticates raw webhook bytes and durably deduplicates the delivery withou
   expect(await f.store.claimDelivery()).toMatchObject({ id: "delivery-123", attempts: 1 });
   expect(await f.store.claimDelivery()).toBeNull();
 });
+
+it.each(["success", "cancel"])(
+  "returns the owner to the saved draft after GitHub %s",
+  async (outcome) => {
+    const f = fixture();
+    const draftId = randomUUID();
+    const initiated = await f.request("/github/connect", { draftId });
+    const { url } = z.object({ url: z.string() }).parse(await initiated.json());
+    const state = new URL(url).searchParams.get("state");
+    const setup = await f.app.request(`/github/setup?installation_id=99&state=${state}`);
+    const authState = new URL(setup.headers.get("location")!).searchParams.get("state");
+    const callback = await f.app.request(
+      `/github/callback?state=${authState}&${outcome === "success" ? "code=accepted" : "error=access_denied"}`,
+    );
+    expect(callback.headers.get("location")).toBe(
+      `${config.webOrigin}/dashboard?draft=${draftId}&repositories=1&github=${outcome === "success" ? "connected" : "error"}`,
+    );
+  },
+);

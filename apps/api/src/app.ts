@@ -1,3 +1,5 @@
+import type { SessionNavigationStore } from "@nap/shared/ports/session-navigation-store";
+import { registerNavigationRoutes } from "./projects/navigation-routes.ts";
 /**
  * The HTTP surface.
  *
@@ -25,6 +27,7 @@ import { idsFromRequest } from "./log-ids.ts";
 import { METRICS_CONTENT_TYPE, type Metrics } from "./metrics.ts";
 import { type ModelRouteDeps, registerModelRoutes } from "./models/routes.ts";
 import { type ProjectRouteDeps, registerProjectRoutes } from "./projects/routes.ts";
+import { registerSessionStartRoutes, type SessionStartRouteDeps } from "./projects/start-routes.ts";
 import { registerTurnRoutes, type TurnRouteDeps } from "./turns/routes.ts";
 import { type HeartbeatOptions, openEventStream } from "./ws/event-stream.ts";
 import { parseStreamQuery } from "./ws/query.ts";
@@ -37,6 +40,8 @@ import { parseStreamQuery } from "./ws/query.ts";
 export type UpgradeWebSocket = (c: Context, events: WSEvents) => Promise<Response>;
 
 export type AppDeps = {
+  sessionNavigation?: { store: SessionNavigationStore; webOrigin: string };
+  sessionStarts?: SessionStartRouteDeps;
   github?: GitHubRouteDeps;
   logger: Logger;
   /**
@@ -201,6 +206,8 @@ export function createApp(deps: AppDeps): Hono<{ Variables: AuthVariables }> {
    */
   app.use("*", requireUser(deps.authenticate));
   if (deps.github !== undefined) registerGitHubRoutes(app, deps.github);
+  if (deps.sessionStarts !== undefined) registerSessionStartRoutes(app, deps.sessionStarts);
+  if (deps.sessionNavigation !== undefined) registerNavigationRoutes(app, deps.sessionNavigation);
 
   /**
    * What is reachable from here, for a person to read. The endpoint the other two are not.

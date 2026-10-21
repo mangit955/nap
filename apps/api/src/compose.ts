@@ -1,3 +1,5 @@
+import type { SessionNavigationStore } from "@nap/shared/ports/session-navigation-store";
+import type { SessionStartStore } from "@nap/shared/ports/session-start-store";
 /**
  * The composition: everything above the infrastructure, assembled from parts somebody else chose.
  *
@@ -117,6 +119,8 @@ export type NapConfig = Pick<
 export type NapRole = "api" | "worker" | "reaper" | "all";
 
 export type NapDeps = {
+  sessionStarts?: SessionStartStore;
+  sessionNavigation?: SessionNavigationStore;
   github?: { store: GitHubStore; app: GitHubApp | null; broker?: GitBroker };
   config: NapConfig;
   /** Defaults to `all`: a composition that was not told is one process doing everything. */
@@ -380,6 +384,40 @@ export function composeNap(deps: NapDeps): ComposedNap {
             ),
         });
   const app = createApp({
+    ...(deps.sessionNavigation === undefined
+      ? {}
+      : { sessionNavigation: { store: deps.sessionNavigation, webOrigin: config.NAP_WEB_ORIGIN } }),
+    ...(deps.sessionStarts === undefined
+      ? {}
+      : {
+          sessionStarts: {
+            store: deps.sessionStarts,
+            projects: deps.projects,
+            webOrigin: config.NAP_WEB_ORIGIN,
+            github:
+              github === undefined || deps.github === undefined
+                ? undefined
+                : { integration: github, app: deps.github.app },
+            admission: {
+              keys: openCallerKey,
+              allowedModels: config.NAP_ALLOWED_MODELS,
+              freeModel: config.NAP_FREE_MODEL,
+              defaultModel: config.NAP_MODEL,
+              limits: {
+                ...deps.rateLimits,
+                projects: deps.projects,
+                sandboxes: {
+                  perUser: config.NAP_MAX_SANDBOXES_PER_USER,
+                  total: config.NAP_MAX_SANDBOXES_TOTAL,
+                },
+                freeSandboxes: {
+                  perUser: config.NAP_FREE_MAX_SANDBOXES_PER_USER,
+                  total: config.NAP_MAX_SANDBOXES_TOTAL,
+                },
+              },
+            },
+          },
+        }),
     ...(github === undefined || deps.github === undefined
       ? {}
       : {

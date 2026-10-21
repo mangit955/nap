@@ -34,11 +34,13 @@ export function GitHubConnections({
   baseUrl = GITHUB_API_URL,
   navigate = navigateTo,
   callbackStatus,
+  draftId,
 }: {
   fetchJson?: FetchJson;
   baseUrl?: string;
   navigate?: (url: string) => void;
   callbackStatus?: string | undefined;
+  draftId?: string | undefined;
 }) {
   const [connection, setConnection] = useState<z.infer<typeof GitHubConnectionsSchema>>();
   const [error, setError] = useState<string>();
@@ -77,7 +79,7 @@ export function GitHubConnections({
       {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(installationId === undefined ? {} : { installationId }),
+        body: JSON.stringify({ installationId, draftId }),
       },
     );
     if (result.ok) navigate(result.value.url);
@@ -106,7 +108,7 @@ export function GitHubConnections({
     <main className="min-h-dvh bg-surface px-5 py-8 text-ink sm:px-8 sm:py-12">
       <div className="mx-auto max-w-3xl">
         <a
-          href="/dashboard"
+          href={draftId ? `/dashboard?draft=${draftId}&repositories=1` : "/dashboard"}
           className="inline-flex items-center gap-2 text-sm text-muted hover:text-ink"
         >
           <NapMark className="size-6" /> Back to workspace

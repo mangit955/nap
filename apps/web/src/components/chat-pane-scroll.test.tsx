@@ -1,6 +1,7 @@
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ComposerDraftStore } from "../projects/composer-draft.ts";
 import { ChatPane } from "./chat-pane.tsx";
 
 const message: StoredEvent = {
@@ -187,5 +188,54 @@ describe("the resting composer", () => {
     const { timeline, composer } = show();
     fireEvent.wheel(timeline, { deltaY: -80 });
     expect(composer).not.toHaveAttribute("data-resting", "true");
+  });
+
+  it("retains the two-action Add menu while resting and expands repository details", () => {
+    const { timeline, composer } = show({ model: "openai/gpt-5.6-luna" });
+    const input = screen.getByRole("textbox", { name: "Message" });
+    fireEvent.change(input, { target: { value: "Keep the workspace draft" } });
+    const add = screen.getByRole("button", { name: "Add to prompt" });
+    const context = screen.getByLabelText(/^Context,/);
+    fireEvent.wheel(timeline, { deltaY: -80 });
+    expect(composer).toHaveAttribute("data-resting", "true");
+    expect(screen.getByRole("button", { name: "Add to prompt" })).toBe(add);
+    expect(screen.getByLabelText(/^Context,/)).toBe(context);
+    fireEvent.click(add);
+    expect(screen.getAllByRole("menuitem")).toHaveLength(2);
+    expect(screen.getByRole("menuitem", { name: "Upload media" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Repositories" }));
+    expect(composer).not.toHaveAttribute("data-resting", "true");
+    expect(screen.getByText("This session keeps its current codebase.")).toBeVisible();
+    expect(screen.getByRole("link", { name: "Start new session from GitHub" })).toHaveAttribute(
+      "href",
+      "/dashboard?repositories=1",
+    );
+    expect(input).toHaveValue("Keep the workspace draft");
+    fireEvent.wheel(timeline, { deltaY: -80 });
+    expect(composer).not.toHaveAttribute("data-resting", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Close repository details" }));
+    fireEvent.wheel(timeline, { deltaY: -80 });
+    expect(composer).toHaveAttribute("data-resting", "true");
+  });
+
+  it("does not collapse while the Add menu is open", () => {
+    const { timeline, composer } = show();
+    fireEvent.click(screen.getByRole("button", { name: "Add to prompt" }));
+    fireEvent.wheel(timeline, { deltaY: -80 });
+    expect(composer).not.toHaveAttribute("data-resting", "true");
+    expect(screen.getAllByRole("menuitem")).toHaveLength(2);
+  });
+
+  it("keeps draft storage failures visible and expanded while reading history", async () => {
+    vi.spyOn(ComposerDraftStore.prototype, "load").mockRejectedValue(new Error("Storage blocked"));
+    vi.spyOn(ComposerDraftStore.prototype, "save").mockResolvedValue();
+    const { timeline, composer } = show({
+      draftIdentity: { ownerId: crypto.randomUUID(), projectId: crypto.randomUUID() },
+    });
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Could not restore the draft. Browser storage is unavailable.");
+    fireEvent.wheel(timeline, { deltaY: -80 });
+    expect(composer).not.toHaveAttribute("data-resting", "true");
+    expect(alert).toBeVisible();
   });
 });

@@ -4,6 +4,7 @@ import type {
   RepositoryJob,
 } from "@nap/shared/github-protocol";
 import type { MediaAttachment } from "@nap/shared/media";
+import type { SessionNavigation } from "@nap/shared/session-navigation";
 /**
  * The Postgres schema, per docs/PLAN.md §5.
  *
@@ -39,6 +40,7 @@ import {
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   unique,
@@ -211,6 +213,16 @@ export const projects = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     slug: text("slug").notNull(),
+    navigation: jsonb("navigation").$type<SessionNavigation>().notNull().default({
+      pinned: false,
+      position: null,
+      doneAt: null,
+      archivedAt: null,
+      snoozedUntil: null,
+      readAt: null,
+      unread: false,
+    }),
+    navigationRevision: integer("navigation_revision").notNull().default(0),
     status: projectStatus("status").notNull().default("creating"),
     /** Null until a sandbox has been created for this project. §5 marks both optional. */
     sandboxId: text("sandbox_id"),
@@ -416,6 +428,7 @@ export const turnRequests = pgTable(
     // The claim's exact shape: oldest queued row first. Partial, so the index stays the size of
     // the backlog rather than of every turn this deployment has ever run.
     index("turn_requests_queued").on(t.createdAt).where(sql`${t.state} = 'queued'`),
+    index("turn_requests_session_created").on(t.sessionId, t.createdAt),
     // The janitor's: which leases have run out. Partial for the same reason.
     index("turn_requests_lease_expiry").on(t.leaseExpiresAt).where(sql`${t.state} = 'leased'`),
     // The janitor's other half: orphans whose terminal events are not in the log yet. Orphaning
@@ -446,7 +459,24 @@ export const githubConnectionStates = pgTable("github_connection_states", {
   installationId: bigint("installation_id", { mode: "number" }),
   stage: text("stage").$type<"install" | "authorize">().notNull(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  draftId: uuid("draft_id"),
 });
+
+export const sessionStarts = pgTable(
+  "session_starts",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    operationId: uuid("operation_id").notNull(),
+    fingerprint: text("fingerprint").notNull(),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
+    sessionId: uuid("session_id").references(() => sessions.id, { onDelete: "set null" }),
+    requestId: uuid("request_id").notNull(),
+    createdAt,
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.operationId] })],
+);
 
 /** Disconnection retains the owner, so another account cannot claim an existing installation. */
 export const githubInstallations = pgTable(

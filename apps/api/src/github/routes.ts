@@ -35,7 +35,7 @@ export type GitHubRouteDeps = {
 const hash = (state: string) => createHash("sha256").update(state).digest("hex");
 const Callback = z.object({
   state: z.string().min(20).max(200),
-  code: z.string().min(1).max(1000),
+  code: z.string().min(1).max(1000).optional(),
 });
 const id = (value: string) => GitHubIdSchema.safeParse(Number(value));
 const uuid = (value: string) => z.uuid().safeParse(value);
@@ -53,11 +53,16 @@ export function registerGitHubRoutes(
   router: Hono<{ Variables: AuthVariables }>,
   deps: GitHubRouteDeps,
 ): void {
-  const failRedirect = () => `${deps.webOrigin}/settings/connections?github=error`;
+  const returnUrl = (draftId: string | null | undefined, status: "connected" | "error") =>
+    draftId
+      ? `${deps.webOrigin}/dashboard?draft=${draftId}&repositories=1&github=${status}`
+      : `${deps.webOrigin}/settings/connections?github=${status}`;
+  const failRedirect = (draftId?: string | null) => returnUrl(draftId, "error");
   const state = async (
     userId: string,
     stage: "install" | "authorize",
     installationId: number | null,
+    draftId?: string | null,
   ) => {
     const value = randomBytes(32).toString("base64url");
     await deps.store.createState({
@@ -66,16 +71,17 @@ export function registerGitHubRoutes(
       stage,
       installationId,
       expiresAt: new Date(Date.now() + 10 * 60_000),
+      draftId: draftId ?? null,
     });
     return value;
   };
-  const authorizeUrl = async (userId: string, installationId: number) => {
+  const authorizeUrl = async (userId: string, installationId: number, draftId?: string | null) => {
     const app = deps.app;
     if (app === null) throw new Error("GitHub is not configured");
     const url = new URL("https://github.com/login/oauth/authorize");
     url.searchParams.set("client_id", app.config.clientId);
     url.searchParams.set("redirect_uri", `${app.config.apiUrl}/github/callback`);
-    url.searchParams.set("state", await state(userId, "authorize", installationId));
+    url.searchParams.set("state", await state(userId, "authorize", installationId, draftId));
     return url.toString();
   };
 
@@ -124,16 +130,18 @@ export function registerGitHubRoutes(
     if (deps.app === null)
       return c.json({ error: "GitHub App connection is not configured on this deployment." }, 503);
     const body = z
-      .object({ installationId: GitHubIdSchema.optional() })
+      .object({ installationId: GitHubIdSchema.optional(), draftId: z.uuid().optional() })
       .safeParse(await json(c.req.raw));
     if (!body.success) return c.json({ error: "Invalid connection request." }, 400);
     if (body.data.installationId !== undefined) {
       if ((await deps.store.installation(c.get("userId"), body.data.installationId)) === null)
         return c.json({ error: "No such connection." }, 404);
-      return c.json({ url: await authorizeUrl(c.get("userId"), body.data.installationId) });
+      return c.json({
+        url: await authorizeUrl(c.get("userId"), body.data.installationId, body.data.draftId),
+      });
     }
     return c.json({
-      url: `https://github.com/apps/${deps.app.config.slug}/installations/new?state=${await state(c.get("userId"), "install", null)}`,
+      url: `https://github.com/apps/${deps.app.config.slug}/installations/new?state=${await state(c.get("userId"), "install", null, body.data.draftId)}`,
     });
   });
   router.get("/github/setup", async (c) => {
@@ -157,7 +165,7 @@ export function registerGitHubRoutes(
     const input = z
       .object({
         state: z.string().min(20).max(200),
-        installation_id: z.coerce.number().int().positive().safe(),
+        installation_id: z.coerce.number().int().positive().safe().optional(),
       })
       .safeParse(c.req.query());
     if (!input.success) return c.redirect(failRedirect());
@@ -167,7 +175,10 @@ export function registerGitHubRoutes(
       "install",
     );
     if (pending === null) return c.redirect(failRedirect());
-    return c.redirect(await authorizeUrl(c.get("userId"), input.data.installation_id));
+    if (input.data.installation_id === undefined) return c.redirect(failRedirect(pending.draftId));
+    return c.redirect(
+      await authorizeUrl(c.get("userId"), input.data.installation_id, pending.draftId),
+    );
   });
   router.get("/github/callback", async (c) => {
     if (deps.app === null) return c.redirect(failRedirect());
@@ -179,8 +190,9 @@ export function registerGitHubRoutes(
       "authorize",
     );
     if (pending?.installationId === null || pending === null) return c.redirect(failRedirect());
+    if (input.data.code === undefined) return c.redirect(failRedirect(pending.draftId));
     const verified = await deps.app.authorizeInstallation(input.data.code, pending.installationId);
-    if (!verified.ok) return c.redirect(failRedirect());
+    if (!verified.ok) return c.redirect(failRedirect(pending.draftId));
     const { installation, githubUserId, githubLogin } = verified.value;
     const bound = await deps.store.bindInstallation({
       installationId: installation.id,
@@ -192,9 +204,7 @@ export function registerGitHubRoutes(
       status: "active",
     });
     if (bound) deps.app.invalidate(installation.id);
-    return c.redirect(
-      bound ? `${deps.webOrigin}/settings/connections?github=connected` : failRedirect(),
-    );
+    return c.redirect(returnUrl(pending.draftId, bound ? "connected" : "error"));
   });
   router.delete("/github/installations/:installationId", async (c) => {
     const parsed = id(c.req.param("installationId"));

@@ -79,7 +79,11 @@ describe("the dashboard hero", () => {
       );
       rerender(<DashboardHero {...props} model="nvidia/nemotron-3-super-120b-a12b:free" />);
       expect(screen.getByRole("alert")).toHaveTextContent(/model.*image/i);
-      expect(screen.getByRole("button", { name: "Add images or videos" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Add to prompt" })).toBeEnabled();
+      fireEvent.click(screen.getByRole("button", { name: "Add to prompt" }));
+      expect(screen.getByRole("menuitem", { name: "Upload media" })).toBeDisabled();
+      expect(screen.getByRole("menuitem", { name: "Repositories" })).toBeEnabled();
+      fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
       fireEvent.keyDown(box(), { key: "Enter" });
       expect(onSubmit).not.toHaveBeenCalled();
       expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
@@ -104,7 +108,7 @@ describe("the dashboard hero", () => {
   it("keeps the prompt free of stickers", () => {
     show();
     expect(screen.queryByTestId("nap-stickers")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Add images or videos" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add to prompt" })).toBeInTheDocument();
   });
 
   it("sends what was typed on Enter", () => {

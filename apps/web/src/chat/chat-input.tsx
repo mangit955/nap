@@ -12,7 +12,10 @@ import {
   useState,
 } from "react";
 import { appendDictation, useDictation } from "../dashboard/use-dictation.ts";
-import { AttachmentButton, AttachmentTray, DictationButton } from "./composer-controls.tsx";
+import { type ComposerDraft, ComposerDraftStore } from "../projects/composer-draft.ts";
+import { useDraftNavigation } from "../projects/use-draft-navigation.ts";
+import { ComposerAddMenu } from "./composer-add-menu.tsx";
+import { AttachmentTray, DictationButton } from "./composer-controls.tsx";
 import { applyPick, menuRows, parseToken } from "./composer-menu.ts";
 import type { FirstPrompt } from "./first-prompt.ts";
 import { ModelPicker } from "./model-picker.tsx";
@@ -24,6 +27,7 @@ const MAX_HEIGHT = 132;
 const MIN_HEIGHT = 28;
 
 export function ChatInput({
+  draftIdentity,
   visible = true,
   running,
   queueing = false,
@@ -40,6 +44,7 @@ export function ChatInput({
   onModelChange,
   onAddKey,
 }: {
+  draftIdentity?: { ownerId: string; projectId: string } | undefined;
   visible?: boolean;
   running: boolean;
   queueing?: boolean;
@@ -68,6 +73,90 @@ export function ChatInput({
 }) {
   const [text, setText] = useState("");
   const media = useMediaAttachments();
+  const [sourceOpen, setSourceOpen] = useState(false);
+  const [draftError, setDraftError] = useState<string>();
+  const [draftReady, setDraftReady] = useState(!draftIdentity);
+  const latestDraft = useRef<ComposerDraft | undefined>(undefined);
+  const draftStore = useRef(new ComposerDraftStore());
+  const draftOwner = draftIdentity?.ownerId;
+  const draftProject = draftIdentity?.projectId;
+  const restoreModel = useRef(onModelChange);
+  restoreModel.current = onModelChange;
+  useEffect(() => {
+    if (!draftOwner || !draftProject) return;
+    let cancelled = false;
+    setDraftReady(false);
+    void draftStore.current
+      .load(draftOwner, draftProject)
+      .then((saved) => {
+        if (cancelled) return;
+        if (saved) {
+          setText(saved.text);
+          media.setAttachments(
+            saved.attachments.map((item) => ({
+              id: crypto.randomUUID(),
+              previewUrl: undefined,
+              media: item,
+            })),
+          );
+          if (saved.model) restoreModel.current?.(saved.model);
+        }
+        setDraftReady(true);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setDraftError("Could not restore the draft. Browser storage is unavailable.");
+          setDraftReady(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [draftOwner, draftProject, media.setAttachments]);
+  if (draftReady && draftOwner && draftProject)
+    latestDraft.current = {
+      id: draftProject,
+      ownerId: draftOwner,
+      operationId: draftProject,
+      text,
+      model,
+      source: null,
+      attachments: media.attachments.map((item) => item.media),
+      expiresAt: Date.now() + 7 * 86400_000,
+    };
+  // biome-ignore lint/correctness/useExhaustiveDependencies: edits restart the debounce; the callback reads the latest complete draft.
+  useEffect(() => {
+    const save = () => {
+      const value = latestDraft.current;
+      if (value)
+        void draftStore.current
+          .save(value)
+          .catch(() =>
+            setDraftError(
+              "Could not save this draft. Keep the session open and free browser storage.",
+            ),
+          );
+    };
+    const timer = setTimeout(save, 250);
+    return () => clearTimeout(timer);
+  }, [text, model, media.attachments, draftReady]);
+  useEffect(
+    () => () => {
+      const value = latestDraft.current;
+      if (value) void draftStore.current.save(value).catch(() => {});
+    },
+    [],
+  );
+  useDraftNavigation(
+    draftReady && draftOwner && draftProject
+      ? async () => {
+          const value = latestDraft.current;
+          if (value) await draftStore.current.save(value);
+        }
+      : undefined,
+    () =>
+      setDraftError("Could not save this draft. Keep the session open and free browser storage."),
+  );
   const images = modelSupportsImages(model);
   const incompatibleMedia = media.attachments.length > 0 && !images;
   const dictation = useDictation((spoken) =>
@@ -93,7 +182,9 @@ export function ChatInput({
       visible &&
       !multiline &&
       !open &&
+      !sourceOpen &&
       error === undefined &&
+      draftError === undefined &&
       queued === undefined &&
       media.attachments.length === 0 &&
       !media.processing &&
@@ -179,7 +270,14 @@ export function ChatInput({
   const send = () => {
     const message =
       text.trim() || (media.attachments.length > 0 ? "Use these references for the app." : "");
-    if (message === "" || (running && !queueing) || media.processing || incompatibleMedia) return;
+    if (
+      !draftReady ||
+      message === "" ||
+      (running && !queueing) ||
+      media.processing ||
+      incompatibleMedia
+    )
+      return;
 
     inFlight.current = message;
     setText("");
@@ -269,7 +367,12 @@ export function ChatInput({
         </div>
       )}
 
-      {[media.error, dictation.error, incompatibleMedia ? MODEL_MEDIA_UNSUPPORTED : undefined]
+      {[
+        draftError,
+        media.error,
+        dictation.error,
+        incompatibleMedia ? MODEL_MEDIA_UNSUPPORTED : undefined,
+      ]
         .filter(Boolean)
         .map((message) => (
           <p key={message} role="alert" className="pb-2 text-xs text-danger">
@@ -307,6 +410,25 @@ export function ChatInput({
           if (!running) void media.add(Array.from(event.dataTransfer.files));
         }}
       >
+        {sourceOpen && (
+          <div className="p-4 text-xs text-muted">
+            <p>This session keeps its current codebase.</p>
+            <a
+              href="/dashboard?repositories=1"
+              className="mt-2 inline-block underline underline-offset-4"
+            >
+              Start new session from GitHub
+            </a>
+            <button
+              type="button"
+              aria-label="Close repository details"
+              className="ml-3"
+              onClick={() => setSourceOpen(false)}
+            >
+              ×
+            </button>
+          </div>
+        )}
         <AttachmentTray
           attachments={media.attachments}
           disabled={running || media.processing}
@@ -320,7 +442,7 @@ export function ChatInput({
             onPointerDown={scroll.expand}
             onFocus={scroll.focusEditor}
             value={text}
-            disabled={running && !queueing}
+            disabled={!draftReady || (running && !queueing)}
             onPaste={(event) => {
               const files = Array.from(event.clipboardData.files);
               if (files.length && !running) {
@@ -381,7 +503,7 @@ export function ChatInput({
             <ModelPicker
               models={models}
               model={model}
-              disabled={running && !queueing}
+              disabled={!draftReady || (running && !queueing)}
               onChange={(choice) => onModelChange?.(choice)}
               onAddKey={onAddKey}
               onPick={() => box.current?.focus()}
@@ -390,9 +512,11 @@ export function ChatInput({
             <DictationButton dictation={dictation} disabled={running || media.processing} />
           </div>
           <div className="composer-primary-actions flex shrink-0 items-center gap-1.5">
-            <AttachmentButton
-              disabled={running || media.processing || !images}
+            <ComposerAddMenu
+              disabled={running || media.processing || !draftReady}
+              mediaSupported={images}
               onFiles={(files) => void media.add(files)}
+              onRepositories={() => setSourceOpen(!sourceOpen)}
             />
             {contextControl}
             {running && (
@@ -418,7 +542,7 @@ export function ChatInput({
               <button
                 type="button"
                 onClick={send}
-                disabled={empty || media.processing || incompatibleMedia}
+                disabled={!draftReady || empty || media.processing || incompatibleMedia}
                 aria-label={queueing ? "Queue message" : "Send"}
                 className="composer-send grid size-8 place-items-center rounded-full bg-accent text-white disabled:bg-hover disabled:text-muted focus-visible:outline-accent"
               >

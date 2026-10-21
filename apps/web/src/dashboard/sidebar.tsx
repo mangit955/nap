@@ -1,12 +1,13 @@
 "use client";
 
 import type { ProjectSummaryPayload } from "@nap/shared/projects-protocol";
-import { useRef, useState } from "react";
+import { NavigationSchema, type SessionSummary } from "@nap/shared/session-navigation";
+import { useEffect, useRef, useState } from "react";
 import { NapMark } from "../brand/nap-mark.tsx";
+import type { useSessionNavigation } from "../projects/use-session-navigation.ts";
 import { SpinnerIcon } from "../ui/icons.tsx";
 import type { ProjectScope } from "./filters.ts";
-import { filterProjects } from "./filters.ts";
-import { SessionActions } from "./session-actions.tsx";
+import { SessionList } from "./session-list.tsx";
 
 const SCOPES: readonly { id: ProjectScope; label: string }[] = [
   { id: "all", label: "All sessions" },
@@ -36,7 +37,11 @@ export function Sidebar({
   error,
   loading = false,
   busyProjectId,
+  navigation,
+  ownerId,
 }: {
+  ownerId?: string | undefined;
+  navigation?: ReturnType<typeof useSessionNavigation> | undefined;
   name: string;
   email: string | undefined;
   avatarUrl?: string | undefined;
@@ -61,7 +66,71 @@ export function Sidebar({
   const [searching, setSearching] = useState(false);
   const [filtering, setFiltering] = useState(false);
   const search = useRef<HTMLInputElement>(null);
-  const sessions = filterProjects(recents, { query, scope });
+  const [draftIds, setDraftIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    const refresh = () => {
+      if (!ownerId) return;
+      try {
+        const prefix = `nap.draft.${ownerId}.`;
+        setDraftIds(
+          new Set(
+            Object.keys(localStorage)
+              .filter((key) => key.startsWith(prefix))
+              .map((key) => key.slice(prefix.length)),
+          ),
+        );
+      } catch {
+        /* Optional draft markers. */
+      }
+    };
+    refresh();
+    window.addEventListener("storage", refresh);
+    window.addEventListener("nap-drafts-changed", refresh);
+    return () => {
+      window.removeEventListener("storage", refresh);
+      window.removeEventListener("nap-drafts-changed", refresh);
+    };
+  }, [ownerId]);
+  const [repository, setRepository] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
+  const scroll = useRef<HTMLElement>(null);
+  const restoredScroll = useRef(false);
+  const revealedProject = useRef<string | undefined>(undefined);
+  const navigationStatus = navigation?.status;
+  useEffect(() => {
+    const element = scroll.current;
+    if (loading || (navigationStatus && navigationStatus !== "ready") || !element) return;
+    if (!restoredScroll.current) {
+      try {
+        element.scrollTop = Number(sessionStorage.getItem("nap.sidebar.scroll") ?? 0);
+      } catch {
+        /* Scrolling also works without persistence. */
+      }
+      restoredScroll.current = true;
+    }
+    if (activeProjectId && revealedProject.current !== activeProjectId) {
+      const selected = element.querySelector('[aria-current="page"]');
+      if (selected) {
+        selected.scrollIntoView?.({ block: "nearest" });
+        revealedProject.current = activeProjectId;
+      }
+    }
+  }, [loading, activeProjectId, navigationStatus]);
+  const sessions: SessionSummary[] =
+    navigation?.projects ??
+    recents.map((row) => ({
+      ...row,
+      createdAt: row.updatedAt,
+      navigation: NavigationSchema.parse({}),
+      revision: 0,
+      activity: "ready",
+      activityAt: null,
+      requestedAt: null,
+      repository: null,
+      branch: null,
+      pullRequest: null,
+      pendingFeedback: 0,
+    }));
   return (
     <nav
       aria-label="Dashboard"
@@ -99,6 +168,10 @@ export function Sidebar({
         <PlusIcon />
         New session
       </button>
+      <a href="/settings/connections" className={ROW}>
+        <SettingsIcon />
+        Connections
+      </a>
       <div className="mt-7 flex items-center justify-between px-3 pb-4">
         <h2 className="text-[13px] font-medium text-ink-2">Sessions</h2>
         <div className="flex gap-1">
@@ -155,61 +228,91 @@ export function Sidebar({
           ))}
         </div>
       )}
-      <div className="nap-scroll min-h-0 flex-1 overflow-y-auto">
-        <p className="mb-2 flex items-center gap-2 px-3 text-xs text-muted">
-          <RecentIcon />
-          {scope === "running" ? "Running" : scope === "put-away" ? "Put away" : "Recent"}
-        </p>
+      <label className="mb-2 px-3 text-[11px] text-muted">
+        <span className="sr-only">Repository scope</span>
+        <select
+          aria-label="Repository scope"
+          value={repository}
+          onChange={(event) => setRepository(event.target.value)}
+          className="w-full bg-sidebar py-2 outline-none focus-visible:outline-accent"
+        >
+          <option value="">All repositories</option>
+          {[...new Set(sessions.flatMap((row) => (row.repository ? [row.repository] : [])))]
+            .sort()
+            .map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+        </select>
+      </label>
+      {filtering && (
+        <label className="mb-3 flex gap-2 px-3 text-xs text-muted">
+          <input
+            type="checkbox"
+            checked={showArchived}
+            onChange={(event) => setShowArchived(event.target.checked)}
+          />
+          Archived sessions
+        </label>
+      )}
+      <section
+        ref={scroll}
+        aria-label="Session list"
+        // biome-ignore lint/a11y/noNoninteractiveTabindex: focus enables native keyboard scrolling.
+        tabIndex={0}
+        className="nap-scroll-hidden relative min-h-0 flex-1 overflow-y-auto"
+        onScroll={(event) => {
+          if (!restoredScroll.current) return;
+          try {
+            sessionStorage.setItem("nap.sidebar.scroll", String(event.currentTarget.scrollTop));
+          } catch {
+            /* Optional scroll restoration. */
+          }
+        }}
+      >
         {loading ? (
           <p role="status" className="px-3 py-3 text-xs text-muted">
             Loading sessions…
           </p>
-        ) : sessions.length === 0 ? (
-          <p className="pl-9 pr-3 py-2 text-xs leading-relaxed text-muted">
-            {query || scope !== "all" ? "No matching sessions." : "No sessions yet"}
-          </p>
         ) : (
-          <ul aria-label="Sessions" className="flex flex-col gap-0.5">
-            {sessions.map((project) => (
-              <li
-                key={project.projectId}
-                className={`group relative flex items-center rounded-lg ${activeProjectId === project.projectId ? "bg-hover" : "hover:bg-hover"}`}
-              >
-                <a
-                  href={`/p/${project.projectId}`}
-                  aria-current={activeProjectId === project.projectId ? "page" : undefined}
-                  className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md py-2 pr-2 pl-9 text-[13px] text-ink-2 focus-visible:outline-accent"
-                >
-                  <span className="min-w-0 flex-1 truncate">{project.name}</span>
-                  {project.sandboxId !== null && (
-                    <span className="size-1.5 shrink-0 rounded-full bg-accent" title="Running">
-                      <span className="sr-only">Running</span>
-                    </span>
-                  )}
-                </a>
-                {(onRename || onDelete || onClose) && (
-                  <SessionActions
-                    name={project.name}
-                    disabled={busyProjectId === project.projectId}
-                    onRename={onRename ? (name) => onRename(project.projectId, name) : undefined}
-                    onDelete={onDelete ? () => onDelete(project.projectId) : undefined}
-                    onClose={
-                      onClose && project.sandboxId !== null
-                        ? () => onClose(project.projectId)
-                        : undefined
-                    }
-                  />
-                )}
-              </li>
-            ))}
-          </ul>
+          <SessionList
+            draftIds={draftIds}
+            sessions={sessions}
+            activeProjectId={activeProjectId}
+            scope={scope}
+            query={query}
+            repository={repository}
+            showArchived={showArchived}
+            busyProjectId={busyProjectId}
+            onChange={navigation ? (id, change) => void navigation.change(id, change) : undefined}
+            onReorder={navigation ? (order) => void navigation.reorder(order) : undefined}
+            onRename={onRename}
+            onDelete={onDelete}
+            onClose={onClose}
+          />
         )}
         {error && (
           <p role="alert" className="px-3 py-2 text-xs text-danger">
             {error}
           </p>
         )}
-      </div>
+      </section>
+      {navigation?.undoAction && (
+        <div role="status" className="session-undo">
+          <span>{navigation.undoAction.label}</span>
+          <button
+            type="button"
+            disabled={!!navigation.busyProjectId}
+            onClick={() => void navigation.undo()}
+          >
+            Undo
+          </button>
+          <button type="button" aria-label="Dismiss undo" onClick={navigation.dismissUndo}>
+            ×
+          </button>
+        </div>
+      )}
       <div className="relative mt-4 flex shrink-0 items-center gap-0.5 pt-2">
         <AccountMenu
           name={name}
@@ -228,14 +331,38 @@ export function Sidebar({
         >
           <HelpIcon />
         </a>
-        <a
-          href="/settings/connections"
-          aria-label="Connections settings"
-          title="Connections settings"
-          className="rounded-lg p-1.5 text-muted hover:bg-hover hover:text-ink"
+        <details
+          className="relative"
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.currentTarget.removeAttribute("open");
+              event.currentTarget.querySelector("summary")?.focus();
+            }
+          }}
         >
-          <SettingsIcon />
-        </a>
+          <summary
+            aria-label="Settings"
+            title="Settings"
+            className="cursor-pointer list-none rounded-lg p-1.5 text-muted hover:bg-hover hover:text-ink"
+          >
+            <SettingsIcon />
+          </summary>
+          <div className="absolute right-0 bottom-full z-40 mb-2 w-48 rounded-xl border border-edge bg-field p-2 shadow-raised">
+            <a href="/settings/connections" className={ROW}>
+              Connections
+            </a>
+            <button
+              type="button"
+              className={ROW}
+              onClick={(event) => {
+                event.currentTarget.closest("details")?.removeAttribute("open");
+                onApiKey();
+              }}
+            >
+              API keys
+            </button>
+          </div>
+        </details>
       </div>
     </nav>
   );
@@ -442,15 +569,6 @@ function SettingsIcon() {
     <svg aria-hidden="true" {...STROKE}>
       <path d="m6.5 2-.4 1.5-1.5.8L3 4l-1 1.8 1.1 1.1v1.8L2 10l1 1.8 1.6-.3 1.5.8.4 1.7h2.9l.5-1.7 1.5-.8 1.6.3 1-1.8-1.1-1.3V6.9L14 5.8 13 4l-1.6.3-1.5-.8L9.4 2z" />
       <circle cx="8" cy="8" r="2" />
-    </svg>
-  );
-}
-
-function RecentIcon() {
-  return (
-    <svg aria-hidden="true" {...STROKE}>
-      <circle cx="8" cy="8" r="5.5" />
-      <path d="M8 4.5V8l2.5 1.5" />
     </svg>
   );
 }
