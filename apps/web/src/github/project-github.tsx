@@ -365,7 +365,7 @@ export function ProjectGitHubControl({
           </section>
         )}
         <a
-          href="/settings/connections"
+          href="/settings/connections/github"
           className="mt-6 inline-block text-xs text-muted underline underline-offset-4"
         >
           Manage GitHub access

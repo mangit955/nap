@@ -156,7 +156,7 @@ export function NewSessionComposer({
     setBusy(true);
     try {
       await persist(value);
-      router.push(`/settings/connections?draft=${value.id}`);
+      router.push(`/settings/connections/github?draft=${value.id}`);
     } catch {
       setError(
         "Could not save your draft. Stay here, free browser storage, and try connecting again.",

@@ -236,3 +236,58 @@ export function CloseIcon({ className = "size-4" }: IconProps) {
     </svg>
   );
 }
+
+export function ArrowLeftIcon({ className = "size-4" }: IconProps) {
+  return (
+    <svg aria-hidden="true" {...STROKE} className={className}>
+      <path d="M13 8H3M7.5 3.5 3 8l4.5 4.5" />
+    </svg>
+  );
+}
+
+export function PlusIcon({ className = "size-4" }: IconProps) {
+  return (
+    <svg aria-hidden="true" {...STROKE} className={className}>
+      <path d="M8 3.5v9M3.5 8h9" />
+    </svg>
+  );
+}
+
+export function KeyIcon({ className = "size-4" }: IconProps) {
+  return (
+    <svg aria-hidden="true" {...STROKE} className={className}>
+      <circle cx="5.6" cy="10.4" r="2.6" />
+      <path d="m7.5 8.5 5-5M10.6 5.4l1.4 1.4" />
+    </svg>
+  );
+}
+
+export function InfoIcon({ className = "size-4" }: IconProps) {
+  return (
+    <svg aria-hidden="true" {...STROKE} className={className}>
+      <circle cx="8" cy="8" r="6" />
+      <path d="M8 7.3v3.4M8 5.2h.01" />
+    </svg>
+  );
+}
+
+/** Four linked nodes: the settings rail's mark for the services nap is connected to. */
+export function ConnectionsIcon({ className = "size-4" }: IconProps) {
+  return (
+    <svg aria-hidden="true" {...STROKE} className={className}>
+      <circle cx="4.5" cy="4.5" r="2" />
+      <circle cx="11.5" cy="4.5" r="2" />
+      <circle cx="4.5" cy="11.5" r="2" />
+      <circle cx="11.5" cy="11.5" r="2" />
+    </svg>
+  );
+}
+
+export function HelpIcon({ className = "size-4" }: IconProps) {
+  return (
+    <svg aria-hidden="true" {...STROKE} className={className}>
+      <circle cx="8" cy="8" r="6" />
+      <path d="M6.3 6.2a1.8 1.8 0 0 1 3.5.6c0 1.2-1.8 1.5-1.8 2.5M8 11.3h.01" />
+    </svg>
+  );
+}

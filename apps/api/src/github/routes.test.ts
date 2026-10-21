@@ -244,14 +244,16 @@ describe("GitHub connection routes", () => {
     await github.token(99, null, { metadata: "read" });
     const response = await f.app.request(update);
     expect(response.status).toBe(302);
-    expect(response.headers.get("location")).toBe(`${config.webOrigin}/settings/connections`);
+    expect(response.headers.get("location")).toBe(
+      `${config.webOrigin}/settings/connections/github`,
+    );
     // The selection changed, so a token minted before it is not reused.
     await github.token(99, null, { metadata: "read" });
     expect(mints()).toBe(2);
     // Somebody else's installation: the same page, nothing bound, nothing of the owner's touched.
     f.setUser(OTHER);
     expect((await f.app.request(update)).headers.get("location")).toBe(
-      `${config.webOrigin}/settings/connections`,
+      `${config.webOrigin}/settings/connections/github`,
     );
     await github.token(99, null, { metadata: "read" });
     expect(mints()).toBe(2);
