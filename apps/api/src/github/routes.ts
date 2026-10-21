@@ -56,7 +56,7 @@ export function registerGitHubRoutes(
   const returnUrl = (draftId: string | null | undefined, status: "connected" | "error") =>
     draftId
       ? `${deps.webOrigin}/dashboard?draft=${draftId}&repositories=1&github=${status}`
-      : `${deps.webOrigin}/settings/connections?github=${status}`;
+      : `${deps.webOrigin}/settings/connections/github?github=${status}`;
   const failRedirect = (draftId?: string | null) => returnUrl(draftId, "error");
   const state = async (
     userId: string,
@@ -160,7 +160,7 @@ export function registerGitHubRoutes(
       const installationId = update.data.installation_id;
       if ((await deps.store.installation(c.get("userId"), installationId)) !== null)
         deps.app.invalidate(installationId);
-      return c.redirect(`${deps.webOrigin}/settings/connections`);
+      return c.redirect(`${deps.webOrigin}/settings/connections/github`);
     }
     const input = z
       .object({

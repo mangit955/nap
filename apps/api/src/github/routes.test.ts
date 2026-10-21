@@ -207,7 +207,9 @@ describe("GitHub connection routes", () => {
     expect((await f.app.request(callback)).headers.get("location")).toContain("github=error");
     expect(f.requests).not.toContain("/login/oauth/access_token");
     f.setUser(FAKE_OWNER);
-    expect((await f.app.request(callback)).headers.get("location")).toContain("github=connected");
+    expect((await f.app.request(callback)).headers.get("location")).toBe(
+      `${config.webOrigin}/settings/connections/github?github=connected`,
+    );
     expect((await f.store.installation(FAKE_OWNER, 99))?.githubUserId).toBe(7);
     expect((await f.app.request(callback)).headers.get("location")).toContain("github=error");
     const connections = await (await f.app.request("/github/connections")).text();
@@ -244,14 +246,16 @@ describe("GitHub connection routes", () => {
     await github.token(99, null, { metadata: "read" });
     const response = await f.app.request(update);
     expect(response.status).toBe(302);
-    expect(response.headers.get("location")).toBe(`${config.webOrigin}/settings/connections`);
+    expect(response.headers.get("location")).toBe(
+      `${config.webOrigin}/settings/connections/github`,
+    );
     // The selection changed, so a token minted before it is not reused.
     await github.token(99, null, { metadata: "read" });
     expect(mints()).toBe(2);
     // Somebody else's installation: the same page, nothing bound, nothing of the owner's touched.
     f.setUser(OTHER);
     expect((await f.app.request(update)).headers.get("location")).toBe(
-      `${config.webOrigin}/settings/connections`,
+      `${config.webOrigin}/settings/connections/github`,
     );
     await github.token(99, null, { metadata: "read" });
     expect(mints()).toBe(2);
