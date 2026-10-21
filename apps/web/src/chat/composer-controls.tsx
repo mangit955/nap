@@ -1,5 +1,6 @@
 "use client";
 
+import { X } from "lucide-react";
 import { useRef } from "react";
 import type { useDictation } from "../dashboard/use-dictation.ts";
 import { type DraftAttachment, MEDIA_ACCEPT } from "./use-media-attachments.ts";
@@ -90,6 +91,12 @@ export function DictationButton({
   );
 }
 
+/**
+ * What is attached, as T3 Code's composer shows it (MIT — see `apps/web/THIRD_PARTY_NOTICES.md`):
+ * a row of 64px tiles, each with its own remove control in the corner. The name is the tile's
+ * accessible name and its tooltip rather than a caption, so a row of references stays one tile
+ * high.
+ */
 export function AttachmentTray({
   attachments,
   disabled,
@@ -104,13 +111,19 @@ export function AttachmentTray({
     <div className="px-4 pt-4">
       <ul aria-label="Attachments" className="flex flex-wrap gap-2">
         {attachments.map(({ id, previewUrl, media }) => (
-          <li key={id} className="relative w-20 shrink-0">
+          <li
+            key={id}
+            title={
+              media.kind === "video" ? `${media.name} · ${media.duration.toFixed(0)}s` : media.name
+            }
+            className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-edge bg-surface"
+          >
             {media.kind === "image" || previewUrl === undefined ? (
               // biome-ignore lint/performance/noImgElement: local file previews and prepared frames need no network optimization.
               <img
                 src={previewUrl ?? `data:image/jpeg;base64,${media.frames[0]?.data ?? ""}`}
                 alt={media.name}
-                className="h-16 w-full rounded-lg border border-edge object-cover"
+                className="h-full w-full object-cover"
               />
             ) : (
               <video
@@ -118,26 +131,17 @@ export function AttachmentTray({
                 aria-label={media.name}
                 muted
                 playsInline
-                controls
-                className="h-16 w-full rounded-lg border border-edge object-cover"
+                className="h-full w-full object-cover"
               />
             )}
-            <span className="mt-1 block min-w-0">
-              <span className="block truncate text-xs text-ink-2" title={media.name}>
-                {media.name}
-              </span>
-              <span className="text-[10px] text-muted">
-                {media.kind === "video" ? `${media.duration.toFixed(0)}s · 3 frames` : "Image"}
-              </span>
-            </span>
             <button
               type="button"
               aria-label={`Remove ${media.name}`}
               disabled={disabled}
               onClick={() => onRemove(id)}
-              className="absolute -right-1.5 -top-1.5 grid size-5 place-items-center rounded-full border border-edge bg-panel text-xs text-ink-2 hover:text-ink"
+              className="absolute top-1 right-1 grid size-5 place-items-center rounded-full bg-surface/80 text-ink-2 backdrop-blur-sm transition-colors hover:bg-surface hover:text-ink focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40"
             >
-              ×
+              <X aria-hidden="true" className="size-3" />
             </button>
           </li>
         ))}

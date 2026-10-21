@@ -126,7 +126,7 @@ describe("ChatPane", () => {
     // turn is mostly made of, it is the only thing on screen saying what is happening.
     const { container } = render(<ChatPane events={[started, call]} running={true} />);
 
-    expect(container.textContent).toContain("Running bun install");
+    expect(container.textContent).toContain("Running bun");
   });
 
   it("puts it after everything that has already happened", () => {

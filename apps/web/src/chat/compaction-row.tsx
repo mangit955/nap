@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { CompactionItem } from "./transcript.ts";
+import { Spotlight } from "./work-log-rows.tsx";
 
 export function CompactionRow({ item, recovery }: { item: CompactionItem; recovery?: ReactNode }) {
   const label =
@@ -32,13 +33,12 @@ export function CompactionRow({ item, recovery }: { item: CompactionItem; recove
           >
             <path d="M4 4l6 6m0-6v6H4m16 10-6-6m0 6v-6h6" />
           </svg>
-          <span
-            className={
-              item.status === "running" ? "nap-shimmer" : failed ? "text-danger" : undefined
-            }
-          >
-            {label}
-          </span>
+          {/* Waiting rather than doing, so it wears the spotlight the timeline's "Thinking" does. */}
+          {item.status === "running" ? (
+            <Spotlight label={label} />
+          ) : (
+            <span className={failed ? "text-danger" : undefined}>{label}</span>
+          )}
           {item.trigger !== null && (
             <span className="text-[11px]">
               {item.trigger === "manual" ? "Manual" : "Automatic"}

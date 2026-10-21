@@ -58,7 +58,7 @@ export function FileIcon({ className = "size-4" }: IconProps) {
   );
 }
 
-/* The six tools, each with the shape its verb suggests. See `chat/tool-step.tsx`. */
+/* Shapes for verbs — reading, writing, running, searching — used wherever an action is named. */
 
 export function EyeIcon({ className = "size-4" }: IconProps) {
   return (

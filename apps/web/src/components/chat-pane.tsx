@@ -14,8 +14,7 @@ import { ContextControl } from "../chat/context-control.tsx";
 import type { FirstPrompt } from "../chat/first-prompt.ts";
 import { JobStrip } from "../chat/job-strip.tsx";
 import { jobView, type SessionJobView } from "../chat/job-summary.ts";
-import { groupSteps } from "../chat/step-group.ts";
-import { buildTranscript, type TranscriptItem } from "../chat/transcript.ts";
+import { buildTranscript } from "../chat/transcript.ts";
 import { TranscriptSkeleton } from "../chat/transcript-skeleton.tsx";
 import { seamAt } from "../chat/unseen.ts";
 import { UnseenCard } from "../chat/unseen-card.tsx";
@@ -26,8 +25,8 @@ import { useSeenCursor } from "../chat/use-seen-cursor.ts";
 import { useStickToBottom } from "../chat/use-stick-to-bottom.ts";
 import { useTurnSubmission } from "../chat/use-turn-submission.ts";
 import { useUnseenCard } from "../chat/use-unseen-card.ts";
-import { WorkingIndicator } from "../chat/working-indicator.tsx";
-import { turnStartedAt, workingLabel } from "../chat/working-state.ts";
+import { WorkingRow } from "../chat/work-log-rows.tsx";
+import { turnStartedAt } from "../chat/working-state.ts";
 import type { FetchJson } from "../files/use-project-files.ts";
 import type { SessionLog } from "../hooks/use-session-log.ts";
 import { Pane } from "./pane.tsx";
@@ -59,6 +58,7 @@ export function ChatPane({
   activity,
   error,
   firstPrompt,
+  onOpenFile,
   onSubmit = () => {},
   onCancel = () => {},
   onRetry,
@@ -97,6 +97,8 @@ export function ChatPane({
   error?: string | undefined;
   /** The dashboard request, retained until admission so a refusal can restore the composer. */
   firstPrompt?: FirstPrompt | undefined;
+  /** Opens a file in the Code tab, from a path in a reply or a changed-files card. */
+  onOpenFile?: ((path: string) => void) | undefined;
   onSubmit?: (message: string, attachments?: MediaAttachment[]) => void;
   onCancel?: () => void;
   /** Re-sends a failed turn's message. Optional so the many render tests need not supply one. */
@@ -127,14 +129,21 @@ export function ChatPane({
   onDismissCard?: (() => void) | undefined;
 }) {
   const empty = events.length === 0 && pending === undefined;
-  // Folded once, read twice: the transcript renders it and the working indicator reads the last
-  // step out of it. Both used to fold the log for themselves, so every frame of a streaming turn
-  // walked it twice to answer one question.
+  // Folded once, read twice: the transcript renders it and the composer asks it whether a
+  // compaction is running. Both used to fold the log for themselves, so every frame of a
+  // streaming turn walked it twice to answer one question.
   const transcript = useMemo(() => buildTranscript(events), [events]);
-  const items = useMemo(() => groupSteps(transcript), [transcript]);
   // Where the reader left off, as a position in what is drawn rather than in the log. See
   // `unseen.ts` for why an item straddling the cursor stays above the line.
-  const seam = useMemo(() => seamAt(items, seen), [items, seen]);
+  const seam = useMemo(() => seamAt(transcript, seen), [transcript, seen]);
+  const startedAt = activity === undefined ? turnStartedAt(events) : activity.startedAt;
+  // "Working for" hangs off the prompt it answers. While that prompt is still the optimistic one
+  // it is below the transcript, so the row goes under it here rather than inside the log.
+  const workingOutside =
+    running && ((pending !== undefined && !pendingAfterCompaction) || events.length === 0);
+  // The stage is where a dropped file lands, and the composer draws its overlay across it — so it
+  // is handed over as an element, which a ref read during render would not be.
+  const [stage, setStage] = useState<HTMLDivElement | null>(null);
   const seamRef = useRef<HTMLElement>(null);
   const composerDock = useRef<HTMLDivElement>(null);
   const [composerHeight, setComposerHeight] = useState(144);
@@ -194,7 +203,7 @@ export function ChatPane({
           />
         )}
 
-        <div className="chat-stage relative min-h-0 flex-1">
+        <div ref={setStage} className="chat-stage relative min-h-0 flex-1">
           <section
             ref={scroller} // `overflow-x-hidden`, not `auto`: tool output is arbitrary text, and a long line
             // belongs scrolling inside its own `OutputBlock` rather than dragging the whole
@@ -212,7 +221,16 @@ export function ChatPane({
             ) : (
               <>
                 {events.length > 0 && (
-                  <ChatTranscript items={items} seam={seam} seamRef={seamRef} onRetry={onRetry} />
+                  <ChatTranscript
+                    items={transcript}
+                    running={running && !workingOutside}
+                    startedAt={startedAt}
+                    seam={seam}
+                    seamRef={seamRef}
+                    onRetry={onRetry}
+                    files={files}
+                    onOpenFile={onOpenFile}
+                  />
                 )}
                 {pending !== undefined && !pendingAfterCompaction && (
                   <PendingMessage text={pending} />
@@ -220,17 +238,17 @@ export function ChatPane({
               </>
             )}
 
-            {running && (
-              <Working
-                startedAt={activity === undefined ? turnStartedAt(events) : activity.startedAt}
-                transcript={transcript}
-              />
+            {workingOutside && (
+              <div className="mx-auto max-w-[46rem] px-5 pb-4">
+                <WorkingRow startedAt={startedAt} />
+              </div>
             )}
           </section>
 
           <div ref={composerDock} className="chat-composer-dock absolute inset-x-0 bottom-0 z-10">
             <ChatInput
               draftIdentity={draftIdentity}
+              dropZone={stage}
               timeline={empty ? undefined : scroller}
               contextControl={
                 <ContextControl
@@ -285,30 +303,6 @@ function PendingMessage({ text }: { text: string }) {
   );
 }
 
-/**
- * The last thing in the pane while a turn is open.
- *
- * Outside the `log`, for the reason `PendingMessage` is: the transcript is folded from stored
- * events and this is not one of them — it is the *absence* of the next event, which is precisely
- * what nothing in the log can express.
- */
-function Working({
-  startedAt,
-  transcript,
-}: {
-  startedAt: string | undefined;
-  transcript: readonly TranscriptItem[];
-}) {
-  return (
-    <div className="px-4 pb-3">
-      <WorkingIndicator
-        label={workingLabel(transcript)}
-        {...(startedAt === undefined ? {} : { startedAt })}
-      />
-    </div>
-  );
-}
-
 function EmptyState() {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 px-8 py-10 text-center">
@@ -329,6 +323,7 @@ export function LiveChatPane({
   log,
   files,
   fetchJson,
+  onOpenFile,
 }: {
   ownerId?: string | undefined;
   active?: boolean;
@@ -340,6 +335,8 @@ export function LiveChatPane({
   /** The project's files, for the composer's `@` menu; listed once for the whole workspace. */
   files?: readonly string[] | undefined;
   fetchJson?: FetchJson | undefined;
+  /** Opens a file in the Code tab. See `ChatPane`. */
+  onOpenFile?: ((path: string) => void) | undefined;
 }) {
   const { events, replayed, lastSeq, jobs } = log;
   // Subscribed here rather than in `useSessionLog` with the other folds: this is the one answer
@@ -413,6 +410,7 @@ export function LiveChatPane({
         activity={{ startedAt }}
         error={error}
         firstPrompt={firstPrompt}
+        onOpenFile={onOpenFile}
         onSubmit={(message, attachments) => {
           setFirstPrompt(undefined);
           void submit(message, model, attachments);

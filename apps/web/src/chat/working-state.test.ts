@@ -1,12 +1,11 @@
 import type { NapEvent, NapEventType } from "@nap/shared/events";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { describe, expect, it } from "vitest";
-import { buildTranscript } from "./transcript.ts";
-import { inFlightTurn, stepTarget, turnStartedAt, workingLabel } from "./working-state.ts";
+import { inFlightTurn, turnStartedAt } from "./working-state.ts";
 
 /**
- * A `.test.ts` under `apps/web`, like `transcript.test.ts` beside it: deriving what the agent
- * is doing right now is a pure fold over the same events, with no DOM in it, so it belongs to
+ * A `.test.ts` under `apps/web`, like `transcript.test.ts` beside it: deriving which turn is
+ * in flight is a pure fold over the same events, with no DOM in it, so it belongs to
  * the `unit` project. The component that renders the answer is `.test.tsx`.
  */
 
@@ -32,139 +31,6 @@ function reset() {
   nextSeq = 1;
   clock = Date.parse("2026-08-09T12:00:00.000Z");
 }
-
-const call = (id: string, toolName: "run_command" | "write_file" | "read_file", input: object) =>
-  ev("tool.call", { toolCallId: id, toolName, input: input as Record<string, unknown> });
-
-const result = (id: string, toolName: "run_command" | "write_file" | "read_file") =>
-  ev("tool.result", { toolCallId: id, toolName, ok: true, output: "" });
-
-/** The label as the pane computes it: fold the events, then read the fold. */
-function labelFor(...events: StoredEvent[]): string {
-  reset();
-  return workingLabel(buildTranscript(events));
-}
-
-describe("workingLabel", () => {
-  it("keeps manual preparation visible and anchors its clock before turn.started", () => {
-    const compact = ev("compaction.started", { id: "c", trigger: "manual" });
-    const started = ev("turn.started", { source: "user" });
-    expect(labelFor(compact)).toBe("Compacting context");
-    expect(labelFor(compact, started)).toBe("Compacting context");
-    expect(turnStartedAt([compact])).toBe(compact.createdAt);
-    expect(turnStartedAt([compact, started])).toBe(compact.createdAt);
-    expect(
-      turnStartedAt([
-        compact,
-        started,
-        ev("turn.failed", { reason: "cancelled", message: "stopped" }),
-      ]),
-    ).toBeUndefined();
-  });
-  it("names active compaction and returns to thinking after its boundary", () => {
-    const started = ev("turn.started", { source: "user" });
-    const compact = ev("compaction.started", { id: "c", trigger: "automatic" });
-    expect(labelFor(started, compact)).toBe("Compacting context");
-    expect(
-      labelFor(
-        started,
-        compact,
-        ev("compaction.failed", { id: "c", message: "unavailable", cancelled: false, usage: null }),
-      ),
-    ).toBe("Thinking");
-  });
-  it("says what it is doing before anything has happened", () => {
-    // The window between the click and `turn.started` arriving. `running` is already true —
-    // the POST is in flight — so the indicator is on screen with nothing yet to describe.
-    expect(labelFor()).toBe("Starting up");
-  });
-
-  it("names an open read by the file it is reading", () => {
-    expect(
-      labelFor(
-        ev("turn.started", { source: "user" }),
-        call("a", "read_file", { path: "src/App.tsx" }),
-      ),
-    ).toBe("Reading App.tsx");
-  });
-
-  it("strips the sandbox path, which is on every line and identifies nothing", () => {
-    expect(
-      labelFor(
-        ev("turn.started", { source: "user" }),
-        call("a", "write_file", { path: "/home/user/app/src/Counter.tsx" }),
-      ),
-    ).toBe("Writing Counter.tsx");
-  });
-
-  it("names an open command by the command", () => {
-    expect(
-      labelFor(
-        ev("turn.started", { source: "user" }),
-        call("a", "run_command", { command: "bun install" }),
-      ),
-    ).toBe("Running bun install");
-  });
-
-  it("falls back to thinking once every call has been answered", () => {
-    expect(
-      labelFor(
-        ev("turn.started", { source: "user" }),
-        call("a", "read_file", { path: "src/App.tsx" }),
-        result("a", "read_file"),
-      ),
-    ).toBe("Thinking");
-  });
-
-  it("describes the last open call when several are running at once", () => {
-    // Parallel tool use is on by default, so a single assistant message can open several
-    // calls. Naming the first would leave the label stuck on a call that already returned.
-    expect(
-      labelFor(
-        ev("turn.started", { source: "user" }),
-        call("a", "read_file", { path: "src/App.tsx" }),
-        call("b", "run_command", { command: "bun install" }),
-      ),
-    ).toBe("Running bun install");
-  });
-
-  it("goes back to thinking when the newer of two calls is answered", () => {
-    expect(
-      labelFor(
-        ev("turn.started", { source: "user" }),
-        call("a", "read_file", { path: "src/App.tsx" }),
-        call("b", "run_command", { command: "bun install" }),
-        result("b", "run_command"),
-      ),
-    ).toBe("Reading App.tsx");
-  });
-
-  it("thinks rather than starting up when the turn is open but has done nothing yet", () => {
-    expect(labelFor(ev("turn.started", { source: "user" }))).toBe("Thinking");
-  });
-});
-
-describe("stepTarget", () => {
-  it("prefers the command, then the pattern, then the path", () => {
-    reset();
-    const items = buildTranscript([
-      call("a", "run_command", { command: "bun test", path: "src/App.tsx" }),
-    ]);
-    const step = items[0];
-    if (step?.kind !== "step") throw new Error("expected a step");
-
-    expect(stepTarget(step)).toBe("bun test");
-  });
-
-  it("is empty for a call whose arguments this client never received", () => {
-    reset();
-    const items = buildTranscript([result("orphan", "read_file")]);
-    const step = items[0];
-    if (step?.kind !== "step") throw new Error("expected a step");
-
-    expect(stepTarget(step)).toBe("");
-  });
-});
 
 describe("turnStartedAt", () => {
   it("is undefined when no turn has started", () => {
