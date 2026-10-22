@@ -90,4 +90,33 @@ describe("repository autocomplete", () => {
     fireEvent.keyDown(screen.getByRole("combobox"), { key: "Escape" });
     expect(onClose).toHaveBeenCalledOnce();
   });
+
+  it("asks a guest to sign in instead of showing an error and a retry that cannot work", async () => {
+    const onClose = vi.fn();
+    render(
+      <RepositoryPicker
+        fetchJson={async () =>
+          Response.json(
+            {
+              error: "Sign in to a permanent nap account to connect GitHub.",
+              code: "sign_in_required",
+            },
+            { status: 403 },
+          )
+        }
+        onSelect={vi.fn()}
+        onClose={onClose}
+        onConnect={vi.fn()}
+      />,
+    );
+    expect(await screen.findByRole("link", { name: "Sign in" })).toHaveAttribute(
+      "href",
+      "/sign-in?upgrade=1",
+    );
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+    expect(screen.queryByText(/write access/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Not now" }));
+    expect(onClose).toHaveBeenCalledOnce();
+  });
 });

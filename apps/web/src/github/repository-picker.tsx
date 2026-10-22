@@ -8,11 +8,15 @@ import {
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { credentialedFetch } from "../api/credentialed-fetch.ts";
 import type { FetchJson } from "../files/use-project-files.ts";
+import { BUTTON, PRIMARY_BUTTON } from "../settings/settings-ui.tsx";
+import { ArrowLeftIcon } from "../ui/icons.tsx";
 import { GITHUB_API_URL, githubRequest } from "./request.ts";
 
 export type RepositoryChoice = { installationId: number; repository: GitHubRepository };
 type ListState =
   | { kind: "loading" }
+  /** A guest session, which the server refuses outright: nothing here can be retried. */
+  | { kind: "guest" }
   | { kind: "disconnected" }
   | { kind: "loaded"; choices: RepositoryChoice[]; errors: string[] };
 
@@ -44,7 +48,10 @@ export function RepositoryPicker({
       `${baseUrl}/github/connections`,
       GitHubConnectionsSchema,
     );
-    if (!connection.ok) return { kind: "loaded", choices: [], errors: [connection.error] };
+    if (!connection.ok)
+      return connection.code === "sign_in_required"
+        ? { kind: "guest" }
+        : { kind: "loaded", choices: [], errors: [connection.error] };
     const installations = connection.value.installations.filter((item) => item.status === "active");
     if (!installations.length) return { kind: "disconnected" };
     const choices: RepositoryChoice[] = [];
@@ -180,6 +187,26 @@ export function RepositoryPicker({
             Loading repositories…
           </p>
         )}
+        {state.kind === "guest" && (
+          <div className="repository-guest">
+            <p className="text-[13px] leading-relaxed text-ink-2">
+              Working on a repository needs a permanent account.
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-muted">
+              You're using nap as a guest. Guest projects don't carry over to the account you sign
+              in with.
+            </p>
+            <div className="mt-3 flex items-center justify-end gap-2">
+              <button type="button" onClick={onClose} className={BUTTON}>
+                Not now
+              </button>
+              <a href="/sign-in?upgrade=1" className={PRIMARY_BUTTON}>
+                Sign in
+                <ArrowLeftIcon className="size-3.5 rotate-180" />
+              </a>
+            </div>
+          </div>
+        )}
         {state.kind === "disconnected" && (
           <p className="repository-message">
             Connect GitHub in{" "}
@@ -191,7 +218,8 @@ export function RepositoryPicker({
         )}
         {state.kind === "loaded" && (
           <>
-            {!choices.length && (
+            {/* An error already says why the list is empty; "no repositories" would contradict it. */}
+            {!choices.length && (query || state.errors.length === 0) && (
               <p className="repository-message">
                 {query
                   ? "No matching repositories."
@@ -203,18 +231,20 @@ export function RepositoryPicker({
                 {error}
               </p>
             ))}
-            {state.errors.length > 0 && (
-              <button
-                type="button"
-                className="repository-retry"
-                onClick={() => setAttempt(attempt + 1)}
-              >
-                Retry
+            <div className="repository-actions">
+              <button type="button" className="repository-settings" onClick={onConnect}>
+                Manage access in Settings → Connections
               </button>
-            )}
-            <button type="button" className="repository-settings" onClick={onConnect}>
-              Manage access in Settings → Connections
-            </button>
+              {state.errors.length > 0 && (
+                <button
+                  type="button"
+                  className="repository-retry"
+                  onClick={() => setAttempt(attempt + 1)}
+                >
+                  Retry
+                </button>
+              )}
+            </div>
           </>
         )}
       </div>
