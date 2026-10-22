@@ -164,7 +164,7 @@ export function ContextControl({
       </summary>
       <div
         ref={popup}
-        className="context-popup nap-float nap-scroll absolute right-0 bottom-full z-20 mb-1 flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2 overflow-y-auto rounded-[10px] p-3 [--float-origin:bottom_right]"
+        className="composer-surface nap-float nap-scroll absolute right-0 bottom-full z-20 mb-1 flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2 overflow-y-auto rounded-[10px] p-3 [--float-origin:bottom_right]"
       >
         <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="font-medium text-ink-2">Input budget</span>

@@ -66,17 +66,17 @@ export function ComposerAddMenu({
         </svg>
       </button>
       {/*
-        Mounted while closed so it can fade out as well as in; `inert` and `aria-hidden` keep
-        the closed menu out of the tab order and the accessibility tree until the stylesheet's
-        `display: none` lands at the end of the fade.
+        Mounted while closed so it can fade out as well as in. `inert` keeps the closed menu
+        out of the tab order and the accessibility tree until the stylesheet's `display: none`
+        lands at the end of the fade. Not `aria-hidden`: the menu often closes with one of its
+        items still focused, and the browser refuses to hide a focused element that way.
       */}
       <div
         role="menu"
         aria-label="Add to prompt"
-        aria-hidden={!open}
         inert={!open}
         data-open={open}
-        className="composer-add-menu composer-menu nap-float"
+        className="composer-add-menu composer-surface nap-float"
         onKeyDown={(event) => {
           if (event.key === "Escape") {
             event.stopPropagation();

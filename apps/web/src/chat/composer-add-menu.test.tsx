@@ -17,5 +17,6 @@ it("has exactly two actions and keeps Repositories enabled for a text-only model
   expect(screen.getByRole("menuitem", { name: "Upload media" })).toBeDisabled();
   fireEvent.click(screen.getByRole("menuitem", { name: "Repositories" }));
   expect(onRepositories).toHaveBeenCalledOnce();
-  expect(screen.queryByRole("menu")).toBeNull();
+  // Closed but still mounted, so it can fade out: unreachable rather than absent.
+  expect(screen.getByRole("menu", { hidden: true })).toHaveAttribute("inert");
 });

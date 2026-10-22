@@ -2023,10 +2023,10 @@ body {
   }
 }
 /*
- * The context popup is drawn in the composer's own glass rather than the menus', so it reads as
- * a piece of the prompt box lifted up; the one solid thing inside it is the Compact button.
+ * The prompt box's own glass, for what the composer opens out of itself — the plus menu and the
+ * context popup — rather than the menus', so each reads as a piece of the prompt box lifted up.
  */
-.context-popup {
+.composer-surface {
   border: 1px solid rgb(255 255 255 / 5%);
   background: color-mix(in srgb, var(--color-panel) 80%, transparent);
   -webkit-backdrop-filter: blur(16px) saturate(1.08);
@@ -2108,7 +2108,7 @@ body {
   .composer-menu {
     background: var(--color-field);
   }
-  .context-popup {
+  .composer-surface {
     background: var(--color-panel);
   }
 }
@@ -2144,7 +2144,7 @@ body {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
-  .context-popup {
+  .composer-surface {
     background: var(--color-panel);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
