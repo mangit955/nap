@@ -11,7 +11,7 @@ import { LEASE_GRACE_MS, LEASE_TTL_MS } from "@nap/shared/lease-windows";
 import type { EventStore, PendingEvent } from "@nap/shared/ports/event-store";
 import { expect, it, vi } from "vitest";
 import { buildTranscript } from "../apps/web/src/chat/transcript.ts";
-import { inFlightTurn, turnStartedAt } from "../apps/web/src/chat/working-state.ts";
+import { inFlightTurn } from "../apps/web/src/chat/working-state.ts";
 import { InMemoryEventBus } from "../packages/db/src/testing/in-memory-event-bus.ts";
 import { InMemoryEventStore } from "../packages/db/src/testing/in-memory-event-store.ts";
 import { InMemorySessionStore } from "../packages/db/src/testing/in-memory-session-store.ts";
@@ -174,7 +174,6 @@ it.each(
           ],
     );
     expect(inFlightTurn(recovered)).toBeUndefined();
-    expect(turnStartedAt(recovered)).toBeUndefined();
     expect(openJob(foldJobs(recovered))).toBeDefined();
     if (boundary !== "completed") {
       const failure = buildTranscript(recovered).findLast((item) => item.kind === "turn-end");
@@ -311,6 +310,7 @@ it.each(["user", "verification", "manual"] as const)(
     expect(inFlightTurn(await f.history())).toEqual({
       turnId: kind === "verification" ? NEXT_REPAIR : NEXT,
       startedAt: "2026-10-19T00:02:00.000Z",
+      openedAt: "2026-10-19T00:02:00.000Z",
     });
     expect(await f.queue.unannouncedOrphans()).toEqual([]);
     expect(f.queue.stateOf(NEXT)).toBe("leased");
@@ -418,7 +418,6 @@ it.each(["turn", "resume"] as const)(
       }),
     ]);
     expect(inFlightTurn(log)).toBeUndefined();
-    expect(turnStartedAt(log)).toBeUndefined();
     expect(openJob(foldJobs(log))).toBeUndefined();
     expect(agent.calls).toBe(kind === "resume" ? 0 : 1);
   },
@@ -450,6 +449,9 @@ it("excludes a newer same-job repair already present before the janitor reads hi
     ["system.notice", REQUEST],
   ]);
   expect(f.queue.stateOf(NEXT)).toBe("leased");
-  expect(inFlightTurn(after)).toEqual({ turnId: NEXT_REPAIR, startedAt: current.createdAt });
-  expect(turnStartedAt(after)).toBe(current.createdAt);
+  expect(inFlightTurn(after)).toEqual({
+    turnId: NEXT_REPAIR,
+    startedAt: current.createdAt,
+    openedAt: current.createdAt,
+  });
 });

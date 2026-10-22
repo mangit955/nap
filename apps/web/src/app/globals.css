@@ -59,6 +59,15 @@
   --radius-chip: 7px;
 
   /*
+   * The two sizes below `text-xs`, for the timeline's machine text — a tool's expanded output
+   * and a code block's header. T3 Code's scale, which the timeline is drawn to.
+   */
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: calc(1 / 0.6875);
+  --text-3xs: 0.625rem;
+  --text-3xs--line-height: calc(0.875 / 0.625);
+
+  /*
    * Three elevations, and the difference between them is the point: `hairline` is a chip
    * sitting *in* the composer, `card` is the composer sitting on the pane, `raised` is a menu
    * floating over both. A single shadow reused at three depths is what makes an interface look
@@ -578,42 +587,150 @@ body {
 }
 
 /*
- * The working indicator in the chat pane: a grid of cells, and a label lit by a passing band.
+ * The timeline's two shimmers, and one rule for when either may move.
  *
- * The cells rest dim rather than off. A wavefront moving through cells that are otherwise
- * invisible reads as three dots wandering across empty space; a grid that is always present
- * and merely brightens reads as one object with light moving through it, which is the thing
- * being drawn.
+ * Copied from T3 Code's `index.css` (MIT — see `apps/web/THIRD_PARTY_NOTICES.md`) for their
+ * shape, size and timing; every colour is one of this file's tokens. Each one has a job:
+ *
+ *   - `live-tool-shine` lights the label of the tool call that is running. The text goes
+ *     transparent and two backgrounds are clipped to its glyphs — a flat `muted` fill, which is
+ *     the label at rest, and a 4.5rem band of `ink` sliding across it.
+ *   - `live-activity-focus` is a spotlight for a label that is waiting rather than doing:
+ *     Thinking, Compacting. A full-brightness copy of the row sits in an overlay behind a soft
+ *     moving mask, and the copy's own content counter-scrolls so the mask travels across the
+ *     words while the words stay where they are.
+ *
+ * Both run `steps(30)` over 2.2s — about fourteen frames a second instead of a hundred and
+ * twenty, which still reads as smooth and costs a fraction as much. Both are paused until
+ * `observeVisibleAnimation` (`chat/visible-animation.ts`) says the element is on screen in a
+ * visible tab, and both stand still for reduced motion and forced colours, where the shine is
+ * plain `muted` text and the spotlight is simply not drawn.
+ *
+ * `background-clip: text` and an animated element do not mix (`docs/GOTCHAS.md`, Web and UI):
+ * the shine animates its own background position and nothing else, and the spotlight never
+ * clips text at all — it masks an ordinary copy.
  */
-.nap-pixel {
-  opacity: 0.16;
-  animation-name: nap-pixel-on;
-  animation-timing-function: ease-in-out;
-  animation-iteration-count: infinite;
+@keyframes live-tool-shine {
+  from {
+    background-position:
+      -4.5rem 0,
+      0 0;
+  }
+  to {
+    background-position:
+      calc(100% + 4.5rem) 0,
+      0 0;
+  }
 }
 
-@keyframes nap-pixel-on {
-  0%,
-  100% {
-    opacity: 0.16;
+@utility live-tool-shine {
+  @media (prefers-reduced-motion: no-preference) and (forced-colors: none) {
+    color: transparent;
+    background-image:
+      linear-gradient(to right, transparent, var(--color-ink), transparent),
+      linear-gradient(var(--color-muted), var(--color-muted));
+    background-size:
+      4.5rem 100%,
+      100% 100%;
+    background-repeat: no-repeat;
+    background-clip: text;
+    animation: live-tool-shine 2.2s steps(30) infinite;
+    animation-play-state: var(--visible-animation-state, paused);
   }
-  30% {
-    opacity: 0.95;
+}
+
+@keyframes live-activity-focus {
+  from {
+    transform: translateX(0);
   }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes live-activity-focus-counter {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-100%);
+  }
+}
+
+@utility live-activity-focus {
+  --live-activity-focus-width: 4.5rem;
+
+  right: auto;
+  left: calc(-1 * var(--live-activity-focus-width));
+  width: calc(100% + var(--live-activity-focus-width) + var(--live-activity-focus-width));
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    rgb(0 0 0 / 12%) 0.675rem,
+    rgb(0 0 0 / 55%) 1.575rem,
+    black 2.25rem,
+    rgb(0 0 0 / 55%) 2.925rem,
+    rgb(0 0 0 / 12%) 3.825rem,
+    transparent var(--live-activity-focus-width),
+    transparent 100%
+  );
+  -webkit-mask-repeat: no-repeat;
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    rgb(0 0 0 / 12%) 0.675rem,
+    rgb(0 0 0 / 55%) 1.575rem,
+    black 2.25rem,
+    rgb(0 0 0 / 55%) 2.925rem,
+    rgb(0 0 0 / 12%) 3.825rem,
+    transparent var(--live-activity-focus-width),
+    transparent 100%
+  );
+  mask-repeat: no-repeat;
+  animation: live-activity-focus 2.2s steps(30) infinite;
+  animation-play-state: var(--visible-animation-state, paused);
+  will-change: var(--visible-animation-will-change, auto);
+
+  @media (prefers-reduced-motion: reduce), (forced-colors: active) {
+    animation: none;
+    opacity: 0;
+    will-change: auto;
+  }
+}
+
+@utility live-activity-focus-counter {
+  width: 100%;
+  animation: live-activity-focus-counter 2.2s steps(30) infinite;
+  animation-play-state: var(--visible-animation-state, paused);
+  will-change: var(--visible-animation-will-change, auto);
+
+  @media (prefers-reduced-motion: reduce), (forced-colors: active) {
+    animation: none;
+    will-change: auto;
+  }
+}
+
+@utility live-activity-focus-aligned {
+  width: calc(100% - var(--live-activity-focus-width) - var(--live-activity-focus-width));
+  margin-left: var(--live-activity-focus-width);
 }
 
 /*
- * The band travels left to right, which is why the position runs from a positive percentage to
- * a negative one. Percentage background positions are resolved against the *difference* between
- * the image and its box, so with the image at twice the width they run backwards: animating
- * 0% → 100% would slide the light the wrong way. Checked by eye, not by reasoning.
+ * The spotlight's copy of the label is drawn by CSS rather than written into the DOM a second
+ * time. T3 duplicates the text and hides the copy from assistive technology; generated content
+ * goes one further — find-in-page, a text selection and every `getByText` see the label once,
+ * because there is only one of it.
  */
+[data-spotlight-text]::after {
+  content: attr(data-spotlight-text);
+}
+
 /*
  * A block waiting to be content: a soft fill with a band travelling across it.
  *
- * Separate from `.nap-shimmer` below rather than shared with it, because that one is
- * `background-clip: text` — it lights up glyphs and paints nothing at all on an empty element,
- * which is exactly what a skeleton is.
+ * Separate from the shimmers above, because `live-tool-shine` is `background-clip: text` — it
+ * lights up glyphs and paints nothing at all on an empty element, which is exactly what a
+ * skeleton is.
  *
  * The fill is barely there on purpose. A placeholder with real contrast reads as content that
  * arrived broken; one this quiet reads as a space something is about to occupy. The band is the
@@ -635,8 +752,8 @@ body {
 
 /*
  * Right to left in source terms, left to right on screen: percentage background positions are
- * resolved against the difference between the image and its box, so with the image at twice the
- * width they run backwards — the same trap documented on `.nap-shimmer` below.
+ * resolved against the *difference* between the image and its box, so with the image at twice
+ * the width they run backwards. Checked by eye, not by reasoning.
  */
 @keyframes nap-skeleton-sweep {
   from {
@@ -657,118 +774,297 @@ body {
   }
 }
 
-.nap-shimmer {
-  background-image: linear-gradient(
-    90deg,
-    var(--color-muted) 35%,
-    var(--color-ink) 50%,
-    var(--color-muted) 65%
-  );
-  background-size: 200% 100%;
-  background-clip: text;
-  color: transparent;
-  animation: nap-shimmer 1.4s linear infinite;
+/*
+ * The agent's replies, as markdown.
+ *
+ * Spacing, sizes and the code frame are T3 Code's `.chat-markdown` (MIT — see
+ * `apps/web/THIRD_PARTY_NOTICES.md`); the colours are this file's tokens. Plain prose looks as it
+ * always did — a paragraph of `ink` at the pane's size — because the block margins only open up
+ * between blocks, and the first and last lose theirs.
+ */
+.chat-markdown {
+  overflow-wrap: anywhere;
 }
 
-@keyframes nap-shimmer {
-  from {
-    background-position: 100% 0;
-  }
-  to {
-    background-position: -100% 0;
+/*
+ * Markdown joins a paragraph's lines into one, and the agent's replies were always shown with
+ * their line breaks kept — a reply that wrote one item per line would otherwise run them
+ * together. Paragraphs only: a list or a table already breaks where its source does.
+ */
+.chat-markdown p {
+  white-space: pre-wrap;
+}
+
+.chat-markdown > :first-child {
+  margin-top: 0;
+}
+
+.chat-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.chat-markdown p,
+.chat-markdown ul,
+.chat-markdown ol,
+.chat-markdown blockquote,
+.chat-markdown pre,
+.chat-markdown .chat-markdown-table-container {
+  margin: 0.65rem 0;
+}
+
+.chat-markdown h1,
+.chat-markdown h2,
+.chat-markdown h3,
+.chat-markdown h4,
+.chat-markdown h5,
+.chat-markdown h6 {
+  margin: 1.25rem 0 0.5rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--color-ink);
+}
+
+.chat-markdown h1 {
+  font-size: 1.25rem;
+}
+
+.chat-markdown h2 {
+  font-size: 1.125rem;
+}
+
+.chat-markdown h3 {
+  font-size: 1rem;
+}
+
+.chat-markdown h4,
+.chat-markdown h5,
+.chat-markdown h6 {
+  font-size: 0.875rem;
+}
+
+.chat-markdown h6 {
+  color: var(--color-muted);
+}
+
+.chat-markdown ul {
+  padding-left: 1.25rem;
+  list-style-type: disc;
+}
+
+.chat-markdown ol {
+  padding-left: 1.25rem;
+  list-style-type: decimal;
+}
+
+.chat-markdown ol > li::marker {
+  font-variant-numeric: tabular-nums;
+}
+
+.chat-markdown ul ul {
+  list-style-type: circle;
+}
+
+.chat-markdown ol ol {
+  list-style-type: lower-alpha;
+}
+
+.chat-markdown li + li {
+  margin-top: 0.25rem;
+}
+
+.chat-markdown li.task-list-item {
+  list-style-type: none;
+}
+
+:where(.chat-markdown li.task-list-item) input[type="checkbox"] {
+  margin: 0 0.35em 0.15em -1.25rem;
+  vertical-align: middle;
+}
+
+.chat-markdown strong {
+  font-weight: 600;
+  color: var(--color-ink);
+}
+
+.chat-markdown a:not(.chat-markdown-file-link) {
+  color: var(--color-accent-ink);
+  text-decoration: none;
+}
+
+.chat-markdown a:not(.chat-markdown-file-link):hover,
+.chat-markdown a:not(.chat-markdown-file-link):focus-visible {
+  background-image: radial-gradient(circle, currentcolor 0.75px, transparent 1px);
+  background-position: left bottom;
+  background-repeat: repeat-x;
+  background-size: 4px 2px;
+}
+
+.chat-markdown blockquote {
+  border-left: 2px solid var(--color-edge);
+  padding-left: 0.8rem;
+  color: var(--color-muted);
+}
+
+.chat-markdown hr {
+  margin: 1rem 0;
+  border-color: var(--color-edge);
+}
+
+.chat-markdown :not(pre) > code {
+  border: 1px solid var(--color-edge);
+  border-radius: 0.375rem;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  background: var(--color-hover);
+  padding: 0.1rem 0.35rem;
+  color: var(--color-ink);
+  font-size: 0.75rem;
+}
+
+.chat-markdown pre {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--color-edge);
+  border-radius: 0.75rem;
+  background: var(--color-field);
+  padding: 0.8rem 0.9rem;
+  font-size: 0.75rem;
+  line-height: 1.6;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-strong) transparent;
+}
+
+.chat-markdown pre code {
+  border: none;
+  background: transparent;
+  padding: 0;
+}
+
+.chat-markdown .chat-markdown-codeblock {
+  margin: 0.65rem 0;
+  overflow: hidden;
+  border: 1px solid var(--color-edge);
+  border-radius: 0.5rem;
+  background: var(--color-field);
+  line-height: 1.375;
+}
+
+.chat-markdown .chat-markdown-codeblock-header {
+  color: color-mix(in srgb, var(--color-ink) 72%, transparent);
+}
+
+.chat-markdown .chat-markdown-codeblock pre {
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  padding: 0.5rem 0.75rem 0.75rem;
+}
+
+.chat-markdown .chat-markdown-codeblock[data-wrap="true"] pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.chat-markdown table {
+  width: 100%;
+  min-width: max-content;
+  border-collapse: collapse;
+  overflow-wrap: normal;
+  word-break: normal;
+  font-size: 0.75rem;
+}
+
+.chat-markdown .chat-markdown-table-container {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.chat-markdown th,
+.chat-markdown td {
+  padding: 0.45rem 0.75rem;
+  text-align: left;
+}
+
+.chat-markdown thead th {
+  border-bottom: 1px solid var(--color-edge);
+  padding-block: 0.55rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.chat-markdown tbody td {
+  border-bottom: 1px solid var(--color-edge);
+}
+
+/*
+ * Each new block of a reply that is still arriving fades in, so a paragraph does not pop onto
+ * the page whole. `@starting-style` applies only when an element is first inserted, and the rule
+ * is gated on `data-streaming`, so opening a finished conversation never replays it. Opacity
+ * only, one shot, no layout change.
+ */
+@media (prefers-reduced-motion: no-preference) {
+  /* `:where`, so this adds the fade without outranking anything a block styles itself with. */
+  :where(.chat-markdown[data-streaming]) > *,
+  :where(.chat-markdown[data-streaming]) .chat-markdown-shiki {
+    transition: opacity 600ms ease-out;
+
+    @starting-style {
+      opacity: 0;
+    }
   }
 }
 
 /*
- * The agent's reasoning arriving, a word at a time.
+ * Syntax colours, for Shiki's CSS-variables theme (`chat/highlight.tsx`).
  *
- * Each word resolves out of blur and settles a couple of pixels, which reads as the sentence
- * being written rather than as text appearing. The blur is what makes it legible as *thinking*
- * — a plain fade reads as a page loading, and a slide reads as a menu.
- *
- * `both` is load-bearing rather than tidy: a word is mounted with its delay already counting,
- * so without the backwards fill it would paint sharp for the length of its own stagger and then
- * blur — every word flashing before it arrives. `will-change` is set because the whole passage
- * animates at once and a filter is the expensive half.
+ * The frame has five text colours and no more, so highlighting here is a matter of weight rather
+ * than of a rainbow: keywords and constants in the accent's text colour, strings a step down from
+ * ink, comments and punctuation in the hint colour. Enough to find the structure of a snippet; not
+ * so much that a code block competes with the preview beside it.
  */
-.nap-stream-word {
-  display: inline;
-  animation: nap-stream-in 420ms cubic-bezier(0.22, 0.61, 0.25, 1) both;
-  will-change: filter, opacity;
-}
-
-@keyframes nap-stream-in {
-  from {
-    opacity: 0;
-    filter: blur(4px);
-    transform: translateY(2px);
-  }
-  to {
-    opacity: 1;
-    filter: blur(0);
-    transform: translateY(0);
-  }
+.chat-markdown,
+.chat-shell {
+  --shiki-foreground: var(--color-ink);
+  --shiki-background: transparent;
+  --shiki-token-keyword: var(--color-accent-ink);
+  --shiki-token-constant: var(--color-accent-ink);
+  --shiki-token-string: var(--color-ink-2);
+  --shiki-token-string-expression: var(--color-ink-2);
+  --shiki-token-comment: var(--color-muted);
+  --shiki-token-punctuation: var(--color-muted);
+  --shiki-token-function: var(--color-ink);
+  --shiki-token-parameter: var(--color-ink-2);
+  --shiki-token-link: var(--color-accent-ink);
+  --shiki-token-inserted: var(--color-ink);
+  --shiki-token-deleted: var(--color-danger);
+  --shiki-token-changed: var(--color-accent-ink);
 }
 
 /*
- * The caret sits at the end of a passage that is still being written, and it is the only part
- * that says the thought is unfinished — the words alone cannot, since a passage stops growing
- * the same way whether the model paused or moved on.
+ * What a command printed, in the frame's palette. A program asking for red gets `danger`, so a
+ * compiler's error lines are findable in a wall of output the way a failed step is; green is
+ * ordinary ink, because success stays unmarked; the rest fold onto the accent's text colour.
  */
-.nap-stream-caret {
-  display: inline-block;
-  width: 2px;
-  height: 0.85em;
-  margin-left: 2px;
-  translate: 0 0.1em;
-  border-radius: 1px;
-  background-color: currentColor;
-  animation: nap-stream-blink 1s steps(2, start) infinite;
+.ansi-bold {
+  font-weight: 600;
 }
-
-@keyframes nap-stream-blink {
-  0%,
-  100% {
-    opacity: 0.9;
-  }
-  50% {
-    opacity: 0.15;
-  }
+.ansi-dim,
+.ansi-black {
+  color: var(--color-muted);
 }
-
-/*
- * Reduced motion stops the grid and the band, and deliberately leaves the clock ticking: the
- * elapsed time is information rather than decoration, and a turn that has been running for two
- * minutes is exactly what somebody who turned the animation off still needs to know. The cells
- * hold their dim state and the label holds full ink, so both are still legible standing still.
- *
- * The reasoning is the same case as the clock: the words are the content, so they stay — what
- * goes is the way they arrive. The caret keeps its full opacity rather than disappearing, since
- * an unfinished thought still needs to look unfinished when nothing is allowed to move.
- *
- * A CSS block owns this, unlike the rim light further down — nothing in JavaScript reads the
- * media query for these, so there is no second owner to disagree with.
- */
-@media (prefers-reduced-motion: reduce) {
-  .nap-pixel {
-    animation: none;
-    opacity: 0.4;
-  }
-
-  .nap-shimmer {
-    animation: none;
-    background-image: none;
-    color: var(--color-ink);
-  }
-
-  .nap-stream-word {
-    animation: none;
-  }
-
-  .nap-stream-caret {
-    animation: none;
-    opacity: 0.9;
-  }
+.ansi-red {
+  color: var(--color-danger);
+}
+.ansi-green,
+.ansi-white {
+  color: var(--color-ink);
+}
+.ansi-yellow,
+.ansi-blue,
+.ansi-magenta,
+.ansi-cyan {
+  color: var(--color-accent-ink);
 }
 
 /*

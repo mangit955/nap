@@ -3,6 +3,7 @@
 import type { MediaAttachment } from "@nap/shared/media";
 import { MODEL_MEDIA_UNSUPPORTED, modelSupportsImages } from "@nap/shared/model-capabilities";
 import type { ModelChoice } from "@nap/shared/models-protocol";
+import { Paperclip } from "lucide-react";
 import {
   type ReactNode,
   type RefObject,
@@ -11,6 +12,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { appendDictation, useDictation } from "../dashboard/use-dictation.ts";
 import { type ComposerDraft, ComposerDraftStore } from "../projects/composer-draft.ts";
 import { useDraftNavigation } from "../projects/use-draft-navigation.ts";
@@ -20,6 +22,7 @@ import { applyPick, menuRows, parseToken } from "./composer-menu.ts";
 import type { FirstPrompt } from "./first-prompt.ts";
 import { ModelPicker } from "./model-picker.tsx";
 import { useComposerScroll } from "./use-composer-scroll.ts";
+import { useFileDrop } from "./use-file-drop.ts";
 import { type DraftAttachment, useMediaAttachments } from "./use-media-attachments.ts";
 
 /** Room to write without swallowing the transcript. Past this the field scrolls instead of growing. */
@@ -43,8 +46,14 @@ export function ChatInput({
   model,
   onModelChange,
   onAddKey,
+  dropZone,
 }: {
   draftIdentity?: { ownerId: string; projectId: string } | undefined;
+  /**
+   * Where a dropped file is taken from: the pane's whole chat stage, which is where the overlay
+   * saying so is drawn. Absent, the composer itself is the target, with only its ring to show it.
+   */
+  dropZone?: HTMLElement | null | undefined;
   visible?: boolean;
   running: boolean;
   queueing?: boolean;
@@ -157,6 +166,11 @@ export function ChatInput({
     () =>
       setDraftError("Could not save this draft. Keep the session open and free browser storage."),
   );
+  const drop = useFileDrop({
+    zone: dropZone,
+    enabled: !running && draftReady,
+    onFiles: (dropped) => void media.add(dropped),
+  });
   const images = modelSupportsImages(model);
   const incompatibleMedia = media.attachments.length > 0 && !images;
   const dictation = useDictation((spoken) =>
@@ -394,7 +408,11 @@ export function ChatInput({
         ref={surface}
         aria-label="Message composer"
         data-resting={scroll.resting}
-        className="workspace-composer relative"
+        // A ring rather than a tint: the glass behind the composer is a layer of its own, and a
+        // background or an inset shadow on this element would be painted underneath it.
+        className={`workspace-composer relative ${
+          drop.dragging ? "outline-1 outline-accent/70 -outline-offset-1" : ""
+        }`}
         onPointerDownCapture={(event) => {
           if (!(event.target instanceof Element)) return;
           if (event.target.closest('button, input, select, summary, a, [role="button"]')) return;
@@ -404,11 +422,7 @@ export function ChatInput({
             box.current?.focus({ preventScroll: true });
           }
         }}
-        onDragOver={(event) => event.preventDefault()}
-        onDrop={(event) => {
-          event.preventDefault();
-          if (!running) void media.add(Array.from(event.dataTransfer.files));
-        }}
+        {...(dropZone === undefined || dropZone === null ? drop.reactHandlers : {})}
       >
         {sourceOpen && (
           <div className="p-4 text-xs text-muted">
@@ -524,17 +538,17 @@ export function ChatInput({
                 type="button"
                 onClick={onCancel}
                 aria-label="Stop"
-                className="composer-stop grid size-8 place-items-center rounded-full bg-hover text-ink focus-visible:outline-accent"
+                className="composer-stop flex size-8 shrink-0 items-center justify-center rounded-full bg-danger/90 text-white transition-colors duration-150 hover:bg-danger focus-visible:outline-accent [&_svg]:pointer-events-none"
               >
-                {/* A filled square: the universal stop mark, and legible at 15px where a word is not. */}
+                {/* A filled square: the universal stop mark, and legible at 12px where a word is not. */}
                 <svg
-                  width="15"
-                  height="15"
-                  viewBox="0 0 24 24"
+                  width="12"
+                  height="12"
+                  viewBox="0 0 12 12"
                   fill="currentColor"
                   aria-hidden="true"
                 >
-                  <rect x="7" y="7" width="10" height="10" rx="1.5" />
+                  <rect x="2" y="2" width="8" height="8" rx="1.5" />
                 </svg>
               </button>
             )}
@@ -544,26 +558,46 @@ export function ChatInput({
                 onClick={send}
                 disabled={!draftReady || empty || media.processing || incompatibleMedia}
                 aria-label={queueing ? "Queue message" : "Send"}
-                className="composer-send grid size-8 place-items-center rounded-full bg-accent text-white disabled:bg-hover disabled:text-muted focus-visible:outline-accent"
+                className="composer-send relative isolate flex size-9 items-center justify-center overflow-hidden rounded-full bg-accent text-white transition-all duration-150 enabled:cursor-pointer disabled:pointer-events-none disabled:opacity-64 sm:size-8 focus-visible:outline-accent [&_svg]:pointer-events-none"
               >
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.4"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <path d="M12 19V5M5 12l7-7 7 7" />
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                  <path
+                    d="M7 11.5V2.5M7 2.5L3 6.5M7 2.5L11 6.5"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
                 </svg>
               </button>
             )}
           </div>
         </div>
       </fieldset>
+      {drop.dragging &&
+        dropZone !== undefined &&
+        dropZone !== null &&
+        createPortal(<DropOverlay />, dropZone)}
+    </div>
+  );
+}
+
+/**
+ * The whole chat saying it will take the file, the way T3 Code's does (MIT — see
+ * `apps/web/THIRD_PARTY_NOTICES.md`): a dashed frame inset from the stage and one pill in the
+ * middle. In the accent rather than T3's primary, and it takes no pointer events, so the drop
+ * lands on the stage beneath it.
+ */
+function DropOverlay() {
+  return (
+    <div className="pointer-events-none absolute inset-2 z-40 flex items-center justify-center rounded-2xl border-2 border-accent/60 border-dashed bg-accent/[0.035]">
+      <div
+        role="status"
+        className="flex items-center gap-2 rounded-full border border-accent/25 bg-panel/95 px-4 py-2.5 font-medium text-ink text-sm shadow-raised"
+      >
+        <Paperclip aria-hidden="true" className="size-4 text-accent-ink" />
+        Drop files to attach
+      </div>
     </div>
   );
 }

@@ -1,10 +1,8 @@
 import { type NapEvent, NapEventSchema, type NapEventType } from "@nap/shared/events";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
-import { fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChatTranscript } from "./chat-transcript.tsx";
-import { groupSteps } from "./step-group.ts";
-import { REVEAL_CLASS } from "./streaming-text.tsx";
 import { buildTranscript } from "./transcript.ts";
 
 const SESSION = "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f";
@@ -25,12 +23,30 @@ function ev<T extends NapEventType>(type: T, payload: Extract<NapEvent, { type: 
 
 /**
  * The fold is applied here rather than inside the component, which is where the pane above
- * applies it too — it reads the same items for its working indicator, and two components folding
- * one log is two walks of it per frame of a streaming turn.
+ * applies it too — it reads the same items for the composer, and two components folding one log
+ * is two walks of it per frame of a streaming turn.
  */
 function show(...events: StoredEvent[]) {
   nextSeq = 1;
-  return render(<ChatTranscript items={groupSteps(buildTranscript(events))} />);
+  return render(<ChatTranscript items={buildTranscript(events)} />);
+}
+
+/** The same, with a turn in flight — which the pane knows from the click, not from the log. */
+function showRunning(...events: StoredEvent[]) {
+  nextSeq = 1;
+  return render(<ChatTranscript items={buildTranscript(events)} running />);
+}
+
+/**
+ * Opens every fold, group and row, until nothing closed is left. Work is drawn as one-line rows
+ * whose detail opens on click, so a test about what that detail says has to open it first.
+ */
+function expandAll() {
+  for (let pass = 0; pass < 5; pass += 1) {
+    const closed = screen.queryAllByRole("button", { expanded: false });
+    if (closed.length === 0) return;
+    for (const button of closed) fireEvent.click(button);
+  }
 }
 
 /**
@@ -103,7 +119,7 @@ const TREATMENTS = [
   {
     type: "tool.result",
     payload: { toolCallId: "c1", toolName: "run_command", ok: false, output: "exit code 1" },
-    shows: /exit code 1/,
+    shows: /exit 1/,
   },
   {
     type: "command.output",
@@ -168,6 +184,7 @@ describe("every event type has a visual treatment", () => {
 
   it.each(TREATMENTS)("renders $type", ({ type, payload, shows }) => {
     show(ev(type, payload as never));
+    expandAll();
 
     expect(screen.getByRole("log")).toHaveTextContent(shows);
   });
@@ -323,66 +340,193 @@ describe("a turn in progress", () => {
   });
 });
 
-describe("reasoning arriving as it is produced", () => {
-  const reveal = (container: HTMLElement) => container.querySelectorAll(`.${REVEAL_CLASS}`).length;
-
-  it("reveals the last thing on the rail while the turn is open", () => {
-    const { container } = show(
+describe("a command that failed without exiting", () => {
+  it("still says why, under what it printed before it stopped", () => {
+    // A timeout or a lost sandbox fails the call itself: the reason is in the result alone, and
+    // the stream it printed first does not contain it.
+    show(
       ev("turn.started", { source: "user" }),
-      ev("agent.thinking", { text: "I should read App.tsx" }),
-    );
-
-    expect(reveal(container)).toBeGreaterThan(0);
-  });
-
-  it("leaves everything above it alone", () => {
-    // Only the newest item can still be growing. Re-revealing the ones above it would
-    // replay the whole turn every time another word arrived.
-    const { container } = show(
-      ev("turn.started", { source: "user" }),
-      ev("agent.thinking", { text: "an earlier thought" }),
-      ev("agent.message", { text: "Added App.tsx." }),
-      ev("agent.thinking", { text: "and a later one" }),
-    );
-
-    expect(reveal(container)).toBe("and a later one".split(" ").length);
-  });
-
-  it("replays a finished turn flat", () => {
-    // Opening a project replays its whole log, and a transcript that re-ran every passage's
-    // reveal would say the agent is working on a turn that ended yesterday. What prevents it
-    // is that a finished turn ends *with* its terminal event, so the last line has no prose.
-    const { container } = show(
-      ev("turn.started", { source: "user" }),
-      ev("agent.thinking", { text: "a thought from yesterday" }),
-      ev("turn.completed", {
-        usage: { inputTokens: 1, outputTokens: 1 },
-        durationMs: 10,
-        commitSha: null,
+      ev("tool.call", {
+        toolCallId: "c1",
+        toolName: "run_command",
+        input: { command: "bun run build" },
+      }),
+      ev("command.output", { toolCallId: "c1", stream: "stdout", chunk: "building…\n" }),
+      ev("tool.result", {
+        toolCallId: "c1",
+        toolName: "run_command",
+        ok: false,
+        output: "timeout: command exceeded 120s",
       }),
     );
+    expandAll();
 
-    expect(reveal(container)).toBe(0);
-    expect(screen.getByRole("log")).toHaveTextContent(/a thought from yesterday/);
+    const log = screen.getByRole("log");
+    expect(log).toHaveTextContent(/building…/);
+    expect(log).toHaveTextContent(/timeout: command exceeded 120s/);
+  });
+});
+
+describe("what a finished turn changed", () => {
+  function finished(onOpenFile?: (path: string) => void) {
+    nextSeq = 1;
+    const events = [
+      ev("user.message", { text: "add a header" }),
+      ev("turn.started", { source: "user" }),
+      ev("tool.call", {
+        toolCallId: "c1",
+        toolName: "write_file",
+        input: { path: "/home/user/app/src/components/Header.tsx" },
+      }),
+      ev("file.changed", {
+        path: "/home/user/app/src/components/Header.tsx",
+        changeType: "created",
+        diff: "+one\n+two\n",
+      }),
+      ev("tool.result", { toolCallId: "c1", toolName: "write_file", ok: true, output: "ok" }),
+      ev("agent.message", { text: "Added a header." }),
+      ev("turn.completed", {
+        usage: { inputTokens: 1, outputTokens: 1 },
+        durationMs: 4_000,
+        commitSha: "a1b2c3d",
+      }),
+    ];
+    return render(<ChatTranscript items={buildTranscript(events)} onOpenFile={onOpenFile} />);
+  }
+
+  it("opens a changed file from the card under the answer, with the turn still folded", () => {
+    const onOpenFile = vi.fn();
+    finished(onOpenFile);
+
+    const card = screen.getByRole("region", { name: "Changed files" });
+    fireEvent.click(within(card).getByRole("button", { name: "Open src/components/Header.tsx" }));
+
+    expect(onOpenFile).toHaveBeenCalledWith("src/components/Header.tsx");
+    expect(screen.getByRole("button", { name: /worked for/i })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
   });
 
-  it("reveals a passage in a log that begins mid-turn", () => {
-    // What a client sees when it reconnects partway through: no `turn.started`, because that
-    // event arrived before it asked. The turn is still running and the passage is still being
-    // written, so treating a missing start as a finished turn would freeze it.
-    const { container } = show(ev("agent.thinking", { text: "still thinking about this" }));
+  it("hides a folder's files when the folder is closed, and shows them when it opens again", () => {
+    finished(vi.fn());
+    const card = screen.getByRole("region", { name: "Changed files" });
+    const folder = within(card).getByRole("button", { name: /src\/components/, expanded: true });
+    const file = { name: "Open src/components/Header.tsx" };
 
-    expect(reveal(container)).toBeGreaterThan(0);
+    fireEvent.click(folder);
+    expect(within(card).queryByRole("button", file)).toBeNull();
+
+    fireEvent.click(folder);
+    expect(within(card).getByRole("button", file)).toBeInTheDocument();
+  });
+});
+
+describe("reasoning arriving as it is produced", () => {
+  const done = () =>
+    ev("turn.completed", {
+      usage: { inputTokens: 1, outputTokens: 1 },
+      durationMs: 72_000,
+      commitSha: null,
+    });
+
+  it("says the agent is thinking, under the heading of its newest thought", () => {
+    showRunning(
+      ev("user.message", { text: "build me a todo list" }),
+      ev("turn.started", { source: "user" }),
+      ev("agent.thinking", { text: "**Reading the project**\n\nI should read App.tsx" }),
+      ev("agent.thinking", { text: "\n\n**Planning the list**\n\nOne component will do." }),
+    );
+
+    const log = screen.getByRole("log");
+    expect(log).toHaveTextContent(/Thinking/);
+    expect(log).toHaveTextContent(/Planning the list/);
+    // The preview is the newest thought, not the passage: the rest is behind the row.
+    expect(log).not.toHaveTextContent(/Reading the project/);
   });
 
   it("shows a run of thinking events as one passage", () => {
-    show(
+    showRunning(
       ev("turn.started", { source: "user" }),
       ev("agent.thinking", { text: "I should read " }),
       ev("agent.thinking", { text: "App.tsx first." }),
     );
 
-    expect(screen.getByText("I should read App.tsx first.")).toBeTruthy();
+    expect(screen.getByText("I should read App.tsx first.")).toBeInTheDocument();
+  });
+
+  it("folds a finished turn's reasoning away under how long it worked", () => {
+    // Replaying a project should read as the conversation it was: what was asked and what came
+    // back, with the minute of work between them one row long rather than forty.
+    show(
+      ev("user.message", { text: "build me a todo list" }),
+      ev("turn.started", { source: "user" }),
+      ev("agent.thinking", { text: "a thought from yesterday" }),
+      ev("agent.message", { text: "Added App.tsx." }),
+      done(),
+    );
+
+    const log = screen.getByRole("log");
+    expect(screen.getByRole("button", { name: /worked for 1m 12s/i })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+    expect(log).not.toHaveTextContent(/a thought from yesterday/);
+    expect(log).toHaveTextContent(/Added App\.tsx\./);
+  });
+
+  it("keeps the whole passage behind the fold", () => {
+    show(
+      ev("user.message", { text: "build me a todo list" }),
+      ev("turn.started", { source: "user" }),
+      ev("agent.thinking", { text: "a thought from yesterday" }),
+      ev("agent.message", { text: "Added App.tsx." }),
+      done(),
+    );
+
+    expandAll();
+
+    expect(screen.getByRole("log")).toHaveTextContent(/a thought from yesterday/);
+  });
+
+  it("names the live row by what it is doing, not by the reasoning that changes under it", () => {
+    showRunning(
+      ev("user.message", { text: "build me a todo list" }),
+      ev("turn.started", { source: "user" }),
+      ev("agent.thinking", { text: "**Planning the list**\n\nOne component will do." }),
+      ev("tool.call", { toolCallId: "c1", toolName: "read_file", input: { path: "src/App.tsx" } }),
+    );
+
+    expect(screen.getByRole("log")).toHaveTextContent(/Planning the list/);
+    expect(screen.getByRole("button", { name: "Read src/App.tsx" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Planning the list/ })).toBeNull();
+  });
+
+  it("fades in only the passage still being written", () => {
+    // Only the newest item can still be growing; fading the ones above it would replay the whole
+    // turn every time another word arrived. The flag is all the component decides — the fade
+    // itself is the stylesheet's — so the attribute is the one thing there is to assert on.
+    const { container } = show(
+      ev("turn.started", { source: "user" }),
+      ev("agent.message", { text: "An earlier passage." }),
+      ev("tool.call", { toolCallId: "c1", toolName: "read_file", input: { path: "src/App.tsx" } }),
+      ev("agent.message", { text: "A later one." }),
+    );
+
+    const streaming = container.querySelectorAll("[data-streaming]");
+    expect(streaming).toHaveLength(1);
+    expect(streaming[0]).toHaveTextContent("A later one.");
+  });
+
+  it("replays a finished turn without fading anything", () => {
+    // A finished turn ends *with* its terminal event, so the last line has no prose to fade.
+    const { container } = show(
+      ev("turn.started", { source: "user" }),
+      ev("agent.message", { text: "Added App.tsx." }),
+      done(),
+    );
+
+    expect(container.querySelectorAll("[data-streaming]")).toHaveLength(0);
   });
 });
 
@@ -394,7 +538,7 @@ describe("the seam where you left off", () => {
    */
   function showFrom(seam: number | undefined, ...events: StoredEvent[]) {
     nextSeq = 1;
-    return render(<ChatTranscript items={groupSteps(buildTranscript(events))} seam={seam} />);
+    return render(<ChatTranscript items={buildTranscript(events)} seam={seam} />);
   }
 
   const earlier = () => ev("user.message", { text: "build me a dashboard" });
@@ -421,6 +565,27 @@ describe("the seam where you left off", () => {
     // A hairline in a different colour is nothing at all to somebody listening to the page, and
     // "you have not read this part" is exactly the sort of thing they need told.
     showFrom(2, earlier(), later());
+
+    expect(screen.getByText(/new since you were last here/i)).toBeInTheDocument();
+  });
+
+  it("draws the line on a compaction's failure, which is drawn inside the compaction's row", () => {
+    // The reader left while an automatic compaction ran; it failed, and the turn with it, while
+    // they were away. The compaction keeps the key it opened with, so the first unseen item is
+    // the turn's failure — which has no row of its own to put the line on.
+    showFrom(
+      5,
+      earlier(),
+      ev("turn.started", { source: "user" }),
+      ev("compaction.started", { id: "k1", trigger: "automatic" }),
+      ev("compaction.failed", {
+        id: "k1",
+        message: "provider unavailable",
+        cancelled: false,
+        usage: null,
+      }),
+      ev("turn.failed", { reason: "internal", message: "provider unavailable" }),
+    );
 
     expect(screen.getByText(/new since you were last here/i)).toBeInTheDocument();
   });

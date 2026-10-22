@@ -297,6 +297,27 @@ describe("AppShell", () => {
     expect(screen.queryByRole("region", { name: "While you were away" })).toBeNull();
   });
 
+  it("opens a file the agent mentions in the Code tab", async () => {
+    const net = sockets();
+    render(
+      <AppShell projectId={PROJECT_ID} createSocket={net.createSocket} fetchJson={fetchJson} />,
+    );
+    await waitFor(() => expect(net.opened).toHaveLength(1));
+    await act(async () => {
+      net.latest.open();
+      net.latest.deliver({
+        type: "event",
+        event: ev("agent.message", { text: "The list is in `src/App.tsx`." }, 1),
+      });
+      net.latest.deliver({ type: "ready" });
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open src/App.tsx" }));
+
+    expect(screen.getByRole("tab", { name: "Code" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("region", { name: "src/App.tsx (read-only)" })).toBeInTheDocument();
+  });
+
   it("mounts the chat beside the workbench", () => {
     render(shell());
 

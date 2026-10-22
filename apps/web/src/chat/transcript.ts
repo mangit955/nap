@@ -73,6 +73,8 @@ export type TranscriptItem =
   | {
       kind: "step";
       key: number;
+      /** When the call was made, for the time a row shows on hover. */
+      at: string;
       toolCallId: string;
       toolName: ToolName;
       input: Record<string, unknown>;
@@ -81,7 +83,6 @@ export type TranscriptItem =
       output: string;
       /** Everything `run_command` printed, in the order it printed it. */
       streamed: string;
-      hasStderr: boolean;
       files: FileChange[];
     }
   | { kind: "files"; key: number; files: FileChange[] }
@@ -97,8 +98,9 @@ export type TranscriptItem =
    */
   | { kind: "preview-stopped"; key: number; superseded: boolean }
   | { kind: "notice"; key: number; level: "info" | "warning"; text: string }
-  | { kind: "turn-start"; key: number; source: PromptSource }
-  | ({ kind: "turn-end"; key: number } & TurnOutcome);
+  /** `at` on both ends is what a finished turn's "Worked for" is measured between. */
+  | { kind: "turn-start"; key: number; at: string; source: PromptSource }
+  | ({ kind: "turn-end"; key: number; at: string } & TurnOutcome);
 
 type TurnOutcome =
   | {
@@ -288,13 +290,13 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
         const step: Step = {
           kind: "step",
           key,
+          at: event.createdAt,
           toolCallId: event.payload.toolCallId,
           toolName: event.payload.toolName,
           input: event.payload.input,
           status: "running",
           output: "",
           streamed: "",
-          hasStderr: false,
           files: [],
         };
         stepsById.set(step.toolCallId, step);
@@ -309,7 +311,7 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
         // would hide a failure from the one person who needs to see it.
         const step =
           stepsById.get(event.payload.toolCallId) ??
-          openOrphan(event.payload.toolCallId, event.payload.toolName, key, items, stepsById);
+          openOrphan(event, event.payload.toolName, items, stepsById);
         step.status = event.payload.ok ? "ok" : "failed";
         step.output = event.payload.output;
         if (openStep === step) openStep = undefined;
@@ -321,9 +323,8 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
         // whose call is missing can be attributed without guessing.
         const step =
           stepsById.get(event.payload.toolCallId) ??
-          openOrphan(event.payload.toolCallId, "run_command", key, items, stepsById);
+          openOrphan(event, "run_command", items, stepsById);
         step.streamed += event.payload.chunk;
-        if (event.payload.stream === "stderr") step.hasStderr = true;
         break;
       }
 
@@ -362,7 +363,7 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
           retryByTurn.set(event.turnId, lastUserRequest);
         }
         awaitingRepair = false;
-        items.push({ kind: "turn-start", key, source: event.payload.source });
+        items.push({ kind: "turn-start", key, at: event.createdAt, source: event.payload.source });
         break;
 
       // Draws nothing — the strip above the chat is where a job's phase and its checks are
@@ -387,6 +388,7 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
         items.push({
           kind: "turn-end",
           key,
+          at: event.createdAt,
           outcome: "completed",
           durationMs: event.payload.durationMs,
           inputTokens: event.payload.usage.inputTokens,
@@ -429,6 +431,7 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
         items.push({
           kind: "turn-end",
           key,
+          at: event.createdAt,
           outcome: "failed",
           turnId: event.turnId,
           reason: event.payload.reason,
@@ -451,25 +454,24 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
  * unknown — the alternative is inventing arguments the tool was never given.
  */
 function openOrphan(
-  toolCallId: string,
+  event: NapEventOf<"tool.result"> | NapEventOf<"command.output">,
   toolName: ToolName,
-  key: number,
   items: TranscriptItem[],
   stepsById: Map<string, Step>,
 ): Step {
   const step: Step = {
     kind: "step",
-    key,
-    toolCallId,
+    key: event.seq,
+    at: event.createdAt,
+    toolCallId: event.payload.toolCallId,
     toolName,
     input: {},
     status: "running",
     output: "",
     streamed: "",
-    hasStderr: false,
     files: [],
   };
-  stepsById.set(toolCallId, step);
+  stepsById.set(step.toolCallId, step);
   items.push(step);
   return step;
 }

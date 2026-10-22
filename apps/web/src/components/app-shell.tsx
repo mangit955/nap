@@ -216,6 +216,9 @@ export function AppShell({
 
   const [tab, setTab] = useState<WorkbenchTab>("preview");
   const [chatOpen, setChatOpen] = useState(true);
+  // Here rather than in the Code tab, because the chat opens files too: a path in a reply, or a
+  // row of a turn's changed files, switches to the tab with that file open.
+  const [openFile, setOpenFile] = useState<string | undefined>(undefined);
   /**
    * Bumped by the bar's Reload button. A count rather than a boolean because the frame is keyed
    * on it: cross-origin means nothing here can call `reload()` on the app, so replacing the
@@ -282,6 +285,12 @@ export function AppShell({
             projectId={projectId}
             log={log}
             files={files.listing?.files}
+            onOpenFile={(path) => {
+              setOpenFile(path);
+              setTab("code");
+              // As switching tabs from the bar does: on a phone the chat covers the tab.
+              if (window.matchMedia("(max-width: 767px)").matches) setChatOpen(false);
+            }}
             {...(fetchJson === undefined ? {} : { fetchJson })}
           />
         </div>
@@ -308,6 +317,8 @@ export function AppShell({
               log={log}
               phase={phase}
               files={files}
+              selected={openFile}
+              onSelect={setOpenFile}
               {...(fetchJson === undefined ? {} : { fetchJson })}
             />
           }
