@@ -1971,21 +1971,6 @@ body {
   caret-color: var(--color-ink);
 }
 /*
- * T3 Code's dropdown glass (MIT — see `apps/web/THIRD_PARTY_NOTICES.md`) in nap's colours: the
- * field colour at about 84% over a 16px blur, with a hairline of ink for an edge. The nested mix
- * is T3's own arithmetic, kept so the opacity matches theirs rather than a rounding of it.
- */
-.composer-menu {
-  border: 1px solid color-mix(in srgb, var(--color-ink) 10%, transparent);
-  background: color-mix(
-    in srgb,
-    var(--color-field) 18%,
-    color-mix(in srgb, var(--color-field) 80%, transparent)
-  );
-  -webkit-backdrop-filter: blur(16px) saturate(1.08);
-  backdrop-filter: blur(16px) saturate(1.08);
-}
-/*
  * A popup the composer opens: T3's long soft shadow, and its arrival — up from 98% and in from
  * transparent over 150ms on the default ease. `--float-origin` points the scale at the trigger.
  *
@@ -2023,9 +2008,9 @@ body {
   }
 }
 /*
- * The prompt box's own glass, for what the composer opens out of itself — the plus menu, the
- * model picker and the context popup — rather than the menus', so each reads as a piece of the
- * prompt box lifted up.
+ * The prompt box's own glass, for every popover in the app — the composer's menus and context
+ * popup, the sidebar's menus, the repository picker — so whatever floats reads as the same
+ * material as the prompt box it usually rises out of.
  */
 .composer-surface {
   border: 1px solid rgb(255 255 255 / 5%);
@@ -2106,9 +2091,6 @@ body {
   .workspace-composer[data-resting="true"] .composer-model-controls {
     background: var(--color-panel);
   }
-  .composer-menu {
-    background: var(--color-field);
-  }
   .composer-surface {
     background: var(--color-panel);
   }
@@ -2137,11 +2119,6 @@ body {
   .workspace-composer::before,
   .composer-queue::before {
     background: var(--color-panel);
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
-  .composer-menu {
-    background: var(--color-field);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
@@ -2376,11 +2353,9 @@ body {
   left: 0;
   width: min(350px, 100%);
   padding: 9px;
-  border: 1px solid var(--color-edge);
-  border-radius: 12px;
-  background: var(--color-field);
-  box-shadow: var(--shadow-raised);
+  border-radius: 10px;
   color: var(--color-ink);
+  --float-origin: top left;
 }
 .repository-heading {
   color: var(--color-muted);

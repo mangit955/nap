@@ -347,7 +347,7 @@ export function Sidebar({
           >
             <SettingsIcon />
           </summary>
-          <div className="absolute right-0 bottom-full z-40 mb-2 w-48 rounded-xl border border-edge bg-field p-2 shadow-raised">
+          <div className="composer-surface nap-float absolute right-0 bottom-full z-40 mb-2 w-48 rounded-[10px] p-2 [--float-origin:bottom_right]">
             <a href="/settings/connections" className={ROW}>
               Connections
             </a>
@@ -445,7 +445,7 @@ export function AccountMenu({
       */}
       {open && (
         <div role="menu" aria-label="Account" className="absolute right-0 bottom-full left-0 pb-2">
-          <div className="flex flex-col gap-0.5 rounded-xl border border-edge bg-panel p-1.5 shadow-[0_16px_40px_-12px_rgba(0,0,0,0.7)]">
+          <div className="composer-surface nap-float flex flex-col gap-0.5 rounded-[10px] p-1.5">
             <a
               role="menuitem"
               href="/settings/connections"

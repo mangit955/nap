@@ -141,7 +141,7 @@ export function RepositoryPicker({
           }}
         />
       </div>
-      <div className="repository-popover">
+      <div className="repository-popover composer-surface nap-float">
         <div className="repository-heading">Repositories</div>
         <div
           id={listId}
