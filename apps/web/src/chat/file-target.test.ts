@@ -24,14 +24,29 @@ describe("fileTarget", () => {
     expect(fileTarget("App.tsx", files)).toBe("src/App.tsx");
   });
 
+  it("finds a bare filename given with a line number, which looks like a URL scheme", () => {
+    expect(fileTarget("App.tsx:14", files)).toBe("src/App.tsx");
+    expect(fileTarget("package.json:3:5", files)).toBe("package.json");
+  });
+
   it("takes a path-shaped mention even before the file listing is in", () => {
     expect(fileTarget("src/components/Header.tsx", [])).toBe("src/components/Header.tsx");
+  });
+
+  it("trusts the listing over the shape once it has arrived", () => {
+    expect(fileTarget("node_modules/react/index.js", files)).toBeUndefined();
+    expect(fileTarget("example.com/index.html", files)).toBeUndefined();
+  });
+
+  it("strips the sandbox's project root only where a path starts with it", () => {
+    expect(fileTarget("vendor/home/user/app/x.ts", [])).toBe("vendor/home/user/app/x.ts");
   });
 
   it("leaves everything else as code", () => {
     expect(fileTarget("useState", files)).toBeUndefined();
     expect(fileTarget("bun run build", files)).toBeUndefined();
     expect(fileTarget("https://example.com/a.ts", files)).toBeUndefined();
+    expect(fileTarget("http://localhost:3000", files)).toBeUndefined();
     expect(fileTarget("Header.tsx", files)).toBeUndefined();
     expect(fileTarget("1.5", files)).toBeUndefined();
   });

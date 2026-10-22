@@ -89,7 +89,7 @@ export function useStickToBottom<T extends HTMLElement>(
       if (target != null) {
         opened.current = true;
         // `offsetTop` is measured against the nearest positioned ancestor, and the scroller is
-        // one — it carries `relative` so the working indicator can sit over it. A caller who
+        // one — it carries `relative` so that this offset is measured against it. A caller who
         // takes that class off would land this at the wrong offset, silently.
         box.scrollTop = Math.max(0, Math.min(bottom, target.offsetTop - OPEN_MARGIN));
         return;

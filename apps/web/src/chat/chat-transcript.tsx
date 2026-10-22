@@ -44,6 +44,7 @@ type FailedTurn = Extract<TurnEnd, { outcome: "failed" }>;
 export function ChatTranscript({
   items,
   running = false,
+  pending = false,
   startedAt,
   seam,
   seamRef,
@@ -65,6 +66,11 @@ export function ChatTranscript({
    * like any other.
    */
   running?: boolean;
+  /**
+   * A request was sent and the log does not hold it yet. `running` alone cannot say whether a log
+   * ending at a turn end has anything still to come: see `TimelineOptions` in `timeline.ts`.
+   */
+  pending?: boolean;
   /** When the server says the open turn began. Absent until `turn.started` arrives. */
   startedAt?: string | undefined;
   /**
@@ -93,11 +99,12 @@ export function ChatTranscript({
     () =>
       buildTimeline(items, {
         running,
+        pending,
         startedAt,
         expandedFolds: openFolds,
         expandedGroups: openGroups,
       }),
-    [items, running, startedAt, openFolds, openGroups],
+    [items, running, pending, startedAt, openFolds, openGroups],
   );
   const projectFiles = useMemo(() => ({ files, onOpenFile }), [files, onOpenFile]);
 
@@ -142,10 +149,17 @@ export function ChatTranscript({
         className="mx-auto flex max-w-[46rem] flex-col px-5 py-6"
       >
         {rows.map((row) => {
-          if (row.kind === "item" && foldedFailures.has(row.item.key)) return null;
-          // A turn that finished draws nothing of its own — its fold says how long it took — so
-          // it takes no wrapper either, unless the seam has to be drawn on it.
-          if (isFinished(row) && row.id !== seamRow) return null;
+          // A turn that finished draws nothing of its own — its fold says how long it took — and
+          // a compaction's failure is drawn inside the compaction's row. Neither takes a wrapper,
+          // unless the seam has to be drawn on it.
+          const drawnElsewhere = row.kind === "item" && foldedFailures.has(row.item.key);
+          if (drawnElsewhere || isFinished(row)) {
+            return row.id === seamRow ? (
+              <div key={row.id}>
+                <UnseenSeam seamRef={seamRef} />
+              </div>
+            ) : null;
+          }
           const before = previous;
           if (!quiet(row)) previous = row;
           return (

@@ -17,6 +17,11 @@ type InFlightTurn = {
   turnId: string;
   /** Ordinary preparation is busy before the server starts its elapsed clock. */
   startedAt: string | undefined;
+  /**
+   * When the first of its events was written — for a user's turn, its prompt, which is logged
+   * before the sandbox is acquired and so long before `startedAt`.
+   */
+  openedAt: string;
 };
 
 /**
@@ -51,13 +56,9 @@ export function inFlightTurn(
       (event.type === "compaction.started" && event.payload.trigger === "manual")
         ? event.createdAt
         : undefined;
-    if (turn === undefined) turns.set(event.turnId, { turnId: event.turnId, startedAt });
+    if (turn === undefined)
+      turns.set(event.turnId, { turnId: event.turnId, startedAt, openedAt: event.createdAt });
     else turn.startedAt ??= startedAt;
   }
   return [...turns.values()].findLast((turn) => turn !== null);
-}
-
-/** The server's first clock anchor for the active turn, preserved across reloads. */
-export function turnStartedAt(events: readonly StoredEvent[]): string | undefined {
-  return inFlightTurn(events)?.startedAt;
 }

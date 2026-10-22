@@ -58,6 +58,8 @@ export type TurnSubmission = {
   pendingAfterCompaction: boolean;
   running: boolean;
   startedAt: string | undefined;
+  /** When the turn in flight was first written to the log; see `InFlightTurn`. */
+  openedAt: string | undefined;
   error: string | undefined;
 };
 
@@ -367,6 +369,7 @@ export function useTurnSubmission(options: {
       observation?.active === true ||
       turn !== undefined,
     startedAt: turn?.startedAt,
+    openedAt: turn?.openedAt,
     error,
   };
 }

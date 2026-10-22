@@ -5,8 +5,15 @@ import { useRef } from "react";
 import type { useDictation } from "../dashboard/use-dictation.ts";
 import { type DraftAttachment, MEDIA_ACCEPT } from "./use-media-attachments.ts";
 
-export const CONTROL_CLASS =
-  "grid size-8 shrink-0 place-items-center rounded-full text-muted transition-colors hover:bg-hover hover:text-ink focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40";
+/**
+ * Without a colour, for a control that changes colour with its state: two colour utilities on one
+ * element are resolved by their order in the built stylesheet, where `text-muted` comes after
+ * `text-accent-ink`, so appending a second colour to a muted base does nothing.
+ */
+const CONTROL_SHAPE =
+  "grid size-8 shrink-0 place-items-center rounded-full transition-colors hover:bg-hover hover:text-ink focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40";
+
+export const CONTROL_CLASS = `${CONTROL_SHAPE} text-muted`;
 
 export function AttachmentButton({
   disabled,
@@ -73,7 +80,7 @@ export function DictationButton({
       }
       disabled={disabled || !dictation.supported}
       onClick={dictation.toggle}
-      className={`${CONTROL_CLASS} ${dictation.listening ? "bg-accent-tint text-accent-ink" : ""}`}
+      className={`${CONTROL_SHAPE} ${dictation.listening ? "bg-accent-tint text-accent-ink" : "text-muted"}`}
     >
       <svg
         viewBox="0 0 24 24"

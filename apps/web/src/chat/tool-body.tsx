@@ -20,7 +20,16 @@ import { commandExitCode, type WorkEntry } from "./work-log.ts";
 import { shorten } from "./working-state.ts";
 
 const BODY =
-  "max-h-64 cursor-text overflow-auto whitespace-pre-wrap break-words font-mono text-2xs text-muted leading-relaxed select-text";
+  "max-h-64 cursor-text overflow-auto whitespace-pre-wrap break-words font-mono text-2xs leading-relaxed select-text";
+
+/**
+ * The body's colour, chosen here rather than appended to a muted base: two colour utilities on
+ * one element are resolved by their order in the built stylesheet, not by the order they are
+ * written in, and there `text-muted` comes after `text-danger` — a failure would render grey.
+ */
+function bodyClass(danger: boolean): string {
+  return `${BODY} ${danger ? "text-danger" : "text-muted"}`;
+}
 
 export function WorkEntryBody({ entry }: { entry: WorkEntry }) {
   if (entry.kind === "thinking") return <ChatMarkdown text={entry.text} streaming={false} />;
@@ -36,12 +45,16 @@ export function WorkEntryBody({ entry }: { entry: WorkEntry }) {
     // `exit code N` line, and showing both prints the build log twice.
     const printed =
       entry.streamed !== "" ? entry.streamed : entry.output.replace(/^exit code -?\d+\n?/, "");
+    // A call that failed without exiting — it timed out, or the sandbox went away — says why only
+    // in its result, which the stream above does not contain.
+    const reason = failed && code === undefined && entry.streamed !== "" ? entry.output : "";
     return (
       <div className="ms-7 space-y-1.5 font-mono text-2xs">
         {command !== undefined && <ShellCommand command={command} />}
         {printed.trim() !== "" && (
           <CommandOutput text={printed} live={entry.status === "running"} danger={failed} />
         )}
+        {reason.trim() !== "" && <pre className={bodyClass(true)}>{reason}</pre>}
         {code !== undefined && code !== 0 && <div className="text-danger">exit {code}</div>}
       </div>
     );
@@ -51,7 +64,7 @@ export function WorkEntryBody({ entry }: { entry: WorkEntry }) {
     const path = typeof input.path === "string" ? shorten(input.path) : "";
     return (
       <div className="ms-7">
-        <pre className={failed ? `${BODY} text-danger` : BODY}>{failed ? entry.output : path}</pre>
+        <pre className={bodyClass(failed)}>{failed ? entry.output : path}</pre>
       </div>
     );
   }
@@ -59,7 +72,7 @@ export function WorkEntryBody({ entry }: { entry: WorkEntry }) {
   if (entry.files.length > 0) return <Changes files={entry.files} />;
   return (
     <div className="ms-7">
-      <pre className={failed ? `${BODY} text-danger` : BODY}>{entry.output || "No output."}</pre>
+      <pre className={bodyClass(failed)}>{entry.output || "No output."}</pre>
     </div>
   );
 }
@@ -94,7 +107,7 @@ function CommandOutput({ text, live, danger }: { text: string; live: boolean; da
         const element = event.currentTarget;
         follow.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 8;
       }}
-      className={danger ? `${BODY} text-danger` : BODY}
+      className={bodyClass(danger)}
     >
       {ansiSpans(text).map((span, index) =>
         span.classes.length === 0 ? (
@@ -126,7 +139,7 @@ function Changes({ files }: { files: readonly FileChange[] }) {
             </span>
           </p>
           {file.diff !== "" && (
-            <pre className={BODY}>
+            <pre className={bodyClass(false)}>
               {file.diff
                 .replace(/\n$/, "")
                 .split("\n")

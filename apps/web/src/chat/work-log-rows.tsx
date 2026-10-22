@@ -551,7 +551,9 @@ export function LiveWorkRow({
     <button
       type="button"
       aria-expanded={row.expanded}
-      aria-label={failed ? `${label}, tool call failed` : undefined}
+      // Named by its label alone. Unnamed, the button would take its name from its content, the
+      // reasoning preview included, and that changes several times a second.
+      aria-label={failed ? `${label}, tool call failed` : label}
       onClick={onToggle}
       className={`group/live-work flex w-full max-w-full cursor-pointer rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/70 ${
         row.thought !== undefined ? "flex-col items-start" : "min-h-6 items-center"
@@ -563,9 +565,7 @@ export function LiveWorkRow({
   );
 }
 
-function formatWorkingTimer(startIso: string): string {
-  const started = Date.parse(startIso);
-  if (!Number.isFinite(started)) return "0s";
+function formatWorkingTimer(started: number): string {
   const seconds = Math.max(0, Math.floor((Date.now() - started) / 1000));
   return seconds < 60 ? `${seconds}s` : formatDuration(seconds * 1_000);
 }
@@ -575,23 +575,31 @@ function formatWorkingTimer(startIso: string): string {
  * changes, so a React render per tick would re-render the row — and with it everything the
  * timeline hands down to it — for one changed digit.
  */
-function WorkingTimer({ startedAt }: { startedAt: string }) {
+function WorkingTimer({ startedAt }: { startedAt: string | undefined }) {
   const text = useRef<HTMLSpanElement>(null);
+  // The pane hands down the earliest time it knows of (see `ChatPane`), and keeps it from going
+  // back. It is followed even when it moves forward: this row survives from one turn into the
+  // next, so a floor here would carry the last turn's count into the new one. When this appeared
+  // is only for a caller that hands down nothing. Captured once: read each render, the anchor
+  // would move with the clock and pin the count at zero.
+  const [mountedAt] = useState(() => Date.now());
+  const parsed = startedAt === undefined ? Number.NaN : Date.parse(startedAt);
+  const anchor = Number.isFinite(parsed) ? parsed : mountedAt;
 
   useEffect(() => {
     const tick = () => {
-      if (text.current !== null) text.current.textContent = formatWorkingTimer(startedAt);
+      if (text.current !== null) text.current.textContent = formatWorkingTimer(anchor);
     };
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
-  }, [startedAt]);
+  }, [anchor]);
 
   // The server's clock and the browser's disagree by however long the page took to arrive, and
   // the next tick corrects it either way.
   return (
     <span ref={text} className="tabular-nums" suppressHydrationWarning>
-      {formatWorkingTimer(startedAt)}
+      {formatWorkingTimer(anchor)}
     </span>
   );
 }
@@ -611,13 +619,7 @@ export function WorkingRow({ startedAt }: { startedAt: string | undefined }) {
         className="flex h-6 min-w-0 items-baseline gap-2 px-1 text-muted text-sm tabular-nums leading-relaxed"
       >
         <span className="relative shrink-0 overflow-hidden whitespace-nowrap">
-          {startedAt === undefined ? (
-            "Working…"
-          ) : (
-            <>
-              Working for <WorkingTimer startedAt={startedAt} />
-            </>
-          )}
+          Working for <WorkingTimer startedAt={startedAt} />
         </span>
       </div>
     </div>

@@ -1,7 +1,7 @@
 import type { NapEvent, NapEventType } from "@nap/shared/events";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { describe, expect, it } from "vitest";
-import { inFlightTurn, turnStartedAt } from "./working-state.ts";
+import { inFlightTurn } from "./working-state.ts";
 
 /**
  * A `.test.ts` under `apps/web`, like `transcript.test.ts` beside it: deriving which turn is
@@ -32,39 +32,41 @@ function reset() {
   clock = Date.parse("2026-08-09T12:00:00.000Z");
 }
 
-describe("turnStartedAt", () => {
+describe("the in-flight turn's startedAt", () => {
   it("is undefined when no turn has started", () => {
     reset();
-    expect(turnStartedAt([ev("agent.message", { text: "hello" })])).toBeUndefined();
+    expect(inFlightTurn([ev("agent.message", { text: "hello" })])?.startedAt).toBeUndefined();
   });
 
   it("is the timestamp the server wrote on the open turn", () => {
     reset();
     const started = ev("turn.started", { source: "user" });
-    expect(turnStartedAt([started, ev("agent.thinking", { text: "…" })])).toBe(started.createdAt);
+    expect(inFlightTurn([started, ev("agent.thinking", { text: "…" })])?.startedAt).toBe(
+      started.createdAt,
+    );
   });
 
   it("is undefined once that turn completed", () => {
     reset();
     expect(
-      turnStartedAt([
+      inFlightTurn([
         ev("turn.started", { source: "user" }),
         ev("turn.completed", {
           durationMs: 1200,
           usage: { inputTokens: 10, outputTokens: 2 },
           commitSha: null,
         }),
-      ]),
+      ])?.startedAt,
     ).toBeUndefined();
   });
 
   it("is undefined once that turn failed", () => {
     reset();
     expect(
-      turnStartedAt([
+      inFlightTurn([
         ev("turn.started", { source: "user" }),
         ev("turn.failed", { reason: "sandbox_unavailable", message: "no sandbox" }),
-      ]),
+      ])?.startedAt,
     ).toBeUndefined();
   });
 
@@ -82,7 +84,7 @@ describe("turnStartedAt", () => {
       { ...ev("turn.started", { source: "user" }), turnId: "8c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f" },
     ] as const;
 
-    const answer = turnStartedAt([first, ...second]);
+    const answer = inFlightTurn([first, ...second])?.startedAt;
     expect(answer).toBe(second[1].createdAt);
     expect(answer).not.toBe(first.createdAt);
   });
@@ -103,5 +105,6 @@ it("retires only covered activity while retaining terminal identity across the i
   expect(inFlightTurn([...history, newer], legacy.seq)).toEqual({
     turnId: newer.turnId,
     startedAt: newer.createdAt,
+    openedAt: newer.createdAt,
   });
 });

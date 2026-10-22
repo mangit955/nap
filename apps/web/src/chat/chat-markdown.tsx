@@ -21,7 +21,7 @@
  */
 
 import { Check, Copy, FileCode, WrapText } from "lucide-react";
-import { createContext, use, useEffect, useRef, useState } from "react";
+import { createContext, memo, use, useEffect, useRef, useState } from "react";
 import Markdown, { type Components, type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { fileTarget } from "./file-target.ts";
@@ -38,20 +38,62 @@ export const ProjectFiles = createContext<ProjectFilesContext>({
   onOpenFile: undefined,
 });
 
+/** Whether the passage is still being written, for the renderers the component map holds. */
+const Streaming = createContext(false);
+
+/** Set inside a link, so nothing in its text becomes a second control nested in it. */
+const InsideLink = createContext(false);
+
 const REMARK_PLUGINS = [remarkGfm];
 
-export function ChatMarkdown({ text, streaming }: { text: string; streaming: boolean }) {
+type HastChild = HastNode["children"][number];
+
+/**
+ * Markdown's hard break arrives as a `<br>` followed by a text node holding the newline it was
+ * written with. Paragraphs keep their newlines (`.chat-markdown p` is `pre-wrap`), so drawing both
+ * would break the line twice — but a tight list item has no paragraph and no `pre-wrap`, so there
+ * the `<br>` is the only break. Dropping the newline rather than the `<br>` breaks once in both.
+ */
+function dropNewlineAfterBreak(parent: { children: HastChild[] }): void {
+  parent.children.forEach((child, index) => {
+    if (child.type !== "element") return;
+    const next = parent.children[index + 1];
+    if (child.tagName === "br" && next?.type === "text") next.value = next.value.replace(/^\n/, "");
+    else dropNewlineAfterBreak(child);
+  });
+}
+
+const REHYPE_PLUGINS = [() => dropNewlineAfterBreak];
+
+/**
+ * Memoised, as T3's is: react-markdown parses on every render, and the pane re-renders every
+ * passage in the conversation on every event. Both props are primitives, so a finished passage
+ * is parsed once; the project's files still reach the renderers through context.
+ */
+export const ChatMarkdown = memo(function ChatMarkdown({
+  text,
+  streaming,
+}: {
+  text: string;
+  streaming: boolean;
+}) {
   return (
     <div
       className="chat-markdown text-sm text-ink leading-[1.7]"
       data-streaming={streaming ? "" : undefined}
     >
-      <Markdown remarkPlugins={REMARK_PLUGINS} components={COMPONENTS}>
-        {text}
-      </Markdown>
+      <Streaming value={streaming}>
+        <Markdown
+          remarkPlugins={REMARK_PLUGINS}
+          rehypePlugins={REHYPE_PLUGINS}
+          components={COMPONENTS}
+        >
+          {text}
+        </Markdown>
+      </Streaming>
     </div>
   );
-}
+});
 
 type HastNode = NonNullable<ExtraProps["node"]>;
 
@@ -83,7 +125,14 @@ function CodeBlock({ node }: { node?: HastNode | undefined }) {
   // A fence's text ends with the newline before its closing backticks, which is not a line.
   const source = textOf(code).replace(/\n$/, "");
 
-  return <FramedCode code={source} language={language} title={fenceTitle(meta)} />;
+  return (
+    <FramedCode
+      code={source}
+      language={language}
+      title={fenceTitle(meta)}
+      streaming={use(Streaming)}
+    />
+  );
 }
 
 /**
@@ -95,10 +144,12 @@ function FramedCode({
   code,
   language,
   title,
+  streaming,
 }: {
   code: string;
   language: string;
   title: string | undefined;
+  streaming: boolean;
 }) {
   const [wrapped, setWrapped] = useState(true);
   const [copied, setCopied] = useState(false);
@@ -126,11 +177,16 @@ function FramedCode({
             type="button"
             aria-label={copied ? "Copied" : "Copy code"}
             onClick={() => {
-              void navigator.clipboard?.writeText(code).then(() => {
-                clearTimeout(timer.current);
-                setCopied(true);
-                timer.current = setTimeout(() => setCopied(false), 1200);
-              });
+              void navigator.clipboard
+                ?.writeText(code)
+                .then(() => {
+                  clearTimeout(timer.current);
+                  setCopied(true);
+                  timer.current = setTimeout(() => setCopied(false), 1200);
+                })
+                // Refused permission or an unfocused document: the button simply does not say
+                // "Copied", which is the truth.
+                .catch(() => {});
             }}
             className="grid size-6 place-items-center rounded-md text-muted transition-colors hover:bg-hover hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
           >
@@ -144,7 +200,11 @@ function FramedCode({
       </div>
       <pre>
         <code className="chat-markdown-shiki">
-          {language === "" ? code : <HighlightedCode code={code} language={language} />}
+          {language === "" ? (
+            code
+          ) : (
+            <HighlightedCode code={code} language={language} streaming={streaming} />
+          )}
         </code>
       </pre>
     </div>
@@ -184,6 +244,8 @@ export function FileChip({ path, label }: { path: string; label: string }) {
 
 function InlineCode({ children }: { children?: React.ReactNode }) {
   const { files } = use(ProjectFiles);
+  // A chip is a button, and a button inside a link is one click doing two things.
+  if (use(InsideLink)) return <code>{children}</code>;
   const text = typeof children === "string" ? children : undefined;
   const path = text === undefined ? undefined : fileTarget(text, files);
   if (path !== undefined && text !== undefined) return <FileChip path={path} label={text} />;
@@ -192,21 +254,58 @@ function InlineCode({ children }: { children?: React.ReactNode }) {
 
 function Link({ href, children }: { href?: string | undefined; children?: React.ReactNode }) {
   const { files } = use(ProjectFiles);
-  const path = href === undefined ? undefined : fileTarget(href, files);
+  // react-markdown empties a `javascript:` or `data:` href rather than dropping the link, and an
+  // empty href opened in a new tab is a second copy of this app.
+  if (href === undefined || href === "") return children;
+  const path = fileTarget(href, files);
   if (path !== undefined) {
     return <FileChip path={path} label={typeof children === "string" ? children : path} />;
   }
+  // A footnote or an anchor in the reply itself, which should scroll rather than open a tab.
+  const external = !href.startsWith("#");
   return (
-    <a href={href} target="_blank" rel="noopener noreferrer">
-      {children}
+    <InsideLink value>
+      <a href={href} {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}>
+        {children}
+      </a>
+    </InsideLink>
+  );
+}
+
+/**
+ * An image in a reply, as a link to it rather than the image itself.
+ *
+ * The model reads untrusted text — imported repositories, files in the sandbox, what a package
+ * printed — and an image URL loads the moment it renders, with no click. One written to carry
+ * what the model read in its query string would leave with nobody having done anything. So no
+ * `<img>`: an http(s) image becomes a link somebody can choose to follow, named by its alt text
+ * or its host, and anything else is just its alt text.
+ */
+function Picture({ src, alt }: { src?: string | Blob | undefined; alt?: string | undefined }) {
+  const label = alt ?? "";
+  const url = typeof src === "string" ? webUrl(src) : undefined;
+  if (url === undefined || use(InsideLink)) return label;
+  return (
+    <a href={url.href} target="_blank" rel="noopener noreferrer">
+      {label === "" ? url.host : label}
     </a>
   );
+}
+
+function webUrl(text: string): URL | undefined {
+  try {
+    const url = new URL(text);
+    return url.protocol === "http:" || url.protocol === "https:" ? url : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 const COMPONENTS: Components = {
   pre: CodeBlock,
   code: InlineCode,
   a: Link,
+  img: Picture,
   table: ({ children }) => (
     <div className="chat-markdown-table-container">
       <table>{children}</table>

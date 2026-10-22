@@ -31,6 +31,14 @@ describe("ansiSpans", () => {
     expect(ansiSpans("\u001b[91mx")).toEqual([{ text: "x", classes: ["ansi-red"] }]);
   });
 
+  it("skips the arguments of a 256-colour or truecolour code rather than reading them as codes", () => {
+    // `38;5;1` is colour 1 of 256, not bold; `48;5;31` is a background, not red text.
+    expect(ansiSpans("\u001b[38;5;1ma\u001b[48;5;31mb\u001b[38;2;255;0;32mc")).toEqual([
+      { text: "abc", classes: [] },
+    ]);
+    expect(ansiSpans("\u001b[38;5;2;31mx")).toEqual([{ text: "x", classes: ["ansi-red"] }]);
+  });
+
   it("drops escapes that move the cursor rather than colour text", () => {
     expect(ansiSpans("\u001b[2K\u001b[1Gdone\u001b]0;title\u0007")).toEqual([
       { text: "done", classes: [] },

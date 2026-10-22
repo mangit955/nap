@@ -83,7 +83,6 @@ export type TranscriptItem =
       output: string;
       /** Everything `run_command` printed, in the order it printed it. */
       streamed: string;
-      hasStderr: boolean;
       files: FileChange[];
     }
   | { kind: "files"; key: number; files: FileChange[] }
@@ -298,7 +297,6 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
           status: "running",
           output: "",
           streamed: "",
-          hasStderr: false,
           files: [],
         };
         stepsById.set(step.toolCallId, step);
@@ -327,7 +325,6 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
           stepsById.get(event.payload.toolCallId) ??
           openOrphan(event, "run_command", items, stepsById);
         step.streamed += event.payload.chunk;
-        if (event.payload.stream === "stderr") step.hasStderr = true;
         break;
       }
 
@@ -472,7 +469,6 @@ function openOrphan(
     status: "running",
     output: "",
     streamed: "",
-    hasStderr: false,
     files: [],
   };
   stepsById.set(step.toolCallId, step);

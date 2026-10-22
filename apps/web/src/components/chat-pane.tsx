@@ -26,7 +26,7 @@ import { useStickToBottom } from "../chat/use-stick-to-bottom.ts";
 import { useTurnSubmission } from "../chat/use-turn-submission.ts";
 import { useUnseenCard } from "../chat/use-unseen-card.ts";
 import { WorkingRow } from "../chat/work-log-rows.tsx";
-import { turnStartedAt } from "../chat/working-state.ts";
+import { inFlightTurn } from "../chat/working-state.ts";
 import type { FetchJson } from "../files/use-project-files.ts";
 import type { SessionLog } from "../hooks/use-session-log.ts";
 import { Pane } from "./pane.tsx";
@@ -93,7 +93,7 @@ export function ChatPane({
   pendingAttachments?: MediaAttachment[] | undefined;
   pendingAfterCompaction?: boolean;
   running?: boolean;
-  activity?: { startedAt: string | undefined };
+  activity?: { startedAt: string | undefined; openedAt?: string | undefined };
   error?: string | undefined;
   /** The dashboard request, retained until admission so a refusal can restore the composer. */
   firstPrompt?: FirstPrompt | undefined;
@@ -136,11 +136,22 @@ export function ChatPane({
   // Where the reader left off, as a position in what is drawn rather than in the log. See
   // `unseen.ts` for why an item straddling the cursor stays above the line.
   const seam = useMemo(() => seamAt(transcript, seen), [transcript, seen]);
-  const startedAt = activity === undefined ? turnStartedAt(events) : activity.startedAt;
+  const turn = activity === undefined ? inFlightTurn(events) : activity;
   // "Working for" hangs off the prompt it answers. While that prompt is still the optimistic one
   // it is below the transcript, so the row goes under it here rather than inside the log.
   const workingOutside =
     running && ((pending !== undefined && !pendingAfterCompaction) || events.length === 0);
+  const workingSince = useWorkingSince(
+    running && (pending !== undefined || turn?.openedAt !== undefined),
+    turn?.openedAt,
+    pending !== undefined && pendingAfterCompaction,
+  );
+  // The earliest of what this tab saw and what the server wrote, so the count never goes back:
+  // the row remounts when the optimistic prompt is replaced by the logged one, `turn.started`
+  // lands a sandbox acquisition after the prompt, and a reload has only the server's times. It
+  // therefore includes the acquisition, which the fold's "Worked for" — the agent's own
+  // `durationMs` — does not; the live count answers "how long have I been waiting".
+  const startedAt = earliest(workingSince, turn?.openedAt, turn?.startedAt);
   // The stage is where a dropped file lands, and the composer draws its overlay across it — so it
   // is handed over as an element, which a ref read during render would not be.
   const [stage, setStage] = useState<HTMLDivElement | null>(null);
@@ -206,8 +217,8 @@ export function ChatPane({
         <div ref={setStage} className="chat-stage relative min-h-0 flex-1">
           <section
             ref={scroller} // `overflow-x-hidden`, not `auto`: tool output is arbitrary text, and a long line
-            // belongs scrolling inside its own `OutputBlock` rather than dragging the whole
-            // conversation sideways.
+            // belongs scrolling inside its own output block (`tool-body.tsx`) rather than dragging
+            // the whole conversation sideways.
             aria-label="Conversation"
             // biome-ignore lint/a11y/noNoninteractiveTabindex: the scroll region must receive PageUp/Home/End without focusing the editor.
             tabIndex={0}
@@ -224,6 +235,7 @@ export function ChatPane({
                   <ChatTranscript
                     items={transcript}
                     running={running && !workingOutside}
+                    pending={pending !== undefined}
                     startedAt={startedAt}
                     seam={seam}
                     seamRef={seamRef}
@@ -283,6 +295,51 @@ export function ChatPane({
       </div>
     </Pane>
   );
+}
+
+/**
+ * When this tab first saw the work that is open now, as a clock reading. Held by the pane rather
+ * than the row because the row moves — from under the optimistic prompt into the transcript —
+ * and remounts as it does, which would start a mount-time clock again from nothing.
+ *
+ * Keyed on the turn's `openedAt`. A turn appearing while the pane is working is the same wait
+ * continuing: the logged prompt replacing the optimistic one. So is a compaction ending under the
+ * request queued behind it, which the user sent to wait for it. Any other change starts the
+ * reading again: one turn's `openedAt` replaced by a different one — the next turn arriving in the
+ * same render as the last one's end, as a reconnect's replay can deliver them — or a turn ending
+ * under some other prompt, such as a retry, which the server queues behind the running turn and
+ * which is new work once that turn is over. Set during render, not in an effect, so that the first
+ * frame already has it.
+ */
+function useWorkingSince(
+  working: boolean,
+  openedAt: string | undefined,
+  queuedBehindCompaction: boolean,
+): number | undefined {
+  type Since = { at: number; key: string | undefined };
+  const [since, setSince] = useState<Since | undefined>(() =>
+    working ? { at: Date.now(), key: openedAt } : undefined,
+  );
+  let next = since;
+  if (!working) next = undefined;
+  else if (
+    since === undefined ||
+    (since.key !== undefined &&
+      since.key !== openedAt &&
+      (openedAt !== undefined || !queuedBehindCompaction))
+  )
+    next = { at: Date.now(), key: openedAt };
+  else if (since.key !== openedAt) next = { at: since.at, key: openedAt };
+  if (next !== since) setSince(next);
+  return next?.at;
+}
+
+/** The earliest of some clock readings, as the timestamp the working row reads. */
+function earliest(...readings: (number | string | undefined)[]): string | undefined {
+  const times = readings
+    .map((reading) => (typeof reading === "string" ? Date.parse(reading) : reading))
+    .filter((time): time is number => time !== undefined && Number.isFinite(time));
+  return times.length === 0 ? undefined : new Date(Math.min(...times)).toISOString();
 }
 
 /**
@@ -357,6 +414,7 @@ export function LiveChatPane({
     pendingAfterCompaction,
     running,
     startedAt,
+    openedAt,
     error,
   } = useTurnSubmission({
     sessionId,
@@ -407,7 +465,7 @@ export function LiveChatPane({
         pendingAttachments={pendingAttachments}
         pendingAfterCompaction={pendingAfterCompaction}
         running={running}
-        activity={{ startedAt }}
+        activity={{ startedAt, openedAt }}
         error={error}
         firstPrompt={firstPrompt}
         onOpenFile={onOpenFile}

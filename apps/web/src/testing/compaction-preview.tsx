@@ -65,7 +65,7 @@ export function CompactionPreview() {
           pending={turn.pending}
           pendingAttachments={turn.pendingAttachments}
           pendingAfterCompaction={turn.pendingAfterCompaction}
-          activity={{ startedAt: turn.startedAt }}
+          activity={{ startedAt: turn.startedAt, openedAt: turn.openedAt }}
           onRetry={(message, attachments) => {
             void turn.submit(message, undefined, attachments);
           }}

@@ -38,7 +38,6 @@ function step(overrides: Partial<Step> = {}): Step {
     status: "ok",
     output: "",
     streamed: "",
-    hasStderr: false,
     files: [],
     ...overrides,
   };

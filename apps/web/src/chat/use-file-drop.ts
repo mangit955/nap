@@ -65,6 +65,10 @@ export function useFileDrop({
         if (event.dataTransfer !== null) {
           event.dataTransfer.dropEffect = latest.current.enabled ? "copy" : "none";
         }
+        // Said again on every move, as T3's does. A leave can fire with no `relatedTarget` while
+        // the pointer is still inside — WebKit crossing between children — and without this the
+        // overlay stays gone until the next enter.
+        if (latest.current.enabled) setDragging(true);
       },
       // The zone is passed in rather than read off the event: a React handler's native event has
       // React's root as its `currentTarget`, which contains everything.

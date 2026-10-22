@@ -59,8 +59,14 @@ export function ansiSpans(raw: string): AnsiSpan[] {
     if (match[2] !== "m") continue;
 
     const codes = (match[1] ?? "").split(";").map((code) => (code === "" ? 0 : Number(code)));
-    for (const code of codes) {
-      if (code === 0) {
+    for (let at = 0; at < codes.length; at += 1) {
+      const code = codes[at];
+      if (code === 38 || code === 48) {
+        // An extended colour, `5;n` or `2;r;g;b`. Its numbers are arguments, not codes — read as
+        // codes, `38;5;1` would turn bold on — and there is no class for them, so they are skipped.
+        const mode = codes[at + 1];
+        at += mode === 5 ? 2 : mode === 2 ? 4 : 0;
+      } else if (code === 0) {
         bold = false;
         dim = false;
         colour = undefined;
@@ -70,8 +76,8 @@ export function ansiSpans(raw: string): AnsiSpan[] {
         bold = false;
         dim = false;
       } else if (code === 39) colour = undefined;
-      else if (code >= 30 && code <= 37) colour = COLOURS[code - 30];
-      else if (code >= 90 && code <= 97) colour = COLOURS[code - 90];
+      else if (code !== undefined && code >= 30 && code <= 37) colour = COLOURS[code - 30];
+      else if (code !== undefined && code >= 90 && code <= 97) colour = COLOURS[code - 90];
     }
   }
   push(text.slice(cursor));

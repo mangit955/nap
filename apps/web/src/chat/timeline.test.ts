@@ -16,6 +16,7 @@ import { buildTranscript } from "./transcript.ts";
 const SESSION = "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f";
 const TURN = "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f";
 const NEXT_TURN = "8d2e3f4a-5b6c-4d7e-9f80-1a2b3c4d5e61";
+const COMPACT_TURN = "9e3f4a5b-6c7d-4e8f-8a91-2b3c4d5e6f72";
 
 let nextSeq = 1;
 let clock = 0;
@@ -83,8 +84,44 @@ const completed = (durationMs: number, turnId = TURN) =>
     { usage: { inputTokens: 1, outputTokens: 1 }, durationMs, commitSha: "a1b2c3d" },
     turnId,
   );
-const failed = (reason: "cancelled" | "internal", message = "stopped") =>
-  ev("turn.failed", { reason, message });
+const failed = (reason: "cancelled" | "internal", message = "stopped", turnId = TURN) =>
+  ev("turn.failed", { reason, message }, turnId);
+
+/**
+ * A manual `/compact`, as the runtime writes it: a turn of its own with no `user.message`, so
+ * nothing in the log but its own events says where it begins.
+ */
+function compaction(outcome: "completed" | "failed" | "cancelled") {
+  const opening = [
+    ev("compaction.started", { id: "k1", trigger: "manual" }, COMPACT_TURN),
+    started(COMPACT_TURN),
+  ];
+  after(4_000);
+  if (outcome === "completed") {
+    return [
+      ...opening,
+      ev(
+        "compaction.completed",
+        {
+          id: "k1",
+          result: { kind: "native", provider: "codex", sessionId: "native1", coveredThrough: 0 },
+          usage: null,
+          beforeTokens: null,
+          afterTokens: null,
+        },
+        COMPACT_TURN,
+      ),
+      completed(4_000, COMPACT_TURN),
+    ];
+  }
+  const cancelled = outcome === "cancelled";
+  const message = cancelled ? "stopped" : "provider unavailable";
+  return [
+    ...opening,
+    ev("compaction.failed", { id: "k1", message, cancelled, usage: null }, COMPACT_TURN),
+    failed(cancelled ? "cancelled" : "internal", message, COMPACT_TURN),
+  ];
+}
 
 type Options = Partial<Parameters<typeof buildTimeline>[1]>;
 
@@ -239,6 +276,86 @@ describe("folding a finished turn", () => {
   });
 });
 
+describe("a turn that has no prompt of its own", () => {
+  const finishedTurn = () => [
+    prompt(),
+    started(),
+    ...edit("src/App.tsx"),
+    say("Added a todo list."),
+    completed(72_000),
+  ];
+
+  it("leaves the turn before a manual compaction its own duration", () => {
+    reset();
+    const timeline = rows([...finishedTurn(), ...compaction("completed")]);
+
+    expect(only(timeline, "turn-fold").label).toBe("Worked for 1m 12s");
+    expect(only(timeline, "changed-files").files.map((file) => file.path)).toEqual(["src/App.tsx"]);
+  });
+
+  it.each(["failed", "cancelled"] as const)(
+    "keeps the earlier turn folded, with its changed files, after a %s compaction",
+    (outcome) => {
+      reset();
+      const timeline = rows([...finishedTurn(), ...compaction(outcome)]);
+
+      expect(only(timeline, "turn-fold").label).toBe("Worked for 1m 12s");
+      expect(shape(timeline)).toContain("changed-files");
+    },
+  );
+});
+
+describe("other turns that fold on their own", () => {
+  it("folds a repair turn apart from the turn it repairs", () => {
+    // The verifier's prompt is a prompt, so the repair is a response of its own.
+    reset();
+    const timeline = rows([
+      prompt(),
+      started(),
+      ...read("a.ts"),
+      say("Done."),
+      completed(1_000),
+      ev("user.message", { text: "The build failed." }, NEXT_TURN),
+      ev("turn.started", { source: "verification" }, NEXT_TURN),
+      ...run("bun run build"),
+      say("Fixed it.", NEXT_TURN),
+      completed(2_000, NEXT_TURN),
+    ]);
+
+    expect(shape(timeline)).toEqual([
+      "user",
+      "fold",
+      "turn-start",
+      "agent",
+      "turn-end",
+      "verifier",
+      "fold",
+      "turn-start",
+      "agent",
+      "turn-end",
+    ]);
+    expect(timeline.flatMap((row) => (row.kind === "turn-fold" ? [row.label] : []))).toEqual([
+      "Worked for 1.0s",
+      "Worked for 2.0s",
+    ]);
+  });
+
+  it("does not fold a turn stopped before it started, which did no work", () => {
+    reset();
+    const timeline = rows([prompt(), failed("cancelled")]);
+
+    expect(shape(timeline)).not.toContain("fold");
+  });
+
+  it("cannot say how long a stopped turn ran when its start is not in the log", () => {
+    // A client that joined mid-turn has the work and the cancel, and nothing to measure from.
+    reset();
+    const timeline = rows([prompt(), ...run("bun install"), failed("cancelled")]);
+
+    expect(only(timeline, "turn-fold").label).toBe("You stopped this response");
+  });
+});
+
 describe("the changed files of a turn", () => {
   it("lists them under the answer once the turn has completed, one per path", () => {
     reset();
@@ -265,6 +382,13 @@ describe("the changed files of a turn", () => {
       ["src/App.tsx", 2, 1],
       ["src/main.tsx", 1, 0],
     ]);
+  });
+
+  it("keeps the card on a folded turn that ended without an answer", () => {
+    reset();
+    const timeline = rows([prompt(), started(), ...edit("src/App.tsx"), completed(1_000)]);
+
+    expect(shape(timeline)).toEqual(["user", "fold", "turn-start", "changed-files", "turn-end"]);
   });
 
   it("says nothing of a failed turn's files, which were never committed", () => {
@@ -430,7 +554,7 @@ describe("a turn that is running", () => {
     expect(shape(timeline)).toContain("working");
   });
 
-  it("puts the working row at the end when the open turn has no prompt in this log", () => {
+  it("puts the working row at the open turn's start when that turn has no prompt in this log", () => {
     // A client that joined mid-turn, or a compaction turn, which has no message of its own:
     // under the last prompt would be under somebody else's turn.
     reset();
@@ -449,6 +573,7 @@ describe("a turn that is running", () => {
         say("One."),
         completed(1_000),
         prompt("second", NEXT_TURN),
+        started(NEXT_TURN),
       ],
       { running: true },
     );
@@ -461,7 +586,49 @@ describe("a turn that is running", () => {
       "turn-end",
       "user",
       "working",
+      "turn-start",
       "live",
     ]);
+  });
+
+  it("says it is working, but not thinking, before the turn has started", () => {
+    // Between the prompt and `turn.started` the runtime is acquiring a sandbox. No model has been
+    // asked anything yet, so "Thinking" would be a guess.
+    reset();
+    const timeline = rows([prompt()], { running: true });
+
+    expect(shape(timeline)).toEqual(["user", "working"]);
+  });
+
+  it("draws nothing running under a turn that has ended while its checks still hold the lease", () => {
+    reset();
+    const timeline = rows([prompt(), started(), ...read("a.ts"), say("Done."), completed(1_000)], {
+      running: true,
+    });
+
+    expect(shape(timeline)).toEqual(["user", "fold", "turn-start", "agent", "turn-end"]);
+  });
+
+  it("still says it is working when a request is waiting to be logged after a turn ended", () => {
+    // A request queued behind a compaction: sent, and not in the log until the compaction ends.
+    reset();
+    const timeline = rows([prompt(), started(), say("Done."), completed(1_000)], {
+      running: true,
+      pending: true,
+    });
+
+    expect(shape(timeline)).toEqual(["user", "turn-start", "agent", "turn-end", "working"]);
+  });
+
+  it("keeps the live group's id once the turn has finished, so an opened group stays open", () => {
+    reset();
+    const running = [prompt(), started(), ...read("a.ts"), call("read_file", { path: "b" }).event];
+    const live = only(rows(running, { running: true }), "work-live");
+    const finished = [...running, say("Done."), completed(1_000)];
+    const opened = rows(finished, {
+      expandedFolds: new Set([only(rows(finished), "turn-fold").foldId]),
+    });
+
+    expect(only(opened, "work-toggle").groupId).toBe(live.groupId);
   });
 });

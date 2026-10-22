@@ -111,6 +111,12 @@ export type TimelineOptions = {
    * mid-turn has no `turn.started` to read it from.
    */
   running: boolean;
+  /**
+   * A request has been sent that the log does not hold yet. Without one, a log that ends at a
+   * turn end has nothing open in it — the worker is still checking, snapshotting and photographing
+   * the turn under its lease, so `running` stays true, but the turn itself has finished.
+   */
+  pending?: boolean | undefined;
   /** When the server says the open turn began, for the "Working for" clock. */
   startedAt?: string | undefined;
   expandedFolds: ReadonlySet<string>;
@@ -162,19 +168,32 @@ type Turn = {
   terminal: number;
 };
 
-/** The responses in the log, each from a prompt to the next one. */
+/**
+ * The responses in the log, each from a prompt to the first turn end after it.
+ *
+ * The first, not the last, and nothing after it: a turn can be written with no prompt at all. A
+ * manual compaction is `compaction.started`, `turn.started`, then its own end, with no
+ * `user.message` anywhere — and stretched to the next prompt, the previous response would take
+ * that end for its own, reading the compaction's duration, unfolding when it failed and losing
+ * its changed files. What follows a turn end before the next prompt belongs to no response, and
+ * is drawn as itself.
+ */
 function turnsOf(items: readonly TranscriptItem[]): Turn[] {
   const prompts = items.flatMap((item, index) => (isPrompt(item) ? [index] : []));
 
   return prompts.map((prompt, at) => {
-    const end = prompts[at + 1] ?? items.length;
+    const next = prompts[at + 1] ?? items.length;
     let turnEndIndex = -1;
     let turnStart: Turn["turnStart"];
-    for (let index = prompt + 1; index < end; index += 1) {
+    for (let index = prompt + 1; index < next; index += 1) {
       const item = items[index];
-      if (item?.kind === "turn-end") turnEndIndex = index;
       if (item?.kind === "turn-start") turnStart ??= item;
+      if (item?.kind === "turn-end") {
+        turnEndIndex = index;
+        break;
+      }
     }
+    const end = turnEndIndex === -1 ? next : turnEndIndex + 1;
     const turnEndItem = items[turnEndIndex];
     let terminal = -1;
     for (let index = (turnEndIndex === -1 ? end : turnEndIndex) - 1; index > prompt; index -= 1) {
@@ -295,7 +314,7 @@ export function buildTimeline(
   items: readonly TranscriptItem[],
   options: TimelineOptions,
 ): TimelineRow[] {
-  const { running, expandedFolds, expandedGroups } = options;
+  const { running, pending = false, expandedFolds, expandedGroups } = options;
   const folds = deriveTurnFolds(items);
   const foldAt = new Map(folds.map((fold) => [fold.anchor, fold]));
   const collapsed = new Set(
@@ -307,7 +326,8 @@ export function buildTimeline(
   for (const turn of turns) {
     const files = changedFiles(items, turn);
     if (files.length === 0) continue;
-    // Under the answer, or where the answer would be when the turn ended without one.
+    // Under the answer, or where the answer would be when the turn ended without one. Drawn after
+    // its anchor whether or not the fold hides the anchor, which with no answer it always does.
     const after = turn.terminal === -1 ? turn.turnEndIndex - 1 : turn.terminal;
     filesAfter.set(after, { id: `changed-files:${items[turn.prompt]?.key}`, files });
   }
@@ -317,20 +337,32 @@ export function buildTimeline(
   const openStart = lastEnd + 1;
   const lastPrompt = items.findLastIndex(isPrompt);
   const workingAt = lastPrompt >= openStart ? lastPrompt + 1 : openStart;
+  const open = items.slice(openStart);
+  // Something of a turn is in the log after the last one ended. Notices and the preview do not
+  // count: they are written around turns as well as inside them, and alone say nothing is running.
+  const opened =
+    pending ||
+    open.some(
+      (item) =>
+        item.kind !== "notice" && item.kind !== "preview" && item.kind !== "preview-stopped",
+    );
+  const working = running && opened;
+  // The agent has been handed the turn. Until `turn.started`, the runtime is still acquiring a
+  // sandbox and no model has been asked anything, so "Thinking" would be a guess. A client that
+  // joined mid-turn has no `turn.started`, but it has the work, which says the same.
+  const started = open.some((item) => item.kind === "turn-start" || isWorkEntry(item));
 
   // While a turn runs, the work at the very end of the log is drawn by the live row, not as rows
   // of its own: the run the agent is in the middle of.
   let tailStart = items.length;
-  if (running) {
+  if (working) {
     while (tailStart > openStart) {
       const item = items[tailStart - 1];
       if (item === undefined || !isWorkEntry(item)) break;
       tailStart -= 1;
     }
   }
-  const compacting = items
-    .slice(openStart)
-    .some((item) => item.kind === "compaction" && item.status === "running");
+  const compacting = open.some((item) => item.kind === "compaction" && item.status === "running");
 
   const rows: TimelineRow[] = [];
   let run: WorkEntry[] = [];
@@ -395,21 +427,21 @@ export function buildTimeline(
         at: fold.at,
       });
     }
-    if (running && index === workingAt) {
+    if (working && index === workingAt) {
       flush();
       rows.push({ kind: "working", id: "working", keys: undefined, startedAt: options.startedAt });
     }
-    if (collapsed.has(index)) continue;
-
-    if (isWorkEntry(item)) run.push(item);
-    else {
-      flush();
-      rows.push({
-        kind: "item",
-        id: `item:${item.key}`,
-        keys: { first: item.key, last: item.key },
-        item,
-      });
+    if (!collapsed.has(index)) {
+      if (isWorkEntry(item)) run.push(item);
+      else {
+        flush();
+        rows.push({
+          kind: "item",
+          id: `item:${item.key}`,
+          keys: { first: item.key, last: item.key },
+          item,
+        });
+      }
     }
 
     const files = filesAfter.get(index);
@@ -420,12 +452,12 @@ export function buildTimeline(
   }
   flush();
 
-  if (!running) return rows;
+  if (!working) return rows;
   if (workingAt >= tailStart) {
     rows.push({ kind: "working", id: "working", keys: undefined, startedAt: options.startedAt });
   }
   // Compaction draws its own progress; a "Thinking" row under it would be a second, wrong answer.
-  if (compacting) return rows;
+  if (compacting || !started) return rows;
 
   const tail = items.slice(tailStart).filter(isWorkEntry).filter(visible);
   const [first] = tail;

@@ -4,7 +4,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { ev } from "../testing/events.ts";
 import { buildTranscript } from "./transcript.ts";
 import { useTurnSubmission } from "./use-turn-submission.ts";
-import { turnStartedAt } from "./working-state.ts";
+import { inFlightTurn } from "./working-state.ts";
 
 const SESSION = "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f";
 const COMPACT = "00000000-0000-4000-8000-000000000002";
@@ -47,7 +47,7 @@ it.each([false, true])(
     const hook = renderHook(() => useTurnSubmission({ sessionId: SESSION, events, fetchJson }));
     expect(hook.result.current.running).toBe(false);
     expect(hook.result.current.pending).toBeUndefined();
-    expect(turnStartedAt(events)).toBeUndefined();
+    expect(inFlightTurn(events)?.startedAt).toBeUndefined();
     expect(fetchJson).not.toHaveBeenCalled();
     hook.unmount();
   },
@@ -154,7 +154,7 @@ it("reconciles events that arrived before the admission response and keeps Stop 
   });
   expect(hook.result.current.pending).toBeUndefined();
   expect(hook.result.current.running).toBe(true);
-  expect(turnStartedAt([manual])).toBe(manual.createdAt);
+  expect(inFlightTurn([manual])?.startedAt).toBe(manual.createdAt);
   await act(async () => {
     await hook.result.current.cancel();
   });
@@ -172,10 +172,10 @@ it("reconciles events that arrived before the admission response and keeps Stop 
   ];
   hook.rerender(history);
   expect(hook.result.current.running).toBe(true);
-  expect(turnStartedAt(history)).toBe(manual.createdAt);
+  expect(inFlightTurn(history)?.startedAt).toBe(manual.createdAt);
   hook.rerender([...history, { ...terminal, seq: 4 }]);
   expect(hook.result.current.running).toBe(false);
-  expect(turnStartedAt([...history, { ...terminal, seq: 4 }])).toBeUndefined();
+  expect(inFlightTurn([...history, { ...terminal, seq: 4 }])?.startedAt).toBeUndefined();
 });
 
 it("does not let an old cancel response clear a newer accepted prompt", async () => {
@@ -306,7 +306,7 @@ it.each(["completed", "failed"] as const)(
     const hook = renderHook(() => useTurnSubmission({ sessionId: SESSION, events: history }));
     expect(hook.result.current.pending).toBeUndefined();
     expect(hook.result.current.running).toBe(false);
-    expect(turnStartedAt(history)).toBeUndefined();
+    expect(inFlightTurn(history)?.startedAt).toBeUndefined();
     if (outcome === "failed") {
       expect(buildTranscript(history).filter((item) => item.kind === "compaction")).toEqual([
         expect.objectContaining({ id: COMPACT, status: "failed" }),
@@ -335,7 +335,9 @@ it.each(
       { initialProps: history },
     );
     expect(hook.result.current.running).toBe(true);
-    expect(turnStartedAt(history)).toBe(source === "manual" ? preparation.createdAt : undefined);
+    expect(inFlightTurn(history)?.startedAt).toBe(
+      source === "manual" ? preparation.createdAt : undefined,
+    );
     const started = ev("turn.started", { source: source === "manual" ? "user" : source }, 4, {
       turnId: NEXT,
       createdAt: "2026-08-09T12:00:04.000Z",
@@ -343,14 +345,14 @@ it.each(
     const active = [...history, started];
     const anchor = source === "manual" ? preparation.createdAt : started.createdAt;
     hook.rerender(active);
-    expect(turnStartedAt(active)).toBe(anchor);
+    expect(inFlightTurn(active)?.startedAt).toBe(anchor);
     const lateStart = { ...manual, seq: 5, createdAt: "2026-08-09T12:00:05.000Z" };
     const lateEnd = { ...terminal, seq: 6, createdAt: "2026-08-09T12:00:06.000Z" };
     for (const suffix of [[lateStart], [lateStart, lateEnd]]) {
       const replay = [...active, ...suffix];
       hook.rerender(replay);
       expect(hook.result.current.running).toBe(true);
-      expect(turnStartedAt(replay)).toBe(anchor);
+      expect(inFlightTurn(replay)?.startedAt).toBe(anchor);
     }
     const closed = [
       ...active,
@@ -361,7 +363,7 @@ it.each(
     ];
     hook.rerender(closed);
     expect(hook.result.current.running).toBe(false);
-    expect(turnStartedAt(closed)).toBeUndefined();
+    expect(inFlightTurn(closed)?.startedAt).toBeUndefined();
   },
 );
 
@@ -406,10 +408,10 @@ it.each(["completed", "failed"] as const)(
       { initialProps: [started, compact] },
     );
     expect(hook.result.current.running).toBe(true);
-    expect(turnStartedAt([started, compact])).toBe(started.createdAt);
+    expect(inFlightTurn([started, compact])?.startedAt).toBe(started.createdAt);
     hook.rerender([started, compact, end]);
     expect(hook.result.current.running).toBe(true);
-    expect(turnStartedAt([started, compact, end])).toBe(started.createdAt);
+    expect(inFlightTurn([started, compact, end])?.startedAt).toBe(started.createdAt);
     hook.rerender([started, compact, end, { ...terminal, seq: 4, turnId: NEXT }]);
     expect(hook.result.current.running).toBe(false);
   },

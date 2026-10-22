@@ -7,19 +7,18 @@
  * way T3 Code's changed-files card does, folders first.
  */
 
-/** Where the sandbox keeps the project. Every path the tools report starts with it. */
-const PROJECT_ROOT = "/home/user/app/";
+import { toProjectPath } from "@nap/shared/files-protocol";
+
+/** A line or a range in a file: `App.tsx:14`, `App.tsx:14:3`, `App.tsx#L14-L20`. */
+const LOCATION = /(?::\d+){1,2}$|#L\d+(?:-L?\d+)?$/;
 
 /** A path to a file: segments of ordinary name characters, the last with an extension. */
 const PATH_SHAPE = /^(?:[\w@.-]+\/)+[\w@.-]*\.[A-Za-z0-9]+$/;
 const FILE_NAME = /^[\w@-][\w@.-]*\.[A-Za-z0-9]+$/;
 
 function normalise(text: string): string {
-  return text
-    .trim()
-    .replace(PROJECT_ROOT, "")
-    .replace(/^\.\//, "")
-    .replace(/(?::\d+){1,2}$|#L\d+(?:-L?\d+)?$/, "");
+  // The tools report absolute sandbox paths; the listing is relative to the project.
+  return toProjectPath(text.trim()).replace(/^\.\//, "").replace(LOCATION, "");
 }
 
 /**
@@ -27,15 +26,20 @@ function normalise(text: string): string {
  *
  * A path in the listing is always one. Before the listing has arrived — the first seconds of a
  * workspace, and every test that does not supply it — a mention shaped like a path with a folder
- * in it is taken at its word. A bare filename is only a path when the project has exactly one
+ * in it is taken at its word. Once it has, it is the answer: `node_modules/react/index.js` or
+ * `example.com/index.html` is path-shaped and opens nothing. A bare filename is only a path when the project has exactly one
  * file by that name; "App.tsx" in a project with two of them would open the wrong one.
  */
 export function fileTarget(text: string, files: readonly string[]): string | undefined {
-  if (/^[a-z][a-z0-9+.-]*:/i.test(text) || /\s/.test(text.trim())) return undefined;
-  const path = normalise(text);
+  const trimmed = text.trim();
+  if (/\s/.test(trimmed)) return undefined;
+  // A URL is not a project path. The line number comes off first, because `App.tsx:14` begins
+  // with what looks exactly like a scheme.
+  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed.replace(LOCATION, ""))) return undefined;
+  const path = normalise(trimmed);
   if (path === "") return undefined;
   if (files.includes(path)) return path;
-  if (PATH_SHAPE.test(path)) return path;
+  if (files.length === 0 && PATH_SHAPE.test(path)) return path;
   if (FILE_NAME.test(path)) {
     const matches = files.filter((file) => file.endsWith(`/${path}`));
     if (matches.length === 1) return matches[0];

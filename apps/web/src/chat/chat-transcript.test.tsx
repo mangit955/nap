@@ -1,7 +1,7 @@
 import { type NapEvent, NapEventSchema, type NapEventType } from "@nap/shared/events";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
-import { fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChatTranscript } from "./chat-transcript.tsx";
 import { buildTranscript } from "./transcript.ts";
 
@@ -340,6 +340,88 @@ describe("a turn in progress", () => {
   });
 });
 
+describe("a command that failed without exiting", () => {
+  it("still says why, under what it printed before it stopped", () => {
+    // A timeout or a lost sandbox fails the call itself: the reason is in the result alone, and
+    // the stream it printed first does not contain it.
+    show(
+      ev("turn.started", { source: "user" }),
+      ev("tool.call", {
+        toolCallId: "c1",
+        toolName: "run_command",
+        input: { command: "bun run build" },
+      }),
+      ev("command.output", { toolCallId: "c1", stream: "stdout", chunk: "building…\n" }),
+      ev("tool.result", {
+        toolCallId: "c1",
+        toolName: "run_command",
+        ok: false,
+        output: "timeout: command exceeded 120s",
+      }),
+    );
+    expandAll();
+
+    const log = screen.getByRole("log");
+    expect(log).toHaveTextContent(/building…/);
+    expect(log).toHaveTextContent(/timeout: command exceeded 120s/);
+  });
+});
+
+describe("what a finished turn changed", () => {
+  function finished(onOpenFile?: (path: string) => void) {
+    nextSeq = 1;
+    const events = [
+      ev("user.message", { text: "add a header" }),
+      ev("turn.started", { source: "user" }),
+      ev("tool.call", {
+        toolCallId: "c1",
+        toolName: "write_file",
+        input: { path: "/home/user/app/src/components/Header.tsx" },
+      }),
+      ev("file.changed", {
+        path: "/home/user/app/src/components/Header.tsx",
+        changeType: "created",
+        diff: "+one\n+two\n",
+      }),
+      ev("tool.result", { toolCallId: "c1", toolName: "write_file", ok: true, output: "ok" }),
+      ev("agent.message", { text: "Added a header." }),
+      ev("turn.completed", {
+        usage: { inputTokens: 1, outputTokens: 1 },
+        durationMs: 4_000,
+        commitSha: "a1b2c3d",
+      }),
+    ];
+    return render(<ChatTranscript items={buildTranscript(events)} onOpenFile={onOpenFile} />);
+  }
+
+  it("opens a changed file from the card under the answer, with the turn still folded", () => {
+    const onOpenFile = vi.fn();
+    finished(onOpenFile);
+
+    const card = screen.getByRole("region", { name: "Changed files" });
+    fireEvent.click(within(card).getByRole("button", { name: "Open src/components/Header.tsx" }));
+
+    expect(onOpenFile).toHaveBeenCalledWith("src/components/Header.tsx");
+    expect(screen.getByRole("button", { name: /worked for/i })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+  });
+
+  it("hides a folder's files when the folder is closed, and shows them when it opens again", () => {
+    finished(vi.fn());
+    const card = screen.getByRole("region", { name: "Changed files" });
+    const folder = within(card).getByRole("button", { name: /src\/components/, expanded: true });
+    const file = { name: "Open src/components/Header.tsx" };
+
+    fireEvent.click(folder);
+    expect(within(card).queryByRole("button", file)).toBeNull();
+
+    fireEvent.click(folder);
+    expect(within(card).getByRole("button", file)).toBeInTheDocument();
+  });
+});
+
 describe("reasoning arriving as it is produced", () => {
   const done = () =>
     ev("turn.completed", {
@@ -407,6 +489,19 @@ describe("reasoning arriving as it is produced", () => {
     expect(screen.getByRole("log")).toHaveTextContent(/a thought from yesterday/);
   });
 
+  it("names the live row by what it is doing, not by the reasoning that changes under it", () => {
+    showRunning(
+      ev("user.message", { text: "build me a todo list" }),
+      ev("turn.started", { source: "user" }),
+      ev("agent.thinking", { text: "**Planning the list**\n\nOne component will do." }),
+      ev("tool.call", { toolCallId: "c1", toolName: "read_file", input: { path: "src/App.tsx" } }),
+    );
+
+    expect(screen.getByRole("log")).toHaveTextContent(/Planning the list/);
+    expect(screen.getByRole("button", { name: "Read src/App.tsx" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Planning the list/ })).toBeNull();
+  });
+
   it("fades in only the passage still being written", () => {
     // Only the newest item can still be growing; fading the ones above it would replay the whole
     // turn every time another word arrived. The flag is all the component decides — the fade
@@ -470,6 +565,27 @@ describe("the seam where you left off", () => {
     // A hairline in a different colour is nothing at all to somebody listening to the page, and
     // "you have not read this part" is exactly the sort of thing they need told.
     showFrom(2, earlier(), later());
+
+    expect(screen.getByText(/new since you were last here/i)).toBeInTheDocument();
+  });
+
+  it("draws the line on a compaction's failure, which is drawn inside the compaction's row", () => {
+    // The reader left while an automatic compaction ran; it failed, and the turn with it, while
+    // they were away. The compaction keeps the key it opened with, so the first unseen item is
+    // the turn's failure — which has no row of its own to put the line on.
+    showFrom(
+      5,
+      earlier(),
+      ev("turn.started", { source: "user" }),
+      ev("compaction.started", { id: "k1", trigger: "automatic" }),
+      ev("compaction.failed", {
+        id: "k1",
+        message: "provider unavailable",
+        cancelled: false,
+        usage: null,
+      }),
+      ev("turn.failed", { reason: "internal", message: "provider unavailable" }),
+    );
 
     expect(screen.getByText(/new since you were last here/i)).toBeInTheDocument();
   });
