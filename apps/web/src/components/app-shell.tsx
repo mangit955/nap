@@ -295,7 +295,7 @@ export function AppShell({
           />
         </div>
         {chatOpen && (
-          <Splitter label="Chat width" value={width} onGrab={onGrab} onKeyDown={onKeyDown} />
+          <Splitter label="Chat width" value={width} onGrab={onGrab} onKeyDown={onKeyDown} quiet />
         )}
 
         <Workbench

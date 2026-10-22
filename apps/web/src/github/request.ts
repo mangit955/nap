@@ -8,7 +8,11 @@ export async function githubRequest<T>(
   url: string,
   schema: z.ZodType<T>,
   init?: RequestInit,
-): Promise<{ ok: true; value: T } | { ok: false; error: string }> {
+): Promise<
+  | { ok: true; value: T }
+  /** `code` is the server's machine-readable reason, when it gave one — what a caller branches on. */
+  | { ok: false; error: string; code?: string | undefined }
+> {
   try {
     const response = await fetchJson(url, init);
     const body: unknown = await response.json().catch(() => null);
@@ -20,7 +24,11 @@ export async function githubRequest<T>(
         typeof body.error === "string"
           ? body.error
           : "GitHub could not complete that request. Try again.";
-      return { ok: false, error };
+      const code =
+        typeof body === "object" && body !== null && "code" in body && typeof body.code === "string"
+          ? body.code
+          : undefined;
+      return { ok: false, error, code };
     }
     const parsed = schema.safeParse(body);
     return parsed.success

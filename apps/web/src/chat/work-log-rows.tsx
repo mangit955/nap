@@ -635,7 +635,7 @@ export function TurnFoldRow({
   onToggle: () => void;
 }) {
   return (
-    <div className="group/timeline-row relative flex items-center gap-1 border-edge border-b pt-1 pe-0.5 pb-2">
+    <div className="group/timeline-row relative flex items-center gap-1 border-edge/60 border-b pt-1 pe-0.5 pb-2">
       <button
         type="button"
         aria-expanded={row.expanded}

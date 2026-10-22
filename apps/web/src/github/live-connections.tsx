@@ -52,7 +52,7 @@ function AccountGate({ children }: { children: ReactNode }) {
           <p className="my-5 text-sm text-muted">
             Sign in with a permanent nap account before connecting your repositories.
           </p>
-          <a href="/sign-in" className="text-sm underline">
+          <a href="/sign-in?upgrade=1" className="text-sm underline">
             Sign in
           </a>
           <a href="/dashboard" className="ml-5 text-sm underline">

@@ -179,6 +179,24 @@ describe("the way in with no account", () => {
     expect(signInAnonymous).not.toHaveBeenCalled();
   });
 
+  it("keeps a guest here when they came to sign in for real", async () => {
+    // The GitHub dialog sends a guest here to make a permanent account; bouncing them back to the
+    // dashboard would leave no way to do it.
+    ways.demo = true;
+    useSession.mockReturnValue({ data: { user: { isAnonymous: true } }, isPending: false });
+    render(<LiveSignIn upgrade />);
+
+    expect(await screen.findByRole("button", { name: "Sign in" })).toBeInTheDocument();
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("still sends a signed-in account on, even when asked to upgrade", async () => {
+    useSession.mockReturnValue({ data: { user: { isAnonymous: false } }, isPending: false });
+    render(<LiveSignIn upgrade />);
+
+    await vi.waitFor(() => expect(replace).toHaveBeenCalledWith("/dashboard"));
+  });
+
   it("says so and frees the button when the demo cannot be reached", async () => {
     // The same failure the email path documents: without this the button sits on "One moment…"
     // for as long as the page is open and nothing on screen says why.

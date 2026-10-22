@@ -27,6 +27,7 @@ export default async function Page({
     <LiveSignIn
       notice={expiredNotice(params[EXPIRED_PARAM])}
       initialMode={params.mode === "sign-up" ? "sign-up" : "sign-in"}
+      upgrade={params.upgrade === "1"}
     />
   );
 }

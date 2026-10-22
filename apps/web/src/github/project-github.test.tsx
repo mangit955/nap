@@ -242,6 +242,32 @@ describe("project GitHub controls", () => {
     expect(screen.queryByRole("button", { name: "Ask nap to address feedback" })).toBeNull();
   });
 
+  it("asks a guest to sign in rather than showing GitHub's controls", async () => {
+    const fetchJson = vi.fn(async () =>
+      Response.json(
+        { error: "Sign in to connect GitHub.", code: "sign_in_required" },
+        { status: 403 },
+      ),
+    );
+    render(<ProjectGitHubControl projectId={id} refreshKey={0} fetchJson={fetchJson} />);
+    fireEvent.click(await screen.findByRole("button", { name: "GitHub pull requests" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Connect GitHub" });
+    expect(screen.getByRole("link", { name: /sign in/i })).toHaveAttribute(
+      "href",
+      "/sign-in?upgrade=1",
+    );
+    // What signing in costs a guest, said before they pay it.
+    expect(dialog).toHaveTextContent(/guest projects/i);
+    // Nothing a guest could press does anything, so none of it is drawn — not even as an error.
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Refresh GitHub status" })).toBeNull();
+    expect(screen.queryByText("Repository jobs")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Not now" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
   it("does not display a PR control on a template project", async () => {
     const fetchJson = vi.fn(async () =>
       Response.json({ repository: null, jobs: [], feedback: [], followUpPolicy: "owner_approval" }),
