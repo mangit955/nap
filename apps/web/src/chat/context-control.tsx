@@ -117,7 +117,7 @@ export function ContextControl({
     >
       <summary
         ref={trigger}
-        className="grid size-8 cursor-pointer list-none place-items-center rounded-chip hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent [&::-webkit-details-marker]:hidden"
+        className="grid size-8 cursor-pointer list-none place-items-center rounded-[8px] transition-colors duration-150 hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent [&::-webkit-details-marker]:hidden"
         aria-label={
           percentageLabel === null
             ? "Context, usage not reported"
@@ -161,7 +161,7 @@ export function ContextControl({
       </summary>
       <div
         ref={popup}
-        className="nap-scroll absolute right-0 bottom-full z-20 mb-1 flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2 overflow-y-auto rounded-xl border border-edge bg-panel p-3 shadow-raised"
+        className="composer-menu nap-float nap-scroll absolute right-0 bottom-full z-20 mb-1 flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2 overflow-y-auto rounded-[10px] p-3 [--float-origin:bottom_right]"
       >
         <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="font-medium text-ink-2">Input budget</span>

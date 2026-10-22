@@ -65,62 +65,68 @@ export function ComposerAddMenu({
           <path d="M12 5v14M5 12h14" />
         </svg>
       </button>
-      {open && (
-        <div
-          role="menu"
-          aria-label="Add to prompt"
-          className="composer-add-menu"
-          onKeyDown={(event) => {
-            if (event.key === "Escape") {
-              event.stopPropagation();
-              setOpen(false);
-              trigger.current?.focus();
-            }
-            if (event.key === "Tab") setOpen(false);
-            if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
-              event.preventDefault();
-              const items = Array.from(
-                event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not([disabled])"),
-              );
-              const index =
-                document.activeElement instanceof HTMLButtonElement
-                  ? items.indexOf(document.activeElement)
-                  : -1;
-              const next =
-                event.key === "Home"
-                  ? 0
-                  : event.key === "End"
-                    ? items.length - 1
-                    : (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
-              items[next]?.focus();
-            }
+      {/*
+        Mounted while closed so it can fade out as well as in; `inert` and `aria-hidden` keep
+        the closed menu out of the tab order and the accessibility tree until the stylesheet's
+        `display: none` lands at the end of the fade.
+      */}
+      <div
+        role="menu"
+        aria-label="Add to prompt"
+        aria-hidden={!open}
+        inert={!open}
+        data-open={open}
+        className="composer-add-menu composer-menu nap-float"
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.stopPropagation();
+            setOpen(false);
+            trigger.current?.focus();
+          }
+          if (event.key === "Tab") setOpen(false);
+          if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+            event.preventDefault();
+            const items = Array.from(
+              event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not([disabled])"),
+            );
+            const index =
+              document.activeElement instanceof HTMLButtonElement
+                ? items.indexOf(document.activeElement)
+                : -1;
+            const next =
+              event.key === "Home"
+                ? 0
+                : event.key === "End"
+                  ? items.length - 1
+                  : (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+            items[next]?.focus();
+          }
+        }}
+      >
+        <button
+          type="button"
+          role="menuitem"
+          disabled={!mediaSupported}
+          title={mediaSupported ? undefined : "This model does not support media"}
+          onClick={() => {
+            setOpen(false);
+            input.current?.click();
+            trigger.current?.focus();
           }}
         >
-          <button
-            type="button"
-            role="menuitem"
-            disabled={!mediaSupported}
-            title={mediaSupported ? undefined : "This model does not support media"}
-            onClick={() => {
-              setOpen(false);
-              input.current?.click();
-              trigger.current?.focus();
-            }}
-          >
-            <span aria-hidden="true">▧</span> Upload media
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              setOpen(false);
-              onRepositories();
-            }}
-          >
-            <span aria-hidden="true">@</span> Repositories
-          </button>
-        </div>
-      )}
+          <span aria-hidden="true">▧</span> Upload media
+        </button>
+        <button
+          type="button"
+          role="menuitem"
+          onClick={() => {
+            setOpen(false);
+            onRepositories();
+          }}
+        >
+          <span aria-hidden="true">@</span> Repositories
+        </button>
+      </div>
     </div>
   );
 }

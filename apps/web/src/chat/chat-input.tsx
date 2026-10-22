@@ -351,7 +351,7 @@ export function ChatInput({
         <div className="relative">
           <ul
             aria-label={token?.kind === "file" ? "Files" : "Commands"}
-            className="composer-menu nap-pop absolute inset-x-0 bottom-1 z-10 overflow-hidden rounded-xl p-1 shadow-raised"
+            className="composer-menu nap-float absolute inset-x-0 bottom-1 z-10 overflow-hidden rounded-[10px] p-1"
             style={{ transformOrigin: "bottom center" }}
           >
             {rows.map((row, position) => (
