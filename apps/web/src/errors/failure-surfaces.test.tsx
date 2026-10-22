@@ -173,7 +173,7 @@ describe("4 · rate limit", () => {
     const copy = requestFailureCopy(409, "sandbox_quota_exceeded", "You already have 2 running.");
     render(<ChatPane events={[]} error={`${copy.title} ${copy.detail} ${copy.action}`} />);
 
-    expect(screen.getByRole("alert")).toHaveTextContent(/close one/i);
+    expect(screen.getByRole("alert")).toHaveTextContent(/put one away/i);
   });
 });
 

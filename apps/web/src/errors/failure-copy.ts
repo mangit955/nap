@@ -134,7 +134,7 @@ export function requestFailureCopy(
       title: "Too many projects are running.",
       detail: trimmed === "" ? "You are at the limit of running projects." : trimmed,
       recovery: "close-project",
-      action: "Close one from the project list, then send this again.",
+      action: "Put one away from its menu in the project list, then send this again.",
     };
   }
 

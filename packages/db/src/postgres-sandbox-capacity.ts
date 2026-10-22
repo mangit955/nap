@@ -158,7 +158,7 @@ export class PostgresSandboxCapacity implements SandboxCapacity {
         return refuse(
           "per_user",
           `You already have ${mine} project${mine === 1 ? "" : "s"} running, which is the limit. ` +
-            "Close one from the project list and try again.",
+            "Put one away from its menu in the project list and try again.",
         );
       }
 

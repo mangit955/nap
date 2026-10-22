@@ -77,6 +77,9 @@ export default defineConfig({
           include: ["{packages,apps}/*/src/**/*.test.tsx"],
           environment: "jsdom",
           setupFiles: ["./apps/web/src/testing/setup.ts"],
+          // Node 25 turned on its own Web Storage, whose `localStorage` is undefined without a
+          // backing file and shadows jsdom's — every test touching it then throws on `.clear()`.
+          execArgv: ["--no-experimental-webstorage"],
         },
       },
       {

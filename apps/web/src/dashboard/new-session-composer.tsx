@@ -272,14 +272,13 @@ export function NewSessionComposer({
       canOpenWorkspace={!!source}
       source={
         <>
-          {draft?.pendingStart && (
-            <p role="status">
+          {/* Only a request left stranded by a lost response or a reload needs this; one still in
+              flight is already shown by the disabled composer, and announcing it too pushed the
+              textarea down for the length of every start. */}
+          {draft?.pendingStart && !busy && (
+            <p role="status" className="composer-pending">
               A start request is pending.{" "}
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void start(draft.text, draft.attachments)}
-              >
+              <button type="button" onClick={() => void start(draft.text, draft.attachments)}>
                 Retry pending start
               </button>
             </p>

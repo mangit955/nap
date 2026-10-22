@@ -447,7 +447,7 @@ describe("when the server refuses", () => {
       await result.current.submit("hello");
     });
 
-    expect(result.current.error).toMatch(/close one/i);
+    expect(result.current.error).toMatch(/put one away/i);
   });
 
   it("names an expired session as such rather than as a failed send", async () => {

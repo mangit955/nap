@@ -2054,6 +2054,19 @@ body {
 .composer-source {
   padding: 12px 16px 0;
 }
+.composer-pending {
+  padding: 12px 16px 0;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.composer-pending button {
+  color: var(--color-ink-2);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.composer-pending button:hover {
+  color: var(--color-ink);
+}
 .source-chip {
   display: inline-flex;
   align-items: center;

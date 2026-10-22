@@ -264,3 +264,33 @@ it("recovers a lost start response with the identical saved request after remoun
   expect(fetchJson.mock.calls).toHaveLength(2);
   expect(fetchJson.mock.calls[0]?.[1]?.body).toBe(fetchJson.mock.calls[1]?.[1]?.body);
 });
+
+it("keeps the pending-start notice out of the composer while the request is in flight", async () => {
+  vi.stubGlobal("indexedDB", new IDBFactory());
+  let answer: (response: Response) => void = () => {};
+  const fetchJson = vi.fn(
+    (_url: string, _init?: RequestInit) =>
+      new Promise<Response>((resolve) => {
+        answer = resolve;
+      }),
+  );
+  render(
+    <NewSessionComposer
+      ownerId="00000000-0000-4000-8000-000000000001"
+      models={[]}
+      modelsLoading={false}
+      onAddKey={vi.fn()}
+      fetchJson={fetchJson}
+    />,
+  );
+  const box = screen.getByRole("textbox", { name: "Describe the app you want" });
+  await waitFor(() => expect(box).toBeEnabled());
+  fireEvent.change(box, { target: { value: "Build me a cool todo app." } });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(fetchJson).toHaveBeenCalledOnce());
+  expect(box).toBeDisabled();
+  expect(screen.queryByRole("button", { name: "Retry pending start" })).toBeNull();
+  answer(Response.json({ error: "Upstream unavailable" }, { status: 503 }));
+  await screen.findByText("Upstream unavailable");
+  expect(await screen.findByRole("button", { name: "Retry pending start" })).toBeEnabled();
+});
