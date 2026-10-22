@@ -12,6 +12,7 @@ import { ChatInput } from "../chat/chat-input.tsx";
 import { ChatTranscript } from "../chat/chat-transcript.tsx";
 import { ContextControl } from "../chat/context-control.tsx";
 import type { FirstPrompt } from "../chat/first-prompt.ts";
+import { modelInUse } from "../chat/model-picker.tsx";
 import { buildTranscript } from "../chat/transcript.ts";
 import { TranscriptSkeleton } from "../chat/transcript-skeleton.tsx";
 import { useFirstPrompt } from "../chat/use-first-prompt.ts";
@@ -193,6 +194,7 @@ export function ChatPane({
                 <ContextControl
                   events={events}
                   running={running}
+                  modelLabel={models === undefined ? undefined : modelInUse(models, model)?.label}
                   onCompact={() => onSubmit("/compact")}
                 />
               }

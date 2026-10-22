@@ -2023,6 +2023,16 @@ body {
   }
 }
 /*
+ * The context popup is drawn in the composer's own glass rather than the menus', so it reads as
+ * a piece of the prompt box lifted up; the one solid thing inside it is the Compact button.
+ */
+.context-popup {
+  border: 1px solid rgb(255 255 255 / 5%);
+  background: color-mix(in srgb, var(--color-panel) 80%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(1.08);
+  backdrop-filter: blur(16px) saturate(1.08);
+}
+/*
  * The context popup lives in a `<details>`, whose content is hidden by the element rather than
  * by anything here. Transitioning `::details-content` keeps it visible while the panel fades
  * out; a browser without that pseudo-element still gets the arrival, and closes instantly.
@@ -2098,6 +2108,9 @@ body {
   .composer-menu {
     background: var(--color-field);
   }
+  .context-popup {
+    background: var(--color-panel);
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .nap-float,
@@ -2128,6 +2141,11 @@ body {
   }
   .composer-menu {
     background: var(--color-field);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .context-popup {
+    background: var(--color-panel);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }

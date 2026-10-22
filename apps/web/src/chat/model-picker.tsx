@@ -10,6 +10,22 @@ import { createPortal } from "react-dom";
 /** Ties a locked row to the words explaining why, for anyone not reading with their eyes. */
 const LOCKED_HINT_ID = "model-locked";
 
+/**
+ * The model a message will run on: the one chosen, or else the first *reachable* one rather than
+ * the first listed, so a free caller never sees a locked model named as theirs. The picker and
+ * the context popup both name it, and must not disagree.
+ */
+export function modelInUse(
+  models: readonly ModelChoice[],
+  model: string | undefined,
+): ModelChoice | undefined {
+  return (
+    models.find((choice) => choice.id === model) ??
+    models.find((choice) => choice.available) ??
+    models[0]
+  );
+}
+
 export function ModelPicker({
   models,
   model,
@@ -46,14 +62,8 @@ export function ModelPicker({
   const [position, setPosition] = useState<{ bottom: number; right: number } | undefined>(
     undefined,
   );
-  // The tick falls back to the first *reachable* model rather than the first listed one, so a
-  // free caller never sees a locked model named as the one their message will run on.
-  const selected =
-    models.length > 1
-      ? (models.find((choice) => choice.id === model) ??
-        models.find((choice) => choice.available) ??
-        models[0])
-      : undefined;
+  // With nothing to choose between there is no picker to draw.
+  const selected = models.length > 1 ? modelInUse(models, model) : undefined;
 
   useEffect(() => {
     if (!open) return;
