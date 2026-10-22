@@ -60,7 +60,6 @@ export function CompactionPreview() {
           ]}
           model="fixture/free"
           events={log.events}
-          jobs={log.jobs}
           loading={!log.replayed}
           pending={turn.pending}
           pendingAttachments={turn.pendingAttachments}

@@ -258,22 +258,6 @@ describe("folding a finished turn", () => {
 
     expect(timeline.filter((row) => row.kind === "turn-fold")).toHaveLength(2);
   });
-
-  it("covers the keys it hides, so the unseen seam can land on it", () => {
-    reset();
-    const timeline = rows([
-      prompt(),
-      started(),
-      ...read("src/App.tsx"),
-      ...read("src/main.tsx"),
-      say("Done."),
-      completed(1_000),
-    ]);
-    const fold = only(timeline, "turn-fold");
-
-    // The prompt is 1 and `turn.started` 2; the two reads are keyed by their calls, 3 and 5.
-    expect(fold.keys).toEqual({ first: 3, last: 5 });
-  });
 });
 
 describe("a turn that has no prompt of its own", () => {

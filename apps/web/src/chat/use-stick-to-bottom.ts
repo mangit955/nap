@@ -18,11 +18,9 @@
  * paint, so the box is never seen at the old offset. In a passive effect the wrong frame paints
  * first and the transcript visibly jumps.
  *
- * **The bottom is not always the right place to open.** A reader coming back to a session that
- * grew while they were gone wants the point where their reading stopped, not the newest event —
- * so a caller may hand over something to open at instead, and the seam in `unseen.ts` is what
- * does. It is a *lookup* rather than an element because the pane mounts before the log has
- * replayed: there is nothing to find on the first pass, and the marker appears a frame or two
+ * **The bottom is not always the right place to open**, so a caller may hand over something to
+ * open at instead. It is a *lookup* rather than an element because the pane mounts before the log
+ * has replayed: there is nothing to find on the first pass, and the target appears a frame or two
  * later.
  */
 

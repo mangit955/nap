@@ -12,27 +12,17 @@ import { ChatInput } from "../chat/chat-input.tsx";
 import { ChatTranscript } from "../chat/chat-transcript.tsx";
 import { ContextControl } from "../chat/context-control.tsx";
 import type { FirstPrompt } from "../chat/first-prompt.ts";
-import { JobStrip } from "../chat/job-strip.tsx";
-import { jobView, type SessionJobView } from "../chat/job-summary.ts";
 import { buildTranscript } from "../chat/transcript.ts";
 import { TranscriptSkeleton } from "../chat/transcript-skeleton.tsx";
-import { seamAt } from "../chat/unseen.ts";
-import { UnseenCard } from "../chat/unseen-card.tsx";
-import type { UnseenSummary } from "../chat/unseen-summary.ts";
 import { useFirstPrompt } from "../chat/use-first-prompt.ts";
 import { useModels } from "../chat/use-models.ts";
-import { useSeenCursor } from "../chat/use-seen-cursor.ts";
 import { useStickToBottom } from "../chat/use-stick-to-bottom.ts";
 import { useTurnSubmission } from "../chat/use-turn-submission.ts";
-import { useUnseenCard } from "../chat/use-unseen-card.ts";
 import { WorkingRow } from "../chat/work-log-rows.tsx";
 import { inFlightTurn } from "../chat/working-state.ts";
 import type { FetchJson } from "../files/use-project-files.ts";
 import type { SessionLog } from "../hooks/use-session-log.ts";
 import { Pane } from "./pane.tsx";
-
-/** A session nothing has been asked of yet, for the callers that have no log to derive one from. */
-const NO_JOBS = jobView([]);
 
 /**
  * The transcript pane: what the agent is doing, as it does it — and where you say what to do.
@@ -49,7 +39,6 @@ export function ChatPane({
   draftIdentity,
   active = true,
   events,
-  jobs = NO_JOBS,
   loading = false,
   pending,
   pendingAttachments,
@@ -67,20 +56,10 @@ export function ChatPane({
   model,
   onModelChange,
   onAddKey,
-  seen,
-  card,
-  onDismissCard = () => {},
 }: {
   draftIdentity?: { ownerId: string; projectId: string } | undefined;
   active?: boolean;
   events: readonly StoredEvent[];
-  /**
-   * Where the session's jobs stand, derived above this pane because the workspace bar reads the
-   * same answer. Defaulted to the empty session — a constant rather than a second derivation, so
-   * the many render tests that are not about jobs need not supply one and none of them can end
-   * up describing a different log from the one they passed.
-   */
-  jobs?: SessionJobView;
   /**
    * The log has not arrived yet, which is *not* the same as there being none.
    *
@@ -111,31 +90,12 @@ export function ChatPane({
   onModelChange?: ((model: string) => void) | undefined;
   /** Opening the key form, for a model this caller cannot reach. */
   onAddKey?: (() => void) | undefined;
-  /**
-   * Where this browser's reading stopped, from `useSeenCursor`. Absent for every pane that is
-   * not subscribed to a session — the tests, and the landing page's scripted demo.
-   */
-  seen?: number | undefined;
-  /**
-   * What was decided while nobody was watching, from `useUnseenCard`, or `null` when nothing
-   * was — which is most of the time, by design. Worked out above rather than here because it is
-   * a fact about a moment that has passed, and this pane re-renders on every event.
-   */
-  card?: UnseenSummary | null | undefined;
-  /**
-   * Optional for the same reason `card` is — the many render tests supply neither — and paired
-   * with it: a caller passing one without the other draws a card whose only control does nothing.
-   */
-  onDismissCard?: (() => void) | undefined;
 }) {
   const empty = events.length === 0 && pending === undefined;
   // Folded once, read twice: the transcript renders it and the composer asks it whether a
   // compaction is running. Both used to fold the log for themselves, so every frame of a
   // streaming turn walked it twice to answer one question.
   const transcript = useMemo(() => buildTranscript(events), [events]);
-  // Where the reader left off, as a position in what is drawn rather than in the log. See
-  // `unseen.ts` for why an item straddling the cursor stays above the line.
-  const seam = useMemo(() => seamAt(transcript, seen), [transcript, seen]);
   const turn = activity === undefined ? inFlightTurn(events) : activity;
   // "Working for" hangs off the prompt it answers. While that prompt is still the optimistic one
   // it is below the transcript, so the row goes under it here rather than inside the log.
@@ -155,7 +115,6 @@ export function ChatPane({
   // The stage is where a dropped file lands, and the composer draws its overlay across it — so it
   // is handed over as an element, which a ref read during render would not be.
   const [stage, setStage] = useState<HTMLDivElement | null>(null);
-  const seamRef = useRef<HTMLElement>(null);
   const composerDock = useRef<HTMLDivElement>(null);
   const [composerHeight, setComposerHeight] = useState(144);
   // Let history scroll behind the glass, with enough space to read the last message above it.
@@ -176,44 +135,14 @@ export function ChatPane({
     return () => observer.disconnect();
   }, []);
   // What "there is something new to see" means here. The event count alone would miss a turn
-  // ending, and the running flag alone would miss every event inside it. The seam is in it
-  // because it arrives from an effect a frame after mount, in a commit where nothing else
-  // changed — and a scroller that did not look then would open at the bottom and stay there.
+  // ending, and the running flag alone would miss every event inside it.
   const scroller = useStickToBottom<HTMLElement>(
-    `${events.length}:${pending}:${running}:${seam}:${composerHeight}`,
-    () => seamRef.current,
+    `${events.length}:${pending}:${running}:${composerHeight}`,
   );
 
   return (
     <Pane id="chat" title="Chat" chrome="none">
       <div className="flex h-full min-h-0 flex-col">
-        {/*
-          Above the scroller rather than inside it: the strip is the job's current state, and a
-          state that scrolls away with the conversation is one somebody has to go looking for
-          during the exact minute it matters.
-        */}
-        <JobStrip jobs={jobs} />
-
-        {/*
-          Over the seam, and above the scroller for the reason the strip is: a summary of what
-          happened in your absence that scrolls away with the conversation is one somebody has
-          to go looking for. The seam stays where it is either way — this is additive to it,
-          and dismissing this leaves the transcript exactly as it was.
-        */}
-        {card != null && (
-          <UnseenCard
-            card={card}
-            onDismiss={() => {
-              // Dismissing means "read", so it drops the reader at the live state rather than
-              // leaving them parked at a marker they have just finished with. Set before the
-              // card unmounts; the browser clamps to whatever the new bottom turns out to be.
-              const box = scroller.current;
-              if (box !== null) box.scrollTop = box.scrollHeight;
-              onDismissCard();
-            }}
-          />
-        )}
-
         <div ref={setStage} className="chat-stage relative min-h-0 flex-1">
           <section
             ref={scroller} // `overflow-x-hidden`, not `auto`: tool output is arbitrary text, and a long line
@@ -237,8 +166,6 @@ export function ChatPane({
                     running={running && !workingOutside}
                     pending={pending !== undefined}
                     startedAt={startedAt}
-                    seam={seam}
-                    seamRef={seamRef}
                     onRetry={onRetry}
                     files={files}
                     onOpenFile={onOpenFile}
@@ -395,16 +322,7 @@ export function LiveChatPane({
   /** Opens a file in the Code tab. See `ChatPane`. */
   onOpenFile?: ((path: string) => void) | undefined;
 }) {
-  const { events, replayed, lastSeq, jobs } = log;
-  // Subscribed here rather than in `useSessionLog` with the other folds: this is the one answer
-  // in the workspace that is not a fold over the log at all — it is a fact about this browser,
-  // and only this pane draws it.
-  const seen = useSeenCursor(sessionId, lastSeq, active);
-  // Beside the cursor, and for the same reason: it is a fact about this browser rather than a
-  // fold over the log, and only this pane draws it. Worked out here rather than in the pane
-  // below because it needs `replayed` — a card decided before the log arrived would be a card
-  // decided over an empty one.
-  const { card, dismiss } = useUnseenCard(events, seen, replayed, active);
+  const { events, replayed } = log;
   const injected = fetchJson === undefined ? {} : { fetchJson };
   const {
     submit,
@@ -457,7 +375,6 @@ export function LiveChatPane({
         draftIdentity={ownerId && projectId ? { ownerId, projectId } : undefined}
         active={active}
         events={events}
-        jobs={jobs}
         // Nothing has been asked for yet when there is no session: the project record is still on
         // its way, so the log this pane will show has not even been subscribed to.
         loading={sessionId === undefined || (!replayed && events.length === 0)}
@@ -482,9 +399,6 @@ export function LiveChatPane({
         model={model ?? models?.fallback}
         onModelChange={setModel}
         onAddKey={() => setKeyPanelOpen(true)}
-        seen={seen}
-        card={card}
-        onDismissCard={dismiss}
       />
     </>
   );

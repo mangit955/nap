@@ -216,8 +216,7 @@ describe("AppShell", () => {
     expect(screen.getByRole("textbox", { name: "Message" })).toBeDisabled();
   });
 
-  it("does not mark events seen while the chat is hidden", async () => {
-    localStorage.removeItem(`nap.seen.${SESSION_ID}`);
+  it("draws no line or card for what happened while the chat was out of view", async () => {
     const net = sockets();
     render(
       <AppShell projectId={PROJECT_ID} createSocket={net.createSocket} fetchJson={fetchJson} />,
@@ -228,73 +227,20 @@ describe("AppShell", () => {
       net.latest.deliver({ type: "event", event: ev("user.message", { text: "First" }, 1) });
       net.latest.deliver({ type: "ready" });
     });
-    await waitFor(() => expect(localStorage.getItem(`nap.seen.${SESSION_ID}`)).toBe("1"));
-    fireEvent.click(screen.getByRole("button", { name: "Hide chat" }));
-    await act(async () => {
-      net.latest.deliver({
-        type: "event",
-        event: ev("agent.message", { text: "Unseen answer" }, 2),
-      });
-    });
-    expect(localStorage.getItem(`nap.seen.${SESSION_ID}`)).toBe("1");
-    fireEvent.click(screen.getByRole("button", { name: "Show chat" }));
-    await waitFor(() => expect(localStorage.getItem(`nap.seen.${SESSION_ID}`)).toBe("2"));
-  });
-
-  it("summarizes a hidden-chat failure and keeps its card dismissed across reconnect", async () => {
-    vi.useFakeTimers();
-    localStorage.removeItem(`nap.seen.${SESSION_ID}`);
-    vi.spyOn(window, "matchMedia").mockImplementation((query) => ({
-      matches: query === "(max-width: 767px)",
-      media: query,
-      onchange: null,
-      addEventListener() {},
-      removeEventListener() {},
-      addListener() {},
-      removeListener() {},
-      dispatchEvent: () => false,
-    }));
-    const net = sockets();
-    render(
-      <AppShell projectId={PROJECT_ID} createSocket={net.createSocket} fetchJson={fetchJson} />,
-    );
-    await act(async () => {});
-    expect(net.opened).toHaveLength(1);
-    await act(async () => {
-      net.latest.open();
-      net.latest.deliver({ type: "event", event: ev("user.message", { text: "First" }, 1) });
-      net.latest.deliver({ type: "ready" });
-    });
-    expect(localStorage.getItem(`nap.seen.${SESSION_ID}`)).toBe("1");
-    expect(screen.queryByRole("region", { name: "While you were away" })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Hide chat" }));
-    expect(screen.queryByRole("region", { name: "Chat" })).toBeNull();
     await act(async () => {
       net.latest.deliver({
         type: "event",
         event: ev("turn.failed", { reason: "sandbox_unavailable", message: "no capacity" }, 2),
       });
     });
-    expect(localStorage.getItem(`nap.seen.${SESSION_ID}`)).toBe("1");
-
     fireEvent.click(screen.getByRole("button", { name: "Show chat" }));
 
-    const card = screen.getByRole("region", { name: "While you were away" });
-    expect(card).toHaveTextContent("The workspace couldn't start.");
-    fireEvent.click(within(card).getByRole("button", { name: "Dismiss" }));
-    expect(screen.queryByRole("region", { name: "While you were away" })).toBeNull();
-
-    act(() => net.latest.drop());
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(BACKOFF.initialMs);
-    });
-    expect(net.opened).toHaveLength(2);
-    await act(async () => {
-      net.latest.open();
-      net.latest.deliver({ type: "ready" });
-    });
-    expect(screen.queryByRole("region", { name: "While you were away" })).toBeNull();
+    expect((await screen.findAllByText("The workspace couldn't start.")).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/new since you were last here/i)).toBeNull();
+    expect(screen.queryByRole("region", { name: /while you were away/i })).toBeNull();
+    expect(localStorage.getItem(`nap.seen.${SESSION_ID}`)).toBeNull();
   });
 
   it("opens a file the agent mentions in the Code tab", async () => {
