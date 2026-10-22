@@ -109,7 +109,7 @@ export function ModelPicker({
           <ul
             ref={menu}
             aria-label="Model"
-            className="composer-menu nap-float fixed z-50 w-52 overflow-hidden rounded-[10px] p-1"
+            className="composer-surface nap-float fixed z-50 w-52 overflow-hidden rounded-[10px] p-1"
             style={{ ...position, transformOrigin: "bottom right" }}
           >
             {models.map((choice) => (
