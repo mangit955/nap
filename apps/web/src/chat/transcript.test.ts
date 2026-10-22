@@ -379,16 +379,6 @@ describe("streamed command output", () => {
     expect(first?.streamed).toBe("");
     expect(second?.streamed).toBe("from b");
   });
-
-  it("records that something was written to stderr", () => {
-    const items = fold(
-      call("c1", "run_command", { command: "bun run build" }),
-      ev("command.output", { toolCallId: "c1", stream: "stdout", chunk: "ok\n" }),
-      ev("command.output", { toolCallId: "c1", stream: "stderr", chunk: "warning\n" }),
-    );
-
-    expect(stepsOf(items)[0]?.hasStderr).toBe(true);
-  });
 });
 
 describe("file changes", () => {

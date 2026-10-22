@@ -8,9 +8,11 @@
  * the longer nobody was looking — and the whole point of showing elapsed time during a wait is
  * that it is the one number on screen a person can trust.
  *
- * Two callers want different faces on the same idea. The transcript's working indicator counts
- * in tenths during an active turn. A pane waiting on a sandbox counts in whole seconds: a tenths
- * digit flickering ten times a second beside a large mark is noise pretending to be progress.
+ * Tenths by default, and whole seconds where a wait is long and the number sits large: the preview
+ * pane waiting on a sandbox counts in seconds, because a tenths digit flickering ten times a
+ * second beside a large mark is noise pretending to be progress. The transcript's "Working for"
+ * keeps its own clock (`WorkingTimer` in `work-log-rows.tsx`), written through a ref so a tick does
+ * not re-render the timeline.
  */
 
 import { useEffect, useState } from "react";

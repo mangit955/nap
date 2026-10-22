@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { NapLoader } from "../brand/nap-loader.tsx";
 import { NapMark } from "../brand/nap-mark.tsx";
 import { pickDifferent } from "../brand/nap-tricks.ts";
+import { Spotlight } from "../chat/work-log-rows.tsx";
 import { turnFailureCopy } from "../errors/failure-copy.ts";
 import type { ProjectPhase } from "../projects/project-phase.ts";
 import { AlertIcon } from "../ui/icons.tsx";
@@ -182,10 +183,10 @@ function StartingUp({ previewRequired }: { previewRequired: boolean }) {
       <NapLoader className="size-14 text-ink-2" />
 
       <div className="flex flex-col items-center gap-1">
-        {/* The same shimmer the transcript's working indicator uses, so waiting looks like one
-            thing wherever it happens. */}
-        <p aria-hidden="true" className="nap-shimmer text-[13px]">
-          {word}…
+        {/* The spotlight the transcript's "Thinking" row wears, so waiting looks like one thing
+            wherever it happens. */}
+        <p aria-hidden="true" className="text-[13px] text-muted">
+          <Spotlight label={`${word}…`} />
         </p>
         <p className="font-mono text-[11px] text-muted tabular-nums">
           {previewRequired ? "Starting the dev server" : "Starting the workspace"} ·{" "}

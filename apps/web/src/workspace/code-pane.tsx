@@ -38,6 +38,8 @@ export function LiveCodePane({
   files,
   fetchJson,
   active = true,
+  selected: controlled,
+  onSelect,
 }: {
   sessionId: string | undefined;
   /**
@@ -55,10 +57,18 @@ export function LiveCodePane({
   /** The project's listing, fetched once for the workspace. */
   files: ProjectFiles;
   fetchJson?: FetchJson | undefined;
+  /**
+   * The open file, when somebody above decides it — the chat opens a file it mentions. Absent,
+   * the pane keeps its own.
+   */
+  selected?: string | undefined;
+  onSelect?: ((path: string | undefined) => void) | undefined;
 }) {
   const { events, changed } = log;
   const { listing, status } = files;
-  const [selected, setSelected] = useState<string | undefined>(undefined);
+  const [own, setOwn] = useState<string | undefined>(undefined);
+  const selected = onSelect === undefined ? own : controlled;
+  const setSelected = onSelect ?? setOwn;
   const {
     file,
     status: fileStatus,

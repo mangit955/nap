@@ -86,6 +86,11 @@ export function writeSeen(storage: SeenStorage, sessionId: string, seq: number):
  * absorbing the events after it, so an item keyed at or below the cursor was already partly
  * displayed. Marking it new would put "you missed this" above a paragraph the reader watched
  * being written. Everything below the marker has to be new or the line is a lie.
+ *
+ * The timeline draws rows rather than items, and a row can cover several: a fold, a group, the
+ * live row. There the rule is the other way round, on purpose — a row covering anything unseen
+ * counts as new and sits below the line (`chat-transcript.tsx`), because its members are not
+ * drawn, and a seam drawn under the row would hide the new ones behind work already read.
  */
 export function seamAt(
   items: readonly { key: number }[],

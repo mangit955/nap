@@ -3,7 +3,7 @@ import { LEASE_GRACE_MS, LEASE_TTL_MS } from "@nap/shared/lease-windows";
 import type { EventStore, PendingEvent } from "@nap/shared/ports/event-store";
 import { expect, it, vi } from "vitest";
 import { buildTranscript } from "../apps/web/src/chat/transcript.ts";
-import { inFlightTurn, turnStartedAt } from "../apps/web/src/chat/working-state.ts";
+import { inFlightTurn } from "../apps/web/src/chat/working-state.ts";
 import { InMemoryEventBus } from "../packages/db/src/testing/in-memory-event-bus.ts";
 import { InMemoryEventStore } from "../packages/db/src/testing/in-memory-event-store.ts";
 import { InMemoryTurnQueue } from "../packages/db/src/testing/in-memory-turn-queue.ts";
@@ -364,6 +364,5 @@ it.each([false, true])(
     expect(await f.queue.requestCancel(SESSION)).toEqual({ cancelled: false });
     expect(await f.queue.claim("next-worker")).toBeNull();
     expect(inFlightTurn(history)).toBeUndefined();
-    expect(turnStartedAt(history)).toBeUndefined();
   },
 );

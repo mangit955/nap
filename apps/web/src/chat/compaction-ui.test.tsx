@@ -3,7 +3,6 @@ import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ChatTranscript } from "./chat-transcript.tsx";
-import { groupSteps } from "./step-group.ts";
 import { buildTranscript } from "./transcript.ts";
 
 const envelope = { sessionId: "s", turnId: "manual", createdAt: "2026-10-20T12:00:00Z" };
@@ -34,7 +33,7 @@ const complete: StoredEvent = {
   },
 };
 function show(events: StoredEvent[], retry = vi.fn()) {
-  return render(<ChatTranscript items={groupSteps(buildTranscript(events))} onRetry={retry} />);
+  return render(<ChatTranscript items={buildTranscript(events)} onRetry={retry} />);
 }
 
 describe("compaction presentation", () => {

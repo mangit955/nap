@@ -3,128 +3,282 @@
 import type { MediaAttachment } from "@nap/shared/media";
 
 /**
- * The transcript: a conversation, with the machinery folded up between the turns.
+ * The transcript: a conversation, with the work folded away between its turns.
  *
- * It used to be one hairline rail with every event hanging off it — which is an accurate picture
- * of an event log and the wrong picture of a conversation. What somebody is actually reading is
- * an exchange: they asked for something, the agent said what it would do, it went away and did
- * forty small things, and it came back. So the two voices are drawn as two voices — the user's
- * words in a bubble on the right, the agent's as prose across the pane — and the forty small
- * things collapse into one card between them (see `step-group.ts`).
- *
- * Prose is in the sans face and everything the machine authored is mono. That split is the whole
- * type system here, and it says who wrote each line.
+ * What somebody is reading is an exchange — they asked for something, the agent went away and did
+ * forty small things, and it came back — so the two voices are drawn as two voices, the user's
+ * words in a bubble on the right and the agent's as markdown across the pane, and the forty small
+ * things are a work log between them. That log is T3 Code's chat timeline, cloned (MIT — see
+ * `apps/web/THIRD_PARTY_NOTICES.md`): 24px rows that sit flush in the conversation, one live row
+ * for whatever is running, "Working for 12s" under the prompt while it does, and a finished
+ * turn folded into one "Worked for 1m 12s" row with its answer beneath. `timeline.ts` decides
+ * which rows there are; this draws them.
  *
  * The container is a `log` landmark, which is what makes new events announce themselves to a
  * screen reader instead of appearing silently — a transcript that only updates visually is
  * unusable for the person who most needs to know the agent is still working.
  */
 
-import { Fragment } from "react";
+import { useMemo, useState } from "react";
 import { NapMark } from "../brand/nap-mark.tsx";
 import { turnFailureCopy } from "../errors/failure-copy.ts";
 import { AlertIcon, CopyIcon } from "../ui/icons.tsx";
+import { ChangedFilesCard } from "./changed-files-card.tsx";
+import { ChatMarkdown, ProjectFiles } from "./chat-markdown.tsx";
 import { CompactionRow } from "./compaction-row.tsx";
 import { OutputBlock } from "./output-block.tsx";
-import type { DisplayItem } from "./step-group.ts";
-import { StepGroupCard } from "./step-group-card.tsx";
-import { StreamingText } from "./streaming-text.tsx";
+import { buildTimeline, type PassThroughItem, type TimelineRow } from "./timeline.ts";
+import type { TranscriptItem } from "./transcript.ts";
+import {
+  LiveWorkRow,
+  TurnFoldRow,
+  WorkEntryRow,
+  WorkGroupList,
+  WorkingRow,
+  WorkToggleRow,
+} from "./work-log-rows.tsx";
+
+type TurnEnd = Extract<TranscriptItem, { kind: "turn-end" }>;
+type FailedTurn = Extract<TurnEnd, { outcome: "failed" }>;
 
 export function ChatTranscript({
   items,
+  running = false,
+  pending = false,
+  startedAt,
   seam,
   seamRef,
   onRetry,
+  files = [],
+  onOpenFile,
 }: {
   /**
-   * The log, already folded and grouped.
+   * The log, already folded into items.
    *
-   * Passed in rather than folded here because the pane above reads the same fold for its working
-   * indicator, and two components folding one log is two walks of it per frame of a streaming
-   * turn. `groupSteps(buildTranscript(events))` is the whole derivation; see `transcript.ts`.
+   * Passed in rather than folded here because the pane above reads the same fold for the composer
+   * and the context meter, and two components folding one log is two walks of it per frame of a
+   * streaming turn. `buildTranscript(events)` is the whole derivation; see `transcript.ts`.
    */
-  items: readonly DisplayItem[];
+  items: readonly TranscriptItem[];
+  /**
+   * Whether a turn is in flight, from the pane — which knows from the click, long before the log
+   * does. It is what draws "Working for" and the live row; without it the newest work is drawn
+   * like any other.
+   */
+  running?: boolean;
+  /**
+   * A request was sent and the log does not hold it yet. `running` alone cannot say whether a log
+   * ending at a turn end has anything still to come: see `TimelineOptions` in `timeline.ts`.
+   */
+  pending?: boolean;
+  /** When the server says the open turn began. Absent until `turn.started` arrives. */
+  startedAt?: string | undefined;
   /**
    * The key of the first item this browser has never displayed, and where the seam is drawn.
    *
-   * The *key*, not the cursor: the caller has the folded items already and `seamAt` in
-   * `unseen.ts` is where the rule for turning one into the other lives — including the part
-   * about an item that straddles the cursor. Undefined is the ordinary case, and a key nothing
-   * matches draws nothing, which is what a windowed log eventually hands over.
+   * The *key*, not the cursor: `seamAt` in `unseen.ts` is where the rule for turning one into the
+   * other lives — including the part about an item that straddles the cursor. Undefined is the
+   * ordinary case, and a key nothing matches draws nothing, which is what a windowed log
+   * eventually hands over. A seam inside folded work is drawn above the fold.
    */
   seam?: number | undefined;
   /** Put on the marker, so the scroller can open at it. See `use-stick-to-bottom.ts`. */
   seamRef?: React.RefObject<HTMLElement | null> | undefined;
   /** Re-sends a failed turn's message. Absent means no retry is offered, not a broken button. */
   onRetry?: ((message: string, attachments?: MediaAttachment[]) => void) | undefined;
+  /** The project's files, so a path in a reply can become a chip that opens it. */
+  files?: readonly string[] | undefined;
+  /** Opens a file in the Code tab. Absent, a path is still a chip, just not a button. */
+  onOpenFile?: ((path: string) => void) | undefined;
 }) {
-  // The only item that can still be added to is the last one — everything above it has been
-  // overtaken by something newer. That alone is the whole rule, and it needs no check for
-  // whether a turn is open: a turn that ended ends *with* its `turn.completed` or
-  // `turn.failed`, so replaying a finished session leaves the last word on a line that has
-  // no prose to reveal. Asking `turnStartedAt` as well would look like a safety net and be a
-  // bug — a client that reconnected mid-turn has no `turn.started` in its log, and the
-  // passage the model is writing right now is exactly what it would refuse to animate.
+  // Which folds and groups the reader has opened, by the ids `timeline.ts` derives from the item
+  // each opened with — stable as the turn grows, so nothing springs shut mid-turn.
+  const [openFolds, setOpenFolds] = useState<ReadonlySet<string>>(() => new Set());
+  const [openGroups, setOpenGroups] = useState<ReadonlySet<string>>(() => new Set());
+  const rows = useMemo(
+    () =>
+      buildTimeline(items, {
+        running,
+        pending,
+        startedAt,
+        expandedFolds: openFolds,
+        expandedGroups: openGroups,
+      }),
+    [items, running, pending, startedAt, openFolds, openGroups],
+  );
+  const projectFiles = useMemo(() => ({ files, onOpenFile }), [files, onOpenFile]);
+
+  // The only prose that can still be added to is the last item — everything above it has been
+  // overtaken by something newer. That alone is the whole rule, and it needs no check for whether
+  // a turn is open: a turn that ended ends *with* its `turn.completed` or `turn.failed`, so
+  // replaying a finished session leaves the last word on a line that has no prose to fade in. A
+  // client that reconnected mid-turn has no `turn.started`, and the passage the model is writing
+  // right now is exactly what asking for one would refuse to stream.
   const liveKey = items.at(-1)?.key;
-  const compactionFailures = new Map<
-    number,
-    Extract<DisplayItem, { kind: "turn-end"; outcome: "failed" }>
-  >();
+  const seamRow =
+    seam === undefined ? undefined : rows.find((row) => (row.keys?.last ?? -1) >= seam)?.id;
+
+  const compactionFailures = new Map<number, FailedTurn>();
   const foldedFailures = new Set<number>();
   for (const item of items) {
-    if (
-      item.kind !== "turn-end" ||
-      item.outcome !== "failed" ||
-      item.compactionFailureKey === undefined
-    )
-      continue;
+    if (item.kind !== "turn-end" || item.outcome !== "failed") continue;
+    if (item.compactionFailureKey === undefined) continue;
     compactionFailures.set(item.compactionFailureKey, item);
     foldedFailures.add(item.key);
   }
 
+  const toggle = (set: typeof setOpenFolds, id: string) =>
+    set((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  let previous: TimelineRow | undefined;
+
   return (
-    <div
-      // A `log`, not a `list`: additions are announced, which is the point of a transcript that
-      // grows while you watch it. Its children are deliberately plain elements — `listitem`
-      // under a `log` is an orphaned role, and the items are heterogeneous blocks rather than
-      // peers in a list.
-      role="log"
-      aria-label="Transcript"
-      className="mx-auto flex max-w-[46rem] flex-col gap-5 px-5 py-6"
-    >
-      {items.map((item, index) => (
-        <Fragment key={item.key}>
-          {item.key === seam && <UnseenSeam seamRef={seamRef} />}
-          {!foldedFailures.has(item.key) && (
-            <Item
-              compactionFailure={compactionFailures.get(item.key)}
-              item={item}
-              live={item.key === liveKey}
-              // Whether the agent has already spoken since the last thing the user said. Its prose
-              // is labelled once per block rather than once per paragraph, the way a chat names a
-              // speaker only when the speaker changes.
-              opensBlock={opensBlock(items, index)}
-              onRetry={onRetry}
-            />
-          )}
-        </Fragment>
-      ))}
-    </div>
+    <ProjectFiles value={projectFiles}>
+      <div
+        // A `log`, not a `list`: additions are announced, which is the point of a transcript that
+        // grows while you watch it. Its children are deliberately plain elements — `listitem`
+        // under a `log` is an orphaned role, and the rows are heterogeneous blocks rather than
+        // peers in a list.
+        role="log"
+        aria-label="Transcript"
+        className="mx-auto flex max-w-[46rem] flex-col px-5 py-6"
+      >
+        {rows.map((row) => {
+          // A turn that finished draws nothing of its own — its fold says how long it took — and
+          // a compaction's failure is drawn inside the compaction's row. Neither takes a wrapper,
+          // unless the seam has to be drawn on it.
+          const drawnElsewhere = row.kind === "item" && foldedFailures.has(row.item.key);
+          if (drawnElsewhere || isFinished(row)) {
+            return row.id === seamRow ? (
+              <div key={row.id}>
+                <UnseenSeam seamRef={seamRef} />
+              </div>
+            ) : null;
+          }
+          const before = previous;
+          if (!quiet(row)) previous = row;
+          return (
+            <div key={row.id} className={spacingBefore(row, before)}>
+              {row.id === seamRow && <UnseenSeam seamRef={seamRef} />}
+              <Row
+                row={row}
+                live={row.kind === "item" && row.item.key === liveKey}
+                opensBlock={opensBlock(row, before)}
+                compactionFailure={
+                  row.kind === "item" ? compactionFailures.get(row.item.key) : undefined
+                }
+                onRetry={onRetry}
+                onToggleFold={(id) => toggle(setOpenFolds, id)}
+                onToggleGroup={(id) => toggle(setOpenGroups, id)}
+              />
+            </div>
+          );
+        })}
+      </div>
+    </ProjectFiles>
   );
 }
 
+function isFinished(row: TimelineRow): boolean {
+  return row.kind === "item" && row.item.kind === "turn-end" && row.item.outcome === "completed";
+}
+
+/** Rows of the work log, which sit flush against one another the way T3 draws them. */
+function isWorkRow(row: TimelineRow): boolean {
+  return row.kind !== "item" && row.kind !== "changed-files";
+}
+
 /**
- * Whether this item starts a new stretch of the agent talking.
+ * Rows with nothing visible on them: announced to a screen reader, drawn as nothing. They take no
+ * space and do not count as what came before, or every turn would open with a gap.
+ */
+function quiet(row: TimelineRow): boolean {
+  if (row.kind !== "item") return false;
+  const { item } = row;
+  return (
+    item.kind === "preview" ||
+    item.kind === "turn-start" ||
+    (item.kind === "preview-stopped" && item.superseded) ||
+    (item.kind === "turn-end" && item.outcome === "completed")
+  );
+}
+
+function spacingBefore(row: TimelineRow, previous: TimelineRow | undefined): string {
+  if (previous === undefined || quiet(row)) return "";
+  if (isWorkRow(row) && isWorkRow(previous)) return "";
+  // A fold or working row hangs off the prompt above it.
+  if (row.kind === "turn-fold" || row.kind === "working") return "mt-2";
+  return isWorkRow(row) && previous.kind === "turn-fold" ? "mt-2" : "mt-5";
+}
+
+/**
+ * Whether this row starts a new stretch of the agent talking.
  *
  * The label is drawn against the first of them, so a turn that says three things separated by
  * tool calls is not signed three times.
  */
-function opensBlock(items: readonly DisplayItem[], index: number): boolean {
-  const item = items[index];
-  if (item?.kind !== "message" || item.from !== "agent") return false;
+function opensBlock(row: TimelineRow, previous: TimelineRow | undefined): boolean {
+  if (row.kind !== "item" || row.item.kind !== "message" || row.item.from !== "agent") return false;
+  return !(
+    previous?.kind === "item" &&
+    previous.item.kind === "message" &&
+    previous.item.from === "agent"
+  );
+}
 
-  const previous = items[index - 1];
-  return previous === undefined || previous.kind !== "message" || previous.from !== "agent";
+function Row({
+  row,
+  live,
+  opensBlock,
+  compactionFailure,
+  onRetry,
+  onToggleFold,
+  onToggleGroup,
+}: {
+  row: TimelineRow;
+  live: boolean;
+  opensBlock: boolean;
+  compactionFailure: FailedTurn | undefined;
+  onRetry?: ((message: string, attachments?: MediaAttachment[]) => void) | undefined;
+  onToggleFold: (id: string) => void;
+  onToggleGroup: (id: string) => void;
+}) {
+  switch (row.kind) {
+    case "item":
+      return (
+        <Item
+          item={row.item}
+          live={live}
+          opensBlock={opensBlock}
+          compactionFailure={compactionFailure}
+          onRetry={onRetry}
+        />
+      );
+    case "work-entry":
+      return <WorkEntryRow entry={row.entry} displayLabel={row.displayLabel} />;
+    case "work-toggle":
+      return <WorkToggleRow row={row} onToggle={() => onToggleGroup(row.groupId)} />;
+    case "work-group":
+      return <WorkGroupList entries={row.entries} />;
+    case "work-live":
+      return (
+        <LiveWorkRow
+          row={row}
+          onToggle={() => row.groupId !== undefined && onToggleGroup(row.groupId)}
+        />
+      );
+    case "working":
+      return <WorkingRow startedAt={row.startedAt} />;
+    case "turn-fold":
+      return <TurnFoldRow row={row} onToggle={() => onToggleFold(row.foldId)} />;
+    case "changed-files":
+      return <ChangedFilesCard files={row.files} />;
+  }
 }
 
 function Item({
@@ -134,8 +288,8 @@ function Item({
   onRetry,
   compactionFailure,
 }: {
-  item: DisplayItem;
-  compactionFailure?: Extract<DisplayItem, { kind: "turn-end"; outcome: "failed" }> | undefined;
+  item: PassThroughItem;
+  compactionFailure?: FailedTurn | undefined;
   /** Whether this item can still be added to. Only ever true of the last one, mid-turn. */
   live: boolean;
   opensBlock: boolean;
@@ -217,23 +371,11 @@ function Item({
               nap
             </span>
           )}
-          <p className="whitespace-pre-wrap text-sm text-ink leading-[1.7]">
-            <span className="sr-only">Agent: </span>
-            <StreamingText text={item.text} live={live} />
-          </p>
+          <span className="sr-only">Agent: </span>
+          <ChatMarkdown text={item.text} streaming={live} />
           <CopyButton text={item.text} />
         </div>
       );
-
-    case "thinking":
-      return (
-        <p className="whitespace-pre-wrap text-[12px] text-muted/70 italic leading-relaxed">
-          <StreamingText text={item.text} live={live} />
-        </p>
-      );
-
-    case "steps":
-      return <StepGroupCard group={item} />;
 
     case "preview":
       /*
@@ -290,26 +432,18 @@ function Item({
       );
 
     case "turn-start":
-      // **A rule, not a line of text.** "Started" spelled out was bookkeeping: the bubble above
-      // it already says a turn began, and the word was one more thing between the reader and
-      // the work. The word survives as `sr-only`, because a hairline is not visible to somebody
-      // listening and a turn boundary is real information.
+      // **Words, not a line.** A turn boundary is real information to somebody listening, and the
+      // bubble above it already says to everybody else that a turn began — the timeline's own
+      // rows ("Working for", "Worked for") carry the boundary on screen. No `role="separator"`:
+      // that role is for a widget dividing two panes.
       //
-      // No `role="separator"`, deliberately: that role is for a widget dividing two panes, and
-      // claiming it here would put a focusable-looking thing between every pair of turns. This
-      // is a paragraph break drawn as a line.
-      //
-      // A repair turn differs here only in what it is called. The visible distinction is the
-      // block above it — one label per boundary is enough, and a second would be the same fact
-      // twice — but "turn started" would tell somebody listening that the user said something,
-      // which for a repair is the one thing that is not true.
+      // A repair turn differs here only in what it is called: "turn started" would tell somebody
+      // listening that the user said something, which for a repair is the one thing that is not
+      // true.
       return (
-        <div className="my-1 flex items-center first:hidden">
-          <span className="sr-only">
-            {item.source === "verification" ? "Repair turn started" : "Turn started"}
-          </span>
-          <span aria-hidden="true" className="h-px flex-1 bg-edge" />
-        </div>
+        <p className="sr-only">
+          {item.source === "verification" ? "Repair turn started" : "Turn started"}
+        </p>
       );
 
     case "turn-end":
@@ -444,7 +578,7 @@ function TurnFailure({
   onRetry,
   insideCompaction = false,
 }: {
-  item: Extract<DisplayItem, { kind: "turn-end" }> & { outcome: "failed" };
+  item: FailedTurn;
   onRetry?: ((message: string, attachments?: MediaAttachment[]) => void) | undefined;
   insideCompaction?: boolean;
 }) {

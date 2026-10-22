@@ -1,8 +1,9 @@
 import type { NapEvent } from "@nap/shared/events";
 import type { MediaAttachment } from "@nap/shared/media";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
-import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { mediaBrowser } from "../testing/media-browser.ts";
 import { ChatPane } from "./chat-pane.tsx";
 
 const message: StoredEvent = {
@@ -21,6 +22,15 @@ const started: StoredEvent = {
   seq: 3,
   createdAt: "2026-08-09T12:00:00.000Z",
   payload: { source: "user" },
+} satisfies NapEvent;
+
+const prompt: StoredEvent = {
+  type: "user.message",
+  sessionId: message.sessionId,
+  turnId: message.turnId,
+  seq: 2,
+  createdAt: message.createdAt,
+  payload: { text: "build me a todo list" },
 } satisfies NapEvent;
 
 const call: StoredEvent = {
@@ -126,7 +136,7 @@ describe("ChatPane", () => {
     // turn is mostly made of, it is the only thing on screen saying what is happening.
     const { container } = render(<ChatPane events={[started, call]} running={true} />);
 
-    expect(container.textContent).toContain("Running bun install");
+    expect(container.textContent).toContain("Running bun");
   });
 
   it("puts it after everything that has already happened", () => {
@@ -138,6 +148,283 @@ describe("ChatPane", () => {
     const status = screen.getByRole("status", { name: "Agent is working" });
 
     expect(log.compareDocumentPosition(status) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("keeps a clock that never goes back, from sending the prompt to the turn starting", () => {
+    // Between the prompt reaching the log and `turn.started`, the runtime is acquiring a sandbox —
+    // often the longest wait in a turn. The row also moves on the way: from under the optimistic
+    // prompt into the transcript, which remounts it.
+    const sent = Date.parse(prompt.createdAt);
+    vi.useFakeTimers({ now: sent });
+    try {
+      const counts: number[] = [];
+      const read = () => {
+        const status = screen.getByRole("status", { name: "Agent is working" });
+        const count = Number(/Working for (\d+)s/.exec(status.textContent ?? "")?.[1]);
+        counts.push(count);
+        return count;
+      };
+      const at = (ms: number) => new Date(sent + ms).toISOString();
+
+      const view = render(
+        <ChatPane
+          events={[]}
+          pending="build me a todo list"
+          running
+          activity={{ startedAt: undefined }}
+        />,
+      );
+      expect(read()).toBe(0);
+      act(() => vi.advanceTimersByTime(3_000));
+      expect(read()).toBe(3);
+
+      // The worker claims the request and logs the prompt.
+      const logged = { ...prompt, createdAt: at(3_000) };
+      const waiting = { startedAt: undefined, openedAt: logged.createdAt };
+      view.rerender(<ChatPane events={[logged]} running activity={waiting} />);
+      read();
+      act(() => vi.advanceTimersByTime(2_000));
+      read();
+
+      // Acquiring a sandbox writes notices, and the pane re-renders on each one.
+      const notice: StoredEvent = {
+        ...logged,
+        type: "system.notice",
+        seq: 3,
+        payload: { level: "info", text: "Restoring your last snapshot." },
+      } satisfies NapEvent;
+      view.rerender(<ChatPane events={[logged, notice]} running activity={waiting} />);
+      act(() => vi.advanceTimersByTime(3_000));
+      read();
+      // No model has been asked anything yet.
+      expect(screen.getByRole("log")).not.toHaveTextContent(/Thinking/);
+
+      // The sandbox is up five seconds after the prompt was logged, and the server's clock starts.
+      const begun = { ...started, seq: 4, createdAt: at(8_000) };
+      view.rerender(
+        <ChatPane
+          events={[logged, notice, begun]}
+          running
+          activity={{ startedAt: begun.createdAt, openedAt: logged.createdAt }}
+        />,
+      );
+      read();
+      act(() => vi.advanceTimersByTime(1_000));
+      expect(read()).toBe(9);
+
+      expect(counts).toEqual([...counts].sort((a, b) => a - b));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reads the server's times after a reload in the middle of a turn", () => {
+    const sent = Date.parse(prompt.createdAt);
+    vi.useFakeTimers({ now: sent + 20_000 });
+    try {
+      render(
+        <ChatPane
+          events={[prompt]}
+          running
+          activity={{ startedAt: undefined, openedAt: prompt.createdAt }}
+        />,
+      );
+
+      expect(screen.getByRole("status", { name: "Agent is working" })).toHaveTextContent(
+        "Working for 20s",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("starts the next turn's clock again when its start arrives with the last one's end", () => {
+    // A reconnect replays everything it missed in one batch, so one turn's end and the next one's
+    // prompt can land in the same render. The row is the same row throughout and never unmounts.
+    const sent = Date.parse(prompt.createdAt);
+    vi.useFakeTimers({ now: sent });
+    try {
+      const at = (ms: number) => new Date(sent + ms).toISOString();
+      const first = [prompt, started];
+      const view = render(
+        <ChatPane
+          events={first}
+          running
+          activity={{ startedAt: started.createdAt, openedAt: prompt.createdAt }}
+        />,
+      );
+      act(() => vi.advanceTimersByTime(30_000));
+      const status = () => screen.getByRole("status", { name: "Agent is working" });
+      expect(status()).toHaveTextContent("Working for 30s");
+
+      const next = "8d2e3f4a-5b6c-4d7e-9f80-1a2b3c4d5e61";
+      const ended: StoredEvent = {
+        ...message,
+        type: "turn.completed",
+        seq: 4,
+        createdAt: at(30_000),
+        payload: {
+          usage: { inputTokens: 1, outputTokens: 1 },
+          durationMs: 30_000,
+          commitSha: null,
+        },
+      } satisfies NapEvent;
+      const asked = { ...prompt, turnId: next, seq: 5, createdAt: at(30_000) };
+      const begun = { ...started, turnId: next, seq: 6, createdAt: at(30_000) };
+      view.rerender(
+        <ChatPane
+          events={[...first, ended, asked, begun]}
+          running
+          activity={{ startedAt: begun.createdAt, openedAt: asked.createdAt }}
+        />,
+      );
+      act(() => vi.advanceTimersByTime(1_000));
+
+      expect(status()).toHaveTextContent("Working for 1s");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps counting through a compaction for the prompt queued behind it", () => {
+    // The user sent this prompt to wait for the compaction, so its end is the same wait going on.
+    const sent = Date.parse(prompt.createdAt);
+    vi.useFakeTimers({ now: sent });
+    try {
+      const at = (ms: number) => new Date(sent + ms).toISOString();
+      const compaction = "9e3f4a5b-6c7d-4e8f-8a91-2b3c4d5e6f72";
+      const counts: number[] = [];
+      const read = () => {
+        const status = screen.getByRole("status", { name: "Agent is working" });
+        counts.push(Number(/Working for (\d+)s/.exec(status.textContent ?? "")?.[1]));
+      };
+      const compacting: StoredEvent = {
+        ...message,
+        type: "compaction.started",
+        turnId: compaction,
+        seq: 1,
+        payload: { id: "k1", trigger: "manual" },
+      } satisfies NapEvent;
+      const opened = { startedAt: compacting.createdAt, openedAt: compacting.createdAt };
+      const view = render(<ChatPane events={[compacting]} running activity={opened} />);
+      act(() => vi.advanceTimersByTime(4_000));
+      view.rerender(
+        <ChatPane
+          events={[compacting]}
+          pending="next"
+          pendingAfterCompaction
+          running
+          activity={opened}
+        />,
+      );
+      read();
+      act(() => vi.advanceTimersByTime(6_000));
+      read();
+
+      const compacted: StoredEvent[] = [
+        compacting,
+        {
+          ...compacting,
+          type: "compaction.completed",
+          seq: 2,
+          createdAt: at(10_000),
+          payload: {
+            id: "k1",
+            result: { kind: "native", provider: "codex", sessionId: "n", coveredThrough: 0 },
+            usage: null,
+            beforeTokens: null,
+            afterTokens: null,
+          },
+        } satisfies NapEvent,
+        {
+          ...compacting,
+          type: "turn.completed",
+          seq: 3,
+          createdAt: at(10_000),
+          payload: {
+            usage: { inputTokens: 1, outputTokens: 1 },
+            durationMs: 10_000,
+            commitSha: null,
+          },
+        } satisfies NapEvent,
+      ];
+      view.rerender(
+        <ChatPane
+          events={compacted}
+          pending="next"
+          pendingAfterCompaction
+          running
+          activity={{ startedAt: undefined }}
+        />,
+      );
+      read();
+      act(() => vi.advanceTimersByTime(3_000));
+      read();
+
+      expect(counts.at(-1)).toBe(13);
+      expect(counts).toEqual([...counts].sort((a, b) => a - b));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("starts a retry's clock again when the turn it was queued behind ends", () => {
+    // "Try again" is offered while another turn runs, and the server queues what it sends. Once
+    // that turn is over, the retry is the work being waited for.
+    const sent = Date.parse(prompt.createdAt);
+    vi.useFakeTimers({ now: sent });
+    try {
+      const at = (ms: number) => new Date(sent + ms).toISOString();
+      const running = { startedAt: started.createdAt, openedAt: prompt.createdAt };
+      const view = render(<ChatPane events={[prompt, started]} running activity={running} />);
+      act(() => vi.advanceTimersByTime(20_000));
+      view.rerender(
+        <ChatPane events={[prompt, started]} pending="again" running activity={running} />,
+      );
+      act(() => vi.advanceTimersByTime(10_000));
+
+      const ended: StoredEvent = {
+        ...message,
+        type: "turn.completed",
+        seq: 4,
+        createdAt: at(30_000),
+        payload: {
+          usage: { inputTokens: 1, outputTokens: 1 },
+          durationMs: 30_000,
+          commitSha: null,
+        },
+      } satisfies NapEvent;
+      view.rerender(
+        <ChatPane
+          events={[prompt, started, ended]}
+          pending="again"
+          running
+          activity={{ startedAt: undefined }}
+        />,
+      );
+      act(() => vi.advanceTimersByTime(1_000));
+
+      expect(screen.getByRole("status", { name: "Agent is working" })).toHaveTextContent(
+        "Working for 1s",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says nothing is running under a turn that has finished while its checks run", () => {
+    const completed: StoredEvent = {
+      ...message,
+      type: "turn.completed",
+      seq: 5,
+      payload: { usage: { inputTokens: 1, outputTokens: 1 }, durationMs: 4_000, commitSha: null },
+    } satisfies NapEvent;
+    render(<ChatPane events={[prompt, started, message, completed]} running />);
+
+    expect(screen.queryByRole("status", { name: "Agent is working" })).toBeNull();
+    expect(screen.getByRole("log")).not.toHaveTextContent(/Thinking/);
+    // The turn can still be stopped: the composer reads the wider flag.
+    expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument();
   });
 
   it("appears before the server has acknowledged the turn at all", () => {
@@ -213,4 +500,48 @@ it("attaches a collapsible queue above the composer until the exact pending requ
   rerender(<ChatPane events={[message]} pending="Ordinary request" />);
   expect(screen.queryByRole("group", { name: "Queued messages" })).toBeNull();
   expect(screen.getByText("Ordinary request")).toBeVisible();
+});
+
+describe("a file dragged over the chat", () => {
+  const dragging = (files: File[] = []) => ({ dataTransfer: { types: ["Files"], files } });
+  const overlay = () => screen.queryByText("Drop files to attach");
+
+  it("says the chat will take it, and attaches it when it is dropped", async () => {
+    const media = mediaBrowser();
+    try {
+      render(<ChatPane events={[message]} />);
+      const over = screen.getByText("Added App.tsx.");
+
+      fireEvent.dragEnter(over, dragging());
+      expect(overlay()).toBeInTheDocument();
+
+      fireEvent.drop(over, dragging([new File(["small"], "reference.png", { type: "image/png" })]));
+      expect(overlay()).toBeNull();
+      await screen.findByRole("button", { name: "Remove reference.png" });
+    } finally {
+      media.restore();
+    }
+  });
+
+  it("clears when the drag leaves, and comes back as soon as it moves over the chat again", () => {
+    // A leave with no `relatedTarget` is also what WebKit fires crossing between two children,
+    // with the pointer still inside — so the next move has to say so again.
+    render(<ChatPane events={[message]} />);
+    const over = screen.getByText("Added App.tsx.");
+
+    fireEvent.dragEnter(over, dragging());
+    fireEvent.dragLeave(over, { ...dragging(), relatedTarget: null });
+    expect(overlay()).toBeNull();
+
+    fireEvent.dragOver(over, dragging());
+    expect(overlay()).toBeInTheDocument();
+  });
+
+  it("offers nothing while a turn is running, which cannot take an attachment", () => {
+    render(<ChatPane events={[started, call]} running />);
+
+    fireEvent.dragEnter(screen.getByRole("log"), dragging());
+
+    expect(overlay()).toBeNull();
+  });
 });
