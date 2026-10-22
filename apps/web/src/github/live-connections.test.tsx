@@ -43,6 +43,12 @@ describe("GitHub connection account gate", () => {
       "href",
       "/sign-in?upgrade=1",
     );
+    expect(screen.getByRole("heading", { level: 1, name: "Connect GitHub" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "Back to workspace" })).toHaveAttribute(
+      "href",
+      "/dashboard",
+    );
+    expect(screen.getByText(/Guest projects don't carry over/)).toBeVisible();
     expect(connections).not.toHaveBeenCalled();
   });
   it("loads connections for an authenticated permanent account", () => {

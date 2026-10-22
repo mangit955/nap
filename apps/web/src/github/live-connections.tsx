@@ -4,7 +4,10 @@ import { useRouter } from "next/navigation";
 import { type ReactNode, useEffect } from "react";
 import { authClient } from "../auth/client.ts";
 import { ConnectionsOverview } from "../settings/connections-overview.tsx";
+import { BUTTON } from "../settings/settings-ui.tsx";
+import { GithubIcon } from "../ui/icons.tsx";
 import { GitHubConnections } from "./connections.tsx";
+import { GuestSignIn } from "./guest-sign-in.tsx";
 
 export function LiveGitHubConnections({
   callbackStatus,
@@ -46,19 +49,35 @@ function AccountGate({ children }: { children: ReactNode }) {
     );
   if (session.user.isAnonymous)
     return (
-      <main className="min-h-dvh bg-surface px-6 py-16 text-ink">
-        <div className="mx-auto max-w-lg">
-          <h1 className="text-2xl font-medium">Connect GitHub</h1>
-          <p className="my-5 text-sm text-muted">
-            Sign in with a permanent nap account before connecting your repositories.
-          </p>
-          <a href="/sign-in?upgrade=1" className="text-sm underline">
-            Sign in
-          </a>
-          <a href="/dashboard" className="ml-5 text-sm underline">
-            Back to workspace
-          </a>
-        </div>
+      <main className="flex min-h-dvh items-center justify-center bg-surface px-4 py-16 text-ink">
+        <section
+          aria-labelledby="connect-github-title"
+          className="nap-pop w-full max-w-md rounded-2xl border border-edge bg-panel shadow-raised"
+        >
+          <div className="flex items-start gap-4 px-6 pt-6 pb-5">
+            <span
+              aria-hidden="true"
+              className="grid size-10 shrink-0 place-items-center rounded-full border border-edge bg-field text-ink"
+            >
+              <GithubIcon className="size-5" />
+            </span>
+            <div className="min-w-0 flex-1 pt-0.5">
+              <h1 id="connect-github-title" className="text-[15px] font-medium text-ink">
+                Connect GitHub
+              </h1>
+              <p className="mt-0.5 text-[13px] text-muted">
+                Open pull requests, and answer review comments and CI failures.
+              </p>
+            </div>
+          </div>
+          <GuestSignIn
+            dismiss={
+              <a href="/dashboard" className={BUTTON}>
+                Back to workspace
+              </a>
+            }
+          />
+        </section>
       </main>
     );
   return children;

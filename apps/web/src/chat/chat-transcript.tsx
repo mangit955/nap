@@ -20,7 +20,6 @@ import type { MediaAttachment } from "@nap/shared/media";
  */
 
 import { useMemo, useState } from "react";
-import { NapMark } from "../brand/nap-mark.tsx";
 import { turnFailureCopy } from "../errors/failure-copy.ts";
 import { AlertIcon, CopyIcon } from "../ui/icons.tsx";
 import { ChangedFilesCard } from "./changed-files-card.tsx";
@@ -145,7 +144,6 @@ export function ChatTranscript({
               <Row
                 row={row}
                 live={row.kind === "item" && row.item.key === liveKey}
-                opensBlock={opensBlock(row, before)}
                 compactionFailure={
                   row.kind === "item" ? compactionFailures.get(row.item.key) : undefined
                 }
@@ -193,25 +191,9 @@ function spacingBefore(row: TimelineRow, previous: TimelineRow | undefined): str
   return isWorkRow(row) && previous.kind === "turn-fold" ? "mt-2" : "mt-5";
 }
 
-/**
- * Whether this row starts a new stretch of the agent talking.
- *
- * The label is drawn against the first of them, so a turn that says three things separated by
- * tool calls is not signed three times.
- */
-function opensBlock(row: TimelineRow, previous: TimelineRow | undefined): boolean {
-  if (row.kind !== "item" || row.item.kind !== "message" || row.item.from !== "agent") return false;
-  return !(
-    previous?.kind === "item" &&
-    previous.item.kind === "message" &&
-    previous.item.from === "agent"
-  );
-}
-
 function Row({
   row,
   live,
-  opensBlock,
   compactionFailure,
   onRetry,
   onToggleFold,
@@ -219,7 +201,6 @@ function Row({
 }: {
   row: TimelineRow;
   live: boolean;
-  opensBlock: boolean;
   compactionFailure: FailedTurn | undefined;
   onRetry?: ((message: string, attachments?: MediaAttachment[]) => void) | undefined;
   onToggleFold: (id: string) => void;
@@ -228,13 +209,7 @@ function Row({
   switch (row.kind) {
     case "item":
       return (
-        <Item
-          item={row.item}
-          live={live}
-          opensBlock={opensBlock}
-          compactionFailure={compactionFailure}
-          onRetry={onRetry}
-        />
+        <Item item={row.item} live={live} compactionFailure={compactionFailure} onRetry={onRetry} />
       );
     case "work-entry":
       return <WorkEntryRow entry={row.entry} displayLabel={row.displayLabel} />;
@@ -261,7 +236,6 @@ function Row({
 function Item({
   item,
   live,
-  opensBlock,
   onRetry,
   compactionFailure,
 }: {
@@ -269,7 +243,6 @@ function Item({
   compactionFailure?: FailedTurn | undefined;
   /** Whether this item can still be added to. Only ever true of the last one, mid-turn. */
   live: boolean;
-  opensBlock: boolean;
   onRetry?: ((message: string, attachments?: MediaAttachment[]) => void) | undefined;
 }) {
   switch (item.kind) {
@@ -339,15 +312,6 @@ function Item({
         </div>
       ) : (
         <div className="flex flex-col gap-1.5">
-          {opensBlock && (
-            <span
-              aria-hidden="true"
-              className="mb-1 flex items-center gap-2 text-[12px] font-medium text-ink-2"
-            >
-              <NapMark className="size-5 shrink-0" />
-              nap
-            </span>
-          )}
           <span className="sr-only">Agent: </span>
           <ChatMarkdown text={item.text} streaming={live} />
           <CopyButton text={item.text} />

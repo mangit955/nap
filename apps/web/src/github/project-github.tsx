@@ -10,19 +10,14 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { z } from "zod";
 import { credentialedFetch } from "../api/credentialed-fetch.ts";
 import type { FetchJson } from "../files/use-project-files.ts";
-import { BUTTON, FOCUS, PRIMARY_BUTTON } from "../settings/settings-ui.tsx";
-import { ArrowLeftIcon, CheckIcon, CloseIcon, GithubIcon } from "../ui/icons.tsx";
+import { BUTTON, FOCUS } from "../settings/settings-ui.tsx";
+import { CloseIcon, GithubIcon } from "../ui/icons.tsx";
 import { EnvironmentSettings } from "./environment-settings.tsx";
+import { GuestSignIn } from "./guest-sign-in.tsx";
 import { GITHUB_API_URL, githubRequest } from "./request.ts";
 
 const admittedSchema = z.object({ requestId: z.uuid() });
 const environmentSavedSchema = z.object({ saved: z.literal(true) });
-/** What a permanent account adds, for the guest who opened this to find out. */
-const GUEST_GAINS = [
-  "Import a repository and work on it on its own branch",
-  "Publish verified work as a draft pull request",
-  "Bring /nap comments and failed checks back here for your approval",
-];
 const PUBLISH_LABEL = {
   working: "Working",
   ready: "Ready to publish",
@@ -224,7 +219,13 @@ export function ProjectGitHubControl({
           onClose={() => setOpen(false)}
         />
         {signIn ? (
-          <GuestBody onDismiss={() => setOpen(false)} />
+          <GuestSignIn
+            dismiss={
+              <button type="button" onClick={() => setOpen(false)} className={BUTTON}>
+                Not now
+              </button>
+            }
+          />
         ) : (
           <div className="border-edge border-t px-6 pt-1 pb-6">
             {repository && (
@@ -438,45 +439,6 @@ function DialogHeader({
         <CloseIcon className="size-4" />
       </button>
     </div>
-  );
-}
-
-/**
- * What a guest sees instead of GitHub's controls: what an account would add, what it costs, and
- * the one way to get it.
- *
- * Signing in from a guest session replaces the guest identity, and its projects go with it, so
- * the dialog says so before anybody presses the button.
- */
-function GuestBody({ onDismiss }: { onDismiss: () => void }) {
-  return (
-    <>
-      <div className="border-edge border-t px-6 py-5">
-        <p className="text-[13px] leading-relaxed text-ink-2">
-          You're using nap as a guest. Connecting GitHub needs a permanent account.
-        </p>
-        <ul className="mt-4 space-y-2.5">
-          {GUEST_GAINS.map((gain) => (
-            <li key={gain} className="flex gap-2.5 text-[13px] leading-snug text-muted">
-              <CheckIcon className="mt-px size-3.5 shrink-0 text-ink-2" />
-              {gain}
-            </li>
-          ))}
-        </ul>
-        <p className="mt-5 text-xs leading-relaxed text-muted">
-          Guest projects don't carry over to the account you sign in with.
-        </p>
-      </div>
-      <div className="flex items-center justify-end gap-2 border-edge border-t px-6 py-4">
-        <button type="button" onClick={onDismiss} className={BUTTON}>
-          Not now
-        </button>
-        <a href="/sign-in?upgrade=1" className={PRIMARY_BUTTON}>
-          Sign in
-          <ArrowLeftIcon className="size-3.5 rotate-180" />
-        </a>
-      </div>
-    </>
   );
 }
 
