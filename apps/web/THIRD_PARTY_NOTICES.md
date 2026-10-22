@@ -21,6 +21,7 @@ The chat pane's timeline is a clone of T3 Code's chat timeline:
   the square ghost button (`.nap-float` in `src/app/globals.css`,
   `src/chat/composer-controls.tsx`, `src/chat/composer-add-menu.tsx`,
   `src/chat/context-control.tsx`)
+- the compaction divider and its short token counts (`src/chat/compaction-row.tsx`)
 
 Layout, sizing, motion and behaviour come from T3 Code. The colours do not: every colour is one of
 this app's own theme tokens.

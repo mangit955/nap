@@ -112,7 +112,7 @@ describe("opening a put-away project", () => {
         ),
       });
     });
-    expect(screen.getByText("Compacting context…")).toBeVisible();
+    expect(screen.getByText("Compacting context")).toBeVisible();
     expect(screen.getByTitle(PREVIEW_TITLE)).toBe(frame);
     await act(async () => {
       net.latest.deliver({
@@ -133,7 +133,7 @@ describe("opening a put-away project", () => {
         ),
       });
     });
-    expect(screen.getByText("Context compacted")).toBeVisible();
+    expect(screen.getByText(/^Context compacted/)).toBeVisible();
     expect(screen.getByTitle(PREVIEW_TITLE)).toBe(frame);
     expect(frame).toHaveAttribute("src", "https://5173-existing.e2b.app");
   });

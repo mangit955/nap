@@ -245,6 +245,23 @@ export function ArrowLeftIcon({ className = "size-4" }: IconProps) {
   );
 }
 
+export function ArrowRightIcon({ className = "size-4" }: IconProps) {
+  return (
+    <svg aria-hidden="true" {...STROKE} className={className}>
+      <path d="M3 8h10M8.5 3.5 13 8l-4.5 4.5" />
+    </svg>
+  );
+}
+
+/** Two arrows closing on the middle — Lucide's `minimize-2`, redrawn on this grid. */
+export function MinimizeIcon({ className = "size-4" }: IconProps) {
+  return (
+    <svg aria-hidden="true" {...STROKE} className={className}>
+      <path d="M2.7 9.3h4v4M13.3 6.7h-4v-4M9.3 6.7 14 2M2 14l4.7-4.7" />
+    </svg>
+  );
+}
+
 export function PlusIcon({ className = "size-4" }: IconProps) {
   return (
     <svg aria-hidden="true" {...STROKE} className={className}>

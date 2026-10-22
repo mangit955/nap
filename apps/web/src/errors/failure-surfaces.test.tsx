@@ -107,7 +107,7 @@ describe("2 · agent failure", () => {
     ];
     const view = render(<ChatPane events={history} onRetry={onRetry} />);
     view.rerender(<ChatPane events={[...history]} onRetry={onRetry} />);
-    expect(screen.getByText("Compaction failed")).toBeVisible();
+    expect(screen.getByText("Context compaction failed")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: /try again/i }));
     expect(onRetry.mock.calls).toEqual([["/compact"]]);
   });
