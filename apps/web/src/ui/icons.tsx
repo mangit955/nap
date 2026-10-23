@@ -300,6 +300,16 @@ export function ConnectionsIcon({ className = "size-4" }: IconProps) {
   );
 }
 
+/** A small robot head: the settings rail's mark for the agents a turn can run on. */
+export function ProvidersIcon({ className = "size-4" }: IconProps) {
+  return (
+    <svg aria-hidden="true" {...STROKE} className={className}>
+      <rect x="2.5" y="5" width="11" height="8" rx="2" />
+      <path d="M8 5V2.5M6 9h.01M10 9h.01" />
+    </svg>
+  );
+}
+
 export function HelpIcon({ className = "size-4" }: IconProps) {
   return (
     <svg aria-hidden="true" {...STROKE} className={className}>

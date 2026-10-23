@@ -43,6 +43,7 @@ import { PostgresNotifyEventBus } from "@nap/db/postgres-notify-event-bus";
 import { PostgresNotifyTransport } from "@nap/db/postgres-notify-transport";
 import { PostgresProjectSandboxStore } from "@nap/db/postgres-project-sandbox-store";
 import { PostgresProjectStore } from "@nap/db/postgres-project-store";
+import { PostgresProviderAccountStore } from "@nap/db/postgres-provider-account-store";
 import { PostgresSandboxCapacity } from "@nap/db/postgres-sandbox-capacity";
 import { PostgresSessionStore } from "@nap/db/postgres-session-store";
 import { PostgresSnapshotStore } from "@nap/db/postgres-snapshot-store";
@@ -64,6 +65,7 @@ import { GitHubApp } from "./github/app.ts";
 import { githubConfigFromEnv } from "./github/config.ts";
 import { createHealthProbe } from "./health.ts";
 import { createLogger } from "./logger.ts";
+import { UNAVAILABLE_SIGN_IN } from "./providers/sign-in.ts";
 import { createHeartbeatWriter } from "./worker-heartbeat.ts";
 
 export type NapProcess = {
@@ -331,6 +333,12 @@ export async function bootNap(role: NapRole): Promise<NapProcess> {
     queue: new PostgresTurnQueue(db),
     snapshots: new PostgresSnapshotStore(db),
     userKeys: new PostgresUserKeyStore(db),
+    // Accounts can be listed, added and named today. Signing one in needs a runtime that hosts the
+    // provider's own agent, which this deployment does not have yet — so the page says so.
+    providerAccounts: {
+      store: new PostgresProviderAccountStore(db),
+      signIn: UNAVAILABLE_SIGN_IN,
+    },
     // One store and one bus for the process, shared by the runtime that publishes and the socket
     // that subscribes. Two instances would compile, boot, and stream nothing: the runtime would
     // be announcing to a bus with no listeners while every open tab waited on an empty one.

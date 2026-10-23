@@ -22,6 +22,9 @@ The chat pane's timeline is a clone of T3 Code's chat timeline:
   `src/chat/composer-controls.tsx`, `src/chat/composer-add-menu.tsx`,
   `src/chat/context-control.tsx`)
 - the compaction divider and its short token counts (`src/chat/compaction-row.tsx`)
+- the provider settings: the provider list beside its editor, the Account sign-in row, the
+  three-step "Add provider" wizard, and the OpenAI and Claude marks (`src/providers/`), taken
+  from T3 Code at commit `71a283aed253f23be1860a31d4ea48f1c06e0b1c`
 
 Layout, sizing, motion and behaviour come from T3 Code. The colours do not: every colour is one of
 this app's own theme tokens.

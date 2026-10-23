@@ -44,6 +44,7 @@ import type { ObjectStore } from "@nap/shared/ports/object-store";
 import type { PageCapture } from "@nap/shared/ports/page-capture";
 import type { ProjectSandboxStore } from "@nap/shared/ports/project-sandbox-store";
 import type { ProjectStore } from "@nap/shared/ports/project-store";
+import type { ProviderAccountStore } from "@nap/shared/ports/provider-account-store";
 import type { SandboxCapacity } from "@nap/shared/ports/sandbox-capacity";
 import type { SandboxInventory } from "@nap/shared/ports/sandbox-inventory";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
@@ -67,6 +68,7 @@ import { GitHubEventProcessor } from "./github/webhook.ts";
 import type { HealthProbe } from "./health.ts";
 import { createMetrics, type Metrics } from "./metrics.ts";
 import type { CreatedProject } from "./projects/routes.ts";
+import type { ProviderSignInRunner } from "./providers/sign-in.ts";
 import { TurnRegistry } from "./turns/registry.ts";
 
 /**
@@ -185,6 +187,12 @@ export type NapDeps = {
   sweepLock?: SweepLock;
   snapshots: SnapshotStore;
   userKeys: UserKeyStore;
+  /**
+   * The provider accounts people connect, and what runs their sign-in. Optional, and absent means
+   * no `/providers` routes — most compositions here are load and preview harnesses with no use for
+   * them.
+   */
+  providerAccounts?: { store: ProviderAccountStore; signIn: ProviderSignInRunner };
   /**
    * One store and one bus, handed to the runtime that publishes *and* the socket that
    * subscribes. Taking them as one pair rather than two is the point: a second pair type-checks,
@@ -466,6 +474,15 @@ export function composeNap(deps: NapDeps): ComposedNap {
       upgradeWebSocket: deps.upgradeWebSocket,
     },
     files: { sessions: deps.sessions, sandbox: deps.sandbox },
+    ...(deps.providerAccounts === undefined
+      ? {}
+      : {
+          providers: {
+            accounts: deps.providerAccounts.store,
+            signIn: deps.providerAccounts.signIn,
+            webOrigin: config.NAP_WEB_ORIGIN,
+          },
+        }),
     account: {
       keys: deps.userKeys,
       encryptionKey: deps.encryptionKey,
