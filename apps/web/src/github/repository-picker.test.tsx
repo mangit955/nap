@@ -1,3 +1,4 @@
+import { SIGN_IN_REQUIRED } from "@nap/shared/api-error";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { RepositoryPicker } from "./repository-picker.tsx";
@@ -99,7 +100,7 @@ describe("repository autocomplete", () => {
           Response.json(
             {
               error: "Sign in to a permanent nap account to connect GitHub.",
-              code: "sign_in_required",
+              code: SIGN_IN_REQUIRED,
             },
             { status: 403 },
           )
@@ -118,5 +119,84 @@ describe("repository autocomplete", () => {
     expect(screen.queryByText(/write access/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Not now" }));
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("announces the guest panel and lets the keyboard reach its way out", async () => {
+    const onClose = vi.fn();
+    render(
+      <RepositoryPicker
+        fetchJson={async () =>
+          Response.json(
+            { error: "Sign in to a permanent nap account.", code: SIGN_IN_REQUIRED },
+            { status: 403 },
+          )
+        }
+        onSelect={vi.fn()}
+        onClose={onClose}
+        onConnect={vi.fn()}
+      />,
+    );
+    await screen.findByRole("link", { name: "Sign in" });
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Working on a repository needs a permanent account.",
+    );
+    // Tab from the filter would otherwise close the picker before focus reached Sign in.
+    fireEvent.keyDown(screen.getByRole("combobox"), { key: "Tab" });
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole("link", { name: "Sign in" })).not.toHaveAttribute("tabindex");
+    expect(screen.getByRole("button", { name: "Not now" })).not.toHaveAttribute("tabindex");
+  });
+
+  it("still closes on Tab once the list has loaded", async () => {
+    const onClose = vi.fn();
+    render(
+      <RepositoryPicker
+        fetchJson={async () => Response.json({ configured: true, installations: [] })}
+        onSelect={vi.fn()}
+        onClose={onClose}
+        onConnect={vi.fn()}
+      />,
+    );
+    await screen.findByText(/Connect GitHub in/);
+    fireEvent.keyDown(screen.getByRole("combobox"), { key: "Tab" });
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("shows a refusal without the guest code as an error, whatever its wording says", async () => {
+    render(
+      <RepositoryPicker
+        fetchJson={async () =>
+          Response.json({ error: "Sign in again to list repositories." }, { status: 403 })
+        }
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+        onConnect={vi.fn()}
+      />,
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Sign in again to list repositories.",
+    );
+    expect(screen.getByRole("button", { name: "Retry" })).toBeVisible();
+    expect(screen.queryByRole("link", { name: "Sign in" })).toBeNull();
+  });
+
+  it("offers a retry and the settings link when the connections cannot be reached", async () => {
+    render(
+      <RepositoryPicker
+        fetchJson={async () => {
+          throw new TypeError("Failed to fetch");
+        }}
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+        onConnect={vi.fn()}
+      />,
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Could not reach the server/);
+    expect(screen.getByRole("button", { name: "Retry" })).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Manage access in Settings → Connections" }),
+    ).toBeVisible();
+    // The alert already says why the list is empty.
+    expect(screen.queryByText("No repositories available with write access.")).toBeNull();
   });
 });

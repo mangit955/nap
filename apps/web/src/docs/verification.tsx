@@ -125,10 +125,10 @@ export function Verification() {
       </P>
       <P>
         You can request this with <Code>/compact</Code> or the Context control above the composer. A
-        status line shows progress, completion or failure, with usage when the provider supplies it.
-        A message submitted during compaction waits for it to finish. Stop cancels the work. Your
-        original transcript remains available, and the saved summary records exactly where later
-        conversation resumes after a worker restart.
+        status line shows progress, completion or failure, with the context size before and after
+        when both are known. A message submitted during compaction waits for it to finish. Stop
+        cancels the work. Your original transcript remains available, and the saved summary records
+        exactly where later conversation resumes after a worker restart.
       </P>
       <P>
         Original user requests and the current job brief survive separately from the summary.

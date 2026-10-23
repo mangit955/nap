@@ -7,6 +7,7 @@ import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
 import { InMemoryTurnQueue } from "@nap/db/testing/in-memory-turn-queue";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
+import { SignInRequiredSchema } from "@nap/shared/api-error";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -245,7 +246,7 @@ describe("GitHub connection routes", () => {
     for (const path of ["/github/connections", `/projects/${crypto.randomUUID()}/github`]) {
       const response = await f.app.request(path);
       expect(response.status).toBe(403);
-      expect(await response.json()).toMatchObject({ code: "sign_in_required" });
+      expect(SignInRequiredSchema.safeParse(await response.json()).success).toBe(true);
     }
   });
   it("returns a repository-selection change to Connections without binding or granting anything", async () => {

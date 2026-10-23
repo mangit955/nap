@@ -366,9 +366,9 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
         items.push({ kind: "turn-start", key, at: event.createdAt, source: event.payload.source });
         break;
 
-      // Draws nothing — the strip above the chat is where a job's phase and its checks are
-      // shown, and saying it twice would put a running status commentary through the pane that
-      // reads as a conversation. Read here only for the flag above.
+      // Draws nothing — the workspace bar names the job's phase, and a failed check shows here
+      // only as the repair turn it starts. Read here only for the flag above, which labels that
+      // turn.
       case "verification.completed":
         awaitingRepair = event.payload.checks.some((check) => check.outcome === "failed");
         break;

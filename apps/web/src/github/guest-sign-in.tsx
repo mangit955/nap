@@ -14,8 +14,9 @@ const GUEST_GAINS = [
  * the one way to get it. The project's GitHub dialog and the Connections page both show it, so a
  * guest is told the same thing wherever they reach for GitHub.
  *
- * Signing in from a guest session replaces the guest identity, and its projects go with it, so
- * this says so before anybody presses the button.
+ * Signing in from a guest session moves the browser to the account and leaves the guest behind,
+ * projects and all — the server keeps them rather than deleting them, but nothing moves them
+ * across — so this says so before anybody presses the button.
  */
 export function GuestSignIn({ dismiss }: { dismiss: ReactNode }) {
   return (
@@ -33,7 +34,7 @@ export function GuestSignIn({ dismiss }: { dismiss: ReactNode }) {
           ))}
         </ul>
         <p className="mt-5 text-xs leading-relaxed text-muted">
-          Guest projects don't carry over to the account you sign in with.
+          Your guest projects stay with this guest session and won't appear in your account.
         </p>
       </div>
       <div className="flex items-center justify-end gap-2 border-edge border-t px-6 py-4">

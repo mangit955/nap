@@ -10,7 +10,8 @@ import { Spotlight } from "./work-log-rows.tsx";
  */
 function shortCount(value: number): string {
   if (Math.abs(value) < 1000) return String(Math.round(value));
-  const [scaled, unit] = Math.abs(value) >= 1e6 ? [value / 1e6, "M"] : [value / 1000, "K"];
+  // From 999,500 a count in thousands rounds up to `1000K`, so it is written in millions instead.
+  const [scaled, unit] = Math.abs(value) >= 999_500 ? [value / 1e6, "M"] : [value / 1000, "K"];
   const digits = Math.abs(scaled) >= 100 ? 0 : Math.abs(scaled) >= 10 ? 1 : 2;
   return `${Number(scaled.toFixed(digits))}${unit}`;
 }
@@ -48,10 +49,11 @@ export function CompactionRow({ item, recovery }: { item: CompactionItem; recove
                 item.afterTokens !== null && (
                   <>
                     {" "}
-                    {shortCount(item.beforeTokens)}
-                    <ArrowRightIcon className="size-3 shrink-0" />
-                    <span className="sr-only">to</span>
-                    {shortCount(item.afterTokens)} tokens
+                    {/* The spaces are for the accessible name, which would otherwise read
+                        "294Kto12.6K"; whitespace alone between flex items draws nothing, so the
+                        gap still does the visual spacing. */}
+                    {shortCount(item.beforeTokens)} <ArrowRightIcon className="size-3 shrink-0" />
+                    <span className="sr-only">to</span> {shortCount(item.afterTokens)} tokens
                   </>
                 )}
             </span>

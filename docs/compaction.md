@@ -29,14 +29,18 @@ aligned to its right edge. Tab reaches the action, Escape returns focus to the i
 outside press dismisses the popup. The header pairs the percentage with used/budget tokens;
 estimates and provider reports stay labelled. The popup scrolls within the available pane.
 
-The transcript retains trigger and timestamps when recorded. Terminal-only replay leaves the
-trigger unknown. Completed API rows show estimated before/after context sizes and a collapsed,
-read-only summary. Summary-call input/output usage is labelled separately. Manual compaction can
-increase the estimate by restoring history initial pruning omitted; no savings are promised.
-Native results may supply neither context counts nor a portable summary.
+In the transcript, compaction is one divider line and nothing more. While it runs, the line
+reads "Compacting context" under the timeline's spotlight. A completed row reads "Context
+compacted 294K → 12.6K tokens", with both counts shortened, when both are known, and the bare
+label otherwise. The row draws no trigger, timestamps, summary, call usage or estimate label:
+the trigger and summary stay in the event log, and an API estimate and a provider report look
+the same here. Manual compaction can increase the estimate by restoring history initial pruning
+omitted, so a completed row can show a larger second count; no savings are promised. Native
+results may supply neither context count nor a portable summary.
 
-A cancelled operation has a neutral stopped row. A failed manual operation and its matching
-turn failure share one presentation and the existing exact-command retry. Ordinary turn
+A cancelled operation has a neutral stopped row. A failed one reads "Context compaction failed"
+in the alarm colour, with a recovery box under the line. A failed manual operation and its
+matching turn failure share that one presentation and the existing exact-command retry. Ordinary turn
 failures retain their request-specific retry. A prompt queued after compaction appears once
 in a collapsible panel attached above the composer, with its text and reference thumbnails.
 The panel retains that prompt until its exact request is acknowledged or settled, using the
@@ -114,7 +118,8 @@ Summaries are bounded, tool-free calls through the same provider handle, model a
 Their steps and cache-inclusive tokens count against the ongoing turn. Refusal, truncated or
 empty output, failed calls and cancellation retain the old checkpoint. Cancellation cannot let a
 late summary replace it. An interrupted native operation requires native session recovery.
-There is no token refund. The UI distinguishes estimates from provider reports; missing native
+There is no token refund. The context popup distinguishes estimates from provider reports;
+the transcript's compaction row does not. Missing native
 usage is null, never a fabricated saving; the turn's aggregate carries `usageIncomplete` when
 native spend was not reported. A failed or unknown-cost native operation consumes a
 conservative budget reserve internally, which is not presented as measured usage.

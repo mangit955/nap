@@ -244,10 +244,9 @@ export function AppShell({
         chatOpen={chatOpen}
         route={route}
         previewUrl={previewUrl}
-        // The strip that otherwise carries this lives inside the chat pane, and the button that
-        // collapses that pane is in this bar — so without it here the confidence signal
-        // disappears exactly when the preview takes the whole window. One value, so the bar and
-        // the strip cannot say different things about one job.
+        // The bar, not the chat pane, carries where the job stands: the button that collapses
+        // the chat is in this bar, so anything inside the pane would disappear exactly when the
+        // preview takes the whole window.
         job={log.jobs.summary}
         onTabChange={(next) => {
           setTab(next);

@@ -51,7 +51,7 @@ describe("compaction presentation", () => {
       }),
     ]);
     show([start, complete]);
-    expect(screen.getByRole("status")).toHaveTextContent("Context compacted 1.2Kto2.4K tokens");
+    expect(screen.getByRole("status")).toHaveTextContent("Context compacted 1.2K to 2.4K tokens");
     expect(screen.queryByText(/Manual|Summary call|Keep keyboard navigation/)).toBeNull();
     expect(screen.queryByText("Compaction details")).toBeNull();
     expect(document.querySelector("script")).toBeNull();
@@ -63,7 +63,19 @@ describe("compaction presentation", () => {
       start,
       { ...complete, payload: { ...complete.payload, beforeTokens: 294_123, afterTokens: 12_634 } },
     ]);
-    expect(screen.getByRole("status")).toHaveTextContent("Context compacted 294Kto12.6K tokens");
+    expect(screen.getByRole("status")).toHaveTextContent("Context compacted 294K to 12.6K tokens");
+  });
+
+  it("promotes a count that rounds to a thousand thousands to millions", () => {
+    show([
+      start,
+      {
+        ...complete,
+        payload: { ...complete.payload, beforeTokens: 999_500, afterTokens: 999_499 },
+      },
+    ]);
+    // Exactly: `toHaveTextContent` with a string matches a substring, and collapses whitespace.
+    expect(screen.getByRole("status").textContent).toBe("Context compacted 1M to 999K tokens");
   });
 
   it("does not infer a trigger or counts from terminal-only native replay", () => {

@@ -247,7 +247,7 @@ export function LiveSignIn({
         // because that is a real navigation: this component would remount and the email already
         // typed would be gone. Next integrates the native call into its own router — see
         // node_modules/next/dist/docs/01-app/02-guides/single-page-applications.md.
-        window.history.replaceState(null, "", pathForMode(next));
+        window.history.replaceState(null, "", pathForMode(next, upgrade));
       }}
       onSubmit={(credentials) => void submit(credentials)}
       onSocial={(provider) => {

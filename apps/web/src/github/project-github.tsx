@@ -1,5 +1,6 @@
 "use client";
 
+import { SIGN_IN_REQUIRED } from "@nap/shared/api-error";
 import {
   type ProjectGitHub,
   ProjectGitHubSchema,
@@ -97,10 +98,15 @@ export function ProjectGitHubControl({
             }),
           ),
       );
-    } else if (result.code === "sign_in_required") {
+    } else if (result.code === SIGN_IN_REQUIRED) {
       setSignIn(true);
       setError(undefined);
-    } else setError(result.error);
+    } else {
+      // A later failure that is not the guest refusal — the user signed in from another tab, say,
+      // and this project stayed with the guest — must not keep calling them a guest.
+      setSignIn(false);
+      setError(result.error);
+    }
   }, [baseUrl, projectId, fetchJson]);
 
   useEffect(() => {

@@ -1983,12 +1983,24 @@ body {
   transform-origin: var(--float-origin, bottom);
   animation: float-in 150ms cubic-bezier(0.4, 0, 0.2, 1);
 }
+/*
+ * The fade is declared without `display` first: an engine that cannot parse `allow-discrete`
+ * would drop a single declaration naming it, fade included, so there it keeps the fade in and the
+ * popup just vanishes on close.
+ */
 .nap-float[data-open] {
   animation: none;
   transition:
     opacity 150ms cubic-bezier(0.4, 0, 0.2, 1),
-    scale 150ms cubic-bezier(0.4, 0, 0.2, 1),
-    display 150ms allow-discrete;
+    scale 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+@supports (transition-behavior: allow-discrete) {
+  .nap-float[data-open] {
+    transition:
+      opacity 150ms cubic-bezier(0.4, 0, 0.2, 1),
+      scale 150ms cubic-bezier(0.4, 0, 0.2, 1),
+      display 150ms allow-discrete;
+  }
 }
 .nap-float[data-open="false"] {
   display: none;
@@ -2010,7 +2022,9 @@ body {
 /*
  * The prompt box's own glass, for every popover in the app — the composer's menus and context
  * popup, the sidebar's menus, the repository picker — so whatever floats reads as the same
- * material as the prompt box it usually rises out of.
+ * material as the prompt box it usually rises out of. It is the blur, not the 80% opacity, that
+ * keeps a draft behind a popover from reading through it: a deliberate reversal of the add menu's
+ * earlier opaque panel, which is why the fallbacks below go opaque wherever the blur is missing.
  */
 .composer-surface {
   border: 1px solid rgb(255 255 255 / 5%);
@@ -2019,14 +2033,15 @@ body {
   backdrop-filter: blur(16px) saturate(1.08);
 }
 /*
- * The context popup lives in a `<details>`, whose content is hidden by the element rather than
- * by anything here. Transitioning `::details-content` keeps it visible while the panel fades
- * out; a browser without that pseudo-element still gets the arrival, and closes instantly.
+ * A popup that lives in a `<details>` — the context popup, the sidebar's settings menu — is
+ * hidden by the element rather than by anything here. Transitioning `::details-content` keeps it
+ * visible while the panel fades out; a browser without that pseudo-element still gets the
+ * arrival, and closes instantly.
  */
-.context-control::details-content {
+details:has(> .nap-float)::details-content {
   transition: content-visibility 150ms allow-discrete;
 }
-.context-control > .nap-float {
+details > .nap-float {
   animation: none;
   opacity: 0;
   scale: 0.98;
@@ -2034,12 +2049,12 @@ body {
     opacity 150ms cubic-bezier(0.4, 0, 0.2, 1),
     scale 150ms cubic-bezier(0.4, 0, 0.2, 1);
 }
-.context-control[open] > .nap-float {
+details[open] > .nap-float {
   opacity: 1;
   scale: 1;
 }
 @starting-style {
-  .context-control[open] > .nap-float {
+  details[open] > .nap-float {
     opacity: 0;
     scale: 0.98;
   }
@@ -2098,7 +2113,7 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .nap-float,
   .nap-float[data-open],
-  .context-control > .nap-float {
+  details > .nap-float {
     animation: none;
     transition: none;
     scale: none;

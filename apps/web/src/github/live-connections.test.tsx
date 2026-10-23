@@ -48,7 +48,7 @@ describe("GitHub connection account gate", () => {
       "href",
       "/dashboard",
     );
-    expect(screen.getByText(/Guest projects don't carry over/)).toBeVisible();
+    expect(screen.getByText(/guest projects stay with this guest session/i)).toBeVisible();
     expect(connections).not.toHaveBeenCalled();
   });
   it("loads connections for an authenticated permanent account", () => {

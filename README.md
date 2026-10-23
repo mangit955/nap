@@ -161,7 +161,7 @@ repository's Vitest project configuration.
 
 | Path | Role |
 |---|---|
-| [`apps/web`](apps/web) | Next.js interface: chat, transcript, job history, and live preview |
+| [`apps/web`](apps/web) | Next.js interface: chat, transcript, and live preview |
 | [`apps/api`](apps/api) | Hono API, WebSocket streaming, authentication, admission, worker, and reaper processes |
 | [`apps/napbench`](apps/napbench) | CLI that runs NapBench against the agent and real or fake infrastructure |
 | [`packages/runtime`](packages/runtime) | Turn lifecycle, jobs, commits, verification, checkpoints, and continuation |

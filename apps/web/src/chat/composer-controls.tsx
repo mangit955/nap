@@ -15,7 +15,7 @@ import { type DraftAttachment, MEDIA_ACCEPT } from "./use-media-attachments.ts";
  * except when it opens a menu, where the press would land as the menu appears.
  */
 const CONTROL_SHAPE =
-  "grid size-8 shrink-0 place-items-center rounded-[8px] transition-[background-color,color,scale] duration-150 hover:bg-hover hover:text-ink aria-expanded:bg-hover aria-expanded:text-ink [&:active:not([aria-haspopup])]:scale-[0.97] focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40";
+  "grid size-8 shrink-0 place-items-center rounded-[8px] transition-[background-color,color,scale] duration-150 hover:bg-hover hover:text-ink aria-expanded:bg-hover aria-expanded:text-ink motion-safe:[&:active:not([aria-haspopup])]:scale-[0.97] focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40";
 
 export const CONTROL_CLASS = `${CONTROL_SHAPE} text-muted`;
 

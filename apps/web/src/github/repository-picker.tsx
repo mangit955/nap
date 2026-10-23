@@ -1,5 +1,6 @@
 "use client";
 
+import { SIGN_IN_REQUIRED } from "@nap/shared/api-error";
 import {
   GitHubConnectionsSchema,
   GitHubRepositoriesSchema,
@@ -49,7 +50,7 @@ export function RepositoryPicker({
       GitHubConnectionsSchema,
     );
     if (!connection.ok)
-      return connection.code === "sign_in_required"
+      return connection.code === SIGN_IN_REQUIRED
         ? { kind: "guest" }
         : { kind: "loaded", choices: [], errors: [connection.error] };
     const installations = connection.value.installations.filter((item) => item.status === "active");
@@ -130,7 +131,9 @@ export function RepositoryPicker({
               event.stopPropagation();
               onClose();
             }
-            if (event.key === "Tab") onClose();
+            // Tab leaves the list rather than moving through it — except for a guest, whose only
+            // way on is the panel's Sign in, which comes next in the tab order.
+            if (event.key === "Tab" && state.kind !== "guest") onClose();
             if (event.key === "ArrowDown" || event.key === "ArrowUp") {
               event.preventDefault();
               const next = choices.length
@@ -189,12 +192,12 @@ export function RepositoryPicker({
         )}
         {state.kind === "guest" && (
           <div className="repository-guest">
-            <p className="text-[13px] leading-relaxed text-ink-2">
+            <p role="status" className="text-[13px] leading-relaxed text-ink-2">
               Working on a repository needs a permanent account.
             </p>
             <p className="mt-1 text-xs leading-relaxed text-muted">
-              You're using nap as a guest. Guest projects don't carry over to the account you sign
-              in with.
+              You're using nap as a guest. Your guest projects stay with this guest session and
+              won't appear in your account.
             </p>
             <div className="mt-3 flex items-center justify-end gap-2">
               <button type="button" onClick={onClose} className={BUTTON}>

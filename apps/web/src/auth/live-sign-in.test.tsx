@@ -129,6 +129,16 @@ describe("the address bar", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Start a nap." })).toBeInTheDocument();
   });
 
+  it("keeps a guest's upgrade when they switch to making an account", () => {
+    window.history.replaceState(null, "", "/sign-in?upgrade=1");
+    useSession.mockReturnValue({ data: { user: { isAnonymous: true } }, isPending: false });
+    render(<LiveSignIn upgrade />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Create one" }));
+
+    expect(`${window.location.pathname}${window.location.search}`).toBe("/sign-up?upgrade=1");
+  });
+
   it("keeps what was already typed, since the switch is not a navigation", () => {
     render(<LiveSignIn />);
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: "ada@example.com" } });

@@ -50,9 +50,9 @@ function expandAll() {
 }
 
 /**
- * Event types drawn by the job strip above the chat rather than by the transcript. Same list,
- * and same reasoning, as `transcript.test.ts` — a job's phase and its checks are status, not
- * chronology, and putting them in both panes says one thing twice.
+ * Event types the transcript draws nothing for. Same list, and same reasoning, as
+ * `transcript.test.ts` — a job's phase is status, not chronology, and the workspace bar already
+ * says it; a failed check shows here only as the repair turn it starts.
  */
 const DRAWN_ELSEWHERE = [
   "context.usage",
@@ -88,8 +88,8 @@ const TREATMENTS = [
   },
   {
     type: "compaction.failed",
-    payload: { id: "compact1", message: "Compaction failed", cancelled: false, usage: null },
-    shows: /Compaction failed/,
+    payload: { id: "compact1", message: "Summary request ended", cancelled: false, usage: null },
+    shows: /Context compaction failed/,
   },
 
   {
@@ -161,7 +161,7 @@ const TREATMENTS = [
 ] as const satisfies readonly { type: NapEventType; payload: NapEvent["payload"]; shows: RegExp }[];
 
 describe("every event type has a visual treatment", () => {
-  it("covers the whole union, between this pane and the strip", () => {
+  it("covers the whole union, between this table and the list of types drawn elsewhere", () => {
     const covered = TREATMENTS.map((t) => t.type);
     expect(new Set(covered).size).toBe(covered.length);
     expect(new Set([...covered, ...DRAWN_ELSEWHERE]).size).toBe(NapEventSchema.options.length);

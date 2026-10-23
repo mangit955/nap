@@ -1,3 +1,4 @@
+import { ApiErrorSchema } from "@nap/shared/api-error";
 import type { z } from "zod";
 import type { FetchJson } from "../files/use-project-files.ts";
 
@@ -17,18 +18,10 @@ export async function githubRequest<T>(
     const response = await fetchJson(url, init);
     const body: unknown = await response.json().catch(() => null);
     if (!response.ok) {
-      const error =
-        typeof body === "object" &&
-        body !== null &&
-        "error" in body &&
-        typeof body.error === "string"
-          ? body.error
-          : "GitHub could not complete that request. Try again.";
-      const code =
-        typeof body === "object" && body !== null && "code" in body && typeof body.code === "string"
-          ? body.code
-          : undefined;
-      return { ok: false, error, code };
+      const refusal = ApiErrorSchema.safeParse(body);
+      return refusal.success
+        ? { ok: false, error: refusal.data.error, code: refusal.data.code }
+        : { ok: false, error: "GitHub could not complete that request. Try again." };
     }
     const parsed = schema.safeParse(body);
     return parsed.success

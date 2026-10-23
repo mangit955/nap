@@ -43,9 +43,9 @@ export type SessionLog = {
   /**
    * Where this session's jobs stand, and what the newest one is doing.
    *
-   * Here rather than in the strip that draws it, because the strip is no longer its only
-   * reader: the bar across the top carries the phase too, so that collapsing the chat does not
-   * take it off the screen.
+   * Folded here, beside the events, rather than in the bar across the top that draws it — the
+   * bar is outside the chat pane so that collapsing the chat does not take the phase off the
+   * screen.
    */
   jobs: SessionJobView;
 };

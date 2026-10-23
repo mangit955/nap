@@ -298,9 +298,9 @@ describe("AppShell", () => {
   });
 
   it("keeps where the job stands on screen once the chat is hidden", async () => {
-    // The strip that carries it lives inside the chat pane, so collapsing the chat used to take
-    // the one signal saying whether the project works off the screen — precisely when the
-    // preview is most dominant. The bar mirrors it for that reason.
+    // Anything inside the chat pane goes with it, so the job's phase lives in the bar: otherwise
+    // collapsing the chat would take the one signal saying whether the project works off the
+    // screen — precisely when the preview is most dominant.
     const net = sockets();
     const log = jobLog();
     render(

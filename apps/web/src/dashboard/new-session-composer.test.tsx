@@ -88,7 +88,16 @@ it("opens GitHub's settings page carrying the draft when there is nothing to pic
   const box = screen.getByRole("textbox", { name: "Describe the app you want" });
   await waitFor(() => expect(box).toHaveValue(draft.text));
   fireEvent.click(screen.getByRole("button", { name: "Add to prompt" }));
+  // The closed menu stays mounted, and its items answer a click either way.
+  expect(screen.getByRole("button", { name: "Add to prompt" })).toHaveAttribute(
+    "aria-expanded",
+    "true",
+  );
   fireEvent.click(screen.getByRole("menuitem", { name: "Repositories" }));
+  expect(screen.getByRole("button", { name: "Add to prompt" })).toHaveAttribute(
+    "aria-expanded",
+    "false",
+  );
   fireEvent.click(await screen.findByRole("button", { name: "Settings → Connections" }));
   await waitFor(() =>
     expect(push).toHaveBeenCalledWith(`/settings/connections/github?draft=${draft.id}`),
