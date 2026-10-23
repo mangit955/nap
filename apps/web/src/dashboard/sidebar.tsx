@@ -307,11 +307,16 @@ export function AccountMenu({
         After the trigger in the DOM, so Tab out of the name walks into the menu — `bottom-full`
         is what puts it above on screen, and source order is what the keyboard follows.
       */}
+      {/*
+        `z-50`, the sidebar's other menus' layer, because the sidebar's resize handle sits at 45 on
+        the column edge this menu overhangs. Below it, the handle drew its line through the glass
+        and took the pointer on that strip.
+      */}
       {open && (
         <div
           role="menu"
           aria-label="Settings"
-          className="absolute left-0 bottom-full z-40 w-64 pb-2"
+          className="absolute left-0 bottom-full z-50 w-64 pb-2"
         >
           <div className="composer-surface nap-float flex flex-col gap-0.5 rounded-[10px] p-1.5">
             <div className="flex items-center gap-2 border-b border-edge px-3 py-3">
