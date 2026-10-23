@@ -119,9 +119,9 @@ export function isRateLimited(response: Pick<Response, "status" | "headers">): b
 }
 
 /**
- * How many repository permission checks one listing keeps in flight. Enough that a few dozen
- * repositories answer in a couple of seconds; few enough that one listing is not a burst GitHub's
- * secondary rate limits would object to.
+ * How many repository permission checks one listing keeps in flight. This limits each listing's
+ * burst and amortizes upstream latency. Concurrent listings and other GitHub traffic can still
+ * trigger secondary rate limits.
  */
 export const PERMISSION_CONCURRENCY = 8;
 
@@ -424,14 +424,16 @@ export class GitHubApp {
     const results: (z.infer<typeof Permission> | null)[] = repositories.map(() => null);
     const token = await this.token(installationId, null, { metadata: "read" });
     if (!token.ok) return token.error.code === "unavailable" ? token : { ok: true, value: results };
+    let current = token.value;
     // A 401 is the token, not the repository: every check that saw one shares a single refresh.
     let refreshed: Promise<GitHubResult<string>> | undefined;
     const check = async (repository: GitHubRepository) => {
       const path = `/repos/${repository.fullName}/collaborators/${encodeURIComponent(login)}/permission`;
-      const first = await this.#http(path, `Bearer ${token.value}`, Permission);
+      const first = await this.#http(path, `Bearer ${current}`, Permission);
       if (first.status !== 401) return first;
       refreshed ??= this.token(installationId, null, { metadata: "read" }, true);
       const fresh = await refreshed;
+      if (fresh.ok) current = fresh.value;
       return fresh.ok ? this.#http(path, `Bearer ${fresh.value}`, Permission) : fresh;
     };
     let unavailable: GitHubError | undefined;

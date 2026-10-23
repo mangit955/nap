@@ -1,6 +1,6 @@
 import { generateKeyPairSync } from "node:crypto";
-import { describe, expect, it } from "vitest";
-import { GitHubApp, PERMISSION_CONCURRENCY } from "./app.ts";
+import { describe, expect, it, vi } from "vitest";
+import { GitHubApp } from "./app.ts";
 
 const key = generateKeyPairSync("rsa", { modulusLength: 2048 })
   .privateKey.export({ type: "pkcs8", format: "pem" })
@@ -182,7 +182,7 @@ describe("permission checks across an installation", () => {
    */
   function transport(answer: (repo: string, token: string) => Response) {
     const minted: unknown[] = [];
-    const checked: string[] = [];
+    const checked: { repo: string; token: string }[] = [];
     let inFlight = 0;
     let maxInFlight = 0;
     const fetcher = async (url: string, init?: RequestInit) => {
@@ -195,13 +195,14 @@ describe("permission checks across an installation", () => {
         });
       }
       const repo = path.split("/")[3] ?? "";
-      checked.push(repo);
+      const authorization = new Headers(init?.headers).get("authorization") ?? "";
+      const token = authorization.replace("Bearer ", "");
+      checked.push({ repo, token });
       inFlight += 1;
       maxInFlight = Math.max(maxInFlight, inFlight);
       for (let tick = 0; tick < 3; tick += 1) await new Promise((r) => setTimeout(r, 0));
       inFlight -= 1;
-      const authorization = new Headers(init?.headers).get("authorization") ?? "";
-      return answer(repo, authorization.replace("Bearer ", ""));
+      return answer(repo, token);
     };
     return {
       app: new GitHubApp(config, fetcher),
@@ -231,10 +232,50 @@ describe("permission checks across an installation", () => {
     // One token for the whole listing, not one per repository — and an installation-wide one.
     expect(t.minted).toEqual([{ permissions: { metadata: "read" } }]);
     expect(t.checked).toHaveLength(30);
-    expect(t.maxInFlight()).toBe(PERMISSION_CONCURRENCY);
+    expect(t.maxInFlight()).toBe(8);
   });
 
-  it("refreshes a rejected installation token once for every check that saw it", async () => {
+  it("keeps input order when permission checks complete out of order, including a skipped repository", async () => {
+    const repositories = selection(10);
+    const gates = repositories.map(() => {
+      let release = () => {};
+      const promise = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return { promise, release };
+    });
+    const started: number[] = [];
+    const expected = repositories.map((repo, index) =>
+      index === 3 ? null : { permission: "write", user: { id: repo.id, login: "owner" } },
+    );
+    const app = new GitHubApp(config, async (url) => {
+      const path = new URL(url).pathname;
+      if (path.endsWith("/access_tokens"))
+        return Response.json({
+          token: "installation",
+          expires_at: new Date(Date.now() + 3600000).toISOString(),
+        });
+      const index = Number(path.split("/")[3]?.replace("repo-", ""));
+      started.push(index);
+      await gates[index]?.promise;
+      return index === 3 ? new Response(null, { status: 404 }) : Response.json(expected[index]);
+    });
+    const pending = app.permissions(99, repositories, "owner");
+    try {
+      await vi.waitFor(() => expect(started).toHaveLength(8));
+      gates[7]!.release();
+      // A replacement request proves the previous result was consumed before the next release.
+      await vi.waitFor(() => expect(started).toContain(8));
+      gates[3]!.release();
+      await vi.waitFor(() => expect(started).toContain(9));
+    } finally {
+      for (const gate of gates) gate.release();
+      await pending;
+    }
+    expect(await pending).toEqual({ ok: true, value: expected });
+  });
+
+  it("refreshes a rejected installation token once and uses it directly for newly launched checks", async () => {
     const t = transport((_repo, token) =>
       token === "token-1"
         ? Response.json({ message: "Bad credentials" }, { status: 401 })
@@ -244,6 +285,91 @@ describe("permission checks across an installation", () => {
     if (!result.ok) throw new Error("Expected permissions");
     expect(result.value.every((entry) => entry?.permission === "write")).toBe(true);
     expect(t.minted).toHaveLength(2);
+    expect(t.checked.filter(({ token }) => token === "token-1")).toHaveLength(8);
+    expect(t.checked).toHaveLength(28);
+    expect(t.checked.filter(({ repo }) => Number(repo.replace("repo-", "")) >= 8)).toEqual(
+      selection(12).map((_, index) => ({ repo: `repo-${index + 8}`, token: "token-2" })),
+    );
+  });
+
+  it.each([403, 404, 409, 422])(
+    "returns null entries when the initial token is denied or conflicts with status %i",
+    async (status) => {
+      const paths: string[] = [];
+      const app = new GitHubApp(config, async (url) => {
+        paths.push(new URL(url).pathname);
+        return new Response(null, { status });
+      });
+      expect(await app.permissions(99, selection(3), "owner")).toEqual({
+        ok: true,
+        value: [null, null, null],
+      });
+      expect(paths).toEqual(["/app/installations/99/access_tokens"]);
+    },
+  );
+
+  it.each([502, 503])(
+    "fails when the initial token is unavailable with status %i",
+    async (status) => {
+      const paths: string[] = [];
+      const app = new GitHubApp(config, async (url) => {
+        paths.push(new URL(url).pathname);
+        return new Response(null, { status });
+      });
+      expect(await app.permissions(99, selection(3), "owner")).toMatchObject({
+        ok: false,
+        error: { code: "unavailable" },
+      });
+      expect(paths).toEqual(["/app/installations/99/access_tokens"]);
+    },
+  );
+
+  it.each([502, 503])(
+    "fails when the shared refresh is unavailable with status %i",
+    async (status) => {
+      let minted = 0;
+      let checked = 0;
+      const app = new GitHubApp(config, async (url) => {
+        if (new URL(url).pathname.endsWith("/access_tokens")) {
+          minted += 1;
+          return minted === 1
+            ? Response.json({
+                token: "rejected",
+                expires_at: new Date(Date.now() + 3600000).toISOString(),
+              })
+            : new Response(null, { status });
+        }
+        checked += 1;
+        return new Response(null, { status: 401 });
+      });
+      expect(await app.permissions(99, selection(20), "owner")).toMatchObject({
+        ok: false,
+        error: { code: "unavailable" },
+      });
+      expect(minted).toBe(2);
+      expect(checked).toBe(8);
+    },
+  );
+
+  it("skips repositories still returning 401 after one refresh without looping", async () => {
+    let minted = 0;
+    let checked = 0;
+    const app = new GitHubApp(config, async (url) => {
+      if (new URL(url).pathname.endsWith("/access_tokens"))
+        return Response.json({
+          token: `token-${++minted}`,
+          expires_at: new Date(Date.now() + 3600000).toISOString(),
+        });
+      checked += 1;
+      // Bound even a broken retry loop so a failed assertion leaves no pending work.
+      return new Response(null, { status: checked <= 40 ? 401 : 503 });
+    });
+    expect(await app.permissions(99, selection(20), "owner")).toEqual({
+      ok: true,
+      value: Array(20).fill(null),
+    });
+    expect(minted).toBe(2);
+    expect(checked).toBe(40);
   });
 
   it("fails the whole check when GitHub is unavailable, and stops asking", async () => {
