@@ -22,6 +22,7 @@ export type WidthStorage = {
 };
 
 export type Split = {
+  direction?: 1 | -1;
   clamp: (width: number, viewportWidth: number) => number;
   read: (storage: WidthStorage, viewportWidth: number) => number;
   write: (storage: WidthStorage, width: number) => void;
@@ -137,3 +138,22 @@ export const clampChatWidth = CHAT_SPLIT.clamp;
 export const readChatWidth = CHAT_SPLIT.read;
 export const writeChatWidth = CHAT_SPLIT.write;
 export const chatWidthFrom = CHAT_SPLIT.widthFrom;
+
+const panelSplit = makeSplit({
+  key: "nap.right-panel-width",
+  fallback: 540,
+  min: 360,
+  maxFraction: 0.7,
+});
+export const PANEL_SPLIT: Split = {
+  direction: -1,
+  ...panelSplit,
+  clamp: (width, available) => Math.max(360, Math.min(width, available * 0.7, available - 364)),
+  read: (storage, available) =>
+    Math.max(360, Math.min(panelSplit.read(storage, available), available * 0.7, available - 364)),
+  widthFrom: ({ pointerX, leftEdge, viewportWidth }) =>
+    Math.max(
+      360,
+      Math.min(leftEdge + viewportWidth - pointerX, viewportWidth * 0.7, viewportWidth - 364),
+    ),
+};

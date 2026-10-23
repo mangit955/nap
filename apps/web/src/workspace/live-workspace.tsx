@@ -23,7 +23,7 @@ export function LiveWorkspace({ projectId }: { projectId: string }) {
     <Dashboard
       contentLandmark={false}
       sidebar={<SessionSidebar projectId={projectId} />}
-      hero={<AppShell projectId={projectId} ownerId={data.user.id} />}
+      hero={<AppShell key={projectId} projectId={projectId} ownerId={data.user.id} />}
     />
   );
 }

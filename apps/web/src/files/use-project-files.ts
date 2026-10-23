@@ -286,7 +286,10 @@ function stalenessOf(events: readonly StoredEvent[]): number {
     changeCount(events) +
     events.filter(
       (e) =>
-        e.type === "turn.completed" || e.type === "preview.ready" || e.type === "system.notice",
+        e.type === "turn.completed" ||
+        e.type === "turn.failed" ||
+        e.type === "preview.ready" ||
+        e.type === "system.notice",
     ).length
   );
 }

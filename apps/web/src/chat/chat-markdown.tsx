@@ -31,6 +31,7 @@ import { HighlightedCode } from "./highlight.tsx";
 export type ProjectFilesContext = {
   files: readonly string[];
   onOpenFile: ((path: string) => void) | undefined;
+  onOpenChanges?: (() => void) | undefined;
 };
 
 export const ProjectFiles = createContext<ProjectFilesContext>({

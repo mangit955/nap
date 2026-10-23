@@ -15,23 +15,11 @@ import { WorkspaceHeader } from "./workspace-header.tsx";
 
 function show(props: Partial<Parameters<typeof WorkspaceHeader>[0]> = {}) {
   const handlers = {
-    onTabChange: vi.fn(),
-    onReload: vi.fn(),
-    onRouteChange: vi.fn(),
-    onToggleChat: vi.fn(),
+    onTogglePanel: vi.fn(),
   };
 
   render(
-    <WorkspaceHeader
-      projectName="Todo app"
-      tab="preview"
-      chatOpen={true}
-      route="/"
-      previewUrl="https://5173-abc.e2b.app"
-      job={null}
-      {...handlers}
-      {...props}
-    />,
+    <WorkspaceHeader projectName="Todo app" panelOpen={true} job={null} {...handlers} {...props} />,
   );
 
   return handlers;
@@ -42,60 +30,6 @@ function job(...events: StoredEvent[]) {
   return jobView(events).summary;
 }
 
-describe("the workbench tabs", () => {
-  it("offers both halves, and says which is showing", () => {
-    show({ tab: "code" });
-
-    expect(screen.getByRole("tab", { name: "Code" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("tab", { name: "Preview" })).toHaveAttribute("aria-selected", "false");
-  });
-
-  it("switches when one is pressed", () => {
-    const { onTabChange } = show();
-
-    fireEvent.click(screen.getByRole("tab", { name: "Code" }));
-
-    expect(onTabChange).toHaveBeenCalledWith("code");
-  });
-});
-
-describe("the app's own controls", () => {
-  it("reloads the frame", () => {
-    const { onReload } = show();
-
-    fireEvent.click(screen.getByRole("button", { name: /reload/i }));
-
-    expect(onReload).toHaveBeenCalled();
-  });
-
-  it("opens the running app in a tab of its own, at the page being shown", () => {
-    show({ route: "/pricing" });
-
-    const open = screen.getByRole("link", { name: /open/i });
-    expect(open).toHaveAttribute("href", "https://5173-abc.e2b.app/pricing");
-    // A model wrote what is inside that frame; it does not get this page's window.
-    expect(open).toHaveAttribute("rel", expect.stringContaining("noopener"));
-  });
-
-  it("sends the frame to the page that was typed, tidied up", () => {
-    const { onRouteChange } = show();
-
-    fireEvent.change(screen.getByLabelText(/page/i), { target: { value: "pricing" } });
-    fireEvent.submit(screen.getByLabelText(/page/i).closest("form") as HTMLFormElement);
-
-    expect(onRouteChange).toHaveBeenCalledWith("/pricing");
-  });
-
-  it("offers nothing to reload or open before there is an app", () => {
-    // A dead link to a sandbox that does not exist is worse than no link: it opens the
-    // provider's not-found page, which reads as the product being broken.
-    show({ previewUrl: undefined });
-
-    expect(screen.queryByRole("button", { name: /reload/i })).toBeNull();
-    expect(screen.queryByRole("link", { name: /open/i })).toBeNull();
-  });
-});
-
 describe("where the job stands", () => {
   const log = jobLog();
 
@@ -103,7 +37,7 @@ describe("where the job stands", () => {
     // Anything inside the chat pane goes with it, so hiding the chat to give the preview the
     // whole window must not delete the confidence signal.
     show({
-      chatOpen: false,
+      panelOpen: false,
       job: job(log.opened(), log.at("verification.started", { jobId: JOB })),
     });
 
@@ -133,17 +67,17 @@ describe("where the job stands", () => {
 
 describe("the chat toggle", () => {
   it("says what it will do, not what is showing", () => {
-    const { onToggleChat } = show({ chatOpen: true });
+    const { onTogglePanel } = show({ panelOpen: true });
 
-    const toggle = screen.getByRole("button", { name: /hide chat/i });
+    const toggle = screen.getByRole("button", { name: /hide right panel/i });
     fireEvent.click(toggle);
 
-    expect(onToggleChat).toHaveBeenCalled();
+    expect(onTogglePanel).toHaveBeenCalled();
   });
 
   it("offers the way back once the chat is hidden", () => {
-    show({ chatOpen: false });
+    show({ panelOpen: false });
 
-    expect(screen.getByRole("button", { name: /show chat/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /show right panel/i })).toBeInTheDocument();
   });
 });

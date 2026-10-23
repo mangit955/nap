@@ -128,3 +128,64 @@ export const ProjectGitHubSchema = z.object({
   followUpPolicy: z.literal("owner_approval"),
 });
 export type ProjectGitHub = z.infer<typeof ProjectGitHubSchema>;
+
+export const PullRequestInspectionSchema = z.object({
+  number: GitHubIdSchema,
+  title: z.string(),
+  body: z.string(),
+  url: z.url(),
+  state: z.enum(["open", "closed", "merged"]),
+  draft: z.boolean(),
+  author: z.string(),
+  base: z.object({ ref: z.string(), sha: z.string() }),
+  head: z.object({ ref: z.string(), sha: z.string() }),
+  capturedAt: z.string(),
+  checks: z.array(
+    z.object({ name: z.string(), status: z.string(), conclusion: z.string().nullable() }),
+  ),
+  timeline: z.array(
+    z.object({
+      id: z.string(),
+      kind: z.enum(["comment", "review"]),
+      author: z.string(),
+      body: z.string(),
+      state: z.string().nullable(),
+      at: z.string().nullable(),
+    }),
+  ),
+  comments: z.array(
+    z.object({
+      id: GitHubIdSchema,
+      author: z.string(),
+      body: z.string(),
+      path: z.string(),
+      line: z.number().nullable(),
+      originalLine: z.number().nullable(),
+      side: z.enum(["LEFT", "RIGHT"]),
+      commitId: z.string(),
+      outdated: z.boolean(),
+      url: z.url(),
+    }),
+  ),
+  files: z.array(
+    z.object({
+      path: z.string(),
+      previousPath: z.string().nullable(),
+      status: z.enum([
+        "added",
+        "modified",
+        "deleted",
+        "renamed",
+        "copied",
+        "untracked",
+        "typechanged",
+      ]),
+      additions: z.number().int().nonnegative(),
+      deletions: z.number().int().nonnegative(),
+      binary: z.boolean(),
+      truncated: z.boolean(),
+      patch: z.string(),
+    }),
+  ),
+});
+export type PullRequestInspection = z.infer<typeof PullRequestInspectionSchema>;
