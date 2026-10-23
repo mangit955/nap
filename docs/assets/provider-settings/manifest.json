@@ -1,0 +1,150 @@
+[
+  {
+    "file": "before-connections-1440x900.png",
+    "kind": "screenshot",
+    "revision": "bea2cec0162465585afd654eb0b428ac29a31be0",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "sha256": "33aff399f4cf4f398b79d16b006c429c40fb7322af2148f4b45f33ddce5f102c",
+    "caption": "Scripted auth fixture; actual deployment sign-in unavailable. Revision bea2cec0162465585afd654eb0b428ac29a31be0; local Next 16.3.0 dev with offline landing-font mock; Chrome 153.0.8010.54; 1440x900; Existing Connections overview with fixture statuses."
+  },
+  {
+    "file": "before-api-key-dialog-1440x900.png",
+    "kind": "screenshot",
+    "revision": "bea2cec0162465585afd654eb0b428ac29a31be0",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "sha256": "c3f4731b75658fca6ddfbe2e268860dedd32fd18b6b3da7dfabe2f7cb4ae99fb",
+    "caption": "Scripted auth fixture; actual deployment sign-in unavailable. Revision bea2cec0162465585afd654eb0b428ac29a31be0; local Next 16.3.0 dev with offline landing-font mock; Chrome 153.0.8010.54; 1440x900; Same real API-key dialog for glass comparison."
+  },
+  {
+    "file": "before-interaction-1440x900.webm",
+    "kind": "recording",
+    "revision": "bea2cec0162465585afd654eb0b428ac29a31be0",
+    "viewport": "1440x900",
+    "sha256": "5c6241366ae0a94e804aae26c61e24cac12083eaf027cdf319d34491c3e58a7f",
+    "caption": "Scripted auth fixture; actual deployment sign-in unavailable. Revision bea2cec0162465585afd654eb0b428ac29a31be0; local Next 16.3.0 dev with offline landing-font mock; Chrome 153.0.8010.54; 1440x900; interaction recording."
+  },
+  {
+    "file": "after-connections-1440x900.png",
+    "kind": "screenshot",
+    "revision": "8adc43ef7de4c4bd18c3df568ff1711ce4b54e55",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "sha256": "317cc7c90ed1054eaeda57825ebc8687bdbdc4621f69b9441c0d5abd7ba160ba",
+    "caption": "Scripted auth fixture; actual deployment sign-in unavailable. Revision 8adc43ef7de4c4bd18c3df568ff1711ce4b54e55; local Next 16.3.0 dev with offline landing-font mock; Chrome 153.0.8010.54; 1440x900; Existing Connections overview with fixture statuses."
+  },
+  {
+    "file": "after-api-key-dialog-1440x900.png",
+    "kind": "screenshot",
+    "revision": "8adc43ef7de4c4bd18c3df568ff1711ce4b54e55",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "sha256": "98fc16fd3a98c17d491cec661f9bf0bf7ddb85150a83242a1e298ab3d7ce7d4f",
+    "caption": "Scripted auth fixture; actual deployment sign-in unavailable. Revision 8adc43ef7de4c4bd18c3df568ff1711ce4b54e55; local Next 16.3.0 dev with offline landing-font mock; Chrome 153.0.8010.54; 1440x900; Same real API-key dialog for glass comparison."
+  },
+  {
+    "file": "after-connected-1440x900.png",
+    "kind": "screenshot",
+    "revision": "8adc43ef7de4c4bd18c3df568ff1711ce4b54e55",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "sha256": "7e660e030583acd7f5dd977088b893272597c46d045046212abd7b9d9affb32d",
+    "caption": "Scripted auth fixture; actual deployment sign-in unavailable. Revision 8adc43ef7de4c4bd18c3df568ff1711ce4b54e55; local Next 16.3.0 dev with offline landing-font mock; Chrome 153.0.8010.54; 1440x900; Pre-seeded authenticated account, no actual login completed."
+  },
+  {
+    "file": "after-wizard-config-1440x900.png",
+    "kind": "screenshot",
+    "revision": "8adc43ef7de4c4bd18c3df568ff1711ce4b54e55",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "sha256": "719334fd83871a04a0d417a062217d84739e8b00f3a71ab48dc8fc42991cf2fe",
+    "caption": "Scripted auth fixture; actual deployment sign-in unavailable. Revision 8adc43ef7de4c4bd18c3df568ff1711ce4b54e55; local Next 16.3.0 dev with offline landing-font mock; Chrome 153.0.8010.54; 1440x900; Claude wizard configuration step."
+  },
+  {
+    "file": "after-deployment-unavailable-1440x900.png",
+    "kind": "screenshot",
+    "revision": "8adc43ef7de4c4bd18c3df568ff1711ce4b54e55",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "sha256": "475b65d012c6cb770635f32fc6e3566db153bc70821932db21232c3529ef56ba",
+    "caption": "Scripted auth fixture; actual deployment sign-in unavailable. Revision 8adc43ef7de4c4bd18c3df568ff1711ce4b54e55; local Next 16.3.0 dev with offline landing-font mock; Chrome 153.0.8010.54; 1440x900; Deployment-unavailable fixture matches production capability."
+  },
+  {
+    "file": "after-unavailable-wizard-1440x900.png",
+    "kind": "screenshot",
+    "revision": "8adc43ef7de4c4bd18c3df568ff1711ce4b54e55",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "sha256": "98b0d6a7599c80875dab35fb05738c1f3550c78c6cf390c2b1fe3781f4ab2b85",
+    "caption": "Scripted auth fixture; actual deployment sign-in unavailable. Revision 8adc43ef7de4c4bd18c3df568ff1711ce4b54e55; local Next 16.3.0 dev with offline landing-font mock; Chrome 153.0.8010.54; 1440x900; Real wizard explains deployment sign-in is unavailable."
+  },
+  {
+    "file": "after-interaction-1440x900.webm",
+    "kind": "recording",
+    "revision": "8adc43ef7de4c4bd18c3df568ff1711ce4b54e55",
+    "viewport": "1440x900",
+    "sha256": "6258c394a36a59925a2bfa2e7676d67bc0307f32a164b686bcb7e6fe4fc9f1e9",
+    "caption": "Scripted auth fixture; actual deployment sign-in unavailable. Revision 8adc43ef7de4c4bd18c3df568ff1711ce4b54e55; local Next 16.3.0 dev with offline landing-font mock; Chrome 153.0.8010.54; 1440x900; interaction recording."
+  },
+  {
+    "file": "after-wizard-provider-390x844.png",
+    "kind": "screenshot",
+    "revision": "8adc43ef7de4c4bd18c3df568ff1711ce4b54e55",
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "sha256": "d4ca6f85d126403796b9fc6c9d9d3fb9956751f5c6e009c28f92087bc227b8a4",
+    "caption": "Scripted auth fixture; actual deployment sign-in unavailable. Revision 8adc43ef7de4c4bd18c3df568ff1711ce4b54e55; local Next 16.3.0 dev with offline landing-font mock; Chrome 153.0.8010.54; 390x844; Real add-provider dialog, scripted API."
+  },
+  {
+    "file": "after-wizard-config-390x844.png",
+    "kind": "screenshot",
+    "revision": "8adc43ef7de4c4bd18c3df568ff1711ce4b54e55",
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "sha256": "820522584b118376d371ad0c397cecbed3c042c3129fd1b4b4c02bef37c7ea80",
+    "caption": "Scripted auth fixture; actual deployment sign-in unavailable. Revision 8adc43ef7de4c4bd18c3df568ff1711ce4b54e55; local Next 16.3.0 dev with offline landing-font mock; Chrome 153.0.8010.54; 390x844; Claude wizard configuration step."
+  },
+  {
+    "file": "after-unavailable-wizard-390x844.png",
+    "kind": "screenshot",
+    "revision": "8adc43ef7de4c4bd18c3df568ff1711ce4b54e55",
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "sha256": "dcb04dfcd5eb519afbce310cb819acc97b1a1ce2f386fb99342819ef43308c7f",
+    "caption": "Scripted auth fixture; actual deployment sign-in unavailable. Revision 8adc43ef7de4c4bd18c3df568ff1711ce4b54e55; local Next 16.3.0 dev with offline landing-font mock; Chrome 153.0.8010.54; 390x844; Real wizard explains deployment sign-in is unavailable."
+  },
+  {
+    "file": "after-guest-390x844.png",
+    "kind": "screenshot",
+    "revision": "8adc43ef7de4c4bd18c3df568ff1711ce4b54e55",
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "sha256": "43b95dcf919cb5b37ad7c20d716c39cd315a878660fb5dd5239cbab6e9fac0d6",
+    "caption": "Actual GuestProviders component with a scripted guest session, including the guest-project warning. Local Next16.3.0 dev, Chrome153.0.8010.54,390x844. Real sign-in unavailable."
+  }
+]
