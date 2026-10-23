@@ -6,7 +6,7 @@ import { SquarePen } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { NapMark } from "../brand/nap-mark.tsx";
 import type { useSessionNavigation } from "../projects/use-session-navigation.ts";
-import { SpinnerIcon } from "../ui/icons.tsx";
+import { ProvidersIcon, SpinnerIcon } from "../ui/icons.tsx";
 import { DraftRows } from "./draft-rows.tsx";
 import { SessionList } from "./session-list.tsx";
 import { SourceFilter } from "./source-filter.tsx";
@@ -339,6 +339,14 @@ export function AccountMenu({
             >
               <SettingsIcon />
               Connections
+            </a>
+            <a
+              role="menuitem"
+              href="/settings/providers"
+              className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] text-ink-2 hover:bg-hover hover:text-ink"
+            >
+              <ProvidersIcon className="size-4 shrink-0" />
+              Providers
             </a>
             <MenuItem onClick={onApiKey}>
               <KeyIcon />
