@@ -34,7 +34,8 @@ export function GuestSignIn({ dismiss }: { dismiss: ReactNode }) {
           ))}
         </ul>
         <p className="mt-5 text-xs leading-relaxed text-muted">
-          Your guest projects stay with this guest session and won't appear in your account.
+          Your guest projects stay behind with the guest session; you won't be able to open them
+          from your account.
         </p>
       </div>
       <div className="flex items-center justify-end gap-2 border-edge border-t px-6 py-4">

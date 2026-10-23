@@ -147,6 +147,36 @@ describe("repository autocomplete", () => {
     expect(screen.getByRole("button", { name: "Not now" })).not.toHaveAttribute("tabindex");
   });
 
+  it("lets a keyboard guest leave the panel the way they came, or with Escape", async () => {
+    const guest = async () =>
+      Response.json(
+        { error: "Sign in to a permanent nap account.", code: SIGN_IN_REQUIRED },
+        { status: 403 },
+      );
+    const onClose = vi.fn();
+    const view = render(
+      <RepositoryPicker
+        fetchJson={guest}
+        onSelect={vi.fn()}
+        onClose={onClose}
+        onConnect={vi.fn()}
+      />,
+    );
+    // Escape from the panel's own controls, not only from the filter.
+    fireEvent.keyDown(await screen.findByRole("button", { name: "Not now" }), { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+    // Back out of the filter with Shift+Tab, as before the panel became reachable.
+    fireEvent.keyDown(screen.getByRole("combobox"), { key: "Tab", shiftKey: true });
+    expect(onClose).toHaveBeenCalledTimes(2);
+    // And Tab past Sign in leaves the picker rather than stranding it on screen.
+    const outside = document.createElement("button");
+    document.body.append(outside);
+    fireEvent.blur(screen.getByRole("link", { name: "Sign in" }), { relatedTarget: outside });
+    expect(onClose).toHaveBeenCalledTimes(3);
+    outside.remove();
+    view.unmount();
+  });
+
   it("still closes on Tab once the list has loaded", async () => {
     const onClose = vi.fn();
     render(

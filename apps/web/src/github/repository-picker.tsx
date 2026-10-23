@@ -106,7 +106,26 @@ export function RepositoryPicker({
       : [];
   const current = choices.length ? Math.min(highlight, choices.length - 1) : -1;
   return (
-    <div ref={root} className="repository-mention">
+    // biome-ignore lint/a11y/useSemanticElements: a popover, not a form section; a fieldset brings its own border and form semantics
+    <div
+      ref={root}
+      role="group"
+      aria-label="Choose a repository"
+      className="repository-mention"
+      // On the root rather than the filter, so Escape also works from the guest panel's controls.
+      onKeyDown={(event) => {
+        if (event.key !== "Escape") return;
+        event.preventDefault();
+        event.stopPropagation();
+        onClose();
+      }}
+      // Focus leaving the picker by keyboard — Tab past the guest panel — closes it, as a press
+      // outside does.
+      onBlur={(event) => {
+        if (event.relatedTarget instanceof Node && !root.current?.contains(event.relatedTarget))
+          onClose();
+      }}
+    >
       <div className="repository-mention-line">
         <label htmlFor={`${listId}-input`}>@repos:</label>
         <input
@@ -126,14 +145,9 @@ export function RepositoryPicker({
             setHighlight(0);
           }}
           onKeyDown={(event) => {
-            if (event.key === "Escape") {
-              event.preventDefault();
-              event.stopPropagation();
-              onClose();
-            }
-            // Tab leaves the list rather than moving through it — except for a guest, whose only
-            // way on is the panel's Sign in, which comes next in the tab order.
-            if (event.key === "Tab" && state.kind !== "guest") onClose();
+            // Tab leaves the list rather than moving through it — except forward for a guest, whose
+            // only way on is the panel's Sign in, which comes next in the tab order.
+            if (event.key === "Tab" && (state.kind !== "guest" || event.shiftKey)) onClose();
             if (event.key === "ArrowDown" || event.key === "ArrowUp") {
               event.preventDefault();
               const next = choices.length
@@ -196,8 +210,8 @@ export function RepositoryPicker({
               Working on a repository needs a permanent account.
             </p>
             <p className="mt-1 text-xs leading-relaxed text-muted">
-              You're using nap as a guest. Your guest projects stay with this guest session and
-              won't appear in your account.
+              You're using nap as a guest. Your guest projects stay behind with the guest session;
+              you won't be able to open them from your account.
             </p>
             <div className="mt-3 flex items-center justify-end gap-2">
               <button type="button" onClick={onClose} className={BUTTON}>

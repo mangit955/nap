@@ -48,7 +48,7 @@ describe("GitHub connection account gate", () => {
       "href",
       "/dashboard",
     );
-    expect(screen.getByText(/guest projects stay with this guest session/i)).toBeVisible();
+    expect(screen.getByText(/guest projects stay behind with the guest session/i)).toBeVisible();
     expect(connections).not.toHaveBeenCalled();
   });
   it("loads connections for an authenticated permanent account", () => {
