@@ -29,13 +29,13 @@ const SHA = "a".repeat(40);
 type Comment = {
   id: number;
   body: string;
-  user: { id: number; login: string };
+  user: { id: number; login: string } | null;
   updated_at: string;
 };
 type Review = {
   id: number;
   state: string;
-  user: { id: number; login: string };
+  user: { id: number; login: string } | null;
   body: string | null;
   submitted_at: string | null;
 };
@@ -261,6 +261,27 @@ describe("GitHub feedback approval validation", () => {
     expect(f.store.enqueued).toEqual([]);
   });
 
+  it.each(["comments", "inlineComments"] as const)(
+    "rejects a formerly valid %s actor that becomes null before approval",
+    async (source) => {
+      const f = await fixture();
+      f.transport[source] = [ownerComment(50)];
+      expect(await refresh(f)).toMatchObject({ ok: true });
+      const feedback = await f.store.feedbackForProject(f.binding.projectId, f.binding.userId);
+      expect(feedback).toHaveLength(1);
+      const pending = feedback[0];
+      if (pending === undefined) throw new Error("Expected pending owner command");
+      expect(pending).toMatchObject({ kind: "comment", requestId: null });
+      f.transport[source] = [{ ...ownerComment(50), user: null }];
+      expect(await f.processor.approve(f.binding, f.job, pending)).toMatchObject({
+        ok: false,
+        error: { code: "conflict" },
+      });
+      expect(await f.store.feedback(f.binding.projectId, f.binding.userId, pending.id)).toBeNull();
+      expect(f.store.enqueued).toEqual([]);
+    },
+  );
+
   it("rejects a changed head, a closed PR, and permission loss at approval time", async () => {
     const f = await pendingComment();
     f.transport.head.sha = "c".repeat(40);
@@ -285,6 +306,47 @@ describe("GitHub feedback approval validation", () => {
 });
 
 describe("GitHubEventProcessor", () => {
+  it.each(["APPROVED", "CHANGES_REQUESTED", "DISMISSED"])(
+    "ignores null actors on %s reviews and commands while retaining valid owner authority",
+    async (state) => {
+      const f = await fixture();
+      const review: Review = {
+        id: 1,
+        state,
+        user: null,
+        body: "/nap A deleted reviewer is not an authority",
+        submitted_at: "2026-10-19T12:00:00Z",
+      };
+      f.transport.reviews = [review];
+      f.transport.comments = [{ ...ownerComment(51), user: null }];
+      f.transport.inlineComments = [{ ...ownerComment(52), user: null }];
+      expect(await refresh(f)).toMatchObject({ ok: true });
+      expect(await f.store.job(f.job.jobId)).toMatchObject({ reviewState: "commented" });
+      expect(await f.store.feedbackForProject(f.binding.projectId, f.binding.userId)).toEqual([]);
+      expect(f.store.enqueued).toEqual([]);
+
+      f.transport.reviews.unshift({
+        ...review,
+        id: 2,
+        state: "APPROVED",
+        user: { id: 7, login: "owner" },
+      });
+      f.transport.comments.push(ownerComment(53, "/nap Fix the owner issue"));
+      f.transport.inlineComments.push(ownerComment(54, "/nap Fix the owner line"));
+      expect(await refresh(f)).toMatchObject({ ok: true });
+      expect(await f.store.job(f.job.jobId)).toMatchObject({ reviewState: "approved" });
+      const feedback = await f.store.feedbackForProject(f.binding.projectId, f.binding.userId);
+      expect(feedback).toHaveLength(2);
+      expect(feedback).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ summary: "Fix the owner issue", requestId: null }),
+          expect.objectContaining({ summary: "Fix the owner line", requestId: null }),
+        ]),
+      );
+      expect(f.store.enqueued).toEqual([]);
+    },
+  );
+
   it("reads later pages before reporting checks passed and fails closed on truncated histories", async () => {
     const f = await fixture();
     f.transport.checks = [

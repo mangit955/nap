@@ -48,6 +48,7 @@ export function ChatTranscript({
   onRetry,
   files = [],
   onOpenFile,
+  onOpenChanges,
 }: {
   /**
    * The log, already folded into items.
@@ -76,6 +77,7 @@ export function ChatTranscript({
   files?: readonly string[] | undefined;
   /** Opens a file in the Code tab. Absent, a path is still a chip, just not a button. */
   onOpenFile?: ((path: string) => void) | undefined;
+  onOpenChanges?: (() => void) | undefined;
 }) {
   // Which folds and groups the reader has opened, by the ids `timeline.ts` derives from the item
   // each opened with — stable as the turn grows, so nothing springs shut mid-turn.
@@ -92,7 +94,10 @@ export function ChatTranscript({
       }),
     [items, running, pending, startedAt, openFolds, openGroups],
   );
-  const projectFiles = useMemo(() => ({ files, onOpenFile }), [files, onOpenFile]);
+  const projectFiles = useMemo(
+    () => ({ files, onOpenFile, onOpenChanges }),
+    [files, onOpenFile, onOpenChanges],
+  );
 
   // The only prose that can still be added to is the last item — everything above it has been
   // overtaken by something newer. That alone is the whole rule, and it needs no check for whether

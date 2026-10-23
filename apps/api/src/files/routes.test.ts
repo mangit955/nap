@@ -200,3 +200,17 @@ describe("when the app is built without file dependencies", () => {
     await expect(res.json()).resolves.toMatchObject({ error: expect.any(String) });
   });
 });
+
+describe("GET /sessions/:sessionId/changes", () => {
+  it("refuses unknown sessions and invalid scopes before executing Git", async () => {
+    const api = app();
+    expect(
+      (await api.request(`/sessions/00000000-0000-4000-8000-000000000099/changes`)).status,
+    ).toBe(404);
+    expect((await api.request(`/sessions/${SESSION}/changes?scope=arbitrary`)).status).toBe(400);
+    expect(sandbox.commands(sandboxId)).toHaveLength(0);
+  });
+  it("distinguishes a workspace that has not started from a clean Git diff", async () => {
+    expect((await app().request(`/sessions/${EMPTY_SESSION}/changes`)).status).toBe(409);
+  });
+});

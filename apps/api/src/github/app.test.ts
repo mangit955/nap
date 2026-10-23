@@ -96,6 +96,48 @@ describe("GitHub installation authority", () => {
     expect(result.ok).toBe(false);
     expect(JSON.stringify(result)).not.toContain("credential-secret");
   });
+  it.each([
+    { login: "owner", accepted: true },
+    { login: "nap-test[bot]", accepted: false },
+    { login: "owner/other", accepted: false },
+    { login: "", accepted: false },
+    { login: "owner name", accepted: false },
+  ])("keeps OAuth authority validation for login $login", async ({ login, accepted }) => {
+    const app = new GitHubApp(config, async (url) => {
+      const path = new URL(url).pathname;
+      if (path === "/login/oauth/access_token")
+        return Response.json({ access_token: "user-token" });
+      if (path === "/user") return Response.json({ id: 7, login });
+      if (path === "/user/installations")
+        return Response.json({
+          installations: [
+            {
+              id: 99,
+              app_id: config.appId,
+              account: { id: 7, login: "owner", type: "User" },
+              suspended_at: null,
+            },
+          ],
+        });
+      if (path === "/applications/client/token") return new Response(null, { status: 204 });
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    expect(await app.authorizeInstallation("code", 99)).toMatchObject({ ok: accepted });
+  });
+  it.each(["User", "Bot"])(
+    "does not accept a bot login as a %s installation owner",
+    async (type) => {
+      const app = new GitHubApp(config, async () =>
+        Response.json({
+          id: 99,
+          app_id: config.appId,
+          account: { id: 7, login: "nap-test[bot]", type },
+          suspended_at: null,
+        }),
+      );
+      expect(await app.installation(99)).toMatchObject({ ok: false });
+    },
+  );
 });
 
 it("reads every repository page beyond the old thousand-repository cap", async () => {
@@ -123,4 +165,163 @@ it("reads every repository page beyond the old thousand-repository cap", async (
   const result = await app.repositories(99);
   expect(result.ok && result.value.length).toBe(1101);
   expect(pages).toHaveLength(12);
+});
+
+describe("pull request inspection", () => {
+  const repository = { id: 123, fullName: "org/repo", defaultBranch: "main", private: true };
+  const human = { id: 7, login: "owner", type: "User" };
+  function fixture({
+    moveHead = false,
+    author = human,
+    reviewAuthor = human,
+    commentAuthor = human,
+    anchorAuthor = human,
+  }: {
+    moveHead?: boolean;
+    author?: typeof human;
+    reviewAuthor?: typeof human | null;
+    commentAuthor?: typeof human | null;
+    anchorAuthor?: typeof human | null;
+  } = {}) {
+    let reads = 0;
+    return new GitHubApp(config, async (url) => {
+      const path = new URL(url).pathname;
+      if (path.endsWith("/access_tokens"))
+        return Response.json({
+          token: "read-only",
+          expires_at: new Date(Date.now() + 3600000).toISOString(),
+        });
+      if (path.endsWith("/pulls/5"))
+        return Response.json({
+          number: 5,
+          title: "Change the panel",
+          body: "Description",
+          draft: false,
+          user: author,
+          html_url: "https://github.com/org/repo/pull/5",
+          state: "open",
+          merged_at: null,
+          head: {
+            sha: moveHead && reads++ > 0 ? "new-head" : "head",
+            ref: "task",
+            repo: { id: 123 },
+          },
+          base: { sha: "base", ref: "main", repo: { id: 123 } },
+        });
+      if (path.endsWith("/files"))
+        return Response.json([
+          {
+            filename: "src/app.ts",
+            status: "modified",
+            additions: 1,
+            deletions: 1,
+            patch: "@@ -1 +1 @@\n-old\n+new",
+          },
+          { filename: "image.png", status: "added", additions: 0, deletions: 0 },
+        ]);
+      if (path.endsWith("/check-runs"))
+        return Response.json({
+          check_runs: [{ name: "Tests", status: "completed", conclusion: "success" }],
+        });
+      if (path.endsWith("/status")) return Response.json({ state: "success", statuses: [] });
+      if (path.endsWith("/pulls/5/comments"))
+        return Response.json([
+          {
+            id: 4,
+            body: "Earlier review",
+            user: anchorAuthor,
+            path: "src/app.ts",
+            line: null,
+            original_line: 1,
+            side: "RIGHT",
+            commit_id: "old-head",
+            html_url: "https://github.com/org/repo/pull/5#discussion_r4",
+          },
+        ]);
+      if (path.endsWith("/reviews"))
+        return Response.json([
+          {
+            id: 6,
+            state: "COMMENTED",
+            user: reviewAuthor,
+            body: "Review body",
+            submitted_at: "2026-10-19T10:00:00.000Z",
+          },
+        ]);
+      if (path.endsWith("/issues/5/comments"))
+        return Response.json([
+          {
+            id: 8,
+            user: commentAuthor,
+            body: "Discussion body",
+            updated_at: "2026-10-19T11:00:00.000Z",
+          },
+        ]);
+      throw new Error(`Unexpected request: ${path}`);
+    });
+  }
+  it("returns revision-bound patches and keeps outdated comment coordinates", async () => {
+    const result = await fixture().inspectPullRequest(99, repository, 5);
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        head: { sha: "head" },
+        base: { sha: "base" },
+        comments: [{ path: "src/app.ts", originalLine: 1, line: null, outdated: true }],
+      },
+    });
+    if (!result.ok) return;
+    expect(result.value.files[1]).toMatchObject({ truncated: true, patch: "" });
+    expect(result.value.checks).toHaveLength(1);
+  });
+  it("rejects a PR whose head changes while its files and comments are being fetched", async () => {
+    const result = await fixture({ moveHead: true }).inspectPullRequest(99, repository, 5);
+    expect(result).toMatchObject({ ok: false, error: { code: "conflict" } });
+  });
+  it.each([
+    human,
+    { id: 42, login: "nap-test[bot]", type: "Bot" },
+    { id: 10137, login: "ghost", type: "User" },
+  ])("accepts the display PR author $login", async (author) => {
+    const result = await fixture({ author }).inspectPullRequest(99, repository, 5);
+    expect(result).toMatchObject({ ok: true, value: { author: author.login } });
+  });
+  it.each(["reviewAuthor", "commentAuthor", "anchorAuthor"] as const)(
+    "accepts a bot as %s without losing the inspection",
+    async (field) => {
+      const actor = { id: 42, login: "nap-test[bot]", type: "Bot" };
+      const result = await fixture({ [field]: actor }).inspectPullRequest(99, repository, 5);
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      const displayed =
+        field === "anchorAuthor"
+          ? result.value.comments[0]
+          : result.value.timeline.find((item) =>
+              field === "reviewAuthor" ? item.kind === "review" : item.kind === "comment",
+            );
+      expect(displayed?.author).toBe(actor.login);
+    },
+  );
+  it.each(["reviewAuthor", "commentAuthor", "anchorAuthor"] as const)(
+    "preserves content and labels a deleted %s",
+    async (field) => {
+      const result = await fixture({ [field]: null }).inspectPullRequest(99, repository, 5);
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      const displayed =
+        field === "anchorAuthor"
+          ? result.value.comments[0]
+          : result.value.timeline.find((item) =>
+              field === "reviewAuthor" ? item.kind === "review" : item.kind === "comment",
+            );
+      expect(displayed?.author).toBe("Deleted user");
+      expect(displayed?.body).toBe(
+        field === "anchorAuthor"
+          ? "Earlier review"
+          : field === "reviewAuthor"
+            ? "Review body"
+            : "Discussion body",
+      );
+    },
+  );
 });

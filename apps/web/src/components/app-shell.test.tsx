@@ -1,5 +1,5 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BACKOFF } from "../hooks/use-event-stream.ts";
 import { ev, PROJECT_ID, SESSION_ID } from "../testing/events.ts";
 import { sockets } from "../testing/fake-socket.ts";
@@ -51,6 +51,7 @@ function shell() {
 }
 
 describe("AppShell", () => {
+  beforeEach(() => localStorage.clear());
   afterEach(() => {
     vi.restoreAllMocks();
     vi.useRealTimers();
@@ -113,7 +114,7 @@ describe("AppShell", () => {
   it("keeps a mobile draft, reference and chosen model while inspecting code", async () => {
     const media = mediaBrowser();
     vi.spyOn(window, "matchMedia").mockImplementation((query) => ({
-      matches: query === "(max-width: 767px)",
+      matches: query === "(max-width: 980px)",
       media: query,
       onchange: null,
       addEventListener() {},
@@ -155,12 +156,13 @@ describe("AppShell", () => {
 
       fireEvent.click(screen.getByRole("button", { name: "Model" }));
       expect(screen.getByRole("button", { name: /Opus/ })).toBeInTheDocument();
-      fireEvent.click(screen.getByRole("tab", { name: "Code" }));
+      fireEvent.click(screen.getByRole("button", { name: "Show right panel" }));
+      fireEvent.click(screen.getByRole("tab", { name: "Files" }));
       expect(screen.queryByRole("region", { name: "Chat" })).toBeNull();
       expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
       expect(screen.queryByRole("button", { name: /Opus/ })).toBeNull();
       expect(media.revokeObjectURL).not.toHaveBeenCalled();
-      fireEvent.click(screen.getByRole("button", { name: "Show chat" }));
+      fireEvent.click(screen.getByRole("button", { name: "Close right panel" }));
 
       expect(screen.getByRole("textbox", { name: "Message" })).toHaveValue("Keep this draft");
       expect(screen.getByRole("button", { name: "Model" })).toHaveTextContent("Opus");
@@ -210,8 +212,9 @@ describe("AppShell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     await screen.findByRole("button", { name: "Stop" });
     await act(async () => {});
-    fireEvent.click(screen.getByRole("tab", { name: "Code" }));
-    fireEvent.click(screen.getByRole("button", { name: "Show chat" }));
+    fireEvent.click(screen.getByRole("button", { name: "Show right panel" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Files" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close right panel" }));
     expect(screen.getByRole("button", { name: "Stop" })).toBeEnabled();
     expect(screen.getByRole("textbox", { name: "Message" })).toBeDisabled();
   });
@@ -260,7 +263,7 @@ describe("AppShell", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Open src/App.tsx" }));
 
-    expect(screen.getByRole("tab", { name: "Code" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "App.tsx" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("region", { name: "src/App.tsx (read-only)" })).toBeInTheDocument();
   });
 
@@ -268,23 +271,23 @@ describe("AppShell", () => {
     render(shell());
 
     expect(screen.getByRole("region", { name: "Chat" })).toBeInTheDocument();
-    expect(screen.getByRole("tabpanel", { name: "Preview" })).toBeInTheDocument();
+    expect(screen.getByRole("tabpanel", { name: "Browser" })).toBeInTheDocument();
   });
 
   it("offers both halves of the workbench, with the preview showing first", () => {
     // The preview is what somebody came to watch; the code is what they go looking for.
     render(shell());
 
-    expect(screen.getByRole("tab", { name: "Preview" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("tab", { name: "Code" })).toHaveAttribute("aria-selected", "false");
+    expect(screen.getByRole("tab", { name: "Browser" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Files" })).toHaveAttribute("aria-selected", "false");
   });
 
   it("shows the code when its tab is pressed", () => {
     render(shell());
 
-    fireEvent.click(screen.getByRole("tab", { name: "Code" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Files" }));
 
-    expect(screen.getByRole("tab", { name: "Code" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Files" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("region", { name: "Files" })).toBeVisible();
   });
 
@@ -318,8 +321,7 @@ describe("AppShell", () => {
       net.latest.deliver({ type: "ready" });
     });
 
-    const bar = () =>
-      within(screen.getByRole("banner")).getByRole("status", { name: /job phase/i });
+    const bar = () => screen.getByRole("status", { name: /job phase/i });
     expect(bar()).toHaveTextContent(/verifying/i);
 
     fireEvent.click(screen.getByRole("button", { name: /hide chat/i }));
@@ -333,12 +335,12 @@ describe("AppShell", () => {
     // one, and this one decides how much of the screen the transcript gets.
     render(shell());
 
-    const divider = screen.getByRole("separator", { name: /chat width/i });
+    const divider = screen.getByRole("separator", { name: /right panel width/i });
     const before = Number(divider.getAttribute("aria-valuenow"));
 
     fireEvent.keyDown(divider, { key: "ArrowRight" });
 
-    expect(Number(divider.getAttribute("aria-valuenow"))).toBeGreaterThan(before);
+    expect(Number(divider.getAttribute("aria-valuenow"))).toBeLessThan(before);
   });
 
   it("renders exactly one main landmark", () => {
@@ -368,7 +370,9 @@ describe("AppShell", () => {
 
   it("keeps the workbench controls in the workspace banner", () => {
     render(shell());
-    expect(screen.getByRole("banner")).toHaveTextContent("Preview");
+    expect(screen.getByRole("banner")).not.toContainElement(
+      screen.getByRole("tablist", { name: "Workbench" }),
+    );
     expect(screen.getByRole("tablist", { name: "Workbench" })).toBeInTheDocument();
   });
 });

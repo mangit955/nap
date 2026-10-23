@@ -15,6 +15,7 @@ import { BUTTON, FOCUS } from "../settings/settings-ui.tsx";
 import { CloseIcon, GithubIcon } from "../ui/icons.tsx";
 import { EnvironmentSettings } from "./environment-settings.tsx";
 import { GuestSignIn } from "./guest-sign-in.tsx";
+import { PullRequestsPanel } from "./pull-requests-panel.tsx";
 import { GITHUB_API_URL, githubRequest } from "./request.ts";
 
 const admittedSchema = z.object({ requestId: z.uuid() });
@@ -45,7 +46,11 @@ export function ProjectGitHubControl({
   fetchJson = credentialedFetch,
   baseUrl = GITHUB_API_URL,
   onRepository,
+  presentation = "dialog",
+  active = true,
 }: {
+  presentation?: "dialog" | "panel";
+  active?: boolean;
   projectId: string;
   refreshKey: number;
   fetchJson?: FetchJson;
@@ -184,13 +189,219 @@ export function ProjectGitHubControl({
     return result.ok;
   };
 
-  if (state?.repository === null) return null;
-  if (state === undefined && error === undefined && !signIn) return null;
+  if (state?.repository === null)
+    return presentation === "panel" ? (
+      <div className="t3-panel-empty">
+        <GithubIcon className="size-7" />
+        <p>No repository connected</p>
+        <span>Pull requests appear here for projects imported from GitHub.</span>
+        <a href="/settings/connections/github">Manage GitHub access</a>
+      </div>
+    ) : null;
+  if (state === undefined && error === undefined && !signIn)
+    return presentation === "panel" ? (
+      <div className="t3-panel-empty" role="status">
+        Loading pull requests…
+      </div>
+    ) : null;
   const repository = state?.repository;
   const pending =
     state?.feedback.filter(
       (item) => item.kind !== "review" && item.requestId === null && !queuedFeedback.has(item.id),
     ).length ?? 0;
+
+  const content = (
+    <>
+      {signIn ? (
+        <GuestSignIn
+          dismiss={
+            <button type="button" onClick={() => setOpen(false)} className={BUTTON}>
+              Not now
+            </button>
+          }
+        />
+      ) : (
+        <div className="border-edge border-t px-6 pt-1 pb-6">
+          {repository && (
+            <div className="mt-5 rounded-xl border border-edge bg-field p-4">
+              <p className="text-sm">
+                Base branch <code>{repository.baseBranch}</code>
+              </p>
+              <p className="mt-2 text-xs leading-relaxed text-muted">
+                {repository.autoPublish
+                  ? "Verified work opens a draft pull request automatically."
+                  : "Publish verified work when you are ready."}{" "}
+                Review and merge on GitHub.
+              </p>
+            </div>
+          )}
+          <p className="mt-4 text-xs leading-relaxed text-muted">
+            Only /nap comments from the GitHub account that connected this installation and failed
+            CI checks appear for your approval. Review decisions are shown as status; review text is
+            not sent to the agent. Approved follow-ups use nap's existing job limits and Stop
+            control.
+          </p>
+          {repository && (
+            <EnvironmentSettings
+              environment={repository.environment}
+              busy={busy}
+              onSave={saveEnvironment}
+            />
+          )}
+          <div className="my-5 flex items-center justify-between gap-3">
+            <h3 className="text-sm font-medium">Repository jobs</h3>
+            <button type="button" className={BUTTON} disabled={busy} onClick={() => void reload()}>
+              Refresh GitHub status
+            </button>
+          </div>
+          {error && (
+            <p role="alert" className="mb-4 text-sm text-danger">
+              {error}
+            </p>
+          )}
+          {notice && (
+            <p
+              role="status"
+              aria-label="GitHub action"
+              className="mb-4 rounded-lg bg-field p-3 text-sm"
+            >
+              {notice}
+            </p>
+          )}
+          {state?.jobs.length === 0 && (
+            <p className="py-3 text-sm text-muted">
+              Send a task in chat to start work on a dedicated branch.
+            </p>
+          )}
+          <ul className="space-y-4">
+            {state?.jobs.map((job) => (
+              <li key={job.jobId} className="rounded-xl border border-edge p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="break-all font-mono text-xs">
+                    {job.headBranch} → {job.baseBranch}
+                  </p>
+                  <span className="text-xs text-muted">{PUBLISH_LABEL[job.publishState]}</span>
+                </div>
+                {job.pullRequestUrl && (
+                  <a
+                    href={job.pullRequestUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-3 inline-block text-sm underline underline-offset-4"
+                  >
+                    PR #{job.pullRequestNumber} · {job.pullRequestState}
+                  </a>
+                )}
+                <p className="mt-3 text-xs text-muted">
+                  {CHECK_LABEL[job.checkState]} · {REVIEW_LABEL[job.reviewState]}
+                </p>
+                {job.pushedSha && (
+                  <p className="mt-2 text-xs text-muted">
+                    Pushed {job.pushedSha.slice(0, 12)}. This commit is saved on GitHub.
+                  </p>
+                )}
+                {job.error && <p className="mt-3 text-sm text-danger">{job.error}</p>}
+                {queuedJobs.has(job.jobId) && job.publishState !== "publishing" ? (
+                  <p className="mt-3 text-xs text-muted">
+                    Publication queued. Refresh to check progress.
+                  </p>
+                ) : (
+                  canPublish(job) && (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      className={`${BUTTON} mt-3`}
+                      onClick={() =>
+                        void act(
+                          "publish",
+                          { jobId: job.jobId },
+                          () =>
+                            setQueuedJobs((current) =>
+                              new Map(current).set(job.jobId, job.updatedAt),
+                            ),
+                          "Publishing queued. Your existing branch and pull request will be reused.",
+                        )
+                      }
+                    >
+                      {job.publishState === "publishing"
+                        ? "Check or retry publication"
+                        : job.publishState === "failed"
+                          ? "Retry publishing"
+                          : job.pullRequestNumber === null
+                            ? "Open draft pull request"
+                            : "Update pull request"}
+                    </button>
+                  )
+                )}
+              </li>
+            ))}
+          </ul>
+          {(state?.feedback.length ?? 0) > 0 && (
+            <section className="mt-7">
+              <h3 className="text-sm font-medium">Feedback</h3>
+              <ul className="mt-3 space-y-3">
+                {state?.feedback.map((item) => (
+                  <li key={item.id} className="rounded-xl border border-edge p-4">
+                    <p className="mb-2 text-xs text-muted">
+                      {item.kind === "checks"
+                        ? "CI checks"
+                        : item.kind === "comment"
+                          ? "Authorized GitHub comment"
+                          : "Pull request review"}
+                    </p>
+                    <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-ink-2">
+                      {item.summary}
+                    </p>
+                    {item.kind === "review" ? (
+                      <p className="mt-3 text-xs text-muted">Review status only</p>
+                    ) : item.requestId || queuedFeedback.has(item.id) ? (
+                      <p className="mt-3 text-xs text-muted">Follow-up queued</p>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        className={`${BUTTON} mt-3`}
+                        onClick={() =>
+                          void act(
+                            `feedback/${encodeURIComponent(item.id)}`,
+                            {},
+                            () => setQueuedFeedback((current) => new Set(current).add(item.id)),
+                            "Follow-up accepted. Track the job and stop it from chat.",
+                          )
+                        }
+                      >
+                        Ask nap to address feedback
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+          <a
+            href="/settings/connections/github"
+            className={`mt-6 inline-block rounded text-xs text-muted underline underline-offset-4 hover:text-ink ${FOCUS}`}
+          >
+            Manage GitHub access
+          </a>
+        </div>
+      )}
+    </>
+  );
+  if (presentation === "panel")
+    return state && !signIn ? (
+      <PullRequestsPanel
+        state={state}
+        projectId={projectId}
+        fetchJson={fetchJson}
+        baseUrl={baseUrl}
+        refreshKey={refreshKey}
+        active={active}
+        manage={content}
+      />
+    ) : (
+      <div className="t3-pr-panel nap-scroll">{content}</div>
+    );
 
   return (
     <>
@@ -224,185 +435,7 @@ export function ProjectGitHubControl({
           closeLabel={signIn ? "Close" : "Close pull requests"}
           onClose={() => setOpen(false)}
         />
-        {signIn ? (
-          <GuestSignIn
-            dismiss={
-              <button type="button" onClick={() => setOpen(false)} className={BUTTON}>
-                Not now
-              </button>
-            }
-          />
-        ) : (
-          <div className="border-edge border-t px-6 pt-1 pb-6">
-            {repository && (
-              <div className="mt-5 rounded-xl border border-edge bg-field p-4">
-                <p className="text-sm">
-                  Base branch <code>{repository.baseBranch}</code>
-                </p>
-                <p className="mt-2 text-xs leading-relaxed text-muted">
-                  {repository.autoPublish
-                    ? "Verified work opens a draft pull request automatically."
-                    : "Publish verified work when you are ready."}{" "}
-                  Review and merge on GitHub.
-                </p>
-              </div>
-            )}
-            <p className="mt-4 text-xs leading-relaxed text-muted">
-              Only /nap comments from the GitHub account that connected this installation and failed
-              CI checks appear for your approval. Review decisions are shown as status; review text
-              is not sent to the agent. Approved follow-ups use nap's existing job limits and Stop
-              control.
-            </p>
-            {repository && (
-              <EnvironmentSettings
-                environment={repository.environment}
-                busy={busy}
-                onSave={saveEnvironment}
-              />
-            )}
-            <div className="my-5 flex items-center justify-between gap-3">
-              <h3 className="text-sm font-medium">Repository jobs</h3>
-              <button
-                type="button"
-                className={BUTTON}
-                disabled={busy}
-                onClick={() => void reload()}
-              >
-                Refresh GitHub status
-              </button>
-            </div>
-            {error && (
-              <p role="alert" className="mb-4 text-sm text-danger">
-                {error}
-              </p>
-            )}
-            {notice && (
-              <p
-                role="status"
-                aria-label="GitHub action"
-                className="mb-4 rounded-lg bg-field p-3 text-sm"
-              >
-                {notice}
-              </p>
-            )}
-            {state?.jobs.length === 0 && (
-              <p className="py-3 text-sm text-muted">
-                Send a task in chat to start work on a dedicated branch.
-              </p>
-            )}
-            <ul className="space-y-4">
-              {state?.jobs.map((job) => (
-                <li key={job.jobId} className="rounded-xl border border-edge p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="break-all font-mono text-xs">
-                      {job.headBranch} → {job.baseBranch}
-                    </p>
-                    <span className="text-xs text-muted">{PUBLISH_LABEL[job.publishState]}</span>
-                  </div>
-                  {job.pullRequestUrl && (
-                    <a
-                      href={job.pullRequestUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="mt-3 inline-block text-sm underline underline-offset-4"
-                    >
-                      PR #{job.pullRequestNumber} · {job.pullRequestState}
-                    </a>
-                  )}
-                  <p className="mt-3 text-xs text-muted">
-                    {CHECK_LABEL[job.checkState]} · {REVIEW_LABEL[job.reviewState]}
-                  </p>
-                  {job.pushedSha && (
-                    <p className="mt-2 text-xs text-muted">
-                      Pushed {job.pushedSha.slice(0, 12)}. This commit is saved on GitHub.
-                    </p>
-                  )}
-                  {job.error && <p className="mt-3 text-sm text-danger">{job.error}</p>}
-                  {queuedJobs.has(job.jobId) && job.publishState !== "publishing" ? (
-                    <p className="mt-3 text-xs text-muted">
-                      Publication queued. Refresh to check progress.
-                    </p>
-                  ) : (
-                    canPublish(job) && (
-                      <button
-                        type="button"
-                        disabled={busy}
-                        className={`${BUTTON} mt-3`}
-                        onClick={() =>
-                          void act(
-                            "publish",
-                            { jobId: job.jobId },
-                            () =>
-                              setQueuedJobs((current) =>
-                                new Map(current).set(job.jobId, job.updatedAt),
-                              ),
-                            "Publishing queued. Your existing branch and pull request will be reused.",
-                          )
-                        }
-                      >
-                        {job.publishState === "publishing"
-                          ? "Check or retry publication"
-                          : job.publishState === "failed"
-                            ? "Retry publishing"
-                            : job.pullRequestNumber === null
-                              ? "Open draft pull request"
-                              : "Update pull request"}
-                      </button>
-                    )
-                  )}
-                </li>
-              ))}
-            </ul>
-            {(state?.feedback.length ?? 0) > 0 && (
-              <section className="mt-7">
-                <h3 className="text-sm font-medium">Feedback</h3>
-                <ul className="mt-3 space-y-3">
-                  {state?.feedback.map((item) => (
-                    <li key={item.id} className="rounded-xl border border-edge p-4">
-                      <p className="mb-2 text-xs text-muted">
-                        {item.kind === "checks"
-                          ? "CI checks"
-                          : item.kind === "comment"
-                            ? "Authorized GitHub comment"
-                            : "Pull request review"}
-                      </p>
-                      <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-ink-2">
-                        {item.summary}
-                      </p>
-                      {item.kind === "review" ? (
-                        <p className="mt-3 text-xs text-muted">Review status only</p>
-                      ) : item.requestId || queuedFeedback.has(item.id) ? (
-                        <p className="mt-3 text-xs text-muted">Follow-up queued</p>
-                      ) : (
-                        <button
-                          type="button"
-                          disabled={busy}
-                          className={`${BUTTON} mt-3`}
-                          onClick={() =>
-                            void act(
-                              `feedback/${encodeURIComponent(item.id)}`,
-                              {},
-                              () => setQueuedFeedback((current) => new Set(current).add(item.id)),
-                              "Follow-up accepted. Track the job and stop it from chat.",
-                            )
-                          }
-                        >
-                          Ask nap to address feedback
-                        </button>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            )}
-            <a
-              href="/settings/connections/github"
-              className={`mt-6 inline-block rounded text-xs text-muted underline underline-offset-4 hover:text-ink ${FOCUS}`}
-            >
-              Manage GitHub access
-            </a>
-          </div>
-        )}
+        {content}
       </dialog>
     </>
   );

@@ -362,7 +362,7 @@ export class GitHubEventProcessor {
               : "passed";
       const byReviewer = new Map<number, string>();
       for (const review of reviews.value)
-        if (["APPROVED", "CHANGES_REQUESTED", "DISMISSED"].includes(review.state))
+        if (review.user && ["APPROVED", "CHANGES_REQUESTED", "DISMISSED"].includes(review.state))
           byReviewer.set(review.user.id, review.state);
       update.reviewState = [...byReviewer.values()].includes("CHANGES_REQUESTED")
         ? "changes_requested"
@@ -389,7 +389,7 @@ export class GitHubEventProcessor {
       for (const comment of [...comments.value, ...inline.value]) {
         if (
           remote.value.head.sha !== job.pushedSha ||
-          comment.user.id !== authorized.value.installation.githubUserId ||
+          comment.user?.id !== authorized.value.installation.githubUserId ||
           !/^\s*\/nap\s+\S/i.test(comment.body)
         )
           continue;

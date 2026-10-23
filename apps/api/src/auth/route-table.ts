@@ -141,6 +141,11 @@ export const GUARDED_ROUTES: GuardedRoute[] = [
   { method: "DELETE", path: "/projects/:projectId", examplePath: `/projects/${PROJECT}` },
   {
     method: "GET",
+    path: "/sessions/:sessionId/changes",
+    examplePath: `/sessions/${SESSION}/changes`,
+  },
+  {
+    method: "GET",
     path: "/sessions/:sessionId/files",
     examplePath: `/sessions/${SESSION}/files`,
   },

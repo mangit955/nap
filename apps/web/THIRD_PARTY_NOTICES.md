@@ -26,8 +26,12 @@ The chat pane's timeline is a clone of T3 Code's chat timeline:
   three-step "Add provider" wizard, and the OpenAI and Claude marks (`src/providers/`), taken
   from T3 Code at commit `71a283aed253f23be1860a31d4ea48f1c06e0b1c`
 
-Layout, sizing, motion and behaviour come from T3 Code. The colours do not: every colour is one of
-this app's own theme tokens.
+The right-panel shell, tabs, toolbar dimensions, dark palette, and Pierre diff theme
+(`src/workspace/right-panel.css`, `src/workspace/workbench.tsx`, `src/workspace/diff-theme.ts`)
+follow T3 Code at commit `51273020db3245f4ec29514a419d29b5dcb012dc`. The panel uses
+`@pierre/diffs` 1.5.2 under its Apache-2.0 license; its notices ship with that package.
+
+The chat adaptations below use the earlier reference commit.
 
 Source: <https://github.com/pingdotgg/t3code>, at commit
 `e64766c56ac6fc1678e6107052feb0047a35337f`.

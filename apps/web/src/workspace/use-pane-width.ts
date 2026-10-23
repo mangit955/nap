@@ -35,6 +35,8 @@ export function usePaneWidth(
 } {
   const [width, setWidth] = useState(fallback);
   const containerRef = useRef<HTMLDivElement>(null);
+  const stopDrag = useRef<(() => void) | undefined>(undefined);
+  useEffect(() => () => stopDrag.current?.(), []);
 
   /**
    * What this divider is allowed to divide.
@@ -48,6 +50,16 @@ export function usePaneWidth(
 
   useEffect(() => {
     setWidth(split.read(window.localStorage, available()));
+  }, [split, available]);
+
+  useEffect(() => {
+    if (typeof ResizeObserver === "undefined" || !containerRef.current) return;
+    const observer = new ResizeObserver(() => {
+      if (split.direction === -1 && window.matchMedia("(max-width: 980px)").matches) return;
+      setWidth((current) => split.clamp(current, available()));
+    });
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
   }, [split, available]);
 
   const commit = useCallback(
@@ -66,6 +78,7 @@ export function usePaneWidth(
   const onGrab = useCallback(
     (event: React.PointerEvent) => {
       event.preventDefault();
+      stopDrag.current?.();
       const leftEdge = containerRef.current?.getBoundingClientRect().left ?? 0;
       const viewportWidth = available();
 
@@ -73,9 +86,14 @@ export function usePaneWidth(
         setWidth(split.widthFrom({ pointerX: moved.clientX, leftEdge, viewportWidth }));
       };
 
-      const up = () => {
+      const cleanup = () => {
         window.removeEventListener("pointermove", move);
         window.removeEventListener("pointerup", up);
+        window.removeEventListener("pointercancel", up);
+        stopDrag.current = undefined;
+      };
+      const up = () => {
+        cleanup();
         // Written once, at the end: a write per pointer event is a hundred writes a second.
         setWidth((current) => {
           split.write(window.localStorage, current);
@@ -83,6 +101,8 @@ export function usePaneWidth(
         });
       };
 
+      stopDrag.current = cleanup;
+      window.addEventListener("pointercancel", up);
       window.addEventListener("pointermove", move);
       window.addEventListener("pointerup", up);
     },
@@ -95,7 +115,7 @@ export function usePaneWidth(
       if (direction === 0) return;
 
       event.preventDefault();
-      commit(split.clamp(width + direction * STEP, available()));
+      commit(split.clamp(width + direction * STEP * (split.direction ?? 1), available()));
     },
     [commit, split, width, available],
   );

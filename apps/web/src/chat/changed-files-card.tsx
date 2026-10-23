@@ -1,14 +1,9 @@
 "use client";
 
 /**
- * What a turn changed, as a card under its answer: "3 changed files +84 −3" over a small tree.
- *
- * Cloned from T3 Code's `ChangedFilesCard` (`ChangedFilesTree.tsx`, MIT — see
- * `apps/web/THIRD_PARTY_NOTICES.md`). It stays visible when the turn folds, because "what did that
- * change?" is the question somebody skimming a finished conversation asks first. Two differences:
- * there is no "Open diff" — Nap has no diff view, and the diffs are in the work behind the fold —
- * so a file opens in the Code tab instead; and folders start open, because a Nap turn touches a
- * handful of files and a closed `src` would hide every one of them.
+ * Recorded write operations for a completed turn. Counts describe tool patches, not a net Git
+ * comparison. The workspace diff action opens the current branch comparison explicitly.
+ * Layout adapted from T3 Code (MIT); see apps/web/THIRD_PARTY_NOTICES.md.
  */
 
 import {
@@ -18,6 +13,7 @@ import {
   FileCode,
   Folder,
   FolderClosed,
+  GitCompareArrows,
 } from "lucide-react";
 import { use, useState } from "react";
 import { ProjectFiles } from "./chat-markdown.tsx";
@@ -45,6 +41,7 @@ const ROW =
   "group flex h-7 w-full items-center gap-2 rounded-md py-1.5 pr-2 text-left transition-colors hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/70";
 
 export function ChangedFilesCard({ files }: { files: readonly FileChange[] }) {
+  const { onOpenChanges } = use(ProjectFiles);
   const [allOpen, setAllOpen] = useState(true);
   // Folders the reader toggled, against whichever way "all" was last set.
   const [overrides, setOverrides] = useState<Record<string, boolean>>({});
@@ -66,6 +63,17 @@ export function ChangedFilesCard({ files }: { files: readonly FileChange[] }) {
           </span>
           {(added > 0 || removed > 0) && <DiffStat added={added} removed={removed} />}
         </div>
+        {onOpenChanges && (
+          <button
+            type="button"
+            aria-label="Open workspace diff"
+            title="View the current workspace's net Git changes"
+            onClick={onOpenChanges}
+            className="ml-auto grid size-6 place-items-center rounded-md text-muted hover:bg-hover hover:text-ink"
+          >
+            <GitCompareArrows size={13} />
+          </button>
+        )}
         {hasDirectories && (
           <button
             type="button"

@@ -1,5 +1,9 @@
 import { createSign } from "node:crypto";
-import { type GitHubRepository, GitHubRepositorySchema } from "@nap/shared/github-protocol";
+import {
+  type GitHubRepository,
+  GitHubRepositorySchema,
+  type PullRequestInspection,
+} from "@nap/shared/github-protocol";
 import type { Result } from "@nap/shared/result";
 import { z } from "zod";
 
@@ -22,6 +26,7 @@ export type GitHubResult<T> = Result<T, GitHubError>;
 export type GitHubFetch = (url: string, init?: RequestInit) => Promise<Response>;
 const Id = z.number().int().positive().safe();
 const User = z.object({ id: Id, login: z.string().regex(/^[a-zA-Z0-9-]+$/) });
+const DisplayActor = z.object({ id: Id, login: z.string() });
 const Installation = z.object({
   id: Id,
   app_id: Id,
@@ -45,6 +50,32 @@ const PullRequest = z.object({
   head: z.object({ sha: z.string(), ref: z.string(), repo: z.object({ id: Id }).nullable() }),
   base: z.object({ ref: z.string(), repo: z.object({ id: Id }) }),
 });
+const PullRequestDetail = PullRequest.extend({
+  title: z.string(),
+  body: z.string().nullable(),
+  draft: z.boolean(),
+  user: DisplayActor,
+  base: z.object({ ref: z.string(), sha: z.string(), repo: z.object({ id: Id }) }),
+});
+const PullRequestFile = z.object({
+  filename: z.string(),
+  previous_filename: z.string().optional(),
+  status: z.enum(["added", "removed", "modified", "renamed", "copied", "changed", "unchanged"]),
+  additions: z.number().int().nonnegative(),
+  deletions: z.number().int().nonnegative(),
+  patch: z.string().optional(),
+});
+const AnchoredComment = z.object({
+  id: Id,
+  user: DisplayActor.nullable(),
+  body: z.string(),
+  path: z.string(),
+  line: z.number().nullable(),
+  original_line: z.number().nullable(),
+  side: z.enum(["LEFT", "RIGHT"]),
+  commit_id: z.string(),
+  html_url: z.url(),
+});
 const Checks = z.object({
   check_runs: z.array(
     z.object({ name: z.string(), status: z.string(), conclusion: z.string().nullable() }),
@@ -57,11 +88,16 @@ const Statuses = z.object({
 const Review = z.object({
   id: Id,
   state: z.string(),
-  user: User,
+  user: DisplayActor.nullable(),
   body: z.string().nullable(),
   submitted_at: z.string().nullable(),
 });
-const Comment = z.object({ id: Id, body: z.string(), user: User, updated_at: z.string() });
+const Comment = z.object({
+  id: Id,
+  body: z.string(),
+  user: DisplayActor.nullable(),
+  updated_at: z.string(),
+});
 const Tokens = z.object({ token: z.string(), expires_at: z.iso.datetime() });
 const empty = z.unknown();
 type Permissions = Record<string, "read" | "write">;
@@ -443,6 +479,143 @@ export class GitHubApp {
       },
     );
   }
+  async inspectPullRequest(
+    installationId: number,
+    repository: GitHubRepository,
+    number: number,
+  ): Promise<GitHubResult<PullRequestInspection>> {
+    const detail = () =>
+      this.#repo(installationId, repository, `/pulls/${number}`, PullRequestDetail, {
+        pull_requests: "read",
+      });
+    const before = await detail();
+    if (!before.ok) return before;
+    const [files, checks, statuses, reviews, comments, anchors] = await Promise.all([
+      this.#collection(
+        installationId,
+        repository,
+        `/pulls/${number}/files`,
+        z.array(PullRequestFile),
+        { pull_requests: "read" },
+      ),
+      this.checks(installationId, repository, before.value.head.sha),
+      this.statuses(installationId, repository, before.value.head.sha),
+      this.reviews(installationId, repository, number),
+      this.comments(installationId, repository, number),
+      this.#collection(
+        installationId,
+        repository,
+        `/pulls/${number}/comments`,
+        z.array(AnchoredComment),
+        { pull_requests: "read" },
+      ),
+    ]);
+    if (!files.ok) return files;
+    if (!checks.ok) return checks;
+    if (!statuses.ok) return statuses;
+    if (!reviews.ok) return reviews;
+    if (!comments.ok) return comments;
+    if (!anchors.ok) return anchors;
+    const after = await detail();
+    if (!after.ok) return after;
+    if (
+      before.value.head.sha !== after.value.head.sha ||
+      before.value.base.sha !== after.value.base.sha
+    )
+      return {
+        ok: false,
+        error: {
+          code: "conflict",
+          message: "The pull request changed while loading. Refresh to read the new revision.",
+        },
+      };
+    const pr = after.value;
+    let remaining = 384 * 1024;
+    const mappedFiles: PullRequestInspection["files"] = files.value.map((file) => {
+      const patch = file.patch ?? "";
+      const limit = Math.max(0, Math.min(120 * 1024, remaining));
+      const truncated = file.patch === undefined || Buffer.byteLength(patch) > limit;
+      const clipped = Buffer.from(patch).subarray(0, limit).toString("utf8");
+      remaining -= Buffer.byteLength(clipped);
+      return {
+        path: file.filename,
+        previousPath: file.previous_filename ?? null,
+        status:
+          file.status === "removed"
+            ? "deleted"
+            : file.status === "changed"
+              ? "typechanged"
+              : file.status === "unchanged"
+                ? "modified"
+                : file.status,
+        additions: file.additions,
+        deletions: file.deletions,
+        binary: false,
+        truncated,
+        patch:
+          truncated && clipped.length > 0
+            ? clipped.slice(0, Math.max(0, clipped.lastIndexOf("\n")))
+            : clipped,
+      };
+    });
+    const timeline: PullRequestInspection["timeline"] = [
+      ...comments.value.map((comment) => ({
+        id: `comment:${comment.id}`,
+        kind: "comment" as const,
+        author: comment.user?.login ?? "Deleted user",
+        body: comment.body,
+        state: null,
+        at: comment.updated_at,
+      })),
+      ...reviews.value.map((review) => ({
+        id: `review:${review.id}`,
+        kind: "review" as const,
+        author: review.user?.login ?? "Deleted user",
+        body: review.body ?? "",
+        state: review.state,
+        at: review.submitted_at,
+      })),
+    ];
+    timeline.sort((a, b) => (a.at ?? "").localeCompare(b.at ?? ""));
+    return {
+      ok: true,
+      value: {
+        number: pr.number,
+        title: pr.title,
+        body: pr.body ?? "",
+        url: pr.html_url,
+        state: pr.merged_at ? "merged" : pr.state,
+        draft: pr.draft,
+        author: pr.user.login,
+        base: { ref: pr.base.ref, sha: pr.base.sha },
+        head: { ref: pr.head.ref, sha: pr.head.sha },
+        capturedAt: new Date(this.now()).toISOString(),
+        files: mappedFiles,
+        checks: [
+          ...checks.value.check_runs,
+          ...statuses.value.statuses.map((status) => ({
+            name: status.context,
+            status: status.state,
+            conclusion: status.state === "pending" ? null : status.state,
+          })),
+        ],
+        timeline,
+        comments: anchors.value.map((comment) => ({
+          id: comment.id,
+          author: comment.user?.login ?? "Deleted user",
+          body: comment.body,
+          path: comment.path,
+          line: comment.line,
+          originalLine: comment.original_line,
+          side: comment.side,
+          commitId: comment.commit_id,
+          outdated: comment.line === null,
+          url: comment.html_url,
+        })),
+      },
+    };
+  }
+
   async checks(installationId: number, repository: GitHubRepository, sha: string) {
     const result = await this.#collection(
       installationId,

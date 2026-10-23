@@ -310,6 +310,34 @@ export function registerGitHubRoutes(
       followUpPolicy: "owner_approval",
     });
   });
+  router.get("/projects/:projectId/github/pull-requests/:number", async (c) => {
+    c.header("Cache-Control", "no-store");
+    const projectId = c.req.param("projectId");
+    const number = id(c.req.param("number"));
+    if (!uuid(projectId).success || !number.success)
+      return c.json({ error: "Invalid pull request." }, 400);
+    const binding = await deps.store.repository(projectId, c.get("userId"));
+    if (!binding || !(await deps.projects.get(projectId, c.get("userId"))))
+      return c.json({ error: "No such project." }, 404);
+    const jobs = await deps.store.jobs(projectId, c.get("userId"));
+    if (!jobs.some((job) => job.pullRequestNumber === number.data))
+      return c.json({ error: "No such linked pull request." }, 404);
+    const access = await deps.integration.authorize(
+      c.get("userId"),
+      binding.installationId,
+      binding.repository,
+    );
+    if (!access.ok) return c.json({ error: access.error.message }, errorStatus(access.error.code));
+    if (!deps.app) return c.json({ error: "GitHub is not configured." }, 503);
+    const result = await deps.app.inspectPullRequest(
+      binding.installationId,
+      access.value.repository,
+      number.data,
+    );
+    if (!result.ok) return c.json({ error: result.error.message }, errorStatus(result.error.code));
+    return c.json(result.value);
+  });
+
   router.post("/projects/:projectId/github/publish", async (c) => {
     const projectId = c.req.param("projectId");
     const body = z.object({ jobId: z.uuid() }).safeParse(await json(c.req.raw));
