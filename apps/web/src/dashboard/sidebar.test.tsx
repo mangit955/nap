@@ -24,7 +24,6 @@ function project(over: Partial<ProjectSummaryPayload> = {}): ProjectSummaryPaylo
 
 function show(props: Partial<Parameters<typeof Sidebar>[0]> = {}) {
   const handlers = {
-    onScopeChange: vi.fn(),
     onNewProject: vi.fn(),
     onApiKey: vi.fn(),
     onSignOut: vi.fn(),
@@ -34,8 +33,6 @@ function show(props: Partial<Parameters<typeof Sidebar>[0]> = {}) {
     <Sidebar
       name="Manas"
       email="manas@example.com"
-      scope="all"
-      counts={{ all: 3, running: 1, "put-away": 2 }}
       recents={[project()]}
       keyHint={undefined}
       {...handlers}
@@ -47,12 +44,12 @@ function show(props: Partial<Parameters<typeof Sidebar>[0]> = {}) {
 }
 
 /**
- * The account's own actions live behind the name now, so every case about them opens it first.
+ * The account's own actions live inside Settings, so every case about them opens it first.
  *
  * A press is the only way it opens — see the case below about hover.
  */
 function openAccountMenu() {
-  fireEvent.click(screen.getByRole("button", { name: /Manas/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Settings" }));
 }
 
 describe("the dashboard sidebar", () => {
@@ -61,11 +58,8 @@ describe("the dashboard sidebar", () => {
     const props = {
       name: "Reader",
       email: undefined,
-      scope: "all" as const,
-      counts: { all: 1, running: 1, "put-away": 0 },
       recents: [],
       keyHint: undefined,
-      onScopeChange: vi.fn(),
       onNewProject: vi.fn(),
       onApiKey: vi.fn(),
       onSignOut: vi.fn(),
@@ -95,28 +89,6 @@ describe("the dashboard sidebar", () => {
     );
   });
 
-  it("offers the three scopes with their counts", () => {
-    show();
-    fireEvent.click(screen.getByRole("button", { name: "Filter sessions" }));
-
-    expect(screen.getByRole("button", { name: "All sessions, 3" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Running, 1" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Put away, 2" })).toBeInTheDocument();
-  });
-
-  it("says which scope is showing, in a way that is not only a colour", () => {
-    show({ scope: "running" });
-    fireEvent.click(screen.getByRole("button", { name: "Filter sessions" }));
-
-    expect(screen.getByRole("button", { name: "Running, 1" })).toHaveAttribute(
-      "aria-current",
-      "true",
-    );
-    expect(screen.getByRole("button", { name: "All sessions, 3" })).not.toHaveAttribute(
-      "aria-current",
-    );
-  });
-
   it("marks signing out as in flight, and holds the button while it is", () => {
     // The one action in this rail that is neither instant nor visible: nothing on the page
     // changes until the redirect lands, so an unmarked slow sign-out reads as a dead button.
@@ -140,15 +112,6 @@ describe("the dashboard sidebar", () => {
     expect(item).toBeEnabled();
   });
 
-  it("changes the scope when one is picked", () => {
-    const { onScopeChange } = show();
-    fireEvent.click(screen.getByRole("button", { name: "Filter sessions" }));
-
-    fireEvent.click(screen.getByRole("button", { name: "Put away, 2" }));
-
-    expect(onScopeChange).toHaveBeenCalledWith("put-away");
-  });
-
   it("searches the sessions in the sidebar", () => {
     show({
       recents: [
@@ -156,7 +119,6 @@ describe("the dashboard sidebar", () => {
         project({ projectId: "other", name: "Portfolio" }),
       ],
     });
-    fireEvent.click(screen.getByRole("button", { name: "Search sessions" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Search sessions" }), {
       target: { value: "portfolio" },
     });
@@ -180,12 +142,13 @@ describe("the dashboard sidebar", () => {
     expect(screen.queryByRole("heading", { name: /recents/i })).not.toBeInTheDocument();
   });
 
-  it("names the person signed in, and offers the way out behind their name", () => {
+  it("keeps account details and sign out inside Settings", () => {
     const { onSignOut } = show();
 
-    // The name and email stay on the rail; only the actions moved.
-    expect(screen.getByText("manas@example.com")).toBeInTheDocument();
+    // Account details are visible only while Settings is open.
+    expect(screen.queryByText("manas@example.com")).toBeNull();
     openAccountMenu();
+    expect(screen.getByText("manas@example.com")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("menuitem", { name: /sign out/i }));
 
     expect(onSignOut).toHaveBeenCalled();
@@ -204,7 +167,9 @@ describe("the dashboard sidebar", () => {
     // A menu that opens on hover opens when nobody asked, over the recents somebody is reading.
     show();
 
-    fireEvent.pointerEnter(screen.getByRole("button", { name: /Manas/ }).parentElement as Element);
+    fireEvent.pointerEnter(
+      screen.getByRole("button", { name: "Settings" }).parentElement as Element,
+    );
 
     expect(screen.queryByRole("menu")).toBeNull();
   });
@@ -214,7 +179,7 @@ describe("the dashboard sidebar", () => {
     // attributes are what make the trigger a control rather than a decorated name.
     show();
 
-    const trigger = screen.getByRole("button", { name: /Manas/ });
+    const trigger = screen.getByRole("button", { name: "Settings" });
     expect(trigger).toHaveAttribute("aria-haspopup", "menu");
     expect(trigger).toHaveAttribute("aria-expanded", "false");
 
@@ -222,7 +187,7 @@ describe("the dashboard sidebar", () => {
     expect(trigger).toHaveAttribute("aria-expanded", "true");
   });
 
-  it("closes on Escape and gives focus back to the name", () => {
+  it("closes on Escape and gives focus back to Settings", () => {
     // Focus left on an element that has just stopped existing is focus on `<body>`, and the next
     // Tab starts again from the top of the page.
     show();
@@ -231,7 +196,7 @@ describe("the dashboard sidebar", () => {
     fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
 
     expect(screen.queryByRole("menu")).toBeNull();
-    expect(screen.getByRole("button", { name: /Manas/ })).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Settings" })).toHaveFocus();
   });
 
   it("starts a new project from the rail", () => {
@@ -259,4 +224,23 @@ describe("the dashboard sidebar", () => {
 
     expect(screen.getByRole("menuitem", { name: "API key · sk-or-…4f2a" })).toBeInTheDocument();
   });
+});
+
+it("shows search immediately and filters Scratch through the searchable source picker", () => {
+  show();
+  expect(screen.getByRole("textbox", { name: "Search sessions" })).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "Sessions" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Filter by source" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "Search sources" }), {
+    target: { value: "scr" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Scratch" }));
+  expect(screen.getByRole("link", { name: /Habit Builder/ })).toBeInTheDocument();
+  expect(screen.queryByRole("textbox", { name: "Search sources" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Filter by source" })).toHaveFocus();
+  openAccountMenu();
+  expect(screen.getByRole("menuitem", { name: "Archived sessions" })).toHaveAttribute(
+    "href",
+    "/settings/archived",
+  );
 });

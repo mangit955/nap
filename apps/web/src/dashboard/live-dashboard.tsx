@@ -10,7 +10,7 @@ import { ComposerDraftStore } from "../projects/composer-draft.ts";
 import { useSessionNavigation } from "../projects/use-session-navigation.ts";
 import { SpinnerIcon } from "../ui/icons.tsx";
 import { Dashboard } from "./dashboard.tsx";
-import { greetingName, type ProjectScope, recentProjects, scopeCounts } from "./filters.ts";
+import { greetingName, recentProjects } from "./filters.ts";
 import { NewSessionComposer } from "./new-session-composer.tsx";
 import { Sidebar } from "./sidebar.tsx";
 
@@ -69,7 +69,6 @@ function SignedInDashboard({
   const [signingOut, setSigningOut] = useState(false);
 
   const [draftVersion, setDraftVersion] = useState(0);
-  const [scope, setScope] = useState<ProjectScope>("all");
   const [busyProjectId, setBusyProjectId] = useState<string | undefined>(undefined);
 
   /** Runs one action against one project, with that card held still while it is in flight. */
@@ -97,10 +96,7 @@ function SignedInDashboard({
             error={actionError ?? (status === "error" ? "Could not load sessions." : undefined)}
             loading={status === "loading"}
             busyProjectId={navigation.busyProjectId ?? busyProjectId}
-            scope={scope}
-            counts={scopeCounts(projects)}
             recents={recentProjects(projects, projects.length)}
-            onScopeChange={setScope}
             onApiKey={() => setKeyPanelOpen(true)}
             keyHint={key.state?.configured === true ? key.state.hint : undefined}
             onNewProject={() => {
