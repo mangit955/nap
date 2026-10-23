@@ -101,6 +101,7 @@ export function Dashboard({
       });
     };
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
       // Native rename/account dialogs keep their own Escape and Tab handling.
       if (event.target instanceof Element && event.target.closest("dialog[open]")) return;
       if (event.key === "Escape") {
