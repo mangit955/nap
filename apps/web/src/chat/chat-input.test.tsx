@@ -578,3 +578,27 @@ it("flushes the latest workspace draft before a document link and retains it on 
     vi.unstubAllGlobals();
   }
 });
+
+it("resumes workspace draft persistence when its authenticated owner returns after clearing", async () => {
+  vi.stubGlobal("indexedDB", new IDBFactory());
+  const draftIdentity = { ownerId: crypto.randomUUID(), projectId: crypto.randomUUID() };
+  const store = new ComposerDraftStore();
+  await store.clearOwner(draftIdentity.ownerId);
+  const view = show({ draftIdentity });
+  try {
+    await waitFor(() => expect(box()).toBeEnabled());
+    type("Follow-up after signing in again");
+    // A read must not be what resumes the writer under test.
+    await waitFor(() =>
+      expect(
+        localStorage.getItem(`nap.draft.${draftIdentity.ownerId}.${draftIdentity.projectId}`),
+      ).toBe("1"),
+    );
+    expect(await store.load(draftIdentity.ownerId, draftIdentity.projectId)).toMatchObject({
+      text: "Follow-up after signing in again",
+    });
+  } finally {
+    view.unmount();
+    vi.unstubAllGlobals();
+  }
+});

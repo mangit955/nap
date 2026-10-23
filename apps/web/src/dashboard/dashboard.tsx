@@ -71,7 +71,37 @@ export function Dashboard({
     drawer
       ?.querySelector<HTMLElement>("a[href], button:not([disabled]), input:not([disabled])")
       ?.focus();
+    // Observe descendant activation after React's row handlers can cancel deferred clicks.
+    const onClick = (event: MouseEvent) => {
+      if (
+        event.defaultPrevented ||
+        !(event.target instanceof Element) ||
+        !drawer?.contains(event.target)
+      )
+        return;
+      if (event.target.closest("[data-new-session]")) {
+        closeNavigation();
+        return;
+      }
+      const anchor = event.target.closest("a[href]");
+      if (
+        !(anchor instanceof HTMLAnchorElement) ||
+        anchor.hasAttribute("download") ||
+        (anchor.target && anchor.target !== "_self") ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey
+      )
+        return;
+      // Recheck cancellation after synchronous dispatch of replayed clicks.
+      // Native clicks may run this microtask before later document listeners.
+      queueMicrotask(() => {
+        if (!event.defaultPrevented) closeNavigation();
+      });
+    };
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
       // Native rename/account dialogs keep their own Escape and Tab handling.
       if (event.target instanceof Element && event.target.closest("dialog[open]")) return;
       if (event.key === "Escape") {
@@ -106,9 +136,11 @@ export function Dashboard({
     const onResize = () => {
       if (!viewport.matches) setNavigationOpen(false);
     };
+    document.addEventListener("click", onClick);
     document.addEventListener("keydown", onKeyDown);
     viewport.addEventListener("change", onResize);
     return () => {
+      document.removeEventListener("click", onClick);
       document.removeEventListener("keydown", onKeyDown);
       viewport.removeEventListener("change", onResize);
     };
@@ -158,18 +190,7 @@ export function Dashboard({
           className="sidebar-backdrop"
         />
       )}
-      <div
-        ref={navigation}
-        className="dashboard-sidebar min-h-0"
-        onClickCapture={(event) => {
-          if (
-            navigationOpen &&
-            event.target instanceof Element &&
-            event.target.closest("a, [data-new-session]")
-          )
-            closeNavigation();
-        }}
-      >
+      <div ref={navigation} className="dashboard-sidebar min-h-0">
         {sidebar}
       </div>
       {!collapsed && (

@@ -202,6 +202,41 @@ it("closes mobile sessions when New session is chosen", () => {
   );
 });
 
+it("keeps mobile sessions open when an earlier document listener consumes Escape", () => {
+  const consumeEscape = (event: KeyboardEvent) => {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    event.stopPropagation();
+  };
+  // Next delegates React events to document, where stopPropagation leaves later listeners alive.
+  document.addEventListener("keydown", consumeEscape, { once: true });
+  try {
+    render(<Dashboard sidebar={interactiveSidebar()} hero={<p>Composer</p>} />);
+    const trigger = screen.getByRole("button", { name: "Open sessions" });
+    fireEvent.click(trigger);
+    const link = screen.getByRole("link", { name: "nap dashboard" });
+    expect(link).toHaveFocus();
+
+    const escapeEvent = new KeyboardEvent("keydown", {
+      key: "Escape",
+      bubbles: true,
+      cancelable: true,
+    });
+    fireEvent(link, escapeEvent);
+    expect(escapeEvent.defaultPrevented).toBe(true);
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(link).toHaveFocus();
+    expect(screen.getByRole("main", { hidden: true })).toHaveAttribute("inert");
+
+    fireEvent.keyDown(link, { key: "Escape" });
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(trigger).toHaveFocus();
+    expect(screen.getByRole("main")).not.toHaveAttribute("inert");
+  } finally {
+    document.removeEventListener("keydown", consumeEscape);
+  }
+});
+
 it("includes source filter and Settings in the real mobile sidebar's Tab order", () => {
   const rects = vi
     .spyOn(HTMLElement.prototype, "getClientRects")

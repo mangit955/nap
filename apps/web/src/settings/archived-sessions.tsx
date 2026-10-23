@@ -1,5 +1,5 @@
 "use client";
-import type { SessionSummary } from "@nap/shared/session-navigation";
+import { type SessionSummary, sessionSection } from "@nap/shared/session-navigation";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { authClient } from "../auth/client.ts";
@@ -52,7 +52,8 @@ export function ArchivedSessions({
   busyProjectId?: string | undefined;
   onRestore: (id: string) => void;
 }) {
-  const archived = sessions.filter((row) => row.navigation.archivedAt !== null);
+  const now = Date.now();
+  const archived = sessions.filter((row) => sessionSection(row, now) === "archived");
   if (!archived.length) return <p className="text-sm text-muted">No archived sessions.</p>;
   return (
     <ul aria-label="Archived sessions" className="max-w-2xl divide-y divide-edge">

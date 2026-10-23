@@ -93,6 +93,7 @@ export function ChatInput({
   restoreModel.current = onModelChange;
   useEffect(() => {
     if (!draftOwner || !draftProject) return;
+    draftStore.current.resumeOwner(draftOwner);
     let cancelled = false;
     setDraftReady(false);
     void draftStore.current

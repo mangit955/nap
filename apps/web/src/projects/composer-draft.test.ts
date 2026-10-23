@@ -26,9 +26,11 @@ it("preserves prepared media, model and source across reload, isolates owners, e
   expect(await store.load(crypto.randomUUID(), draft.id)).toBeNull();
   await store.clearOwner(draft.ownerId);
   expect(await store.load(draft.ownerId, draft.id)).toBeNull();
+  store.resumeOwner(draft.ownerId);
   await store.save({ ...draft, expiresAt: Date.now() - 1 });
   expect(await store.load(draft.ownerId, draft.id)).toBeNull();
   await store.save(draft);
+  expect(await store.load(draft.ownerId, draft.id)).toEqual(draft);
   await store.remove(draft.ownerId, draft.id);
   expect(await store.load(draft.ownerId, draft.id)).toBeNull();
 });

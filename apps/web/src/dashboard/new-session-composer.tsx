@@ -42,6 +42,7 @@ export function NewSessionComposer({
   const pointer = `nap.composer.${ownerId}`;
   const saveTail = useRef<Promise<void>>(Promise.resolve());
   useEffect(() => {
+    store.current.resumeOwner(ownerId);
     let cancelled = false;
     const restore = async () => {
       const params = new URLSearchParams(window.location.search);

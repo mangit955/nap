@@ -1,6 +1,6 @@
 "use client";
 
-import type { SessionSummary } from "@nap/shared/session-navigation";
+import { type SessionSummary, sessionSection } from "@nap/shared/session-navigation";
 import {
   AlarmClockOff,
   Check,
@@ -82,13 +82,23 @@ export function SessionRow({
   const clickTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(clickTimer.current), []);
   const [renaming, setRenaming] = useState(false);
+  const link = useRef<HTMLAnchorElement>(null);
+  const restoreFocus = useRef(false);
+  useEffect(() => {
+    if (!renaming && restoreFocus.current) {
+      restoreFocus.current = false;
+      link.current?.focus();
+    }
+  }, [renaming]);
   const [menuOpen, setMenuOpen] = useState(false);
   const status = rowStatus(session);
   const source = sessionSource(session.repository);
   const quiet = recedes(status, isOpen);
   const working = status?.kind === "working";
   const variant = shelf === "pinned" || shelf === "active" ? "card" : "slim";
-  const snoozed = shelf === "snoozed";
+  const section = sessionSection(session, now);
+  const snoozed = section === "snoozed";
+  const settled = section === "done";
   const href = `/p/${session.projectId}`;
   const surface = isOpen
     ? "bg-row-active"
@@ -99,7 +109,8 @@ export function SessionRow({
   const title = renaming ? (
     <RenameField
       name={session.name}
-      onDone={(name) => {
+      onDone={(name, keyboard) => {
+        restoreFocus.current = keyboard;
         setRenaming(false);
         if (name !== undefined && name !== session.name) onRename?.(name);
       }}
@@ -122,6 +133,7 @@ export function SessionRow({
 
   // Double-click renames, as in T3. The link swallows the click that would otherwise navigate.
   const linkProps = {
+    ref: link,
     href,
     "aria-current": isOpen ? ("page" as const) : undefined,
     "data-session-link": "",
@@ -274,22 +286,35 @@ export function SessionRow({
         )}
         {!working && (onSettle || onSnooze) && (
           <span className={`${hoverControls} top-2 h-5`}>
-            {onSnooze && (
-              <SnoozeMenu
-                name={session.name}
-                disabled={busy}
-                onSnooze={(until) => onSnooze(until)}
-                onOpenChange={setMenuOpen}
-              />
-            )}
+            {onSnooze &&
+              (snoozed ? (
+                <RowButton
+                  label={`Wake ${session.name}`}
+                  disabled={busy}
+                  onPress={() => onSnooze(null)}
+                >
+                  <AlarmClockOff aria-hidden className="size-3.5" />
+                </RowButton>
+              ) : (
+                <SnoozeMenu
+                  name={session.name}
+                  disabled={busy}
+                  onSnooze={(until) => onSnooze(until)}
+                  onOpenChange={setMenuOpen}
+                />
+              ))}
             {onSettle && (
               <RowButton
-                label={`Settle ${session.name}`}
+                label={`${settled ? "Un-settle" : "Settle"} ${session.name}`}
                 disabled={busy}
-                onPress={() => onSettle(true)}
+                onPress={() => onSettle(!settled)}
               >
-                <Check aria-hidden className="size-3.5" />
-                <span aria-hidden>Settle</span>
+                {settled ? (
+                  <Undo2 aria-hidden className="size-3.5" />
+                ) : (
+                  <Check aria-hidden className="size-3.5" />
+                )}
+                <span aria-hidden>{settled ? "Un-settle" : "Settle"}</span>
               </RowButton>
             )}
           </span>
@@ -435,12 +460,12 @@ function RenameField({
   onDone,
 }: {
   name: string;
-  onDone: (name: string | undefined) => void;
+  onDone: (name: string | undefined, keyboard: boolean) => void;
 }) {
   const [value, setValue] = useState(name);
-  const commit = () => {
+  const commit = (keyboard: boolean) => {
     const trimmed = value.trim();
-    onDone(trimmed && trimmed.length <= 60 ? trimmed : undefined);
+    onDone(trimmed && trimmed.length <= 60 ? trimmed : undefined, keyboard);
   };
   return (
     <input
@@ -451,17 +476,17 @@ function RenameField({
       maxLength={60}
       onChange={(event) => setValue(event.target.value)}
       onFocus={(event) => event.currentTarget.select()}
-      onBlur={commit}
+      onBlur={() => commit(false)}
       onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
         event.stopPropagation();
         if (event.nativeEvent.isComposing) return;
         if (event.key === "Enter") {
           event.preventDefault();
-          event.currentTarget.blur();
+          commit(true);
         } else if (event.key === "Escape") {
           event.preventDefault();
           setValue(name);
-          onDone(undefined);
+          onDone(undefined, true);
         }
       }}
       className="min-w-0 flex-1 rounded-sm border border-edge bg-field px-1 text-sm font-medium text-ink outline-none focus:border-ink-2"

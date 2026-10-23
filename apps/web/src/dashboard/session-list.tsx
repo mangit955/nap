@@ -31,7 +31,9 @@ export function SessionList({
   onRename,
   onDelete,
   onClose,
+  onLayout,
 }: {
+  onLayout?: ((selected: HTMLAnchorElement | null) => void) | undefined;
   draftIds?: ReadonlySet<string> | undefined;
   sessions: readonly SessionSummary[];
   activeProjectId?: string | undefined;
@@ -48,6 +50,7 @@ export function SessionList({
   const [now, setNow] = useState(Date.now);
   const [expanded, setExpanded] = useState({ snoozed: false, settled: false });
   const [settledCount, setSettledCount] = useState(SETTLED_START);
+  const [restoredKey, setRestoredKey] = useState<string>();
   const storageKey = `nap.sidebar.shelves.${ownerId ?? "local"}`;
   useEffect(() => {
     try {
@@ -67,6 +70,7 @@ export function SessionList({
     } catch {
       setExpanded({ snoozed: false, settled: false });
     }
+    setRestoredKey(storageKey);
   }, [storageKey]);
   const toggle = (shelf: "snoozed" | "settled") => {
     const next = { ...expanded, [shelf]: !expanded[shelf] };
@@ -100,6 +104,14 @@ export function SessionList({
   const selectedOutside = sorted.find(
     (row) => row.projectId === activeProjectId && !drawn.includes(row),
   );
+  const selected = drawn.find((row) => row.projectId === activeProjectId);
+  const selectedPlacement = selectedOutside ? "current" : selected && sessionSection(selected, now);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reveal when selection changes placement, never on a polling-only render.
+  useEffect(() => {
+    if (restoredKey === storageKey) {
+      onLayout?.(root.current?.querySelector<HTMLAnchorElement>('a[aria-current="page"]') ?? null);
+    }
+  }, [onLayout, restoredKey, storageKey, activeProjectId, selectedPlacement]);
   const move = (id: string, target: string, before = false) => {
     const row = sorted.find((item) => item.projectId === id);
     if (!row) return;

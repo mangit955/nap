@@ -270,6 +270,121 @@ describe("pull request panel", () => {
     await screen.findByRole("heading", { name: "Panel change 5" });
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
+  it.each(["retry", "filter", "outside"])(
+    "returns Retry focus only when it still owns focus, with focus on %s at completion",
+    async (focused) => {
+      const pending = deferredResponse();
+      const fetchJson = vi.fn(async () => Response.json(inspection()));
+      render(
+        <>
+          <button type="button">Outside panel</button>
+          <PullRequestsPanel {...props} fetchJson={fetchJson} />
+        </>,
+      );
+      await screen.findByRole("heading", { name: "Panel change 5" });
+      fireEvent.click(screen.getByRole("tab", { name: /Code/ }));
+      const code = screen.getByRole("tabpanel", { name: /Code/ });
+      const filter = within(code).getByRole("textbox", { name: "Filter pull request files" });
+      fireEvent.change(filter, { target: { value: "src/app" } });
+      fireEvent.click(screen.getByRole("button", { name: "Split PR diff" }));
+      const file = within(code).getByRole("group");
+      file.removeAttribute("open");
+      fetchJson.mockRejectedValueOnce(new Error("Offline"));
+      fireEvent.click(screen.getByRole("button", { name: "Refresh pull request" }));
+      const retry = within(await screen.findByRole("alert")).getByRole("button", {
+        name: "Retry",
+      });
+      fetchJson.mockImplementationOnce(() => pending.promise);
+      retry.focus();
+      fireEvent.click(retry);
+      expect(retry).toHaveFocus();
+      const outside = screen.getByRole("button", { name: "Outside panel" });
+      if (focused === "filter") filter.focus();
+      if (focused === "outside") outside.focus();
+      await act(async () => pending.resolve(Response.json(inspection())));
+      expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+      expect(focused === "outside" ? outside : filter).toHaveFocus();
+      expect(screen.getByRole("tabpanel", { name: /Code/ })).toBe(code);
+      expect(filter).toHaveValue("src/app");
+      expect(within(code).getByRole("group")).toBe(file);
+      expect(file).not.toHaveAttribute("open");
+      expect(screen.getByRole("button", { name: "Split PR diff" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+    },
+  );
+  it("keeps Retry focused after failure and returns to the toolbar after Summary recovery", async () => {
+    const fetchJson = vi.fn(async () => Response.json(inspection()));
+    render(<PullRequestsPanel {...props} fetchJson={fetchJson} />);
+    await screen.findByRole("heading", { name: "Panel change 5" });
+    const refresh = screen.getByRole("button", { name: "Refresh pull request" });
+    fetchJson.mockRejectedValueOnce(new Error("Offline"));
+    fireEvent.click(refresh);
+    const retry = within(await screen.findByRole("alert")).getByRole("button", {
+      name: "Retry",
+    });
+    const failed = deferredResponse();
+    fetchJson.mockImplementationOnce(() => failed.promise);
+    retry.focus();
+    fireEvent.click(retry);
+    await act(async () => failed.reject(new Error("Still offline")));
+    expect(retry).toHaveFocus();
+    expect(screen.getByRole("alert")).toBeVisible();
+    fireEvent.click(retry);
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    expect(refresh).toHaveFocus();
+    expect(screen.getByRole("tab", { name: "Summary" })).toHaveAttribute("aria-selected", "true");
+  });
+  it("does not hand off focus from a cancelled retry after changing PR identity", async () => {
+    const pending = deferredResponse();
+    const fetchJson = vi.fn(async (url: string) =>
+      Response.json(inspection(url.endsWith("/6") ? 6 : 5)),
+    );
+    render(<PullRequestsPanel {...props} fetchJson={fetchJson} />);
+    await screen.findByRole("heading", { name: "Panel change 5" });
+    fetchJson.mockRejectedValueOnce(new Error("Offline"));
+    fireEvent.click(screen.getByRole("button", { name: "Refresh pull request" }));
+    const retry = within(await screen.findByRole("alert")).getByRole("button", {
+      name: "Retry",
+    });
+    fetchJson.mockImplementationOnce(() => pending.promise);
+    retry.focus();
+    fireEvent.click(retry);
+    const select = screen.getByRole("combobox", { name: "Pull request" });
+    select.focus();
+    fireEvent.change(select, { target: { value: "6" } });
+    await screen.findByRole("heading", { name: "Panel change 6" });
+    await act(async () => pending.resolve(Response.json(inspection(5))));
+    expect(select).toHaveFocus();
+    expect(screen.getByRole("heading", { name: "Panel change 6" })).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "Panel change 5" })).not.toBeInTheDocument();
+  });
+  it.each([true, false])(
+    "returns Clear filter focus only when it owns focus: %s",
+    async (ownsFocus) => {
+      render(
+        <>
+          <button type="button">Outside panel</button>
+          <PullRequestsPanel {...props} fetchJson={async () => Response.json(inspection())} />
+        </>,
+      );
+      await screen.findByRole("heading", { name: "Panel change 5" });
+      fireEvent.click(screen.getByRole("tab", { name: /Code/ }));
+      const filter = screen.getByRole("textbox", { name: "Filter pull request files" });
+      fireEvent.change(filter, { target: { value: "missing" } });
+      const clear = screen.getByRole("button", { name: "Clear filter" });
+      const outside = screen.getByRole("button", { name: "Outside panel" });
+      (ownsFocus ? clear : outside).focus();
+      fireEvent.click(clear);
+      expect(screen.queryByRole("button", { name: "Clear filter" })).not.toBeInTheDocument();
+      expect(ownsFocus ? filter : outside).toHaveFocus();
+      expect(filter).toHaveValue("");
+      expect(
+        within(screen.getByRole("tabpanel", { name: /Code/ })).getByText("src/app.ts"),
+      ).toBeVisible();
+    },
+  );
   it.each(["pull request", "project", "API"])(
     "shows the full error after a failed %s identity change without restoring old data",
     async (identity) => {

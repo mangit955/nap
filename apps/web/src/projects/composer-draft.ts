@@ -75,15 +75,17 @@ export class ComposerDraftStore {
     }
   }
 
-  async load(ownerId: string, id: string): Promise<ComposerDraft | null> {
+  /** Resume at authenticated composer entry, before any read that could outlive a later clear. */
+  resumeOwner(ownerId: string): void {
     suspendedOwners.delete(ownerId);
+  }
+
+  async load(ownerId: string, id: string): Promise<ComposerDraft | null> {
     const raw: unknown = await this.transact("readonly", (store) => store.get([ownerId, id]));
     const parsed = ComposerDraftSchema.safeParse(raw);
     if (!parsed.success) return null;
-    if (parsed.data.expiresAt <= Date.now()) {
-      await this.remove(ownerId, id);
-      return null;
-    }
+    // Background reads leave expired records and markers for explicit removal or clearOwner.
+    if (parsed.data.expiresAt <= Date.now()) return null;
     return parsed.data;
   }
 

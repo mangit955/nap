@@ -18,17 +18,26 @@ export default function PierrePatch({
 }) {
   const highlight = usePierreHighlight(path, previousPath);
   const parsed = useMemo(() => {
+    // Even strict parsing can ignore markers without the "@@ " delimiter.
+    // Body content starts with +, - or space, so it cannot match this guard.
+    if (/^@@(?! )/m.test(patch)) return [];
     try {
       const source = patch.startsWith("@@")
         ? `diff --git ${JSON.stringify(`a/${previousPath ?? path}`)} ${JSON.stringify(`b/${path}`)}\n--- ${JSON.stringify(`a/${previousPath ?? path}`)}\n+++ ${JSON.stringify(`b/${path}`)}\n${patch}\n`
         : patch;
-      return parsePatchFiles(source).flatMap((item) => item.files);
+      // Tolerant parsing can silently discard unsupported hunks. Count-mismatched
+      // clipped hunks also use the raw view so every retained line stays readable.
+      return parsePatchFiles(source, undefined, true).flatMap((item) => item.files);
     } catch {
       return [];
     }
   }, [patch, path, previousPath]);
   if (highlight === "loading") return <p className="t3-diff-notice">Loading diff…</p>;
-  if (parsed.length === 0 || highlight === "failed")
+  if (
+    parsed.length === 0 ||
+    parsed.some((file) => file.hunks.length === 0) ||
+    highlight === "failed"
+  )
     return (
       <>
         <p className="t3-diff-notice">

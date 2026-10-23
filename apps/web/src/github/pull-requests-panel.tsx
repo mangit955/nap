@@ -14,7 +14,7 @@ import {
   List,
   RotateCw,
 } from "lucide-react";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { FetchJson } from "../files/use-project-files.ts";
@@ -59,6 +59,9 @@ export function PullRequestsPanel({
   const [refresh, setRefresh] = useState(0);
   const [split, setSplit] = useState(false);
   const [filter, setFilter] = useState("");
+  const filterRef = useRef<HTMLInputElement>(null);
+  const refreshRef = useRef<HTMLButtonElement>(null);
+  const retryRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (!active) return;
     const refreshOnFocus = () => setRefresh((value) => value + 1);
@@ -80,7 +83,12 @@ export function PullRequestsPanel({
       `${baseUrl}/projects/${encodeURIComponent(projectId)}/github/pull-requests/${number}`,
       PullRequestInspectionSchema,
     ).then((result) => {
-      if (!cancelled)
+      if (!cancelled) {
+        if (result.ok && retryRef.current === document.activeElement) {
+          const filterInput = filterRef.current;
+          if (filterInput && !filterInput.closest("[hidden]")) filterInput.focus();
+          else refreshRef.current?.focus();
+        }
         setInspection((current) => ({
           identity,
           result: result.ok
@@ -89,6 +97,7 @@ export function PullRequestsPanel({
               ? { ...current.result, refreshError: result.error }
               : { kind: "error", message: result.error },
         }));
+      }
     });
     return () => {
       cancelled = true;
@@ -127,6 +136,7 @@ export function PullRequestsPanel({
           ))}
         </select>
         <button
+          ref={refreshRef}
           type="button"
           className="t3-icon-button"
           aria-label="Refresh pull request"
@@ -207,7 +217,11 @@ export function PullRequestsPanel({
               <div className="t3-diff-notice" role="alert">
                 <p>Could not refresh pull request. Showing previously loaded data.</p>
                 <p>{inspection.refreshError}</p>
-                <button type="button" onClick={() => setRefresh((value) => value + 1)}>
+                <button
+                  ref={retryRef}
+                  type="button"
+                  onClick={() => setRefresh((value) => value + 1)}
+                >
                   Retry
                 </button>
               </div>
@@ -331,6 +345,7 @@ export function PullRequestsPanel({
             >
               <div className="t3-diff-toolbar">
                 <input
+                  ref={filterRef}
                   aria-label="Filter pull request files"
                   placeholder="Filter files…"
                   value={filter}
@@ -364,7 +379,14 @@ export function PullRequestsPanel({
                 <div className="t3-diff-notice" role="status">
                   <p>{filter ? "No matching files" : "No changed files"}</p>
                   {filter && (
-                    <button type="button" onClick={() => setFilter("")}>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        if (event.currentTarget === document.activeElement)
+                          filterRef.current?.focus();
+                        setFilter("");
+                      }}
+                    >
                       Clear filter
                     </button>
                   )}
