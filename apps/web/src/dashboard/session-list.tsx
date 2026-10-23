@@ -3,51 +3,43 @@
 import {
   type NavigationChange,
   type SessionReorder,
-  type SessionSection,
   type SessionSummary,
   sessionSection,
 } from "@nap/shared/session-navigation";
 import { useEffect, useRef, useState } from "react";
-import type { ProjectScope } from "./filters.ts";
 import { SessionActions } from "./session-actions.tsx";
-
-const SECTION_NAMES = {
-  pinned: "Pinned",
-  active: "Active",
-  snoozed: "Snoozed",
-  done: "Done",
-  archived: "Archived",
-};
-const STATUS = {
-  ready: "Ready",
-  queued: "Queued",
-  working: "Working",
-  completed: "Completed",
-  attention: "Needs attention",
-};
+import { SessionRow } from "./session-row.tsx";
+import {
+  isUnread,
+  SETTLED_PAGE,
+  SETTLED_START,
+  type Shelf,
+  sessionSource,
+  shelveSessions,
+} from "./session-rows.ts";
 
 export function SessionList({
   draftIds,
   sessions,
   activeProjectId,
-  scope,
   query,
   repository,
-  showArchived,
+  ownerId,
   busyProjectId,
   onChange,
   onReorder,
   onRename,
   onDelete,
   onClose,
+  onLayout,
 }: {
+  onLayout?: ((selected: HTMLAnchorElement | null) => void) | undefined;
   draftIds?: ReadonlySet<string> | undefined;
   sessions: readonly SessionSummary[];
   activeProjectId?: string | undefined;
-  scope: ProjectScope;
   query: string;
   repository: string;
-  showArchived: boolean;
+  ownerId?: string | undefined;
   busyProjectId?: string | undefined;
   onChange?: ((id: string, change: NavigationChange["change"]) => void) | undefined;
   onReorder?: ((input: SessionReorder) => void) | undefined;
@@ -56,7 +48,39 @@ export function SessionList({
   onClose?: ((id: string) => void) | undefined;
 }) {
   const [now, setNow] = useState(Date.now);
-  const [collapsed, setCollapsed] = useState<Set<SessionSection>>(new Set(["snoozed", "done"]));
+  const [expanded, setExpanded] = useState({ snoozed: false, settled: false });
+  const [settledCount, setSettledCount] = useState(SETTLED_START);
+  const [restoredKey, setRestoredKey] = useState<string>();
+  const storageKey = `nap.sidebar.shelves.${ownerId ?? "local"}`;
+  useEffect(() => {
+    try {
+      const stored: unknown = JSON.parse(localStorage.getItem(storageKey) ?? "null");
+      setExpanded({
+        snoozed:
+          typeof stored === "object" &&
+          stored !== null &&
+          "snoozed" in stored &&
+          stored.snoozed === true,
+        settled:
+          typeof stored === "object" &&
+          stored !== null &&
+          "settled" in stored &&
+          stored.settled === true,
+      });
+    } catch {
+      setExpanded({ snoozed: false, settled: false });
+    }
+    setRestoredKey(storageKey);
+  }, [storageKey]);
+  const toggle = (shelf: "snoozed" | "settled") => {
+    const next = { ...expanded, [shelf]: !expanded[shelf] };
+    setExpanded(next);
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(next));
+    } catch {
+      /* Optional preference. */
+    }
+  };
   const [dragged, setDragged] = useState<string>();
   const [drop, setDrop] = useState<string>();
   const [copyError, setCopyError] = useState<string>();
@@ -65,26 +89,29 @@ export function SessionList({
     const timer = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(timer);
   }, []);
-  const sorted = [...sessions].sort(
-    (a, b) =>
-      (a.navigation.position ?? Number.MAX_SAFE_INTEGER) -
-        (b.navigation.position ?? Number.MAX_SAFE_INTEGER) ||
-      Date.parse(b.createdAt) - Date.parse(a.createdAt) ||
-      a.projectId.localeCompare(b.projectId),
-  );
-  const visible = sorted.filter(
-    (row) =>
-      (showArchived
-        ? sessionSection(row, now) === "archived"
-        : sessionSection(row, now) !== "archived") &&
-      (!repository || row.repository === repository) &&
-      (scope !== "running" || row.sandboxId !== null) &&
-      (scope !== "put-away" || row.sandboxId === null) &&
-      row.name.toLowerCase().includes(query.trim().toLowerCase()),
-  );
+  const shelves = shelveSessions(sessions, now);
+  const sorted = [...shelves.pinned, ...shelves.active, ...shelves.snoozed, ...shelves.settled];
+  const matches = (row: SessionSummary) =>
+    (!repository || sessionSource(row.repository).key === repository) &&
+    row.name.toLowerCase().includes(query.trim().toLowerCase());
+  const filtered = shelveSessions(sorted.filter(matches), now);
+  const drawn = [
+    ...filtered.pinned,
+    ...filtered.active,
+    ...(expanded.snoozed ? filtered.snoozed : []),
+    ...(expanded.settled ? filtered.settled.slice(0, settledCount) : []),
+  ];
   const selectedOutside = sorted.find(
-    (row) => row.projectId === activeProjectId && !visible.includes(row),
+    (row) => row.projectId === activeProjectId && !drawn.includes(row),
   );
+  const selected = drawn.find((row) => row.projectId === activeProjectId);
+  const selectedPlacement = selectedOutside ? "current" : selected && sessionSection(selected, now);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reveal when selection changes placement, never on a polling-only render.
+  useEffect(() => {
+    if (restoredKey === storageKey) {
+      onLayout?.(root.current?.querySelector<HTMLAnchorElement>('a[aria-current="page"]') ?? null);
+    }
+  }, [onLayout, restoredKey, storageKey, activeProjectId, selectedPlacement]);
   const move = (id: string, target: string, before = false) => {
     const row = sorted.find((item) => item.projectId === id);
     if (!row) return;
@@ -108,24 +135,21 @@ export function SessionList({
       setCopyError("Could not copy. Check clipboard access and try again.");
     }
   };
-  const renderRow = (row: SessionSummary, compact = false) => {
+  const renderRow = (row: SessionSummary, shelf: Shelf) => {
     const section = sessionSection(row, now);
     const group = sorted.filter((item) => sessionSection(item, now) === section);
     const index = group.indexOf(row);
     const previous = group[index - 1];
     const next = group[index + 1];
     const active = row.activity === "working" || row.activity === "queued";
-    const unread =
-      row.navigation.unread ||
-      (row.activityAt !== null &&
-        (!row.navigation.readAt || Date.parse(row.activityAt) > Date.parse(row.navigation.readAt)));
+    const unread = isUnread(row);
     const actions: { label: string; disabled?: boolean; onSelect: () => void }[] = [
       {
         label: row.navigation.pinned ? "Unpin" : "Pin",
         onSelect: () => onChange?.(row.projectId, { kind: "pin", pinned: !row.navigation.pinned }),
       },
       {
-        label: section === "done" ? "Reopen" : "Mark done",
+        label: section === "done" ? "Un-settle" : "Settle",
         disabled: active,
         onSelect: () => onChange?.(row.projectId, { kind: "done", value: section !== "done" }),
       },
@@ -171,172 +195,154 @@ export function SessionList({
       },
     ];
     return (
-      <li
+      <SessionRow
         key={row.projectId}
-        className="session-row group"
-        data-selected={row.projectId === activeProjectId}
-        data-compact={compact}
-        data-drop={drop === row.projectId}
-        draggable={!!onReorder && !busyProjectId}
-        onDragStart={(event) => {
-          setDragged(row.projectId);
-          event.dataTransfer.effectAllowed = "move";
-          event.dataTransfer.setData("text/plain", row.projectId);
+        session={row}
+        shelf={shelf}
+        isOpen={row.projectId === activeProjectId}
+        hasDraft={draftIds?.has(row.projectId) ?? false}
+        now={now}
+        busy={busyProjectId === row.projectId}
+        onOpen={() => {
+          if (unread)
+            onChange?.(row.projectId, { kind: "read", at: row.activityAt, unread: false });
         }}
-        onDragEnd={() => {
-          setDragged(undefined);
-          setDrop(undefined);
-        }}
-        onDragOver={(event) => {
-          if (
-            dragged &&
-            sorted.some(
-              (item) => item.projectId === dragged && sessionSection(item, now) === section,
-            )
-          ) {
+        onSettle={
+          onChange && !active
+            ? (value) => onChange(row.projectId, { kind: "done", value })
+            : undefined
+        }
+        onSnooze={
+          onChange && !active
+            ? (until) => onChange(row.projectId, { kind: "snooze", until })
+            : undefined
+        }
+        onRename={onRename ? (name) => onRename(row.projectId, name) : undefined}
+        rowProps={{
+          "data-drop": drop === row.projectId,
+          draggable: !!onReorder && !busyProjectId,
+          onDragStart: (event) => {
+            setDragged(row.projectId);
+            event.dataTransfer.effectAllowed = "move";
+            event.dataTransfer.setData("text/plain", row.projectId);
+          },
+          onDragEnd: () => {
+            setDragged(undefined);
+            setDrop(undefined);
+          },
+          onDragOver: (event) => {
+            if (
+              dragged &&
+              sorted.some(
+                (item) => item.projectId === dragged && sessionSection(item, now) === section,
+              )
+            ) {
+              event.preventDefault();
+              setDrop(row.projectId);
+            }
+          },
+          onDrop: (event) => {
             event.preventDefault();
-            setDrop(row.projectId);
-          }
-        }}
-        onDrop={(event) => {
-          event.preventDefault();
-          if (dragged) move(dragged, row.projectId, true);
-          setDragged(undefined);
-          setDrop(undefined);
-        }}
-        onContextMenu={(event) => {
-          event.preventDefault();
-          event.currentTarget.querySelector<HTMLButtonElement>(".session-actions")?.click();
-        }}
-      >
-        <a
-          href={`/p/${row.projectId}`}
-          aria-current={row.projectId === activeProjectId ? "page" : undefined}
-          className="session-card"
-          onKeyDown={(event) => {
-            if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
-            const links = [
-              ...(root.current?.querySelectorAll<HTMLAnchorElement>("a.session-card") ?? []),
-            ];
-            const current = links.indexOf(event.currentTarget);
-            const next =
-              event.key === "Home"
-                ? 0
-                : event.key === "End"
-                  ? links.length - 1
-                  : current + (event.key === "ArrowDown" ? 1 : -1);
+            if (dragged) move(dragged, row.projectId, true);
+            setDragged(undefined);
+            setDrop(undefined);
+          },
+          onContextMenu: (event) => {
             event.preventDefault();
-            links[Math.max(0, Math.min(links.length - 1, next))]?.focus();
-          }}
-          onClick={() => {
-            if (unread)
-              onChange?.(row.projectId, { kind: "read", at: row.activityAt, unread: false });
-          }}
-        >
-          <span className="session-card-meta">
-            <span className="session-repository" title={row.repository ?? row.name}>
-              {row.repository ?? "Nap project"}
-            </span>
-            <span className="session-status" data-status={row.activity}>
-              {STATUS[row.activity]}
-            </span>
-          </span>
-          <span className="session-title">
-            {row.name}
-            {draftIds?.has(row.projectId) && <small className="ml-2 text-muted">Draft</small>}
-            {unread && (
-              <span className="session-unread" title="Unread">
-                <span className="sr-only">Unread</span>
-              </span>
-            )}
-          </span>
-          {!compact && (
-            <span className="session-card-detail">
-              <span title={row.branch ?? undefined}>
-                {row.branch ??
-                  (row.sandboxId
-                    ? "Workspace running"
-                    : row.status === "creating"
-                      ? "Workspace pending"
-                      : "Workspace put away")}
-              </span>
-              {row.pullRequest && (
-                <span title={`${row.pullRequest.state} pull request`}>
-                  #{row.pullRequest.number} · {row.pullRequest.state}
-                </span>
-              )}
-              {row.pendingFeedback > 0 && <span>{row.pendingFeedback} feedback</span>}
-            </span>
-          )}
-        </a>
-        <SessionActions
-          name={row.name}
-          disabled={busyProjectId === row.projectId}
-          extraActions={onChange ? actions : []}
-          onSnooze={
-            onChange && !active && section !== "archived"
-              ? (until) => onChange(row.projectId, { kind: "snooze", until })
-              : undefined
-          }
-          onRename={onRename ? (name) => onRename(row.projectId, name) : undefined}
-          onClose={onClose && row.sandboxId && !active ? () => onClose(row.projectId) : undefined}
-          onDelete={onDelete && !active ? () => onDelete(row.projectId) : undefined}
-        />
-      </li>
+            event.currentTarget.querySelector<HTMLButtonElement>(".session-actions")?.click();
+          },
+        }}
+        actions={
+          <SessionActions
+            name={row.name}
+            disabled={busyProjectId === row.projectId}
+            extraActions={onChange ? actions : []}
+            onSnooze={
+              onChange && !active && section !== "archived"
+                ? (until) => onChange(row.projectId, { kind: "snooze", until })
+                : undefined
+            }
+            onRename={onRename ? (name) => onRename(row.projectId, name) : undefined}
+            onClose={onClose && row.sandboxId && !active ? () => onClose(row.projectId) : undefined}
+            onDelete={onDelete && !active ? () => onDelete(row.projectId) : undefined}
+          />
+        }
+      />
     );
   };
-  const sections: SessionSection[] = showArchived
-    ? ["archived"]
-    : ["pinned", "active", "snoozed", "done"];
   return (
-    <div ref={root}>
+    // biome-ignore lint/a11y/noStaticElementInteractions: delegates arrow keys from the session links only.
+    <div
+      ref={root}
+      className="flex min-h-full flex-col"
+      onKeyDown={(event) => {
+        if (
+          !(event.target instanceof HTMLAnchorElement) ||
+          !event.target.hasAttribute("data-session-link") ||
+          !["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)
+        )
+          return;
+        const links = [
+          ...event.currentTarget.querySelectorAll<HTMLAnchorElement>("a[data-session-link]"),
+        ];
+        const index = links.indexOf(event.target);
+        const next =
+          event.key === "Home"
+            ? 0
+            : event.key === "End"
+              ? links.length - 1
+              : index + (event.key === "ArrowDown" ? 1 : -1);
+        event.preventDefault();
+        links[Math.max(0, Math.min(links.length - 1, next))]?.focus();
+      }}
+    >
       {selectedOutside && (
-        <>
-          <p className="session-section-label">Current session · outside filters</p>
-          <ul aria-label="Current session">{renderRow(selectedOutside)}</ul>
-        </>
+        <ul aria-label="Current session">{renderRow(selectedOutside, "active")}</ul>
       )}
-      {sections.map((section) => {
-        const group = visible.filter((row) => sessionSection(row, now) === section);
-        const folded =
-          collapsed.has(section) && !group.some((row) => row.projectId === activeProjectId);
-        if (!group.length && section !== "active") return null;
-        return (
-          <section key={section} aria-label={SECTION_NAMES[section]}>
-            <button
-              type="button"
-              className="session-section-label"
-              aria-expanded={!folded}
-              onClick={() =>
-                setCollapsed((current) => {
-                  const next = new Set(current);
-                  if (next.has(section)) next.delete(section);
-                  else next.add(section);
-                  return next;
-                })
-              }
-            >
-              {folded ? "›" : "⌄"} {SECTION_NAMES[section]}
-              <span>{group.length}</span>
-            </button>
-            {!folded && (
-              <ul aria-label={`${SECTION_NAMES[section]} sessions`}>
-                {group.map((row) =>
-                  renderRow(
-                    row,
-                    section === "done" || section === "snoozed" || section === "archived",
-                  ),
-                )}
-              </ul>
-            )}
-          </section>
-        );
-      })}
-      {!visible.length && (
+      <ul aria-label="Inbox sessions">
+        {filtered.pinned.map((row) => renderRow(row, "pinned"))}
+        {filtered.active.map((row) => renderRow(row, "active"))}
+      </ul>
+      {!sorted.some(matches) && (
         <p className="p-3 text-xs text-muted">
           {sessions.length ? "No matching sessions." : "No sessions yet"}
         </p>
       )}
+      <div className="mt-auto pt-3">
+        {(["snoozed", "settled"] as const).map((shelf) => {
+          const group = filtered[shelf];
+          if (!group.length) return null;
+          const label = shelf === "snoozed" ? "Snoozed" : "Settled";
+          return (
+            <section key={shelf} aria-label={label}>
+              <button
+                type="button"
+                className="session-section-label"
+                aria-expanded={expanded[shelf]}
+                onClick={() => toggle(shelf)}
+              >
+                <span aria-hidden>{expanded[shelf] ? "⌄" : "›"}</span> {label} ({group.length})
+              </button>
+              {expanded[shelf] && (
+                <ul aria-label={`${label} sessions`}>
+                  {(shelf === "settled" ? group.slice(0, settledCount) : group).map((row) =>
+                    renderRow(row, shelf),
+                  )}
+                </ul>
+              )}
+              {shelf === "settled" && expanded.settled && group.length > settledCount && (
+                <button
+                  type="button"
+                  className="px-2.5 py-2 text-xs text-muted hover:text-ink"
+                  onClick={() => setSettledCount((count) => count + SETTLED_PAGE)}
+                >
+                  Show 25 more
+                </button>
+              )}
+            </section>
+          );
+        })}
+      </div>
       {copyError && (
         <p role="alert" className="p-3 text-xs text-danger">
           {copyError}

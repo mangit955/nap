@@ -20,6 +20,11 @@ These components come from T3 Code revision
 [67c0fc0cdaf963b103518862dd7b68a9c758ecf2](https://github.com/pingdotgg/t3code/tree/67c0fc0cdaf963b103518862dd7b68a9c758ecf2).
 Nap uses its configured input budget, existing event lifecycle and theme tokens.
 
+The session sidebar in `apps/web/src/dashboard/sidebar.tsx`, `session-list.tsx`,
+`session-row.tsx`, `session-rows.ts` and `snooze-menu.tsx` adapts T3 Code's inbox,
+row layout, status rules and snooze presets at revision
+[51273020db3245f4ec29514a419d29b5dcb012dc](https://github.com/pingdotgg/t3code/tree/51273020db3245f4ec29514a419d29b5dcb012dc).
+
 The upstream license follows in full:
 
 MIT License

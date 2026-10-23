@@ -1,0 +1,1190 @@
+{
+  "version": 1,
+  "scope": "Historical V006 exact-base and V007 final verification records; not a readiness verdict or proof of a later head.",
+  "base": "793b0ec717d37b2fa3f3c4137a2cb087b19f286d",
+  "candidate": "ac1dd34f881bcc481ed089e89e5490a63e6e5115",
+  "candidateTree": "ac08f681f9ecff88d8e88dac284b913e9cfad86b",
+  "environment": {
+    "os": "macOS 27.0.1 arm64",
+    "bun": "1.4.2",
+    "node": "26.12.0",
+    "vitest": "4.1.10",
+    "next": "16.3.0",
+    "turbo": "2.10.8",
+    "typescript": "7.0.2",
+    "biome": "2.5.7",
+    "chrome": "153.0.8010.54",
+    "ciDifference": "Manifest Bun 1.3.13 and CI Node 24 were not tested by these runs."
+  },
+  "fixture": {
+    "sha256": "7fbaeade89f2eebe9e14096903f4db195fc3e44e890fbd33aef6efb79ee10443",
+    "sessions": 19,
+    "drafts": 1,
+    "clock": "2026-10-23T05:00:00.000Z",
+    "locale": "en-US",
+    "timezone": "UTC",
+    "colorScheme": "dark",
+    "backend": "Synthetic auth, API and WebSocket responses; real frontend production routes and IndexedDB schema."
+  },
+  "checks": [
+    {
+      "name": "regression-red",
+      "testedCommit": "ae38ea072405bf9e8279c322e11c54d305866a43",
+      "testedTree": "e7d857b8ff61e29942fa80691960cbf2f6dfad9e",
+      "command": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "--project",
+        "web",
+        "--maxWorkers=1",
+        "--no-file-parallelism",
+        "apps/web/src/dashboard/dashboard.test.tsx",
+        "-t",
+        "earlier document listener consumes Escape"
+      ],
+      "cwd": "isolated repository root",
+      "runner": "gods-hand/scripts/run_check.py, shared lock, serial execution",
+      "timeoutSeconds": 60,
+      "started": "2026-10-23T05:10:26.641579+00:00",
+      "ended": "2026-10-23T05:10:28.359148+00:00",
+      "exitCode": 1,
+      "recordedOutputExcerpts": ["Test Files  1 failed (1)", "Tests  1 failed | 13 skipped (14)"],
+      "sourceLogSha256": "ab2417d8a654560ef989a09ac819622d939b349877b4d471c07e8d03e3791d7b"
+    },
+    {
+      "name": "focused-web",
+      "testedCommit": "ac1dd34f881bcc481ed089e89e5490a63e6e5115",
+      "testedTree": "ac08f681f9ecff88d8e88dac284b913e9cfad86b",
+      "command": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "--project",
+        "web",
+        "--maxWorkers=1",
+        "--no-file-parallelism",
+        "apps/web/src/dashboard/sidebar-interactions.test.tsx",
+        "apps/web/src/dashboard/sidebar-lifecycle.test.tsx",
+        "apps/web/src/dashboard/dashboard.test.tsx",
+        "apps/web/src/dashboard/sidebar.test.tsx",
+        "apps/web/src/dashboard/session-list.test.tsx",
+        "apps/web/src/dashboard/draft-rows.test.tsx",
+        "apps/web/src/dashboard/new-session-composer.test.tsx",
+        "apps/web/src/chat/chat-input.test.tsx",
+        "apps/web/src/components/chat-pane-scroll.test.tsx",
+        "apps/web/src/settings/archived-sessions.test.tsx",
+        "apps/web/src/projects/use-session-navigation.test.tsx",
+        "apps/web/src/projects/use-draft-navigation.test.tsx"
+      ],
+      "cwd": "isolated repository root",
+      "runner": "gods-hand/scripts/run_check.py, shared lock, serial execution",
+      "timeoutSeconds": 120,
+      "started": "2026-10-23T05:10:39.889385+00:00",
+      "ended": "2026-10-23T05:10:50.145135+00:00",
+      "exitCode": 0,
+      "recordedOutputExcerpts": ["Test Files  12 passed (12)", "Tests  144 passed (144)"],
+      "sourceLogSha256": "a601591f87fb2f678f8951ed69424e195abd78bbc750a4b72a7b0fe1e7c21034"
+    },
+    {
+      "name": "lint",
+      "testedCommit": "ac1dd34f881bcc481ed089e89e5490a63e6e5115",
+      "testedTree": "ac08f681f9ecff88d8e88dac284b913e9cfad86b",
+      "command": ["bun", "run", "lint"],
+      "cwd": "isolated repository root",
+      "runner": "gods-hand/scripts/run_check.py, shared lock, serial execution",
+      "timeoutSeconds": 120,
+      "started": "2026-10-23T05:10:53.940416+00:00",
+      "ended": "2026-10-23T05:10:55.015224+00:00",
+      "exitCode": 1,
+      "recordedOutputExcerpts": [
+        "apps/web/src/dashboard/dashboard.test.tsx:220:11 lint/suspicious/noShadowRestrictedNames \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501",
+        "Checked 927 files in 306ms. No fixes applied.",
+        "Found 1 error."
+      ],
+      "sourceLogSha256": "ad0d566ca38002a7f5457f37ffdd772365b5781d8dcf0017f3b0c7082d0bf3cc"
+    },
+    {
+      "name": "typecheck",
+      "testedCommit": "ac1dd34f881bcc481ed089e89e5490a63e6e5115",
+      "testedTree": "ac08f681f9ecff88d8e88dac284b913e9cfad86b",
+      "command": ["env", "TURBO_FORCE=true", "bun", "run", "typecheck"],
+      "cwd": "isolated repository root",
+      "runner": "gods-hand/scripts/run_check.py, shared lock, serial execution",
+      "timeoutSeconds": 300,
+      "started": "2026-10-23T05:10:55.129900+00:00",
+      "ended": "2026-10-23T05:10:58.474602+00:00",
+      "exitCode": 0,
+      "recordedOutputExcerpts": [
+        "Tasks:    14 successful, 14 total",
+        "Cached:    0 cached, 14 total"
+      ],
+      "sourceLogSha256": "a4ba6bfc8ecd316f5c3f3b10ed506b6a10364ea8cb702cc26d95ff365fcf1407"
+    },
+    {
+      "name": "build",
+      "testedCommit": "ac1dd34f881bcc481ed089e89e5490a63e6e5115",
+      "testedTree": "ac08f681f9ecff88d8e88dac284b913e9cfad86b",
+      "command": ["bun", "run", "build"],
+      "cwd": "isolated repository root",
+      "runner": "gods-hand/scripts/run_check.py, shared lock, serial execution",
+      "timeoutSeconds": 300,
+      "started": "2026-10-23T05:11:13.763398+00:00",
+      "ended": "2026-10-23T05:11:18.921294+00:00",
+      "exitCode": 0,
+      "recordedOutputExcerpts": [
+        "@nap/web:build: \u2713 Compiled successfully in 2.7s",
+        "@nap/web:build: \u2713 Generating static pages using 9 workers (14/14) in 169ms",
+        "Tasks:    1 successful, 1 total",
+        "Cached:    0 cached, 1 total"
+      ],
+      "sourceLogSha256": "7ffb798abf7ee4975efe10cf092d9a6b6e73e928624ebc79ada2c177ed4a2318"
+    },
+    {
+      "name": "full-test",
+      "testedCommit": "ac1dd34f881bcc481ed089e89e5490a63e6e5115",
+      "testedTree": "ac08f681f9ecff88d8e88dac284b913e9cfad86b",
+      "command": ["bun", "run", "test"],
+      "cwd": "isolated repository root",
+      "runner": "gods-hand/scripts/run_check.py, shared lock, serial execution",
+      "timeoutSeconds": 300,
+      "started": "2026-10-23T05:11:30.393352+00:00",
+      "ended": "2026-10-23T05:12:11.798050+00:00",
+      "exitCode": 0,
+      "recordedOutputExcerpts": [
+        "Test Files  366 passed (366)",
+        "Tests  4864 passed (4864)",
+        "Type Errors  no errors"
+      ],
+      "sourceLogSha256": "bd23fbff049c4a9e66d097c71e3606346960ef0fed481dfc6f61a10bbfa9de20"
+    }
+  ],
+  "suiteCounts": {
+    "unit": {
+      "tests": 3692,
+      "files": 260
+    },
+    "web": {
+      "tests": 881,
+      "files": 80
+    },
+    "types": {
+      "tests": 0,
+      "files": 1
+    },
+    "db": {
+      "tests": 291,
+      "files": 25
+    }
+  },
+  "captureScenarios": {
+    "base": {
+      "revision": "793b0ec717d37b2fa3f3c4137a2cb087b19f286d",
+      "tree": "6a7c6888c032253da7ef09e833bf29349d89241f",
+      "captureScriptSha256": "b2bf285a2edd0f9cc8134654f515449eea9731265f4dc6f15eb4bcd930ca6523",
+      "fixtureSha256": "7fbaeade89f2eebe9e14096903f4db195fc3e44e890fbd33aef6efb79ee10443",
+      "clock": "2026-10-23T05:00:00.000Z",
+      "browserVersion": "153.0.8010.54",
+      "scenarios": [
+        {
+          "name": "desktop-sidebar-geometry",
+          "status": "measured",
+          "detail": {
+            "x": 0,
+            "y": 0,
+            "width": 256,
+            "height": 800
+          }
+        },
+        {
+          "name": "desktop-search",
+          "status": "passed",
+          "elapsedMs": 740,
+          "detail": {
+            "names": ["fixture/mapleReadyMaple navigation reviewmain"]
+          }
+        },
+        {
+          "name": "desktop-source-filter",
+          "status": "passed",
+          "elapsedMs": 533,
+          "detail": {
+            "names": ["fixture/mapleReadyMaple navigation reviewmain"]
+          }
+        },
+        {
+          "name": "desktop-shelves-pagination-persistence",
+          "status": "passed",
+          "elapsedMs": 1159,
+          "detail": {
+            "afterExpandReloadExpanded": "false",
+            "pagination": "No pagination control in base"
+          }
+        },
+        {
+          "name": "desktop-selected-stored-expansion-geometry",
+          "status": "passed",
+          "elapsedMs": 1005,
+          "detail": {
+            "row": {
+              "x": 10,
+              "y": 664,
+              "width": 235,
+              "height": 53.5,
+              "top": 664,
+              "right": 245,
+              "bottom": 717.5,
+              "left": 10
+            },
+            "scroller": {
+              "x": 10,
+              "y": 242,
+              "width": 235,
+              "height": 475.5,
+              "top": 242,
+              "right": 245,
+              "bottom": 717.5,
+              "left": 10
+            },
+            "scrollTop": 488,
+            "visible": true
+          }
+        },
+        {
+          "name": "desktop-selected-inverse-reopen",
+          "status": "passed",
+          "elapsedMs": 1060,
+          "detail": {
+            "doneAt": null
+          }
+        },
+        {
+          "name": "desktop-selected-inverse-wake",
+          "status": "passed",
+          "elapsedMs": 1169,
+          "detail": {
+            "snoozedUntil": null
+          }
+        },
+        {
+          "name": "base-draft-row",
+          "status": "not-available",
+          "detail": "Base has no DraftRows; direct persisted draft URL exercises existing composer resume."
+        },
+        {
+          "name": "desktop-draft-resume-without-submit",
+          "status": "passed",
+          "elapsedMs": 686,
+          "detail": {
+            "text": "Draft: explore a quiet reading app",
+            "submitted": false
+          }
+        },
+        {
+          "name": "desktop-settings-archived-restore",
+          "status": "passed",
+          "elapsedMs": 1563,
+          "detail": {
+            "settingsArchived": "No Settings Archived page in base; restored through archived filter action menu",
+            "archivedAt": null
+          }
+        },
+        {
+          "name": "narrow-sidebar-geometry",
+          "status": "measured",
+          "detail": {
+            "x": 0,
+            "y": 0,
+            "width": 260,
+            "height": 800
+          }
+        },
+        {
+          "name": "narrow-doubleclick-rename-enter",
+          "status": "passed",
+          "elapsedMs": 862,
+          "detail": {
+            "inlineInputVisible": false,
+            "url": "http://127.0.0.1:43132/p/00000000-0000-4000-8000-000000000002",
+            "drawerExpanded": 0
+          }
+        },
+        {
+          "name": "narrow-touch-drawer",
+          "status": "passed",
+          "elapsedMs": 739,
+          "detail": {
+            "drawerExpanded": "true"
+          }
+        }
+      ],
+      "pageErrors": []
+    },
+    "finalDesktop": {
+      "revision": "ac1dd34f881bcc481ed089e89e5490a63e6e5115",
+      "tree": "ac08f681f9ecff88d8e88dac284b913e9cfad86b",
+      "captureScriptSha256": "b82f17f91eef64c03eef750b44287f714997ab01b7018f0319840d11842944d6",
+      "fixtureSha256": "7fbaeade89f2eebe9e14096903f4db195fc3e44e890fbd33aef6efb79ee10443",
+      "clock": "2026-10-23T05:00:00.000Z",
+      "browserVersion": "153.0.8010.54",
+      "scenarios": [
+        {
+          "name": "desktop-sidebar-geometry",
+          "status": "measured",
+          "detail": {
+            "x": 0,
+            "y": 0,
+            "width": 256,
+            "height": 800
+          }
+        },
+        {
+          "name": "desktop-search",
+          "status": "passed",
+          "elapsedMs": 715,
+          "detail": {
+            "names": ["mmaple1dMaple navigation reviewmain"]
+          }
+        },
+        {
+          "name": "desktop-source-filter",
+          "status": "passed",
+          "elapsedMs": 661,
+          "detail": {
+            "names": ["mmaple1dMaple navigation reviewmain"]
+          }
+        },
+        {
+          "name": "desktop-shelves-pagination-persistence",
+          "status": "passed",
+          "elapsedMs": 1271,
+          "detail": {
+            "pageOne": 10,
+            "pageTwo": 12,
+            "reloadExpanded": true
+          }
+        },
+        {
+          "name": "desktop-selected-stored-expansion-geometry",
+          "status": "passed",
+          "elapsedMs": 960,
+          "detail": {
+            "row": {
+              "x": 10,
+              "y": 632,
+              "width": 235,
+              "height": 36,
+              "top": 632,
+              "right": 245,
+              "bottom": 668,
+              "left": 10
+            },
+            "scroller": {
+              "x": 10,
+              "y": 100,
+              "width": 235,
+              "height": 636,
+              "top": 100,
+              "right": 245,
+              "bottom": 736,
+              "left": 10
+            },
+            "scrollTop": 286,
+            "visible": true
+          }
+        },
+        {
+          "name": "desktop-selected-inverse-unsettle",
+          "status": "passed",
+          "elapsedMs": 795,
+          "detail": {
+            "doneAt": null
+          }
+        },
+        {
+          "name": "desktop-selected-inverse-wake",
+          "status": "passed",
+          "elapsedMs": 836,
+          "detail": {
+            "snoozedUntil": null
+          }
+        },
+        {
+          "name": "desktop-draft-resume-without-submit",
+          "status": "passed",
+          "elapsedMs": 749,
+          "detail": {
+            "text": "Draft: explore a quiet reading app",
+            "submitted": false
+          }
+        },
+        {
+          "name": "desktop-settings-archived-restore",
+          "status": "passed",
+          "elapsedMs": 1265,
+          "detail": {
+            "archivedAt": null
+          }
+        }
+      ],
+      "pageErrors": []
+    },
+    "finalNarrow": {
+      "revision": "ac1dd34f881bcc481ed089e89e5490a63e6e5115",
+      "tree": "ac08f681f9ecff88d8e88dac284b913e9cfad86b",
+      "captureScriptSha256": "b82f17f91eef64c03eef750b44287f714997ab01b7018f0319840d11842944d6",
+      "fixtureSha256": "7fbaeade89f2eebe9e14096903f4db195fc3e44e890fbd33aef6efb79ee10443",
+      "clock": "2026-10-23T05:00:00.000Z",
+      "browserVersion": "153.0.8010.54",
+      "scenarios": [
+        {
+          "name": "narrow-sidebar-geometry",
+          "status": "measured",
+          "detail": {
+            "x": 0,
+            "y": 0,
+            "width": 260,
+            "height": 800
+          }
+        },
+        {
+          "name": "narrow-doubleclick-rename-enter",
+          "status": "passed",
+          "elapsedMs": 1039,
+          "detail": {
+            "focusBeforeArrow": "/p/00000000-0000-4000-8000-000000000002",
+            "focusAfterArrow": "/p/00000000-0000-4000-8000-000000000003"
+          }
+        },
+        {
+          "name": "narrow-doubleclick-rename-escape",
+          "status": "passed",
+          "elapsedMs": 1367,
+          "detail": {
+            "savedName": "Scratch keyboard rename",
+            "inputAbsent": true,
+            "drawerOpen": true,
+            "focusBeforeArrow": "/p/00000000-0000-4000-8000-000000000002",
+            "focusAfterArrow": "/p/00000000-0000-4000-8000-000000000003"
+          }
+        },
+        {
+          "name": "narrow-unhandled-escape",
+          "status": "passed",
+          "elapsedMs": 541,
+          "detail": {
+            "drawerClosed": true,
+            "triggerFocused": true
+          }
+        },
+        {
+          "name": "narrow-forward-reverse-tab-trap",
+          "status": "passed",
+          "elapsedMs": 703,
+          "detail": {
+            "forwardTrace": [
+              {
+                "tag": "A",
+                "label": "nap dashboard",
+                "href": "/dashboard",
+                "text": "nap",
+                "contained": true
+              },
+              {
+                "tag": "INPUT",
+                "label": "Search sessions",
+                "href": null,
+                "text": "",
+                "contained": true
+              },
+              {
+                "tag": "BUTTON",
+                "label": "Filter by source",
+                "href": null,
+                "text": "",
+                "contained": true
+              },
+              {
+                "tag": "BUTTON",
+                "label": "New session",
+                "href": null,
+                "text": "",
+                "contained": true
+              },
+              {
+                "tag": "SECTION",
+                "label": "Session list",
+                "href": null,
+                "text": "Draft: explore a quiet reading appDraftccedar1dPinned launch checklistmainSettleRename ses",
+                "contained": true
+              },
+              {
+                "tag": "A",
+                "label": null,
+                "href": "/dashboard?draft=00000000-0000-4000-8000-000000000901",
+                "text": "Draft: explore a quiet reading appDraft",
+                "contained": true
+              },
+              {
+                "tag": "A",
+                "label": null,
+                "href": "/p/00000000-0000-4000-8000-000000000001",
+                "text": "ccedar1dPinned launch checklistmain",
+                "contained": true
+              },
+              {
+                "tag": "BUTTON",
+                "label": "Snooze Pinned launch checklist",
+                "href": null,
+                "text": "",
+                "contained": true
+              },
+              {
+                "tag": "BUTTON",
+                "label": "Settle Pinned launch checklist",
+                "href": null,
+                "text": "Settle",
+                "contained": true
+              },
+              {
+                "tag": "BUTTON",
+                "label": "Session actions for Pinned launch checklist",
+                "href": null,
+                "text": "",
+                "contained": true
+              },
+              {
+                "tag": "A",
+                "label": null,
+                "href": "/p/00000000-0000-4000-8000-000000000002",
+                "text": "Scratch1dScratch keyboard rename",
+                "contained": true
+              },
+              {
+                "tag": "BUTTON",
+                "label": "Snooze Scratch keyboard rename",
+                "href": null,
+                "text": "",
+                "contained": true
+              },
+              {
+                "tag": "BUTTON",
+                "label": "Settle Scratch keyboard rename",
+                "href": null,
+                "text": "Settle",
+                "contained": true
+              },
+              {
+                "tag": "BUTTON",
+                "label": "Session actions for Scratch keyboard rename",
+                "href": null,
+                "text": "",
+                "contained": true
+              },
+              {
+                "tag": "A",
+                "label": null,
+                "href": "/p/00000000-0000-4000-8000-000000000003",
+                "text": "mmaple1dMaple navigation reviewmain",
+                "contained": true
+              },
+              {
+                "tag": "BUTTON",
+                "label": "Snooze Maple navigation review",
+                "href": null,
+                "text": "",
+                "contained": true
+              },
+              {
+                "tag": "BUTTON",
+                "label": "Settle Maple navigation review",
+                "href": null,
+                "text": "Settle",
+                "contained": true
+              },
+              {
+                "tag": "BUTTON",
+                "label": "Session actions for Maple navigation review",
+                "href": null,
+                "text": "",
+                "contained": true
+              },
+              {
+                "tag": "A",
+                "label": null,
+                "href": "/p/00000000-0000-4000-8000-000000000004",
+                "text": "ccedar1dCedar docs refreshmain",
+                "contained": true
+              },
+              {
+                "tag": "BUTTON",
+                "label": "Snooze Cedar docs refresh",
+                "href": null,
+                "text": "",
+                "contained": true
+              },
+              {
+                "tag": "BUTTON",
+                "label": "Settle Cedar docs refresh",
+                "href": null,
+                "text": "Settle",
+                "contained": true
+              },
+              {
+                "tag": "BUTTON",
+                "label": "Session actions for Cedar docs refresh",
+                "href": null,
+                "text": "",
+                "contained": true
+              },
+              {
+                "tag": "BUTTON",
+                "label": null,
+                "href": null,
+                "text": "\u203a Snoozed (2)",
+                "contained": true
+              },
+              {
+                "tag": "BUTTON",
+                "label": null,
+                "href": null,
+                "text": "\u203a Settled (12)",
+                "contained": true
+              },
+              {
+                "tag": "BUTTON",
+                "label": "Settings",
+                "href": null,
+                "text": "",
+                "contained": true
+              },
+              {
+                "tag": "A",
+                "label": "Help",
+                "href": "/docs",
+                "text": "",
+                "contained": true
+              },
+              {
+                "tag": "BUTTON",
+                "label": "Close sessions",
+                "href": null,
+                "text": "",
+                "contained": true
+              }
+            ],
+            "reverseLast": {
+              "tag": "A",
+              "label": "Help",
+              "href": "/docs",
+              "text": "",
+              "contained": true
+            },
+            "forwardWrapped": true,
+            "reverseWrapped": true
+          }
+        },
+        {
+          "name": "narrow-touch-drawer",
+          "status": "passed",
+          "elapsedMs": 637,
+          "detail": {
+            "drawerExpanded": "true"
+          }
+        }
+      ],
+      "pageErrors": []
+    }
+  },
+  "assets": [
+    {
+      "destination": "docs/assets/sidebar/review/base-desktop.png",
+      "sha256": "6570f533af66ab6f47476db49901413904944a511899203c161c55edd6f29dbd",
+      "bytes": 42456,
+      "scenario": "desktop-initial",
+      "testedCommit": "793b0ec717d37b2fa3f3c4137a2cb087b19f286d",
+      "testedTree": "6a7c6888c032253da7ef09e833bf29349d89241f",
+      "fixtureSha256": "7fbaeade89f2eebe9e14096903f4db195fc3e44e890fbd33aef6efb79ee10443",
+      "attribution": {
+        "creator": "Nap automated verification V006 exact-base / V007 final",
+        "data": "Synthetic sessions and account; no private user browser state"
+      },
+      "environment": "Chrome 153.0.8010.54; isolated Next production build; synthetic API/auth/WebSocket/IndexedDB",
+      "clock": "2026-10-23T05:00:00.000Z",
+      "imageDimensions": {
+        "width": 1100,
+        "height": 800
+      },
+      "capturedRevision": "793b0ec717d37b2fa3f3c4137a2cb087b19f286d",
+      "captionRevisionPolicy": "Keep captured revision; do not relabel as FINAL_HEAD.",
+      "viewport": {
+        "width": 1100,
+        "height": 800,
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "isMobile": false
+      },
+      "captureScriptSha256": "b2bf285a2edd0f9cc8134654f515449eea9731265f4dc6f15eb4bcd930ca6523"
+    },
+    {
+      "destination": "docs/assets/sidebar/review/base-narrow.png",
+      "sha256": "7a804db4167a50f2ee1413e75a735cc0c281de8d5ce02652152f197e9d0e2388",
+      "bytes": 32385,
+      "scenario": "narrow-initial",
+      "testedCommit": "793b0ec717d37b2fa3f3c4137a2cb087b19f286d",
+      "testedTree": "6a7c6888c032253da7ef09e833bf29349d89241f",
+      "fixtureSha256": "7fbaeade89f2eebe9e14096903f4db195fc3e44e890fbd33aef6efb79ee10443",
+      "attribution": {
+        "creator": "Nap automated verification V006 exact-base / V007 final",
+        "data": "Synthetic sessions and account; no private user browser state"
+      },
+      "environment": "Chrome 153.0.8010.54; isolated Next production build; synthetic API/auth/WebSocket/IndexedDB",
+      "clock": "2026-10-23T05:00:00.000Z",
+      "imageDimensions": {
+        "width": 375,
+        "height": 800
+      },
+      "capturedRevision": "793b0ec717d37b2fa3f3c4137a2cb087b19f286d",
+      "captionRevisionPolicy": "Keep captured revision; do not relabel as FINAL_HEAD.",
+      "viewport": {
+        "width": 375,
+        "height": 800,
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "isMobile": true
+      },
+      "captureScriptSha256": "b2bf285a2edd0f9cc8134654f515449eea9731265f4dc6f15eb4bcd930ca6523"
+    },
+    {
+      "destination": "docs/assets/sidebar/review/base-desktop.webm",
+      "sha256": "7cc54ad81df5cd6ba58a7b20a3c8925dabf70443cf17bcf50580e42ad8b98b19",
+      "bytes": 512643,
+      "scenario": "desktop",
+      "testedCommit": "793b0ec717d37b2fa3f3c4137a2cb087b19f286d",
+      "testedTree": "6a7c6888c032253da7ef09e833bf29349d89241f",
+      "fixtureSha256": "7fbaeade89f2eebe9e14096903f4db195fc3e44e890fbd33aef6efb79ee10443",
+      "attribution": {
+        "creator": "Nap automated verification V006 exact-base / V007 final",
+        "data": "Synthetic sessions and account; no private user browser state"
+      },
+      "environment": "Chrome 153.0.8010.54; isolated Next production build; synthetic API/auth/WebSocket/IndexedDB",
+      "clock": "2026-10-23T05:00:00.000Z",
+      "videoMetadata": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "vp8",
+            "width": 1100,
+            "height": 800
+          }
+        ],
+        "format": {
+          "duration": "10.000000",
+          "size": "512643"
+        }
+      },
+      "validatedDecodeExit": 0,
+      "capturedRevision": "793b0ec717d37b2fa3f3c4137a2cb087b19f286d",
+      "captionRevisionPolicy": "Keep captured revision; do not relabel as FINAL_HEAD.",
+      "viewport": {
+        "width": 1100,
+        "height": 800,
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "isMobile": false
+      },
+      "captureScriptSha256": "b2bf285a2edd0f9cc8134654f515449eea9731265f4dc6f15eb4bcd930ca6523"
+    },
+    {
+      "destination": "docs/assets/sidebar/review/base-narrow.webm",
+      "sha256": "a76c821324e738c3e952043335bc664142a1a2b84e4669700467ae2be4f05897",
+      "bytes": 110929,
+      "scenario": "narrow",
+      "testedCommit": "793b0ec717d37b2fa3f3c4137a2cb087b19f286d",
+      "testedTree": "6a7c6888c032253da7ef09e833bf29349d89241f",
+      "fixtureSha256": "7fbaeade89f2eebe9e14096903f4db195fc3e44e890fbd33aef6efb79ee10443",
+      "attribution": {
+        "creator": "Nap automated verification V006 exact-base / V007 final",
+        "data": "Synthetic sessions and account; no private user browser state"
+      },
+      "environment": "Chrome 153.0.8010.54; isolated Next production build; synthetic API/auth/WebSocket/IndexedDB",
+      "clock": "2026-10-23T05:00:00.000Z",
+      "videoMetadata": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "vp8",
+            "width": 374,
+            "height": 800
+          }
+        ],
+        "format": {
+          "duration": "3.720000",
+          "size": "110929"
+        }
+      },
+      "validatedDecodeExit": 0,
+      "capturedRevision": "793b0ec717d37b2fa3f3c4137a2cb087b19f286d",
+      "captionRevisionPolicy": "Keep captured revision; do not relabel as FINAL_HEAD.",
+      "viewport": {
+        "width": 375,
+        "height": 800,
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "isMobile": true
+      },
+      "captureScriptSha256": "b2bf285a2edd0f9cc8134654f515449eea9731265f4dc6f15eb4bcd930ca6523"
+    },
+    {
+      "destination": "docs/assets/sidebar/review/final-desktop.png",
+      "sha256": "1864b32734031e79e4a3feb1d295ab8ff3b04c1aa06d0218c8ae040697e2634c",
+      "bytes": 36372,
+      "scenario": "desktop-initial",
+      "testedCommit": "ac1dd34f881bcc481ed089e89e5490a63e6e5115",
+      "testedTree": "ac08f681f9ecff88d8e88dac284b913e9cfad86b",
+      "fixtureSha256": "7fbaeade89f2eebe9e14096903f4db195fc3e44e890fbd33aef6efb79ee10443",
+      "attribution": {
+        "creator": "Nap automated verification V006 exact-base / V007 final",
+        "data": "Synthetic sessions and account; no private user browser state"
+      },
+      "environment": {
+        "frontend": "fresh isolated Next 16.3.0 production build",
+        "auth": "synthetic",
+        "api": "http://nap-verification.invalid",
+        "websocket": "ws://nap-verification.invalid",
+        "locale": "en-US",
+        "timezone": "UTC",
+        "colorScheme": "dark"
+      },
+      "viewport": {
+        "width": 1100,
+        "height": 800,
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "isMobile": false
+      },
+      "clock": "2026-10-23T05:00:00.000Z",
+      "browser": "153.0.8010.54",
+      "imageDimensions": {
+        "width": 1100,
+        "height": 800
+      },
+      "consoleErrors": {
+        "count": 15,
+        "cause": "Only aborted known synthetic avatar https://github.com/fixture.png?size=32"
+      },
+      "pageErrors": [],
+      "captureScriptSha256": "b82f17f91eef64c03eef750b44287f714997ab01b7018f0319840d11842944d6",
+      "capturedRevision": "ac1dd34f881bcc481ed089e89e5490a63e6e5115",
+      "captionRevisionPolicy": "Keep captured revision; do not relabel as FINAL_HEAD."
+    },
+    {
+      "destination": "docs/assets/sidebar/review/final-narrow.png",
+      "sha256": "e2c1f7589cad9a48519a224b089aaf89b694badfbf02c02e794c9f987d02a959",
+      "bytes": 27286,
+      "scenario": "narrow-initial",
+      "testedCommit": "ac1dd34f881bcc481ed089e89e5490a63e6e5115",
+      "testedTree": "ac08f681f9ecff88d8e88dac284b913e9cfad86b",
+      "fixtureSha256": "7fbaeade89f2eebe9e14096903f4db195fc3e44e890fbd33aef6efb79ee10443",
+      "attribution": {
+        "creator": "Nap automated verification V006 exact-base / V007 final",
+        "data": "Synthetic sessions and account; no private user browser state"
+      },
+      "environment": {
+        "frontend": "fresh isolated Next 16.3.0 production build",
+        "auth": "synthetic",
+        "api": "http://nap-verification.invalid",
+        "websocket": "ws://nap-verification.invalid",
+        "locale": "en-US",
+        "timezone": "UTC",
+        "colorScheme": "dark"
+      },
+      "viewport": {
+        "width": 375,
+        "height": 800,
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "isMobile": true
+      },
+      "clock": "2026-10-23T05:00:00.000Z",
+      "browser": "153.0.8010.54",
+      "imageDimensions": {
+        "width": 375,
+        "height": 800
+      },
+      "consoleErrors": {
+        "count": 1,
+        "cause": "Only aborted known synthetic avatar https://github.com/fixture.png?size=32"
+      },
+      "pageErrors": [],
+      "captureScriptSha256": "b82f17f91eef64c03eef750b44287f714997ab01b7018f0319840d11842944d6",
+      "capturedRevision": "ac1dd34f881bcc481ed089e89e5490a63e6e5115",
+      "captionRevisionPolicy": "Keep captured revision; do not relabel as FINAL_HEAD."
+    },
+    {
+      "destination": "docs/assets/sidebar/review/final-desktop.webm",
+      "sha256": "5495cb8afb21b84b6a474bdbb793ec60030c1e2231a29cad9e45a7a352c127b4",
+      "bytes": 525874,
+      "scenario": "desktop",
+      "testedCommit": "ac1dd34f881bcc481ed089e89e5490a63e6e5115",
+      "testedTree": "ac08f681f9ecff88d8e88dac284b913e9cfad86b",
+      "fixtureSha256": "7fbaeade89f2eebe9e14096903f4db195fc3e44e890fbd33aef6efb79ee10443",
+      "attribution": {
+        "creator": "Nap automated verification V006 exact-base / V007 final",
+        "data": "Synthetic sessions and account; no private user browser state"
+      },
+      "environment": {
+        "frontend": "fresh isolated Next 16.3.0 production build",
+        "auth": "synthetic",
+        "api": "http://nap-verification.invalid",
+        "websocket": "ws://nap-verification.invalid",
+        "locale": "en-US",
+        "timezone": "UTC",
+        "colorScheme": "dark"
+      },
+      "viewport": {
+        "width": 1100,
+        "height": 800,
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "isMobile": false
+      },
+      "clock": "2026-10-23T05:00:00.000Z",
+      "browser": "153.0.8010.54",
+      "videoMetadata": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "vp8",
+            "width": 1100,
+            "height": 800
+          }
+        ],
+        "format": {
+          "duration": "9.080000",
+          "size": "525874"
+        }
+      },
+      "validatedDecodeExit": 0,
+      "consoleErrors": {
+        "count": 15,
+        "cause": "Only aborted known synthetic avatar https://github.com/fixture.png?size=32"
+      },
+      "pageErrors": [],
+      "captureScriptSha256": "b82f17f91eef64c03eef750b44287f714997ab01b7018f0319840d11842944d6",
+      "capturedRevision": "ac1dd34f881bcc481ed089e89e5490a63e6e5115",
+      "captionRevisionPolicy": "Keep captured revision; do not relabel as FINAL_HEAD."
+    },
+    {
+      "destination": "docs/assets/sidebar/review/final-narrow.webm",
+      "sha256": "09180abc3e2f811b8395943fcc06120be8d9e08beea157358eccad6ff8cdd2e3",
+      "bytes": 150193,
+      "scenario": "narrow",
+      "testedCommit": "ac1dd34f881bcc481ed089e89e5490a63e6e5115",
+      "testedTree": "ac08f681f9ecff88d8e88dac284b913e9cfad86b",
+      "fixtureSha256": "7fbaeade89f2eebe9e14096903f4db195fc3e44e890fbd33aef6efb79ee10443",
+      "attribution": {
+        "creator": "Nap automated verification V006 exact-base / V007 final",
+        "data": "Synthetic sessions and account; no private user browser state"
+      },
+      "environment": {
+        "frontend": "fresh isolated Next 16.3.0 production build",
+        "auth": "synthetic",
+        "api": "http://nap-verification.invalid",
+        "websocket": "ws://nap-verification.invalid",
+        "locale": "en-US",
+        "timezone": "UTC",
+        "colorScheme": "dark"
+      },
+      "viewport": {
+        "width": 375,
+        "height": 800,
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "isMobile": true
+      },
+      "clock": "2026-10-23T05:00:00.000Z",
+      "browser": "153.0.8010.54",
+      "videoMetadata": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "vp8",
+            "width": 374,
+            "height": 800
+          }
+        ],
+        "format": {
+          "duration": "6.320000",
+          "size": "150193"
+        }
+      },
+      "validatedDecodeExit": 0,
+      "consoleErrors": {
+        "count": 1,
+        "cause": "Only aborted known synthetic avatar https://github.com/fixture.png?size=32"
+      },
+      "pageErrors": [],
+      "captureScriptSha256": "b82f17f91eef64c03eef750b44287f714997ab01b7018f0319840d11842944d6",
+      "capturedRevision": "ac1dd34f881bcc481ed089e89e5490a63e6e5115",
+      "captionRevisionPolicy": "Keep captured revision; do not relabel as FINAL_HEAD."
+    },
+    {
+      "destination": "docs/assets/sidebar/review/final-escape-focus.png",
+      "sha256": "89ba3279e4a5f11de8a566d09fa17cd1e489c3c53c4f1adcee8ba388a2e029dc",
+      "bytes": 27713,
+      "scenario": "narrow-rename-escape-focus",
+      "testedCommit": "ac1dd34f881bcc481ed089e89e5490a63e6e5115",
+      "testedTree": "ac08f681f9ecff88d8e88dac284b913e9cfad86b",
+      "fixtureSha256": "7fbaeade89f2eebe9e14096903f4db195fc3e44e890fbd33aef6efb79ee10443",
+      "attribution": {
+        "creator": "Nap automated verification V006 exact-base / V007 final",
+        "data": "Synthetic sessions and account; no private user browser state"
+      },
+      "environment": {
+        "frontend": "fresh isolated Next 16.3.0 production build",
+        "auth": "synthetic",
+        "api": "http://nap-verification.invalid",
+        "websocket": "ws://nap-verification.invalid",
+        "locale": "en-US",
+        "timezone": "UTC",
+        "colorScheme": "dark"
+      },
+      "viewport": {
+        "width": 375,
+        "height": 800,
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "isMobile": true
+      },
+      "clock": "2026-10-23T05:00:00.000Z",
+      "browser": "153.0.8010.54",
+      "imageDimensions": {
+        "width": 375,
+        "height": 800
+      },
+      "consoleErrors": {
+        "count": 1,
+        "cause": "Only aborted known synthetic avatar https://github.com/fixture.png?size=32"
+      },
+      "pageErrors": [],
+      "captureScriptSha256": "b82f17f91eef64c03eef750b44287f714997ab01b7018f0319840d11842944d6",
+      "capturedRevision": "ac1dd34f881bcc481ed089e89e5490a63e6e5115",
+      "captionRevisionPolicy": "Keep captured revision; do not relabel as FINAL_HEAD."
+    },
+    {
+      "destination": "docs/assets/sidebar/review/t3-upstream-reference.webp",
+      "sha256": "a7b97a59446ae9816a89916bd9917279795c4e0be19e0d28dda6f2b436964f2b",
+      "bytes": 268254,
+      "scenario": "public upstream marketing asset",
+      "testedCommit": "51273020db3245f4ec29514a419d29b5dcb012dc",
+      "testedTree": null,
+      "fixtureSha256": null,
+      "attribution": {
+        "copyright": "Copyright (c) 2026 T3 Tools Inc.",
+        "license": "MIT",
+        "upstreamCommit": "51273020db3245f4ec29514a419d29b5dcb012dc",
+        "upstreamPath": "apps/marketing/src/assets/app-desktop.webp",
+        "licenseDestination": "docs/assets/sidebar/review/t3-LICENSE.txt"
+      },
+      "sourceUrl": "https://github.com/pingdotgg/t3code/blob/51273020db3245f4ec29514a419d29b5dcb012dc/apps/marketing/src/assets/app-desktop.webp",
+      "testedTreeNote": "Public upstream asset/license provenance; no upstream application execution or tree verification claimed."
+    },
+    {
+      "destination": "docs/assets/sidebar/review/t3-LICENSE.txt",
+      "sha256": "935d8f2af0c703f9c39517ee57cc4930b19d02d533be930b63f0e82f93614b43",
+      "bytes": 1070,
+      "scenario": "upstream MIT license",
+      "testedCommit": "51273020db3245f4ec29514a419d29b5dcb012dc",
+      "testedTree": null,
+      "fixtureSha256": null,
+      "attribution": {
+        "copyright": "Copyright (c) 2026 T3 Tools Inc.",
+        "license": "MIT",
+        "upstreamCommit": "51273020db3245f4ec29514a419d29b5dcb012dc",
+        "upstreamPath": "LICENSE",
+        "licenseDestination": "docs/assets/sidebar/review/t3-LICENSE.txt"
+      },
+      "sourceUrl": "https://github.com/pingdotgg/t3code/blob/51273020db3245f4ec29514a419d29b5dcb012dc/LICENSE",
+      "testedTreeNote": "Public upstream asset/license provenance; no upstream application execution or tree verification claimed."
+    }
+  ],
+  "limits": [
+    "No live auth/sign-out timing or observed cross-account leak proof.",
+    "Browser did not exercise real database persistence, live WebSocket delivery, paid model or sandbox integration. Full suite used disposable Postgres.",
+    "Final captures aborted synthetic GitHub avatars: 15 desktop and 1 narrow console errors; no page errors or unexpected API/WS requests.",
+    "Expired drafts are omitted on read; records/markers remain until explicit removal or owner cleanup.",
+    "Historical native cancellation by a later document click listener may dismiss the drawer despite canceled navigation; reopen it. Final native captures do not prove that path."
+  ],
+  "laterLexicalCorrection": "escape -> escapeEvent in three test references is authorized. Its validation is separate and not included in these historical results.",
+  "finalCodeValidation": {
+    "codeCommit": "8f64a24febb80d89ccf61e4feb93c7cdfeb38856",
+    "parent": "78b559d19297ee6118e6f75a93a55006a62b4ff2",
+    "tree": "8e3b702bfff0513ffba0c1cd59b4d63388c5e8c0",
+    "verificationCandidate": "ac9d2f2045c2a6c717281146639873bfefd38130",
+    "deltaFromCapturedRevision": {
+      "revision": "ac1dd34f881bcc481ed089e89e5490a63e6e5115",
+      "path": "apps/web/src/dashboard/dashboard.test.tsx",
+      "change": "Exactly three test identifier substitutions: escape -> escapeEvent. All other tracked paths, bytes and modes are identical; production, configuration and dependencies are unchanged."
+    },
+    "checks": [
+      {
+        "name": "lint",
+        "command": ["bun", "run", "lint"],
+        "testedIndexTree": "8e3b702bfff0513ffba0c1cd59b4d63388c5e8c0",
+        "started": "2026-10-23T05:27:02.301758+00:00",
+        "ended": "2026-10-23T05:27:03.503656+00:00",
+        "exitCode": 0,
+        "result": "927 files checked; no fixes applied; exit 0.",
+        "sourceLogSha256": "70bb2f38e52f5aad19329f6b3ed896c6f91459f229573366d765323408b1ad3a"
+      },
+      {
+        "name": "regression",
+        "command": [
+          "node",
+          "node_modules/vitest/vitest.mjs",
+          "run",
+          "--project",
+          "web",
+          "--maxWorkers=1",
+          "--no-file-parallelism",
+          "apps/web/src/dashboard/dashboard.test.tsx",
+          "-t",
+          "earlier document listener consumes Escape"
+        ],
+        "testedIndexTree": "8e3b702bfff0513ffba0c1cd59b4d63388c5e8c0",
+        "started": "2026-10-23T05:27:22.276097+00:00",
+        "ended": "2026-10-23T05:27:23.807713+00:00",
+        "exitCode": 0,
+        "result": "1 test passed in 1 file; 13 tests skipped by the name filter.",
+        "sourceLogSha256": "89b71d54af544ddee6ac0d227de77974bfb5858e9cb3ab0b8118725b983fc7e2"
+      },
+      {
+        "name": "typecheck",
+        "command": ["env", "TURBO_FORCE=true", "bun", "run", "typecheck"],
+        "testedIndexTree": "8e3b702bfff0513ffba0c1cd59b4d63388c5e8c0",
+        "started": "2026-10-23T05:27:41.233235+00:00",
+        "ended": "2026-10-23T05:27:44.878962+00:00",
+        "exitCode": 0,
+        "result": "14 tasks successful, 0 cached; chained root tsc --noEmit passed.",
+        "sourceLogSha256": "d8814ef1fd24de76c60a6d42b50156f8781720820d2d93719f9fd65125db8607"
+      },
+      {
+        "name": "checkpoint-commit",
+        "command": ["git", "commit", "-F", "<checkpoint-message-file>"],
+        "testedIndexTree": "8e3b702bfff0513ffba0c1cd59b4d63388c5e8c0",
+        "started": "2026-10-23T05:28:22.262680+00:00",
+        "ended": "2026-10-23T05:28:25.871758+00:00",
+        "exitCode": 0,
+        "result": "Mandatory hooks passed: Biome, typecheck with 14 cached tasks plus root tsc, and 37 tests in 4 files. Python skipped because no staged Python file matched.",
+        "sourceLogSha256": "a0d09a10959ac41a5d6abf6fa438966f9476740ff11c0297c211b397ad518943",
+        "commandNote": "The private message-file path is replaced by a placeholder."
+      }
+    ],
+    "provenance": "V008 checked the candidate and committed the identical tree with mandatory hooks. Earlier 4,864 full-suite tests, 144 focused tests, build and native captures remain evidence at ac1dd34f881bcc481ed089e89e5490a63e6e5115, including its historical lint failure. They were not rerun or relabeled for this checkpoint."
+  }
+}

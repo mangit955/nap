@@ -24,6 +24,7 @@ export function SettingsShell({
   appHref = "/dashboard",
   connectionsHref = "/settings/connections",
   nested = false,
+  activePage = "connections",
   onApiKey,
   children,
 }: {
@@ -34,6 +35,7 @@ export function SettingsShell({
   connectionsHref?: string;
   /** The page sits beneath the rail's Connections entry rather than being it. */
   nested?: boolean;
+  activePage?: "connections" | "archived";
   /**
    * Opens the API key dialog. A page that already shows the key's state passes its own, so the
    * rail and the page answer from one state; without it the rail opens a dialog of its own.
@@ -106,11 +108,24 @@ export function SettingsShell({
               <li>
                 <a
                   href={connectionsHref}
-                  aria-current={nested ? "true" : "page"}
-                  className={`${ITEM} bg-hover text-ink`}
+                  aria-current={
+                    activePage === "connections" ? (nested ? "true" : "page") : undefined
+                  }
+                  className={`${ITEM} ${activePage === "connections" ? "bg-hover text-ink" : "text-ink-2 hover:bg-hover"}`}
                 >
                   <ConnectionsIcon className="size-4 text-ink-2" />
                   Connections
+                </a>
+              </li>
+            )}
+            {matches("Archived sessions") && (
+              <li>
+                <a
+                  href="/settings/archived"
+                  aria-current={activePage === "archived" ? "page" : undefined}
+                  className={`${ITEM} ${activePage === "archived" ? "bg-hover text-ink" : "text-ink-2 hover:bg-hover"}`}
+                >
+                  Archived sessions
                 </a>
               </li>
             )}
@@ -127,7 +142,7 @@ export function SettingsShell({
               </li>
             )}
           </ul>
-          {!matches("Connections") && !matches("API key") && (
+          {!matches("Connections") && !matches("API key") && !matches("Archived sessions") && (
             <p className="px-2 py-1.5 text-[13px] text-muted">No settings match.</p>
           )}
         </nav>

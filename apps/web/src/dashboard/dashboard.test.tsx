@@ -167,10 +167,7 @@ function interactiveSidebar(onNewProject = vi.fn()) {
     <Sidebar
       name="Reader"
       email={undefined}
-      scope="all"
-      counts={{ all: 0, running: 0, "put-away": 0 }}
       recents={[]}
-      onScopeChange={() => {}}
       onNewProject={onNewProject}
       onApiKey={() => {}}
       keyHint={undefined}
@@ -205,7 +202,42 @@ it("closes mobile sessions when New session is chosen", () => {
   );
 });
 
-it("includes repository scope and Settings in the real mobile sidebar's Tab order", () => {
+it("keeps mobile sessions open when an earlier document listener consumes Escape", () => {
+  const consumeEscape = (event: KeyboardEvent) => {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    event.stopPropagation();
+  };
+  // Next delegates React events to document, where stopPropagation leaves later listeners alive.
+  document.addEventListener("keydown", consumeEscape, { once: true });
+  try {
+    render(<Dashboard sidebar={interactiveSidebar()} hero={<p>Composer</p>} />);
+    const trigger = screen.getByRole("button", { name: "Open sessions" });
+    fireEvent.click(trigger);
+    const link = screen.getByRole("link", { name: "nap dashboard" });
+    expect(link).toHaveFocus();
+
+    const escapeEvent = new KeyboardEvent("keydown", {
+      key: "Escape",
+      bubbles: true,
+      cancelable: true,
+    });
+    fireEvent(link, escapeEvent);
+    expect(escapeEvent.defaultPrevented).toBe(true);
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(link).toHaveFocus();
+    expect(screen.getByRole("main", { hidden: true })).toHaveAttribute("inert");
+
+    fireEvent.keyDown(link, { key: "Escape" });
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(trigger).toHaveFocus();
+    expect(screen.getByRole("main")).not.toHaveAttribute("inert");
+  } finally {
+    document.removeEventListener("keydown", consumeEscape);
+  }
+});
+
+it("includes source filter and Settings in the real mobile sidebar's Tab order", () => {
   const rects = vi
     .spyOn(HTMLElement.prototype, "getClientRects")
     .mockReturnValue(
@@ -219,8 +251,8 @@ it("includes repository scope and Settings in the real mobile sidebar's Tab orde
       fireEvent.keyDown(document.activeElement ?? document.body, { key: "Tab" });
       reached.add(document.activeElement);
     }
-    expect(reached.has(screen.getByRole("combobox", { name: "Repository scope" }))).toBe(true);
-    expect(reached.has(screen.getByLabelText("Settings", { selector: "summary" }))).toBe(true);
+    expect(reached.has(screen.getByRole("button", { name: "Filter by source" }))).toBe(true);
+    expect(reached.has(screen.getByRole("button", { name: "Settings" }))).toBe(true);
     expect(reached.has(screen.getByRole("button", { name: "Close sessions" }))).toBe(true);
   } finally {
     rects.mockRestore();

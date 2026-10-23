@@ -116,7 +116,7 @@ describe("signing out", () => {
 
   /** Behind the account menu now, which every case here has to open first. */
   function openAccountMenu() {
-    fireEvent.click(screen.getByRole("button", { name: /Manas/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
   }
 
   function signOutButton() {
