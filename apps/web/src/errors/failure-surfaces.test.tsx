@@ -107,7 +107,7 @@ describe("2 · agent failure", () => {
     ];
     const view = render(<ChatPane events={history} onRetry={onRetry} />);
     view.rerender(<ChatPane events={[...history]} onRetry={onRetry} />);
-    expect(screen.getByText("Compaction failed")).toBeVisible();
+    expect(screen.getByText("Context compaction failed")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: /try again/i }));
     expect(onRetry.mock.calls).toEqual([["/compact"]]);
   });
@@ -173,7 +173,7 @@ describe("4 · rate limit", () => {
     const copy = requestFailureCopy(409, "sandbox_quota_exceeded", "You already have 2 running.");
     render(<ChatPane events={[]} error={`${copy.title} ${copy.detail} ${copy.action}`} />);
 
-    expect(screen.getByRole("alert")).toHaveTextContent(/close one/i);
+    expect(screen.getByRole("alert")).toHaveTextContent(/put one away/i);
   });
 });
 

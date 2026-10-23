@@ -83,11 +83,11 @@ describe("refused requests", () => {
     expect(copy.detail).toContain("4 minutes");
   });
 
-  it("tells a quota-blocked caller to close a project, which is a different action", () => {
+  it("tells a quota-blocked caller to put a project away, which is a different action", () => {
     const copy = requestFailureCopy(409, "sandbox_quota_exceeded", "You already have 2 running.");
 
     expect(copy.recovery).toBe("close-project");
-    expect(copy.action).toMatch(/close/i);
+    expect(copy.action).toMatch(/put one away/i);
   });
 
   it("sends an expired session to sign in rather than asking it to retry", () => {

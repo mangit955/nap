@@ -85,9 +85,15 @@ async function sessionSurvived(): Promise<boolean> {
 export function LiveSignIn({
   notice,
   initialMode = "sign-in",
+  upgrade = false,
 }: {
   notice?: string | undefined;
   initialMode?: SignInMode;
+  /**
+   * A guest arrived meaning to make a permanent account — from the GitHub dialog, say — so this
+   * page must not send them back to the trial they are trying to leave.
+   */
+  upgrade?: boolean;
 } = {}) {
   const router = useRouter();
   const { data: session, isPending: sessionPending } = authClient.useSession();
@@ -103,10 +109,12 @@ export function LiveSignIn({
 
   // A guest session is still a session. Better Auth correctly refuses to mint a second anonymous
   // identity for the same browser, so a person returning to this page should continue their
-  // existing free trial instead of being left with the provider's raw error.
+  // existing free trial instead of being left with the provider's raw error — unless they came
+  // here to leave it, when the form is the whole point and the trial button still continues it.
+  const staying = upgrade && session?.user.isAnonymous === true;
   useEffect(() => {
-    if (session != null) router.replace(AFTER_DEMO_SIGN_IN);
-  }, [session, router]);
+    if (session != null && !staying) router.replace(AFTER_DEMO_SIGN_IN);
+  }, [session, staying, router]);
 
   useEffect(() => {
     let cancelled = false;
@@ -239,7 +247,7 @@ export function LiveSignIn({
         // because that is a real navigation: this component would remount and the email already
         // typed would be gone. Next integrates the native call into its own router — see
         // node_modules/next/dist/docs/01-app/02-guides/single-page-applications.md.
-        window.history.replaceState(null, "", pathForMode(next));
+        window.history.replaceState(null, "", pathForMode(next, upgrade));
       }}
       onSubmit={(credentials) => void submit(credentials)}
       onSocial={(provider) => {

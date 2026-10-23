@@ -81,9 +81,18 @@ describe("the dashboard hero", () => {
       expect(screen.getByRole("alert")).toHaveTextContent(/model.*image/i);
       expect(screen.getByRole("button", { name: "Add to prompt" })).toBeEnabled();
       fireEvent.click(screen.getByRole("button", { name: "Add to prompt" }));
+      // The closed menu stays mounted, and its items are found by role either way.
+      expect(screen.getByRole("button", { name: "Add to prompt" })).toHaveAttribute(
+        "aria-expanded",
+        "true",
+      );
       expect(screen.getByRole("menuitem", { name: "Upload media" })).toBeDisabled();
       expect(screen.getByRole("menuitem", { name: "Repositories" })).toBeEnabled();
       fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+      expect(screen.getByRole("button", { name: "Add to prompt" })).toHaveAttribute(
+        "aria-expanded",
+        "false",
+      );
       fireEvent.keyDown(box(), { key: "Enter" });
       expect(onSubmit).not.toHaveBeenCalled();
       expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();

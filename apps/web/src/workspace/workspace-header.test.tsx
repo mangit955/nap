@@ -100,8 +100,8 @@ describe("where the job stands", () => {
   const log = jobLog();
 
   it("stays on screen when the chat is collapsed", () => {
-    // The strip that otherwise carries this lives inside the chat pane, so hiding the chat to
-    // give the preview the whole window used to delete the confidence signal entirely.
+    // Anything inside the chat pane goes with it, so hiding the chat to give the preview the
+    // whole window must not delete the confidence signal.
     show({
       chatOpen: false,
       job: job(log.opened(), log.at("verification.started", { jobId: JOB })),

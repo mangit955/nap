@@ -220,7 +220,14 @@ export function createAuth(db: Db, config: AuthConfig): AuthInstance {
     // The demo door. Registered conditionally rather than gated at the route, because a
     // plugin that is not registered has no endpoint at all — which is the honest answer to a
     // deployment that turned the demo off, and what `/auth/providers` reports.
-    plugins: config.allowAnonymous ? [anonymous()] : [],
+    //
+    // The plugin's default is to delete the guest the moment the same browser signs up or in,
+    // and every table cascades from `users`. That would drop the guest's projects by cascade,
+    // leaving their snapshot objects named by nothing — the one order `delete-project.ts` in
+    // `@nap/runtime` exists to refuse — and free a sandbox's capacity while it still runs. So the
+    // guest is left exactly as if the tab had been closed: its work stays with the guest
+    // identity, and the idle sweep puts its sandbox away as it would for any abandoned guest.
+    plugins: config.allowAnonymous ? [anonymous({ disableDeleteAnonymousUser: true })] : [],
   });
 
   const socialProviders = [

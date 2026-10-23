@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { readRepositoryPreviewPort } from "@nap/runtime/repository-environment";
+import { SIGN_IN_REQUIRED, type SignInRequired } from "@nap/shared/api-error";
 import {
   GitHubIdSchema,
   RepositoryEnvironmentSchema,
@@ -88,13 +89,25 @@ export function registerGitHubRoutes(
   router.use("/github/*", async (c, next) => {
     if (c.req.path === "/github/webhook") return next();
     if (c.get("isAnonymous"))
-      return c.json({ error: "Sign in to a permanent nap account to connect GitHub." }, 403);
+      return c.json(
+        {
+          error: "Sign in to a permanent nap account to connect GitHub.",
+          code: SIGN_IN_REQUIRED,
+        } satisfies SignInRequired,
+        403,
+      );
     if (!["GET", "OPTIONS"].includes(c.req.method) && c.req.header("origin") !== deps.webOrigin)
       return c.json({ error: "Untrusted request origin." }, 403);
     return next();
   });
   router.use("/projects/:projectId/github/*", async (c, next) => {
-    if (c.get("isAnonymous")) return c.json({ error: "Sign in to connect GitHub." }, 403);
+    // The code is what the project's GitHub dialog keys its sign-in prompt on, so a guest is
+    // told how to get in rather than shown an error.
+    if (c.get("isAnonymous"))
+      return c.json(
+        { error: "Sign in to connect GitHub.", code: SIGN_IN_REQUIRED } satisfies SignInRequired,
+        403,
+      );
     if (!["GET", "OPTIONS"].includes(c.req.method) && c.req.header("origin") !== deps.webOrigin)
       return c.json({ error: "Untrusted request origin." }, 403);
     return next();

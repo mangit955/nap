@@ -50,9 +50,9 @@ function expandAll() {
 }
 
 /**
- * Event types drawn by the job strip above the chat rather than by the transcript. Same list,
- * and same reasoning, as `transcript.test.ts` — a job's phase and its checks are status, not
- * chronology, and putting them in both panes says one thing twice.
+ * Event types the transcript draws nothing for. Same list, and same reasoning, as
+ * `transcript.test.ts` — a job's phase is status, not chronology, and the workspace bar already
+ * says it; a failed check shows here only as the repair turn it starts.
  */
 const DRAWN_ELSEWHERE = [
   "context.usage",
@@ -88,8 +88,8 @@ const TREATMENTS = [
   },
   {
     type: "compaction.failed",
-    payload: { id: "compact1", message: "Compaction failed", cancelled: false, usage: null },
-    shows: /Compaction failed/,
+    payload: { id: "compact1", message: "Summary request ended", cancelled: false, usage: null },
+    shows: /Context compaction failed/,
   },
 
   {
@@ -161,7 +161,7 @@ const TREATMENTS = [
 ] as const satisfies readonly { type: NapEventType; payload: NapEvent["payload"]; shows: RegExp }[];
 
 describe("every event type has a visual treatment", () => {
-  it("covers the whole union, between this pane and the strip", () => {
+  it("covers the whole union, between this table and the list of types drawn elsewhere", () => {
     const covered = TREATMENTS.map((t) => t.type);
     expect(new Set(covered).size).toBe(covered.length);
     expect(new Set([...covered, ...DRAWN_ELSEWHERE]).size).toBe(NapEventSchema.options.length);
@@ -527,76 +527,6 @@ describe("reasoning arriving as it is produced", () => {
     );
 
     expect(container.querySelectorAll("[data-streaming]")).toHaveLength(0);
-  });
-});
-
-describe("the seam where you left off", () => {
-  /**
-   * Rendered with a seam at a given item key, which is what `unseen.ts` computes from the
-   * durable cursor. The fold is applied here for the reason `show` applies it — the pane above
-   * folds once and both readers take the result.
-   */
-  function showFrom(seam: number | undefined, ...events: StoredEvent[]) {
-    nextSeq = 1;
-    return render(<ChatTranscript items={buildTranscript(events)} seam={seam} />);
-  }
-
-  const earlier = () => ev("user.message", { text: "build me a dashboard" });
-  const later = () => ev("agent.message", { text: "Added App.tsx." });
-
-  it("draws nothing when there is no seam", () => {
-    // Every ordinary visit: nothing ran while nobody was watching, so there is no line to draw
-    // and a transcript with a marker in it every time would mean nothing by the third one.
-    showFrom(undefined, earlier(), later());
-
-    expect(screen.queryByText(/new since/i)).toBeNull();
-  });
-
-  it("marks the log between what was seen and what was not", () => {
-    showFrom(2, earlier(), later());
-
-    const log = screen.getByRole("log");
-    const text = log.textContent ?? "";
-    expect(text.indexOf("build me a dashboard")).toBeLessThan(text.indexOf("New since"));
-    expect(text.indexOf("New since")).toBeLessThan(text.indexOf("Added App.tsx."));
-  });
-
-  it("says so in words rather than only drawing a line", () => {
-    // A hairline in a different colour is nothing at all to somebody listening to the page, and
-    // "you have not read this part" is exactly the sort of thing they need told.
-    showFrom(2, earlier(), later());
-
-    expect(screen.getByText(/new since you were last here/i)).toBeInTheDocument();
-  });
-
-  it("draws the line on a compaction's failure, which is drawn inside the compaction's row", () => {
-    // The reader left while an automatic compaction ran; it failed, and the turn with it, while
-    // they were away. The compaction keeps the key it opened with, so the first unseen item is
-    // the turn's failure — which has no row of its own to put the line on.
-    showFrom(
-      5,
-      earlier(),
-      ev("turn.started", { source: "user" }),
-      ev("compaction.started", { id: "k1", trigger: "automatic" }),
-      ev("compaction.failed", {
-        id: "k1",
-        message: "provider unavailable",
-        cancelled: false,
-        usage: null,
-      }),
-      ev("turn.failed", { reason: "internal", message: "provider unavailable" }),
-    );
-
-    expect(screen.getByText(/new since you were last here/i)).toBeInTheDocument();
-  });
-
-  it("ignores a seam no item matches", () => {
-    // The cursor is durable and the log is windowed, so a browser that left off at event 900
-    // can come back to a transcript whose items are keyed 1..40. There is no place to put the
-    // line, and inventing one would put it above work the reader had already read.
-    showFrom(999, earlier(), later());
-
-    expect(screen.queryByText(/new since/i)).toBeNull();
   });
 });
 

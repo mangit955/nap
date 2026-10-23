@@ -9,9 +9,13 @@ import { type DraftAttachment, MEDIA_ACCEPT } from "./use-media-attachments.ts";
  * Without a colour, for a control that changes colour with its state: two colour utilities on one
  * element are resolved by their order in the built stylesheet, where `text-muted` comes after
  * `text-accent-ink`, so appending a second colour to a muted base does nothing.
+ *
+ * T3 Code's ghost icon button (MIT — see `apps/web/THIRD_PARTY_NOTICES.md`): an 8px square that
+ * fills on hover and stays filled while its menu is open, and gives a little under the pointer —
+ * except when it opens a menu, where the press would land as the menu appears.
  */
 const CONTROL_SHAPE =
-  "grid size-8 shrink-0 place-items-center rounded-full transition-colors hover:bg-hover hover:text-ink focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40";
+  "grid size-8 shrink-0 place-items-center rounded-[8px] transition-[background-color,color,scale] duration-150 hover:bg-hover hover:text-ink aria-expanded:bg-hover aria-expanded:text-ink motion-safe:[&:active:not([aria-haspopup])]:scale-[0.97] focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40";
 
 export const CONTROL_CLASS = `${CONTROL_SHAPE} text-muted`;
 

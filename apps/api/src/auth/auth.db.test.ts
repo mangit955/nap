@@ -13,7 +13,7 @@
  */
 
 import { createDatabase } from "@nap/db/client";
-import { accounts, authSessions, users } from "@nap/db/schema";
+import { accounts, authSessions, projects, users } from "@nap/db/schema";
 // Type-only, and deliberately empty: it brings in the module augmentation that types
 // `inject("postgresUrl")`. That declaration lives beside the `globalSetup` that provides the
 // value, and this app's tsconfig covers only its own `src`, so without this the call is
@@ -198,6 +198,66 @@ describe("the demo door", () => {
     const caller = await auth.getUser(new Headers({ cookie: cookieFrom(signedUp) }));
 
     expect(caller?.isAnonymous).toBe(false);
+  });
+
+  /**
+   * A guest who signs up or in keeps the same browser, so the request carries the guest cookie,
+   * and the plugin's default is to delete that user once the new session exists. Every table
+   * cascades from `users`, so that would take the guest's projects with it — and a project's
+   * snapshot objects are only ever found through its rows, which is why deleting one has an
+   * order of its own (`packages/runtime/src/delete-project.ts`).
+   */
+  describe("a guest who goes on to an account", () => {
+    /** A guest with one project, and the cookie that carries it. */
+    async function aGuestWithAProject(): Promise<{ cookie: string; guestId: string }> {
+      const cookie = cookieFrom(await post("/api/auth/sign-in/anonymous", {}));
+      const guest = await auth.getUser(new Headers({ cookie }));
+      if (guest === null) throw new Error("the demo door issued no session");
+      await db.db
+        .insert(projects)
+        .values({ userId: guest.userId, name: "guest work", slug: `g-${crypto.randomUUID()}` });
+      return { cookie, guestId: guest.userId };
+    }
+
+    async function expectGuestKept(guestId: string): Promise<void> {
+      expect(await db.db.select().from(users).where(eq(users.id, guestId))).toHaveLength(1);
+      expect(await db.db.select().from(projects).where(eq(projects.userId, guestId))).toHaveLength(
+        1,
+      );
+    }
+
+    it("keeps the guest and its projects when it signs up", async () => {
+      const { cookie, guestId } = await aGuestWithAProject();
+      const email = anEmail();
+
+      const signedUp = await post(
+        "/api/auth/sign-up/email",
+        { email, password: "correct horse battery staple", name: "Ada" },
+        cookie,
+      );
+
+      expect(signedUp.status).toBe(200);
+      const caller = await auth.getUser(new Headers({ cookie: cookieFrom(signedUp) }));
+      expect(caller?.isAnonymous).toBe(false);
+      expect(caller?.userId).not.toBe(guestId);
+      await expectGuestKept(guestId);
+    });
+
+    it("keeps the guest and its projects when it signs in to an existing account", async () => {
+      const email = anEmail();
+      const password = "correct horse battery staple";
+      const made = await post("/api/auth/sign-up/email", { email, password, name: "Ada" });
+      const account = await auth.getUser(new Headers({ cookie: cookieFrom(made) }));
+      const { cookie, guestId } = await aGuestWithAProject();
+
+      const signedIn = await post("/api/auth/sign-in/email", { email, password }, cookie);
+
+      expect(signedIn.status).toBe(200);
+      const caller = await auth.getUser(new Headers({ cookie: cookieFrom(signedIn) }));
+      expect(caller?.userId).toBe(account?.userId);
+      expect(caller?.isAnonymous).toBe(false);
+      await expectGuestKept(guestId);
+    });
   });
 });
 

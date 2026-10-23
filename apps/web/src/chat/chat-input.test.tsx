@@ -97,9 +97,18 @@ describe("reference inputs", () => {
     show({ models, model: "nvidia/nemotron-3-ultra-550b-a55b:free" });
     expect(screen.getByRole("button", { name: "Add to prompt" })).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: "Add to prompt" }));
+    // The closed menu stays mounted, and its items are found by role either way.
+    expect(screen.getByRole("button", { name: "Add to prompt" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
     expect(screen.getByRole("menuitem", { name: "Upload media" })).toBeDisabled();
     expect(screen.getByRole("menuitem", { name: "Repositories" })).toBeEnabled();
     fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+    expect(screen.getByRole("button", { name: "Add to prompt" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
     type("Build a text-only page");
     expect(screen.getByRole("button", { name: "Send" })).toBeEnabled();
   });

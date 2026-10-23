@@ -12,6 +12,10 @@
 
 import type { SignInMode } from "./sign-in-form.tsx";
 
-export function pathForMode(mode: SignInMode): string {
-  return mode === "sign-up" ? "/sign-up" : "/sign-in";
+/**
+ * `upgrade` carries a guest who came to make a permanent account: both halves keep it, since the
+ * page sends any other signed-in visitor on, and a guest is signed in.
+ */
+export function pathForMode(mode: SignInMode, upgrade = false): string {
+  return `${mode === "sign-up" ? "/sign-up" : "/sign-in"}${upgrade ? "?upgrade=1" : ""}`;
 }

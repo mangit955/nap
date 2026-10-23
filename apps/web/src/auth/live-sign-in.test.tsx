@@ -129,6 +129,16 @@ describe("the address bar", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Start a nap." })).toBeInTheDocument();
   });
 
+  it("keeps a guest's upgrade when they switch to making an account", () => {
+    window.history.replaceState(null, "", "/sign-in?upgrade=1");
+    useSession.mockReturnValue({ data: { user: { isAnonymous: true } }, isPending: false });
+    render(<LiveSignIn upgrade />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Create one" }));
+
+    expect(`${window.location.pathname}${window.location.search}`).toBe("/sign-up?upgrade=1");
+  });
+
   it("keeps what was already typed, since the switch is not a navigation", () => {
     render(<LiveSignIn />);
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: "ada@example.com" } });
@@ -177,6 +187,24 @@ describe("the way in with no account", () => {
     await vi.waitFor(() => expect(replace).toHaveBeenCalledWith("/dashboard"));
 
     expect(signInAnonymous).not.toHaveBeenCalled();
+  });
+
+  it("keeps a guest here when they came to sign in for real", async () => {
+    // The GitHub dialog sends a guest here to make a permanent account; bouncing them back to the
+    // dashboard would leave no way to do it.
+    ways.demo = true;
+    useSession.mockReturnValue({ data: { user: { isAnonymous: true } }, isPending: false });
+    render(<LiveSignIn upgrade />);
+
+    expect(await screen.findByRole("button", { name: "Sign in" })).toBeInTheDocument();
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("still sends a signed-in account on, even when asked to upgrade", async () => {
+    useSession.mockReturnValue({ data: { user: { isAnonymous: false } }, isPending: false });
+    render(<LiveSignIn upgrade />);
+
+    await vi.waitFor(() => expect(replace).toHaveBeenCalledWith("/dashboard"));
   });
 
   it("says so and frees the button when the demo cannot be reached", async () => {

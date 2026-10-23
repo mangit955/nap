@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { ModelPicker } from "./model-picker.tsx";
+import { ModelPicker, modelInUse } from "./model-picker.tsx";
 
 /**
  * What a caller may run is the server's decision; this only draws it. The cases worth pinning
@@ -83,5 +83,22 @@ describe("what the composer says it will run on", () => {
     fireEvent.click(screen.getByRole("button", { name: /Gpt Oss 20b/ }));
 
     expect(handlers.onChange).toHaveBeenCalledWith("openai/gpt-oss-20b:free");
+  });
+});
+
+describe("the model a message will run on", () => {
+  it("is the one chosen, when the caller can reach it", () => {
+    expect(modelInUse(MODELS, "openai/gpt-oss-20b:free")?.label).toBe("Gpt Oss 20b");
+  });
+  it("falls back to the first reachable model rather than the first listed", () => {
+    expect(modelInUse(MODELS, undefined)?.label).toBe("Gpt Oss 20b");
+  });
+  it("is the only model, when there is nothing to choose between", () => {
+    expect(modelInUse([MODELS[0] as (typeof MODELS)[number]], undefined)?.label).toBe(
+      "Gpt 5.6 Luna",
+    );
+  });
+  it("is nothing while the list has not arrived", () => {
+    expect(modelInUse([], undefined)).toBeUndefined();
   });
 });

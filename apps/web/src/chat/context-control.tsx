@@ -10,10 +10,13 @@ function formatTokens(tokens: number): string {
 export function ContextControl({
   events,
   running,
+  modelLabel,
   onCompact,
 }: {
   events: readonly StoredEvent[];
   running: boolean;
+  /** The model the next message runs on, said by name; absent until the list arrives. */
+  modelLabel?: string | undefined;
   onCompact: () => void;
 }) {
   const disclosure = useRef<HTMLDetailsElement>(null);
@@ -117,7 +120,7 @@ export function ContextControl({
     >
       <summary
         ref={trigger}
-        className="grid size-8 cursor-pointer list-none place-items-center rounded-chip hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent [&::-webkit-details-marker]:hidden"
+        className="grid size-8 cursor-pointer list-none place-items-center rounded-[8px] transition-colors duration-150 hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent [&::-webkit-details-marker]:hidden"
         aria-label={
           percentageLabel === null
             ? "Context, usage not reported"
@@ -161,7 +164,7 @@ export function ContextControl({
       </summary>
       <div
         ref={popup}
-        className="nap-scroll absolute right-0 bottom-full z-20 mb-1 flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2 overflow-y-auto rounded-xl border border-edge bg-panel p-3 shadow-raised"
+        className="composer-surface nap-float nap-scroll absolute right-0 bottom-full z-20 mb-1 flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2 overflow-y-auto rounded-[10px] p-3 [--float-origin:bottom_right]"
       >
         <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="font-medium text-ink-2">Input budget</span>
@@ -195,11 +198,18 @@ export function ContextControl({
         {tokens?.windowTokens != null && (
           <p>Model window: {tokens.windowTokens.toLocaleString()} tokens</p>
         )}
-        <p className="leading-relaxed">
-          {tokens !== undefined &&
-            `${tokens.source === "estimated" ? "Estimated input" : "Last reported input"} usage. `}
-          Nap compacts automatically when needed, based on input budget, response headroom and turn
-          spending.
+        {tokens !== undefined && (
+          <p>
+            {tokens.source === "estimated"
+              ? "Estimated input usage."
+              : "Last reported input usage."}
+          </p>
+        )}
+        {/* T3 Code's line, worded as theirs is: whose context, and that nobody has to manage it. */}
+        <p className="text-pretty font-medium text-[11px] text-ink-2">
+          {modelLabel === undefined
+            ? "Context compacts automatically when needed."
+            : `Context for ${modelLabel} compacts automatically when needed.`}
         </p>
         <button
           type="button"
@@ -210,7 +220,7 @@ export function ContextControl({
             trigger.current?.focus();
             onCompact();
           }}
-          className="mt-1 flex min-h-8 w-full shrink-0 items-center justify-center gap-1.5 rounded-chip border border-edge px-2 py-1 font-medium text-ink-2 transition-colors hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent disabled:opacity-40 motion-reduce:transition-none"
+          className="mt-1 flex min-h-8 w-full shrink-0 items-center justify-center gap-1.5 rounded-chip border border-edge bg-field px-2 py-1 font-medium text-ink-2 transition-colors hover:bg-[color-mix(in_srgb,var(--color-field)_92%,white)] hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent disabled:opacity-40 motion-reduce:transition-none"
         >
           <svg
             aria-hidden="true"

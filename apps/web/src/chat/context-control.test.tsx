@@ -142,3 +142,18 @@ it("fits the popup above its anchor inside the clipping pane as the composer gro
   expect(trigger).toHaveFocus();
   expect(details).not.toHaveAttribute("open");
 });
+
+it("says which model's context compacts on its own, and says it without one", () => {
+  const { unmount } = render(
+    <ContextControl events={[]} running={false} modelLabel="Gpt 5.6 Luna" onCompact={vi.fn()} />,
+  );
+  fireEvent.click(screen.getByLabelText("Context, usage not reported"));
+  expect(
+    screen.getByText("Context for Gpt 5.6 Luna compacts automatically when needed."),
+  ).toBeVisible();
+  unmount();
+
+  render(<ContextControl events={[]} running={false} onCompact={vi.fn()} />);
+  fireEvent.click(screen.getByLabelText("Context, usage not reported"));
+  expect(screen.getByText("Context compacts automatically when needed.")).toBeVisible();
+});

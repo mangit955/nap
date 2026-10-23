@@ -119,7 +119,7 @@ export function SessionActions({
             ref={menu}
             aria-label={`Actions for ${name}`}
             style={position}
-            className="fixed z-50 w-56 max-h-[calc(100dvh-16px)] overflow-y-auto nap-scroll-hidden rounded-xl border border-edge bg-field p-1 shadow-raised"
+            className="composer-surface nap-float fixed z-50 w-56 max-h-[calc(100dvh-16px)] overflow-y-auto nap-scroll-hidden rounded-[10px] p-1 [--float-origin:top_right]"
             onKeyDown={(event) => {
               if (event.key === "Escape") {
                 event.preventDefault();

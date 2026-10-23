@@ -321,7 +321,7 @@ export function ChatInput({
           <button
             type="button"
             onClick={scroll.scrollToEnd}
-            className="composer-menu pointer-events-auto flex h-7 items-center gap-1 rounded-full px-2.5 text-xs text-ink-2 shadow-raised hover:text-ink focus-visible:outline-accent"
+            className="composer-surface pointer-events-auto flex h-7 items-center gap-1 rounded-full px-2.5 text-xs text-ink-2 shadow-raised hover:text-ink focus-visible:outline-accent"
           >
             <svg
               aria-hidden="true"
@@ -351,7 +351,7 @@ export function ChatInput({
         <div className="relative">
           <ul
             aria-label={token?.kind === "file" ? "Files" : "Commands"}
-            className="composer-menu nap-pop absolute inset-x-0 bottom-1 z-10 overflow-hidden rounded-xl p-1 shadow-raised"
+            className="composer-surface nap-float absolute inset-x-0 bottom-1 z-10 overflow-hidden rounded-[10px] p-1"
             style={{ transformOrigin: "bottom center" }}
           >
             {rows.map((row, position) => (

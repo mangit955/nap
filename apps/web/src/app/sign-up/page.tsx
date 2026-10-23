@@ -12,7 +12,15 @@ import { LiveSignIn } from "../../auth/live-sign-in.tsx";
  * No `expired` notice here, unlike `/sign-in`: a session that ends always lands there, and
  * offering to create a *new* account to somebody who has just been interrupted answers a
  * question they did not ask.
+ *
+ * `upgrade` is read here as on `/sign-in`, because a guest who came to make an account usually
+ * switches to this half, and the address bar follows them here.
  */
-export default function Page() {
-  return <LiveSignIn initialMode="sign-up" />;
+export default async function Page({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
+  const params = await searchParams;
+  return <LiveSignIn initialMode="sign-up" upgrade={params.upgrade === "1"} />;
 }

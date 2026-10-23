@@ -13,6 +13,9 @@
  * thick divider is a piece of furniture in the middle of the window. So the widget is seven
  * pixels wide and the line inside it is one, and `-mx-1` pulls the extra back out of the layout
  * so the two panes still meet.
+ *
+ * `quiet` hides the line until the handle is hovered, focused or dragged, for a pane boundary the
+ * layout already draws — the preview's own rounded edge says where the chat ends.
  */
 
 export function Splitter({
@@ -20,12 +23,14 @@ export function Splitter({
   value,
   onGrab,
   onKeyDown,
+  quiet = false,
 }: {
   /** What this handle moves, said as a thing rather than as an action. */
   label: string;
   value: number;
   onGrab: (event: React.PointerEvent) => void;
   onKeyDown: (event: React.KeyboardEvent) => void;
+  quiet?: boolean;
 }) {
   return (
     // biome-ignore lint/a11y/useSemanticElements: an <hr> is void and cannot hold the line
@@ -39,7 +44,9 @@ export function Splitter({
       onKeyDown={onKeyDown}
       className="group relative z-10 -mx-[3px] h-full w-[7px] shrink-0 cursor-col-resize outline-none"
     >
-      <span className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-edge transition-colors duration-150 group-hover:bg-line-strong group-focus-visible:bg-accent" />
+      <span
+        className={`pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-colors duration-150 group-hover:bg-line-strong group-focus-visible:bg-accent group-active:bg-line-strong ${quiet ? "bg-transparent" : "bg-edge"}`}
+      />
     </div>
   );
 }

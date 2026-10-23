@@ -40,19 +40,12 @@ type Step = Extract<TranscriptItem, { kind: "step" }>;
 /** The items that are drawn as themselves rather than folded into a work row. */
 export type PassThroughItem = Exclude<TranscriptItem, WorkEntry>;
 
-/**
- * The item keys a row stands for. The unseen seam is drawn above the first row that covers
- * anything the reader has not seen — including a fold or a group, whose members are not drawn.
- */
-export type RowKeys = { first: number; last: number };
-
 export type TimelineRow =
-  | { kind: "item"; id: string; keys: RowKeys; item: PassThroughItem }
+  | { kind: "item"; id: string; item: PassThroughItem }
   /** A run of one: drawn as the entry itself, the way T3 draws a lone tool call. */
   | {
       kind: "work-entry";
       id: string;
-      keys: RowKeys;
       groupId: string;
       entry: WorkEntry;
       /** Set when the run's sentence says more than the entry's own label would. */
@@ -61,7 +54,6 @@ export type TimelineRow =
   | {
       kind: "work-toggle";
       id: string;
-      keys: RowKeys;
       groupId: string;
       entries: WorkEntry[];
       summary: string;
@@ -71,11 +63,10 @@ export type TimelineRow =
       at: string | undefined;
     }
   /** An opened group's members, under its toggle or under the live row. */
-  | { kind: "work-group"; id: string; keys: RowKeys; groupId: string; entries: WorkEntry[] }
+  | { kind: "work-group"; id: string; groupId: string; entries: WorkEntry[] }
   | {
       kind: "work-live";
       id: typeof LIVE_ACTIVITY_ROW_ID;
-      keys: RowKeys | undefined;
       /** The open run behind the row, if there is one to open. */
       groupId: string | undefined;
       entries: WorkEntry[];
@@ -85,17 +76,16 @@ export type TimelineRow =
       thought: string | undefined;
       expanded: boolean;
     }
-  | { kind: "working"; id: "working"; keys: undefined; startedAt: string | undefined }
+  | { kind: "working"; id: "working"; startedAt: string | undefined }
   | {
       kind: "turn-fold";
       id: string;
-      keys: RowKeys;
       foldId: string;
       label: string;
       expanded: boolean;
       at: string | undefined;
     }
-  | { kind: "changed-files"; id: string; keys: undefined; files: FileChange[] };
+  | { kind: "changed-files"; id: string; files: FileChange[] };
 
 /**
  * The live row's id, shared by "Thinking" and the call it is running, so React keeps one element
@@ -141,11 +131,6 @@ function visible(entry: WorkEntry): boolean {
 
 const groupIdOf = (entry: WorkEntry) => `group:${entry.key}`;
 
-function keysOf(items: readonly { key: number }[]): RowKeys {
-  const keys = items.map((item) => item.key);
-  return { first: Math.min(...keys), last: Math.max(...keys) };
-}
-
 type TurnFold = {
   foldId: string;
   /** The index of the item the fold row is drawn above: the first one after the prompt. */
@@ -154,7 +139,6 @@ type TurnFold = {
   hidden: ReadonlySet<number>;
   label: string;
   at: string | undefined;
-  keys: RowKeys;
 };
 
 type Turn = {
@@ -273,7 +257,6 @@ export function deriveTurnFolds(items: readonly TranscriptItem[]): TurnFold[] {
       hidden,
       label,
       at: startedAt ?? turnEnd.at,
-      keys: keysOf([...hidden].flatMap((index) => items[index] ?? [])),
     });
   }
 
@@ -373,13 +356,11 @@ export function buildTimeline(
     const [first] = entries;
     if (first === undefined) return;
     const groupId = groupIdOf(first);
-    const keys = keysOf(entries);
 
     if (entries.length === 1) {
       rows.push({
         kind: "work-entry",
         id: groupId,
-        keys,
         groupId,
         entry: first,
         // A lone change reads as what it amounts to, "Changed 1 file"; the path is in its body.
@@ -398,7 +379,6 @@ export function buildTimeline(
     rows.push({
       kind: "work-toggle",
       id: groupId,
-      keys,
       groupId,
       entries,
       summary,
@@ -407,7 +387,7 @@ export function buildTimeline(
       expanded,
       at: entries.find((entry): entry is Step => entry.kind === "step")?.at,
     });
-    if (expanded) rows.push({ kind: "work-group", id: `${groupId}:list`, keys, groupId, entries });
+    if (expanded) rows.push({ kind: "work-group", id: `${groupId}:list`, groupId, entries });
   };
 
   for (let index = 0; index < tailStart; index += 1) {
@@ -420,7 +400,6 @@ export function buildTimeline(
       rows.push({
         kind: "turn-fold",
         id: fold.foldId,
-        keys: fold.keys,
         foldId: fold.foldId,
         label: fold.label,
         expanded: expandedFolds.has(fold.foldId),
@@ -429,32 +408,27 @@ export function buildTimeline(
     }
     if (working && index === workingAt) {
       flush();
-      rows.push({ kind: "working", id: "working", keys: undefined, startedAt: options.startedAt });
+      rows.push({ kind: "working", id: "working", startedAt: options.startedAt });
     }
     if (!collapsed.has(index)) {
       if (isWorkEntry(item)) run.push(item);
       else {
         flush();
-        rows.push({
-          kind: "item",
-          id: `item:${item.key}`,
-          keys: { first: item.key, last: item.key },
-          item,
-        });
+        rows.push({ kind: "item", id: `item:${item.key}`, item });
       }
     }
 
     const files = filesAfter.get(index);
     if (files !== undefined) {
       flush();
-      rows.push({ kind: "changed-files", id: files.id, keys: undefined, files: files.files });
+      rows.push({ kind: "changed-files", id: files.id, files: files.files });
     }
   }
   flush();
 
   if (!working) return rows;
   if (workingAt >= tailStart) {
-    rows.push({ kind: "working", id: "working", keys: undefined, startedAt: options.startedAt });
+    rows.push({ kind: "working", id: "working", startedAt: options.startedAt });
   }
   // Compaction draws its own progress; a "Thinking" row under it would be a second, wrong answer.
   if (compacting || !started) return rows;
@@ -482,7 +456,6 @@ export function buildTimeline(
   rows.push({
     kind: "work-live",
     id: LIVE_ACTIVITY_ROW_ID,
-    keys: first === undefined ? undefined : keysOf(tail),
     groupId,
     entries: tail,
     entry: latestFailed ? undefined : (latestRunning ?? latestTool),
@@ -493,7 +466,6 @@ export function buildTimeline(
     rows.push({
       kind: "work-group",
       id: `${groupId}:list`,
-      keys: keysOf(tail),
       groupId,
       entries: tail,
     });

@@ -1970,11 +1970,94 @@ body {
 .workspace-composer textarea {
   caret-color: var(--color-ink);
 }
-.composer-menu {
-  border: 1px solid color-mix(in srgb, var(--color-ink) 10%, transparent);
-  background: color-mix(in srgb, var(--color-field) 90%, transparent);
+/*
+ * A popup the composer opens: T3's long soft shadow, and its arrival — up from 98% and in from
+ * transparent over 150ms on the default ease. `--float-origin` points the scale at the trigger.
+ *
+ * A popup that is always mounted (`data-open`) also leaves the same way: `display` is
+ * transitioned discretely, so it stays drawn until the fade has finished. One that mounts on
+ * open gets the arrival from the keyframes alone.
+ */
+.nap-float {
+  box-shadow: 0 18px 44px -18px rgb(0 0 0 / 80%);
+  transform-origin: var(--float-origin, bottom);
+  animation: float-in 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+/*
+ * The fade is declared without `display` first: an engine that cannot parse `allow-discrete`
+ * would drop a single declaration naming it, fade included, so there it keeps the fade in and the
+ * popup just vanishes on close.
+ */
+.nap-float[data-open] {
+  animation: none;
+  transition:
+    opacity 150ms cubic-bezier(0.4, 0, 0.2, 1),
+    scale 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+@supports (transition-behavior: allow-discrete) {
+  .nap-float[data-open] {
+    transition:
+      opacity 150ms cubic-bezier(0.4, 0, 0.2, 1),
+      scale 150ms cubic-bezier(0.4, 0, 0.2, 1),
+      display 150ms allow-discrete;
+  }
+}
+.nap-float[data-open="false"] {
+  display: none;
+  opacity: 0;
+  scale: 0.98;
+}
+@starting-style {
+  .nap-float[data-open="true"] {
+    opacity: 0;
+    scale: 0.98;
+  }
+}
+@keyframes float-in {
+  from {
+    opacity: 0;
+    scale: 0.98;
+  }
+}
+/*
+ * The prompt box's own glass, for every popover in the app — the composer's menus and context
+ * popup, the sidebar's menus, the repository picker — so whatever floats reads as the same
+ * material as the prompt box it usually rises out of. It is the blur, not the 80% opacity, that
+ * keeps a draft behind a popover from reading through it: a deliberate reversal of the add menu's
+ * earlier opaque panel, which is why the fallbacks below go opaque wherever the blur is missing.
+ */
+.composer-surface {
+  border: 1px solid rgb(255 255 255 / 5%);
+  background: color-mix(in srgb, var(--color-panel) 80%, transparent);
   -webkit-backdrop-filter: blur(16px) saturate(1.08);
   backdrop-filter: blur(16px) saturate(1.08);
+}
+/*
+ * A popup that lives in a `<details>` — the context popup, the sidebar's settings menu — is
+ * hidden by the element rather than by anything here. Transitioning `::details-content` keeps it
+ * visible while the panel fades out; a browser without that pseudo-element still gets the
+ * arrival, and closes instantly.
+ */
+details:has(> .nap-float)::details-content {
+  transition: content-visibility 150ms allow-discrete;
+}
+details > .nap-float {
+  animation: none;
+  opacity: 0;
+  scale: 0.98;
+  transition:
+    opacity 150ms cubic-bezier(0.4, 0, 0.2, 1),
+    scale 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+details[open] > .nap-float {
+  opacity: 1;
+  scale: 1;
+}
+@starting-style {
+  details[open] > .nap-float {
+    opacity: 0;
+    scale: 0.98;
+  }
 }
 .composer-send,
 .composer-stop {
@@ -2023,11 +2106,18 @@ body {
   .workspace-composer[data-resting="true"] .composer-model-controls {
     background: var(--color-panel);
   }
-  .composer-menu {
-    background: var(--color-field);
+  .composer-surface {
+    background: var(--color-panel);
   }
 }
 @media (prefers-reduced-motion: reduce) {
+  .nap-float,
+  .nap-float[data-open],
+  details > .nap-float {
+    animation: none;
+    transition: none;
+    scale: none;
+  }
   .composer-send:enabled,
   .composer-stop:enabled {
     transition: none;
@@ -2047,8 +2137,8 @@ body {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
-  .composer-menu {
-    background: var(--color-field);
+  .composer-surface {
+    background: var(--color-panel);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
@@ -2204,20 +2294,17 @@ body {
   max-width: calc(100vw - 64px);
   max-height: min(220px, 35dvh);
   overflow-y: auto;
-  padding: 6px;
-  /* Opaque, like the session actions menu: inside the composer a translucent menu lets the draft show through. */
-  border: 1px solid var(--color-edge);
-  border-radius: 12px;
-  background: var(--color-field);
-  box-shadow: var(--shadow-raised);
+  padding: 4px;
+  border-radius: 10px;
 }
 .composer-add-menu button {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   width: 100%;
-  padding: 10px;
-  border-radius: 7px;
+  min-height: 32px;
+  padding: 4px 8px;
+  border-radius: 6px;
   text-align: left;
   font-size: 13px;
   color: var(--color-ink-2);
@@ -2225,7 +2312,11 @@ body {
 .composer-add-menu [aria-hidden="true"] {
   color: var(--color-muted);
 }
+.composer-add-menu {
+  --float-origin: top left;
+}
 .workspace-composer .composer-add-menu {
+  --float-origin: bottom left;
   top: auto;
   bottom: calc(100% + 8px);
 }
@@ -2236,6 +2327,7 @@ body {
   position: static;
 }
 .composer-primary-actions .composer-add-menu {
+  --float-origin: bottom right;
   right: 0;
   left: auto;
 }
@@ -2276,11 +2368,9 @@ body {
   left: 0;
   width: min(350px, 100%);
   padding: 9px;
-  border: 1px solid var(--color-edge);
-  border-radius: 12px;
-  background: var(--color-field);
-  box-shadow: var(--shadow-raised);
+  border-radius: 10px;
   color: var(--color-ink);
+  --float-origin: top left;
 }
 .repository-heading {
   color: var(--color-muted);
@@ -2333,15 +2423,40 @@ body {
 .repository-message[role="alert"] {
   color: var(--color-danger);
 }
-.repository-message button,
-.repository-retry {
+.repository-message button {
   text-decoration: underline;
   text-underline-offset: 3px;
 }
+.repository-guest {
+  padding: 2px 6px 4px;
+}
+.repository-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 6px 2px;
+}
+.repository-retry {
+  flex-shrink: 0;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--color-edge);
+  border-radius: 6px;
+  background: var(--color-field);
+  color: var(--color-ink-2);
+  font-size: 12px;
+  transition:
+    background-color 150ms,
+    color 150ms;
+}
+.repository-retry:hover {
+  background: color-mix(in srgb, var(--color-field) 92%, white);
+  color: var(--color-ink);
+}
 .repository-settings {
   color: var(--color-muted);
-  font-size: 10px;
-  padding: 10px 6px 3px;
+  font-size: 11px;
   text-align: left;
 }
 .repository-settings:hover {
@@ -2349,6 +2464,19 @@ body {
 }
 .composer-source {
   padding: 12px 16px 0;
+}
+.composer-pending {
+  padding: 12px 16px 0;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.composer-pending button {
+  color: var(--color-ink-2);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.composer-pending button:hover {
+  color: var(--color-ink);
 }
 .source-chip {
   display: inline-flex;

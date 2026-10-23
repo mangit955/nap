@@ -1,3 +1,4 @@
+import { ApiErrorSchema } from "@nap/shared/api-error";
 import type { z } from "zod";
 import type { FetchJson } from "../files/use-project-files.ts";
 
@@ -8,19 +9,19 @@ export async function githubRequest<T>(
   url: string,
   schema: z.ZodType<T>,
   init?: RequestInit,
-): Promise<{ ok: true; value: T } | { ok: false; error: string }> {
+): Promise<
+  | { ok: true; value: T }
+  /** `code` is the server's machine-readable reason, when it gave one — what a caller branches on. */
+  | { ok: false; error: string; code?: string | undefined }
+> {
   try {
     const response = await fetchJson(url, init);
     const body: unknown = await response.json().catch(() => null);
     if (!response.ok) {
-      const error =
-        typeof body === "object" &&
-        body !== null &&
-        "error" in body &&
-        typeof body.error === "string"
-          ? body.error
-          : "GitHub could not complete that request. Try again.";
-      return { ok: false, error };
+      const refusal = ApiErrorSchema.safeParse(body);
+      return refusal.success
+        ? { ok: false, error: refusal.data.error, code: refusal.data.code }
+        : { ok: false, error: "GitHub could not complete that request. Try again." };
     }
     const parsed = schema.safeParse(body);
     return parsed.success

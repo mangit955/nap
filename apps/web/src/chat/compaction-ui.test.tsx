@@ -51,15 +51,31 @@ describe("compaction presentation", () => {
       }),
     ]);
     show([start, complete]);
-    expect(screen.getByText(/~1,200 → ~2,400/)).toBeVisible();
-    expect(screen.getByText(/estimated context tokens/)).toBeVisible();
-    expect(screen.getByText("Manual")).toBeVisible();
-    fireEvent.click(screen.getByText("Compaction details"));
-    expect(screen.getByText(/Summary call: 8,000 input \/ 200 output tokens/)).toBeVisible();
-    expect(screen.getByText(/Keep keyboard navigation/)).toBeVisible();
-    expect(screen.getByText(/Original requests and retained recent exchange/)).toBeVisible();
+    expect(screen.getByRole("status")).toHaveTextContent("Context compacted 1.2K to 2.4K tokens");
+    expect(screen.queryByText(/Manual|Summary call|Keep keyboard navigation/)).toBeNull();
+    expect(screen.queryByText("Compaction details")).toBeNull();
     expect(document.querySelector("script")).toBeNull();
     expect(screen.queryByText(/saved|reduction/i)).toBeNull();
+  });
+
+  it("shortens the counts the way the context meter's neighbours do", () => {
+    show([
+      start,
+      { ...complete, payload: { ...complete.payload, beforeTokens: 294_123, afterTokens: 12_634 } },
+    ]);
+    expect(screen.getByRole("status")).toHaveTextContent("Context compacted 294K to 12.6K tokens");
+  });
+
+  it("promotes a count that rounds to a thousand thousands to millions", () => {
+    show([
+      start,
+      {
+        ...complete,
+        payload: { ...complete.payload, beforeTokens: 999_500, afterTokens: 999_499 },
+      },
+    ]);
+    // Exactly: `toHaveTextContent` with a string matches a substring, and collapses whitespace.
+    expect(screen.getByRole("status").textContent).toBe("Context compacted 1M to 999K tokens");
   });
 
   it("does not infer a trigger or counts from terminal-only native replay", () => {
@@ -75,11 +91,8 @@ describe("compaction presentation", () => {
     };
     expect(buildTranscript([terminal])[0]).toMatchObject({ trigger: null, startedAt: null });
     show([terminal]);
-    expect(screen.queryByText(/Manual|Automatic|~0|0%/)).toBeNull();
-    fireEvent.click(screen.getByText("Compaction details"));
-    expect(screen.getByText("Trigger not recorded")).toBeVisible();
-    expect(screen.getByText(/Context size not reported/)).toBeVisible();
-    expect(screen.queryByText(/Summary call/)).toBeNull();
+    expect(screen.getByRole("status")).toHaveTextContent(/^Context compacted$/);
+    expect(screen.queryByText(/Manual|Automatic|tokens/)).toBeNull();
   });
 
   it.each([false, true])("consolidates manual terminal failure, cancelled=%s", (cancelled) => {
@@ -98,12 +111,12 @@ describe("compaction presentation", () => {
     };
     show([start, failure, terminal], retry);
     expect(
-      screen.getAllByText(cancelled ? "Compaction stopped" : "Compaction failed"),
+      screen.getAllByText(cancelled ? "Context compaction stopped" : "Context compaction failed"),
     ).toHaveLength(1);
     expect(screen.getAllByText("Summary request ended")).toHaveLength(1);
     if (cancelled) {
       expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
-      expect(screen.getByText("Compaction stopped")).not.toHaveClass("text-danger");
+      expect(screen.getByText("Context compaction stopped")).not.toHaveClass("text-danger");
     } else {
       fireEvent.click(screen.getByRole("button", { name: "Try again" }));
       expect(retry).toHaveBeenCalledExactlyOnceWith("/compact");
@@ -151,9 +164,9 @@ describe("compaction presentation", () => {
       ).toBeNull();
       expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
       expect(screen.queryByText(/Manual|Automatic/)).toBeNull();
-      fireEvent.click(screen.getByText("Compaction details"));
-      expect(screen.getByText("Trigger not recorded")).toBeVisible();
-      expect(screen.getByText(cancelled ? "Stopped" : "Failed")).toBeVisible();
+      expect(
+        screen.getByText(cancelled ? "Context compaction stopped" : "Context compaction failed"),
+      ).toBeVisible();
     },
   );
 
@@ -179,10 +192,10 @@ describe("compaction presentation", () => {
         payload: { reason: "cancelled", message: "The turn was cancelled." },
       },
     ]);
-    expect(screen.getByText("Compaction stopped")).toBeVisible();
+    expect(screen.getByText("Context compaction stopped")).toBeVisible();
     expect(screen.queryByText("You stopped this turn.")).toBeNull();
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
-    expect(screen.getByText("Automatic")).toBeVisible();
+    expect(screen.queryByText("Automatic")).toBeNull();
   });
 
   it.each(["internal", "budget_exceeded"] as const)(
@@ -276,7 +289,7 @@ describe("compaction presentation", () => {
       const retry = vi.fn();
       show(events, retry);
       expect(screen.getByText("The agent stopped partway through.")).toBeVisible();
-      expect(screen.getByText("Compaction failed")).toBeVisible();
+      expect(screen.getByText("Context compaction failed")).toBeVisible();
       fireEvent.click(screen.getByRole("button", { name: "Try again" }));
       expect(retry).toHaveBeenCalledExactlyOnceWith("Make a form");
     },
@@ -307,16 +320,16 @@ describe("compaction presentation", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(retry).toHaveBeenCalledExactlyOnceWith("Fix the form");
-    expect(screen.getByText("Context compacted")).toBeVisible();
+    expect(screen.getByText(/^Context compacted/)).toBeVisible();
   });
 
-  it("retains automatic provenance and one active row through duplicate starts", () => {
+  it("keeps one active row through duplicate starts, without naming its trigger", () => {
     const automatic: StoredEvent = {
       ...start,
       payload: { ...start.payload, trigger: "automatic" },
     };
     show([automatic, { ...automatic, seq: 2 }]);
-    expect(screen.getAllByText("Compacting context…")).toHaveLength(1);
-    expect(screen.getByText("Automatic")).toBeVisible();
+    expect(screen.getAllByText("Compacting context")).toHaveLength(1);
+    expect(screen.queryByText("Automatic")).toBeNull();
   });
 });

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { SIGN_IN_REQUIRED, type SignInRequired } from "@nap/shared/api-error";
 import { MODEL_MEDIA_UNSUPPORTED, modelSupportsImages } from "@nap/shared/model-capabilities";
 import type { ProjectStore } from "@nap/shared/ports/project-store";
 import type {
@@ -56,7 +57,10 @@ export function registerSessionStartRoutes(
     if (input.source.kind === "github") {
       if (c.get("isAnonymous"))
         return c.json(
-          { error: "Sign in to a permanent nap account to use GitHub repositories." },
+          {
+            error: "Sign in to a permanent nap account to use GitHub repositories.",
+            code: SIGN_IN_REQUIRED,
+          } satisfies SignInRequired,
           403,
         );
       const github = deps.github;

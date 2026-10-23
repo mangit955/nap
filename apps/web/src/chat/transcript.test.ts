@@ -101,10 +101,12 @@ function stepsOf(items: TranscriptItem[]) {
 /**
  * Event types the transcript deliberately draws nothing for.
  *
- * The job strip above the chat is what shows a job's phase, its checks and where its commits
- * stand; folding them into the chronology as well would say the same thing twice, in the pane
- * that is meant to read as a conversation. Listed rather than omitted, so that a new type is
- * still a decision somebody made — the union below is exhaustive across both.
+ * The workspace bar across the top names a job's phase, and the Context control reads the
+ * context size; a failed check reaches the transcript only as the repair turn it starts, under
+ * "Verification asked for a repair". Folding these events into the chronology as well would put a
+ * running status commentary through the pane that is meant to read as a conversation. Listed
+ * rather than omitted, so that a new type is still a decision somebody made — the union below is
+ * exhaustive across both.
  */
 const DRAWN_ELSEWHERE = [
   "context.usage",
@@ -190,7 +192,7 @@ describe("the treatment table covers the union", () => {
   it("lets nothing but a job event out of the treatment table", () => {
     // Otherwise the list above is an escape hatch: anything moved into it keeps both the count
     // and the compile check green while rendering nowhere at all, which is the exact failure
-    // this table exists to catch. Only the job strip's own events may sit there.
+    // this table exists to catch. Only job, verification and context events may sit there.
     for (const type of DRAWN_ELSEWHERE) {
       expect(type).toMatch(/^(job|verification|context)\./);
       expect(CASES.map((c) => c.type)).not.toContain(type);

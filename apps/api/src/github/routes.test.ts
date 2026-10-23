@@ -7,6 +7,7 @@ import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
 import { InMemoryTurnQueue } from "@nap/db/testing/in-memory-turn-queue";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
+import { SignInRequiredSchema } from "@nap/shared/api-error";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -234,6 +235,19 @@ describe("GitHub connection routes", () => {
     ).toBe(403);
     f.setAnonymous();
     expect((await f.request("/github/connect")).status).toBe(403);
+  });
+  it("tells a guest the refusal is about signing in, in a code the web can act on", async () => {
+    // The project's GitHub dialog swaps its whole body for a sign-in prompt on this code, so it
+    // has to be the guest refusal and nothing else — a cross-site 403 must not carry it.
+    const f = fixture();
+    const crossSite = await f.request("/github/connect", {}, "POST", "https://attacker.example");
+    expect(await crossSite.json()).not.toHaveProperty("code");
+    f.setAnonymous();
+    for (const path of ["/github/connections", `/projects/${crypto.randomUUID()}/github`]) {
+      const response = await f.app.request(path);
+      expect(response.status).toBe(403);
+      expect(SignInRequiredSchema.safeParse(await response.json()).success).toBe(true);
+    }
   });
   it("returns a repository-selection change to Connections without binding or granting anything", async () => {
     // GitHub's redirect after Manage access carries `setup_action=update` and none of Nap's state.

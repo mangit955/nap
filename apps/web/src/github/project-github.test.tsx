@@ -1,3 +1,4 @@
+import { SIGN_IN_REQUIRED } from "@nap/shared/api-error";
 import { type ProjectGitHub, RepositoryEnvironmentSchema } from "@nap/shared/github-protocol";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
@@ -240,6 +241,69 @@ describe("project GitHub controls", () => {
     );
     await screen.findByText("Follow-up queued");
     expect(screen.queryByRole("button", { name: "Ask nap to address feedback" })).toBeNull();
+  });
+
+  it("asks a guest to sign in rather than showing GitHub's controls", async () => {
+    const fetchJson = vi.fn(async () =>
+      Response.json(
+        { error: "Sign in to connect GitHub.", code: SIGN_IN_REQUIRED },
+        { status: 403 },
+      ),
+    );
+    render(<ProjectGitHubControl projectId={id} refreshKey={0} fetchJson={fetchJson} />);
+    fireEvent.click(await screen.findByRole("button", { name: "GitHub pull requests" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Connect GitHub" });
+    expect(screen.getByRole("link", { name: /sign in/i })).toHaveAttribute(
+      "href",
+      "/sign-in?upgrade=1",
+    );
+    // What signing in costs a guest, said before they pay it.
+    expect(dialog).toHaveTextContent(/guest projects/i);
+    // Nothing a guest could press does anything, so none of it is drawn — not even as an error.
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Refresh GitHub status" })).toBeNull();
+    expect(screen.queryByText("Repository jobs")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Not now" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("shows a refusal without the guest code as an error, whatever its wording says", async () => {
+    // The code is the contract; a sentence that happens to mention signing in is not a guest.
+    const fetchJson = vi.fn(async () =>
+      Response.json({ error: "Sign in again to refresh this repository." }, { status: 403 }),
+    );
+    render(<ProjectGitHubControl projectId={id} refreshKey={0} fetchJson={fetchJson} />);
+    fireEvent.click(await screen.findByRole("button", { name: "GitHub pull requests" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Sign in again to refresh this repository.",
+    );
+    expect(screen.getByRole("button", { name: "Refresh GitHub status" })).toBeVisible();
+    expect(screen.queryByRole("link", { name: /sign in/i })).toBeNull();
+  });
+
+  it("stops calling somebody a guest once a later failure is not the guest refusal", async () => {
+    const fetchJson = vi.fn(async () =>
+      Response.json(
+        { error: "Sign in to connect GitHub.", code: SIGN_IN_REQUIRED },
+        { status: 403 },
+      ),
+    );
+    render(<ProjectGitHubControl projectId={id} refreshKey={0} fetchJson={fetchJson} />);
+    fireEvent.click(await screen.findByRole("button", { name: "GitHub pull requests" }));
+    await screen.findByRole("link", { name: /sign in/i });
+
+    // Signed in from another tab; the project stayed with the guest, so it is no longer theirs.
+    fetchJson.mockImplementation(async () =>
+      Response.json({ error: "Project not found." }, { status: 404 }),
+    );
+    fireEvent.focus(window);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Project not found.");
+    expect(screen.queryByRole("link", { name: /sign in/i })).toBeNull();
+    expect(screen.getByRole("dialog", { name: "Pull requests" })).toBeVisible();
   });
 
   it("does not display a PR control on a template project", async () => {

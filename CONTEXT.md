@@ -91,21 +91,7 @@ now", which is `HEAD == last checkpoint` rather than a judgement anybody renders
 **Snapshot**, which is a filesystem archived because a sandbox went away: a checkpoint is about
 whether the work is sound, a snapshot about where the work is kept. Every completed turn commits;
 only a verified one checkpoints, which is what makes a failed verification unable to corrupt the
-last known-good state by construction rather than by care. **The word keeps that strength in the
-UI**: the panel behind the job strip is a history of *jobs*, failures included, because a list of
-checkpoints is a list with every failure deleted from it — "Checkpoint" appears only against a sha
-a verification agreed with, on the line inside a history entry (`apps/web/src/chat/job-history.tsx`)
-and on the card that says what was decided in your absence (`apps/web/src/chat/unseen-card.tsx`).
-
-**Unseen** — the events in a session that *this browser* has never displayed, computed against a
-persisted **seen cursor**: `localStorage`, keyed by session, advanced only while the document is
-visible and its chat pane is open. Deliberately not "away" — away names the user's state, which nothing can observe, and
-what is computed is a property of the log against a cursor; "While you were away" is copy and may
-differ. **Distinct from the replay `seq`** that `use-event-stream.ts` keeps and `/ws?seq=N`
-resumes from, which is per-connection and in memory where this is per-browser and durable. Two
-cursors, two lifetimes, and they must not share a word or somebody eventually persists the wrong
-one. The **seam** is where the two meet on screen: a line through the transcript with everything
-below it unseen, and where the transcript opens (`apps/web/src/chat/unseen.ts`).
+last known-good state by construction rather than by care.
 
 **Continue** — what happens to an open job when its project is next opened, as distinct from
 **resume**, which already means bringing a put-away project's sandbox back up (`resumeSession`). A

@@ -8,10 +8,9 @@
  * two faces, and a Reload button that lived inside the preview would disappear when somebody
  * switched to the code — while still being the control they wanted.
  *
- * Repository controls appear only for connected projects. The job strip lives
- * *inside the chat pane*, and the button two elements to its left collapses that pane — so
- * hiding the chat to give the preview the whole window used to take the one signal saying
- * whether the project works off the screen with it.
+ * Repository controls appear only for connected projects. Where the job stands is here too, and
+ * nowhere else: this bar is never hidden, so collapsing the chat to give the preview the whole
+ * window does not take the one signal saying whether the project works off the screen with it.
  */
 
 import type { ReactNode } from "react";
@@ -47,9 +46,8 @@ export function WorkspaceHeader({
   /** The sandbox's address, or absent while nothing is serving the project. */
   previewUrl: string | undefined;
   /**
-   * The newest job as the strip below says it, or `null` for a project nobody has asked anything
-   * of yet. The same fold and the same wording as the strip's, derived once above both — see
-   * `useSessionLog`.
+   * The newest job, or `null` for a project nobody has asked anything of yet. Folded once from
+   * the session's events — see `useSessionLog`.
    */
   job: JobSummary | null;
   onTabChange: (tab: WorkbenchTab) => void;
@@ -141,16 +139,11 @@ export function WorkspaceHeader({
 }
 
 /**
- * Where the job stands, mirrored from the strip.
+ * Where the job stands.
  *
- * **Mirrored rather than moved.** The strip still says this while the chat is open, and says
- * three further things beside it — the checks, the repairs spent, the history. What the bar
- * carries is the one fact that must survive the pane being collapsed.
- *
- * **And this is the copy that announces.** `role="status"` is here rather than on the strip's
+ * **The bar is the one place it is shown, and the copy that announces.** `role="status"` is here
  * because this bar is the only surface in the workspace that is never hidden: a live region
- * inside the chat pane goes silent the moment somebody hides the chat, and two of them would
- * announce the same change twice while the chat is open. The strip's phase is drawn, not spoken.
+ * inside the chat pane goes silent the moment somebody hides the chat.
  * Rendered even with nothing to say, for the same reason — a region that appears along with its
  * first message is a region that misses it.
  *

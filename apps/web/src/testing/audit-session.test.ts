@@ -49,7 +49,7 @@ describe("the kept audit session", () => {
 
   it("ends at a checkpoint, because the failed turn committed nothing", () => {
     // The property that makes the abandoned job safe to show: a failed turn commits nothing,
-    // so HEAD is still the last verified commit and the strip may honestly say so.
+    // so HEAD is still the last verified commit and the workspace bar may honestly say so.
     const state = foldJobs(auditSession());
     expect(state.checkpointSha).not.toBeNull();
     expect(state.atCheckpoint).toBe(true);

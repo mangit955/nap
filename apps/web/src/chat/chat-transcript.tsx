@@ -20,7 +20,6 @@ import type { MediaAttachment } from "@nap/shared/media";
  */
 
 import { useMemo, useState } from "react";
-import { NapMark } from "../brand/nap-mark.tsx";
 import { turnFailureCopy } from "../errors/failure-copy.ts";
 import { AlertIcon, CopyIcon } from "../ui/icons.tsx";
 import { ChangedFilesCard } from "./changed-files-card.tsx";
@@ -46,8 +45,6 @@ export function ChatTranscript({
   running = false,
   pending = false,
   startedAt,
-  seam,
-  seamRef,
   onRetry,
   files = [],
   onOpenFile,
@@ -73,17 +70,6 @@ export function ChatTranscript({
   pending?: boolean;
   /** When the server says the open turn began. Absent until `turn.started` arrives. */
   startedAt?: string | undefined;
-  /**
-   * The key of the first item this browser has never displayed, and where the seam is drawn.
-   *
-   * The *key*, not the cursor: `seamAt` in `unseen.ts` is where the rule for turning one into the
-   * other lives — including the part about an item that straddles the cursor. Undefined is the
-   * ordinary case, and a key nothing matches draws nothing, which is what a windowed log
-   * eventually hands over. A seam inside folded work is drawn above the fold.
-   */
-  seam?: number | undefined;
-  /** Put on the marker, so the scroller can open at it. See `use-stick-to-bottom.ts`. */
-  seamRef?: React.RefObject<HTMLElement | null> | undefined;
   /** Re-sends a failed turn's message. Absent means no retry is offered, not a broken button. */
   onRetry?: ((message: string, attachments?: MediaAttachment[]) => void) | undefined;
   /** The project's files, so a path in a reply can become a chip that opens it. */
@@ -115,8 +101,6 @@ export function ChatTranscript({
   // client that reconnected mid-turn has no `turn.started`, and the passage the model is writing
   // right now is exactly what asking for one would refuse to stream.
   const liveKey = items.at(-1)?.key;
-  const seamRow =
-    seam === undefined ? undefined : rows.find((row) => (row.keys?.last ?? -1) >= seam)?.id;
 
   const compactionFailures = new Map<number, FailedTurn>();
   const foldedFailures = new Set<number>();
@@ -150,25 +134,16 @@ export function ChatTranscript({
       >
         {rows.map((row) => {
           // A turn that finished draws nothing of its own — its fold says how long it took — and
-          // a compaction's failure is drawn inside the compaction's row. Neither takes a wrapper,
-          // unless the seam has to be drawn on it.
+          // a compaction's failure is drawn inside the compaction's row. Neither takes a wrapper.
           const drawnElsewhere = row.kind === "item" && foldedFailures.has(row.item.key);
-          if (drawnElsewhere || isFinished(row)) {
-            return row.id === seamRow ? (
-              <div key={row.id}>
-                <UnseenSeam seamRef={seamRef} />
-              </div>
-            ) : null;
-          }
+          if (drawnElsewhere || isFinished(row)) return null;
           const before = previous;
           if (!quiet(row)) previous = row;
           return (
             <div key={row.id} className={spacingBefore(row, before)}>
-              {row.id === seamRow && <UnseenSeam seamRef={seamRef} />}
               <Row
                 row={row}
                 live={row.kind === "item" && row.item.key === liveKey}
-                opensBlock={opensBlock(row, before)}
                 compactionFailure={
                   row.kind === "item" ? compactionFailures.get(row.item.key) : undefined
                 }
@@ -216,25 +191,9 @@ function spacingBefore(row: TimelineRow, previous: TimelineRow | undefined): str
   return isWorkRow(row) && previous.kind === "turn-fold" ? "mt-2" : "mt-5";
 }
 
-/**
- * Whether this row starts a new stretch of the agent talking.
- *
- * The label is drawn against the first of them, so a turn that says three things separated by
- * tool calls is not signed three times.
- */
-function opensBlock(row: TimelineRow, previous: TimelineRow | undefined): boolean {
-  if (row.kind !== "item" || row.item.kind !== "message" || row.item.from !== "agent") return false;
-  return !(
-    previous?.kind === "item" &&
-    previous.item.kind === "message" &&
-    previous.item.from === "agent"
-  );
-}
-
 function Row({
   row,
   live,
-  opensBlock,
   compactionFailure,
   onRetry,
   onToggleFold,
@@ -242,7 +201,6 @@ function Row({
 }: {
   row: TimelineRow;
   live: boolean;
-  opensBlock: boolean;
   compactionFailure: FailedTurn | undefined;
   onRetry?: ((message: string, attachments?: MediaAttachment[]) => void) | undefined;
   onToggleFold: (id: string) => void;
@@ -251,13 +209,7 @@ function Row({
   switch (row.kind) {
     case "item":
       return (
-        <Item
-          item={row.item}
-          live={live}
-          opensBlock={opensBlock}
-          compactionFailure={compactionFailure}
-          onRetry={onRetry}
-        />
+        <Item item={row.item} live={live} compactionFailure={compactionFailure} onRetry={onRetry} />
       );
     case "work-entry":
       return <WorkEntryRow entry={row.entry} displayLabel={row.displayLabel} />;
@@ -284,7 +236,6 @@ function Row({
 function Item({
   item,
   live,
-  opensBlock,
   onRetry,
   compactionFailure,
 }: {
@@ -292,7 +243,6 @@ function Item({
   compactionFailure?: FailedTurn | undefined;
   /** Whether this item can still be added to. Only ever true of the last one, mid-turn. */
   live: boolean;
-  opensBlock: boolean;
   onRetry?: ((message: string, attachments?: MediaAttachment[]) => void) | undefined;
 }) {
   switch (item.kind) {
@@ -362,15 +312,6 @@ function Item({
         </div>
       ) : (
         <div className="flex flex-col gap-1.5">
-          {opensBlock && (
-            <span
-              aria-hidden="true"
-              className="mb-1 flex items-center gap-2 text-[12px] font-medium text-ink-2"
-            >
-              <NapMark className="size-5 shrink-0" />
-              nap
-            </span>
-          )}
           <span className="sr-only">Agent: </span>
           <ChatMarkdown text={item.text} streaming={live} />
           <CopyButton text={item.text} />
@@ -449,41 +390,6 @@ function Item({
     case "turn-end":
       return item.outcome === "completed" ? null : <TurnFailure item={item} onRetry={onRetry} />;
   }
-}
-
-/**
- * Where this browser's reading stopped.
- *
- * The honest primitive, and it works for every case including "you were gone eight seconds":
- * a line through the transcript with everything below it unseen. Whatever sits *above* it as a
- * summary is additive and can be cut without leaving a hole here.
- *
- * Drawn like the turn boundary — a rule with a word on it — but in the accent rather than in the
- * edge colour, because this one is about the reader rather than about the log. And it is a word
- * as well as a line: a hairline in a different colour is nothing at all to somebody listening,
- * and "you have not read from here down" is exactly what they need told.
- *
- * The copy is not the domain term. What is computed is `Unseen` — a property of the log against
- * a cursor — and what is said is a sentence about a person, the same split `working-state.ts`
- * and `failure-copy.ts` already make.
- */
-function UnseenSeam({ seamRef }: { seamRef?: React.RefObject<HTMLElement | null> | undefined }) {
-  return (
-    <p
-      // Filled through a callback rather than handed the object directly. The caller asks for
-      // an `HTMLElement` because it only ever reads an offset off it, and a `RefObject` of the
-      // wider type is not a `RefObject` of this one — assigning into it is, and it needs no
-      // cast promising that this element is always a paragraph.
-      ref={(node) => {
-        if (seamRef !== undefined) seamRef.current = node;
-      }}
-      className="flex items-center gap-2.5 pt-1 font-mono text-[11px] text-accent-ink"
-    >
-      <span aria-hidden="true" className="h-px flex-1 bg-accent/40" />
-      <span className="min-w-0 truncate">New since you were last here</span>
-      <span aria-hidden="true" className="h-px flex-1 bg-accent/40" />
-    </p>
-  );
 }
 
 /**

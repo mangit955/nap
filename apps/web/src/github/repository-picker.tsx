@@ -1,5 +1,6 @@
 "use client";
 
+import { SIGN_IN_REQUIRED } from "@nap/shared/api-error";
 import {
   GitHubConnectionsSchema,
   GitHubRepositoriesSchema,
@@ -8,11 +9,15 @@ import {
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { credentialedFetch } from "../api/credentialed-fetch.ts";
 import type { FetchJson } from "../files/use-project-files.ts";
+import { BUTTON, PRIMARY_BUTTON } from "../settings/settings-ui.tsx";
+import { ArrowLeftIcon } from "../ui/icons.tsx";
 import { GITHUB_API_URL, githubRequest } from "./request.ts";
 
 export type RepositoryChoice = { installationId: number; repository: GitHubRepository };
 type ListState =
   | { kind: "loading" }
+  /** A guest session, which the server refuses outright: nothing here can be retried. */
+  | { kind: "guest" }
   | { kind: "disconnected" }
   | { kind: "loaded"; choices: RepositoryChoice[]; errors: string[] };
 
@@ -44,7 +49,10 @@ export function RepositoryPicker({
       `${baseUrl}/github/connections`,
       GitHubConnectionsSchema,
     );
-    if (!connection.ok) return { kind: "loaded", choices: [], errors: [connection.error] };
+    if (!connection.ok)
+      return connection.code === SIGN_IN_REQUIRED
+        ? { kind: "guest" }
+        : { kind: "loaded", choices: [], errors: [connection.error] };
     const installations = connection.value.installations.filter((item) => item.status === "active");
     if (!installations.length) return { kind: "disconnected" };
     const choices: RepositoryChoice[] = [];
@@ -98,7 +106,26 @@ export function RepositoryPicker({
       : [];
   const current = choices.length ? Math.min(highlight, choices.length - 1) : -1;
   return (
-    <div ref={root} className="repository-mention">
+    // biome-ignore lint/a11y/useSemanticElements: a popover, not a form section; a fieldset brings its own border and form semantics
+    <div
+      ref={root}
+      role="group"
+      aria-label="Choose a repository"
+      className="repository-mention"
+      // On the root rather than the filter, so Escape also works from the guest panel's controls.
+      onKeyDown={(event) => {
+        if (event.key !== "Escape") return;
+        event.preventDefault();
+        event.stopPropagation();
+        onClose();
+      }}
+      // Focus leaving the picker by keyboard — Tab past the guest panel — closes it, as a press
+      // outside does.
+      onBlur={(event) => {
+        if (event.relatedTarget instanceof Node && !root.current?.contains(event.relatedTarget))
+          onClose();
+      }}
+    >
       <div className="repository-mention-line">
         <label htmlFor={`${listId}-input`}>@repos:</label>
         <input
@@ -118,12 +145,9 @@ export function RepositoryPicker({
             setHighlight(0);
           }}
           onKeyDown={(event) => {
-            if (event.key === "Escape") {
-              event.preventDefault();
-              event.stopPropagation();
-              onClose();
-            }
-            if (event.key === "Tab") onClose();
+            // Tab leaves the list rather than moving through it — except forward for a guest, whose
+            // only way on is the panel's Sign in, which comes next in the tab order.
+            if (event.key === "Tab" && (state.kind !== "guest" || event.shiftKey)) onClose();
             if (event.key === "ArrowDown" || event.key === "ArrowUp") {
               event.preventDefault();
               const next = choices.length
@@ -141,7 +165,7 @@ export function RepositoryPicker({
           }}
         />
       </div>
-      <div className="repository-popover">
+      <div className="repository-popover composer-surface nap-float">
         <div className="repository-heading">Repositories</div>
         <div
           id={listId}
@@ -180,6 +204,26 @@ export function RepositoryPicker({
             Loading repositories…
           </p>
         )}
+        {state.kind === "guest" && (
+          <div className="repository-guest">
+            <p role="status" className="text-[13px] leading-relaxed text-ink-2">
+              Working on a repository needs a permanent account.
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-muted">
+              You're using nap as a guest. Your guest projects stay behind with the guest session;
+              you won't be able to open them from your account.
+            </p>
+            <div className="mt-3 flex items-center justify-end gap-2">
+              <button type="button" onClick={onClose} className={BUTTON}>
+                Not now
+              </button>
+              <a href="/sign-in?upgrade=1" className={PRIMARY_BUTTON}>
+                Sign in
+                <ArrowLeftIcon className="size-3.5 rotate-180" />
+              </a>
+            </div>
+          </div>
+        )}
         {state.kind === "disconnected" && (
           <p className="repository-message">
             Connect GitHub in{" "}
@@ -191,7 +235,8 @@ export function RepositoryPicker({
         )}
         {state.kind === "loaded" && (
           <>
-            {!choices.length && (
+            {/* An error already says why the list is empty; "no repositories" would contradict it. */}
+            {!choices.length && (query || state.errors.length === 0) && (
               <p className="repository-message">
                 {query
                   ? "No matching repositories."
@@ -203,18 +248,20 @@ export function RepositoryPicker({
                 {error}
               </p>
             ))}
-            {state.errors.length > 0 && (
-              <button
-                type="button"
-                className="repository-retry"
-                onClick={() => setAttempt(attempt + 1)}
-              >
-                Retry
+            <div className="repository-actions">
+              <button type="button" className="repository-settings" onClick={onConnect}>
+                Manage access in Settings → Connections
               </button>
-            )}
-            <button type="button" className="repository-settings" onClick={onConnect}>
-              Manage access in Settings → Connections
-            </button>
+              {state.errors.length > 0 && (
+                <button
+                  type="button"
+                  className="repository-retry"
+                  onClick={() => setAttempt(attempt + 1)}
+                >
+                  Retry
+                </button>
+              )}
+            </div>
           </>
         )}
       </div>

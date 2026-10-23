@@ -67,7 +67,7 @@ export async function checkSandboxQuota(check: SandboxQuotaCheck): Promise<Quota
       reason: "per_user",
       message:
         `You already have ${mine} project${mine === 1 ? "" : "s"} running, which is the limit. ` +
-        "Close one from the project list and try again.",
+        "Put one away from its menu in the project list and try again.",
     };
   }
 

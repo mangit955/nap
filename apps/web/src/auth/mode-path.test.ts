@@ -10,4 +10,11 @@ describe("pathForMode", () => {
     expect(pathForMode("sign-up")).toBe("/sign-up");
     expect(pathForMode("sign-in")).not.toBe(pathForMode("sign-up"));
   });
+
+  it("keeps a guest's upgrade on either half, so a reload does not send them away", () => {
+    // A guest comes to make an account and almost always switches to sign-up first; the page
+    // only keeps a guest on it while `upgrade=1` is in the address.
+    expect(pathForMode("sign-up", true)).toBe("/sign-up?upgrade=1");
+    expect(pathForMode("sign-in", true)).toBe("/sign-in?upgrade=1");
+  });
 });

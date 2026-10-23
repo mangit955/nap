@@ -201,9 +201,12 @@ describe("the resting composer", () => {
     expect(screen.getByRole("button", { name: "Add to prompt" })).toBe(add);
     expect(screen.getByLabelText(/^Context,/)).toBe(context);
     fireEvent.click(add);
+    // The closed menu stays mounted, and its items are found by role either way.
+    expect(add).toHaveAttribute("aria-expanded", "true");
     expect(screen.getAllByRole("menuitem")).toHaveLength(2);
     expect(screen.getByRole("menuitem", { name: "Upload media" })).toBeEnabled();
     fireEvent.click(screen.getByRole("menuitem", { name: "Repositories" }));
+    expect(add).toHaveAttribute("aria-expanded", "false");
     expect(composer).not.toHaveAttribute("data-resting", "true");
     expect(screen.getByText("This session keeps its current codebase.")).toBeVisible();
     expect(screen.getByRole("link", { name: "Start new session from GitHub" })).toHaveAttribute(
@@ -223,7 +226,11 @@ describe("the resting composer", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add to prompt" }));
     fireEvent.wheel(timeline, { deltaY: -80 });
     expect(composer).not.toHaveAttribute("data-resting", "true");
-    expect(screen.getAllByRole("menuitem")).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "Add to prompt" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(screen.getByRole("menu")).not.toHaveAttribute("inert");
   });
 
   it("keeps draft storage failures visible and expanded while reading history", async () => {

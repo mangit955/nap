@@ -92,15 +92,6 @@ export function HowNapWorks() {
             ),
           },
           {
-            term: "Coming back has a place to start",
-            body: (
-              <>
-                The transcript opens at the <Term>seam</Term> your reading stopped at, and one card
-                above it says what was <em>decided</em> in your absence — if anything was.
-              </>
-            ),
-          },
-          {
             term: "Rejoining is one question",
             body: (
               <>

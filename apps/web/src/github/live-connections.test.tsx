@@ -39,7 +39,16 @@ describe("GitHub connection account gate", () => {
   it("asks a guest to sign in before connecting repositories", () => {
     useSession.mockReturnValue({ data: { user: { isAnonymous: true } }, isPending: false });
     render(<LiveGitHubConnections />);
-    expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/sign-in");
+    expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute(
+      "href",
+      "/sign-in?upgrade=1",
+    );
+    expect(screen.getByRole("heading", { level: 1, name: "Connect GitHub" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "Back to workspace" })).toHaveAttribute(
+      "href",
+      "/dashboard",
+    );
+    expect(screen.getByText(/guest projects stay behind with the guest session/i)).toBeVisible();
     expect(connections).not.toHaveBeenCalled();
   });
   it("loads connections for an authenticated permanent account", () => {
