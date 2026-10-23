@@ -33,6 +33,12 @@ announce(nap, "api listening", {
 export default {
   port: nap.env.PORT,
   fetch: nap.composed.app.fetch,
+  // Bun closes an HTTP connection that has sent nothing for 10s by default, including one still
+  // waiting on its handler. A request slowed by an upstream — GitHub listing a large installation —
+  // then reaches the browser as a dropped connection, which the web app can only report as "could
+  // not reach the server". A slow upstream should surface as a slow response. Sockets have their
+  // own timeout on `websocket`, so this does not change how long an idle chat stream lives.
+  idleTimeout: 30,
   // Bun dispatches socket lifecycle here; without it an upgraded connection is never read.
   websocket,
 };

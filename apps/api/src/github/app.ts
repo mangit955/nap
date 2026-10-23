@@ -118,6 +118,13 @@ export function isRateLimited(response: Pick<Response, "status" | "headers">): b
   );
 }
 
+/**
+ * How many repository permission checks one listing keeps in flight. Enough that a few dozen
+ * repositories answer in a couple of seconds; few enough that one listing is not a burst GitHub's
+ * secondary rate limits would object to.
+ */
+export const PERMISSION_CONCURRENCY = 8;
+
 const RATE_LIMITED: GitHubError = {
   code: "unavailable",
   message: "GitHub is rate limiting Nap's requests for this connection. Try again shortly.",
@@ -397,6 +404,54 @@ export class GitHubApp {
       }
       if (response.value.repositories.length < 100) return { ok: true, value: repositories };
     }
+  }
+
+  /**
+   * `login`'s permission on each of `repositories`, in the same order — `null` where GitHub denied
+   * the check, and the whole call failing when GitHub is unavailable for any one of them.
+   *
+   * This is the repository picker's path, and it is shaped by being one call per repository. Run
+   * one at a time, each behind a token minted for that repository alone, 44 repositories took
+   * ~20s and outlived the browser's connection. So it uses one installation-wide token — the
+   * endpoint needs only Metadata read, which that token has for every selected repository — and
+   * keeps `PERMISSION_CONCURRENCY` checks in flight rather than one.
+   */
+  async permissions(
+    installationId: number,
+    repositories: readonly GitHubRepository[],
+    login: string,
+  ): Promise<GitHubResult<(z.infer<typeof Permission> | null)[]>> {
+    const results: (z.infer<typeof Permission> | null)[] = repositories.map(() => null);
+    const token = await this.token(installationId, null, { metadata: "read" });
+    if (!token.ok) return token.error.code === "unavailable" ? token : { ok: true, value: results };
+    // A 401 is the token, not the repository: every check that saw one shares a single refresh.
+    let refreshed: Promise<GitHubResult<string>> | undefined;
+    const check = async (repository: GitHubRepository) => {
+      const path = `/repos/${repository.fullName}/collaborators/${encodeURIComponent(login)}/permission`;
+      const first = await this.#http(path, `Bearer ${token.value}`, Permission);
+      if (first.status !== 401) return first;
+      refreshed ??= this.token(installationId, null, { metadata: "read" }, true);
+      const fresh = await refreshed;
+      return fresh.ok ? this.#http(path, `Bearer ${fresh.value}`, Permission) : fresh;
+    };
+    let unavailable: GitHubError | undefined;
+    let next = 0;
+    const worker = async () => {
+      while (unavailable === undefined && next < repositories.length) {
+        const index = next++;
+        const repository = repositories[index];
+        if (repository === undefined) return;
+        const result = await check(repository);
+        if (result.ok) results[index] = result.value;
+        else if (result.error.code === "unavailable") unavailable ??= result.error;
+      }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(PERMISSION_CONCURRENCY, repositories.length) }, worker),
+    );
+    return unavailable === undefined
+      ? { ok: true, value: results }
+      : { ok: false, error: unavailable };
   }
 
   permission(installationId: number, repository: GitHubRepository, login: string) {

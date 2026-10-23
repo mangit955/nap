@@ -1,6 +1,6 @@
 import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { GitHubApp } from "./app.ts";
+import { GitHubApp, PERMISSION_CONCURRENCY } from "./app.ts";
 
 const key = generateKeyPairSync("rsa", { modulusLength: 2048 })
   .privateKey.export({ type: "pkcs8", format: "pem" })
@@ -165,6 +165,95 @@ it("reads every repository page beyond the old thousand-repository cap", async (
   const result = await app.repositories(99);
   expect(result.ok && result.value.length).toBe(1101);
   expect(pages).toHaveLength(12);
+});
+
+describe("permission checks across an installation", () => {
+  const selection = (count: number) =>
+    Array.from({ length: count }, (_, i) => ({
+      id: 1000 + i,
+      fullName: `org/repo-${i}`,
+      defaultBranch: "main",
+      private: true,
+    }));
+
+  /**
+   * Answers each permission check a few macrotasks later, so checks that are genuinely running at
+   * once overlap here and a serial loop shows up as one in flight at a time.
+   */
+  function transport(answer: (repo: string, token: string) => Response) {
+    const minted: unknown[] = [];
+    const checked: string[] = [];
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const fetcher = async (url: string, init?: RequestInit) => {
+      const path = new URL(url).pathname;
+      if (path.endsWith("/access_tokens")) {
+        minted.push(JSON.parse(String(init?.body)));
+        return Response.json({
+          token: `token-${minted.length}`,
+          expires_at: new Date(Date.now() + 3600000).toISOString(),
+        });
+      }
+      const repo = path.split("/")[3] ?? "";
+      checked.push(repo);
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      for (let tick = 0; tick < 3; tick += 1) await new Promise((r) => setTimeout(r, 0));
+      inFlight -= 1;
+      const authorization = new Headers(init?.headers).get("authorization") ?? "";
+      return answer(repo, authorization.replace("Bearer ", ""));
+    };
+    return {
+      app: new GitHubApp(config, fetcher),
+      minted,
+      checked,
+      maxInFlight: () => maxInFlight,
+    };
+  }
+  const write = () => Response.json({ permission: "write", user: { id: 7, login: "owner" } });
+
+  it("checks every repository on one installation-wide token, a bounded number at a time, in listing order", async () => {
+    const t = transport((repo) =>
+      repo === "repo-3"
+        ? Response.json({ message: "Not Found" }, { status: 404 })
+        : Response.json({
+            permission: repo === "repo-5" ? "read" : "write",
+            user: { id: 7, login: "owner" },
+          }),
+    );
+    const repositories = selection(30);
+    const result = await t.app.permissions(99, repositories, "owner");
+    if (!result.ok) throw new Error("Expected permissions");
+    expect(result.value).toHaveLength(30);
+    expect(result.value[3]).toBeNull();
+    expect(result.value[5]).toMatchObject({ permission: "read" });
+    expect(result.value[29]).toMatchObject({ permission: "write" });
+    // One token for the whole listing, not one per repository — and an installation-wide one.
+    expect(t.minted).toEqual([{ permissions: { metadata: "read" } }]);
+    expect(t.checked).toHaveLength(30);
+    expect(t.maxInFlight()).toBe(PERMISSION_CONCURRENCY);
+  });
+
+  it("refreshes a rejected installation token once for every check that saw it", async () => {
+    const t = transport((_repo, token) =>
+      token === "token-1"
+        ? Response.json({ message: "Bad credentials" }, { status: 401 })
+        : write(),
+    );
+    const result = await t.app.permissions(99, selection(20), "owner");
+    if (!result.ok) throw new Error("Expected permissions");
+    expect(result.value.every((entry) => entry?.permission === "write")).toBe(true);
+    expect(t.minted).toHaveLength(2);
+  });
+
+  it("fails the whole check when GitHub is unavailable, and stops asking", async () => {
+    const t = transport((repo) =>
+      repo === "repo-1" ? Response.json({ message: "down" }, { status: 503 }) : write(),
+    );
+    const result = await t.app.permissions(99, selection(40), "owner");
+    expect(result).toMatchObject({ ok: false, error: { code: "unavailable" } });
+    expect(t.checked.length).toBeLessThan(40);
+  });
 });
 
 describe("pull request inspection", () => {

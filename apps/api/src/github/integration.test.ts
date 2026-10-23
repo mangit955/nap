@@ -54,6 +54,10 @@ class GitHubTransport {
   repositoryId = repository.id;
   fullName = repository.fullName;
   pullRequests: Pull[] = [];
+  /** Repositories selected after the fixture's own, in the order GitHub lists them. */
+  selection: string[] = [];
+  /** How GitHub answers a permission check, by repository full name. */
+  permissionFor: (fullName: string) => Response = () => json(this.permission);
   createBehavior: "success" | "error" | "lost-response" = "success";
   creates = 0;
   /** What each branch on GitHub points at, as the broker's pushes left it. */
@@ -89,9 +93,16 @@ class GitHubTransport {
             default_branch: "main",
             private: true,
           },
+          ...this.selection.map((fullName, i) => ({
+            id: 2000 + i,
+            full_name: fullName,
+            default_branch: "main",
+            private: true,
+          })),
         ],
       });
-    if (path.endsWith("/permission")) return json(this.permission);
+    if (path.endsWith("/permission"))
+      return this.permissionFor(path.split("/").slice(2, 4).join("/"));
     if (path === "/repos/org/app" && this.fullName !== "org/app")
       return new Response(null, {
         status: 301,
@@ -311,6 +322,49 @@ describe("GitHubIntegration authorization", () => {
     f.transport.permission.permission = "read";
     expect(await f.service.authorize(f.session.userId, 99, repository)).toMatchObject({
       ok: false,
+    });
+  });
+
+  it("lists a large selection on one token, in GitHub's order, showing only what the user can write", async () => {
+    // Minting a token per repository and checking them one at a time took ~20s for 44
+    // repositories, past the server's idle timeout, and the picker reported a network failure.
+    const f = await fixture();
+    f.transport.selection = Array.from({ length: 40 }, (_, i) => `org/repo-${i}`);
+    const as = (permission: string, id = 7) => json({ permission, user: { id, login: "owner" } });
+    const answers: Record<string, () => Response> = {
+      "org/repo-1": () => json({ message: "Not Found" }, 404),
+      "org/repo-2": () => as("read"),
+      "org/repo-3": () => as("admin", 55),
+      "org/repo-4": () => as("maintain"),
+      "org/repo-5": () => as("admin"),
+      "org/repo-6": () => as("triage"),
+    };
+    f.transport.permissionFor = (name) => answers[name]?.() ?? as("write");
+    const result = await f.service.repositories(f.session.userId, 99);
+    if (!result.ok) throw new Error("Expected a listing");
+    const hidden = new Set([2001, 2002, 2003, 2006]);
+    expect(result.value.map((entry) => entry.id)).toEqual([
+      repository.id,
+      ...Array.from({ length: 40 }, (_, i) => 2000 + i).filter((id) => !hidden.has(id)),
+    ]);
+    const mints = f.transport.calls.filter((call) => call.path.endsWith("/access_tokens"));
+    expect(mints).toEqual([
+      {
+        path: "/app/installations/99/access_tokens",
+        method: "POST",
+        body: { permissions: { metadata: "read" } },
+      },
+    ]);
+  });
+
+  it("fails the whole listing when any permission check is unavailable", async () => {
+    const f = await fixture();
+    f.transport.selection = Array.from({ length: 20 }, (_, i) => `org/repo-${i}`);
+    f.transport.permissionFor = (name) =>
+      name === "org/repo-12" ? json({ message: "down" }, 502) : json(f.transport.permission);
+    expect(await f.service.repositories(f.session.userId, 99)).toMatchObject({
+      ok: false,
+      error: { code: "unavailable" },
     });
   });
 

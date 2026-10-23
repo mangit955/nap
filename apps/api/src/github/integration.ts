@@ -145,24 +145,24 @@ export class GitHubIntegration implements RepositoryWorkspace {
       return installation.ok ? denied() : installation;
     const all = await this.deps.app.repositories(installationId);
     if (!all.ok) return all;
-    const visible: GitHubRepository[] = [];
-    for (const repository of all.value) {
-      const permission = await this.deps.app.permission(
-        installationId,
-        repository,
-        installation.value.githubLogin,
-      );
-      if (!permission.ok) {
-        if (permission.error.code === "unavailable") return permission;
-        continue;
-      }
-      if (
-        permission.value.user.id === installation.value.githubUserId &&
-        ["admin", "write", "maintain"].includes(permission.value.permission)
-      )
-        visible.push(repository);
-    }
-    return { ok: true, value: visible };
+    const permissions = await this.deps.app.permissions(
+      installationId,
+      all.value,
+      installation.value.githubLogin,
+    );
+    if (!permissions.ok) return permissions;
+    return {
+      ok: true,
+      value: all.value.filter((_, index) => {
+        const permission = permissions.value[index];
+        return (
+          permission !== null &&
+          permission !== undefined &&
+          permission.user.id === installation.value.githubUserId &&
+          ["admin", "write", "maintain"].includes(permission.permission)
+        );
+      }),
+    };
   }
 
   async source(session: SessionRecord, signal?: AbortSignal) {
