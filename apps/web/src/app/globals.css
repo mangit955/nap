@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "../workspace/right-panel.css";
 
 /*
  * Tailwind v4 is configured in CSS rather than a JS file. Tokens declared here become
@@ -1824,36 +1825,6 @@ body {
 
 .nap-scroll-hidden::-webkit-scrollbar {
   display: none;
-}
-
-.workspace-panes {
-  grid-template-columns: var(--chat-width) auto minmax(0, 1fr);
-}
-
-.workspace-panes[data-chat-open="false"] {
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.workspace-chat > [aria-labelledby="chat-heading"] {
-  background: var(--color-surface);
-}
-
-@media (max-width: 767px) {
-  .workspace-panes {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .workspace-panes[data-chat-open="true"] > :not(.workspace-chat) {
-    display: none;
-  }
-  .workspace-header {
-    gap: 8px;
-  }
-  .workspace-title [aria-label="Job phase"] {
-    display: none;
-  }
-  .workspace-title [aria-label="Hide chat"] {
-    display: none;
-  }
 }
 
 /*

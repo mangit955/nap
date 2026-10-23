@@ -49,6 +49,7 @@ export function ChatPane({
   error,
   firstPrompt,
   onOpenFile,
+  onOpenChanges,
   onSubmit = () => {},
   onCancel = () => {},
   onRetry,
@@ -79,6 +80,7 @@ export function ChatPane({
   firstPrompt?: FirstPrompt | undefined;
   /** Opens a file in the Code tab, from a path in a reply or a changed-files card. */
   onOpenFile?: ((path: string) => void) | undefined;
+  onOpenChanges?: (() => void) | undefined;
   onSubmit?: (message: string, attachments?: MediaAttachment[]) => void;
   onCancel?: () => void;
   /** Re-sends a failed turn's message. Optional so the many render tests need not supply one. */
@@ -170,6 +172,7 @@ export function ChatPane({
                     onRetry={onRetry}
                     files={files}
                     onOpenFile={onOpenFile}
+                    onOpenChanges={onOpenChanges}
                   />
                 )}
                 {pending !== undefined && !pendingAfterCompaction && (
@@ -310,6 +313,7 @@ export function LiveChatPane({
   files,
   fetchJson,
   onOpenFile,
+  onOpenChanges,
 }: {
   ownerId?: string | undefined;
   active?: boolean;
@@ -323,6 +327,7 @@ export function LiveChatPane({
   fetchJson?: FetchJson | undefined;
   /** Opens a file in the Code tab. See `ChatPane`. */
   onOpenFile?: ((path: string) => void) | undefined;
+  onOpenChanges?: (() => void) | undefined;
 }) {
   const { events, replayed } = log;
   const injected = fetchJson === undefined ? {} : { fetchJson };
@@ -388,6 +393,7 @@ export function LiveChatPane({
         error={error}
         firstPrompt={firstPrompt}
         onOpenFile={onOpenFile}
+        onOpenChanges={onOpenChanges}
         onSubmit={(message, attachments) => {
           setFirstPrompt(undefined);
           void submit(message, model, attachments);
