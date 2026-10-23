@@ -109,7 +109,7 @@ export function AddProviderDialog({
       aria-describedby={`${id}-description`}
       closedby="any"
       onClose={onClose}
-      className="nap-dialog m-auto w-full max-w-xl overflow-hidden rounded-2xl border border-edge bg-panel p-0 text-ink shadow-raised backdrop:bg-black/60 backdrop:backdrop-blur-[3px]"
+      className="nap-dialog m-auto w-full max-w-xl dialog-glass overflow-hidden rounded-[18px] border p-0 text-ink"
     >
       <div className="relative space-y-4 px-6 pt-6 pb-5">
         <div className="pr-8">

@@ -108,7 +108,7 @@ export function ConnectionDrawer({
       onClose={(event) => {
         if (!event.currentTarget.open) onClose();
       }}
-      className="nap-sheet m-0 ml-auto h-dvh max-h-none w-full max-w-2xl border-l border-edge bg-panel p-0 text-ink shadow-raised backdrop:bg-black/60 open:flex open:flex-col"
+      className="nap-sheet m-0 ml-auto h-dvh max-h-none w-full max-w-2xl border-l border-edge bg-panel p-0 text-ink shadow-raised sheet-backdrop open:flex open:flex-col"
     >
       <div className="flex h-11 shrink-0 items-center justify-between gap-3 px-5 sm:px-6">
         <p className="flex min-w-0 items-center gap-2 text-[13px]">

@@ -211,7 +211,7 @@ export function ProjectGitHubControl({
         tabIndex={-1}
         closedby="any"
         onClose={() => setOpen(false)}
-        className={`nap-dialog m-auto max-h-[85dvh] w-[calc(100%-2rem)] overflow-y-auto rounded-2xl border border-edge bg-panel p-0 text-ink shadow-raised outline-none backdrop:bg-black/60 backdrop:backdrop-blur-sm ${signIn ? "max-w-md" : "max-w-2xl"}`}
+        className={`nap-dialog m-auto max-h-[85dvh] w-[calc(100%-2rem)] overflow-y-auto dialog-glass rounded-[18px] border p-0 text-ink outline-none ${signIn ? "max-w-md" : "max-w-2xl"}`}
       >
         <DialogHeader
           titleId={titleId}

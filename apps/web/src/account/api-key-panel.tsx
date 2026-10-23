@@ -65,12 +65,9 @@ export function ApiKeyPanel({
        * error and not a fallback: it is a dialog with no fill, no border and the page showing
        * through its text. The class hands the same names a dark set of values. See `globals.css`.
        *
-       * The rest is depth. A modal over a near-black frame cannot separate itself with a
-       * hairline alone, so it is a raised panel over a dimmed, blurred room: a long shadow for
-       * the lift, and one inset highlight along the top edge, which is how a real surface catches
-       * the light and the cheapest thing that stops a flat rectangle reading as a cutout.
+       * The rest is T3 Code's dialog glass — see `.dialog-glass` in `globals.css`.
        */
-      className="nap-dialog ai-stage-dark m-auto w-full max-w-md rounded-[20px] border border-edge bg-panel p-7 text-ink shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_32px_64px_-16px_rgba(0,0,0,0.75)] backdrop:bg-black/60 backdrop:backdrop-blur-[3px]"
+      className="nap-dialog dialog-glass ai-stage-dark m-auto w-full max-w-md rounded-[18px] border p-7 text-ink"
     >
       <div className="flex items-start justify-between gap-5">
         <div>

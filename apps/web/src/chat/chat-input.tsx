@@ -322,7 +322,7 @@ export function ChatInput({
           <button
             type="button"
             onClick={scroll.scrollToEnd}
-            className="composer-surface pointer-events-auto flex h-7 items-center gap-1 rounded-full px-2.5 text-xs text-ink-2 shadow-raised hover:text-ink focus-visible:outline-accent"
+            className="surface-glass pointer-events-auto flex h-7 items-center gap-1 rounded-full px-2.5 text-xs text-ink-2 shadow-sm hover:text-ink focus-visible:outline-accent"
           >
             <svg
               aria-hidden="true"

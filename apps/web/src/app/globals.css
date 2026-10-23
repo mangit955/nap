@@ -2035,10 +2035,76 @@ body {
  * earlier opaque panel, which is why the fallbacks below go opaque wherever the blur is missing.
  */
 .composer-surface {
-  border: 1px solid rgb(255 255 255 / 5%);
-  background: color-mix(in srgb, var(--color-panel) 80%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-ink) 10%, transparent);
+  /*
+   * T3 Code's `dropdown-glass`, value for value: the raised panel colour at the 80% glass opacity,
+   * with 18% of the solid colour mixed back over it — about 84% in all. The extra 4% is what
+   * keeps a menu's rows legible over a busy transcript without the panel turning opaque.
+   */
+  background: color-mix(
+    in srgb,
+    var(--color-panel) 18%,
+    color-mix(in srgb, var(--color-panel) 80%, transparent)
+  );
   -webkit-backdrop-filter: blur(16px) saturate(1.08);
   backdrop-filter: blur(16px) saturate(1.08);
+}
+/*
+ * A popover rather than a menu — something that holds content, like the context popup and the
+ * repository picker. T3's popover adds one thing its menus do not: a 1px highlight along the top
+ * edge, drawn by a pseudo-element's shadow so it sits over the border rather than inside it.
+ */
+.glass-popover::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 -1px rgb(255 255 255 / 6%);
+  pointer-events: none;
+}
+/*
+ * T3 Code's `surface-glass`, for a control that floats over content rather than opening from
+ * it — the transcript's scroll-to-end pill. The page's own surface, not the raised panel, so it
+ * reads as a hole in the page rather than a card on it.
+ */
+.surface-glass {
+  border: 1px solid color-mix(in srgb, var(--color-ink) 6%, transparent);
+  background: color-mix(in srgb, var(--color-surface) 80%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(1.08);
+  backdrop-filter: blur(16px) saturate(1.08);
+}
+.surface-glass:hover {
+  border-color: color-mix(in srgb, var(--color-ink) 10%, transparent);
+}
+/*
+ * T3 Code's `dialog-glass` and `dialog-backdrop`: a modal is the page's surface under glass, not
+ * an opaque card, so the work behind it stays faintly present; and the room behind is dimmed to
+ * 64% and softened by 4px rather than blacked out. The inset line along the top is the light
+ * catching the panel's edge.
+ *
+ * `::backdrop` reads custom properties from its dialog in current browsers; the fallback colour is
+ * the surface itself, for one that does not.
+ */
+.dialog-glass {
+  border-color: rgb(255 255 255 / 8%);
+  background: color-mix(in srgb, var(--color-surface, #0a0a0a) 80%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(1.08);
+  backdrop-filter: blur(16px) saturate(1.08);
+  box-shadow:
+    inset 0 1px rgb(255 255 255 / 4%),
+    0 24px 72px -20px rgb(0 0 0 / 90%);
+}
+.dialog-glass::backdrop,
+.sheet-backdrop::backdrop {
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+.dialog-glass::backdrop {
+  background: color-mix(in srgb, var(--color-surface, #0a0a0a) 64%, transparent);
+}
+/* T3's sheet: an opaque panel, over the same softened room at 60%. */
+.sheet-backdrop::backdrop {
+  background: color-mix(in srgb, var(--color-surface, #0a0a0a) 60%, transparent);
 }
 /*
  * A popup that lives in a `<details>` — the context popup, the sidebar's settings menu — is
@@ -2114,8 +2180,12 @@ details[open] > .nap-float {
   .workspace-composer[data-resting="true"] .composer-model-controls {
     background: var(--color-panel);
   }
-  .composer-surface {
+  .composer-surface,
+  .dialog-glass {
     background: var(--color-panel);
+  }
+  .surface-glass {
+    background: var(--color-surface);
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -2145,8 +2215,14 @@ details[open] > .nap-float {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
-  .composer-surface {
+  .composer-surface,
+  .dialog-glass {
     background: var(--color-panel);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .surface-glass {
+    background: var(--color-surface);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
