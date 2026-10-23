@@ -45,13 +45,17 @@ export function shelveSessions(sessions: readonly SessionSummary[], now: number)
   }
   shelves.pinned.sort(byPlacementThenRecency);
   shelves.active.sort(byPlacementThenRecency);
-  // The next one to wake first, so the shelf reads as a queue.
+  // Manual placement wins; otherwise the next one to wake comes first.
   shelves.snoozed.sort(
-    (left, right) => time(left.navigation.snoozedUntil) - time(right.navigation.snoozedUntil),
+    (left, right) =>
+      byPlacement(left, right) ||
+      time(left.navigation.snoozedUntil) - time(right.navigation.snoozedUntil) ||
+      left.projectId.localeCompare(right.projectId),
   );
-  // The latest settled first: the one somebody is most likely to want back.
+  // Unplaced rows fall back to the latest settled first.
   shelves.settled.sort(
     (left, right) =>
+      byPlacement(left, right) ||
       time(right.navigation.doneAt) - time(left.navigation.doneAt) ||
       left.projectId.localeCompare(right.projectId),
   );
@@ -65,10 +69,16 @@ export function shelveSessions(sessions: readonly SessionSummary[], now: number)
  */
 function byPlacementThenRecency(left: SessionSummary, right: SessionSummary): number {
   return (
-    (left.navigation.position ?? Number.MAX_SAFE_INTEGER) -
-      (right.navigation.position ?? Number.MAX_SAFE_INTEGER) ||
+    byPlacement(left, right) ||
     time(right.requestedAt ?? right.createdAt) - time(left.requestedAt ?? left.createdAt) ||
     left.projectId.localeCompare(right.projectId)
+  );
+}
+
+function byPlacement(left: SessionSummary, right: SessionSummary): number {
+  return (
+    (left.navigation.position ?? Number.MAX_SAFE_INTEGER) -
+    (right.navigation.position ?? Number.MAX_SAFE_INTEGER)
   );
 }
 

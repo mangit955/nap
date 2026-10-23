@@ -303,3 +303,37 @@ it("keeps the pending-start notice out of the composer while the request is in f
   await screen.findByText("Upstream unavailable");
   expect(await screen.findByRole("button", { name: "Retry pending start" })).toBeEnabled();
 });
+
+it("resumes draft persistence for an authenticated owner returning without a draft pointer", async () => {
+  vi.stubGlobal("indexedDB", new IDBFactory());
+  window.history.replaceState(null, "", "/dashboard");
+  const ownerId = crypto.randomUUID();
+  const store = new ComposerDraftStore();
+  await store.clearOwner(ownerId);
+  const view = render(
+    <NewSessionComposer
+      ownerId={ownerId}
+      models={[]}
+      modelsLoading={false}
+      onAddKey={vi.fn()}
+      fetchJson={vi.fn()}
+    />,
+  );
+  try {
+    const box = screen.getByRole("textbox", { name: "Describe the app you want" });
+    await waitFor(() => expect(box).toBeEnabled());
+    fireEvent.change(box, { target: { value: "New work after signing in again" } });
+    // Do not poll load here: the old load implementation would itself resume writes and mask the bug.
+    await waitFor(() => {
+      const id = sessionStorage.getItem(`nap.composer.${ownerId}`);
+      expect(id).not.toBeNull();
+      expect(localStorage.getItem(`nap.draft.${ownerId}.${id}`)).toBe("1");
+    });
+    const id = sessionStorage.getItem(`nap.composer.${ownerId}`);
+    expect(await store.load(ownerId, id!)).toMatchObject({
+      text: "New work after signing in again",
+    });
+  } finally {
+    view.unmount();
+  }
+});

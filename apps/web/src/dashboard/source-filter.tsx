@@ -1,5 +1,5 @@
 "use client";
-import type { SessionSummary } from "@nap/shared/session-navigation";
+import { type SessionSummary, sessionSection } from "@nap/shared/session-navigation";
 import { ListFilter } from "lucide-react";
 import { useRef, useState } from "react";
 import { SourceMark } from "./session-row.tsx";
@@ -17,10 +17,13 @@ export function SourceFilter({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const trigger = useRef<HTMLButtonElement>(null);
+  const now = Date.now();
   const sources = [
     ...new Set([
       null,
-      ...sessions.filter((row) => !row.navigation.archivedAt).map((row) => row.repository),
+      ...sessions
+        .filter((row) => sessionSection(row, now) !== "archived")
+        .map((row) => row.repository),
     ]),
   ].map(sessionSource);
   return (

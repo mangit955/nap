@@ -3,7 +3,7 @@
 import type { ProjectSummaryPayload } from "@nap/shared/projects-protocol";
 import { NavigationSchema, type SessionSummary } from "@nap/shared/session-navigation";
 import { SquarePen } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { NapMark } from "../brand/nap-mark.tsx";
 import type { useSessionNavigation } from "../projects/use-session-navigation.ts";
 import { SpinnerIcon } from "../ui/icons.tsx";
@@ -82,27 +82,27 @@ export function Sidebar({
   const [repository, setRepository] = useState("");
   const scroll = useRef<HTMLElement>(null);
   const restoredScroll = useRef(false);
-  const revealedProject = useRef<string | undefined>(undefined);
+  const revealedSelection = useRef<HTMLAnchorElement | null>(null);
   const navigationStatus = navigation?.status;
-  useEffect(() => {
-    const element = scroll.current;
-    if (loading || (navigationStatus && navigationStatus !== "ready") || !element) return;
-    if (!restoredScroll.current) {
-      try {
-        element.scrollTop = Number(sessionStorage.getItem("nap.sidebar.scroll") ?? 0);
-      } catch {
-        /* Scrolling also works without persistence. */
+  const onListLayout = useCallback(
+    (selected: HTMLAnchorElement | null) => {
+      const element = scroll.current;
+      if (loading || (navigationStatus && navigationStatus !== "ready") || !element) return;
+      if (!restoredScroll.current) {
+        try {
+          element.scrollTop = Number(sessionStorage.getItem("nap.sidebar.scroll") ?? 0);
+        } catch {
+          /* Scrolling also works without persistence. */
+        }
+        restoredScroll.current = true;
       }
-      restoredScroll.current = true;
-    }
-    if (activeProjectId && revealedProject.current !== activeProjectId) {
-      const selected = element.querySelector('[aria-current="page"]');
-      if (selected) {
+      if (selected && revealedSelection.current !== selected) {
         selected.scrollIntoView?.({ block: "nearest" });
-        revealedProject.current = activeProjectId;
       }
-    }
-  }, [loading, activeProjectId, navigationStatus]);
+      revealedSelection.current = selected;
+    },
+    [loading, navigationStatus],
+  );
   const sessions: SessionSummary[] =
     navigation?.projects ??
     recents.map((row) => ({
@@ -186,6 +186,7 @@ export function Sidebar({
             />
             <div className="flex-1">
               <SessionList
+                onLayout={onListLayout}
                 ownerId={ownerId}
                 draftIds={draftIds}
                 sessions={sessions}
