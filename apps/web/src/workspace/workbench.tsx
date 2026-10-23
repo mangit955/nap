@@ -11,7 +11,14 @@ import {
   Plus,
   X,
 } from "lucide-react";
-import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
+import {
+  type KeyboardEvent,
+  type ReactNode,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { PhaseDot } from "../chat/job-marks.tsx";
 import type { JobSummary } from "../chat/job-summary.ts";
 import { tabId, tabLabel, WORKBENCH_TABS, type WorkbenchTab } from "./tabs.ts";
@@ -61,6 +68,25 @@ export function Workbench({
   const launcher = useRef<HTMLDetailsElement>(null);
   const root = useRef<HTMLElement>(null);
   const [context, setContext] = useState<string | null>(null);
+  const focusAfterClose = useRef(false);
+  const close = (removed: string[], action: () => void) => {
+    const focused = document.activeElement;
+    focusAfterClose.current =
+      focused instanceof Element &&
+      (removed.some((id) =>
+        document.getElementById(`workbench-tab-${id}`)?.parentElement?.contains(focused),
+      ) ||
+        !!root.current?.querySelector('[aria-label="Tab actions"]')?.contains(focused));
+    action();
+    setContext(null);
+  };
+  useLayoutEffect(() => {
+    if (!focusAfterClose.current) return;
+    focusAfterClose.current = false;
+    root.current
+      ?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"], summary')
+      ?.focus();
+  });
   const [dragging, setDragging] = useState<string | null>(null);
   useEffect(() => {
     const dismiss = (event: PointerEvent) => {
@@ -150,6 +176,13 @@ export function Workbench({
           onKeyDown={(event) => {
             if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
             const index = layout.tabs.findIndex((tab) => tabId(tab) === layout.active);
+            const offset = event.key === "ArrowRight" ? 1 : -1;
+            if (event.altKey && ["ArrowLeft", "ArrowRight"].includes(event.key)) {
+              event.preventDefault();
+              const next = layout.tabs[index + offset];
+              if (next && layout.active) controller.move(layout.active, tabId(next));
+              return;
+            }
             const next =
               event.key === "Home"
                 ? layout.tabs[0]
@@ -208,7 +241,10 @@ export function Workbench({
                   title={tab.kind === "file" ? tab.path : tabLabel(tab)}
                   onClick={() => controller.select(id)}
                   onKeyDown={(event) => {
-                    if (event.key === "Delete") controller.close(id);
+                    if (event.key === "Delete") {
+                      event.preventDefault();
+                      close([id], () => controller.close(id));
+                    }
                     if (event.key === "F10" && event.shiftKey) {
                       event.preventDefault();
                       setContext(id);
@@ -226,7 +262,7 @@ export function Workbench({
                   aria-label={`Close ${tabLabel(tab)}`}
                   title={`Close ${tabLabel(tab)}`}
                   className="t3-tab-close"
-                  onClick={() => controller.close(id)}
+                  onClick={() => close([id], () => controller.close(id))}
                 >
                   <X />
                 </button>
@@ -294,8 +330,7 @@ export function Workbench({
               type="button"
               role="menuitem"
               onClick={() => {
-                controller.close(context);
-                setContext(null);
+                close([context], () => controller.close(context));
               }}
             >
               Close tab
@@ -304,8 +339,10 @@ export function Workbench({
               type="button"
               role="menuitem"
               onClick={() => {
-                controller.closeOthers(context);
-                setContext(null);
+                close(
+                  layout.tabs.map(tabId).filter((id) => id !== context),
+                  () => controller.closeOthers(context),
+                );
               }}
             >
               Close other tabs
@@ -314,8 +351,7 @@ export function Workbench({
               type="button"
               role="menuitem"
               onClick={() => {
-                controller.closeAll();
-                setContext(null);
+                close(layout.tabs.map(tabId), controller.closeAll);
               }}
             >
               Close all tabs

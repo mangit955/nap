@@ -24,7 +24,7 @@ import { githubRequest } from "./request.ts";
 type InspectionState =
   | { kind: "loading" }
   | { kind: "error"; message: string }
-  | { kind: "ready"; value: PullRequestInspection };
+  | { kind: "ready"; value: PullRequestInspection; refreshError: string | null };
 const VIEWS = ["Summary", "Timeline", "Code", "Settings"] as const;
 export function PullRequestsPanel({
   state,
@@ -49,34 +49,55 @@ export function PullRequestsPanel({
   ];
   const number = chosen !== null && numbers.includes(chosen) ? chosen : numbers[0];
   const [view, setView] = useState<(typeof VIEWS)[number]>("Summary");
-  const [inspection, setInspection] = useState<InspectionState>({ kind: "loading" });
+  const identity = JSON.stringify([baseUrl, projectId, number]);
+  const [savedInspection, setInspection] = useState<{
+    identity: string;
+    result: InspectionState;
+  }>({ identity, result: { kind: "loading" } });
+  const inspection: InspectionState =
+    savedInspection.identity === identity ? savedInspection.result : { kind: "loading" };
   const [refresh, setRefresh] = useState(0);
   const [split, setSplit] = useState(false);
   const [filter, setFilter] = useState("");
+  useEffect(() => {
+    if (!active) return;
+    const refreshOnFocus = () => setRefresh((value) => value + 1);
+    window.addEventListener("focus", refreshOnFocus);
+    return () => window.removeEventListener("focus", refreshOnFocus);
+  }, [active]);
   useEffect(() => {
     if (number === undefined || !active) return;
     void refreshKey;
     void refresh;
     let cancelled = false;
-    setInspection({ kind: "loading" });
+    setInspection((current) =>
+      current.identity === identity && current.result.kind === "ready"
+        ? current
+        : { identity, result: { kind: "loading" } },
+    );
     void githubRequest(
       fetchJson,
       `${baseUrl}/projects/${encodeURIComponent(projectId)}/github/pull-requests/${number}`,
       PullRequestInspectionSchema,
     ).then((result) => {
       if (!cancelled)
-        setInspection(
-          result.ok
-            ? { kind: "ready", value: result.value }
-            : { kind: "error", message: result.error },
-        );
+        setInspection((current) => ({
+          identity,
+          result: result.ok
+            ? { kind: "ready", value: result.value, refreshError: null }
+            : current.identity === identity && current.result.kind === "ready"
+              ? { ...current.result, refreshError: result.error }
+              : { kind: "error", message: result.error },
+        }));
     });
     return () => {
       cancelled = true;
     };
-  }, [number, active, refreshKey, refresh, fetchJson, baseUrl, projectId]);
+  }, [number, active, refreshKey, refresh, fetchJson, baseUrl, projectId, identity]);
   const pr =
     inspection.kind === "ready" && inspection.value.number === number ? inspection.value : null;
+  const files =
+    pr?.files.filter((file) => file.path.toLowerCase().includes(filter.toLowerCase())) ?? [];
   if (number === undefined)
     return (
       <div className="t3-pr-panel nap-scroll">
@@ -182,6 +203,15 @@ export function PullRequestsPanel({
           ) : null)}
         {pr && (
           <>
+            {inspection.kind === "ready" && inspection.refreshError && (
+              <div className="t3-diff-notice" role="alert">
+                <p>Could not refresh pull request. Showing previously loaded data.</p>
+                <p>{inspection.refreshError}</p>
+                <button type="button" onClick={() => setRefresh((value) => value + 1)}>
+                  Retry
+                </button>
+              </div>
+            )}
             <section
               role="tabpanel"
               id="pr-view-Summary"
@@ -221,29 +251,43 @@ export function PullRequestsPanel({
               {pr.comments.length > 0 && (
                 <div className="t3-pr-reviews">
                   <h3>Review comments</h3>
-                  {pr.comments.map((comment) => (
-                    <button
-                      type="button"
-                      key={comment.id}
-                      onClick={() => {
-                        setFilter(comment.path);
-                        setView("Code");
-                      }}
-                    >
-                      <span>{comment.author}</span>
-                      <code>
-                        {comment.path}:{comment.line ?? comment.originalLine}
-                      </code>
-                      <span>
-                        {comment.outdated
-                          ? "Outdated"
-                          : comment.side === "LEFT"
-                            ? "Before"
-                            : "After"}
-                      </span>
-                      <p>{comment.body}</p>
-                    </button>
-                  ))}
+                  {pr.comments.map((comment) =>
+                    pr.files.some((file) => file.path === comment.path) ? (
+                      <button
+                        type="button"
+                        key={comment.id}
+                        onClick={() => {
+                          setFilter(comment.path);
+                          setView("Code");
+                        }}
+                      >
+                        <span>{comment.author}</span>
+                        <code>
+                          {comment.path}:{comment.line ?? comment.originalLine}
+                        </code>
+                        <span>
+                          {comment.outdated
+                            ? "Outdated"
+                            : comment.side === "LEFT"
+                              ? "Before"
+                              : "After"}
+                        </span>
+                        <p>{comment.body}</p>
+                      </button>
+                    ) : (
+                      <article className="t3-anchored-comment" key={comment.id}>
+                        <strong>{comment.author}</strong>
+                        <code>{comment.path}</code>
+                        <p>This file is not in the current comparison.</p>
+                        <div className="chat-markdown">
+                          <Markdown remarkPlugins={[remarkGfm]}>{comment.body}</Markdown>
+                        </div>
+                        <a href={comment.url} target="_blank" rel="noopener noreferrer">
+                          Open original discussion
+                        </a>
+                      </article>
+                    ),
+                  )}
                 </div>
               )}
             </section>
@@ -316,30 +360,38 @@ export function PullRequestsPanel({
               <p className="t3-diff-revisions">
                 PR #{pr.number} · {pr.head.sha.slice(0, 7)} · GitHub comparison
               </p>
-              {pr.files
-                .filter((file) => file.path.toLowerCase().includes(filter.toLowerCase()))
-                .map((file) => (
-                  <div key={`${pr.head.sha}:${file.path}`}>
-                    <DiffFile file={file} split={split} />
-                    {pr.comments
-                      .filter((comment) => comment.path === file.path)
-                      .map((comment) => (
-                        <article className="t3-anchored-comment" key={comment.id}>
-                          <div>
-                            <strong>{comment.author}</strong>
-                            <a href={comment.url} target="_blank" rel="noopener noreferrer">
-                              {comment.outdated ? "Outdated · " : ""}
-                              {comment.side === "LEFT" ? "Before" : "After"} line{" "}
-                              {comment.line ?? comment.originalLine ?? "unknown"}
-                            </a>
-                          </div>
-                          <div className="chat-markdown">
-                            <Markdown remarkPlugins={[remarkGfm]}>{comment.body}</Markdown>
-                          </div>
-                        </article>
-                      ))}
-                  </div>
-                ))}
+              {files.length === 0 && (
+                <div className="t3-diff-notice" role="status">
+                  <p>{filter ? "No matching files" : "No changed files"}</p>
+                  {filter && (
+                    <button type="button" onClick={() => setFilter("")}>
+                      Clear filter
+                    </button>
+                  )}
+                </div>
+              )}
+              {files.map((file) => (
+                <div key={`${pr.head.sha}:${file.path}`}>
+                  <DiffFile file={file} split={split} />
+                  {pr.comments
+                    .filter((comment) => comment.path === file.path)
+                    .map((comment) => (
+                      <article className="t3-anchored-comment" key={comment.id}>
+                        <div>
+                          <strong>{comment.author}</strong>
+                          <a href={comment.url} target="_blank" rel="noopener noreferrer">
+                            {comment.outdated ? "Outdated · " : ""}
+                            {comment.side === "LEFT" ? "Before" : "After"} line{" "}
+                            {comment.line ?? comment.originalLine ?? "unknown"}
+                          </a>
+                        </div>
+                        <div className="chat-markdown">
+                          <Markdown remarkPlugins={[remarkGfm]}>{comment.body}</Markdown>
+                        </div>
+                      </article>
+                    ))}
+                </div>
+              ))}
             </section>
           </>
         )}

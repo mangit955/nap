@@ -1,7 +1,7 @@
 "use client";
 import { Check, Copy, FileCode2, WrapText } from "lucide-react";
 import dynamic from "next/dynamic";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { type FetchJson, useFileContent } from "../files/use-project-files.ts";
 import type { SessionLog } from "../hooks/use-session-log.ts";
 
@@ -28,6 +28,27 @@ export function FilePanel({
   });
   const [wrap, setWrap] = useState(false);
   const [copy, setCopy] = useState<"idle" | "copied" | "failed">("idle");
+  const copyGeneration = useRef(0);
+  useEffect(() => {
+    void sessionId;
+    void path;
+    void file?.contents;
+    copyGeneration.current++;
+    setCopy("idle");
+    return () => {
+      copyGeneration.current++;
+    };
+  }, [sessionId, path, file?.contents]);
+  const copyFile = async () => {
+    if (!file) return;
+    const generation = ++copyGeneration.current;
+    try {
+      await navigator.clipboard.writeText(file.contents);
+      if (generation === copyGeneration.current) setCopy("copied");
+    } catch {
+      if (generation === copyGeneration.current) setCopy("failed");
+    }
+  };
   return (
     <section aria-label={`${path} (read-only)`} className="t3-file-panel">
       <div className="t3-file-toolbar">
@@ -49,13 +70,7 @@ export function FilePanel({
           aria-label={copy === "copied" ? "Copied file" : "Copy file"}
           title={copy === "copied" ? "Copied" : "Copy file"}
           className="t3-icon-button"
-          onClick={() => {
-            if (file)
-              void navigator.clipboard.writeText(file.contents).then(
-                () => setCopy("copied"),
-                () => setCopy("failed"),
-              );
-          }}
+          onClick={() => void copyFile()}
         >
           {copy === "copied" ? <Check /> : <Copy />}
         </button>

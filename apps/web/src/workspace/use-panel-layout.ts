@@ -64,9 +64,10 @@ export function usePanelLayout(scope: string) {
       update((current) => {
         const tab = current.tabs.find((item) => tabId(item) === from);
         if (!tab || from === to) return current;
+        const index = current.tabs.findIndex((item) => tabId(item) === to);
+        if (index < 0) return current;
         const tabs = current.tabs.filter((item) => tabId(item) !== from);
-        const index = tabs.findIndex((item) => tabId(item) === to);
-        tabs.splice(Math.max(0, index), 0, tab);
+        tabs.splice(index, 0, tab);
         return { ...current, tabs };
       }),
   };

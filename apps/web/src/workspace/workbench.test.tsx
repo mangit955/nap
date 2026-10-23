@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { DEFAULT_PANEL_LAYOUT } from "./tabs.ts";
 import { usePanelLayout } from "./use-panel-layout.ts";
 import { Workbench } from "./workbench.tsx";
 
@@ -9,6 +10,9 @@ function Workspace({ scope = "test" }: { scope?: string }) {
     <>
       <button type="button" onClick={controller.toggle}>
         Toggle panel
+      </button>
+      <button type="button" onClick={() => controller.close("code")}>
+        Close Files externally
       </button>
       <Workbench
         controller={controller}
@@ -37,7 +41,7 @@ describe("the right panel", () => {
     expect(screen.getByLabelText("App state")).toBe(frame);
     expect(frame).toHaveValue("edited");
   });
-  it("restores layout per session and repairs invalid saved state", () => {
+  it("restores layout per session", () => {
     const { rerender, unmount } = render(<Workspace />);
     fireEvent.click(screen.getByRole("tab", { name: "Files" }));
     rerender(<Workspace scope="another" />);
@@ -47,6 +51,160 @@ describe("the right panel", () => {
     unmount();
     render(<Workspace />);
     expect(screen.getByRole("tab", { name: "Files" })).toHaveAttribute("aria-selected", "true");
+  });
+  it.each([
+    ["Browser", "ArrowRight", ["Files", "Browser"]],
+    ["Files", "ArrowLeft", ["Files", "Browser"]],
+  ] as const)("reorders %s with Alt+%s and persists the order", (name, key, order) => {
+    const { unmount } = render(<Workspace />);
+    const tab = screen.getByRole("tab", { name });
+    fireEvent.click(tab);
+    tab.focus();
+    fireEvent.keyDown(tab, { key, altKey: true });
+    expect(screen.getAllByRole("tab").map((item) => item.textContent)).toEqual(order);
+    expect(tab).toHaveFocus();
+    expect(tab).toHaveAttribute("aria-selected", "true");
+    unmount();
+    render(<Workspace />);
+    expect(screen.getAllByRole("tab").map((item) => item.textContent)).toEqual(order);
+    expect(screen.getByRole("tab", { name })).toHaveAttribute("aria-selected", "true");
+  });
+  it.each([
+    ["Browser", "ArrowLeft"],
+    ["Files", "ArrowRight"],
+  ] as const)("keeps %s in place when Alt+%s reaches the boundary", (name, key) => {
+    render(<Workspace />);
+    const tab = screen.getByRole("tab", { name });
+    fireEvent.click(tab);
+    tab.focus();
+    fireEvent.keyDown(tab, { key, altKey: true });
+    expect(screen.getAllByRole("tab").map((item) => item.textContent)).toEqual([
+      "Browser",
+      "Files",
+    ]);
+    expect(tab).toHaveFocus();
+    expect(tab).toHaveAttribute("aria-selected", "true");
+  });
+  it("wraps ordinary arrow selection and supports Home and End without reordering", () => {
+    render(<Workspace />);
+    const browser = screen.getByRole("tab", { name: "Browser" });
+    const files = screen.getByRole("tab", { name: "Files" });
+    browser.focus();
+    fireEvent.keyDown(browser, { key: "ArrowLeft" });
+    expect(files).toHaveFocus();
+    fireEvent.keyDown(files, { key: "ArrowRight" });
+    expect(browser).toHaveFocus();
+    fireEvent.keyDown(browser, { key: "End" });
+    expect(files).toHaveFocus();
+    fireEvent.keyDown(files, { key: "Home" });
+    expect(browser).toHaveFocus();
+    expect(screen.getAllByRole("tab").map((item) => item.textContent)).toEqual([
+      "Browser",
+      "Files",
+    ]);
+  });
+  it("drags the first tab to the last position and restores that order", () => {
+    const { unmount } = render(<Workspace />);
+    fireEvent.click(screen.getByLabelText("Add panel"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Diff" }));
+    const browser = screen.getByRole("tab", { name: "Browser" });
+    fireEvent.click(browser);
+    browser.focus();
+    const dataTransfer = { setData: vi.fn(), effectAllowed: "none" };
+    fireEvent.dragStart(browser, { dataTransfer });
+    fireEvent.dragOver(screen.getByRole("tab", { name: "Diff" }), { dataTransfer });
+    fireEvent.drop(screen.getByRole("tab", { name: "Diff" }), { dataTransfer });
+    expect(screen.getAllByRole("tab").map((item) => item.textContent)).toEqual([
+      "Files",
+      "Diff",
+      "Browser",
+    ]);
+    expect(browser).toHaveAttribute("aria-selected", "true");
+    expect(browser).toHaveFocus();
+    unmount();
+    render(<Workspace />);
+    expect(screen.getAllByRole("tab").map((item) => item.textContent)).toEqual([
+      "Files",
+      "Diff",
+      "Browser",
+    ]);
+  });
+  it("hands focus to the selected replacement after deleting the active tab", () => {
+    render(<Workspace />);
+    const browser = screen.getByRole("tab", { name: "Browser" });
+    browser.focus();
+    fireEvent.keyDown(browser, { key: "Delete" });
+    const files = screen.getByRole("tab", { name: "Files" });
+    expect(screen.queryByRole("tab", { name: "Browser" })).not.toBeInTheDocument();
+    expect(files).toHaveAttribute("aria-selected", "true");
+    expect(files).toHaveFocus();
+  });
+  it("returns focus from a removed close button to the surviving tab", () => {
+    render(<Workspace />);
+    const close = screen.getByRole("button", { name: "Close Browser" });
+    close.focus();
+    fireEvent.click(close);
+    expect(screen.getByRole("tab", { name: "Files" })).toHaveFocus();
+  });
+  it("returns focus to the active tab when the focused inactive tab is deleted", () => {
+    render(<Workspace />);
+    const files = screen.getByRole("tab", { name: "Files" });
+    files.focus();
+    fireEvent.keyDown(files, { key: "Delete" });
+    const browser = screen.getByRole("tab", { name: "Browser" });
+    expect(browser).toHaveAttribute("aria-selected", "true");
+    expect(browser).toHaveFocus();
+  });
+  it("hands focus to Add panel after deleting the last tab", () => {
+    render(<Workspace />);
+    fireEvent.click(screen.getByRole("button", { name: "Close Files" }));
+    const browser = screen.getByRole("tab", { name: "Browser" });
+    browser.focus();
+    fireEvent.keyDown(browser, { key: "Delete" });
+    expect(screen.queryAllByRole("tab")).toHaveLength(0);
+    expect(screen.getByLabelText("Add panel")).toHaveFocus();
+  });
+  it.each([
+    ["Close tab", "Files"],
+    ["Close other tabs", "Browser"],
+    ["Close all tabs", null],
+  ] as const)("restores focus after the context action %s", (action, survivor) => {
+    render(<Workspace />);
+    const browser = screen.getByRole("tab", { name: "Browser" });
+    browser.focus();
+    fireEvent.keyDown(browser, { key: "F10", shiftKey: true });
+    const item = screen.getByRole("menuitem", { name: action });
+    item.focus();
+    fireEvent.click(item);
+    expect(screen.queryByRole("menu", { name: "Tab actions" })).not.toBeInTheDocument();
+    expect(
+      survivor ? screen.getByRole("tab", { name: survivor }) : screen.getByLabelText("Add panel"),
+    ).toHaveFocus();
+  });
+  it("does not steal focus from an unrelated control when an active tab closes", () => {
+    render(<Workspace />);
+    fireEvent.click(screen.getByRole("tab", { name: "Files" }));
+    const external = screen.getByRole("button", { name: "Close Files externally" });
+    external.focus();
+    fireEvent.click(external);
+    expect(screen.getByRole("tab", { name: "Browser" })).toHaveAttribute("aria-selected", "true");
+    expect(external).toHaveFocus();
+  });
+  it.each([
+    "{broken",
+    JSON.stringify({ ...DEFAULT_PANEL_LAYOUT, version: 99 }),
+    JSON.stringify({ ...DEFAULT_PANEL_LAYOUT, tabs: [{ kind: "file", path: "../secret" }] }),
+  ])("repairs malformed saved layout %s before persisting it", (raw) => {
+    localStorage.setItem("nap.right-panel.v1:test", raw);
+    render(<Workspace />);
+    expect(screen.getAllByRole("tab").map((item) => item.textContent)).toEqual([
+      "Browser",
+      "Files",
+    ]);
+    expect(screen.getByRole("tab", { name: "Browser" })).toHaveAttribute("aria-selected", "true");
+    expect(JSON.parse(localStorage.getItem("nap.right-panel.v1:test") ?? "null")).toEqual(
+      DEFAULT_PANEL_LAYOUT,
+    );
   });
   it("supports keyboard tab selection and hides the whole panel without unmounting", () => {
     render(<Workspace />);

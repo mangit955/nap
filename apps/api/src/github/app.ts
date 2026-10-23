@@ -26,6 +26,7 @@ export type GitHubResult<T> = Result<T, GitHubError>;
 export type GitHubFetch = (url: string, init?: RequestInit) => Promise<Response>;
 const Id = z.number().int().positive().safe();
 const User = z.object({ id: Id, login: z.string().regex(/^[a-zA-Z0-9-]+$/) });
+const DisplayActor = z.object({ id: Id, login: z.string() });
 const Installation = z.object({
   id: Id,
   app_id: Id,
@@ -53,7 +54,7 @@ const PullRequestDetail = PullRequest.extend({
   title: z.string(),
   body: z.string().nullable(),
   draft: z.boolean(),
-  user: User,
+  user: DisplayActor,
   base: z.object({ ref: z.string(), sha: z.string(), repo: z.object({ id: Id }) }),
 });
 const PullRequestFile = z.object({
@@ -66,7 +67,7 @@ const PullRequestFile = z.object({
 });
 const AnchoredComment = z.object({
   id: Id,
-  user: User,
+  user: DisplayActor.nullable(),
   body: z.string(),
   path: z.string(),
   line: z.number().nullable(),
@@ -87,11 +88,16 @@ const Statuses = z.object({
 const Review = z.object({
   id: Id,
   state: z.string(),
-  user: User,
+  user: DisplayActor.nullable(),
   body: z.string().nullable(),
   submitted_at: z.string().nullable(),
 });
-const Comment = z.object({ id: Id, body: z.string(), user: User, updated_at: z.string() });
+const Comment = z.object({
+  id: Id,
+  body: z.string(),
+  user: DisplayActor.nullable(),
+  updated_at: z.string(),
+});
 const Tokens = z.object({ token: z.string(), expires_at: z.iso.datetime() });
 const empty = z.unknown();
 type Permissions = Record<string, "read" | "write">;
@@ -556,7 +562,7 @@ export class GitHubApp {
       ...comments.value.map((comment) => ({
         id: `comment:${comment.id}`,
         kind: "comment" as const,
-        author: comment.user.login,
+        author: comment.user?.login ?? "Deleted user",
         body: comment.body,
         state: null,
         at: comment.updated_at,
@@ -564,7 +570,7 @@ export class GitHubApp {
       ...reviews.value.map((review) => ({
         id: `review:${review.id}`,
         kind: "review" as const,
-        author: review.user.login,
+        author: review.user?.login ?? "Deleted user",
         body: review.body ?? "",
         state: review.state,
         at: review.submitted_at,
@@ -596,7 +602,7 @@ export class GitHubApp {
         timeline,
         comments: anchors.value.map((comment) => ({
           id: comment.id,
-          author: comment.user.login,
+          author: comment.user?.login ?? "Deleted user",
           body: comment.body,
           path: comment.path,
           line: comment.line,

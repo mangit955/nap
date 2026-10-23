@@ -129,7 +129,10 @@ export function ChangesPanel({
       {comparison && (
         <>
           <div className="t3-diff-summary">
-            <span>{comparison.files.length} files changed</span>
+            <span>
+              {comparison.files.length}{" "}
+              {comparison.truncated ? "files shown · partial totals" : "files changed"}
+            </span>
             <span className="t3-additions">
               +{comparison.files.reduce((sum, file) => sum + file.additions, 0)}
             </span>
@@ -175,18 +178,26 @@ export function ChangesPanel({
           <>
             {comparison?.truncated && (
               <p className="t3-diff-notice">
-                This comparison is too large to show in full. Counts may be incomplete for oversized
-                files.
+                This comparison is too large to show in full. Totals include only the files shown;
+                some patches or files may be omitted.
               </p>
             )}
             {files.length === 0 && (
               <div className="t3-panel-empty">
                 <GitCompareArrows size={28} strokeWidth={1} />
-                <p>{search ? "No matching files" : "No changes"}</p>
+                <p>
+                  {search
+                    ? "No matching files"
+                    : comparison?.truncated
+                      ? "No file changes shown"
+                      : "No changes"}
+                </p>
                 <span>
-                  {scope === "uncommitted"
-                    ? "The working tree matches HEAD. Committed work appears under Changes or Latest commit."
-                    : "These revisions have no file differences."}
+                  {comparison?.truncated
+                    ? "This partial comparison may omit changed files."
+                    : scope === "uncommitted"
+                      ? "The working tree matches HEAD. Committed work appears under Changes or Latest commit."
+                      : "These revisions have no file differences."}
                 </span>
               </div>
             )}
