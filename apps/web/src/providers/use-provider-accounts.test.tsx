@@ -1,9 +1,21 @@
+import type { ProviderAccountView } from "@nap/shared/provider-accounts-protocol";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import type { FetchJson } from "../files/use-project-files.ts";
 import { FAKE_API, fakeProvidersApi } from "../testing/fake-providers-api.ts";
 import { useProviderAccounts } from "./use-provider-accounts.ts";
 
 /** A `.test.tsx` because `renderHook` needs a DOM; see `use-api-key.test.tsx`. */
+
+const CLAUDE: ProviderAccountView = {
+  id: "00000000-0000-4000-8000-0000000000c1",
+  driver: "claude",
+  label: "Work",
+  enabled: true,
+  auth: { status: "authenticated", email: "ada@example.com", plan: "Claude Max" },
+  createdAt: "2026-10-23T09:00:00.000Z",
+  signIn: null,
+};
 
 describe("useProviderAccounts", () => {
   it("loads the accounts and whether sign-in can run", async () => {
@@ -92,5 +104,34 @@ describe("useProviderAccounts", () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
     });
     expect(api.requests.filter((request) => request.method === "GET")).toHaveLength(polls);
+  });
+  it("a poll that left before a rename cannot put the old name back", async () => {
+    const api = fakeProvidersApi({ accounts: [CLAUDE] });
+    let releaseSlowGet: (() => void) | undefined;
+    let getCount = 0;
+    const fetchJson: FetchJson = async (url, init) => {
+      if ((init?.method ?? "GET") === "GET" && ++getCount === 2) {
+        const stale = await api.fetchJson(url, init); // snapshot taken now: label "Work"
+        await new Promise<void>((resolve) => {
+          releaseSlowGet = resolve;
+        });
+        return stale;
+      }
+      return api.fetchJson(url, init);
+    };
+    const { result } = renderHook(() => useProviderAccounts({ fetchJson, baseUrl: FAKE_API }));
+    await waitFor(() => expect(result.current.state.kind).toBe("loaded"));
+    let refreshed: Promise<void> | undefined;
+    act(() => {
+      refreshed = result.current.refresh();
+    });
+    await act(async () => {
+      await result.current.update(CLAUDE.id, { label: "Personal" });
+    });
+    await act(async () => {
+      releaseSlowGet?.();
+      await refreshed;
+    });
+    expect(result.current.state).toMatchObject({ value: { accounts: [{ label: "Personal" }] } });
   });
 });

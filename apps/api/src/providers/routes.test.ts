@@ -8,7 +8,7 @@ import {
   SIGN_IN_UNAVAILABLE,
 } from "@nap/shared/provider-accounts-protocol";
 import { Hono } from "hono";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { AuthVariables } from "../auth/require-user.ts";
 import { registerProviderRoutes } from "./routes.ts";
 import { ScriptedProviderSignIn } from "./scripted-sign-in.ts";
@@ -178,8 +178,19 @@ describe("DELETE /providers/accounts/:accountId", () => {
     const account = await accounts.get(USER, created.id);
     if (account === null) throw new Error("the account was not created");
 
+    const cancel = vi.spyOn(signIn, "cancel");
+    const originalSignOut = signIn.signOut.bind(signIn);
+    const signOut = vi.spyOn(signIn, "signOut").mockImplementation(async (userId, found) => {
+      await expect(signIn.current(userId, found)).resolves.toMatchObject({ phase: "cancelled" });
+      await expect(accounts.get(userId, found.id)).resolves.not.toBeNull();
+      await originalSignOut(userId, found);
+    });
+    const remove = vi.spyOn(accounts, "remove");
     const res = await send(instance, "DELETE", `/providers/accounts/${created.id}`);
 
+    expect(signIn.signedOut).toEqual([created.id]);
+    expect(cancel).toHaveBeenCalledBefore(signOut);
+    expect(signOut).toHaveBeenCalledBefore(remove);
     expect(res.status).toBe(204);
     await expect(accounts.list(USER)).resolves.toEqual([]);
     await expect(signIn.current(USER, account)).resolves.toMatchObject({ phase: "cancelled" });
@@ -244,4 +255,59 @@ describe("POST /providers/accounts/:accountId/sign-out", () => {
     expect(res.status).toBe(200);
     expect(signIn.signedOut).toEqual([created.id]);
   });
+});
+
+const ACCOUNT_ROUTES = [
+  { method: "GET", path: "/providers" },
+  { method: "POST", path: "/providers/accounts", body: { driver: "claude" } },
+  { method: "PATCH", path: "/providers/accounts/:id", body: { label: "Changed", enabled: false } },
+  { method: "DELETE", path: "/providers/accounts/:id" },
+  { method: "POST", path: "/providers/accounts/:id/sign-in" },
+  { method: "DELETE", path: "/providers/accounts/:id/sign-in" },
+  { method: "POST", path: "/providers/accounts/:id/sign-out" },
+];
+
+describe("provider route guards", () => {
+  it.each(ACCOUNT_ROUTES)(
+    "refuses a guest on $method $path",
+    async ({ method, path, ...input }) => {
+      const signIn = new ScriptedProviderSignIn();
+      const { app: instance, accounts } = app({ anonymous: true, signIn });
+      const account = await accounts.create({ userId: USER, driver: "claude", label: "Work" });
+      const before = await accounts.list(USER);
+      const res = await send(
+        instance,
+        method,
+        path.replace(":id", account.id),
+        "body" in input ? input.body : undefined,
+      );
+      expect(res.status).toBe(403);
+      await expect(res.json()).resolves.toMatchObject({ code: SIGN_IN_REQUIRED });
+      await expect(accounts.list(USER)).resolves.toEqual(before);
+      expect(signIn.signedOut).toEqual([]);
+      await expect(signIn.current(USER, account)).resolves.toBeNull();
+    },
+  );
+
+  it.each(ACCOUNT_ROUTES.filter((route) => route.method !== "GET"))(
+    "refuses a forged Origin on $method $path without side effects",
+    async ({ method, path, ...input }) => {
+      const signIn = new ScriptedProviderSignIn();
+      const { app: instance, accounts } = app({ signIn });
+      const account = await accounts.create({ userId: USER, driver: "claude", label: "Work" });
+      const before = await accounts.list(USER);
+      const flow = await signIn.start(USER, account);
+      const res = await send(
+        instance,
+        method,
+        path.replace(":id", account.id),
+        "body" in input ? input.body : undefined,
+        "https://evil.example",
+      );
+      expect(res.status).toBe(403);
+      await expect(accounts.list(USER)).resolves.toEqual(before);
+      expect(signIn.signedOut).toEqual([]);
+      await expect(signIn.current(USER, account)).resolves.toEqual(flow);
+    },
+  );
 });

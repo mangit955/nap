@@ -28,7 +28,10 @@ export class InMemoryProviderAccountStore implements ProviderAccountStore {
   }
 
   async list(userId: string): Promise<ProviderAccount[]> {
-    return this.#rows.filter((row) => row.userId === userId).map(toAccount);
+    return this.#rows
+      .filter((row) => row.userId === userId)
+      .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt) || a.id.localeCompare(b.id))
+      .map(toAccount);
   }
 
   async get(userId: string, id: string): Promise<ProviderAccount | null> {

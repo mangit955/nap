@@ -101,9 +101,9 @@ export function registerProviderRoutes(
     const body = CreateProviderAccountSchema.safeParse(await readJson(c.req.raw));
     if (!body.success) return c.json({ error: "Choose Claude or Codex." }, 400);
 
-    // Counted before the insert rather than inside it: two tabs racing past the limit leave one
-    // account too many, which is harmless. The limit is there to stop a runaway list, not to be
-    // an invariant anything relies on.
+    // Counted before the insert: concurrent creates can each pass and exceed the limit.
+    // These small rows hold no credentials, so this is an advisory cap on ordinary use,
+    // not an invariant anything relies on.
     if ((await deps.accounts.list(userId)).length >= PROVIDER_ACCOUNT_LIMIT)
       return c.json(
         {
@@ -141,6 +141,7 @@ export function registerProviderRoutes(
     const userId = c.get("userId");
     // Stopped first, so a login finishing a moment later has no account to land on.
     await deps.signIn.cancel(userId, found.account);
+    await deps.signIn.signOut(userId, found.account);
     await deps.accounts.remove(userId, found.account.id);
     return c.body(null, 204);
   });

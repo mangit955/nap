@@ -65,6 +65,10 @@ export function GuestProviders() {
             You're using nap as a guest. Connecting a subscription needs a permanent account, so you
             can find it again to sign out.
           </p>
+          <p className="mt-3 text-[13px] leading-relaxed text-muted">
+            Your guest projects stay behind with the guest session; you won't be able to open them
+            from your account.
+          </p>
         </div>
         <div className="flex items-center justify-end gap-2 border-edge border-t px-6 py-4">
           <a href="/dashboard" className={BUTTON}>

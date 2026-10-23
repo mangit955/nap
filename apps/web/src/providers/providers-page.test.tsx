@@ -1,6 +1,7 @@
 import type { ProviderAccountView } from "@nap/shared/provider-accounts-protocol";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import type { FetchJson } from "../files/use-project-files.ts";
 import { FAKE_API, fakeProvidersApi } from "../testing/fake-providers-api.ts";
 import { GuestProviders } from "./live-providers.tsx";
 import { ProvidersPage } from "./providers-page.tsx";
@@ -32,11 +33,121 @@ const CLAUDE: ProviderAccountView = {
   signIn: null,
 };
 
+const failing =
+  (
+    api: ReturnType<typeof fakeProvidersApi>,
+    when: (method: string, url: string) => boolean,
+  ): FetchJson =>
+  async (url, init) =>
+    when(init?.method ?? "GET", url)
+      ? new Response(JSON.stringify({ error: "Runner down." }), { status: 500 })
+      : api.fetchJson(url, init);
+
 function renderPage(api: ReturnType<typeof fakeProvidersApi>, confirm = () => true) {
   return render(<ProvidersPage fetchJson={api.fetchJson} baseUrl={FAKE_API} confirm={confirm} />);
 }
 
 describe("the provider list", () => {
+  it("Escape restores the display name without saving", async () => {
+    const api = fakeProvidersApi({ accounts: [CLAUDE] });
+    renderPage(api);
+    const field = await screen.findByRole("textbox", { name: "Display name" });
+    act(() => field.focus());
+    fireEvent.change(field, { target: { value: "Personal" } });
+    fireEvent.keyDown(field, { key: "Escape" });
+    await act(async () => {});
+    expect(api.requests.filter((request) => request.method === "PATCH")).toEqual([]);
+    expect(field).toHaveValue("Work");
+  });
+
+  it("keeps an uncommitted display name when a refresh changes the saved label", async () => {
+    const api = fakeProvidersApi({ accounts: [CLAUDE] });
+    renderPage(api);
+    const field = await screen.findByRole("textbox", { name: "Display name" });
+    fireEvent.change(field, { target: { value: "Personal" } });
+    const account = api.accounts[0];
+    if (account === undefined) throw new Error("no account");
+    account.label = "Other tab";
+    fireEvent.click(screen.getByRole("button", { name: "Refresh provider status" }));
+    await screen.findByRole("button", { name: "Select Other tab" });
+    await act(async () => {});
+    expect(field).toHaveValue("Personal");
+    fireEvent.blur(field);
+    await screen.findByRole("button", { name: "Select Personal" });
+    expect(field).toHaveValue("Personal");
+  });
+
+  it("accepts a normalized saved label and follows a later external rename without resaving", async () => {
+    const api = fakeProvidersApi({ accounts: [CLAUDE] });
+    renderPage(api);
+    const field = await screen.findByRole("textbox", { name: "Display name" });
+    act(() => field.focus());
+    fireEvent.change(field, { target: { value: " Personal " } });
+    act(() => field.blur());
+    await screen.findByRole("button", { name: "Select Personal" });
+    await act(async () => {});
+    const account = api.accounts[0];
+    if (account === undefined) throw new Error("no account");
+    expect(account.label).toBe("Personal");
+    account.label = "Other tab";
+    fireEvent.click(screen.getByRole("button", { name: "Refresh provider status" }));
+    await screen.findByRole("button", { name: "Select Other tab" });
+    await act(async () => {});
+    act(() => field.focus());
+    await act(async () => field.blur());
+    expect(api.requests.filter((request) => request.method === "PATCH")).toEqual([
+      { method: "PATCH", path: `/providers/accounts/${CLAUDE.id}`, body: { label: "Personal" } },
+    ]);
+    expect(field).toHaveValue("Other tab");
+  });
+
+  it.each(["Newer draft", "Work"])(
+    "keeps a newer %s draft when a pending normalized save is acknowledged",
+    async (newer) => {
+      const api = fakeProvidersApi({ accounts: [CLAUDE] });
+      let release: (() => void) | undefined;
+      const ready = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const fetchJson: FetchJson = async (url, init) => {
+        if (init?.method === "PATCH") await ready;
+        return api.fetchJson(url, init);
+      };
+      render(<ProvidersPage fetchJson={fetchJson} baseUrl={FAKE_API} />);
+      const field = await screen.findByRole("textbox", { name: "Display name" });
+      act(() => field.focus());
+      fireEvent.change(field, { target: { value: " Personal " } });
+      act(() => field.blur());
+      act(() => field.focus());
+      fireEvent.change(field, { target: { value: newer } });
+      await act(async () => release?.());
+      await screen.findByRole("button", { name: "Select Personal" });
+      await act(async () => {});
+      expect(field).toHaveValue(newer);
+      act(() => field.blur());
+      await screen.findByRole("button", { name: `Select ${newer}` });
+      expect(
+        api.requests.filter((request) => request.method === "PATCH").map((request) => request.body),
+      ).toEqual([{ label: "Personal" }, { label: newer }]);
+    },
+  );
+
+  it.each(["toggle", "delete"])("reports a refused %s beside its control", async (action) => {
+    const api = fakeProvidersApi({ accounts: [CLAUDE] });
+    const fetchJson = failing(
+      api,
+      (method) => method === (action === "toggle" ? "PATCH" : "DELETE"),
+    );
+    render(<ProvidersPage fetchJson={fetchJson} baseUrl={FAKE_API} confirm={() => true} />);
+    fireEvent.click(
+      await screen.findByRole(action === "toggle" ? "switch" : "button", {
+        name: action === "toggle" ? "Enable Work" : "Delete Work",
+      }),
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent("Runner down.");
+    expect(screen.getByRole("button", { name: "Select Work" })).toBeInTheDocument();
+  });
+
   it("lists the built-ins above each connected account, with its status", async () => {
     renderPage(fakeProvidersApi({ accounts: [CLAUDE] }));
 
@@ -58,6 +169,29 @@ describe("the provider list", () => {
       "Signed in as ada@example.com · Claude Max",
     );
     expect(screen.getByRole("button", { name: "Change account" })).toBeInTheDocument();
+  });
+
+  it("disables the account switch while its change is pending", async () => {
+    const api = fakeProvidersApi({ accounts: [CLAUDE] });
+    let release: (() => void) | undefined;
+    const ready = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const fetchJson: FetchJson = async (url, init) => {
+      if (init?.method === "PATCH") await ready;
+      return api.fetchJson(url, init);
+    };
+    render(<ProvidersPage fetchJson={fetchJson} baseUrl={FAKE_API} />);
+    const toggle = await screen.findByRole("switch", { name: "Enable Work" });
+    fireEvent.click(toggle);
+    expect(toggle).toBeDisabled();
+    fireEvent.click(toggle);
+    await act(async () => {
+      release?.();
+    });
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "false"));
+    expect(toggle).toBeEnabled();
+    expect(api.requests.filter((request) => request.method === "PATCH")).toHaveLength(1);
   });
 
   it("switches an account off without forgetting it", async () => {
@@ -114,9 +248,15 @@ describe("the provider list", () => {
 
   it("signs out after asking", async () => {
     const api = fakeProvidersApi({ accounts: [CLAUDE] });
-    renderPage(api);
+    const confirm = vi.fn(() => false);
+    renderPage(api, confirm);
 
     fireEvent.click(await screen.findByRole("button", { name: "Sign out" }));
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("Sign out"));
+    expect(api.requests.some((request) => request.path.endsWith("/sign-out"))).toBe(false);
+    confirm.mockReturnValue(true);
+    fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+    expect(confirm).toHaveBeenCalledTimes(2);
 
     await screen.findByRole("button", { name: "Sign in to Claude Code" });
     expect(api.requests).toContainEqual({
@@ -128,11 +268,61 @@ describe("the provider list", () => {
 });
 
 describe("adding a provider", () => {
+  it("keeps Add provider disabled until the list loads", async () => {
+    const api = fakeProvidersApi();
+    let release: (() => void) | undefined;
+    const ready = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const fetchJson: FetchJson = async (url, init) => {
+      if (url.endsWith("/providers") && (init?.method ?? "GET") === "GET") await ready;
+      return api.fetchJson(url, init);
+    };
+    render(<ProvidersPage fetchJson={fetchJson} baseUrl={FAKE_API} />);
+    expect(screen.getByRole("button", { name: "Add provider" })).toBeDisabled();
+    await act(async () => {
+      release?.();
+    });
+    const list = await screen.findByRole("navigation", { name: "Providers" });
+    fireEvent.click(within(list).getByRole("button", { name: "Add provider" }));
+    expect(screen.getByRole("dialog", { name: "Add provider" })).toBeInTheDocument();
+  });
+  it("shows a wizard sign-in start failure on the created account", async () => {
+    const api = fakeProvidersApi();
+    let refuseStart = true;
+    const fetchJson = failing(
+      api,
+      (method, url) => refuseStart && method === "POST" && url.endsWith("/sign-in"),
+    );
+    render(<ProvidersPage fetchJson={fetchJson} baseUrl={FAKE_API} />);
+    fireEvent.click(
+      within(await screen.findByRole("navigation", { name: "Providers" })).getByRole("button", {
+        name: "Add provider",
+      }),
+    );
+    const dialog = screen.getByRole("dialog", { name: "Add provider" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Continue with ChatGPT" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(await screen.findByRole("alert")).toHaveTextContent("Runner down.");
+    expect(screen.getByRole("button", { name: "Continue with ChatGPT" })).toBeInTheDocument();
+    expect(api.accounts).toHaveLength(1);
+    refuseStart = false;
+    fireEvent.click(screen.getByRole("button", { name: "Continue with ChatGPT" }));
+    await screen.findByRole("link", { name: "Open browser" });
+    fireEvent.click(screen.getByRole("button", { name: "Select Free models" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select Codex" }));
+    await act(async () => {});
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
   it("walks Claude through provider, identity and config, then shows its terminal login", async () => {
     const api = fakeProvidersApi();
     renderPage(api);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Add provider" }));
+    fireEvent.click(
+      within(await screen.findByRole("navigation", { name: "Providers" })).getByRole("button", {
+        name: "Add provider",
+      }),
+    );
     const dialog = screen.getByRole("dialog", { name: "Add provider" });
     fireEvent.click(within(dialog).getByRole("radio", { name: "Claude" }));
     fireEvent.click(within(dialog).getByRole("button", { name: "Next" }));
@@ -154,7 +344,11 @@ describe("adding a provider", () => {
   it("offers T3's ChatGPT shortcut, which skips straight to the browser sign-in", async () => {
     renderPage(fakeProvidersApi());
 
-    fireEvent.click(await screen.findByRole("button", { name: "Add provider" }));
+    fireEvent.click(
+      within(await screen.findByRole("navigation", { name: "Providers" })).getByRole("button", {
+        name: "Add provider",
+      }),
+    );
     const dialog = screen.getByRole("dialog", { name: "Add provider" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Continue with ChatGPT" }));
 
@@ -167,7 +361,11 @@ describe("adding a provider", () => {
   it("only goes back to steps already done", async () => {
     renderPage(fakeProvidersApi());
 
-    fireEvent.click(await screen.findByRole("button", { name: "Add provider" }));
+    fireEvent.click(
+      within(await screen.findByRole("navigation", { name: "Providers" })).getByRole("button", {
+        name: "Add provider",
+      }),
+    );
     const dialog = screen.getByRole("dialog", { name: "Add provider" });
 
     expect(within(dialog).getByRole("button", { name: "Config, step 3" })).toBeDisabled();
@@ -187,7 +385,11 @@ describe("a deployment that cannot sign in yet", () => {
     const api = fakeProvidersApi({ signInAvailable: false });
     renderPage(api);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Add provider" }));
+    fireEvent.click(
+      within(await screen.findByRole("navigation", { name: "Providers" })).getByRole("button", {
+        name: "Add provider",
+      }),
+    );
     const dialog = screen.getByRole("dialog", { name: "Add provider" });
     fireEvent.click(within(dialog).getByRole("radio", { name: "Claude" }));
     fireEvent.click(within(dialog).getByRole("button", { name: "Next" }));
@@ -214,4 +416,79 @@ describe("a guest", () => {
       "/sign-in?upgrade=1",
     );
   });
+});
+
+describe("provider runtime copy", () => {
+  it.each(["claude", "codex"] as const)(
+    "says the %s runtime and sign-in are unavailable in the account editor",
+    async (driver) => {
+      const runtime = driver === "claude" ? "Claude Code" : "Codex";
+      renderPage(
+        fakeProvidersApi({
+          signInAvailable: false,
+          accounts: [
+            {
+              ...CLAUDE,
+              driver,
+              auth: { status: "unauthenticated", email: null, plan: null },
+            },
+          ],
+        }),
+      );
+      await screen.findByRole("textbox", { name: "Display name" });
+      expect(screen.queryByText(/Nap runs|signed in as this account/i)).not.toBeInTheDocument();
+      expect(
+        screen.getByText(`${runtime} runtime and sign-in aren't available on this deployment yet.`),
+      ).toBeInTheDocument();
+    },
+  );
+
+  it.each(["claude", "codex"] as const)(
+    "does not claim execution for an unauthenticated %s account when sign-in is available",
+    async (driver) => {
+      const runtime = driver === "claude" ? "Claude Code" : "Codex";
+      renderPage(
+        fakeProvidersApi({
+          accounts: [
+            {
+              ...CLAUDE,
+              driver,
+              auth: { status: "unauthenticated", email: null, plan: null },
+            },
+          ],
+        }),
+      );
+      await screen.findByRole("textbox", { name: "Display name" });
+      expect(screen.queryByText(/Nap runs|signed in as this account/i)).not.toBeInTheDocument();
+      expect(
+        screen.getByText(`This account is for ${runtime}. Adding it doesn't start an agent.`),
+      ).toBeInTheDocument();
+    },
+  );
+
+  it.each([false, true])(
+    "describes the wizard runtime without claiming execution when sign-in availability is %s",
+    async (signInAvailable) => {
+      renderPage(fakeProvidersApi({ signInAvailable }));
+      fireEvent.click(
+        within(await screen.findByRole("navigation", { name: "Providers" })).getByRole("button", {
+          name: "Add provider",
+        }),
+      );
+      const dialog = screen.getByRole("dialog", { name: "Add provider" });
+      fireEvent.click(within(dialog).getByRole("radio", { name: "Claude" }));
+      fireEvent.click(within(dialog).getByRole("button", { name: "Next" }));
+      fireEvent.click(within(dialog).getByRole("button", { name: "Next" }));
+      expect(
+        within(dialog).queryByText(/Nap runs|signed in as this account/i),
+      ).not.toBeInTheDocument();
+      expect(
+        within(dialog).getByText(
+          signInAvailable
+            ? "This account is for Claude Code. Adding it doesn't start an agent."
+            : "Claude Code runtime and sign-in aren't available on this deployment yet.",
+        ),
+      ).toBeInTheDocument();
+    },
+  );
 });

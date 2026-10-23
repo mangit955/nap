@@ -22,9 +22,16 @@ The chat pane's timeline is a clone of T3 Code's chat timeline:
   `src/chat/composer-controls.tsx`, `src/chat/composer-add-menu.tsx`,
   `src/chat/context-control.tsx`)
 - the compaction divider and its short token counts (`src/chat/compaction-row.tsx`)
-- the provider settings: the provider list beside its editor, the Account sign-in row, the
-  three-step "Add provider" wizard, and the OpenAI and Claude marks (`src/providers/`), taken
-  from T3 Code at commit `71a283aed253f23be1860a31d4ea48f1c06e0b1c`
+
+The provider settings — the list beside its editor, the Account sign-in row, the three-step
+"Add provider" wizard, and the OpenAI and Claude marks (`src/providers/`) — follow T3 Code at
+commit `71a283aed253f23be1860a31d4ea48f1c06e0b1c`.
+
+The menu and popover glass, floating surface, dialog glass, and dialog and sheet backdrops
+(`.composer-surface`, `.glass-popover`, `.surface-glass`, `.dialog-glass`, `.sheet-backdrop` in
+`src/app/globals.css`) are adapted from T3 Code at commit
+`71a283aed253f23be1860a31d4ea48f1c06e0b1c`. The switch in `src/ui/switch.tsx` is an independent
+implementation inspired by the provider switches at that commit.
 
 The right-panel shell, tabs, toolbar dimensions, dark palette, and Pierre diff theme
 (`src/workspace/right-panel.css`, `src/workspace/workbench.tsx`, `src/workspace/diff-theme.ts`)

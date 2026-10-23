@@ -78,8 +78,8 @@ export function useProviderAccounts({
 } = {}) {
   const [state, setState] = useState<ProvidersState>({ kind: "loading" });
   const [refreshing, setRefreshing] = useState(false);
-  // Every answer carries the order it was asked in, and an older one never overwrites a newer:
-  // a poll that left before a rename and arrives after it would otherwise put the old name back.
+  // Polls carry the order they were asked in, so a poll sent before an applied change cannot
+  // overwrite it when it arrives late. Changes themselves apply in response order.
   const asked = useRef(0);
   const applied = useRef(0);
 

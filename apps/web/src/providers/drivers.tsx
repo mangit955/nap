@@ -10,7 +10,7 @@ import { ClaudeIcon, OpenAIIcon } from "./provider-icons.tsx";
 
 export type DriverCopy = {
   name: string;
-  /** The agent Nap runs on this account, shown where T3 shows a version. */
+  /** The agent associated with this account, shown where T3 shows a version. */
   runtime: string;
   /** Whose account it is, as the Account row titles it. */
   account: string;

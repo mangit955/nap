@@ -16,7 +16,7 @@
  */
 
 import type { ProviderAccountView } from "@nap/shared/provider-accounts-protocol";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { ApiKeyPanel } from "../account/api-key-panel.tsx";
 import { useApiKey } from "../account/use-api-key.ts";
 import { NapMark } from "../brand/nap-mark.tsx";
@@ -60,6 +60,7 @@ export function ProvidersPage({
   });
   const [keyOpen, setKeyOpen] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [signInErrors, setSignInErrors] = useState<Record<string, string | null>>({});
   const [selected, setSelected] = useState<Selection | null>(null);
 
   const loaded = api.state.kind === "loaded" ? api.state.value : null;
@@ -87,6 +88,7 @@ export function ProvidersPage({
           titleAction={
             <button
               type="button"
+              disabled={loaded === null}
               aria-label="Add provider"
               title="Add provider"
               className={ICON_BUTTON}
@@ -165,7 +167,7 @@ export function ProvidersPage({
                         account={account}
                         selected={selection === account.id}
                         onSelect={() => setSelected(account.id)}
-                        onEnabled={(enabled) => void api.update(account.id, { enabled })}
+                        onEnabled={(enabled) => api.update(account.id, { enabled })}
                       />
                     </li>
                   ))}
@@ -190,6 +192,14 @@ export function ProvidersPage({
                       account={selectedAccount}
                       signInAvailable={loaded.signInAvailable}
                       api={api}
+                      startError={signInErrors[selectedAccount.id] ?? null}
+                      onStartSignIn={() => {
+                        setSignInErrors((previous) => ({
+                          ...previous,
+                          [selectedAccount.id]: null,
+                        }));
+                        return api.startSignIn(selectedAccount.id);
+                      }}
                       {...(confirm === undefined ? {} : { confirm })}
                     />
                   ) : selection === "api-key" ? (
@@ -235,7 +245,10 @@ export function ProvidersPage({
           signInAvailable={loaded.signInAvailable}
           onCreate={api.create}
           onStartSignIn={api.startSignIn}
-          onCreated={setSelected}
+          onCreated={(id, startError) => {
+            setSelected(id);
+            setSignInErrors((previous) => ({ ...previous, [id]: startError }));
+          }}
         />
       ) : null}
     </SettingsShell>
@@ -314,8 +327,10 @@ function AccountListRow({
   account: ProviderAccountView;
   selected: boolean;
   onSelect: () => void;
-  onEnabled: (enabled: boolean) => void;
+  onEnabled: (enabled: boolean) => ReturnType<ProviderAccountsApi["update"]>;
 }) {
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
   const driver = DRIVERS[account.driver];
   const status = accountStatus(account);
   const name = accountName(account);
@@ -331,7 +346,26 @@ function AccountListRow({
       dimmed={!account.enabled}
       selected={selected}
       onSelect={onSelect}
-      trailing={<Switch checked={account.enabled} onChange={onEnabled} label={`Enable ${name}`} />}
+      trailing={
+        <span className="flex flex-col items-end gap-1">
+          <Switch
+            checked={account.enabled}
+            disabled={pending}
+            onChange={async (enabled) => {
+              setPending(true);
+              const result = await onEnabled(enabled);
+              setError(result.ok ? null : result.error);
+              setPending(false);
+            }}
+            label={`Enable ${name}`}
+          />
+          {error ? (
+            <span role="alert" className="text-xs text-danger">
+              {error}
+            </span>
+          ) : null}
+        </span>
+      }
     />
   );
 }
@@ -340,33 +374,45 @@ function AccountEditor({
   account,
   signInAvailable,
   api,
+  onStartSignIn,
+  startError,
   confirm = (message) => window.confirm(message),
 }: {
   account: ProviderAccountView;
   signInAvailable: boolean;
   api: ProviderAccountsApi;
+  onStartSignIn: () => ReturnType<ProviderAccountsApi["startSignIn"]>;
+  startError: string | null;
   confirm?: (message: string) => boolean;
 }) {
   const driver = DRIVERS[account.driver];
   const name = accountName(account);
   const status = accountStatus(account);
+  const reverting = useRef(false);
+  const dirty = useRef(false);
+  const editVersion = useRef(0);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [draft, setDraft] = useState(account.label ?? "");
   const [error, setError] = useState<string | null>(null);
 
-  // A label changed elsewhere — another tab, a poll — replaces the draft, unless this field holds
-  // an edit that has not been committed yet.
-  const [seen, setSeen] = useState(account.label);
+  // Refreshes replace clean labels; a save only acknowledges the draft it was sent for.
   useEffect(() => {
-    if (account.label !== seen) {
-      setSeen(account.label);
-      setDraft(account.label ?? "");
-    }
-  }, [account.label, seen]);
+    if (!dirty.current) setDraft(account.label ?? "");
+  }, [account.label]);
 
   async function commitLabel() {
     const next = draft.trim() === "" ? null : draft.trim();
-    if (next === account.label) return;
+    if (next === account.label) {
+      dirty.current = false;
+      setDraft(next ?? "");
+      return;
+    }
+    const version = editVersion.current;
     const result = await api.update(account.id, { label: next });
+    if (result.ok && editVersion.current === version) {
+      dirty.current = false;
+      setDraft(result.value.label ?? "");
+    }
     setError(result.ok ? null : result.error);
   }
 
@@ -392,17 +438,24 @@ function AccountEditor({
               aria-label={`Delete ${name}`}
               title={`Delete ${name}`}
               className={`${ICON_BUTTON} hover:text-danger`}
-              onClick={() => {
+              onClick={async () => {
                 if (
                   confirm(
                     `Delete ${name}? Nap forgets this account and signs its agent out. Session history is kept.`,
                   )
-                )
-                  void api.remove(account.id);
+                ) {
+                  const result = await api.remove(account.id);
+                  setDeleteError(result.ok ? null : result.error);
+                }
               }}
             >
               <TrashIcon className="size-3.5" />
             </button>
+            {deleteError ? (
+              <p role="alert" className="text-xs text-danger">
+                {deleteError}
+              </p>
+            ) : null}
           </div>
         }
       >
@@ -444,11 +497,25 @@ function AccountEditor({
               placeholder={driver.name}
               maxLength={40}
               spellCheck={false}
-              onChange={(event) => setDraft(event.target.value)}
-              onBlur={() => void commitLabel()}
+              onChange={(event) => {
+                dirty.current = true;
+                editVersion.current += 1;
+                setDraft(event.target.value);
+              }}
+              onBlur={() => {
+                if (reverting.current) {
+                  reverting.current = false;
+                  return;
+                }
+                void commitLabel();
+              }}
               onKeyDown={(event) => {
                 if (event.key === "Enter") event.currentTarget.blur();
                 if (event.key === "Escape") {
+                  // blur dispatches before React renders the restored draft.
+                  reverting.current = true;
+                  dirty.current = false;
+                  editVersion.current += 1;
                   setDraft(account.label ?? "");
                   event.currentTarget.blur();
                 }
@@ -462,17 +529,22 @@ function AccountEditor({
         <AccountSignIn
           account={account}
           signInAvailable={signInAvailable}
-          onStart={() => api.startSignIn(account.id)}
+          onStart={onStartSignIn}
           onCancel={() => api.cancelSignIn(account.id)}
           onSignOut={() => api.signOut(account.id)}
           confirm={confirm}
+          startError={startError}
         />
       </ProviderSection>
 
       <ProviderSection title="Runtime">
         <ProviderRow
           title={driver.runtime}
-          description={`Nap runs ${driver.runtime} in your project's sandbox, signed in as this account. Its own login stays with it; nap never stores your password or tokens.`}
+          description={
+            signInAvailable
+              ? `This account is for ${driver.runtime}. Adding it doesn't start an agent.`
+              : `${driver.runtime} runtime and sign-in aren't available on this deployment yet.`
+          }
         />
       </ProviderSection>
     </>

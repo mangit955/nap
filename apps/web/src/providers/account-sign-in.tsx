@@ -13,7 +13,7 @@
  */
 
 import type { ProviderAccountView } from "@nap/shared/provider-accounts-protocol";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CopyIcon } from "../ui/icons.tsx";
 import { isSigningIn } from "./account-status.ts";
 import { accountName, DRIVERS } from "./drivers.tsx";
@@ -32,6 +32,7 @@ export function AccountSignIn({
   onStart,
   onCancel,
   onSignOut,
+  startError = null,
   confirm = (message) => window.confirm(message),
 }: {
   account: ProviderAccountView;
@@ -39,11 +40,13 @@ export function AccountSignIn({
   onStart: () => Promise<Outcome<unknown>>;
   onCancel: () => Promise<Outcome<unknown>>;
   onSignOut: () => Promise<Outcome<unknown>>;
+  startError?: string | null;
   /** Injected so a test can answer the sign-out question without a browser dialog. */
   confirm?: (message: string) => boolean;
 }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  useEffect(() => setError(startError), [startError]);
   const driver = DRIVERS[account.driver];
   const flow = account.signIn;
   const interaction = flow?.interaction ?? null;

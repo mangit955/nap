@@ -1,6 +1,7 @@
 /**
- * An on/off control, drawn as T3 Code's provider switches are: a pill filled with the accent when
- * on, its thumb sliding to the right.
+ * An independently implemented on/off control inspired by T3 Code's provider switches: a pill
+ * filled with the accent when on, its thumb sliding to the right. See
+ * apps/web/THIRD_PARTY_NOTICES.md for the design reference.
  *
  * A `button` with `role="switch"` rather than a checkbox, so a screen reader announces "on" and
  * "off" rather than "checked", and Space and Enter both toggle it without any handler of ours.

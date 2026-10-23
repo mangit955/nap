@@ -3,9 +3,8 @@
 /**
  * Adding a Claude or ChatGPT account: T3 Code's "Add provider" wizard, in Nap's palette.
  *
- * Three steps, as T3's: which provider, what to call this account, and its configuration. Nap
- * hosts the provider's agent itself, so there is nothing to configure — the last step only says
- * what will happen — and finishing it adds the account and starts its sign-in in one press.
+ * Three steps, as T3's: which provider, what to call this account, and its configuration.
+ * Finishing adds the account and starts sign-in when the deployment supports it.
  *
  * Codex keeps T3's shortcut on the first step: "Continue with ChatGPT" skips straight to signing
  * in, because most people adding it have one ChatGPT account and nothing to name.
@@ -46,7 +45,7 @@ export function AddProviderDialog({
   }) => Promise<Outcome<ProviderAccountView>>;
   onStartSignIn: (id: string) => Promise<Outcome<unknown>>;
   /** Selects the new account in the list, so its editor is what the person sees next. */
-  onCreated: (id: string) => void;
+  onCreated: (id: string, startError: string | null) => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [step, setStep] = useState(0);
@@ -91,10 +90,10 @@ export function AddProviderDialog({
       setSaving(false);
       return;
     }
-    onCreated(created.value.id);
     // The account exists whatever happens next. A sign-in that cannot start is reported on the
     // account's own row, where the button to retry it is, rather than holding this dialog open.
-    if (signInAvailable) await onStartSignIn(created.value.id);
+    const started = signInAvailable ? await onStartSignIn(created.value.id) : null;
+    onCreated(created.value.id, started && !started.ok ? started.error : null);
     setSaving(false);
     onClose();
   }
@@ -212,8 +211,9 @@ export function AddProviderDialog({
               </span>
             </div>
             <p className="text-sm text-muted">
-              This provider has no required configuration. Nap runs {copy.runtime} in your project's
-              sandbox, signed in as this account.
+              {signInAvailable
+                ? `This account is for ${copy.runtime}. Adding it doesn't start an agent.`
+                : `${copy.runtime} runtime and sign-in aren't available on this deployment yet.`}
             </p>
             {!signInAvailable ? (
               <p className="rounded-lg border border-edge bg-field px-3 py-2.5 text-xs leading-relaxed text-muted">

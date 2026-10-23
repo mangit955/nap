@@ -54,6 +54,19 @@ describe("UpdateProviderAccountSchema", () => {
 });
 
 describe("ProviderSignInSchema", () => {
+  it("accepts an https device-code step", () => {
+    const flow = {
+      flowId: "flow-1",
+      phase: "waiting",
+      interaction: {
+        type: "deviceCode",
+        url: "https://login.example.com",
+        userCode: "ABCD",
+      },
+      message: null,
+    };
+    expect(ProviderSignInSchema.parse(flow)).toEqual(flow);
+  });
   it("carries a terminal's output while Claude Code's own login runs", () => {
     const flow = {
       flowId: "flow-1",
@@ -76,12 +89,17 @@ describe("ProviderSignInSchema", () => {
     ).toBe(false);
   });
 
-  it("refuses a browser step that is not https, since it is rendered as a link", () => {
+  it.each([
+    { type: "browser", url: "javascript:alert(1)" },
+    { type: "browser", url: "http://login.example.com" },
+    { type: "deviceCode", url: "http://login.example.com", userCode: "ABCD" },
+    { type: "deviceCode", url: "javascript:alert(1)", userCode: "ABCD" },
+  ])("refuses a $type step with unsafe link $url", (interaction) => {
     expect(
       ProviderSignInSchema.safeParse({
         flowId: "flow-1",
         phase: "waiting",
-        interaction: { type: "browser", url: "javascript:alert(1)" },
+        interaction,
         message: null,
       }).success,
     ).toBe(false);
