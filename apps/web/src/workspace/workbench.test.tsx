@@ -1,50 +1,61 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it } from "vitest";
+import { usePanelLayout } from "./use-panel-layout.ts";
 import { Workbench } from "./workbench.tsx";
 
-/**
- * The right-hand panel: one of two things at a time, in a frame that keeps its place.
- *
- * The panel takes both halves as slots, so this proves the switching without mounting a socket,
- * a sandbox or a file listing.
- */
-
-function show(tab: "preview" | "code") {
-  return render(<Workbench tab={tab} preview={<p>the app</p>} code={<p>the files</p>} />);
+function Workspace({ scope = "test" }: { scope?: string }) {
+  const controller = usePanelLayout(scope);
+  return (
+    <>
+      <button type="button" onClick={controller.toggle}>
+        Toggle panel
+      </button>
+      <Workbench
+        controller={controller}
+        maximized={false}
+        onMaximize={() => {}}
+        preview={<input aria-label="App state" defaultValue="kept" />}
+        code={<p>the files</p>}
+        diff={<p>the changes</p>}
+        pullRequests={<p>the pull requests</p>}
+        file={(path) => <p>{path}</p>}
+      />
+    </>
+  );
 }
-
-describe("the workbench", () => {
-  it("shows the preview on the preview tab", () => {
-    show("preview");
-
-    expect(screen.getByText("the app")).toBeVisible();
+beforeEach(() => localStorage.clear());
+describe("the right panel", () => {
+  it("preserves the preview DOM across selection, tab closure, and reopening", () => {
+    render(<Workspace />);
+    const frame = screen.getByLabelText("App state");
+    fireEvent.change(frame, { target: { value: "edited" } });
+    fireEvent.click(screen.getByRole("tab", { name: "Files" }));
+    expect(frame).not.toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Close Browser" }));
+    fireEvent.click(screen.getByLabelText("Add panel"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Browser" }));
+    expect(screen.getByLabelText("App state")).toBe(frame);
+    expect(frame).toHaveValue("edited");
   });
-
-  it("shows the code on the code tab", () => {
-    show("code");
-
-    expect(screen.getByText("the files")).toBeVisible();
+  it("restores layout per session and repairs invalid saved state", () => {
+    const { rerender, unmount } = render(<Workspace />);
+    fireEvent.click(screen.getByRole("tab", { name: "Files" }));
+    rerender(<Workspace scope="another" />);
+    expect(screen.getByRole("tab", { name: "Browser" })).toHaveAttribute("aria-selected", "true");
+    rerender(<Workspace />);
+    expect(screen.getByRole("tab", { name: "Files" })).toHaveAttribute("aria-selected", "true");
+    unmount();
+    render(<Workspace />);
+    expect(screen.getByRole("tab", { name: "Files" })).toHaveAttribute("aria-selected", "true");
   });
-
-  it("keeps the preview mounted while the code is showing", () => {
-    // **The one property worth a test here.** Unmounting the frame to show the files would
-    // reload the user's app when they came back — losing whatever they had typed into it, and
-    // costing a dev-server round trip every time somebody glanced at a file. It is hidden, not
-    // discarded.
-    const { rerender } = show("preview");
-    const frame = screen.getByText("the app");
-
-    rerender(<Workbench tab="code" preview={<p>the app</p>} code={<p>the files</p>} />);
-
-    expect(screen.getByText("the app")).toBe(frame);
-    expect(screen.getByText("the app")).not.toBeVisible();
-  });
-
-  it("names each panel by the tab that opens it", () => {
-    // A tabpanel that is not associated with its tab is a region a screen reader cannot get to
-    // from the tablist.
-    show("preview");
-
-    expect(screen.getByRole("tabpanel", { name: "Preview" })).toBeInTheDocument();
+  it("supports keyboard tab selection and hides the whole panel without unmounting", () => {
+    render(<Workspace />);
+    const browser = screen.getByRole("tab", { name: "Browser" });
+    fireEvent.keyDown(browser, { key: "ArrowRight" });
+    expect(screen.getByRole("tab", { name: "Files" })).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "Close right panel" }));
+    expect(screen.getByText("the files")).not.toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Toggle panel" }));
+    expect(screen.getByRole("tabpanel", { name: "Files" })).toBeVisible();
   });
 });

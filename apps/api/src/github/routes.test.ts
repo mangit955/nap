@@ -99,14 +99,19 @@ function fixture() {
     if (path === "/repos/owner/repo/pulls/10")
       return Response.json({
         number: 10,
+        title: "Repository changes",
+        body: "Description",
+        draft: false,
+        user: { id: 7, login: "owner" },
         html_url: "https://github.com/owner/repo/pull/10",
         state: feedbackState.state,
         merged_at: null,
         head: { sha: feedbackState.headSha, ref: feedbackState.headRef, repo: { id: 123 } },
-        base: { ref: "main", repo: { id: 123 } },
+        base: { ref: "main", sha: "b".repeat(40), repo: { id: 123 } },
       });
     if (path.endsWith("/check-runs")) return Response.json({ check_runs: feedbackState.checks });
     if (path.endsWith("/status")) return Response.json({ state: "success", statuses: [] });
+    if (path.endsWith("/files")) return Response.json([]);
     if (path.endsWith("/reviews")) return Response.json([]);
     if (path === "/repos/owner/repo/issues/10/comments")
       return Response.json(feedbackState.comments);
@@ -532,3 +537,31 @@ it.each(["success", "cancel"])(
     );
   },
 );
+
+describe("linked pull request inspection authorization", () => {
+  it("reads an owned linked PR and refuses a stranger before contacting GitHub", async () => {
+    const f = await feedbackFixture();
+    const path = `/projects/${f.binding.projectId}/github/pull-requests/10`;
+    const response = await f.app.request(path);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      number: 10,
+      head: { sha: f.feedbackState.headSha },
+      files: [],
+    });
+    f.setUser(OTHER);
+    const before = f.requests.length;
+    expect((await f.app.request(path)).status).toBe(404);
+    expect(f.requests).toHaveLength(before);
+  });
+  it("refuses unlinked PRs and revoked GitHub authority", async () => {
+    const f = await feedbackFixture();
+    expect(
+      (await f.app.request(`/projects/${f.binding.projectId}/github/pull-requests/11`)).status,
+    ).toBe(404);
+    f.readOnly();
+    expect(
+      (await f.app.request(`/projects/${f.binding.projectId}/github/pull-requests/10`)).status,
+    ).toBe(403);
+  });
+});

@@ -1,3 +1,5 @@
+import { compareGit } from "@nap/sandbox/git-comparison";
+import { GitScopeSchema } from "@nap/shared/git-protocol";
 /**
  * Browsing the project's files.
  *
@@ -60,6 +62,24 @@ export function registerFileRoutes(
   app: Hono<{ Variables: AuthVariables }>,
   deps: FileRouteDeps,
 ): void {
+  app.get("/sessions/:sessionId/changes", async (c) => {
+    c.header("Cache-Control", "no-store");
+    const found = await findOwnedSession(deps.sessions, c.req.param("sessionId"), c.get("userId"));
+    if (!found.ok) return c.json({ error: found.error.message }, found.error.status);
+    const scope = GitScopeSchema.safeParse(c.req.query("scope") ?? "branch");
+    const base = c.req.query("base");
+    if (!scope.success || (base !== undefined && (base.length > 512 || base.includes("\0"))))
+      return c.json({ error: "Invalid comparison" }, 400);
+    if (found.value.sandboxId === null)
+      return c.json({ error: "Start a task to create the workspace." }, 409);
+    const compared = await compareGit(deps.sandbox, found.value.sandboxId, {
+      scope: scope.data,
+      ...(base ? { base } : {}),
+    });
+    if (!compared.ok) return c.json({ error: compared.error.message }, statusFor(compared.error));
+    return c.json(compared.value);
+  });
+
   app.get("/sessions/:sessionId/files", async (c) => {
     const found = await findOwnedSession(deps.sessions, c.req.param("sessionId"), c.get("userId"));
     if (!found.ok) return c.json({ error: found.error.message }, found.error.status);

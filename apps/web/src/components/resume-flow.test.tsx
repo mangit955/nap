@@ -79,6 +79,7 @@ async function replayPutAway() {
 }
 
 beforeEach(() => {
+  localStorage.clear();
   opens = 0;
   net = sockets();
   net.countGlobalToo(vi.stubGlobal);
@@ -345,7 +346,7 @@ describe("opening a put-away project", () => {
     });
     expect(await screen.findByText("No preview configured")).toBeVisible();
     expect(screen.queryByText(/starting the dev server/i)).toBeNull();
-    fireEvent.click(screen.getByRole("tab", { name: "Code" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Files" }));
     expect(await screen.findByRole("button", { name: /README.md/ })).toBeVisible();
     expect(net.opened).toHaveLength(1);
     expect(opens).toBe(1);

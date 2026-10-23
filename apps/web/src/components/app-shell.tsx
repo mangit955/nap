@@ -10,45 +10,19 @@ import { phaseOf, recordState } from "../projects/project-phase.ts";
 import { type OpenProject, useProject } from "../projects/use-projects.ts";
 import { Splitter } from "../ui/splitter.tsx";
 import { useDocumentScrollLock } from "../ui/use-document-scroll-lock.ts";
-import { LiveCodePane } from "../workspace/code-pane.tsx";
-import { CHAT_SPLIT, DEFAULT_CHAT_WIDTH } from "../workspace/split.ts";
-import type { WorkbenchTab } from "../workspace/tabs.ts";
+import { BrowserToolbar } from "../workspace/browser-toolbar.tsx";
+import { ChangesPanel } from "../workspace/changes-panel.tsx";
+import { FilePanel } from "../workspace/file-panel.tsx";
+import { PANEL_SPLIT } from "../workspace/split.ts";
+import { useNarrowPanel } from "../workspace/use-narrow-panel.ts";
 import { usePaneWidth } from "../workspace/use-pane-width.ts";
+import { usePanelLayout } from "../workspace/use-panel-layout.ts";
 import { Workbench } from "../workspace/workbench.tsx";
 import { WorkspaceHeader } from "../workspace/workspace-header.tsx";
 import { LiveChatPane } from "./chat-pane.tsx";
+import { FileTreePane } from "./file-tree-pane.tsx";
 import { PreviewPane } from "./preview-pane.tsx";
 
-/**
- * The workspace: a conversation on the left, and what it produced on the right.
- *
- * **Two columns, not three.** The files used to hold a permanent quarter of the window to show a
- * dozen names, and the preview — the thing anybody is actually watching — got whatever was left
- * in the middle. Now there is one workbench with two faces, and the tabs that switch them live
- * in the same bar as the project's name and the app's own controls.
- *
- * **The frame clips and the panes scroll, and it takes both to hold.** `h-dvh` fixes the height and
- * `min-h-0` stops a pane forcing its track taller — but neither *contains* a child that overflows
- * anyway, and there is no scroll container between here and the document. So one leaking row in the
- * transcript used to scroll the entire page, top bar and all, out of the window. The two
- * `overflow-hidden`s below are what make that impossible rather than unlikely: scrolling belongs to
- * the iframe, the file viewer, the tree and the transcript, and nowhere else.
- *
- * **And a clamp only clips what it is the containing block for**, which is the half that was
- * missing. Both boxes were `static`, so every absolutely positioned descendant — which is every
- * `sr-only` label in the transcript, and each pane's own heading — resolved against the initial
- * containing block and sailed straight through both. One of them below the fold is enough to
- * lengthen the document, and then the window scrolls and takes the header with it. `relative` is
- * what makes the clamps mean what the paragraph above claims; `useDocumentScrollLock` catches
- * whatever a later pane invents.
- *
- * **The project, its log and its file listing are resolved once, here.** Each pane used to
- * subscribe for itself, which was three sockets carrying identical frames and two panes free to
- * disagree about what the newest event was; the listing was fetched twice for the same reason.
- * The session comes from the server rather than from the URL: which conversation you land in is
- * the project's newest one, and a link that named a session would go stale as soon as the project
- * grew another.
- */
 export function AppShell({
   ownerId,
   projectId,
@@ -214,113 +188,155 @@ export function AppShell({
     ...(fetchJson === undefined ? {} : { fetchJson }),
   });
 
-  const [tab, setTab] = useState<WorkbenchTab>("preview");
-  const [chatOpen, setChatOpen] = useState(true);
-  // Here rather than in the Code tab, because the chat opens files too: a path in a reply, or a
-  // row of a turn's changed files, switches to the tab with that file open.
-  const [openFile, setOpenFile] = useState<string | undefined>(undefined);
-  /**
-   * Bumped by the bar's Reload button. A count rather than a boolean because the frame is keyed
-   * on it: cross-origin means nothing here can call `reload()` on the app, so replacing the
-   * element is the only reload available.
-   */
+  const panels = usePanelLayout(`${ownerId ?? "guest"}:${projectId}:${sessionId ?? "pending"}`);
+  const [maximized, setMaximized] = useState(false);
   const [reloads, setReloads] = useState(0);
   const [route, setRoute] = useState("/");
-  const { width, containerRef, onGrab, onKeyDown } = usePaneWidth(CHAT_SPLIT, DEFAULT_CHAT_WIDTH);
-
+  const { width, containerRef, onGrab, onKeyDown } = usePaneWidth(PANEL_SPLIT, 540);
   useDocumentScrollLock();
-  const paneStyle: CSSProperties & { "--chat-width": string } = { "--chat-width": `${width}px` };
+  const paneStyle: CSSProperties & { "--panel-width": string } = { "--panel-width": `${width}px` };
+  const openFile = (path: string) => panels.open({ kind: "file", path });
+  const visiblePanel = panels.layout.open;
+  const narrow = useNarrowPanel();
+  const chatHidden = visiblePanel && (maximized || narrow);
+  const selected = panels.layout.tabs.find(
+    (tab) => tab.kind === "file" && `file:${tab.path}` === panels.layout.active,
+  );
 
   return (
-    // Scoped here rather than as `body { overflow: hidden }`: the landing page and the welcome
-    // step are full-length scrolling documents, and a global rule would break both.
-    <div className="relative flex h-dvh flex-col overflow-hidden bg-surface">
-      <WorkspaceHeader
-        projectName={headerNote(status, project?.name)}
-        // Only once there is a real record. While the bar is showing "opening…" or "this project
-        // no longer exists", there is nothing a rename could be applied to.
-        {...(status === "ready" && project !== undefined ? { onRename: rename } : {})}
-        tab={tab}
-        chatOpen={chatOpen}
-        route={route}
-        previewUrl={previewUrl}
-        // The bar, not the chat pane, carries where the job stands: the button that collapses
-        // the chat is in this bar, so anything inside the pane would disappear exactly when the
-        // preview takes the whole window.
-        job={log.jobs.summary}
-        onTabChange={(next) => {
-          setTab(next);
-          if (window.matchMedia("(max-width: 767px)").matches) setChatOpen(false);
-        }}
-        onReload={() => setReloads((count) => count + 1)}
-        onRouteChange={setRoute}
-        onToggleChat={() => setChatOpen((open) => !open)}
-        repositoryControl={
-          status === "ready" ? (
-            <ProjectGitHubControl
-              key={projectId}
-              projectId={projectId}
-              refreshKey={githubRevision}
-              onRepository={receiveRepository}
-              {...(fetchJson === undefined ? {} : { fetchJson })}
-            />
-          ) : undefined
-        }
-      />
-
+    <div className="t3-workspace relative flex h-dvh flex-col overflow-hidden bg-surface">
       <main
         ref={containerRef}
-        // The second clamp, and not a redundant one: this catches whatever a pane leaks, the root
-        // above catches the header and anything drawn outside this grid.
-        className="workspace-panes relative grid min-h-0 flex-1 overflow-hidden"
-        data-chat-open={chatOpen}
+        className="t3-workspace-panes relative grid min-h-0 flex-1 overflow-hidden"
+        data-panel-open={visiblePanel}
+        data-maximized={maximized && visiblePanel}
         style={paneStyle}
       >
-        <div hidden={!chatOpen} className="workspace-chat min-h-0 min-w-0">
+        <div className="t3-chat-column min-h-0 min-w-0" hidden={chatHidden}>
+          <WorkspaceHeader
+            projectName={headerNote(status, project?.name)}
+            {...(status === "ready" && project !== undefined ? { onRename: rename } : {})}
+            job={log.jobs.summary}
+            panelOpen={visiblePanel}
+            onTogglePanel={panels.toggle}
+            details={
+              <>
+                <p className="t3-details-label">Workspace</p>
+                <p>{project?.name ?? "Opening…"}</p>
+                {repository && (
+                  <>
+                    <p className="t3-details-label">Repository</p>
+                    <p>{repository.repository.fullName}</p>
+                    <p className="t3-details-label">Base branch</p>
+                    <code>{repository.baseBranch}</code>
+                  </>
+                )}
+                <div className="t3-details-actions">
+                  <button type="button" onClick={() => panels.open({ kind: "diff" })}>
+                    View changes
+                  </button>
+                  <button type="button" onClick={() => panels.open({ kind: "pr" })}>
+                    Pull requests
+                  </button>
+                </div>
+              </>
+            }
+          />
           <LiveChatPane
             ownerId={ownerId}
-            active={chatOpen}
+            active={!chatHidden}
             sessionId={sessionId}
             projectId={projectId}
             log={log}
             files={files.listing?.files}
-            onOpenFile={(path) => {
-              setOpenFile(path);
-              setTab("code");
-              // As switching tabs from the bar does: on a phone the chat covers the tab.
-              if (window.matchMedia("(max-width: 767px)").matches) setChatOpen(false);
-            }}
+            onOpenFile={openFile}
+            onOpenChanges={() => panels.open({ kind: "diff" })}
             {...(fetchJson === undefined ? {} : { fetchJson })}
           />
         </div>
-        {chatOpen && (
-          <Splitter label="Chat width" value={width} onGrab={onGrab} onKeyDown={onKeyDown} quiet />
-        )}
-
-        <Workbench
-          tab={tab}
-          preview={
-            <PreviewPane
-              phase={phase}
-              previewRequired={previewRequired}
-              route={route}
-              reloads={reloads}
-              onResume={() => void resume()}
-              {...(resumeError === undefined ? {} : { resumeError })}
+        {visiblePanel && !maximized && (
+          <div className="t3-panel-divider">
+            <Splitter
+              label="Right panel width"
+              value={width}
+              onGrab={onGrab}
+              onKeyDown={onKeyDown}
+              quiet
             />
+          </div>
+        )}
+        {visiblePanel && (
+          <button
+            type="button"
+            className="t3-panel-backdrop"
+            tabIndex={-1}
+            aria-label="Dismiss right panel"
+            onClick={panels.hide}
+          />
+        )}
+        <Workbench
+          job={log.jobs.summary}
+          chatHidden={chatHidden}
+          narrow={narrow}
+          controller={panels}
+          maximized={maximized}
+          onMaximize={() => setMaximized((value) => !value)}
+          preview={
+            <>
+              <BrowserToolbar
+                route={route}
+                previewUrl={previewUrl}
+                onRouteChange={setRoute}
+                onReload={() => setReloads((count) => count + 1)}
+              />
+              <PreviewPane
+                phase={phase}
+                previewRequired={previewRequired}
+                route={route}
+                reloads={reloads}
+                onResume={() => void resume()}
+                {...(resumeError === undefined ? {} : { resumeError })}
+              />
+            </>
           }
           code={
-            <LiveCodePane
-              sessionId={sessionId}
-              active={tab === "code"}
-              log={log}
-              phase={phase}
-              files={files}
-              selected={openFile}
-              onSelect={setOpenFile}
-              {...(fetchJson === undefined ? {} : { fetchJson })}
+            <FileTreePane
+              listing={files.listing}
+              status={files.status}
+              putAway={phase.kind === "put-away"}
+              changed={log.changed}
+              selected={selected?.kind === "file" ? selected.path : undefined}
+              onSelect={openFile}
             />
           }
+          diff={
+            <ChangesPanel
+              sessionId={sessionId}
+              baseBranch={repository?.baseBranch}
+              revision={githubRevision}
+              active={visiblePanel && panels.layout.active === "diff"}
+              onOpenFile={openFile}
+              fetchJson={fetchJson}
+            />
+          }
+          pullRequests={
+            status === "ready" ? (
+              <ProjectGitHubControl
+                key={projectId}
+                projectId={projectId}
+                presentation="panel"
+                active={visiblePanel && panels.layout.active === "pr"}
+                refreshKey={githubRevision}
+                onRepository={receiveRepository}
+                {...(fetchJson === undefined ? {} : { fetchJson })}
+              />
+            ) : (
+              <div className="t3-panel-empty">Open a project to view pull requests.</div>
+            )
+          }
+          file={(path) => (
+            <FilePanel sessionId={sessionId} path={path} log={log} fetchJson={fetchJson} />
+          )}
         />
       </main>
     </div>

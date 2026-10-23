@@ -124,3 +124,84 @@ it("reads every repository page beyond the old thousand-repository cap", async (
   expect(result.ok && result.value.length).toBe(1101);
   expect(pages).toHaveLength(12);
 });
+
+describe("pull request inspection", () => {
+  const repository = { id: 123, fullName: "org/repo", defaultBranch: "main", private: true };
+  function fixture(moveHead = false) {
+    let reads = 0;
+    return new GitHubApp(config, async (url) => {
+      const path = new URL(url).pathname;
+      if (path.endsWith("/access_tokens"))
+        return Response.json({
+          token: "read-only",
+          expires_at: new Date(Date.now() + 3600000).toISOString(),
+        });
+      if (path.endsWith("/pulls/5"))
+        return Response.json({
+          number: 5,
+          title: "Change the panel",
+          body: "Description",
+          draft: false,
+          user: { id: 7, login: "owner" },
+          html_url: "https://github.com/org/repo/pull/5",
+          state: "open",
+          merged_at: null,
+          head: {
+            sha: moveHead && reads++ > 0 ? "new-head" : "head",
+            ref: "task",
+            repo: { id: 123 },
+          },
+          base: { sha: "base", ref: "main", repo: { id: 123 } },
+        });
+      if (path.endsWith("/files"))
+        return Response.json([
+          {
+            filename: "src/app.ts",
+            status: "modified",
+            additions: 1,
+            deletions: 1,
+            patch: "@@ -1 +1 @@\n-old\n+new",
+          },
+          { filename: "image.png", status: "added", additions: 0, deletions: 0 },
+        ]);
+      if (path.endsWith("/check-runs"))
+        return Response.json({
+          check_runs: [{ name: "Tests", status: "completed", conclusion: "success" }],
+        });
+      if (path.endsWith("/status")) return Response.json({ state: "success", statuses: [] });
+      if (path.endsWith("/pulls/5/comments"))
+        return Response.json([
+          {
+            id: 4,
+            body: "Earlier review",
+            user: { id: 7, login: "owner" },
+            path: "src/app.ts",
+            line: null,
+            original_line: 1,
+            side: "RIGHT",
+            commit_id: "old-head",
+            html_url: "https://github.com/org/repo/pull/5#discussion_r4",
+          },
+        ]);
+      return Response.json([]);
+    });
+  }
+  it("returns revision-bound patches and keeps outdated comment coordinates", async () => {
+    const result = await fixture().inspectPullRequest(99, repository, 5);
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        head: { sha: "head" },
+        base: { sha: "base" },
+        comments: [{ path: "src/app.ts", originalLine: 1, line: null, outdated: true }],
+      },
+    });
+    if (!result.ok) return;
+    expect(result.value.files[1]).toMatchObject({ truncated: true, patch: "" });
+    expect(result.value.checks).toHaveLength(1);
+  });
+  it("rejects a PR whose head changes while its files and comments are being fetched", async () => {
+    const result = await fixture(true).inspectPullRequest(99, repository, 5);
+    expect(result).toMatchObject({ ok: false, error: { code: "conflict" } });
+  });
+});
