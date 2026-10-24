@@ -1,0 +1,6 @@
+Building local linux/amd64 image. Build deadline: 15 minutes.
+Production driver bundle SHA256: 3bd1aae5917d0c3beecbe452b6fbb70d34c2ae89289977972d9557e9b4267e3e. Expected bundle match: null.
+Running actual Chrome with network none, 2 CPUs, 1024 MiB. Runtime deadline: 4 minutes.
+
+Evidence: /tmp/nap-harness-guards-portable/cleanup-absent. Owned cleanup verified. Total elapsed: 811 ms.
+No such owned resourceNo such owned resource

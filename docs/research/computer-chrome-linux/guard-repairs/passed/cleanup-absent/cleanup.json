@@ -1,0 +1,18 @@
+{
+  "ok": true,
+  "attempts": [
+    {
+      "resource": "nap-chrome-smoke-bfef00e9-da6a-4234-98c8-9fd05a7a106d",
+      "attempt": 1,
+      "absent": true,
+      "removalError": "Error: Command failed: docker rm -f nap-chrome-smoke-bfef00e9-da6a-4234-98c8-9fd05a7a106d\nNo such owned resource"
+    },
+    {
+      "resource": "nap-chrome-smoke-bfef00e9-da6a-4234-98c8-9fd05a7a106d:local",
+      "attempt": 1,
+      "absent": true,
+      "removalError": "Error: Command failed: docker image rm nap-chrome-smoke-bfef00e9-da6a-4234-98c8-9fd05a7a106d:local\nNo such owned resource"
+    }
+  ],
+  "failures": []
+}

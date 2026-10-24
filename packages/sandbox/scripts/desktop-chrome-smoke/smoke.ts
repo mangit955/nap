@@ -370,14 +370,32 @@ try {
   assert.ok(Number(video.streams[0]?.nb_frames) > 1);
   assert.equal(video.format.size, bytes.length);
   assert.ok(Math.abs(video.format.duration * 1000 - clip.durationMs) <= 125);
-  execFileSync("ffmpeg", ["-v", "error", "-i", `${output}/capture.mp4`, "-f", "null", "-"], {
-    timeout: 30000,
-  });
   execFileSync(
     "ffmpeg",
     [
       "-v",
       "error",
+      "-xerror",
+      "-err_detect",
+      "explode",
+      "-i",
+      `${output}/capture.mp4`,
+      "-f",
+      "null",
+      "-",
+    ],
+    {
+      timeout: 30000,
+    },
+  );
+  execFileSync(
+    "ffmpeg",
+    [
+      "-v",
+      "error",
+      "-xerror",
+      "-err_detect",
+      "explode",
       "-ss",
       String(inputFrameTime / 1000),
       "-i",
@@ -405,7 +423,10 @@ try {
       }
     });
   const vnc = processes.find((command) => command[0] === "x11vnc");
-  assert.ok(vnc?.includes("-viewonly") && vnc.includes("-localhost"));
+  assert.ok(vnc);
+  assert.ok(vnc.includes("-localhost"));
+  const writableVncControl = process.env.NAP_CHROME_SMOKE_FAULT === "vnc-input";
+  assert.equal(vnc.includes("-viewonly"), !writableVncControl);
   assert.ok((await fetch("http://127.0.0.1:6080/vnc.html")).ok);
   const banner = await new Promise<string>((resolve, reject) => {
     const socket = new WebSocket("ws://127.0.0.1:6080/websockify", ["binary"]);
@@ -429,7 +450,11 @@ try {
     );
   });
   assert.match(banner, /^RFB 003\.\d{3}\n$/);
-  step("View-only localhost x11vnc flags, noVNC HTTP and websockify RFB banner checked");
+  step(
+    writableVncControl
+      ? "Writable VNC negative-control flags, noVNC HTTP and RFB banner checked"
+      : "View-only localhost x11vnc flags, noVNC HTTP and websockify RFB banner checked",
+  );
   save("report", {
     ok: true,
     chromeVersion: execFileSync("google-chrome-stable", ["--version"], { encoding: "utf8" }).trim(),
@@ -452,9 +477,19 @@ try {
       frames: video.streams[0]?.nb_frames,
     },
     banner,
+    vncServerViewOnly: vnc.includes("-viewonly"),
     steps,
     timings,
   });
+  if (process.env.NAP_CHROME_VNC_PROBE === "1") {
+    writeFileSync(`${output}/vnc-ready`, "ready\n");
+    const deadline = Date.now() + 90000;
+    while (!existsSync(`${output}/vnc-finished`) && Date.now() < deadline) await delay(200);
+    assert.ok(
+      existsSync(`${output}/vnc-finished`),
+      "The bounded external VNC probe did not finish.",
+    );
+  }
 } catch (error) {
   writeFileSync(`${output}/last-observed-dom.txt`, lastDom);
   try {

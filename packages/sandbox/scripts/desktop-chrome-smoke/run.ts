@@ -32,7 +32,11 @@ const { DESKTOP_INSTALL_COMMAND } = z
 const output = process.argv[2]
   ? resolve(process.argv[2])
   : mkdtempSync(join(tmpdir(), "nap-chrome-evidence-"));
-const fault = z.enum(["typing", "policy", "dimensions"]).optional().parse(process.argv[3]);
+const fault = z
+  .enum(["typing", "policy", "dimensions", "vnc-input"])
+  .optional()
+  .parse(process.argv[3]);
+const vncProbe = process.env.NAP_CHROME_VNC_PROBE === "1";
 mkdirSync(output, { recursive: true });
 assert.equal(
   readdirSync(output).length,
@@ -56,24 +60,68 @@ function run(command: string, args: string[], timeout = 30000, cwd = root) {
   });
 }
 function cleanup() {
-  for (const args of [
-    ["rm", "-f", name],
-    ["image", "rm", image],
+  const attempts: {
+    resource: string;
+    attempt: number;
+    removalError?: string;
+    verificationError?: string;
+    absent: boolean;
+  }[] = [];
+  const failures: string[] = [];
+  for (const resource of [
+    {
+      id: name,
+      remove: ["rm", "-f", name],
+      list: ["container", "ls", "-a", "--filter", `name=^/${name}$`, "--format", "{{.ID}}"],
+    },
+    {
+      id: image,
+      remove: ["image", "rm", image],
+      list: ["image", "ls", "--filter", `reference=${image}`, "--format", "{{.ID}}"],
+    },
   ]) {
-    try {
-      run("docker", args, 20000);
-    } catch {}
+    let absent = false;
+    for (let attempt = 1; attempt <= 2 && !absent; attempt++) {
+      const record: (typeof attempts)[number] = { resource: resource.id, attempt, absent: false };
+      try {
+        run("docker", resource.remove, 20000);
+      } catch (error) {
+        record.removalError = String(error);
+      }
+      try {
+        absent = run("docker", resource.list, 10000).trim() === "";
+      } catch (error) {
+        record.verificationError = String(error);
+      }
+      record.absent = absent;
+      attempts.push(record);
+    }
+    if (!absent) failures.push(`Could not verify removal of owned Docker resource ${resource.id}.`);
   }
-  rmSync(context, { recursive: true, force: true });
+  try {
+    rmSync(context, { recursive: true, force: true });
+  } catch (error) {
+    failures.push(String(error));
+  }
+  writeFileSync(
+    join(output, "cleanup.json"),
+    JSON.stringify({ ok: failures.length === 0, attempts, failures }, null, 2),
+  );
+  if (failures.length)
+    throw new Error(`${failures.join(" ")} Read ${join(output, "cleanup.json")}.`);
 }
-process.once("SIGINT", () => {
-  cleanup();
-  process.exit(130);
-});
-process.once("SIGTERM", () => {
-  cleanup();
-  process.exit(143);
-});
+function stop(code: number) {
+  try {
+    cleanup();
+  } catch (error) {
+    console.error(error);
+    process.exit(1);
+  }
+  process.exit(code);
+}
+process.once("SIGINT", () => stop(130));
+process.once("SIGTERM", () => stop(143));
+let smokeFailure: { error: unknown } | undefined;
 try {
   // Keep the production dependency list and installation sequence; pin only Chrome's download.
   assert.ok(
@@ -113,6 +161,13 @@ try {
       '"URLBlocklist":["*","chrome://*","file://*"]',
       '"URLBlocklist":[]',
     );
+    assert.notEqual(source, broken);
+    writeFileSync(path, broken);
+  }
+  if (fault === "vnc-input") {
+    const path = join(context, "start-desktop.sh");
+    const source = readFileSync(path, "utf8");
+    const broken = source.replace(" -viewonly >", " >");
     assert.notEqual(source, broken);
     writeFileSync(path, broken);
   }
@@ -174,6 +229,7 @@ try {
   console.log(
     "Running actual Chrome with network none, 2 CPUs, 1024 MiB. Runtime deadline: 4 minutes.",
   );
+  writeFileSync(join(output, "container-name.txt"), name);
   try {
     const result = spawnSync(
       "docker",
@@ -192,6 +248,8 @@ try {
         "1024m",
         "--env",
         `NAP_CHROME_SMOKE_FAULT=${fault ?? ""}`,
+        "--env",
+        `NAP_CHROME_VNC_PROBE=${vncProbe ? "1" : "0"}`,
         image,
       ],
       { encoding: "utf8", timeout: 250000, killSignal: "SIGKILL", maxBuffer: 32_000_000 },
@@ -207,7 +265,22 @@ try {
     run("docker", ["cp", `${name}:/evidence/.`, output]);
     writeFileSync(join(output, "container.json"), run("docker", ["inspect", name]));
   }
-  console.log(`Evidence: ${output}. Total elapsed: ${Date.now() - started} ms.`);
-} finally {
-  cleanup();
+} catch (error) {
+  smokeFailure = { error };
 }
+let cleanupFailure: { error: unknown } | undefined;
+try {
+  cleanup();
+} catch (error) {
+  cleanupFailure = { error };
+}
+if (smokeFailure && cleanupFailure)
+  throw new AggregateError(
+    [smokeFailure.error, cleanupFailure.error],
+    "Smoke and owned-resource cleanup both failed.",
+  );
+if (smokeFailure) throw smokeFailure.error;
+if (cleanupFailure) throw cleanupFailure.error;
+console.log(
+  `Evidence: ${output}. Owned cleanup verified. Total elapsed: ${Date.now() - started} ms.`,
+);

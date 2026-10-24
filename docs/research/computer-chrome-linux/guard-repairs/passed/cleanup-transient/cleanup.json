@@ -1,0 +1,28 @@
+{
+  "ok": true,
+  "attempts": [
+    {
+      "resource": "nap-chrome-smoke-f46e423d-6ac5-402c-85bb-af1435e1d3d7",
+      "attempt": 1,
+      "absent": false,
+      "removalError": "Error: Command failed: docker rm -f nap-chrome-smoke-f46e423d-6ac5-402c-85bb-af1435e1d3d7\nsimulated Docker removal unavailable"
+    },
+    {
+      "resource": "nap-chrome-smoke-f46e423d-6ac5-402c-85bb-af1435e1d3d7",
+      "attempt": 2,
+      "absent": true
+    },
+    {
+      "resource": "nap-chrome-smoke-f46e423d-6ac5-402c-85bb-af1435e1d3d7:local",
+      "attempt": 1,
+      "absent": false,
+      "removalError": "Error: Command failed: docker image rm nap-chrome-smoke-f46e423d-6ac5-402c-85bb-af1435e1d3d7:local\nsimulated Docker removal unavailable"
+    },
+    {
+      "resource": "nap-chrome-smoke-f46e423d-6ac5-402c-85bb-af1435e1d3d7:local",
+      "attempt": 2,
+      "absent": true
+    }
+  ],
+  "failures": []
+}

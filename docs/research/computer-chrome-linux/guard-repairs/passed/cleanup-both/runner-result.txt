@@ -1,0 +1,35 @@
+Building local linux/amd64 image. Build deadline: 15 minutes.
+Production driver bundle SHA256: 3bd1aae5917d0c3beecbe452b6fbb70d34c2ae89289977972d9557e9b4267e3e. Expected bundle match: null.
+Running actual Chrome with network none, 2 CPUs, 1024 MiB. Runtime deadline: 4 minutes.
+
+simulated Docker removal unavailablesimulated Docker verification unavailablesimulated Docker removal unavailablesimulated Docker verification unavailablesimulated Docker removal unavailablesimulated Docker verification unavailablesimulated Docker removal unavailablesimulated Docker verification unavailable254 |       ],
+255 |       { encoding: "utf8", timeout: 250000, killSignal: "SIGKILL", maxBuffer: 32_000_000 },
+256 |     );
+257 |     writeFileSync(join(output, "run.log"), `${result.stdout ?? ""}${result.stderr ?? ""}`);
+258 |     console.log(result.stdout);
+259 |     assert.equal(
+                 ^
+AssertionError: Docker smoke failed. Read /tmp/nap-harness-guards-portable/cleanup-both/failure.json and run.log. 
+
+19 !== 0
+
+ generatedMessage: false,
+     actual: 19,
+   expected: 0,
+   operator: "strictEqual",
+       diff: "simple",
+       code: "ERR_ASSERTION"
+
+      at /Users/manasraghuwanshi/.t3/worktrees/nap/t3-0ad410c7/packages/sandbox/scripts/desktop-chrome-smoke/run.ts:259:12
+106 |   writeFileSync(
+107 |     join(output, "cleanup.json"),
+108 |     JSON.stringify({ ok: failures.length === 0, attempts, failures }, null, 2),
+109 |   );
+110 |   if (failures.length)
+111 |     throw new Error(`${failures.join(" ")} Read ${join(output, "cleanup.json")}.`);
+                    ^
+error: Could not verify removal of owned Docker resource nap-chrome-smoke-9114ebf1-4f57-4ea7-a87a-84c1a5477fec. Could not verify removal of owned Docker resource nap-chrome-smoke-9114ebf1-4f57-4ea7-a87a-84c1a5477fec:local. Read /tmp/nap-harness-guards-portable/cleanup-both/cleanup.json.
+      at cleanup (/Users/manasraghuwanshi/.t3/worktrees/nap/t3-0ad410c7/packages/sandbox/scripts/desktop-chrome-smoke/run.ts:111:15)
+      at /Users/manasraghuwanshi/.t3/worktrees/nap/t3-0ad410c7/packages/sandbox/scripts/desktop-chrome-smoke/run.ts:273:3
+
+Bun v1.4.2 (macOS arm64)

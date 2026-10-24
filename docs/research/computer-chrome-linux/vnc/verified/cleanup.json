@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "attempts": [
+    {
+      "resource": "nap-chrome-smoke-a5aaca86-350e-4c79-a8dc-3b4582e00464",
+      "attempt": 1,
+      "absent": true
+    },
+    {
+      "resource": "nap-chrome-smoke-a5aaca86-350e-4c79-a8dc-3b4582e00464:local",
+      "attempt": 1,
+      "absent": true
+    }
+  ],
+  "failures": []
+}

@@ -2,7 +2,7 @@
 
 This is free local evidence for the existing work in #141, #142, and #153. It does not complete their cloud acceptance. The smoke bundles the current production desktop driver, copies the current production startup, and runs actual Google Chrome Stable in a disposable Linux AMD64 Docker container. Fixture servers on ports 5173 and 5174 run inside that container. The runtime uses Docker's `--network none` and publishes no host ports.
 
-The final positive run passed against the parent's repaired production assets at `ca61a5c`. The original target-selection failure and the later DOM-truncation failure are retained below. This evidence branch leaves production unchanged, so use the source-root override to reproduce the repaired run before combining the parent repairs.
+The final positive run passed against the parent's repaired production assets at `ca61a5c`. A [follow-up probe](vnc/README.md) also authenticated Nap's installed noVNC 1.5 client against the actual server, decoded its framebuffer, and proved server-side input refusal. [Review guard repairs](guard-repairs/README.md) add strict damaged-video rejection and verified Docker cleanup. The original target-selection failure and the later DOM-truncation failure are retained below. This evidence branch leaves production unchanged, so use the source-root override to reproduce the repaired run before combining the parent repairs.
 
 ## Rerun the smoke
 
@@ -12,7 +12,7 @@ From the repository root, with Bun and Docker available:
 bun packages/sandbox/scripts/desktop-chrome-smoke/run.ts /tmp/nap-chrome-evidence
 ```
 
-Use a new or empty output directory. Omitting the path creates a unique temporary directory. The image build may download public Debian, Node, and Google packages. It never calls E2B, an image builder service, OpenRouter, a model, or Devin. The build has a 15-minute deadline. Runtime has a four-minute deadline plus a five-second forced-stop grace. Driver calls and media decoding also have deadlines. The runner removes its unique container, image tag, and build directory on success or failure. It does not prune Docker resources.
+Use a new or empty output directory. Omitting the path creates a unique temporary directory. The image build may download public Debian, Node, and Google packages. It never calls E2B, an image builder service, OpenRouter, a model, or Devin. The build has a 15-minute deadline. Runtime has a four-minute deadline plus a five-second forced-stop grace. Driver calls and media decoding also have deadlines. The runner attempts bounded removal of its unique container, image tag, and build directory, independently verifies absence, and fails if cleanup cannot be verified. `cleanup.json` retains all attempts and errors. It does not prune Docker resources.
 
 To test production assets from another checkout without editing them, set `NAP_CHROME_SOURCE_ROOT`:
 
@@ -36,9 +36,9 @@ Typing, click, scroll, drag, and address-bar navigation use the production drive
 
 External navigation must show Chrome's policy-specific text, both `This page is blocked` and `Your organization`, through production `read_dom`. Changing the dev port must replace the owned Chrome process, load the new fixture, and reject the old origin with the same policy-specific error. The old fixture still answers HTTP inside the container. The current `127.0.0.1` origin must load. Network absence alone cannot pass any of these policy assertions.
 
-A real ffmpeg recording spans the physical actions and browser replacement. Two production encoder timestamps must advance. Finish must return actual MP4 bytes with a valid header, dimensions, frame count, size, and duration matching ffprobe. ffmpeg decodes every frame. Repeated finish must return identical data, then discard must succeed. JPEGs and an extracted video frame are retained for visual inspection.
+A real ffmpeg recording spans the physical actions and browser replacement. Two production encoder timestamps must advance. Finish must return actual MP4 bytes with a valid header, dimensions, frame count, size, and duration matching ffprobe. ffmpeg decodes every frame with `-xerror -err_detect explode`. Repeated finish must return identical data, then discard must succeed. JPEGs and an extracted video frame are retained for visual inspection.
 
-The smoke also checks x11vnc's actual `-viewonly` and `-localhost` arguments, serves noVNC HTML, and receives an RFB protocol banner through websockify. This checks startup and the initial WebSocket bridge, not an authenticated VNC client's rendering or input refusal.
+The base smoke checks x11vnc's actual `-viewonly` and `-localhost` arguments, serves noVNC HTML, and receives an RFB protocol banner through websockify. Those checks establish startup and the initial bridge only. The separately invoked [actual noVNC probe](vnc/README.md) establishes password rejection/authentication, decoded frames and server-side key/pointer refusal, with a writable-server negative control.
 
 ## Deliberate failures
 

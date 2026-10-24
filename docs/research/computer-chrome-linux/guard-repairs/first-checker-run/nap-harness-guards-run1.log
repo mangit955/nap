@@ -1,0 +1,85 @@
+node:internal/modules/esm/module_job:702
+    return this.module.evaluateSync();
+                       ^
+
+AssertionError [ERR_ASSERTION]: The input did not match the regular expression /Smoke and owned-resource cleanup both failed/. Input:
+
+'simulated Docker removal unavailablesimulated Docker verification unavailablesimulated Docker removal unavailablesimulated Docker verification unavailablesimulated Docker removal unavailablesimulated Docker verification unavailablesimulated Docker removal unavailablesimulated Docker verification unavailable254 |       ],\n' +
+  '255 |       { encoding: "utf8", timeout: 250000, killSignal: "SIGKILL", maxBuffer: 32_000_000 },\n' +
+  '256 |     );\n' +
+  '257 |     writeFileSync(join(output, "run.log"), `${result.stdout ?? ""}${result.stderr ?? ""}`);\n' +
+  '258 |     console.log(result.stdout);\n' +
+  '259 |     assert.equal(\n' +
+  '                 ^\n' +
+  'AssertionError: Docker smoke failed. Read /tmp/nap-harness-guards-run1/cleanup-both/failure.json and run.log. \n' +
+  '\n' +
+  '19 !== 0\n' +
+  '\n' +
+  ' generatedMessage: false,\n' +
+  '     actual: 19,\n' +
+  '   expected: 0,\n' +
+  '   operator: "strictEqual",\n' +
+  '       diff: "simple",\n' +
+  '       code: "ERR_ASSERTION"\n' +
+  '\n' +
+  '      at /Users/manasraghuwanshi/.t3/worktrees/nap/t3-0ad410c7/packages/sandbox/scripts/desktop-chrome-smoke/run.ts:259:12\n' +
+  '106 |   writeFileSync(\n' +
+  '107 |     join(output, "cleanup.json"),\n' +
+  '108 |     JSON.stringify({ ok: failures.length === 0, attempts, failures }, null, 2),\n' +
+  '109 |   );\n' +
+  '110 |   if (failures.length)\n' +
+  '111 |     throw new Error(`${failures.join(" ")} Read ${join(output, "cleanup.json")}.`);\n' +
+  '                    ^\n' +
+  'error: Could not verify removal of owned Docker resource nap-chrome-smoke-03e28a52-7457-4488-bad3-e1a7536644f8. Could not verify removal of owned Docker resource nap-chrome-smoke-03e28a52-7457-4488-bad3-e1a7536644f8:local. Read /tmp/nap-harness-guards-run1/cleanup-both/cleanup.json.\n' +
+  '      at cleanup (/Users/manasraghuwanshi/.t3/worktrees/nap/t3-0ad410c7/packages/sandbox/scripts/desktop-chrome-smoke/run.ts:111:15)\n' +
+  '      at /Users/manasraghuwanshi/.t3/worktrees/nap/t3-0ad410c7/packages/sandbox/scripts/desktop-chrome-smoke/run.ts:273:3\n' +
+  '\n' +
+  'Bun v1.4.2 (macOS arm64)\n'
+
+    at file:///Users/manasraghuwanshi/.t3/worktrees/nap/t3-0ad410c7/docs/research/computer-chrome-linux/check-harness-guards.mjs:178:14
+    at #evaluateSync (node:internal/modules/esm/module_job:702:24)
+    at ModuleJobSync.runSync (node:internal/modules/esm/module_job:717:43)
+    at node:internal/modules/esm/loader:383:11
+    at TracingChannel.traceSync (node:diagnostics_channel:557:14)
+    at ModuleLoader.importForEntryPoint (node:internal/modules/esm/loader:372:21)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:184:34)
+    at node:internal/main/run_main_module:33:47 {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: 'simulated Docker removal unavailablesimulated Docker verification unavailablesimulated Docker removal unavailablesimulated Docker verification unavailablesimulated Docker removal unavailablesimulated Docker verification unavailablesimulated Docker removal unavailablesimulated Docker verification unavailable254 |       ],\n' +
+    '255 |       { encoding: "utf8", timeout: 250000, killSignal: "SIGKILL", maxBuffer: 32_000_000 },\n' +
+    '256 |     );\n' +
+    '257 |     writeFileSync(join(output, "run.log"), `${result.stdout ?? ""}${result.stderr ?? ""}`);\n' +
+    '258 |     console.log(result.stdout);\n' +
+    '259 |     assert.equal(\n' +
+    '                 ^\n' +
+    'AssertionError: Docker smoke failed. Read /tmp/nap-harness-guards-run1/cleanup-both/failure.json and run.log. \n' +
+    '\n' +
+    '19 !== 0\n' +
+    '\n' +
+    ' generatedMessage: false,\n' +
+    '     actual: 19,\n' +
+    '   expected: 0,\n' +
+    '   operator: "strictEqual",\n' +
+    '       diff: "simple",\n' +
+    '       code: "ERR_ASSERTION"\n' +
+    '\n' +
+    '      at /Users/manasraghuwanshi/.t3/worktrees/nap/t3-0ad410c7/packages/sandbox/scripts/desktop-chrome-smoke/run.ts:259:12\n' +
+    '106 |   writeFileSync(\n' +
+    '107 |     join(output, "cleanup.json"),\n' +
+    '108 |     JSON.stringify({ ok: failures.length === 0, attempts, failures }, null, 2),\n' +
+    '109 |   );\n' +
+    '110 |   if (failures.length)\n' +
+    '111 |     throw new Error(`${failures.join(" ")} Read ${join(output, "cleanup.json")}.`);\n' +
+    '                    ^\n' +
+    'error: Could not verify removal of owned Docker resource nap-chrome-smoke-03e28a52-7457-4488-bad3-e1a7536644f8. Could not verify removal of owned Docker resource nap-chrome-smoke-03e28a52-7457-4488-bad3-e1a7536644f8:local. Read /tmp/nap-harness-guards-run1/cleanup-both/cleanup.json.\n' +
+    '      at cleanup (/Users/manasraghuwanshi/.t3/worktrees/nap/t3-0ad410c7/packages/sandbox/scripts/desktop-chrome-smoke/run.ts:111:15)\n' +
+    '      at /Users/manasraghuwanshi/.t3/worktrees/nap/t3-0ad410c7/packages/sandbox/scripts/desktop-chrome-smoke/run.ts:273:3\n' +
+    '\n' +
+    'Bun v1.4.2 (macOS arm64)\n',
+  expected: /Smoke and owned-resource cleanup both failed/,
+  operator: 'match',
+  diff: 'simple'
+}
+
+Node.js v26.12.0

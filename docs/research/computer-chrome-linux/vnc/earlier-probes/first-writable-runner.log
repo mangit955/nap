@@ -1,0 +1,3 @@
+Building local linux/amd64 image. Build deadline: 15 minutes.
+Production driver bundle SHA256: a37b17e66de0576068bdcc44eed9b3a0b47a5f42ed7239287c9e7e3a89cd7a11. Expected bundle match: true.
+Running actual Chrome with network none, 2 CPUs, 1024 MiB. Runtime deadline: 4 minutes.
