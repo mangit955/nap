@@ -1,7 +1,12 @@
 {
   "passed": true,
   "actualChrome": false,
-  "browserLaunches": 2,
+  "browserLaunches": 8,
+  "faults": ["killed before rename", "killed after rename", "rename failure", "write failure"],
+  "noBrowserBeforeOwnershipCommit": true,
+  "pipeEofExitsWaitingChild": true,
+  "publicationFailureRetried": true,
+  "durableOwnershipDeathRetried": true,
   "samePortStatePreserved": true,
   "changedPortRestarted": true,
   "unknownEndpointRejected": true,

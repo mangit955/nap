@@ -16,6 +16,9 @@ socket = '"$found" || fail \'Port 9222 is not owned by this desktop.\''
 ready = "chrome_ready || fail 'Owned Chrome is not ready.'"
 last_ready = original.rfind(ready)
 assert last_ready >= 0
+barrier = 'IFS= read -r launch && [[ "$launch" == GO ]] || exit 1'
+publish = 'mv "$state/chrome-owner.tmp" "$state/chrome-owner" 8>&-\n  printf \'GO\\n\' >&8'
+assert barrier in original and publish in original
 mutations = [
     ("ignore changed port", original.replace(branch, 'if ! chrome_ready; then'), "preserves a healthy same-port browser"),
     ("restart every batch", original.replace(branch, 'if true; then'), "preserves a healthy same-port browser"),
@@ -27,6 +30,10 @@ mutations = [
     ("skip final readiness", original[:last_ready] + ':' + original[last_ready + len(ready):], "checks browser readiness again"),
     ("allow localhost subdomains", original.replace('http://.localhost:%s', 'http://localhost:%s'), "can print exact loopback policy"),
     ("skip port validation", original.replace('[[ "$port" =~ ^[0-9]+$ ]] && (( port >= 1 && port <= 65535 )) || exit 2', ':'), "rejects invalid port"),
+    ("launch without waiting", original.replace(barrier, ':'), "does not launch a browser before ownership"),
+    ("ignore launch pipe EOF", original.replace(barrier, 'IFS= read -r launch || :'), "does not launch a browser before ownership"),
+    ("release browser before rename", original.replace(publish, 'printf \'GO\\n\' >&8\n  mv "$state/chrome-owner.tmp" "$state/chrome-owner" 8>&-'), "does not launch a browser before ownership"),
+    ("lose browser PID at exec", original.replace('exec google-chrome-stable ', 'google-chrome-stable '), "preserves a healthy same-port browser"),
 ]
 try:
     with tempfile.TemporaryDirectory(prefix="nap-startup-mutations-") as logs:

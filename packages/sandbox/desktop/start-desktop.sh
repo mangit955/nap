@@ -84,16 +84,24 @@ if [[ "$chrome_port" != "$port" ]] || ! chrome_ready; then
   chrome_pid= chrome_ticks=
   check_debug_owner
   policy_json > "$policy"
-  google-chrome-stable --no-sandbox --disable-dev-shm-usage --disable-gpu --no-first-run --no-default-browser-check --password-store=basic --disable-sync --disable-breakpad --window-size=1024,768 --start-maximized --user-data-dir="$state/chrome" --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 "http://localhost:$port" >"$state/chrome.log" 2>&1 9>&- &
+  # Only this parent holds the pipe writer. EOF aborts an unpublished launch even on SIGKILL.
+  # Exec keeps the waiting child's PID/start ticks as the browser's recorded identity.
+  exec 8> >(
+    exec >"$state/chrome.log" 2>&1 9>&-
+    IFS= read -r launch && [[ "$launch" == GO ]] || exit 1
+    exec google-chrome-stable --no-sandbox --disable-dev-shm-usage --disable-gpu --no-first-run --no-default-browser-check --password-store=basic --disable-sync --disable-breakpad --window-size=1024,768 --start-maximized --user-data-dir="$state/chrome" --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 "http://localhost:$port" </dev/null
+  )
   chrome_pid=$!
   for attempt in {1..100}; do
-    chrome_ticks=$(start_ticks "$chrome_pid") && break
-    sleep .1
+    chrome_ticks=$(start_ticks "$chrome_pid" 8>&-) && break
+    sleep .1 8>&-
   done
   [[ -n "$chrome_ticks" ]] || fail 'Cannot identify launched Chrome.'
   chrome_port=$port
   printf '%s %s %s\n' "$chrome_pid" "$chrome_ticks" "$chrome_port" > "$state/chrome-owner.tmp"
-  mv "$state/chrome-owner.tmp" "$state/chrome-owner"
+  mv "$state/chrome-owner.tmp" "$state/chrome-owner" 8>&-
+  printf 'GO\n' >&8
+  exec 8>&-
 fi
 for attempt in {1..150}; do
   check_debug_owner

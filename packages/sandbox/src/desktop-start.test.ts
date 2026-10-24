@@ -50,6 +50,27 @@ function fixture() {
   command("flock", '[[ ! -f "$FIXTURE/lock-fail" ]]');
   command("sleep", "/bin/sleep .01");
   command("kill", 'echo "$*" >> "$FIXTURE/signals"; builtin kill "$@"');
+  // The waiting shell has a Linux identity before it execs the browser. macOS has no /proc.
+  writeFileSync(
+    join(root, "waiting.cjs"),
+    `const fs = require('node:fs');
+const root = process.env.FIXTURE;
+const pid = process.ppid;
+fs.mkdirSync(root + '/proc/' + pid, {recursive: true});
+fs.writeFileSync(root + '/proc/' + pid + '/stat', pid + ' (waiting shell) S ' + Array(18).fill('0').join(' ') + ' 12345 0\\n');
+fs.writeFileSync(root + '/waiting-pid', String(pid));
+`,
+  );
+  command(
+    "read",
+    `if [[ "$#" == 2 && "$1" == -r && "$2" == launch ]]; then
+  "${process.execPath}" "$FIXTURE/waiting.cjs"
+  if builtin read "$@"; then return 0; fi
+  rm -rf "$FIXTURE/proc/$(cat "$FIXTURE/waiting-pid")"
+  return 1
+fi
+builtin read "$@"`,
+  );
   command(
     "curl",
     `if [[ "$*" == *9222* ]]; then
@@ -103,6 +124,7 @@ process.on('SIGTERM', () => {
     root,
     state,
     proc,
+    command,
     launches,
     run(port = "5173", extra: string[] = []) {
       return spawnSync("bash", [script, port, ...extra], {
@@ -113,9 +135,12 @@ process.on('SIGTERM', () => {
     },
   };
   cleanups.push(() => {
-    for (const launch of launches()) {
+    const waiting = join(root, "waiting-pid");
+    const pids = launches().map((launch) => launch.pid);
+    if (existsSync(waiting)) pids.push(Number(readFileSync(waiting, "utf8")));
+    for (const pid of new Set(pids)) {
       try {
-        process.kill(launch.pid, "SIGKILL");
+        process.kill(pid, "SIGKILL");
       } catch {
         // The fixture browser may already have exited during a restart.
       }
@@ -184,6 +209,63 @@ it("retries a downstream failure without restarting a healthy browser", () => {
   rmSync(join(item.root, "vnc-fail"));
   expect(item.run().status).toBe(0);
   expect(item.launches()).toHaveLength(1);
+}, 30_000);
+
+it.each(["killed before rename", "killed after rename", "rename failure", "write failure"])(
+  "does not launch a browser before ownership commits: %s, then recovers on retry",
+  async (mode) => {
+    const item = fixture();
+    if (mode === "write failure") mkdirSync(join(item.state, "chrome-owner.tmp"));
+    else
+      item.command(
+        "mv",
+        `if [[ ! -f "$FIXTURE/fault-done" ]]; then
+  touch "$FIXTURE/fault-done"
+  ${mode === "killed after rename" ? 'command mv "$@"' : ":"}
+  ${mode === "rename failure" ? "return 1" : "builtin kill -KILL $$"}
+fi
+command mv "$@"`,
+      );
+    const interrupted = item.run();
+    if (mode.startsWith("killed")) expect(interrupted.signal).toBe("SIGKILL");
+    else expect(interrupted.status).toBe(1);
+    expect(item.launches()).toHaveLength(0);
+    await expect.poll(() => existsSync(join(item.root, "waiting-pid"))).toBe(true);
+    const pid = readFileSync(join(item.root, "waiting-pid"), "utf8");
+    await expect
+      .poll(() => spawnSync("ps", ["-o", "stat=", "-p", pid], { encoding: "utf8" }).stdout.trim())
+      .toMatch(/^(Z.*)?$/);
+    await expect.poll(() => existsSync(join(item.proc, pid, "stat"))).toBe(false);
+    expect(item.launches()).toHaveLength(0);
+    expect(existsSync(join(item.root, "endpoint"))).toBe(false);
+    if (mode !== "killed after rename")
+      expect(existsSync(join(item.state, "chrome-owner"))).toBe(false);
+    if (mode === "write failure") rmSync(join(item.state, "chrome-owner.tmp"), { recursive: true });
+    expect(item.run().status).toBe(0);
+    expect(item.run().status).toBe(0);
+    expect(item.launches()).toHaveLength(1);
+  },
+  30_000,
+);
+
+it("recovers the owned browser after SIGKILL following ownership commit and launch", () => {
+  const item = fixture();
+  item.command(
+    "curl",
+    `if [[ -f "$FIXTURE/endpoint" && ! -f "$FIXTURE/fault-done" ]]; then
+  touch "$FIXTURE/fault-done"
+  builtin kill -KILL $$
+fi
+[[ "$*" != *9222* || -f "$FIXTURE/endpoint" ]]`,
+  );
+  expect(item.run().signal).toBe("SIGKILL");
+  const launch = item.launches()[0]!;
+  expect(readFileSync(join(item.state, "chrome-owner"), "utf8")).toBe(`${launch.pid} 12345 5173\n`);
+  expect(item.run().status).toBe(0);
+  expect(item.launches()).toHaveLength(1);
+  expect(item.run("4321").status).toBe(0);
+  expect(item.launches()).toHaveLength(2);
+  expect(readFileSync(join(item.root, "stops"), "utf8").trim()).toBe(String(launch.pid));
 }, 30_000);
 
 it("checks browser readiness again after waiting for VNC", () => {

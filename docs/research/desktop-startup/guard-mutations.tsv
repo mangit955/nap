@@ -8,3 +8,7 @@ trust browser health	observed assertion failure
 skip final readiness	observed assertion failure
 allow localhost subdomains	observed assertion failure
 skip port validation	observed assertion failure
+launch without waiting	observed assertion failure
+ignore launch pipe EOF	observed assertion failure
+release browser before rename	observed assertion failure
+lose browser PID at exec	observed assertion failure

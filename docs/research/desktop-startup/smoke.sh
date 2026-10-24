@@ -21,6 +21,33 @@ cat > "$fixture/bin/curl" <<'SH'
 exec node "$fixture/curl.mjs" "$@"
 SH
 chmod +x "$fixture/bin/"*
+cat > "$fixture/fault.sh" <<'SH'
+# Inject faults at the real shell's ownership publication and readiness boundaries.
+save_identity() { builtin printf '%s %s\n' "$chrome_pid" "$chrome_ticks" > "$fixture/fault-identity"; }
+printf() {
+  if [[ "${FAULT_MODE:-}" == 'write failure' && "${1:-}" == '%s %s %s\n' ]]; then
+    save_identity
+    return 1
+  fi
+  builtin printf "$@"
+}
+mv() {
+  save_identity
+  case "${FAULT_MODE:-}" in
+    'killed before rename') builtin kill -KILL "$$" ;;
+    'killed after rename') command mv "$@"; builtin kill -KILL "$$" ;;
+    'rename failure') return 1 ;;
+    *) command mv "$@" ;;
+  esac
+}
+curl() {
+  if [[ "${FAULT_MODE:-}" == 'killed after launch' && "$*" == *9222* && -f "$state/chrome-owner" ]] && command curl "$@" >/dev/null 2>&1; then
+    save_identity
+    builtin kill -KILL "$$"
+  fi
+  command curl "$@"
+}
+SH
 cat > "$fixture/curl.mjs" <<'JS'
 import http from 'node:http';
 const request = http.get(process.argv.at(-1), response => {
@@ -61,7 +88,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import {promisify} from 'node:util';
 const exec = promisify(execFile);
-const startScript = '/repo/packages/sandbox/desktop/start-desktop.sh';
+const startScript = process.env.NAP_DESKTOP_START_SCRIPT ?? '/repo/packages/sandbox/desktop/start-desktop.sh';
 const state = '/home/user/.nap-desktop';
 const record = state + '/chrome-owner';
 const policy = '/etc/opt/chrome/policies/managed/nap.json';
@@ -73,7 +100,26 @@ const vnc = http.createServer((_request, response) => {
 vnc.listen(6080, '127.0.0.1');
 await once(vnc, 'listening');
 const unrelated = spawn('sleep', ['300']);
-const launches = () => fs.readFileSync(process.env.fixture + '/launches', 'utf8').trim().split('\n').map(JSON.parse);
+const launches = () => fs.existsSync(process.env.fixture + '/launches')
+  ? fs.readFileSync(process.env.fixture + '/launches', 'utf8').trim().split('\n').map(JSON.parse) : [];
+const runningIdentity = (pid, ticks) => {
+  try {
+    const fields = fs.readFileSync('/proc/' + pid + '/stat', 'utf8').replace(/^.*\) /, '').split(' ');
+    return fields[0] !== 'Z' && fields[19] === ticks;
+  } catch (error) {
+    if (error.code === 'ENOENT') return false;
+    throw error;
+  }
+};
+const stopped = async (pid, ticks) => {
+  for (let attempt = 0; attempt < 100 && runningIdentity(pid, ticks); attempt++)
+    await new Promise(resolve => setTimeout(resolve, 20));
+  if (runningIdentity(pid, ticks)) {
+    const listener = await fetch('http://127.0.0.1:9222/json/version').then(response => response.json()).catch(() => null);
+    console.error(JSON.stringify({survivingChild: pid, listener}));
+  }
+  assert.equal(runningIdentity(pid, ticks), false, 'child must exit, including after parent SIGKILL');
+};
 const info = async (path = '/json/version') => (await fetch('http://127.0.0.1:9222' + path)).json();
 const start = async (port = '5173') => {
   const result = await exec('bash', [startScript, port], {timeout: 25000});
@@ -87,13 +133,63 @@ const fails = async (port = '5173', code = 1) => {
   });
 };
 try {
+  const faults = ['killed before rename', 'killed after rename', 'rename failure', 'write failure'];
+  for (const mode of faults) {
+    const before = launches().length;
+    await assert.rejects(exec('bash', [startScript, '5173'], {
+      timeout: 25000,
+      env: {...process.env, BASH_ENV: process.env.fixture + '/fault.sh', FAULT_MODE: mode},
+    }), error => {
+      if (mode.startsWith('killed')) assert.equal(error.signal, 'SIGKILL');
+      else assert.equal(error.code, 1);
+      assert.equal(error.stdout, '');
+      return true;
+    });
+    const [pid, ticks] = fs.readFileSync(process.env.fixture + '/fault-identity', 'utf8').trim().split(' ');
+    await stopped(pid, ticks);
+    assert.equal(launches().length, before, mode + ' must not exec the browser');
+    await assert.rejects(fetch('http://127.0.0.1:9222/json/version'));
+    assert.equal(fs.existsSync(record), mode === 'killed after rename');
+    assert.equal(spawnSync('flock', ['-n', state + '/start.lock', 'true']).status, 0);
+    await start();
+    const recovered = await info();
+    const owner = fs.readFileSync(record, 'utf8').trim().split(' ');
+    assert.equal(String(recovered.pid), owner[0]);
+    await start();
+    assert.equal(launches().length, before + 1);
+    process.kill(recovered.pid, 'SIGTERM');
+    await stopped(owner[0], owner[1]);
+    fs.unlinkSync(record);
+  }
+
+  const beforeDeath = launches().length;
+  await assert.rejects(exec('bash', [startScript, '5173'], {
+    timeout: 25000,
+    env: {...process.env, BASH_ENV: process.env.fixture + '/fault.sh', FAULT_MODE: 'killed after launch'},
+  }), error => error.signal === 'SIGKILL' && error.stdout === '');
+  const surviving = await info();
+  const survivorOwner = fs.readFileSync(record, 'utf8').trim().split(' ');
+  assert.equal(String(surviving.pid), survivorOwner[0]);
+  assert.ok(runningIdentity(survivorOwner[0], survivorOwner[1]));
+  await start();
+  assert.equal((await info()).pid, surviving.pid);
+  assert.equal(launches().length, beforeDeath + 1);
+  await start('4321');
+  assert.notEqual((await info()).pid, surviving.pid);
+  const replacementOwner = fs.readFileSync(record, 'utf8').trim().split(' ');
+  process.kill(Number(replacementOwner[0]), 'SIGTERM');
+  await stopped(replacementOwner[0], replacementOwner[1]);
+  fs.unlinkSync(record);
+  fs.unlinkSync(process.env.fixture + '/stops');
+  const priorLaunches = launches().length;
+
   await start();
   const first = await info('/state?set=typed-form-and-scroll');
   const xvfb = fs.readFileSync('/tmp/.X99-lock', 'utf8');
   await start();
   assert.equal((await info()).pid, first.pid);
   assert.equal((await info()).state, 'typed-form-and-scroll');
-  assert.equal(launches().length, 1);
+  assert.equal(launches().length, priorLaunches + 1);
   assert.equal(spawnSync('flock', ['-n', state + '/start.lock', 'true']).status, 0);
 
   const holder = spawn('flock', ['-x', state + '/start.lock', 'sh', '-c', 'echo held; sleep 1']);
@@ -113,7 +209,7 @@ try {
   assert.ok(unrelated.exitCode === null);
 
   await Promise.all([start('4321'), start('4321')]);
-  assert.equal(launches().length, 2);
+  assert.equal(launches().length, priorLaunches + 2);
   assert.equal((await info()).pid, second.pid);
 
   const ownership = fs.readFileSync(record, 'utf8');
@@ -132,10 +228,12 @@ try {
   vncReady = true;
   await start('4321');
   assert.equal((await info()).pid, second.pid);
-  assert.equal(launches().length, 2);
+  assert.equal(launches().length, priorLaunches + 2);
   assert.equal(spawnSync('flock', ['-n', state + '/start.lock', 'true']).status, 0);
   assert.ok(unrelated.exitCode === null);
   console.log(JSON.stringify({passed: true, actualChrome: false, browserLaunches: launches().length,
+    faults, noBrowserBeforeOwnershipCommit: true, pipeEofExitsWaitingChild: true,
+    publicationFailureRetried: true, durableOwnershipDeathRetried: true,
     samePortStatePreserved: true, changedPortRestarted: true, unknownEndpointRejected: true,
     ticksMismatchRejected: true, lockReleasedAndSerialized: true, vncFailureRetried: true,
     xvfbReused: true, unrelatedProcessPreserved: true}, null, 2));
