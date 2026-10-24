@@ -20,6 +20,7 @@ import { type AccountRouteDeps, registerAccountRoutes } from "./account/routes.t
 import type { Authenticate, AuthInstance } from "./auth/auth.ts";
 import { findOwnedSession } from "./auth/owned-session.ts";
 import { type AuthVariables, requireUser } from "./auth/require-user.ts";
+import { type ComputerAccessDeps, registerComputerAccessRoutes } from "./computer/access.ts";
 import {
   type ComputerScreenshotDeps,
   registerComputerScreenshotRoutes,
@@ -45,6 +46,7 @@ export type UpgradeWebSocket = (c: Context, events: WSEvents) => Promise<Respons
 
 export type AppDeps = {
   computerScreenshots?: ComputerScreenshotDeps;
+  computerAccess?: ComputerAccessDeps;
   sessionNavigation?: { store: SessionNavigationStore; webOrigin: string };
   sessionStarts?: SessionStartRouteDeps;
   github?: GitHubRouteDeps;
@@ -340,6 +342,8 @@ export function createApp(deps: AppDeps): Hono<{ Variables: AuthVariables }> {
     );
   }
 
+  if (deps.computerAccess !== undefined)
+    registerComputerAccessRoutes(app, deps.computerAccess, deps.webOrigin);
   if (deps.computerScreenshots !== undefined)
     registerComputerScreenshotRoutes(app, deps.computerScreenshots);
   if (deps.account !== undefined) registerAccountRoutes(app, deps.account);

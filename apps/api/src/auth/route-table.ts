@@ -20,6 +20,7 @@ import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store"
 import { InMemoryTurnQueue } from "@nap/db/testing/in-memory-turn-queue";
 import { InMemoryUserKeyStore } from "@nap/db/testing/in-memory-user-key-store";
 import { TEMPLATE_WORKDIR } from "@nap/sandbox/template";
+import { FakeSandboxDesktop } from "@nap/sandbox/testing/fake-sandbox-desktop";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import { encryptionKeyFrom } from "../account/secret-box.ts";
@@ -65,6 +66,28 @@ export type GuardedRoute = RouteEntry & {
  * as somebody else, and signed in as the owner.
  */
 export const GUARDED_ROUTES: GuardedRoute[] = [
+  {
+    method: "GET",
+    path: "/sessions/:sessionId/computer/stream",
+    examplePath: `/sessions/${SESSION}/computer/stream`,
+  },
+  {
+    method: "GET",
+    path: "/sessions/:sessionId/computer/control",
+    examplePath: `/sessions/${SESSION}/computer/control`,
+  },
+  {
+    method: "POST",
+    path: "/sessions/:sessionId/computer/control",
+    examplePath: `/sessions/${SESSION}/computer/control`,
+    body: {},
+  },
+  {
+    method: "POST",
+    path: "/sessions/:sessionId/computer/input",
+    examplePath: `/sessions/${SESSION}/computer/input`,
+    body: { grant: "invalid", actions: [{ action: "key", text: "Return" }] },
+  },
   {
     method: "GET",
     path: "/sessions/:sessionId/computer/screenshots/:seq",
@@ -218,6 +241,20 @@ export function fullyWiredDeps(seeded?: SeededSandbox): Omit<AppDeps, "logger"> 
       bus: new InMemoryEventBus(),
       sessions,
       upgradeWebSocket: async () => new Response(null),
+    },
+    computerAccess: {
+      sessions,
+      desktop: new FakeSandboxDesktop({ bytes: new Uint8Array(), width: 1024, height: 768 }),
+      secret: "route-table-secret",
+      access: {
+        withIdleProject: async (_request, operation) => ({
+          ok: true,
+          value: await operation({
+            sandboxId: seeded?.sandboxId ?? null,
+            revision: "00000000-0000-4000-8000-000000000001",
+          }),
+        }),
+      },
     },
     computerScreenshots: {
       sessions,
