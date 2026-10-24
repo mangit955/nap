@@ -1,6 +1,6 @@
 # ADR-0018 — The agent gets a computer
 
-**Status:** Approved design, implementation draft — 2026-10-24. The paid spike in [#138](https://github.com/mangit955/nap/issues/138) has not run. Sandbox sizing and image forwarding through OpenRouter remain unmeasured. Final acceptance belongs to [#140](https://github.com/mangit955/nap/issues/140).
+**Status:** Accepted, 2026-10-24. The [paid spike](https://github.com/mangit955/nap/issues/138) measured the desktop and confirmed nested screenshot reading on Sonnet 5 and Opus 5. [Measured evidence and limits](../research/computer-use-spike/README.md) includes the first failed policy and the corrected run. Acceptance records the design; remaining implementation is tracked in [map #137](https://github.com/mangit955/nap/issues/137).
 
 ## Context
 
@@ -16,7 +16,7 @@ This changes the six-tools invariant in `CLAUDE.md`, `docs/PLAN.md` §0, and the
 
 Layer Xvfb at 1024×768, a small window manager, Chrome, xdotool, ffmpeg, x11vnc, and websockify/noVNC onto the existing E2B template. Start the desktop lazily on first use. Keep the dev server and the browser on the same project machine. Idempotent startup must converge after a retry without creating duplicate displays or browsers.
 
-The paid spike must measure Chrome plus Vite memory, cold-start time and cost, screenshot latency, and JPEG size. Do not change sandbox resources or deployment sizing from an estimate. Publishing a template and running a real sandbox require separate user approval.
+The paid spike measured Chrome plus Vite memory, cold start, screenshot latency and JPEG size on the existing 1-GiB allocation. Keep that allocation for the initial desktop layer; the minimal fixture is not evidence that heavier apps fit. No deployment-size change follows from this measurement. Publishing the production template and later real sandbox/model runs require separate user approval.
 
 ### D2: Keep desktop operations behind a separate port
 
@@ -32,7 +32,7 @@ Validate all coordinates and regions against the screen, and bound waits and scr
 
 Store JPEG bytes through `ObjectStore`. `computer.screenshot` carries `toolCallId`, `key`, `width`, and `height`, never image bytes. Publish the reference only after its object exists. Persist tool results as text with separate screenshot events; resolve images only for the active model turn.
 
-Widen `LLMContentBlock` so a tool result accepts text/image blocks as well as the existing string. Map nested image blocks to the installed Anthropic SDK shape. Free request-shape tests cannot establish OpenRouter forwarding. The spike must exercise an image inside a `tool_result` for Sonnet 5 and Opus 5 before the transport is called validated.
+Widen `LLMContentBlock` so a tool result accepts text/image blocks as well as the existing string. Map nested image blocks to the installed Anthropic SDK shape. Free request-shape tests cannot establish OpenRouter forwarding. The spike exercised an image inside a `tool_result` for both Sonnet 5 and Opus 5. Both correctly reported a random marker that appeared only in the checked JPEG, using the production request mapper and a forced structured tool response.
 
 The storage ticket must select a durable screenshot key index. `ObjectStore` cannot list keys. Deleting a project must delete objects before discarding their only index, retain retryability on failure, and enforce ownership on every image request. Use deterministic project/session/turn/call keys derived from durable `tool.call` events. The runtime drains the call before upload. That event reserves the object key even when the later screenshot announcement never becomes durable, so project deletion can remove partial uploads without a bucket listing. Screenshot events provide dimensions and history. Deletion reads every project session before removing objects and keeps those events if any read or delete fails. This uses the existing event index rather than a table that would duplicate the call identity. The owner-only route accepts a screenshot sequence and checks its key against the same derived identity. Its non-cacheable JPEG response never accepts an arbitrary object key from the request.
 
@@ -68,7 +68,7 @@ A failed assertion offers **Fix it**. Only that explicit click queues a normal r
 
 ### D10: Use VNC and allow human input only while idle
 
-Use noVNC through E2B's port proxy. An owner-only API route supplies address and password with private, non-cacheable responses. Credentials never enter the event log, transcript, object keys, or logs. The client starts view-only and releases resources on disconnect or unmount.
+Use noVNC through E2B's port proxy. An owner-only API route supplies address and password with private, non-cacheable responses. Credentials never enter the event log, transcript, object keys, or logs. The VNC server remains view-only and the client releases resources on disconnect or unmount. Human input goes through owner-authenticated API actions, not a writable VNC connection. Short input dispatch and queue claims share a project guard so no turn can become leased while a human input is being applied. The guard uses the existing authoritative busy predicate; it is not held across an entire turn or recording.
 
 **Take control of Nap's computer** is allowed only when `TurnQueue.anyLeased` reports no running turn across the project's sessions. The server enforces the decision. A visible running-turn reason accompanies the disabled control. Input uses X11 keysyms. Pausing an active turn is later work. The implementation must also prevent a queued turn beginning from leaving an older takeover connection writable.
 
@@ -94,4 +94,6 @@ A video and agent-reported assertions show what was attempted. They do not prove
 
 The implementation is tracked in [map #137](https://github.com/mangit955/nap/issues/137). Free fakes and screenshot history come first. New strict event readers, worker support, and authenticated media routes must deploy before any producer emits the new event types. Existing sessions must remain readable. New fields on existing payloads need defaults that describe historical rows.
 
-The tool enum, runtime seam, and public mechanism docs include the image-gated computer capability. Free tests compose a fake desktop; production boot does not yet compose a desktop adapter. The template still needs its desktop layer. The paid spike finalizes this ADR; the template build and live desktop require another approved paid step. `docs/DEPLOY.md` changes only if measured sandbox sizing or required production configuration changes.
+The tool enum, runtime seam, and public mechanism docs include the image-gated computer capability. Free tests compose a fake desktop; production boot does not yet compose a desktop adapter. The template still needs its desktop layer. The paid spike has finalized the measured parts of this ADR. Production template publication and real integrated streaming/control/recording checks require another approved paid step. `docs/DEPLOY.md` changes only if measured sandbox sizing or required production configuration changes.
+
+The implementation sketch compared a sandbox command controller with direct E2B SDK process/file handles. Keep the approved exec boundary. A small sandbox-installed CLI owns physical commands and capture files; fixed read-only CDP operations provide DOM and console observations. Reject a detached dispatch supervisor, operation replay journal, broad control state machine and second recording index until a measured limitation requires them. Input is never automatically replayed after an ambiguous failure. Recording keys will be reserved by a drained recording-start event and derived during project deletion even if upload announcement fails.

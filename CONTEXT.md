@@ -595,3 +595,7 @@ its Computer. Its goal and source commit are recorded in `test.started`; its inp
 built from that goal and the Job's diff. Assertions are declared before input and receive a
 verdict after a new screenshot. The result does not change the Job's checkpoint. A failed
 assertion offers a separate repair the user may request; it never starts one itself.
+
+**Test recording** — a video of one App test, with annotations on the video’s timeline. It shows
+what was attempted and what was visible; it does not independently establish an assertion’s truth.
+An interrupted or missing recording leaves the test’s assertions available for review.
