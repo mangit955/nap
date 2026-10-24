@@ -90,8 +90,20 @@ The subscription variant contains no billing fallback and no credential. Queue r
 persisted target, and the worker refuses subscription execution until its native integration is
 installed. Runtime turn and continuation settings preserve the target through verifier repairs;
 the API agent separately refuses subscription targets before constructing an API client.
-Unsupported explicit targets at current HTTP admission boundaries are rejected rather
-than silently stripped into an API request.
+New jobs also record their target on `job.started`. Reopening folds the durable log before
+resolving a model or reading an API key. API continuations keep their original model and payer;
+a missing user key cannot become deployment billing, even for a free model. An unavailable
+subscription continuation is refused before an API key is read or a request is queued. The runtime
+independently rejects a continuation whose account, generation, model or payer differs from its
+job's target. A target-free legacy job retains the existing API resolution behavior; labels or
+account metadata do not establish a missing historical target.
+
+Unsupported explicit targets at current HTTP admission boundaries are rejected rather than
+silently stripped into an API request. Project open rejects unrecognized body overrides.
+
+WebSocket clients opt into routing metadata with `executionTargets=1`. Older tabs receive their
+original strict job payloads; only the wire copy omits the target. The durable log always retains
+it. Replay and live delivery use the same compatibility gate, and the web opts in on reconnect.
 
 Migration `0015_execution_targets` backfills existing requests with their original API model and
 payer before replacing the two columns. It changes the worker contract, so deployment must drain

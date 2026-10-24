@@ -14,3 +14,19 @@ export const ExecutionTargetSchema = z.discriminatedUnion("kind", [
 ]);
 export type ExecutionTarget = z.infer<typeof ExecutionTargetSchema>;
 export type SubscriptionTarget = Extract<ExecutionTarget, { kind: "subscription" }>;
+
+/** Includes every field that changes billing or the native account/conversation boundary. */
+export function sameExecutionTarget(
+  a: ExecutionTarget | undefined,
+  b: ExecutionTarget | undefined,
+): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  if (a.model !== b.model) return false;
+  if (a.kind === "api") return b.kind === "api" && a.billsToUser === b.billsToUser;
+  return (
+    b.kind === "subscription" &&
+    a.driver === b.driver &&
+    a.accountId === b.accountId &&
+    a.generation === b.generation
+  );
+}

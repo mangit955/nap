@@ -25,3 +25,43 @@ describe("execution target boundary", () => {
     }
   });
 });
+
+it("compares target identity including account generation and API payer", async () => {
+  const { sameExecutionTarget } = await import("./execution-target.ts");
+  const target = {
+    kind: "subscription",
+    driver: "claude",
+    accountId: "00000000-0000-4000-8000-000000000099",
+    model: "claude-offline-fixture",
+    generation: 4,
+  } as const;
+  expect(
+    sameExecutionTarget(target, {
+      generation: 4,
+      model: target.model,
+      accountId: target.accountId,
+      driver: "claude",
+      kind: "subscription",
+    }),
+  ).toBe(true);
+  expect(sameExecutionTarget(target, { ...target, generation: 5 })).toBe(false);
+  expect(sameExecutionTarget(target, { ...target, driver: "codex" })).toBe(false);
+  expect(sameExecutionTarget(undefined, undefined)).toBe(true);
+  expect(
+    sameExecutionTarget(
+      { kind: "api", model: "same-model", billsToUser: true },
+      { kind: "api", model: "same-model", billsToUser: true },
+    ),
+  ).toBe(true);
+  expect(
+    sameExecutionTarget(target, { ...target, accountId: "00000000-0000-4000-8000-000000000098" }),
+  ).toBe(false);
+  expect(sameExecutionTarget(target, { ...target, model: "another-model" })).toBe(false);
+  expect(sameExecutionTarget(target, undefined)).toBe(false);
+  expect(
+    sameExecutionTarget(
+      { kind: "api", model: "same-model", billsToUser: true },
+      { kind: "api", model: "same-model", billsToUser: false },
+    ),
+  ).toBe(false);
+});

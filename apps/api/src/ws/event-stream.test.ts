@@ -657,3 +657,56 @@ it.each([false, true])(
     }
   },
 );
+
+it.each([false, true])(
+  "delivers durable job targets only to clients that support them: %s",
+  async (executionTargets) => {
+    const store = new InMemoryEventStore();
+    const bus = new InMemoryEventBus();
+    const target = {
+      kind: "subscription",
+      driver: "claude",
+      accountId: OTHER_SESSION,
+      model: "offline-native-fixture",
+      generation: 4,
+    } as const;
+    const start: PendingEvent = {
+      type: "job.started",
+      sessionId: SESSION,
+      turnId: TURN,
+      createdAt: "2026-10-24T10:00:00Z",
+      payload: { jobId: OTHER_SESSION, objective: "Finish the form", target },
+    };
+    const first = await store.append(start);
+    const captured = new FakeSocket();
+    const stream = openEventStream({
+      store,
+      bus,
+      sessionId: SESSION,
+      afterSeq: 0,
+      socket: captured,
+      executionTargets,
+    });
+    try {
+      await stream.ready;
+      const second = await store.append(start);
+      bus.publish(second);
+      expect(captured.seqs).toEqual([first.seq, second.seq]);
+      expect(
+        captured.events.map((event) =>
+          event.type === "job.started" ? event.payload.target : null,
+        ),
+      ).toEqual([executionTargets ? target : undefined, executionTargets ? target : undefined]);
+      const oldPayload = z.strictObject({ jobId: z.uuid(), objective: z.string() });
+      for (const event of captured.events)
+        expect(oldPayload.safeParse(event.payload).success).toBe(!executionTargets);
+      expect(
+        (await store.readFrom(SESSION, 0)).every(
+          (event) => event.type === "job.started" && event.payload.target?.kind === "subscription",
+        ),
+      ).toBe(true);
+    } finally {
+      stream.onClose();
+    }
+  },
+);

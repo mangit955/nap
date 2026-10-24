@@ -1,4 +1,4 @@
-import type { ExecutionTarget } from "@nap/shared/execution-target";
+import { type ExecutionTarget, sameExecutionTarget } from "@nap/shared/execution-target";
 /**
  * One turn, end to end: get a sandbox, build the context, run the agent, write down
  * everything that happened, commit the result, and ask the project whether it holds up.
@@ -456,7 +456,19 @@ export class SingleAgentRuntime implements Runtime {
     // Asked before HEAD is read, because reading it is a round trip into the sandbox and most
     // opens have nothing open to continue. `continuationFor` answers `none` for these anyway —
     // this only decides whether the evidence is worth fetching.
-    if (openJob(state) === undefined) return;
+    const continuingJob = openJob(state);
+    if (continuingJob === undefined) return;
+    if (
+      continuingJob.target !== undefined &&
+      !sameExecutionTarget(continuingJob.target, options.target)
+    ) {
+      scope.emit("system.notice", {
+        level: "warning",
+        text: "This job requires its original account, model and billing target. No agent was started. Send a new message to choose a different target.",
+      });
+      await sink.drain();
+      return;
+    }
 
     const continuation = continuationFor(state, {
       workspaceHeadSha: await this.#workspaceHead(sandboxId),
@@ -696,7 +708,11 @@ export class SingleAgentRuntime implements Runtime {
       // a reader having to work out which message belongs to which job.
       const jobId = crypto.randomUUID();
       const objective = objectiveOf(request.message);
-      emit("job.started", { jobId, objective });
+      emit("job.started", {
+        jobId,
+        objective,
+        ...(request.target === undefined ? {} : { target: request.target }),
+      });
 
       // Before the preview, which is about to show whatever state the notice is explaining.
       for (const notice of sandboxId.value.notices) emit("system.notice", notice);

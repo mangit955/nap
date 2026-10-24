@@ -292,7 +292,7 @@ export function createApp(deps: AppDeps): Hono<{ Variables: AuthVariables }> {
     );
     if (!owned.ok) return c.json({ error: owned.error.message }, owned.error.status);
 
-    const { sessionId, afterSeq, repairOwnership } = query.value;
+    const { sessionId, afterSeq, repairOwnership, executionTargets } = query.value;
     let stream: ReturnType<typeof openEventStream> | undefined;
     // Counted here rather than inside `openEventStream`, because the gauge is about the socket
     // rather than about the replay: a stream that fails to start still holds a connection, and
@@ -312,6 +312,7 @@ export function createApp(deps: AppDeps): Hono<{ Variables: AuthVariables }> {
           sessionId,
           afterSeq,
           repairOwnership,
+          executionTargets,
           socket: ws,
           ...(deps.stream.heartbeat === undefined ? {} : { heartbeat: deps.stream.heartbeat }),
         });

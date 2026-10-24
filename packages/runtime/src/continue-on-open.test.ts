@@ -424,3 +424,47 @@ it("keeps the selected subscription target when an open continues a failed verif
   expect(agent.requests).toHaveLength(1);
   expect(agent.requests[0]).toMatchObject({ target, model: target.model });
 });
+
+it("does not continue a subscription job through a different account or API billing target", async () => {
+  const target = {
+    kind: "subscription",
+    driver: "claude",
+    accountId: "00000000-0000-4000-8000-000000000099",
+    model: "claude-offline-fixture",
+    generation: 4,
+  } as const;
+  await seedLog(
+    { type: "job.started", payload: { jobId: JOB_ID, objective: "Finish the form", target } },
+    committed(COMMIT_SHA),
+    ...redRound(),
+  );
+  green();
+  await open(RESUME_TURN, { kind: "api", model: "api-model", billsToUser: true });
+  expect(agent.requests).toHaveLength(0);
+  expect((await log()).filter((event) => event.type === "system.notice")).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ payload: expect.objectContaining({ level: "warning" }) }),
+    ]),
+  );
+  expect(foldJobs(await log()).jobs.at(-1)?.phase).toBe("repairing");
+});
+
+it("continues a durable subscription job using the same pinned account and generation", async () => {
+  const target = {
+    kind: "subscription",
+    driver: "claude",
+    accountId: "00000000-0000-4000-8000-000000000099",
+    model: "claude-offline-fixture",
+    generation: 4,
+  } as const;
+  await seedLog(
+    { type: "job.started", payload: { jobId: JOB_ID, objective: "Finish the form", target } },
+    committed(COMMIT_SHA),
+    ...redRound(),
+  );
+  green();
+  await open(RESUME_TURN, target);
+  expect(agent.requests).toHaveLength(1);
+  expect(agent.requests[0]?.target).toEqual(target);
+  expect(agent.requests[0]?.credentials).toBeUndefined();
+});

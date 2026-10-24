@@ -517,3 +517,59 @@ it.each([false, true])(
     }
   },
 );
+
+it.each([false, true])(
+  "passes job-target capability from the actual websocket upgrade: %s",
+  async (optIn) => {
+    const store = new InMemoryEventStore();
+    const target = {
+      kind: "subscription",
+      driver: "claude",
+      accountId: SESSION,
+      model: "offline-native-fixture",
+      generation: 4,
+    } as const;
+    await store.append({
+      type: "job.started",
+      sessionId: SESSION,
+      turnId: SESSION,
+      createdAt: "2026-10-24T10:00:00Z",
+      payload: { jobId: SESSION, objective: "Finish the form", target },
+    });
+    const upgrader = new FakeUpgrader();
+    const instance = app({
+      stream: {
+        store,
+        bus: new InMemoryEventBus(),
+        sessions: new InMemorySessionStore([{ sessionId: SESSION, projectId: "project-1" }]),
+        upgradeWebSocket: upgrader.upgrade,
+      },
+    });
+    expect(
+      (await instance.request(`/ws?sessionId=${SESSION}${optIn ? "&executionTargets=1" : ""}`))
+        .status,
+    ).toBe(200);
+    const frames: string[] = [];
+    const ws = new WSContext({
+      send: (data) => {
+        if (typeof data === "string") frames.push(data);
+      },
+      close: () => {},
+      readyState: 1,
+    });
+    const handlers = upgrader.calls[0]!;
+    try {
+      handlers.onOpen?.(new Event("open"), ws);
+      await vi.waitFor(() =>
+        expect(frames.some((raw) => JSON.parse(raw).type === "ready")).toBe(true),
+      );
+      expect(JSON.parse(frames[0]!).event.payload).toEqual({
+        jobId: SESSION,
+        objective: "Finish the form",
+        ...(optIn ? { target } : {}),
+      });
+    } finally {
+      handlers.onClose?.(new CloseEvent("close"), ws);
+    }
+  },
+);

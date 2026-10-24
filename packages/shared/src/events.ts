@@ -1,3 +1,4 @@
+import { ExecutionTargetSchema } from "./execution-target.ts";
 import { MediaAttachmentsSchema } from "./media.ts";
 /**
  * The event contract.
@@ -220,7 +221,11 @@ export const NapEventSchema = z.discriminatedUnion("type", [
    * the job events alone, without a reader having to work out which message belongs to which
    * job by counting turn boundaries — and a repair turn's `user.message` is not the objective.
    */
-  event("job.started", { jobId: z.uuid(), objective: z.string().min(1) }),
+  event("job.started", {
+    jobId: z.uuid(),
+    objective: z.string().min(1),
+    target: ExecutionTargetSchema.optional(),
+  }),
   /**
    * Verification is running against the commit a turn just produced. Carries nothing but the
    * job: what is being checked is whatever the project declares, discovered rather than

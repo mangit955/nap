@@ -410,3 +410,22 @@ describe("foldJobs on a partial log", () => {
     expect(state.atCheckpoint).toBe(true);
   });
 });
+
+it("retains the execution target that opened a job across a durable replay", () => {
+  const target = {
+    kind: "subscription",
+    driver: "claude",
+    accountId: "00000000-0000-4000-8000-000000000099",
+    model: "claude-offline-fixture",
+    generation: 4,
+  } as const;
+  const state = foldJobs(
+    log({ type: "job.started", payload: { jobId: JOB_A, objective: "Finish the form", target } }),
+  );
+  expect(openJob(state)).toMatchObject({ jobId: JOB_A, target });
+  expect(
+    openJob(
+      foldJobs(log({ type: "job.started", payload: { jobId: JOB_A, objective: "Legacy job" } })),
+    ),
+  ).not.toHaveProperty("target");
+});
