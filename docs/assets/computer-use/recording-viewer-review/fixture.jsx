@@ -52,6 +52,31 @@ const sample = {
     },
   ],
 };
+const regressionSample = {
+  ...sample,
+  counts: { passed: 4, failed: 0, untested: 0 },
+  annotations: [
+    { id: "zero", description: "Starts with Setup", timeMs: 0 },
+    { id: "shared-first", description: "Shared first", timeMs: 1001 },
+    { id: "shared-second", description: "Shared second", timeMs: 1001 },
+    { id: "later", description: "Later chapter", timeMs: 5000 },
+  ].flatMap(({ id, description, timeMs }) => [
+    { timeMs, annotation: { type: "test_start", id, description } },
+    {
+      timeMs,
+      annotation: {
+        type: "assertion",
+        id,
+        expectation: `${description} expectation`,
+        result: "passed",
+      },
+    },
+  ]),
+};
+const selectedSample =
+  new URLSearchParams(location.search).get("chapters") === "regressions"
+    ? regressionSample
+    : sample;
 function Fixture() {
   const [viewer, setViewer] = useState("recording");
   return (
@@ -78,8 +103,8 @@ function Fixture() {
             viewer === "empty"
               ? null
               : viewer === "error"
-                ? { ...sample, videoUrl: "/missing.webm" }
-                : sample
+                ? { ...selectedSample, videoUrl: "/missing.webm" }
+                : selectedSample
           }
           onClose={() => setViewer("closed")}
         />

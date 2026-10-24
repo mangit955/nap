@@ -1,0 +1,94 @@
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/t3-7ca4dbea
+
+ ❯ |web| apps/web/src/computer/recording-viewer.test.tsx (13 tests | 5 failed) 1958ms
+   × keeps a paused 1001ms chapter selected through media events and chapter shortcuts 81ms
+   × loops a 1001ms chapter without rewriting a time already at its lower boundary 111ms
+   × uses seconds consistently for automatic playback and slider selection at 1001ms 93ms
+   × reviews every chapter when two tests start together at 0ms 104ms
+   × reviews every chapter when two tests start together at 2000ms 115ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |web| apps/web/src/computer/recording-viewer.test.tsx > keeps a paused 1001ms chapter selected through media events and chapter shortcuts
+Error: expect(element).toHaveAttribute("aria-current", "step") // element.getAttribute("aria-current") === "step"
+
+Expected the element to have attribute:
+  aria-current="step"
+Received:
+  null
+ ❯ apps/web/src/computer/recording-viewer.test.tsx:289:17
+    287|   expect(video().currentTime).toBe(1.001);
+    288|   fireEvent.timeUpdate(video());
+    289|   expect(first).toHaveAttribute("aria-current", "step");
+       |                 ^
+    290|   expect(screen.getByRole("region", { name: "Current chapter" })).toHa…
+    291|     "The note appears",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  |web| apps/web/src/computer/recording-viewer.test.tsx > loops a 1001ms chapter without rewriting a time already at its lower boundary
+AssertionError: expected "set currentTime" to not be called at all, but actually been called 1 times
+
+Received:
+
+  1st set currentTime call:
+
+    Array [
+      0,
+    ]
+
+
+Number of calls: 1
+
+ ❯ apps/web/src/computer/recording-viewer.test.tsx:312:20
+    310|   const seek = vi.spyOn(video(), "currentTime", "set");
+    311|   fireEvent.timeUpdate(video());
+    312|   expect(seek).not.toHaveBeenCalled();
+       |                    ^
+    313|   video().currentTime = 5;
+    314|   fireEvent.timeUpdate(video());
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  |web| apps/web/src/computer/recording-viewer.test.tsx > uses seconds consistently for automatic playback and slider selection at 1001ms
+Error: expect(element).toHaveAttribute("aria-current", "step") // element.getAttribute("aria-current") === "step"
+
+Expected the element to have attribute:
+  aria-current="step"
+Received:
+  null
+ ❯ apps/web/src/computer/recording-viewer.test.tsx:329:17
+    327|   fireEvent.timeUpdate(video());
+    328|   const first = screen.getByRole("button", { name: /Test 1.*Save note/…
+    329|   expect(first).toHaveAttribute("aria-current", "step");
+       |                 ^
+    330|   fireEvent.pause(video());
+    331|   fireEvent.click(screen.getByRole("button", { name: /Test 2.*Delete n…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  |web| apps/web/src/computer/recording-viewer.test.tsx > reviews every chapter when two tests start together at 0ms
+ FAIL  |web| apps/web/src/computer/recording-viewer.test.tsx > reviews every chapter when two tests start together at 2000ms
+Error: expect(element).toHaveAttribute("aria-current", "step") // element.getAttribute("aria-current") === "step"
+
+Expected the element to have attribute:
+  aria-current="step"
+Received:
+  null
+ ❯ apps/web/src/computer/recording-viewer.test.tsx:371:17
+    369|   fireEvent.click(first);
+    370|   fireEvent.timeUpdate(video());
+    371|   expect(first).toHaveAttribute("aria-current", "step");
+       |                 ^
+    372|   expect(detail).toHaveTextContent("First resultpassed");
+    373|   expect(loop).toBeDisabled();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  5 failed | 8 passed (13)
+   Start at  11:42:19
+   Duration  4.56s (transform 143ms, setup 279ms, import 172ms, tests 1.96s, environment 1.59s)
+

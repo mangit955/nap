@@ -1,0 +1,24 @@
+chapter-identity: observed failing assertions
+timeline-precision: observed failing assertions
+loop-lower-bound: observed failing assertions
+automatic-on-play: observed failing assertions
+zero-duration-control: observed failing assertions
+zero-duration-navigation: observed failing assertions
+node:internal/modules/run_main:111
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: Guard must fail: slider-selection
+
+0 !== 1
+
+    at file:///Users/manasraghuwanshi/.t3/worktrees/nap/t3-7ca4dbea/docs/assets/computer-use/recording-viewer-review/mutations.mjs:54:12 {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: 0,
+  expected: 1,
+  operator: 'strictEqual',
+  diff: 'simple'
+}
+
+Node.js v26.12.0

@@ -91,6 +91,11 @@ function clock(seconds: number) {
   return `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 }
 
+function timelineMs(seconds: number) {
+  // Annotations use integer milliseconds; native seeks may truncate to microseconds.
+  return Math.round(seconds * 1000);
+}
+
 export function RecordingViewer({
   recording,
   onClose,
@@ -197,13 +202,27 @@ function RecordingPlayer({ recording }: { recording: RecordingView }) {
   const [duration, setDuration] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [ready, setReady] = useState(false);
-  const [loopIndex, setLoopIndex] = useState<number | null>(null);
+  // A paused review can select any chapter, including one sharing another's timestamp.
+  // Null follows the media clock; a loop keeps its selected chapter's identity.
+  const [selection, setSelection] = useState<{ index: number; loop: boolean } | null>({
+    index: 0,
+    loop: false,
+  });
   const [speed, setSpeed] = useState(1);
   const [error, setError] = useState<string | null>(null);
-  const currentIndex = Math.max(
-    0,
-    chapters.findLastIndex((chapter) => chapter.timeMs <= time * 1000),
-  );
+  function chapterIndexAt(seconds: number) {
+    return Math.max(
+      0,
+      chapters.findLastIndex((chapter) => chapter.timeMs <= timelineMs(seconds)),
+    );
+  }
+  function chapterHasDuration(index: number) {
+    const chapter = chapters[index];
+    const next = chapters[index + 1];
+    return chapter !== undefined && (next ? next.timeMs / 1000 : duration) > chapter.timeMs / 1000;
+  }
+  const currentIndex = selection?.index ?? chapterIndexAt(time);
+  const loopIndex = selection?.loop ? selection.index : null;
   const current = chapters[currentIndex];
 
   useEffect(() => {
@@ -232,6 +251,8 @@ function RecordingPlayer({ recording }: { recording: RecordingView }) {
     }
     function onPlay() {
       setPlaying(true);
+      setTime(element?.currentTime ?? 0);
+      if (loopIndex === null) setSelection(null);
     }
     function onPause() {
       setPlaying(false);
@@ -245,13 +266,14 @@ function RecordingPlayer({ recording }: { recording: RecordingView }) {
       if (element === null) return;
       const loop = loopIndex === null ? undefined : chapters[loopIndex];
       const end = loopIndex === null ? undefined : chapters[loopIndex + 1];
+      const timeMs = timelineMs(element.currentTime);
       if (
         loop &&
-        (element.currentTime * 1000 < loop.timeMs ||
-          element.currentTime >= (end ? end.timeMs / 1000 : element.duration))
+        (timeMs < loop.timeMs || timeMs >= (end ? end.timeMs : timelineMs(element.duration)))
       )
         element.currentTime = loop.timeMs / 1000;
       setTime(element.currentTime);
+      if (!element.paused && loopIndex === null) setSelection(null);
     }
     function onEnded() {
       onTime();
@@ -292,7 +314,7 @@ function RecordingPlayer({ recording }: { recording: RecordingView }) {
     if (!chapter || !ready || !video.current) return;
     video.current.currentTime = Math.min(chapter.timeMs / 1000, duration);
     setTime(video.current.currentTime);
-    if (loopIndex !== null) setLoopIndex(index);
+    setSelection({ index, loop: loopIndex !== null && chapterHasDuration(index) });
   }
 
   const handleKey = useEffectEvent((event: globalThis.KeyboardEvent) => {
@@ -431,21 +453,18 @@ function RecordingPlayer({ recording }: { recording: RecordingView }) {
                 const value = Number(event.target.value);
                 video.current.currentTime = value;
                 setTime(value);
-                if (loopIndex !== null)
-                  setLoopIndex(
-                    Math.max(
-                      0,
-                      chapters.findLastIndex((chapter) => chapter.timeMs <= value * 1000),
-                    ),
-                  );
+                const index = chapterIndexAt(value);
+                setSelection(
+                  loopIndex === null ? null : { index, loop: chapterHasDuration(index) },
+                );
               }}
             />
             <div className={styles.options}>
               <button
                 type="button"
-                disabled={!ready}
+                disabled={!ready || !chapterHasDuration(currentIndex)}
                 aria-pressed={loopIndex !== null}
-                onClick={() => setLoopIndex(loopIndex === null ? currentIndex : null)}
+                onClick={() => setSelection({ index: currentIndex, loop: loopIndex === null })}
               >
                 Loop current chapter
               </button>
@@ -490,6 +509,9 @@ function RecordingPlayer({ recording }: { recording: RecordingView }) {
             <h3>
               {current?.label} · {current?.description}
             </h3>
+            {ready && !chapterHasDuration(currentIndex) && (
+              <p>This chapter has no playback duration and cannot be looped.</p>
+            )}
             {current?.actions.map((action) => (
               <p key={action.id}>{action.description}</p>
             ))}

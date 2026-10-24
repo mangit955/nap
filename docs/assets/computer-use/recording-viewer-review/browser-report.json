@@ -1,5 +1,5 @@
 {
-  "reviewedAt": "2026-10-24T05:55:20.706Z",
+  "reviewedAt": "2026-10-24T06:16:39.610Z",
   "browser": {
     "protocolVersion": "1.3",
     "product": "Chrome/153.0.8010.54",
@@ -12,6 +12,7 @@
     "filter": "blur(16px) saturate(1.08)",
     "radius": "24px"
   },
+  "millisecondSeekSeconds": 1.000999,
   "checks": [
     "actual native playback advances",
     "Space pauses",
@@ -24,7 +25,14 @@
     "390px overflow",
     "reduced transparency",
     "empty state",
-    "unavailable source"
+    "unavailable source",
+    "Setup and a test at zero remain separately selectable",
+    "1001ms native seek preserves a tied chapter's identity and assertion",
+    "zero-duration chapter loop is disabled",
+    "Shift+arrows navigate equal timestamps in both directions",
+    "native playback loops the selected 1001ms chapter",
+    "navigating into a zero-duration chapter cancels the loop",
+    "resuming playback restores automatic selection of the last tied chapter"
   ],
   "errors": []
 }

@@ -1,0 +1,34 @@
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/t3-7ca4dbea
+
+ ❯ |web| apps/web/src/computer/recording-viewer.test.tsx (14 tests | 2 failed) 414ms
+   × reviews every chapter when two tests start together at 0ms 19ms
+   × reviews every chapter when two tests start together at 2000ms 15ms
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 12 passed (14)
+   Start at  11:47:35
+   Duration  964ms (transform 53ms, setup 78ms, import 48ms, tests 414ms, environment 274ms)
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |web| apps/web/src/computer/recording-viewer.test.tsx > reviews every chapter when two tests start together at 0ms
+ FAIL  |web| apps/web/src/computer/recording-viewer.test.tsx > reviews every chapter when two tests start together at 2000ms
+Error: expect(element).toBeDisabled()
+
+Received element is not disabled:
+  <button
+  aria-pressed="false"
+  type="button"
+/>
+ ❯ apps/web/src/computer/recording-viewer.test.tsx:424:16
+    422|   expect(first).toHaveAttribute("aria-current", "step");
+    423|   expect(detail).toHaveTextContent("First resultpassed");
+    424|   expect(loop).toBeDisabled();
+       |                ^
+    425|   expect(detail).toHaveTextContent("This chapter has no playback durat…
+    426|   fireEvent.click(screen.getByRole("button", { name: "Next chapter" })…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+

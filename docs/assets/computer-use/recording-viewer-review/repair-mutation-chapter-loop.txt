@@ -1,0 +1,93 @@
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/t3-7ca4dbea
+
+ ❯ |web| apps/web/src/computer/recording-viewer.test.tsx (14 tests | 4 failed) 430ms
+   × seeks chapters, keeps declarations paired with final results and loops only the chosen chapter 33ms
+   × loops a 1001ms chapter without rewriting a time already at its lower boundary 18ms
+   × uses millisecond precision for automatic playback and slider selection at 1001ms 34ms
+   × accepts native microsecond truncation at a millisecond chapter boundary without seek churn 19ms
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 10 passed (14)
+   Start at  11:47:39
+   Duration  975ms (transform 56ms, setup 73ms, import 55ms, tests 430ms, environment 270ms)
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |web| apps/web/src/computer/recording-viewer.test.tsx > seeks chapters, keeps declarations paired with final results and loops only the chosen chapter
+AssertionError: expected 5.1 to be 2 // Object.is equality
+
+- Expected
++ Received
+
+- 2
++ 5.1
+
+ ❯ apps/web/src/computer/recording-viewer.test.tsx:140:31
+    138|   video().currentTime = 5.1;
+    139|   fireEvent.timeUpdate(video());
+    140|   expect(video().currentTime).toBe(2);
+       |                               ^
+    141|   fireEvent.click(screen.getByRole("button", { name: "Next chapter" })…
+    142|   expect(video().currentTime).toBe(5);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  |web| apps/web/src/computer/recording-viewer.test.tsx > loops a 1001ms chapter without rewriting a time already at its lower boundary
+AssertionError: expected 5 to be 1.001 // Object.is equality
+
+- Expected
++ Received
+
+- 1.001
++ 5
+
+ ❯ apps/web/src/computer/recording-viewer.test.tsx:315:31
+    313|   video().currentTime = 5;
+    314|   fireEvent.timeUpdate(video());
+    315|   expect(video().currentTime).toBe(1.001);
+       |                               ^
+    316|   expect(screen.getByRole("button", { name: /Test 1.*Save note/ })).to…
+    317|     "aria-current",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  |web| apps/web/src/computer/recording-viewer.test.tsx > uses millisecond precision for automatic playback and slider selection at 1001ms
+AssertionError: expected 4 to be 5 // Object.is equality
+
+- Expected
++ Received
+
+- 5
++ 4
+
+ ❯ apps/web/src/computer/recording-viewer.test.tsx:346:31
+    344|   video().currentTime = 4;
+    345|   fireEvent.timeUpdate(video());
+    346|   expect(video().currentTime).toBe(5);
+       |                               ^
+    347|   fireEvent.change(screen.getByRole("slider", { name: "Recording posit…
+    348|     target: { value: "1.001" },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  |web| apps/web/src/computer/recording-viewer.test.tsx > accepts native microsecond truncation at a millisecond chapter boundary without seek churn
+AssertionError: expected 5 to be 1.000999 // Object.is equality
+
+- Expected
++ Received
+
+- 1.000999
++ 5
+
+ ❯ apps/web/src/computer/recording-viewer.test.tsx:377:31
+    375|   video().currentTime = 5;
+    376|   fireEvent.timeUpdate(video());
+    377|   expect(video().currentTime).toBe(1.000999);
+       |                               ^
+    378|   seek.mockClear();
+    379|   fireEvent.timeUpdate(video());
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+

@@ -266,3 +266,182 @@ it("requests fullscreen on the native video and reports fullscreen rejection", a
   await act(async () => {});
   expect(screen.getByRole("alert")).toHaveTextContent("Full screen is unavailable");
 });
+
+const millisecondRecording: RecordingView = {
+  ...recording,
+  annotations: recording.annotations.map((entry) =>
+    entry.annotation.type === "test_start" && entry.annotation.id === "save"
+      ? { ...entry, timeMs: 1001 }
+      : entry,
+  ),
+};
+
+it("keeps a paused 1001ms chapter selected through media events and chapter shortcuts", () => {
+  render(<RecordingViewer recording={millisecondRecording} onClose={vi.fn()} />);
+  metadata();
+  const first = screen.getByRole("button", { name: /Test 1.*Save note/ });
+  const second = screen.getByRole("button", { name: /Test 2.*Delete note/ });
+  const setup = screen.getByRole("button", { name: /Setup/ });
+  const dialog = screen.getByRole("dialog", { name: "Test recording viewer" });
+  fireEvent.click(first);
+  expect(video().currentTime).toBe(1.001);
+  fireEvent.timeUpdate(video());
+  expect(first).toHaveAttribute("aria-current", "step");
+  expect(screen.getByRole("region", { name: "Current chapter" })).toHaveTextContent(
+    "The note appears",
+  );
+  fireEvent.keyDown(dialog, { key: "ArrowRight", shiftKey: true });
+  expect(second).toHaveAttribute("aria-current", "step");
+  fireEvent.keyDown(dialog, { key: "ArrowLeft", shiftKey: true });
+  expect(first).toHaveAttribute("aria-current", "step");
+  fireEvent.click(screen.getByRole("button", { name: "Previous chapter" }));
+  expect(setup).toHaveAttribute("aria-current", "step");
+  fireEvent.click(screen.getByRole("button", { name: "Next chapter" }));
+  expect(first).toHaveAttribute("aria-current", "step");
+  fireEvent.click(screen.getByRole("button", { name: "Next chapter" }));
+  expect(second).toHaveAttribute("aria-current", "step");
+});
+
+it("loops a 1001ms chapter without rewriting a time already at its lower boundary", () => {
+  render(<RecordingViewer recording={millisecondRecording} onClose={vi.fn()} />);
+  metadata();
+  fireEvent.click(screen.getByRole("button", { name: /Test 1.*Save note/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Loop current chapter" }));
+  const seek = vi.spyOn(video(), "currentTime", "set");
+  fireEvent.timeUpdate(video());
+  expect(seek).not.toHaveBeenCalled();
+  video().currentTime = 5;
+  fireEvent.timeUpdate(video());
+  expect(video().currentTime).toBe(1.001);
+  expect(screen.getByRole("button", { name: /Test 1.*Save note/ })).toHaveAttribute(
+    "aria-current",
+    "step",
+  );
+});
+
+it("uses millisecond precision for automatic playback and slider selection at 1001ms", () => {
+  render(<RecordingViewer recording={millisecondRecording} onClose={vi.fn()} />);
+  metadata();
+  video().currentTime = 1.001;
+  fireEvent.play(video());
+  fireEvent.timeUpdate(video());
+  const first = screen.getByRole("button", { name: /Test 1.*Save note/ });
+  expect(first).toHaveAttribute("aria-current", "step");
+  fireEvent.pause(video());
+  fireEvent.click(screen.getByRole("button", { name: /Test 2.*Delete note/ }));
+  fireEvent.change(screen.getByRole("slider", { name: "Recording position" }), {
+    target: { value: "1.001" },
+  });
+  expect(first).toHaveAttribute("aria-current", "step");
+  fireEvent.click(screen.getByRole("button", { name: "Loop current chapter" }));
+  fireEvent.change(screen.getByRole("slider", { name: "Recording position" }), {
+    target: { value: "6" },
+  });
+  expect(screen.getByRole("button", { name: /Test 2.*Delete note/ })).toHaveAttribute(
+    "aria-current",
+    "step",
+  );
+  video().currentTime = 4;
+  fireEvent.timeUpdate(video());
+  expect(video().currentTime).toBe(5);
+  fireEvent.change(screen.getByRole("slider", { name: "Recording position" }), {
+    target: { value: "1.001" },
+  });
+  video().currentTime = 5;
+  fireEvent.timeUpdate(video());
+  expect(video().currentTime).toBe(1.001);
+});
+
+it("accepts native microsecond truncation at a millisecond chapter boundary without seek churn", () => {
+  render(<RecordingViewer recording={millisecondRecording} onClose={vi.fn()} />);
+  metadata();
+  let nativeTime = 0;
+  Object.defineProperty(video(), "currentTime", {
+    configurable: true,
+    get: () => nativeTime,
+    set: (seconds: number) => {
+      nativeTime = Math.floor(seconds * 1_000_000) / 1_000_000;
+    },
+  });
+  const first = screen.getByRole("button", { name: /Test 1.*Save note/ });
+  fireEvent.click(first);
+  expect(video().currentTime).toBe(1.000999);
+  fireEvent.play(video());
+  expect(first).toHaveAttribute("aria-current", "step");
+  fireEvent.click(screen.getByRole("button", { name: "Loop current chapter" }));
+  const seek = vi.spyOn(video(), "currentTime", "set");
+  fireEvent.timeUpdate(video());
+  expect(seek).not.toHaveBeenCalled();
+  video().currentTime = 5;
+  fireEvent.timeUpdate(video());
+  expect(video().currentTime).toBe(1.000999);
+  seek.mockClear();
+  fireEvent.timeUpdate(video());
+  expect(seek).not.toHaveBeenCalled();
+});
+
+it.each([0, 2000])("reviews every chapter when two tests start together at %ims", (timeMs) => {
+  render(
+    <RecordingViewer
+      recording={{
+        ...recording,
+        annotations: [
+          { timeMs, annotation: { type: "test_start", id: "one", description: "First test" } },
+          {
+            timeMs,
+            annotation: {
+              type: "assertion",
+              id: "a",
+              expectation: "First result",
+              result: "passed",
+            },
+          },
+          { timeMs, annotation: { type: "test_start", id: "two", description: "Second test" } },
+          {
+            timeMs,
+            annotation: {
+              type: "assertion",
+              id: "b",
+              expectation: "Second result",
+              result: "failed",
+            },
+          },
+        ],
+      }}
+      onClose={vi.fn()}
+    />,
+  );
+  metadata();
+  const setup = screen.getByRole("button", { name: /Setup/ });
+  const first = screen.getByRole("button", { name: /Test 1.*First test/ });
+  const second = screen.getByRole("button", { name: /Test 2.*Second test/ });
+  const detail = screen.getByRole("region", { name: "Current chapter" });
+  const loop = screen.getByRole("button", { name: "Loop current chapter" });
+  fireEvent.click(first);
+  fireEvent.timeUpdate(video());
+  expect(first).toHaveAttribute("aria-current", "step");
+  expect(detail).toHaveTextContent("First resultpassed");
+  expect(loop).toBeDisabled();
+  expect(detail).toHaveTextContent("This chapter has no playback duration");
+  fireEvent.click(screen.getByRole("button", { name: "Next chapter" }));
+  expect(second).toHaveAttribute("aria-current", "step");
+  expect(detail).toHaveTextContent("Second resultfailed");
+  expect(loop).toBeEnabled();
+  fireEvent.click(loop);
+  fireEvent.keyDown(second, { key: "ArrowLeft", shiftKey: true });
+  expect(first).toHaveAttribute("aria-current", "step");
+  expect(loop).toHaveAttribute("aria-pressed", "false");
+  fireEvent.keyDown(first, { key: "ArrowLeft", shiftKey: true });
+  expect(setup).toHaveAttribute("aria-current", "step");
+  expect(detail).toHaveTextContent("Prepare the app");
+  fireEvent.click(first);
+  fireEvent.click(screen.getByRole("button", { name: "Play recording" }));
+  expect(second).toHaveAttribute("aria-current", "step");
+  video().currentTime = timeMs / 1000 + 0.25;
+  fireEvent.timeUpdate(video());
+  expect(second).toHaveAttribute("aria-current", "step");
+  fireEvent.click(first);
+  expect(first).toHaveAttribute("aria-current", "step");
+  fireEvent.timeUpdate(video());
+  expect(second).toHaveAttribute("aria-current", "step");
+});

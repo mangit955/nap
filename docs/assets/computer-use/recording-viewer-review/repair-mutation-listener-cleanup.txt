@@ -1,0 +1,42 @@
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/t3-7ca4dbea
+
+ ❯ |web| apps/web/src/computer/recording-viewer.test.tsx (14 tests | 1 failed) 462ms
+   × traps focus, handles Escape and removes keyboard/media work on unmount 18ms
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 13 passed (14)
+   Start at  11:47:40
+   Duration  1.01s (transform 53ms, setup 73ms, import 53ms, tests 462ms, environment 272ms)
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |web| apps/web/src/computer/recording-viewer.test.tsx > traps focus, handles Escape and removes keyboard/media work on unmount
+AssertionError: expected [ 'loadedmetadata', …(5) ] to deeply equal ArrayContaining{…}
+
+- Expected
++ Received
+
+- ArrayContaining [
+-   "timeupdate",
++ [
++   "loadedmetadata",
++   "durationchange",
+    "play",
+    "pause",
+    "ended",
+    "error",
+-   "loadedmetadata",
+  ]
+
+ ❯ apps/web/src/computer/recording-viewer.test.tsx:199:51
+    197|   const removeKeyboard = vi.spyOn(dialog, "removeEventListener");
+    198|   view.unmount();
+    199|   expect(remove.mock.calls.map(([type]) => type)).toEqual(
+       |                                                   ^
+    200|     expect.arrayContaining(["timeupdate", "play", "pause", "ended", "e…
+    201|   );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+

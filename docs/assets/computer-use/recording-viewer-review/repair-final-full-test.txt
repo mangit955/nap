@@ -1,0 +1,62 @@
+$ vitest run --project unit --project types --project web --project db
+Testing types with tsc and vue-tsc is an experimental feature.
+Breaking changes might not follow SemVer, please pin Vitest's version when using it.
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/t3-7ca4dbea
+
+(node:55912) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:57673) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+ ❯ |db| packages/db/src/postgres-sandbox-capacity.db.test.ts (20 tests | 2 failed) 15181ms
+     × admits exactly the ceiling when a hundred arrive at once 5028ms
+     × holds the per-user cap when one user's admissions arrive at once 2871ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |db| packages/db/src/postgres-sandbox-capacity.db.test.ts > under concurrency > admits exactly the ceiling when a hundred arrive at once
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ packages/db/src/postgres-sandbox-capacity.db.test.ts:182:3
+    180|
+    181| describe("under concurrency", () => {
+    182|   it("admits exactly the ceiling when a hundred arrive at once", async…
+       |   ^
+    183|     const requests: { projectId: string; userId: string }[] = [];
+    184|     for (let i = 0; i < 100; i += 1) {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |db| packages/db/src/postgres-sandbox-capacity.db.test.ts > under concurrency > holds the per-user cap when one user's admissions arrive at once
+AssertionError: expected +0 to be 2 // Object.is equality
+
+- Expected
++ Received
+
+- 2
++ 0
+
+ ❯ packages/db/src/postgres-sandbox-capacity.db.test.ts:205:33
+    203|     );
+    204|
+    205|     expect(admittedOf(results)).toBe(PER_USER);
+       |                                 ^
+    206|   });
+    207|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed | 396 passed (397)
+      Tests  2 failed | 5182 passed (5184)
+Type Errors  no errors
+   Start at  11:47:55
+   Duration  281.22s (transform 23.28s, setup 52.67s, import 171.34s, tests 311.85s, environment 223.27s, typecheck 600ms)
+
+error: script "test" exited with code 1

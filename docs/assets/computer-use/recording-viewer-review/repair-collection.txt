@@ -1,0 +1,14 @@
+[web] apps/web/src/computer/recording-viewer.test.tsx > renders the empty view with an accessible close and restores focus
+[web] apps/web/src/computer/recording-viewer.test.tsx > renders counts, ordered chapters, latest assertion verdicts and the owner download URL
+[web] apps/web/src/computer/recording-viewer.test.tsx > seeks chapters, keeps declarations paired with final results and loops only the chosen chapter
+[web] apps/web/src/computer/recording-viewer.test.tsx > updates playback from native events, supports scoped shortcuts, speed and seeking
+[web] apps/web/src/computer/recording-viewer.test.tsx > traps focus, handles Escape and removes keyboard/media work on unmount
+[web] apps/web/src/computer/recording-viewer.test.tsx > resets a replaced source and ignores late native events and rejected play promises
+[web] apps/web/src/computer/recording-viewer.test.tsx > shows playback rejection and works with no test chapters
+[web] apps/web/src/computer/recording-viewer.test.tsx > requests fullscreen on the native video and reports fullscreen rejection
+[web] apps/web/src/computer/recording-viewer.test.tsx > keeps a paused 1001ms chapter selected through media events and chapter shortcuts
+[web] apps/web/src/computer/recording-viewer.test.tsx > loops a 1001ms chapter without rewriting a time already at its lower boundary
+[web] apps/web/src/computer/recording-viewer.test.tsx > uses millisecond precision for automatic playback and slider selection at 1001ms
+[web] apps/web/src/computer/recording-viewer.test.tsx > accepts native microsecond truncation at a millisecond chapter boundary without seek churn
+[web] apps/web/src/computer/recording-viewer.test.tsx > reviews every chapter when two tests start together at 0ms
+[web] apps/web/src/computer/recording-viewer.test.tsx > reviews every chapter when two tests start together at 2000ms

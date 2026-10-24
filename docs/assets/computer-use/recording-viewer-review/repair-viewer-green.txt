@@ -1,0 +1,9 @@
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/t3-7ca4dbea
+
+
+ Test Files  1 passed (1)
+      Tests  14 passed (14)
+   Start at  11:48:00
+   Duration  3.69s (transform 185ms, setup 413ms, import 212ms, tests 1.69s, environment 991ms)
+

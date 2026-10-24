@@ -162,11 +162,72 @@ try {
   await click("View unavailable recording");
   await wait("document.querySelector('[role=alert]') !== null");
   await shot("nap-viewer-unavailable");
+  await send("Emulation.setDeviceMetricsOverride", {
+    width: 1440,
+    height: 1000,
+    deviceScaleFactor: 1,
+    mobile: false,
+  });
+  await send("Emulation.setEmulatedMedia", { features: [] });
+  await send("Page.navigate", { url: "http://127.0.0.1:4321/?chapters=regressions" });
+  await wait("document.querySelector('video')?.readyState >= 1");
+  const selected = (text) =>
+    evaluate(
+      `document.querySelector('[aria-current="step"]').textContent.includes(${JSON.stringify(text)})`,
+    );
+  assert.equal(await selected("Setup"), true);
+  await click("Test 1");
+  assert.equal(await selected("Test 1"), true);
+  await click("Previous chapter");
+  assert.equal(await selected("Setup"), true);
+  await shot("nap-viewer-setup-zero");
+  await click("Test 2");
+  await wait("!document.querySelector('video').seeking");
+  const millisecondSeekSeconds = await evaluate("document.querySelector('video').currentTime");
+  assert.ok(Math.abs(millisecondSeekSeconds - 1.001) <= 0.0000011);
+  assert.equal(await selected("Test 2"), true);
+  assert.equal(
+    await evaluate(
+      "document.querySelector('[aria-label=\"Current chapter\"]').textContent.includes('Shared first expectation')",
+    ),
+    true,
+  );
+  assert.equal(
+    await evaluate(
+      "[...document.querySelectorAll('button')].find(b => b.textContent === 'Loop current chapter').disabled",
+    ),
+    true,
+  );
+  await shot("nap-viewer-tied-chapter");
+  await key("ArrowRight", "ArrowRight", 8);
+  assert.equal(await selected("Test 3"), true);
+  await click("Loop current chapter");
+  await evaluate("document.querySelector('video').focus()");
+  await key(" ", "Space");
+  await wait("document.querySelector('video').currentTime > 1.1");
+  assert.equal(await selected("Test 3"), true);
+  await evaluate("document.querySelector('video').currentTime = 4.95");
+  await wait("document.querySelector('video').currentTime < 2");
+  await key(" ", "Space");
+  assert.equal(await evaluate("document.querySelector('video').paused"), true);
+  await key("ArrowLeft", "ArrowLeft", 8);
+  assert.equal(await selected("Test 2"), true);
+  assert.equal(
+    await evaluate(
+      "[...document.querySelectorAll('button')].find(b => b.textContent === 'Loop current chapter').getAttribute('aria-pressed')",
+    ),
+    "false",
+  );
+  await key(" ", "Space");
+  await wait("document.querySelector('video').currentTime > 1.1");
+  assert.equal(await selected("Test 3"), true);
+  await key(" ", "Space");
   assert.deepEqual(errors, []);
   const report = {
     reviewedAt: new Date().toISOString(),
     browser: await send("Browser.getVersion"),
     glass,
+    millisecondSeekSeconds,
     checks: [
       "actual native playback advances",
       "Space pauses",
@@ -180,6 +241,13 @@ try {
       "reduced transparency",
       "empty state",
       "unavailable source",
+      "Setup and a test at zero remain separately selectable",
+      "1001ms native seek preserves a tied chapter's identity and assertion",
+      "zero-duration chapter loop is disabled",
+      "Shift+arrows navigate equal timestamps in both directions",
+      "native playback loops the selected 1001ms chapter",
+      "navigating into a zero-duration chapter cancels the loop",
+      "resuming playback restores automatic selection of the last tied chapter",
     ],
     errors,
   };
