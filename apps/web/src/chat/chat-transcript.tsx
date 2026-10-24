@@ -20,6 +20,7 @@ import type { MediaAttachment } from "@nap/shared/media";
  */
 
 import { useMemo, useState } from "react";
+import { ScreenshotCard } from "../computer/screenshot-card.tsx";
 import { turnFailureCopy } from "../errors/failure-copy.ts";
 import { AlertIcon, CopyIcon } from "../ui/icons.tsx";
 import { ChangedFilesCard } from "./changed-files-card.tsx";
@@ -251,6 +252,8 @@ function Item({
   onRetry?: ((message: string, attachments?: MediaAttachment[]) => void) | undefined;
 }) {
   switch (item.kind) {
+    case "computer-frame":
+      return <ScreenshotCard frame={item.frame} />;
     case "compaction":
       return (
         <CompactionRow

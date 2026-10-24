@@ -78,7 +78,7 @@ const TREATMENTS = [
   {
     type: "computer.status",
     payload: { toolCallId: "screen", state: "starting" },
-    shows: /Waiting for Nap/,
+    shows: /Used computer/,
   },
   {
     type: "compaction.started",

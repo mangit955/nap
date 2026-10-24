@@ -84,7 +84,10 @@ export type TranscriptItem =
       /** Everything `run_command` printed, in the order it printed it. */
       streamed: string;
       files: FileChange[];
+      frame?: NapEventOf<"computer.screenshot">;
+      desktop?: { state: "starting" | "ready"; at: string };
     }
+  | { kind: "computer-frame"; key: number; frame: NapEventOf<"computer.screenshot"> }
   | { kind: "files"; key: number; files: FileChange[] }
   | { kind: "preview"; key: number; url: string; port: number }
   /**
@@ -191,20 +194,19 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
     const key = event.seq;
 
     switch (event.type) {
-      case "computer.screenshot":
-        items.push({ kind: "notice", key, level: "info", text: "Computer screenshot available" });
+      case "computer.screenshot": {
+        const step = stepsById.get(event.payload.toolCallId);
+        if (step) step.frame = event;
+        items.push({ kind: "computer-frame", key, frame: event });
         break;
-      case "computer.status":
-        items.push({
-          kind: "notice",
-          key,
-          level: "info",
-          text:
-            event.payload.state === "starting"
-              ? "Waiting for Nap's computer…"
-              : "Nap's computer is ready",
-        });
+      }
+      case "computer.status": {
+        const step =
+          stepsById.get(event.payload.toolCallId) ??
+          openOrphan(event, "computer", items, stepsById);
+        step.desktop = { state: event.payload.state, at: event.createdAt };
         break;
+      }
       case "compaction.started":
         if (event.payload.trigger === "manual") {
           retryByTurn.set(event.turnId, { text: "/compact" });
@@ -468,7 +470,7 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
  * unknown — the alternative is inventing arguments the tool was never given.
  */
 function openOrphan(
-  event: NapEventOf<"tool.result"> | NapEventOf<"command.output">,
+  event: NapEventOf<"tool.result"> | NapEventOf<"command.output"> | NapEventOf<"computer.status">,
   toolName: ToolName,
   items: TranscriptItem[],
   stepsById: Map<string, Step>,

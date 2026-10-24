@@ -1,6 +1,33 @@
 @import "tailwindcss";
 @import "../workspace/right-panel.css";
 
+.computer-screenshot-card {
+  display: block;
+  width: min(100%, 34rem);
+  margin-block: 0.75rem;
+  overflow: hidden;
+  border: 1px solid var(--color-edge);
+  border-radius: 16px;
+  background: var(--color-panel);
+  box-shadow: var(--shadow-card);
+  text-align: left;
+}
+.computer-screenshot-card img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.computer-screenshot-card span {
+  display: block;
+  padding: 0.6rem 0.8rem;
+  color: var(--color-muted);
+  font-size: 0.75rem;
+}
+.computer-screenshot-card:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+}
+
 /*
  * Tailwind v4 is configured in CSS rather than a JS file. Tokens declared here become
  * utilities automatically — `--color-panel` gives `bg-panel`, `border-panel`, and so on.
@@ -2804,5 +2831,16 @@ details[open] > .nap-float {
   }
   .computer-frame {
     width: min(100cqw, calc(100cqh * 4 / 3), 1024px);
+  }
+}
+
+.computer-review-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: 16px;
+}
+@media (max-width: 760px) {
+  .computer-review-columns {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

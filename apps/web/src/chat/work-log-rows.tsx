@@ -39,6 +39,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import { ComputerNavigation } from "../computer/navigation.tsx";
 import type { TimelineRow } from "./timeline.ts";
 import { WorkEntryBody } from "./tool-body.tsx";
 import { observeVisibleAnimation } from "./visible-animation.ts";
@@ -307,6 +308,7 @@ export function WorkEntryRow({
   displayLabel?: string | undefined;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const seekComputer = use(ComputerNavigation);
   const failed = entryFailed(entry);
   const running = entry.kind === "step" && entry.status === "running";
   const label = displayLabel ?? workEntryDisplayLabel(entry);
@@ -318,7 +320,11 @@ export function WorkEntryRow({
         type="button"
         aria-expanded={expanded}
         aria-label={name}
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => {
+          setExpanded(!expanded);
+          if (entry.kind === "step" && entry.toolName === "computer" && entry.frame)
+            seekComputer?.(entry.frame.seq);
+        }}
         className={INTERACTIVE}
       >
         <WorkLogLine
