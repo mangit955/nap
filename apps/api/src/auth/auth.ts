@@ -45,7 +45,12 @@ type Db = Database["db"];
  * *authorizes* on it — a demo user owns their projects exactly as anybody else does — it is
  * only ever a hint for the parts of the app that talk about signing up.
  */
-export type Caller = { userId: string; isAnonymous: boolean };
+export type Caller = {
+  userId: string;
+  isAnonymous: boolean;
+  /** Cookie-session ownership when supplied by the authenticator. Required for provider login. */
+  authSessionId?: string;
+};
 
 /**
  * Resolves the caller from a request's headers, or `null` when there is no valid session.
@@ -238,9 +243,7 @@ export function createAuth(db: Db, config: AuthConfig): AuthInstance {
   return {
     handler: auth.handler,
 
-    // The library answers with the session *and* the user; only the id and the one flag leave
-    // this file, so nothing downstream can start depending on a shape better-auth is free to
-    // change.
+    // Only routing identity and the owning session ID leave this file, never the cookie token.
     getUser: async (headers) => {
       const session = await auth.api.getSession({ headers });
       if (session === null) return null;
@@ -248,6 +251,7 @@ export function createAuth(db: Db, config: AuthConfig): AuthInstance {
       const parsed = SessionUserSchema.safeParse(session.user);
       return {
         userId: session.user.id,
+        authSessionId: session.session.id,
         // Absent means a real account: the column defaults to false, and every row that
         // predates the demo has it. Reading a failed parse the same way is deliberate — the
         // safe answer to "is this a throwaway?" is the one that grants less, not more.

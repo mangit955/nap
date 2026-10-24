@@ -103,3 +103,16 @@ describe("requireUser", () => {
     expect(response.status).not.toBe(401);
   });
 });
+
+it("carries the authenticated browser session without trusting a supplied session header", async () => {
+  const app = appWith(async () => ({
+    userId: "user-a",
+    isAnonymous: false,
+    authSessionId: "verified-cookie-session",
+  }));
+  app.get("/session-binding", (c) => c.json({ sessionId: c.get("authSessionId") }));
+  const response = await app.request("/session-binding", {
+    headers: { "x-auth-session-id": "forged" },
+  });
+  expect(await response.json()).toEqual({ sessionId: "verified-cookie-session" });
+});

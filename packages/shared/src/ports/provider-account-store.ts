@@ -17,14 +17,21 @@ import type {
   UpdateProviderAccount,
 } from "../provider-accounts-protocol.ts";
 
-const sealedCredentials = z.strictObject({ ciphertext: z.string().min(1), iv: z.string().min(1) });
+export const SealedProviderCredentialsSchema = z.strictObject({
+  ciphertext: z.string().min(1),
+  iv: z.string().min(1),
+});
 const revision = { generation: z.int().nonnegative(), version: z.int().nonnegative() };
 export const ProviderAuthorizationSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("disconnected"), ...revision }),
-  z.strictObject({ kind: z.literal("connected"), ...revision, credentials: sealedCredentials }),
+  z.strictObject({
+    kind: z.literal("connected"),
+    ...revision,
+    credentials: SealedProviderCredentialsSchema,
+  }),
 ]);
 export type ProviderAuthorization = z.infer<typeof ProviderAuthorizationSchema>;
-export type SealedProviderCredentials = z.infer<typeof sealedCredentials>;
+export type SealedProviderCredentials = z.infer<typeof SealedProviderCredentialsSchema>;
 export type ProviderAuthorizationWrite =
   | { kind: "updated"; authorization: ProviderAuthorization }
   | { kind: "missing" | "stale" | "disabled" };

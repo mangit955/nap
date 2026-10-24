@@ -22,6 +22,36 @@ lost between successful provider rotation and database commit. Managed refresh s
 single owner and explicit ambiguous-rotation recovery. Native CLI credential mutation additionally
 requires termination proof before a replacement CLI is allowed to start.
 
+## Durable sign-in attempts
+
+The private sign-in store binds each attempt to a provider account and a live, permanent Nap
+session. Other sessions of the same user cannot read its interaction or claim its callback.
+Starting another attempt supersedes the earlier one; the database allows only one active attempt
+per account. Expiry uses the database clock. A claim moves waiting to verifying once, and returns
+a private completion token whose hash is stored. Verification cannot return to waiting after a
+worker crash. A lost exchange response therefore needs reconciliation or a new user-driven attempt.
+
+A verified completion requires that token, the initiating session, an unchanged account generation
+and an unexpired attempt. Authorization, public identity and successful completion commit in one
+transaction. Logout and disable invalidate pending attempts in that same account transaction.
+Terminal transitions erase private state, callback hashes and interactions. Deleting the Nap
+session or provider account cascades the attempt. Session expiry denies access; materializing an
+expired attempt clears its state, but a background retention sweep is not implemented yet.
+
+`ProviderSecretBox` authenticates scope inside the encrypted envelope before returning a value.
+Pending state is bound to owner, account, Nap session and challenge hash; a grant is bound to owner,
+account, driver and authorization generation. Copying ciphertext to another scope fails. This
+uses the existing AES-GCM utility but does not rely on opaque encryption alone for ownership.
+The DB receives sealed envelopes only and never holds the encryption key.
+
+These are server-side operations. HTTP authentication supplies the verified cookie-session ID
+to the status runner; request headers and bodies cannot select that ID. Interactions are scoped
+to that session, and starting sign-in requires the binding. A real provider adapter still needs
+to connect the durable store, provider verification and scoped sealing. Production keeps
+`UNAVAILABLE_SIGN_IN`; the store and sealer do not implement OAuth exchange or launch a provider CLI. Database cancellation
+also does not prove a native process stopped; its supervisor and credential owner must coordinate
+that before reuse.
+
 ## Execution targets
 
 Every queued request contains one validated target:
@@ -46,8 +76,8 @@ migration has been run. Existing API keys retain their existing storage and exec
 [The process transport proof](native-process-host.md) has local pipe and PTY coverage. A second,
 separately approved [E2B probe](e2b-native-process-probe-20261024.md) passed privilege checks,
 confirmed cgroup termination and detached-child cancellation, then destroyed its sandbox.
-Live PTY, reconnect and worker-loss expiry remain unverified. Provider login, durable login
-attempts, refresh ownership, account checks during execution, native Claude/Codex adapters,
+Live PTY, reconnect and worker-loss expiry remain unverified. Provider login, sign-in adapter
+wiring, refresh ownership, account checks during execution, native Claude/Codex adapters,
 recovery archives and UI selection are still required. No provider has been enabled.
 
 Project code running under the same UID as a native agent can inspect that agent's credential
@@ -63,5 +93,5 @@ and [SDK subscription restriction](https://code.claude.com/docs/en/agent-sdk/ove
 provider-specific release decision. The [headless CLI documentation](https://code.claude.com/docs/en/headless)
 now describes `claude -p` as SDK use and says bare mode skips subscription credentials. Merely
 launching the stock binary does not settle whether a particular hosted integration is approved.
-Two separately approved E2B allocations ran and were destroyed. No authentication, subscription model call
-or template publication has run here.
+Two separately approved E2B allocations ran and were destroyed. No authentication, subscription
+model call or template publication has run here.

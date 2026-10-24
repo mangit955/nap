@@ -6,25 +6,27 @@
  * its login outlives a sandbox, is the runtime's business. The routes only start, read, cancel
  * and sign out.
  *
- * **No implementation here ever sees a credential.** The provider's agent completes the login and
- * keeps what it stores. What comes back through this port is the step the person has to take next
- * and, once it is over, who signed in.
+ * This status port returns no credential. Provider implementations keep private tokens and native
+ * state behind the credential store; only the next interaction and verified identity reach a UI.
  */
 
+import type { ProviderSignInOwner } from "@nap/shared/ports/provider-sign-in-store";
 import type { ProviderAccount, ProviderSignIn } from "@nap/shared/provider-accounts-protocol";
+
+export type ProviderSignInSession = Pick<ProviderSignInOwner, "userId" | "authSessionId">;
 
 export interface ProviderSignInRunner {
   /** False when this deployment has nowhere to run a provider's agent. */
   readonly available: boolean;
 
-  /** The attempt running for this account, or the one that just finished. Null if none. */
-  current(userId: string, account: ProviderAccount): Promise<ProviderSignIn | null>;
+  /** Only this Nap session's attempt. Other sessions must never receive its interaction. */
+  current(session: ProviderSignInSession, account: ProviderAccount): Promise<ProviderSignIn | null>;
 
   /** Starts an attempt, replacing any still running. Only called when `available`. */
-  start(userId: string, account: ProviderAccount): Promise<ProviderSignIn>;
+  start(session: ProviderSignInSession, account: ProviderAccount): Promise<ProviderSignIn>;
 
-  /** Stops the running attempt. Silent when there is none. */
-  cancel(userId: string, account: ProviderAccount): Promise<void>;
+  /** Stops this session's running attempt. Silent when there is none. */
+  cancel(session: ProviderSignInSession, account: ProviderAccount): Promise<void>;
 
   /** Logs the provider's agent out, so the account must sign in again before its next turn. */
   signOut(userId: string, account: ProviderAccount): Promise<void>;

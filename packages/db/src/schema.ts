@@ -6,6 +6,10 @@ import type {
 } from "@nap/shared/github-protocol";
 import type { MediaAttachment } from "@nap/shared/media";
 import type { ProviderAuthStatus, ProviderDriver } from "@nap/shared/provider-accounts-protocol";
+import {
+  type ProviderSignInInteraction,
+  ProviderSignInPhaseSchema,
+} from "@nap/shared/provider-accounts-protocol";
 import type { SessionNavigation } from "@nap/shared/session-navigation";
 /**
  * The Postgres schema, per docs/PLAN.md §5.
@@ -251,6 +255,58 @@ export const providerCredentials = pgTable(
     check(
       "provider_credentials_pair",
       sql`(${t.ciphertext} is null and ${t.iv} is null) or (${t.ciphertext} is not null and ${t.iv} is not null and length(${t.ciphertext}) > 0 and length(${t.iv}) > 0)`,
+    ),
+  ],
+);
+
+export const providerSignInPhase = pgEnum("provider_sign_in_phase", ProviderSignInPhaseSchema.enum);
+export const providerSignInAttempts = pgTable(
+  "provider_sign_in_attempts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => providerAccounts.id, { onDelete: "cascade" }),
+    authSessionId: uuid("auth_session_id")
+      .notNull()
+      .references(() => authSessions.id, { onDelete: "cascade" }),
+    generation: integer("generation").notNull(),
+    phase: providerSignInPhase("phase").notNull(),
+    challengeHash: text("challenge_hash"),
+    claimTokenHash: text("claim_token_hash"),
+    stateCiphertext: text("state_ciphertext"),
+    stateIv: text("state_iv"),
+    interaction: jsonb("interaction").$type<ProviderSignInInteraction>(),
+    message: text("message"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt,
+  },
+  (t) => [
+    index("provider_sign_ins_session_created").on(t.accountId, t.authSessionId, t.createdAt),
+    uniqueIndex("provider_sign_ins_one_active")
+      .on(t.accountId)
+      .where(sql`${t.phase} in ('starting', 'waiting', 'verifying')`),
+    check("provider_sign_ins_generation", sql`${t.generation} >= 0`),
+    check("provider_sign_ins_expiry", sql`${t.expiresAt} > ${t.createdAt}`),
+    check(
+      "provider_sign_ins_state",
+      sql`(
+    ${t.phase} in ('starting', 'waiting', 'verifying') and ${t.stateCiphertext} is not null and length(${t.stateCiphertext}) > 0 and ${t.stateIv} is not null and length(${t.stateIv}) > 0 and ${t.challengeHash} is not null and ${t.challengeHash} ~ '^[a-f0-9]{64}$'
+  ) or (
+    ${t.phase} in ('succeeded', 'failed', 'cancelled') and ${t.stateCiphertext} is null and ${t.stateIv} is null and ${t.challengeHash} is null
+  )`,
+    ),
+    check(
+      "provider_sign_ins_claim",
+      sql`(${t.phase} = 'verifying' and ${t.claimTokenHash} is not null and ${t.claimTokenHash} ~ '^[a-f0-9]{64}$') or (${t.phase} <> 'verifying' and ${t.claimTokenHash} is null)`,
+    ),
+    check(
+      "provider_sign_ins_interaction",
+      sql`(${t.phase} = 'waiting') = (${t.interaction} is not null)`,
+    ),
+    check(
+      "provider_sign_ins_message",
+      sql`(${t.phase} = 'failed' and ${t.message} is not null and length(${t.message}) > 0) or (${t.phase} <> 'failed' and ${t.message} is null)`,
     ),
   ],
 );

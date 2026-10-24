@@ -240,6 +240,13 @@ changes at login, logout and disable, and a version that changes at refresh. Tho
 stale writes; they cannot recover an ambiguous provider-side token rotation. Not the
 `LLMProvider`, which is model policy, and not an API key, which pays per token.
 
+**Provider sign-in attempt** — one interactive authentication exchange for a **Provider account**,
+bound to the authenticated Nap browser session that started it. Its callback can be claimed once;
+the winning worker receives a private completion capability. Expiry, cancellation or a changed
+account generation prevents a late completion. This temporary exchange is separate from the
+account's stored authorization and from a conversation **Session**. See
+[subscription execution](docs/subscription-runtime.md).
+
 **Repository job** — the GitHub side of a **Job** in an imported project: its `nap/<job-id>` branch,
 base and head commits, the commit it pushed, and its pull request. A row in `repository_jobs`, keyed
 by the Job's id; it records where the work went, while the Job itself still says how far it got.

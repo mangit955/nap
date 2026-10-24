@@ -5,19 +5,39 @@
  */
 
 import type { ProviderAccount, ProviderSignIn } from "@nap/shared/provider-accounts-protocol";
-import type { ProviderSignInRunner } from "./sign-in.ts";
+import type { ProviderSignInRunner, ProviderSignInSession } from "./sign-in.ts";
 
 export class ScriptedProviderSignIn implements ProviderSignInRunner {
   readonly available = true;
   readonly signedOut: string[] = [];
-  readonly #flows = new Map<string, ProviderSignIn>();
+  readonly #flows = new Map<string, { userId: string; accountId: string; flow: ProviderSignIn }>();
   #sequence = 0;
 
-  async current(_userId: string, account: ProviderAccount): Promise<ProviderSignIn | null> {
-    return this.#flows.get(account.id) ?? null;
+  #key(session: ProviderSignInSession, account: ProviderAccount): string {
+    return JSON.stringify([session.userId, session.authSessionId, account.id]);
   }
 
-  async start(_userId: string, account: ProviderAccount): Promise<ProviderSignIn> {
+  #cancelAccount(userId: string, account: ProviderAccount): void {
+    for (const entry of this.#flows.values()) {
+      if (
+        entry.userId === userId &&
+        entry.accountId === account.id &&
+        ["starting", "waiting", "verifying"].includes(entry.flow.phase)
+      )
+        entry.flow = { ...entry.flow, phase: "cancelled", interaction: null };
+    }
+  }
+
+  async current(
+    session: ProviderSignInSession,
+    account: ProviderAccount,
+  ): Promise<ProviderSignIn | null> {
+    const entry = this.#flows.get(this.#key(session, account));
+    return entry === undefined ? null : structuredClone(entry.flow);
+  }
+
+  async start(session: ProviderSignInSession, account: ProviderAccount): Promise<ProviderSignIn> {
+    this.#cancelAccount(session.userId, account);
     this.#sequence += 1;
     const flow: ProviderSignIn = {
       flowId: `flow-${this.#sequence}`,
@@ -28,17 +48,22 @@ export class ScriptedProviderSignIn implements ProviderSignInRunner {
           : { type: "browser", url: "https://auth.openai.com/oauth/authorize" },
       message: null,
     };
-    this.#flows.set(account.id, flow);
-    return flow;
+    this.#flows.set(this.#key(session, account), {
+      userId: session.userId,
+      accountId: account.id,
+      flow,
+    });
+    return structuredClone(flow);
   }
 
-  async cancel(_userId: string, account: ProviderAccount): Promise<void> {
-    const flow = this.#flows.get(account.id);
-    if (flow !== undefined)
-      this.#flows.set(account.id, { ...flow, phase: "cancelled", interaction: null });
+  async cancel(session: ProviderSignInSession, account: ProviderAccount): Promise<void> {
+    const entry = this.#flows.get(this.#key(session, account));
+    if (entry !== undefined && ["starting", "waiting", "verifying"].includes(entry.flow.phase))
+      entry.flow = { ...entry.flow, phase: "cancelled", interaction: null };
   }
 
-  async signOut(_userId: string, account: ProviderAccount): Promise<void> {
+  async signOut(userId: string, account: ProviderAccount): Promise<void> {
+    this.#cancelAccount(userId, account);
     this.signedOut.push(account.id);
   }
 }

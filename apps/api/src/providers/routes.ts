@@ -28,7 +28,7 @@ import {
 } from "@nap/shared/provider-accounts-protocol";
 import type { Context, Hono } from "hono";
 import type { AuthVariables } from "../auth/require-user.ts";
-import type { ProviderSignInRunner } from "./sign-in.ts";
+import type { ProviderSignInRunner, ProviderSignInSession } from "./sign-in.ts";
 
 export type ProviderRouteDeps = {
   accounts: ProviderAccountStore;
@@ -43,10 +43,30 @@ export function registerProviderRoutes(
   deps: ProviderRouteDeps,
 ): void {
   const now = deps.now ?? (() => new Date());
-  const view = async (userId: string, account: ProviderAccount): Promise<ProviderAccountView> => ({
-    ...account,
-    signIn: await deps.signIn.current(userId, account),
-  });
+  const session = (c: Context<{ Variables: AuthVariables }>): ProviderSignInSession | null => {
+    const id = c.get("authSessionId");
+    return typeof id === "string" && id.length > 0
+      ? { userId: c.get("userId"), authSessionId: id }
+      : null;
+  };
+  const view = async (
+    c: Context<{ Variables: AuthVariables }>,
+    account: ProviderAccount,
+  ): Promise<ProviderAccountView> => {
+    const binding = session(c);
+    return {
+      ...account,
+      signIn: binding === null ? null : await deps.signIn.current(binding, account),
+    };
+  };
+  const sessionRequired = (c: Context<{ Variables: AuthVariables }>) =>
+    c.json(
+      {
+        error: "Sign in to nap again before connecting a provider.",
+        code: SIGN_IN_REQUIRED,
+      } satisfies SignInRequired,
+      403,
+    );
 
   /**
    * The two refusals every route makes, in the order that leaks nothing: a guest is told to sign
@@ -89,7 +109,7 @@ export function registerProviderRoutes(
     return c.json({
       signInAvailable: deps.signIn.available,
       checkedAt: now().toISOString(),
-      accounts: await Promise.all(accounts.map((account) => view(userId, account))),
+      accounts: await Promise.all(accounts.map((account) => view(c, account))),
     } satisfies ProviderAccounts);
   });
 
@@ -118,7 +138,7 @@ export function registerProviderRoutes(
       driver: body.data.driver,
       label: body.data.label ?? null,
     });
-    return c.json(await view(userId, account), 201);
+    return c.json(await view(c, account), 201);
   });
 
   app.patch("/providers/accounts/:accountId", async (c) => {
@@ -131,7 +151,7 @@ export function registerProviderRoutes(
     const userId = c.get("userId");
     const account = await deps.accounts.update(userId, found.account.id, body.data);
     if (account === null) return c.json({ error: "No such provider account." }, 404);
-    return c.json(await view(userId, account));
+    return c.json(await view(c, account));
   });
 
   app.delete("/providers/accounts/:accountId", async (c) => {
@@ -140,7 +160,8 @@ export function registerProviderRoutes(
 
     const userId = c.get("userId");
     // Stopped first, so a login finishing a moment later has no account to land on.
-    await deps.signIn.cancel(userId, found.account);
+    const binding = session(c);
+    if (binding !== null) await deps.signIn.cancel(binding, found.account);
     await deps.accounts.revokeAuthorization(userId, found.account.id);
     await deps.signIn.signOut(userId, found.account);
     await deps.accounts.remove(userId, found.account.id);
@@ -160,18 +181,20 @@ export function registerProviderRoutes(
       );
     if (!found.account.enabled) return c.json({ error: "Switch this provider on first." }, 409);
 
-    const userId = c.get("userId");
-    await deps.signIn.start(userId, found.account);
-    return c.json(await view(userId, found.account));
+    const binding = session(c);
+    if (binding === null) return sessionRequired(c);
+    await deps.signIn.start(binding, found.account);
+    return c.json(await view(c, found.account));
   });
 
   app.delete("/providers/accounts/:accountId/sign-in", async (c) => {
     const found = await owned(c);
     if (found.refused !== undefined) return found.refused;
 
-    const userId = c.get("userId");
-    await deps.signIn.cancel(userId, found.account);
-    return c.json(await view(userId, found.account));
+    const binding = session(c);
+    if (binding === null) return sessionRequired(c);
+    await deps.signIn.cancel(binding, found.account);
+    return c.json(await view(c, found.account));
   });
 
   app.post("/providers/accounts/:accountId/sign-out", async (c) => {
@@ -185,7 +208,7 @@ export function registerProviderRoutes(
     // answer it is sent rather than guessing.
     const after = await deps.accounts.get(userId, found.account.id);
     if (after === null) return c.json({ error: "No such provider account." }, 404);
-    return c.json(await view(userId, after));
+    return c.json(await view(c, after));
   });
 }
 

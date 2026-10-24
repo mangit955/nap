@@ -18,13 +18,26 @@ const USER = "00000000-0000-4000-8000-000000000001";
 const WEB = "http://localhost:3000";
 const NOW = new Date("2026-10-23T09:00:00.000Z");
 
-function app(options: { signIn?: ProviderSignInRunner; anonymous?: boolean } = {}) {
-  const accounts = new InMemoryProviderAccountStore();
+const AUTH_SESSION = "00000000-0000-4000-8000-000000000011";
+const OTHER_SESSION = "00000000-0000-4000-8000-000000000012";
+function app(
+  options: {
+    signIn?: ProviderSignInRunner;
+    anonymous?: boolean;
+    authSessionId?: string | null;
+    accounts?: InMemoryProviderAccountStore;
+  } = {},
+) {
+  const accounts = options.accounts ?? new InMemoryProviderAccountStore();
   const signIn = options.signIn ?? new ScriptedProviderSignIn();
   const instance = new Hono<{ Variables: AuthVariables }>();
   instance.use("*", async (c, next) => {
     c.set("userId", USER);
     c.set("isAnonymous", options.anonymous ?? false);
+    c.set(
+      "authSessionId",
+      options.authSessionId === undefined ? AUTH_SESSION : options.authSessionId,
+    );
     await next();
   });
   registerProviderRoutes(instance, { accounts, signIn, webOrigin: WEB, now: () => NOW });
@@ -181,7 +194,9 @@ describe("DELETE /providers/accounts/:accountId", () => {
     const cancel = vi.spyOn(signIn, "cancel");
     const originalSignOut = signIn.signOut.bind(signIn);
     const signOut = vi.spyOn(signIn, "signOut").mockImplementation(async (userId, found) => {
-      await expect(signIn.current(userId, found)).resolves.toMatchObject({ phase: "cancelled" });
+      await expect(
+        signIn.current({ userId, authSessionId: AUTH_SESSION }, found),
+      ).resolves.toMatchObject({ phase: "cancelled" });
       await expect(accounts.get(userId, found.id)).resolves.not.toBeNull();
       await originalSignOut(userId, found);
     });
@@ -193,7 +208,9 @@ describe("DELETE /providers/accounts/:accountId", () => {
     expect(signOut).toHaveBeenCalledBefore(remove);
     expect(res.status).toBe(204);
     await expect(accounts.list(USER)).resolves.toEqual([]);
-    await expect(signIn.current(USER, account)).resolves.toMatchObject({ phase: "cancelled" });
+    await expect(
+      signIn.current({ userId: USER, authSessionId: AUTH_SESSION }, account),
+    ).resolves.toMatchObject({ phase: "cancelled" });
   });
 });
 
@@ -285,7 +302,9 @@ describe("provider route guards", () => {
       await expect(res.json()).resolves.toMatchObject({ code: SIGN_IN_REQUIRED });
       await expect(accounts.list(USER)).resolves.toEqual(before);
       expect(signIn.signedOut).toEqual([]);
-      await expect(signIn.current(USER, account)).resolves.toBeNull();
+      await expect(
+        signIn.current({ userId: USER, authSessionId: AUTH_SESSION }, account),
+      ).resolves.toBeNull();
     },
   );
 
@@ -296,7 +315,7 @@ describe("provider route guards", () => {
       const { app: instance, accounts } = app({ signIn });
       const account = await accounts.create({ userId: USER, driver: "claude", label: "Work" });
       const before = await accounts.list(USER);
-      const flow = await signIn.start(USER, account);
+      const flow = await signIn.start({ userId: USER, authSessionId: AUTH_SESSION }, account);
       const res = await send(
         instance,
         method,
@@ -307,7 +326,9 @@ describe("provider route guards", () => {
       expect(res.status).toBe(403);
       await expect(accounts.list(USER)).resolves.toEqual(before);
       expect(signIn.signedOut).toEqual([]);
-      await expect(signIn.current(USER, account)).resolves.toEqual(flow);
+      await expect(
+        signIn.current({ userId: USER, authSessionId: AUTH_SESSION }, account),
+      ).resolves.toEqual(flow);
     },
   );
 });
@@ -328,4 +349,26 @@ it("revokes private authorization and pending login generations even when native
     generation: 2,
     version: 2,
   });
+});
+
+it("keeps a provider interaction private to its originating Nap session", async () => {
+  const runner = new ScriptedProviderSignIn();
+  const a = app({ signIn: runner });
+  const b = app({ signIn: runner, accounts: a.accounts, authSessionId: OTHER_SESSION });
+  const account = await create(a.app, "claude");
+  await send(a.app, "POST", `/providers/accounts/${account.id}/sign-in`);
+  const other = ProviderAccountsSchema.parse(await (await b.app.request("/providers")).json());
+  expect(other.accounts[0]?.signIn).toBeNull();
+  const own = ProviderAccountsSchema.parse(await (await a.app.request("/providers")).json());
+  expect(own.accounts[0]?.signIn).toMatchObject({ phase: "waiting" });
+});
+
+it("requires a cookie-session binding before starting an available provider runner", async () => {
+  const runner = new ScriptedProviderSignIn();
+  const start = vi.spyOn(runner, "start");
+  const instance = app({ signIn: runner, authSessionId: null });
+  const account = await create(instance.app, "claude");
+  const response = await send(instance.app, "POST", `/providers/accounts/${account.id}/sign-in`);
+  expect(response.status).toBe(403);
+  expect(start).not.toHaveBeenCalled();
 });
