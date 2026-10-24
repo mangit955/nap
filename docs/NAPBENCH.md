@@ -90,6 +90,95 @@ Everything a run produces — reports, trajectories, screenshots and their sidec
 
 ---
 
+## Planted-bug app tests
+
+This is a separate instrument for **test mode**, with its own CLI and report. It does not add
+tasks to `all`, `hard` or `product`, change their arithmetic, or use the generation-task runner.
+Those tasks ask the agent to build something; these must preserve a specimen before the agent
+can inspect it.
+
+```bash
+bun run apps/napbench/scripts/napbench-app-test.ts
+bun run apps/napbench/scripts/napbench-app-test.ts --task=notes-buggy --out=napbench-results/notes-test.json
+```
+
+Both commands are free and offline. They require Bun, Node and git, with no credentials,
+browser, Docker or sandbox service. The default output is `napbench-results/app-test.json`.
+Unknown, empty and duplicate flags are errors. A measured wrong answer exits 0; an unmeasured
+run exits 1. The report and event trajectories are written in either case. A failure preparing
+the fixture or writing the report exits 1 without claiming an observation.
+
+There are two app flows, each with a correct and a buggy version:
+
+- `notes-correct` / `notes-buggy`: save a note and reload. The planted bug writes a different
+  storage key, so the note appears immediately but disappears on reload.
+- `cart-correct` / `cart-buggy`: change the quantity of a $12 notebook. The planted bug adds
+  quantity to price instead of multiplying them.
+
+The specimens live in `apps/napbench/fixtures/app-test/`. Each pair has the same HTML and differs
+by one expression in its JavaScript. The independent DOM tests in
+`apps/napbench/src/app-test-flows.test.tsx` execute those actual handlers and distinguish the
+versions. They simulate remounting for reload and do not establish real-browser behavior.
+The fixtures are outside Biome, like the product corpus; their JavaScript is syntax-checked
+and executed by these tests instead of being silently treated as TypeScript.
+
+`prepareAppTestFixture` creates an isolated local git repository with fixed commit identity,
+timestamps and messages, an initial app commit, then the selected source commit. It runs
+`node --check src/app.js` and `git diff --check`, and requires unchanged HEAD and a clean tree.
+These deterministic checks establish a **syntax checkpoint**, not a finding that its user flow
+works. Both variants must clear it. No correctness oracle runs as part of that checkpoint.
+
+The free composition mirrors these files into the sandbox fake and answers the runtime's git
+reads with actual git commands against that local repository. The source diff is never a
+handwritten string. The harness writes the bootstrap job, completion, verification and checkpoint
+events itself, marked `seedOrigin: "harness"` in the report. It runs no generation agent turn.
+Then `runAppTest` calls production `Runtime.runTurn` exactly once with `kind: "test"` and the
+checkpointed job ID. The production runtime constructs the source-grounded prompt and enforces
+its read-only test tools. The harness checks both local and mirrored source after the test.
+
+The evaluator in `packages/bench/src/app-test.ts` owns the expected verdict. Each pair receives
+the same neutral objective, including stable chapter and assertion IDs so the evaluator can
+identify the requested flow without interpreting prose. Neither the task ID, variant nor
+expected verdict enters the runtime request or prompt. The code under inspection can reveal
+its own bug; the evaluator's answer cannot. The runtime imports no benchmark code, and the
+evaluator imports no runtime ledger or model judge.
+
+A result needs a completed test turn for the intended job and source commit, a stored screenshot,
+nonempty assertions with no untested entries, matching structured counts, and a completed
+assertion with the designated chapter and assertion IDs. Runtime interruption, failed tools,
+missing capture, source changes and unrelated assertions make it **unmeasured**, with a null
+score. Of the measured results, the matching failed assertion earns 1 on a buggy specimen;
+the matching passed assertion with no other failures earns 1 on a correct specimen. The opposite
+verdict earns 0. Agent messages are never read by the scorer. Detection and correct acceptance
+are reported separately, alongside the number of unmeasured runs.
+
+The default provider always reports `passed`, regardless of source. Its computer clicks fixed
+coordinates and returns synthetic JPEG marker bytes. It neither runs a browser nor exercises
+the app flow. Consequently the default run catches **0 of 2 planted bugs** and accepts **2 of 2
+correct specimens**, as apparatus checks only. Every report says `mode: "scripted"` and
+`modelCapability: null`. These numbers establish no model capability. The in-memory screenshot
+bytes are checked against their emitted keys during the run; they are not real image artifacts.
+These reports are not inputs to the generation benchmark's comparison or Harbor reward tools.
+
+### Real evaluation remains pending
+
+`--real` records explicit intent in the parser but currently refuses before composition with
+`Real app-test evaluation is pending`. There is no paid implementation behind this flag yet.
+It must never silently run fakes for a request to measure a real model. No template publication,
+real sandbox or real model evaluation is part of this delivery, and the ticket remains open.
+
+The proposed next composition is one disposable E2B sandbox per specimen, loaded with this exact
+git source range while retaining the template's installed toolchain. Run the deterministic checks
+on that machine before recording its checkpoint, verify HEAD and the diff, and prove the desktop
+shows the fixture before calling the model. Compose the existing production runtime, agent and
+desktop adapter, archive actual screenshot objects beside the events, and make the same single
+`kind: "test"` call. It needs explicit paid approval and `--real`, an approved desktop template,
+an image-capable model and fixed test budgets. Keep pairs serial and balanced across repeats,
+record model/budget/harness and source identities, report unmeasured runs separately, and destroy
+each sandbox in `finally`. A funded run must establish bug detection and correct acceptance;
+the scripted apparatus cannot substitute for it. This proposal adds no runtime API or evaluator
+dependency and leaves approval and integration with the parent implementation.
+
 ## Architecture
 
 Two units, per [ADR-0001](adr/0001-napbench-splits-into-a-pure-package-and-an-app.md), over a
