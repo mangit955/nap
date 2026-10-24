@@ -1,42 +1,20 @@
 import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
-import { APP_TEST_TASKS, parseAppTestArgs } from "@nap/bench/app-test";
+import { dirname, join } from "node:path";
+import { parseAppTestArgs } from "@nap/bench/app-test";
+import { loadEnvFile } from "@nap/shared/env-file";
+import { runAppTestCommand } from "./app-test-command.ts";
 
 try {
-  const options = parseAppTestArgs(process.argv.slice(2));
-  if (options.real)
-    throw new Error(
-      "Real app-test evaluation is pending paid approval and an approved desktop template/composition. See docs/NAPBENCH.md, Planted-bug app tests.",
-    );
-  // Import only after refusing real intent and invalid flags. The free path reads no credentials.
-  const { runScriptedAppTest } = await import("./app-test-harness.ts");
-  const tasks = APP_TEST_TASKS.filter(
-    (task) => options.taskId === null || task.id === options.taskId,
-  );
-  const runs = [];
-  for (const task of tasks) runs.push(await runScriptedAppTest(task));
-  const measured = runs.filter((run) => run.assessment.status === "measured");
-  const bugs = measured.filter((run) => run.task.expected === "failed");
-  const correct = measured.filter((run) => run.task.expected === "passed");
-  const report = {
-    mode: "scripted",
-    modelCapability: null,
-    realEvaluation: "pending",
-    apparatus: {
-      bugsCaught: bugs.filter((run) => run.assessment.score === 1).length,
-      bugsTested: bugs.length,
-      correctAccepted: correct.filter((run) => run.assessment.score === 1).length,
-      correctTested: correct.length,
-      unmeasured: runs.length - measured.length,
-    },
-    runs,
-  };
-  mkdirSync(dirname(options.out), { recursive: true });
-  writeFileSync(options.out, `${JSON.stringify(report, null, 2)}\n`);
+  const args = process.argv.slice(2);
+  if (parseAppTestArgs(args).real)
+    loadEnvFile(join(import.meta.dirname, "../../api/.env"), process.env);
+  const result = await runAppTestCommand({ args, env: process.env });
+  mkdirSync(dirname(result.out), { recursive: true });
+  writeFileSync(result.out, `${JSON.stringify(result.report, null, 2)}\n`);
   console.log(
-    `Scripted apparatus only; no model capability measured. ${JSON.stringify(report.apparatus)}\n${options.out}`,
+    `${result.report.mode === "real" ? "Real app-test outcomes" : "Scripted apparatus only; no model capability measured"}. ${JSON.stringify(result.report.outcomes)}\n${result.out}`,
   );
-  process.exitCode = report.apparatus.unmeasured === 0 ? 0 : 1;
+  process.exitCode = result.exitCode;
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;

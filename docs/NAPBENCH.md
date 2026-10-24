@@ -155,29 +155,79 @@ are reported separately, alongside the number of unmeasured runs.
 The default provider always reports `passed`, regardless of source. Its computer clicks fixed
 coordinates and returns synthetic JPEG marker bytes. It neither runs a browser nor exercises
 the app flow. Consequently the default run catches **0 of 2 planted bugs** and accepts **2 of 2
-correct specimens**, as apparatus checks only. Every report says `mode: "scripted"` and
+correct specimens**, as apparatus checks only. Each free report says `mode: "scripted"` and
 `modelCapability: null`. These numbers establish no model capability. The in-memory screenshot
 bytes are checked against their emitted keys during the run; they are not real image artifacts.
 These reports are not inputs to the generation benchmark's comparison or Harbor reward tools.
 
-### Real evaluation remains pending
+### Real composition and pending evaluation
 
-`--real` records explicit intent in the parser but currently refuses before composition with
-`Real app-test evaluation is pending`. There is no paid implementation behind this flag yet.
-It must never silently run fakes for a request to measure a real model. No template publication,
-real sandbox or real model evaluation is part of this delivery, and the ticket remains open.
+`--real` now selects `E2BSandboxManager`, `E2BSandboxDesktop`, and `ClaudeProvider` through the
+existing OpenRouter Messages client and model mapper. It uses `NapContextEngine`,
+`SingleAgentRuntime`, and isolated in-memory event, session, and object stores. It needs no host
+Chrome, database, object-storage account, or video recorder.
 
-The proposed next composition is one disposable E2B sandbox per specimen, loaded with this exact
-git source range while retaining the template's installed toolchain. Run the deterministic checks
-on that machine before recording its checkpoint, verify HEAD and the diff, and prove the desktop
-shows the fixture before calling the model. Compose the existing production runtime, agent and
-desktop adapter, archive actual screenshot objects beside the events, and make the same single
-`kind: "test"` call. It needs explicit paid approval and `--real`, an approved desktop template,
-an image-capable model and fixed test budgets. Keep pairs serial and balanced across repeats,
-record model/budget/harness and source identities, report unmeasured runs separately, and destroy
-each sandbox in `finally`. A funded run must establish bug detection and correct acceptance;
-the scripted apparatus cannot substitute for it. This proposal adds no runtime API or evaluator
-dependency and leaves approval and integration with the parent implementation.
+A real invocation requires explicit approval covering **both sandbox and model calls**.
+Approval for a template build or one cloud VM does not authorize model evaluation. The following
+is an invocation example, not a record of a run. The template name must identify an approved
+desktop template that is already published:
+
+```bash
+bun run apps/napbench/scripts/napbench-app-test.ts --real \
+  --template=approved-desktop-template --model=anthropic/claude-sonnet-5 \
+  --max-steps=8 --max-tokens=40000 --budget-tokens=20000 --max-output-tokens=2000
+```
+
+There is no implicit real model or budget. All five model and limit flags above are required.
+The model must be a canonical ID accepted by `modelSupportsImages`. Step and token limits must
+be positive safe integers; the context and output ceilings cannot exceed the turn-token ceiling.
+The context engine also enforces its minimum budget before any factory runs. `--max-steps` and
+`--max-tokens` configure the production agent's separate **test** budget. `--budget-tokens`
+configures context assembly. `--max-output-tokens` configures each provider response, including
+OpenRouter's up-front reservation. `--effort` is optional and defaults to `medium`; accepted values
+are `low`, `medium`, `high`, `xhigh`, and `max`. `--template` defaults to `NAP_TEMPLATE`.
+Model, template, and budget flags require `--real`. Unknown, duplicate, and malformed flags fail.
+There is no `--keep` option.
+
+The CLI reads `E2B_API_KEY` and `OPENROUTER_API_KEY` from the process environment or `apps/api/.env`
+only after argument validation. Both keys, the image capability, every limit, and the report
+destination are checked before production factory construction or VM creation. Factories are
+lazy; no external client is created merely by importing the command module. Credentials are
+absent from the report and model input.
+
+Each selected fixture gets a fresh VM and opaque project, session, job, and turn IDs. The runner
+requires a clean template baseline, writes only `index.html` and `src/app.js`, syntax-checks the
+source, and commits those paths on that machine. Extra template files and installed dependencies
+stay in place. The remote SHA need not equal the local specimen SHA. Its parent must equal the
+actual template baseline, and its authentic diff must contain exactly the canonical specimen
+paths. HEAD, clean status, and file contents are checked before the checkpoint and after the test.
+
+Before recording the harness checkpoint, the runner waits for the dev server, checks its served
+heading, starts the sandbox desktop, confirms that heading in its DOM observation, and captures
+a preflight image. A failure at any preparation stage produces no model call. Only then does it
+bootstrap the verified job and make the single production `kind: "test"` call. No task ID,
+variant, or expected verdict enters the prompt. Both source-grounded testing and scoring use the
+same production path and independent evaluator as the free composition.
+
+Real screenshot objects, including the preflight image, are archived under
+`app-test-artifacts/<opaque-session-id>/` beside the report. Filenames hash the object key; paths
+in the report are relative to its directory. The report records the model, effort, budgets,
+template, actual source range, events, assertions, and separate detection and correct-acceptance
+counts. Missing evidence, post-test source changes, archive errors, and cleanup failures are
+unmeasured. The runner attempts to destroy its own VM in `finally` on every path after creation.
+A failed destruction records the sandbox ID for cleanup and cannot retain a successful score.
+
+The free suite tests real selection through injected factories and fake ports, with actual local
+git repositories standing in for remote execution. Those tests also use a baseline containing
+extra template files, and record `execution: "injected"` with `modelCapability: null`. Adapter
+construction tests replace every external client. They make no E2B or OpenRouter request.
+The ordinary free CLI still reports `execution: "scripted"` and cannot claim model capability.
+Only production execution can record real-model observations.
+
+The implementation is ready for separate paid validation. No production composition, template build,
+VM, or model evaluation has been executed for this ticket. The issue remains open until approved
+real trials establish the measured behavior. Repeated, balanced trials and a reviewed desktop
+template are prerequisites for a capability claim beyond individual observations.
 
 ## Architecture
 

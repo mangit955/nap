@@ -1,5 +1,7 @@
+import { modelSupportsImages } from "@nap/shared/model-capabilities";
 import type { EventStore, StoredEvent } from "@nap/shared/ports/event-store";
 import type { Runtime, TurnOutcome } from "@nap/shared/ports/runtime";
+import { z } from "zod";
 
 export type AppTestTask = {
   id: string;
@@ -163,6 +165,16 @@ export function parseAppTestArgs(args: readonly string[]) {
   let taskId: string | null = null;
   let out = "napbench-results/app-test.json";
   const seen = new Set<string>();
+  const paid = new Map<string, string>();
+  const paidFlags = [
+    "--model",
+    "--max-steps",
+    "--max-tokens",
+    "--budget-tokens",
+    "--max-output-tokens",
+    "--effort",
+    "--template",
+  ];
   for (const arg of args) {
     const flag = arg.split("=")[0] ?? "";
     if (seen.has(flag)) throw new Error(`Duplicate flag: ${flag}`);
@@ -171,7 +183,55 @@ export function parseAppTestArgs(args: readonly string[]) {
     else if (arg.startsWith("--task=") && APP_TEST_TASKS.some((task) => task.id === arg.slice(7)))
       taskId = arg.slice(7);
     else if (arg.startsWith("--out=") && arg.slice(6).trim()) out = arg.slice(6);
+    else if (
+      paidFlags.includes(flag) &&
+      arg.startsWith(`${flag}=`) &&
+      arg.slice(flag.length + 1).trim()
+    )
+      paid.set(flag, arg.slice(flag.length + 1));
     else throw new Error(`Unknown or invalid argument: ${arg}`);
   }
-  return { real, taskId, out };
+  if (!real) {
+    if (paid.size) throw new Error("Model, template and limit flags require --real.");
+    return { real: false as const, taskId, out };
+  }
+  const require = (flag: string) => {
+    const value = paid.get(flag);
+    if (!value) throw new Error(`Real app tests require explicit ${flag}.`);
+    return value;
+  };
+  const integer = (flag: string) => {
+    const value = require(flag);
+    const parsed = Number(value);
+    if (!/^[1-9][0-9]*$/.test(value) || !Number.isSafeInteger(parsed))
+      throw new Error(`${flag} must be a positive safe integer.`);
+    return parsed;
+  };
+  const model = require("--model");
+  if (!modelSupportsImages(model))
+    throw new Error("--model must name a supported, canonical image-capable model.");
+  const maxSteps = integer("--max-steps");
+  const maxTokens = integer("--max-tokens");
+  const budgetTokens = integer("--budget-tokens");
+  const maxOutputTokens = integer("--max-output-tokens");
+  if (budgetTokens > maxTokens || maxOutputTokens > maxTokens)
+    throw new Error("Context and output limits must not exceed --max-tokens.");
+  const effort = z
+    .enum(["low", "medium", "high", "xhigh", "max"])
+    .parse(paid.get("--effort") ?? "medium");
+  const template = paid.get("--template");
+  if (template && !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(template))
+    throw new Error("Invalid --template name or ID.");
+  return {
+    real: true as const,
+    taskId,
+    out,
+    model,
+    maxSteps,
+    maxTokens,
+    budgetTokens,
+    maxOutputTokens,
+    effort,
+    template,
+  };
 }

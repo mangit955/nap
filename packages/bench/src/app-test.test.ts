@@ -285,10 +285,28 @@ it("parses a free default, explicit real intent and rejects typos before composi
     taskId: null,
     out: "napbench-results/app-test.json",
   });
-  expect(parseAppTestArgs(["--real", "--task=notes-buggy", "--out=/tmp/result.json"])).toEqual({
+  expect(
+    parseAppTestArgs([
+      "--real",
+      "--task=notes-buggy",
+      "--out=/tmp/result.json",
+      "--model=anthropic/claude-sonnet-5",
+      "--max-steps=8",
+      "--max-tokens=40000",
+      "--budget-tokens=20000",
+      "--max-output-tokens=2000",
+    ]),
+  ).toEqual({
     real: true,
     taskId: "notes-buggy",
     out: "/tmp/result.json",
+    model: "anthropic/claude-sonnet-5",
+    maxSteps: 8,
+    maxTokens: 40000,
+    budgetTokens: 20000,
+    maxOutputTokens: 2000,
+    effort: "medium",
+    template: undefined,
   });
   for (const args of [
     ["--rael"],
@@ -296,6 +314,46 @@ it("parses a free default, explicit real intent and rejects typos before composi
     ["--out="],
     ["--real=false"],
     ["--real", "--real"],
+    ["--real"],
+    ["--model=anthropic/claude-sonnet-5"],
   ])
     expect(() => parseAppTestArgs(args)).toThrow();
+});
+
+it("requires every real limit, canonical image model and strict positive safe integers", () => {
+  const flags = [
+    "--real",
+    "--model=anthropic/claude-sonnet-5",
+    "--max-steps=8",
+    "--max-tokens=40000",
+    "--budget-tokens=20000",
+    "--max-output-tokens=2000",
+  ];
+  for (const flag of flags.slice(1))
+    expect(() => parseAppTestArgs(flags.filter((f) => f !== flag))).toThrow();
+  for (const value of ["0", "-1", "1.5", "NaN", "1e3", "9007199254740992", "1x", "", " 8"]) {
+    expect(() =>
+      parseAppTestArgs(
+        flags.map((flag) => (flag.startsWith("--max-steps=") ? `--max-steps=${value}` : flag)),
+      ),
+    ).toThrow();
+  }
+  for (const flag of [
+    "--model=unknown",
+    "--model=openai/gpt-oss-20b:free",
+    "--model=claude-sonnet-5",
+    "--effort=wat",
+    "--template=",
+    "--keep",
+    "--max-tokens=1",
+    "--max-output-tokens=50000",
+  ]) {
+    const key = flag.split("=")[0];
+    expect(() =>
+      parseAppTestArgs([...flags.filter((f) => f.split("=")[0] !== key), flag]),
+    ).toThrow();
+  }
+  expect(parseAppTestArgs([...flags, "--effort=low", "--template=approved-desktop"])).toMatchObject(
+    { effort: "low", template: "approved-desktop" },
+  );
 });

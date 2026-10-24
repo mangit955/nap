@@ -37,6 +37,6 @@ it.each(["--real", "--rael", "--task=unknown"])(
       encoding: "utf8",
     });
     expect(result.status).toBe(1);
-    if (arg === "--real") expect(result.stderr).toContain("Real app-test evaluation is pending");
+    if (arg === "--real") expect(result.stderr).toContain("--model");
   },
 );
