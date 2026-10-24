@@ -1,0 +1,10 @@
+ignore changed port	observed assertion failure
+restart every batch	observed assertion failure
+ignore start ticks	observed assertion failure
+ignore profile	observed assertion failure
+trust foreign socket	observed assertion failure
+skip startup lock	observed assertion failure
+trust browser health	observed assertion failure
+skip final readiness	observed assertion failure
+allow localhost subdomains	observed assertion failure
+skip port validation	observed assertion failure

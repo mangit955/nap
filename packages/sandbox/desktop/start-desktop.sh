@@ -11,6 +11,56 @@ mkdir -p "$state"
 chmod 700 "$state"
 exec 9>"$state/start.lock"
 flock -w 45 9
+
+fail() { echo "Desktop startup: $*" >&2; exit 1; }
+chrome_pid= chrome_ticks= chrome_port=
+start_ticks() {
+  local stat
+  local -a fields
+  [[ "$1" =~ ^[1-9][0-9]*$ ]] && [[ -r "/proc/$1/stat" ]] || return 1
+  IFS= read -r stat < "/proc/$1/stat" || return 1
+  # comm can contain spaces and closing parentheses; fields after its last ')' are fixed.
+  read -r -a fields <<< "${stat##*) }"
+  [[ "${fields[0]:-Z}" != Z && "${fields[19]:-}" =~ ^[0-9]+$ ]] || return 1
+  printf '%s\n' "${fields[19]}"
+}
+owned_chrome() {
+  [[ -n "$chrome_ticks" && "$(start_ticks "$chrome_pid")" == "$chrome_ticks" ]] &&
+    grep -Fzxq -- "--user-data-dir=$state/chrome" "/proc/$chrome_pid/cmdline" &&
+    grep -Fzxq -- '--remote-debugging-port=9222' "/proc/$chrome_pid/cmdline" &&
+    [[ "$(start_ticks "$chrome_pid")" == "$chrome_ticks" ]]
+}
+debug_sockets() {
+  awk '$2 ~ /:2406$/ && $4 == "0A" {print $10}' /proc/net/tcp /proc/net/tcp6
+}
+check_debug_owner() {
+  local sockets inode fd found
+  sockets=$(debug_sockets) || fail 'Cannot inspect the debugging listener.'
+  for inode in $sockets; do
+    owned_chrome || fail 'Port 9222 is not owned by this desktop.'
+    found=false
+    for fd in /proc/"$chrome_pid"/fd/*; do
+      if [[ "$(readlink "$fd" 2>/dev/null)" == "socket:[$inode]" ]]; then found=true; break; fi
+    done
+    "$found" || fail 'Port 9222 is not owned by this desktop.'
+  done
+}
+chrome_ready() {
+  owned_chrome && [[ -n "$(debug_sockets)" ]] &&
+    curl --max-time 1 -fsS http://127.0.0.1:9222/json/version >/dev/null 2>&1
+}
+if [[ -f "$state/chrome-owner" ]]; then
+  read -r chrome_pid chrome_ticks chrome_port extra < "$state/chrome-owner" || fail 'Invalid Chrome ownership record.'
+  [[ "$chrome_pid" =~ ^[1-9][0-9]*$ && "$chrome_pid" != 1 && "$chrome_ticks" =~ ^[0-9]+$ && "$chrome_port" =~ ^[0-9]+$ && -z "$extra" ]] || fail 'Invalid Chrome ownership record.'
+  if start_ticks "$chrome_pid" >/dev/null; then
+    owned_chrome || fail 'Chrome process identity changed; refusing to signal it.'
+  fi
+fi
+check_debug_owner
+if curl --max-time 1 -fsS http://127.0.0.1:9222/json/version >/dev/null 2>&1; then
+  chrome_ready || fail 'Port 9222 is not owned by this desktop.'
+fi
+
 export DISPLAY=:99
 if ! xdpyinfo >/dev/null 2>&1; then
   Xvfb :99 -screen 0 1024x768x24 -nolisten tcp >"$state/xvfb.log" 2>&1 9>&- &
@@ -21,12 +71,37 @@ if ! pgrep -u "$(id -u)" -x openbox >/dev/null; then
   openbox >"$state/openbox.log" 2>&1 9>&- &
 fi
 policy=/etc/opt/chrome/policies/managed/nap.json
-policy_json > "$policy"
-if ! curl -fsS http://127.0.0.1:9222/json/version >/dev/null 2>&1; then
+if [[ "$chrome_port" != "$port" ]] || ! chrome_ready; then
+  if owned_chrome; then
+    # Recheck identity immediately before signalling only the browser we launched.
+    owned_chrome && kill -TERM "$chrome_pid"
+    for attempt in {1..100}; do
+      [[ "$(start_ticks "$chrome_pid")" != "$chrome_ticks" ]] && break
+      sleep .1
+    done
+    [[ "$(start_ticks "$chrome_pid")" != "$chrome_ticks" ]] || fail 'Owned Chrome did not stop.'
+  fi
+  chrome_pid= chrome_ticks=
+  check_debug_owner
+  policy_json > "$policy"
   google-chrome-stable --no-sandbox --disable-dev-shm-usage --disable-gpu --no-first-run --no-default-browser-check --password-store=basic --disable-sync --disable-breakpad --window-size=1024,768 --start-maximized --user-data-dir="$state/chrome" --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 "http://localhost:$port" >"$state/chrome.log" 2>&1 9>&- &
+  chrome_pid=$!
+  for attempt in {1..100}; do
+    chrome_ticks=$(start_ticks "$chrome_pid") && break
+    sleep .1
+  done
+  [[ -n "$chrome_ticks" ]] || fail 'Cannot identify launched Chrome.'
+  chrome_port=$port
+  printf '%s %s %s\n' "$chrome_pid" "$chrome_ticks" "$chrome_port" > "$state/chrome-owner.tmp"
+  mv "$state/chrome-owner.tmp" "$state/chrome-owner"
 fi
-for attempt in {1..150}; do curl -fsS http://127.0.0.1:9222/json/version >/dev/null 2>&1 9>&- && break; sleep .1; done
-curl -fsS http://127.0.0.1:9222/json/version >/dev/null
+for attempt in {1..150}; do
+  check_debug_owner
+  chrome_ready && break
+  sleep .1
+done
+check_debug_owner
+chrome_ready || fail 'Owned Chrome is not ready.'
 if [[ ! -f "$state/password" ]]; then
   openssl rand -base64 6 > "$state/password"
   chmod 600 "$state/password"
@@ -40,4 +115,6 @@ if ! curl -fsS http://127.0.0.1:6080/vnc.html >/dev/null 2>&1; then
 fi
 for attempt in {1..50}; do curl -fsS http://127.0.0.1:6080/vnc.html >/dev/null 2>&1 9>&- && break; sleep .1; done
 curl -fsS http://127.0.0.1:6080/vnc.html >/dev/null
+check_debug_owner
+chrome_ready || fail 'Owned Chrome is not ready.'
 printf '{"width":1024,"height":768}\n'

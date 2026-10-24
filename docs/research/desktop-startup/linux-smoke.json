@@ -1,0 +1,13 @@
+{
+  "passed": true,
+  "actualChrome": false,
+  "browserLaunches": 2,
+  "samePortStatePreserved": true,
+  "changedPortRestarted": true,
+  "unknownEndpointRejected": true,
+  "ticksMismatchRejected": true,
+  "lockReleasedAndSerialized": true,
+  "vncFailureRetried": true,
+  "xvfbReused": true,
+  "unrelatedProcessPreserved": true
+}
