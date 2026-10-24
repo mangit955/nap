@@ -274,3 +274,20 @@ it("resizes the shared sidebar by keyboard and restores its width", () => {
   );
   localStorage.clear();
 });
+
+it("hides thread controls under the mobile sessions drawer and restores them on close", () => {
+  render(
+    <Dashboard
+      sidebar={<nav aria-label="Sessions">Sessions</nav>}
+      hero={<p>Composer</p>}
+      details={<button type="button">Toggle thread details panel</button>}
+    />,
+  );
+  const toggle = screen.getByRole("button", { name: "Toggle thread details panel" });
+  fireEvent.click(screen.getByRole("button", { name: "Open sessions" }));
+  expect(screen.queryByRole("button", { name: "Toggle thread details panel" })).toBeNull();
+  expect(toggle.closest("[inert]")).not.toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Close sessions" }));
+  expect(screen.getByRole("button", { name: "Toggle thread details panel" })).toBeVisible();
+  expect(toggle.closest("[inert]")).toBeNull();
+});

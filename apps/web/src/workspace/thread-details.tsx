@@ -66,10 +66,10 @@ import {
   formatDiffCount,
   quickAction,
 } from "./thread-details-logic.ts";
+import { usePublicationAdmission } from "./use-publication-admission.ts";
 
 /** The chat header's height: the card is placed in the canvas below it. */
 const HEADER_HEIGHT = 52;
-const admittedSchema = z.object({ requestId: z.uuid() });
 const environmentSavedSchema = z.object({ saved: z.literal(true) });
 
 export type DetailsPresentation = "inline" | "popover";
@@ -80,13 +80,14 @@ export type DetailsPresentation = "inline" | "popover";
  * press outside it, the way T3 Code's does.
  */
 export function useThreadDetails(key: string) {
+  const id = useId();
   const [element, setElement] = useState<HTMLElement | null>(null);
   const [presentation, setPresentation] = useState<DetailsPresentation>("popover");
   const [inlineOpen, setInlineOpen] = useState(true);
   const [popoverOpen, setPopoverOpen] = useState(false);
   const storageKey = `nap:thread-details:${key}`;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     setInlineOpen(readStoredOpen(storageKey));
     setPopoverOpen(false);
   }, [storageKey]);
@@ -124,6 +125,7 @@ export function useThreadDetails(key: string) {
   const dismiss = useCallback(() => setPopoverOpen(false), []);
 
   return {
+    id,
     ref: setElement,
     presentation,
     open: presentation === "inline" ? inlineOpen : popoverOpen,
@@ -155,6 +157,9 @@ export function ThreadDetailsPanel({
   phase,
   previewUrl,
   revision,
+  replayed = true,
+  sandboxId,
+  id,
   presentation,
   onDismiss,
   onOpenChanges,
@@ -168,6 +173,9 @@ export function ThreadDetailsPanel({
   previewUrl: string | undefined;
   /** Bumped by every event that may have moved the branch or a pull request. */
   revision: number;
+  replayed?: boolean;
+  sandboxId?: string | null | undefined;
+  id?: string;
   presentation: DetailsPresentation;
   onDismiss: () => void;
   onOpenChanges: () => void;
@@ -175,33 +183,42 @@ export function ThreadDetailsPanel({
   fetchJson?: FetchJson | undefined;
   baseUrl?: string;
 }) {
-  const github = useProjectGitHub(projectId, revision, fetchJson, baseUrl);
+  const github = useProjectGitHub(projectId, revision, fetchJson, baseUrl, replayed);
   const repository = github.state?.repository ?? null;
   const job = currentJob(github.state?.jobs ?? []);
-  const comparison = useBranchComparison(sessionId, repository?.baseBranch, revision, fetchJson);
+  const comparison = useBranchComparison(
+    replayed && github.state !== undefined ? sessionId : undefined,
+    repository?.baseBranch,
+    revision,
+    fetchJson,
+    baseUrl,
+    sandboxId,
+  );
   const branch = comparison?.branch || job?.headBranch || repository?.baseBranch;
-  const [requesting, setRequesting] = useState(false);
-  const [error, setError] = useState<string>();
+  const publication = usePublicationAdmission({
+    baseUrl,
+    projectId,
+    sessionId: job?.sessionId,
+    userId: repository?.userId,
+    jobId: job?.projectId === projectId && job.sessionId === sessionId ? job.jobId : undefined,
+    fetchJson,
+    reload: github.reload,
+  });
   const [scriptsOpen, setScriptsOpen] = useState(false);
-  const action = quickAction(job, requesting);
+  const action = quickAction(job, publication.pending);
+  const publicationError =
+    publication.error ??
+    (!publication.pending && job?.publishState === "failed" ? job.error : undefined);
+  const clearPublicationError = publication.clearError;
+  useEffect(() => {
+    void job?.jobId;
+    void job?.updatedAt;
+    void revision;
+    clearPublicationError();
+  }, [job?.jobId, job?.updatedAt, revision, clearPublicationError]);
 
-  const publish = async () => {
-    if (job === null) return;
-    setRequesting(true);
-    setError(undefined);
-    const result = await githubRequest(
-      fetchJson,
-      `${baseUrl}/projects/${projectId}/github/publish`,
-      admittedSchema,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ jobId: job.jobId }),
-      },
-    );
-    if (!result.ok) setError(result.error);
-    await github.reload();
-    setRequesting(false);
+  const publish = () => {
+    if (job && action.kind !== "progress" && canPublish(job)) void publication.publish();
   };
 
   const leave = (then: () => void) => () => {
@@ -222,7 +239,12 @@ export function ThreadDetailsPanel({
                     {
                       id: "github" as const,
                       label: "GitHub",
-                      url: branchUrl(repository.repository.fullName, branch),
+                      url: branchUrl(
+                        repository.repository.fullName,
+                        job?.pushedSha !== null && job?.headBranch === branch
+                          ? branch
+                          : repository.baseBranch,
+                      ),
                     },
                   ]
                 : []),
@@ -259,7 +281,7 @@ export function ThreadDetailsPanel({
                 href={job.pullRequestUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                aria-label={`Pull request #${job.pullRequestNumber}, ${PULL_REQUEST_STATE[job.pullRequestState].toLowerCase()}`}
+                aria-label={`Pull request #${job.pullRequestNumber}${job.pullRequestState === "none" ? "" : `, ${PULL_REQUEST_STATE[job.pullRequestState].toLowerCase()}`}`}
               >
                 <GitPullRequest aria-hidden="true" />
                 <span className="t3-td-label">#{job.pullRequestNumber}</span>
@@ -277,16 +299,32 @@ export function ThreadDetailsPanel({
                       : "Commit, push & PR"
                 }
                 pullRequestUrl={job?.pullRequestUrl ?? null}
-                onPublish={() => void publish()}
+                onPublish={publish}
+                onCheckPublication={publication.checkPublication}
                 onOpenPullRequests={leave(onOpenPullRequests)}
               />
             )}
-            {error && (
-              <p role="alert" className="t3-td-error">
-                {error}
+            {action.kind === "progress" && (
+              <p role="status" className="t3-td-note">
+                {publication.queued
+                  ? "Publication queued. "
+                  : publication.pending
+                    ? "Publication awaiting confirmation. "
+                    : "Publication in progress. "}
+                Use Git action options to check status or open Pull requests to retry if
+                interrupted.
               </p>
             )}
-            <ChangesRow totals={comparison?.totals} onOpen={leave(onOpenChanges)} />
+            {publicationError && (
+              <p role="alert" className="t3-td-error">
+                {publicationError}
+              </p>
+            )}
+            <ChangesRow
+              totals={comparison?.totals}
+              partial={comparison?.partial}
+              onOpen={leave(onOpenChanges)}
+            />
           </DetailsSection>
         )}
       </div>
@@ -314,7 +352,7 @@ export function ThreadDetailsPanel({
     </>
   );
   return (
-    <DetailsFrame presentation={presentation} onDismiss={onDismiss}>
+    <DetailsFrame id={id} presentation={presentation} onDismiss={onDismiss}>
       {body}
     </DetailsFrame>
   );
@@ -333,11 +371,13 @@ export type DraftSource = {
  * would edit one hand back to it rather than saving anything themselves.
  */
 export function DraftThreadDetails({
+  id,
   source,
   presentation,
   onDismiss,
   onEditSource,
 }: {
+  id?: string;
   source: DraftSource | null;
   presentation: DetailsPresentation;
   onDismiss: () => void;
@@ -348,7 +388,7 @@ export function DraftThreadDetails({
     if (presentation === "popover") onDismiss();
   };
   return (
-    <DetailsFrame presentation={presentation} onDismiss={onDismiss}>
+    <DetailsFrame id={id} presentation={presentation} onDismiss={onDismiss}>
       <div className="t3-thread-details-card composer-surface nap-scroll">
         <DetailsSection title="Workspace">
           <SandboxRow state="starts with your first message" />
@@ -402,10 +442,12 @@ export function DraftThreadDetails({
  * the conversation, a complementary landmark that stays until its toggle closes it.
  */
 function DetailsFrame({
+  id,
   presentation,
   onDismiss,
   children,
 }: {
+  id?: string | undefined;
   presentation: DetailsPresentation;
   onDismiss: () => void;
   children: ReactNode;
@@ -414,6 +456,18 @@ function DetailsFrame({
   const setCard = useCallback((element: HTMLElement | null) => {
     card.current = element;
   }, []);
+  useLayoutEffect(() => {
+    if (presentation !== "popover") return;
+    const element = card.current;
+    const trigger = element?.parentElement?.querySelector<HTMLElement>(
+      "[data-thread-details-toggle]",
+    );
+    element?.focus();
+    return () => {
+      if (element?.contains(document.activeElement) || document.activeElement === document.body)
+        trigger?.focus();
+    };
+  }, [presentation]);
   useEffect(() => {
     if (presentation !== "popover") return;
     const press = (event: PointerEvent) => {
@@ -424,9 +478,13 @@ function DetailsFrame({
     };
     const escapeKey = (event: globalThis.KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented) return;
-      if (!(event.target instanceof Node) || !card.current?.contains(event.target)) return;
+      if (!(event.target instanceof Element) || event.target.closest("dialog") !== card.current)
+        return;
+      event.preventDefault();
       onDismiss();
-      document.querySelector<HTMLElement>("[data-thread-details-toggle]")?.focus();
+      card.current?.parentElement
+        ?.querySelector<HTMLElement>("[data-thread-details-toggle]")
+        ?.focus();
     };
     document.addEventListener("pointerdown", press);
     document.addEventListener("keydown", escapeKey);
@@ -437,7 +495,9 @@ function DetailsFrame({
   }, [presentation, onDismiss]);
   return presentation === "popover" ? (
     <dialog
+      id={id}
       ref={setCard}
+      tabIndex={-1}
       open
       aria-label="Thread details"
       className="t3-thread-details"
@@ -447,6 +507,7 @@ function DetailsFrame({
     </dialog>
   ) : (
     <aside
+      id={id}
       ref={setCard}
       aria-label="Thread details"
       className="t3-thread-details"
@@ -462,10 +523,14 @@ export function ThreadDetailsToggle({
   open,
   onToggle,
   className = "t3-icon-button",
+  presentation = "inline",
+  controls,
 }: {
   open: boolean;
   onToggle: () => void;
   className?: string;
+  presentation?: DetailsPresentation | undefined;
+  controls?: string | undefined;
 }) {
   return (
     <button
@@ -474,6 +539,9 @@ export function ThreadDetailsToggle({
       title="Toggle thread details"
       aria-label="Toggle thread details panel"
       aria-pressed={open}
+      aria-expanded={open}
+      aria-haspopup={presentation === "popover" ? "dialog" : undefined}
+      aria-controls={open ? controls : undefined}
       data-thread-details-toggle=""
       onClick={onToggle}
     >
@@ -498,24 +566,33 @@ function SandboxRow({ state }: { state: string }) {
 
 function ChangesRow({
   totals,
+  partial = false,
   onOpen,
 }: {
   totals: { additions: number; deletions: number } | undefined;
+  partial?: boolean | undefined;
   onOpen?: (() => void) | undefined;
 }) {
   return (
     <button
       type="button"
       className="t3-td-row"
-      aria-label={`Changes, ${countsLabel(totals)}`}
+      aria-label={`Changes, ${countsLabel(totals)}${partial ? ", partial totals" : ""}`}
       disabled={onOpen === undefined}
       onClick={onOpen}
     >
       <FileDiff aria-hidden="true" />
       <span className="t3-td-label">Changes</span>
       <span className="t3-td-counts" aria-hidden="true">
-        <span className="t3-additions">+{formatDiffCount(totals?.additions ?? 0)}</span>
-        <span className="t3-deletions">-{formatDiffCount(totals?.deletions ?? 0)}</span>
+        {totals ? (
+          <>
+            {partial && <span>Partial</span>}
+            <span className="t3-additions">+{formatDiffCount(totals.additions)}</span>
+            <span className="t3-deletions">-{formatDiffCount(totals.deletions)}</span>
+          </>
+        ) : (
+          <span>Not counted yet</span>
+        )}
       </span>
     </button>
   );
@@ -651,6 +728,7 @@ function BranchRow({
   const anchor = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const menuId = useId();
+  const [copyError, setCopyError] = useState<string>();
   return (
     <div ref={anchor} className="t3-td-anchor">
       <button
@@ -719,15 +797,30 @@ function BranchRow({
         <button
           type="button"
           role="menuitem"
-          onClick={() => {
+          onClick={async () => {
             setOpen(false);
-            void navigator.clipboard?.writeText(branch);
+            setCopyError(undefined);
+            const failure = "Could not copy the branch name. Copy it from the branch row.";
+            if (!navigator.clipboard) {
+              setCopyError(failure);
+              return;
+            }
+            try {
+              await navigator.clipboard.writeText(branch);
+            } catch {
+              setCopyError(failure);
+            }
           }}
         >
           <Copy aria-hidden="true" />
           <span className="t3-td-menu-label">Copy branch name</span>
         </button>
       </DetailsMenu>
+      {copyError && (
+        <p role="alert" className="t3-td-error">
+          {copyError}
+        </p>
+      )}
     </div>
   );
 }
@@ -738,6 +831,7 @@ function GitActionsRow({
   pullRequestUrl,
   onPublish,
   onOpenPullRequests,
+  onCheckPublication,
 }: {
   action: ReturnType<typeof quickAction>;
   publishLabel: string | null;
@@ -745,7 +839,10 @@ function GitActionsRow({
   onPublish: () => void;
   /** Absent before a session starts: there is no project for the panel to list them for. */
   onOpenPullRequests?: (() => void) | undefined;
+  onCheckPublication?: (() => void) | undefined;
 }) {
+  const [hintOpen, setHintOpen] = useState(false);
+  const hintId = useId();
   const primary =
     action.kind === "progress" ? (
       <button type="button" className="t3-td-split-primary" disabled aria-busy="true">
@@ -758,7 +855,9 @@ function GitActionsRow({
         className="t3-td-split-primary"
         aria-disabled={action.kind === "hint" || undefined}
         title={action.kind === "hint" ? action.hint : undefined}
+        aria-describedby={action.kind === "hint" && hintOpen ? hintId : undefined}
         onClick={() => {
+          if (action.kind === "hint") setHintOpen(true);
           if (action.kind === "publish") onPublish();
           if (action.kind === "open") window.open(action.url, "_blank", "noopener,noreferrer");
         }}
@@ -768,57 +867,76 @@ function GitActionsRow({
       </button>
     );
   return (
-    <SplitRow
-      label="Git actions"
-      busy={action.kind === "progress"}
-      primary={primary}
-      menuLabel="Git action options"
-      menuEmpty={publishLabel === null && pullRequestUrl === null && !onOpenPullRequests}
-      menu={(close) => (
-        <>
-          {publishLabel !== null && (
-            <button
-              type="button"
-              role="menuitem"
-              disabled={action.kind === "progress"}
-              onClick={() => {
-                close();
-                onPublish();
-              }}
-            >
-              <GithubIcon className="t3-td-brand" />
-              <span className="t3-td-menu-label">{publishLabel}</span>
-            </button>
-          )}
-          {pullRequestUrl !== null && (
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                close();
-                window.open(pullRequestUrl, "_blank", "noopener,noreferrer");
-              }}
-            >
-              <GitPullRequest aria-hidden="true" />
-              <span className="t3-td-menu-label">View PR</span>
-            </button>
-          )}
-          {onOpenPullRequests && (
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                close();
-                onOpenPullRequests();
-              }}
-            >
-              <GitCompareArrows aria-hidden="true" />
-              <span className="t3-td-menu-label">Pull requests</span>
-            </button>
-          )}
-        </>
+    <>
+      <SplitRow
+        label="Git actions"
+        busy={action.kind === "progress"}
+        primary={primary}
+        menuLabel="Git action options"
+        menuEmpty={publishLabel === null && pullRequestUrl === null && !onOpenPullRequests}
+        menu={(close) => (
+          <>
+            {publishLabel !== null && action.kind !== "progress" && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  close();
+                  onPublish();
+                }}
+              >
+                <GithubIcon className="t3-td-brand" />
+                <span className="t3-td-menu-label">{publishLabel}</span>
+              </button>
+            )}
+            {action.kind === "progress" && onCheckPublication && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  close();
+                  onCheckPublication();
+                }}
+              >
+                <GitCompareArrows aria-hidden="true" />
+                <span className="t3-td-menu-label">Check publication status</span>
+              </button>
+            )}
+            {pullRequestUrl !== null && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  close();
+                  window.open(pullRequestUrl, "_blank", "noopener,noreferrer");
+                }}
+              >
+                <GitPullRequest aria-hidden="true" />
+                <span className="t3-td-menu-label">View PR</span>
+              </button>
+            )}
+            {onOpenPullRequests && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  close();
+                  onOpenPullRequests();
+                }}
+              >
+                <GitCompareArrows aria-hidden="true" />
+                <span className="t3-td-menu-label">Pull requests</span>
+              </button>
+            )}
+          </>
+        )}
+      />
+      {action.kind === "hint" && hintOpen && (
+        <p id={hintId} role="status" className="t3-td-note">
+          {action.hint}
+        </p>
       )}
-    />
+    </>
   );
 }
 
@@ -861,7 +979,7 @@ function SplitRow({
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
-        disabled={busy || menuEmpty}
+        disabled={menuEmpty}
         onClick={() => setOpen((value) => !value)}
       >
         <ChevronDown aria-hidden="true" />
@@ -919,7 +1037,11 @@ function DetailsMenu({
     };
     // The row it hangs from moves with the card, so the menu closes rather than float away.
     const away = (event: Event) => {
-      if (event.target instanceof Node && menu.current?.contains(event.target)) return;
+      if (
+        event.type === "scroll" &&
+        (!(event.target instanceof Node) || !event.target.contains(anchor.current))
+      )
+        return;
       onClose();
     };
     document.addEventListener("pointerdown", press);
@@ -940,7 +1062,10 @@ function DetailsMenu({
       anchor.current?.querySelector<HTMLElement>("[aria-haspopup]")?.focus();
       return;
     }
-    if (event.key === "Tab") onClose();
+    if (event.key === "Tab") {
+      anchor.current?.querySelector<HTMLElement>("[aria-haspopup]")?.focus();
+      onClose();
+    }
     if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
     event.preventDefault();
     const items = Array.from(
@@ -969,6 +1094,10 @@ function DetailsMenu({
       className="t3-td-menu composer-surface nap-float"
       style={place}
       onKeyDown={keys}
+      onClickCapture={(event) => {
+        if (event.target instanceof Element && event.target.closest("button:not([disabled])"))
+          anchor.current?.querySelector<HTMLElement>("[aria-haspopup]")?.focus();
+      }}
     >
       {children}
     </div>,
@@ -1079,6 +1208,7 @@ function useProjectGitHub(
   revision: number,
   fetchJson: FetchJson,
   baseUrl: string,
+  enabled: boolean,
 ) {
   const [state, setState] = useState<ProjectGitHub | null>();
   const latest = useRef(0);
@@ -1089,15 +1219,18 @@ function useProjectGitHub(
       `${baseUrl}/projects/${projectId}/github`,
       ProjectGitHubSchema,
     );
-    if (request === latest.current) setState(result.ok ? result.value : null);
+    if (request === latest.current)
+      setState((current) => (result.ok ? result.value : (current ?? null)));
+    return { ...result, applied: result.ok && request === latest.current };
   }, [projectId, fetchJson, baseUrl]);
   useEffect(() => {
     void revision;
+    if (!enabled) return;
     void reload();
     return () => {
       latest.current += 1;
     };
-  }, [reload, revision]);
+  }, [reload, revision, enabled]);
   return { state, reload };
 }
 
@@ -1105,6 +1238,7 @@ type BranchComparison = {
   branch: string;
   baseLabel: string;
   totals: { additions: number; deletions: number };
+  partial: boolean;
 };
 
 /** The branch the sandbox has checked out, and how far it is from its base. */
@@ -1113,29 +1247,34 @@ function useBranchComparison(
   baseBranch: string | undefined,
   revision: number,
   fetchJson: FetchJson,
+  baseUrl: string,
+  sandboxId: string | null | undefined,
 ): BranchComparison | undefined {
   const [comparison, setComparison] = useState<BranchComparison>();
   useEffect(() => {
     void revision;
+    void sandboxId;
+    setComparison(undefined);
     if (sessionId === undefined) return;
     let cancelled = false;
     const query = new URLSearchParams({ scope: "branch" });
     if (baseBranch) query.set("base", baseBranch);
     void githubRequest(
       fetchJson,
-      `${GITHUB_API_URL}/sessions/${encodeURIComponent(sessionId)}/changes?${query}`,
+      `${baseUrl}/sessions/${encodeURIComponent(sessionId)}/changes?${query}`,
       GitComparisonSchema,
     ).then((result) => {
-      if (cancelled || !result.ok) return;
+      if (cancelled || !result.ok || !result.value.ready) return;
       setComparison({
         branch: result.value.branch,
         baseLabel: result.value.baseLabel,
         totals: diffTotals(result.value.files),
+        partial: result.value.truncated || result.value.files.some((file) => file.truncated),
       });
     });
     return () => {
       cancelled = true;
     };
-  }, [sessionId, baseBranch, revision, fetchJson]);
+  }, [sessionId, baseBranch, revision, fetchJson, baseUrl, sandboxId]);
   return comparison;
 }

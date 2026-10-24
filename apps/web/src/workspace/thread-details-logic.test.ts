@@ -50,15 +50,18 @@ describe("where the card sits", () => {
 });
 
 describe("which job the card describes", () => {
-  it("is the one touched last, whatever order the server listed them in", () => {
-    const older = job({ jobId: "00000000-0000-4000-8000-00000000000a" });
+  it("keeps the newest server job when a webhook touches an older job", () => {
+    const older = job({
+      jobId: "00000000-0000-4000-8000-00000000000a",
+      updatedAt: "2026-10-24T12:00:00.000Z",
+    });
     const newer = job({
       jobId: "00000000-0000-4000-8000-00000000000b",
       updatedAt: "2026-10-24T11:00:00.000Z",
     });
 
     expect(currentJob([newer, older])?.jobId).toBe(newer.jobId);
-    expect(currentJob([older, newer])?.jobId).toBe(newer.jobId);
+    expect(currentJob([older, newer])?.jobId).toBe(older.jobId);
   });
 
   it("is none before the first task", () => {

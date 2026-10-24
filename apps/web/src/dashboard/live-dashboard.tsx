@@ -99,10 +99,13 @@ function SignedInDashboard({
             <ThreadDetailsToggle
               className="t3-icon-button dashboard-details-toggle"
               open={details.open}
+              controls={details.id}
+              presentation={details.presentation}
               onToggle={details.toggle}
             />
             {details.open && (
               <DraftThreadDetails
+                id={details.id}
                 source={draftSource}
                 presentation={details.presentation}
                 onDismiss={details.dismiss}

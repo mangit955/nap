@@ -4,7 +4,7 @@ import { PanelRight } from "lucide-react";
 import { PhaseDot } from "../chat/job-marks.tsx";
 import type { JobSummary } from "../chat/job-summary.ts";
 import { EditableTitle } from "../ui/editable-title.tsx";
-import { ThreadDetailsToggle } from "./thread-details.tsx";
+import { type DetailsPresentation, ThreadDetailsToggle } from "./thread-details.tsx";
 
 export function WorkspaceHeader({
   projectName,
@@ -13,6 +13,8 @@ export function WorkspaceHeader({
   panelOpen,
   onTogglePanel,
   detailsOpen,
+  detailsId,
+  detailsPresentation,
   onToggleDetails,
 }: {
   projectName: string;
@@ -21,6 +23,8 @@ export function WorkspaceHeader({
   panelOpen: boolean;
   onTogglePanel: () => void;
   detailsOpen: boolean;
+  detailsId?: string;
+  detailsPresentation?: DetailsPresentation;
   onToggleDetails: () => void;
 }) {
   return (
@@ -47,7 +51,12 @@ export function WorkspaceHeader({
           </>
         )}
       </p>
-      <ThreadDetailsToggle open={detailsOpen} onToggle={onToggleDetails} />
+      <ThreadDetailsToggle
+        open={detailsOpen}
+        controls={detailsId}
+        presentation={detailsPresentation}
+        onToggle={onToggleDetails}
+      />
       <button
         type="button"
         className="t3-icon-button"

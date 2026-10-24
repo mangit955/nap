@@ -246,7 +246,9 @@ export function Dashboard({
         {hero}
         {grid}
       </Content>
-      {details}
+      <div inert={navigationOpen} style={{ display: navigationOpen ? "none" : "contents" }}>
+        {details}
+      </div>
     </div>
   );
 }

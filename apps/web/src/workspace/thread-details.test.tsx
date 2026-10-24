@@ -1,8 +1,14 @@
 import type { GitComparison } from "@nap/shared/git-protocol";
 import type { ProjectGitHub, RepositoryJob } from "@nap/shared/github-protocol";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import type { TurnRequestStatus } from "@nap/shared/ports/turn-queue";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { DraftThreadDetails, ThreadDetailsPanel, useThreadDetails } from "./thread-details.tsx";
+import {
+  DraftThreadDetails,
+  ThreadDetailsPanel,
+  ThreadDetailsToggle,
+  useThreadDetails,
+} from "./thread-details.tsx";
 
 /**
  * The card at the top right of the conversation: one row per thing about the thread's workspace
@@ -13,6 +19,7 @@ import { DraftThreadDetails, ThreadDetailsPanel, useThreadDetails } from "./thre
 const PROJECT = "a70e2120-867c-4eb7-bdd6-cdd1c33bac1e";
 const SESSION = "b70e2120-867c-4eb7-bdd6-cdd1c33bac1e";
 const JOB = "c70e2120-867c-4eb7-bdd6-cdd1c33bac1e";
+const REQUEST = "d70e2120-867c-4eb7-bdd6-cdd1c33bac1e";
 
 const comparison: GitComparison = {
   ready: true,
@@ -92,20 +99,25 @@ function github(jobs: RepositoryJob[], devCommand: string | null = null): Projec
   };
 }
 
-function server(state: ProjectGitHub | null) {
-  let current = state;
+function server(
+  state: ProjectGitHub | null | (() => ProjectGitHub | null),
+  requestStatus: () => TurnRequestStatus = () => ({ id: REQUEST, state: "queued" }),
+) {
   return vi.fn(async (url: string, init?: RequestInit) => {
+    if (url.includes("/turns/")) return Response.json(requestStatus());
     if (url.includes("/changes?")) return Response.json(comparison);
     if (url.endsWith("/github/publish")) {
-      if (current) current = { ...current, jobs: [job({ publishState: "publishing" })] };
-      return Response.json({ requestId: "d70e2120-867c-4eb7-bdd6-cdd1c33bac1e" });
+      // Admission does not change the job. Only a worker claiming the request does that.
+      return Response.json({ requestId: "d70e2120-867c-4eb7-bdd6-cdd1c33bac1e" }, { status: 202 });
     }
     if (url.endsWith("/github/environment") && init?.method === "PATCH")
       return Response.json({ saved: true });
-    if (url.endsWith("/github"))
+    if (url.endsWith("/github")) {
+      const current = typeof state === "function" ? state() : state;
       return current === null
         ? Response.json({ error: "No such project." }, { status: 404 })
         : Response.json(current);
+    }
     return Response.json({ error: "unexpected" }, { status: 500 });
   });
 }
@@ -119,7 +131,7 @@ function show(
     onOpenChanges: vi.fn(),
     onOpenPullRequests: vi.fn(),
   };
-  render(
+  const view = render(
     <ThreadDetailsPanel
       projectId={PROJECT}
       sessionId={SESSION}
@@ -133,7 +145,7 @@ function show(
       {...props}
     />,
   );
-  return handlers;
+  return { ...handlers, ...view };
 }
 
 beforeAll(() => {
@@ -146,9 +158,14 @@ beforeAll(() => {
   };
 });
 
-afterEach(() => {
+afterEach(async () => {
+  // Unmount and flush owned continuations before removing their persisted state.
+  cleanup();
+  await act(async () => {});
   localStorage.clear();
+  sessionStorage.clear();
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 describe("the workspace section", () => {
@@ -158,7 +175,7 @@ describe("the workspace section", () => {
     const workspace = screen.getByRole("region", { name: "Workspace" });
     expect(within(workspace).getByText("Cloud sandbox")).toBeVisible();
     expect(within(workspace).getByText(/running/)).toBeInTheDocument();
-    expect(within(workspace).queryByRole("button", { name: /run context/i })).toBeNull();
+    expect(within(workspace).queryByRole("button", { name: /cloud sandbox/i })).toBeNull();
   });
 
   it("opens the running app in a new tab", () => {
@@ -178,10 +195,11 @@ describe("the workspace section", () => {
 
   it("remembers choosing GitHub, and then opens the branch there", async () => {
     const open = vi.spyOn(window, "open").mockReturnValue(null);
-    show(server(github([job()])));
+    show(server(github([job({ pushedSha: "6b84c21" })])));
 
-    fireEvent.click(await screen.findByRole("button", { name: "Choose where to open" }));
-    fireEvent.click(screen.getByRole("menuitemradio", { name: "GitHub" }));
+    await screen.findByRole("button", { name: "Add project script" });
+    fireEvent.click(screen.getByRole("button", { name: "Choose where to open" }));
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: "GitHub" }));
     fireEvent.click(screen.getByRole("button", { name: "Open in GitHub" }));
 
     expect(open).toHaveBeenCalledWith(
@@ -266,7 +284,7 @@ describe("the version control section", () => {
     expect(screen.queryByRole("group", { name: "Git actions" })).toBeNull();
   });
 
-  it("publishes verified work, and shows the publication in flight", async () => {
+  it("keeps a realistic admitted publication queued without allowing duplicate publication", async () => {
     const fetchJson = server(github([job()]));
     show(fetchJson);
 
@@ -280,6 +298,20 @@ describe("the version control section", () => {
       ),
     );
     expect(await within(actions).findByRole("button", { name: "Publishing…" })).toBeDisabled();
+    await waitFor(() =>
+      expect(fetchJson.mock.calls.filter(([url]) => url.endsWith("/github"))).toHaveLength(2),
+    );
+    expect(within(actions).getByRole("button", { name: "Publishing…" })).toBeDisabled();
+    expect(screen.getByRole("status")).toHaveTextContent("Publication queued.");
+    fireEvent.click(within(actions).getByRole("button", { name: "Publishing…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Git action options" }));
+    expect(screen.queryByRole("menuitem", { name: "Commit, push & PR" })).toBeNull();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Check publication status" }));
+    await waitFor(() =>
+      expect(fetchJson.mock.calls.filter(([url]) => url.endsWith("/github"))).toHaveLength(3),
+    );
+    expect(fetchJson.mock.calls.filter(([url]) => url.endsWith("/publish"))).toHaveLength(1);
+    expect(within(actions).getByRole("button", { name: "Publishing…" })).toBeDisabled();
   });
 
   it("only pushes once the branch has an open pull request, and links to it", async () => {
@@ -313,6 +345,7 @@ describe("the version control section", () => {
 
     expect(primary).toHaveAttribute("aria-disabled", "true");
     expect(primary).toHaveAttribute("title", "nap is still working on this branch.");
+    expect(screen.getByRole("status")).toHaveTextContent("nap is still working on this branch.");
     expect(fetchJson).not.toHaveBeenCalledWith(
       expect.stringContaining("/publish"),
       expect.anything(),
@@ -447,5 +480,804 @@ describe("before a session exists", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Change base branch" }));
 
     expect(onEditSource).toHaveBeenCalledTimes(2);
+  });
+});
+
+function PopoverHarness({ fetchJson = server(null) }: { fetchJson?: ReturnType<typeof server> }) {
+  const details = useThreadDetails("popover-test");
+  return (
+    <div ref={details.ref}>
+      <ThreadDetailsToggle
+        open={details.open}
+        onToggle={details.toggle}
+        presentation={details.presentation}
+        controls={details.id}
+      />
+      <button type="button">After toggle</button>
+      {details.open && (
+        <ThreadDetailsPanel
+          id={details.id}
+          projectId={PROJECT}
+          sessionId={SESSION}
+          phase={{ kind: "idle" }}
+          previewUrl={undefined}
+          revision={0}
+          presentation={details.presentation}
+          onDismiss={details.dismiss}
+          onOpenChanges={vi.fn()}
+          onOpenPullRequests={vi.fn()}
+          fetchJson={fetchJson}
+          baseUrl="http://api.test"
+        />
+      )}
+    </div>
+  );
+}
+
+describe("publication recovery", () => {
+  it("retains admission across remounts when session storage is refused", async () => {
+    let requestState: TurnRequestStatus["state"] = "queued";
+    const fetchJson = server(github([job()]), () => ({ id: REQUEST, state: requestState }));
+    const storage = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("Storage refused");
+    });
+    const view = show(fetchJson);
+    fireEvent.click(await screen.findByRole("button", { name: "Commit, push & PR" }));
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent("Publication queued."),
+    );
+    view.unmount();
+    show(fetchJson);
+    await screen.findByRole("button", { name: "Add project script" });
+    expect(screen.getByRole("button", { name: "Publishing…" })).toBeDisabled();
+    storage.mockRestore();
+    requestState = "done";
+    fireEvent.click(screen.getByRole("button", { name: "Git action options" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("menuitem", { name: "Check publication status" }));
+    });
+    expect(screen.getByRole("button", { name: "Commit, push & PR" })).toBeEnabled();
+  });
+
+  it("keeps the receipt until a terminal request's job refresh succeeds", async () => {
+    let requestState: TurnRequestStatus["state"] = "queued";
+    const backing = server(github([job()]), () => ({ id: REQUEST, state: requestState }));
+    let unavailable = false;
+    const fetchJson = vi.fn(async (url: string, init?: RequestInit) =>
+      url.endsWith("/github") && unavailable
+        ? Response.json({ error: "Job unavailable" }, { status: 503 })
+        : backing(url, init),
+    );
+    show(fetchJson);
+    fireEvent.click(await screen.findByRole("button", { name: "Commit, push & PR" }));
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent("Publication queued."),
+    );
+    requestState = "done";
+    unavailable = true;
+    fireEvent.click(screen.getByRole("button", { name: "Git action options" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("menuitem", { name: "Check publication status" }));
+    });
+    expect(screen.getByRole("button", { name: "Publishing…" })).toBeDisabled();
+    expect(screen.getByRole("alert")).toHaveTextContent("Job unavailable");
+    unavailable = false;
+    fireEvent.click(screen.getByRole("button", { name: "Git action options" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("menuitem", { name: "Check publication status" }));
+    });
+    expect(screen.getByRole("button", { name: "Commit, push & PR" })).toBeEnabled();
+  });
+
+  it("retains admission when terminal refresh A is discarded and newer refresh B fails", async () => {
+    let requestState: TurnRequestStatus["state"] = "queued";
+    const published = github([
+      job({
+        publishState: "published",
+        pushedSha: "6b84c21",
+        pullRequestNumber: 12,
+        pullRequestUrl: "https://github.com/nap-team/site/pull/12",
+        pullRequestState: "open",
+        updatedAt: "2026-10-24T10:01:00.000Z",
+      }),
+    ]);
+    let state = github([job()]);
+    const backing = server(
+      () => state,
+      () => ({ id: REQUEST, state: requestState }),
+    );
+    let phase: "initial" | "A" | "B" | "recovery" = "initial";
+    let callsA = 0;
+    let callsB = 0;
+    let resolveA: (response: Response) => void = () => {
+      throw new Error("A not started");
+    };
+    let resolveB: (response: Response) => void = () => {
+      throw new Error("B not started");
+    };
+    const fetchJson = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/github") && phase === "A") {
+        callsA++;
+        return new Promise<Response>((resolve) => {
+          resolveA = resolve;
+        });
+      }
+      if (url.endsWith("/github") && phase === "B") {
+        callsB++;
+        return new Promise<Response>((resolve) => {
+          resolveB = resolve;
+        });
+      }
+      return backing(url, init);
+    });
+    const view = show(fetchJson);
+    fireEvent.click(await screen.findByRole("button", { name: "Commit, push & PR" }));
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent("Publication queued."),
+    );
+    await act(async () => {});
+    requestState = "done";
+    phase = "A";
+    fireEvent.click(screen.getByRole("button", { name: "Git action options" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Check publication status" }));
+    await waitFor(() => expect(callsA).toBe(1));
+    phase = "B";
+    view.rerender(
+      <ThreadDetailsPanel
+        projectId={PROJECT}
+        sessionId={SESSION}
+        phase={{ kind: "running", url: "https://preview.example", seq: 4 }}
+        previewUrl="https://preview.example"
+        revision={1}
+        presentation="inline"
+        fetchJson={fetchJson}
+        baseUrl="http://api.test"
+        onDismiss={view.onDismiss}
+        onOpenChanges={view.onOpenChanges}
+        onOpenPullRequests={view.onOpenPullRequests}
+      />,
+    );
+    await waitFor(() => expect(callsB).toBe(1));
+    await act(async () => {
+      resolveA(Response.json(published));
+    });
+    expect(screen.queryByRole("button", { name: "View PR" })).toBeNull();
+    await act(async () => {
+      resolveB(Response.json({ error: "Job unavailable" }, { status: 503 }));
+    });
+    expect(callsA).toBe(1);
+    expect(callsB).toBe(1);
+    expect(fetchJson.mock.calls.filter(([url]) => url.includes("/turns/"))).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Commit, push & PR" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Publishing…" })).toBeDisabled();
+
+    phase = "recovery";
+    state = published;
+    fireEvent.click(screen.getByRole("button", { name: "Git action options" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("menuitem", { name: "Check publication status" }));
+    });
+    expect(screen.getByRole("button", { name: "View PR" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Publishing…" })).toBeNull();
+    expect(fetchJson.mock.calls.filter(([url]) => url.includes("/turns/"))).toHaveLength(2);
+    expect(fetchJson.mock.calls.filter(([url]) => url.endsWith("/publish"))).toHaveLength(1);
+    view.unmount();
+    show(fetchJson);
+    expect(await screen.findByRole("button", { name: "View PR" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Publishing…" })).toBeNull();
+  });
+
+  it.each(["project", "session", "owner", "api"] as const)(
+    "keeps admission scoped when changing %s and restores it on return",
+    async (changed) => {
+      const original = github([job()]);
+      const fetchJson = server(original);
+      const view = show(fetchJson);
+      fireEvent.click(await screen.findByRole("button", { name: "Commit, push & PR" }));
+      await waitFor(() =>
+        expect(screen.getByRole("status")).toHaveTextContent("Publication queued."),
+      );
+      view.unmount();
+      const other = "e70e2120-867c-4eb7-bdd6-cdd1c33bac1e";
+      const projectId = changed === "project" ? other : PROJECT;
+      const sessionId = changed === "session" ? other : SESSION;
+      const state = {
+        ...original,
+        repository: original.repository && {
+          ...original.repository,
+          projectId,
+          sessionId,
+          userId: changed === "owner" ? other : original.repository.userId,
+        },
+        jobs: [job({ projectId, sessionId })],
+      };
+      const next = show(server(state), {
+        projectId,
+        sessionId,
+        baseUrl: changed === "api" ? "http://other-api.test" : "http://api.test",
+      });
+      expect(await screen.findByRole("button", { name: "Commit, push & PR" })).toBeEnabled();
+      next.unmount();
+      show(fetchJson);
+      await screen.findByRole("button", { name: "Add project script" });
+      expect(screen.getByRole("button", { name: "Publishing…" })).toBeDisabled();
+    },
+  );
+
+  it("polls the admitted request until terminal and stops on unmount", async () => {
+    const state = github([job()]);
+    let requestState: TurnRequestStatus["state"] = "queued";
+    const fetchJson = server(state, () => ({ id: REQUEST, state: requestState }));
+    const view = show(fetchJson);
+    fireEvent.click(await screen.findByRole("button", { name: "Commit, push & PR" }));
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent("Publication queued."),
+    );
+    view.unmount();
+    vi.useFakeTimers();
+    // Remount installs the polling clock under fake timers, with the persisted receipt.
+    const reopened = show(fetchJson);
+    await act(async () => {});
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(fetchJson).toHaveBeenCalledWith(
+      `http://api.test/sessions/${SESSION}/turns/${REQUEST}`,
+      expect.anything(),
+    );
+    expect(screen.getByRole("button", { name: "Publishing…" })).toBeDisabled();
+    reopened.unmount();
+    const unmountedCount = fetchJson.mock.calls.length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10000);
+    });
+    expect(fetchJson.mock.calls).toHaveLength(unmountedCount);
+    requestState = "done";
+    const completed = show(fetchJson);
+    await act(async () => {});
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(screen.getByRole("button", { name: "Commit, push & PR" })).toBeEnabled();
+    const count = fetchJson.mock.calls.length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10000);
+    });
+    expect(fetchJson.mock.calls).toHaveLength(count);
+    completed.unmount();
+  });
+
+  it.each(["malformed receipt", "disconnect", "server error"])(
+    "retains explicit PR-panel recovery after %s instead of offering duplicate admission",
+    async (problem) => {
+      const backing = server(github([job()]));
+      const fetchJson = vi.fn(async (url: string, init?: RequestInit) => {
+        if (!url.endsWith("/publish")) return backing(url, init);
+        if (problem === "disconnect") throw new Error("lost response");
+        return Response.json(
+          { error: "Unconfirmed" },
+          { status: problem === "server error" ? 503 : 202 },
+        );
+      });
+      const view = show(fetchJson);
+      const publishButton = await screen.findByRole("button", { name: "Commit, push & PR" });
+      await act(async () => {
+        fireEvent.click(publishButton);
+      });
+      view.unmount();
+      const { onOpenPullRequests } = show(fetchJson);
+      await screen.findByRole("button", { name: "Add project script" });
+      expect(screen.getByRole("button", { name: "Publishing…" })).toBeDisabled();
+      fireEvent.click(screen.getByRole("button", { name: "Git action options" }));
+      expect(screen.queryByRole("menuitem", { name: "Commit, push & PR" })).toBeNull();
+      fireEvent.click(screen.getByRole("menuitem", { name: "Pull requests" }));
+      expect(onOpenPullRequests).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each([false, true])(
+    "retains admission when unmounted before the POST response, reopen while waiting=%s",
+    async (reopenWhileWaiting) => {
+      let finish: (response: Response) => void = () => {
+        throw new Error("No pending POST");
+      };
+      const response = new Promise<Response>((resolve) => {
+        finish = resolve;
+      });
+      const backing = server(github([job()]));
+      const fetchJson = vi.fn(async (url: string, init?: RequestInit) =>
+        url.endsWith("/publish") ? response : backing(url, init),
+      );
+      const view = show(fetchJson);
+      fireEvent.click(await screen.findByRole("button", { name: "Commit, push & PR" }));
+      view.unmount();
+      if (reopenWhileWaiting) {
+        show(fetchJson);
+        await screen.findByRole("button", { name: "Add project script" });
+        expect(screen.getByRole("button", { name: "Publishing…" })).toBeDisabled();
+        expect(screen.queryByRole("button", { name: "Commit, push & PR" })).toBeNull();
+      }
+      await act(async () => {
+        finish(Response.json({ requestId: REQUEST }, { status: 202 }));
+        await response;
+      });
+      if (!reopenWhileWaiting) show(fetchJson);
+      await screen.findByRole("button", { name: "Add project script" });
+      await waitFor(() =>
+        expect(screen.getByRole("status")).toHaveTextContent("Publication queued."),
+      );
+      expect(screen.getByRole("button", { name: "Publishing…" })).toBeDisabled();
+      fireEvent.click(screen.getByRole("button", { name: "Git action options" }));
+      await act(async () => {
+        fireEvent.click(screen.getByRole("menuitem", { name: "Check publication status" }));
+      });
+      expect(fetchJson).toHaveBeenCalledWith(
+        `http://api.test/sessions/${SESSION}/turns/${REQUEST}`,
+        expect.anything(),
+      );
+      expect(screen.queryByRole("button", { name: "Commit, push & PR" })).toBeNull();
+      expect(fetchJson.mock.calls.filter(([url]) => url.endsWith("/publish"))).toHaveLength(1);
+    },
+  );
+
+  it.each(["published", "failed"] as const)(
+    "does not settle an admitted %s job after an unrelated webhook changes updatedAt",
+    async (publishState) => {
+      const old = job({
+        publishState,
+        pullRequestState: "open",
+        pullRequestNumber: 12,
+        pullRequestUrl: "https://github.com/nap-team/site/pull/12",
+        error: publishState === "failed" ? "Old failure" : null,
+      });
+      let state = github([old]);
+      let requestState: TurnRequestStatus["state"] = "queued";
+      const fetchJson = server(
+        () => state,
+        () => ({ id: REQUEST, state: requestState }),
+      );
+      show(fetchJson);
+      await screen.findByRole("button", { name: "Add project script" });
+      fireEvent.click(screen.getByRole("button", { name: "Git action options" }));
+      fireEvent.click(screen.getByRole("menuitem", { name: "Commit & push" }));
+      await waitFor(() =>
+        expect(screen.getByRole("status")).toHaveTextContent("Publication queued."),
+      );
+      state = github([{ ...old, checkState: "passed", updatedAt: "2026-10-24T11:00:00.000Z" }]);
+      for (const pending of ["queued", "leased"] as const) {
+        requestState = pending;
+        fireEvent.click(screen.getByRole("button", { name: "Git action options" }));
+        await act(async () => {
+          fireEvent.click(screen.getByRole("menuitem", { name: "Check publication status" }));
+        });
+        fireEvent.click(screen.getByRole("button", { name: "Git action options" }));
+        expect(screen.queryByRole("menuitem", { name: "Commit & push" })).toBeNull();
+        expect(screen.getByRole("button", { name: "Publishing…" })).toBeDisabled();
+        expect(screen.queryByRole("alert")).toBeNull();
+        fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+      }
+      expect(fetchJson.mock.calls.filter(([url]) => url.endsWith("/publish"))).toHaveLength(1);
+    },
+  );
+
+  it.each(["wrong id", "malformed", "404", "503", "disconnect"])(
+    "keeps accepted ownership through a %s status read, then recovers on a valid terminal read",
+    async (problem) => {
+      const backing = server(github([job()]));
+      let invalid = true;
+      const fetchJson = vi.fn(async (url: string, init?: RequestInit) => {
+        if (!url.includes("/turns/")) return backing(url, init);
+        if (!invalid) return Response.json({ id: REQUEST, state: "done" });
+        if (problem === "disconnect") throw new Error("offline");
+        if (problem === "404" || problem === "503")
+          return Response.json({ error: "Unavailable" }, { status: Number(problem) });
+        return Response.json(
+          problem === "wrong id" ? { id: JOB, state: "done" } : { state: "done" },
+        );
+      });
+      show(fetchJson);
+      fireEvent.click(await screen.findByRole("button", { name: "Commit, push & PR" }));
+      await waitFor(() =>
+        expect(screen.getByRole("status")).toHaveTextContent("Publication queued."),
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Git action options" }));
+      await act(async () => {
+        fireEvent.click(screen.getByRole("menuitem", { name: "Check publication status" }));
+      });
+      expect(screen.getByRole("button", { name: "Publishing…" })).toBeDisabled();
+      expect(screen.getByRole("alert")).toHaveTextContent("Could not confirm publication status");
+      invalid = false;
+      fireEvent.click(screen.getByRole("button", { name: "Git action options" }));
+      await act(async () => {
+        fireEvent.click(screen.getByRole("menuitem", { name: "Check publication status" }));
+      });
+      expect(screen.getByRole("button", { name: "Commit, push & PR" })).toBeEnabled();
+      expect(screen.queryByRole("alert")).toBeNull();
+    },
+  );
+
+  it("keeps an admitted publication queued when the card is closed and reopened", async () => {
+    const fetchJson = server(github([job()]));
+    const view = show(fetchJson);
+    fireEvent.click(await screen.findByRole("button", { name: "Commit, push & PR" }));
+    await waitFor(() =>
+      expect(fetchJson.mock.calls.filter(([url]) => url.endsWith("/github"))).toHaveLength(2),
+    );
+    view.unmount();
+    show(fetchJson);
+    expect(await screen.findByRole("button", { name: "Publishing…" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Commit, push & PR" })).toBeNull();
+    expect(fetchJson.mock.calls.filter(([url]) => url.endsWith("/publish"))).toHaveLength(1);
+  });
+  it("keeps the PR panel reachable when a worker left a job publishing", async () => {
+    const { onOpenPullRequests } = show(server(github([job({ publishState: "publishing" })])));
+    await screen.findByRole("button", { name: "Publishing…" });
+    fireEvent.click(screen.getByRole("button", { name: "Git action options" }));
+    expect(screen.getByRole("menuitem", { name: "Check publication status" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Pull requests" }));
+    expect(onOpenPullRequests).toHaveBeenCalledOnce();
+  });
+
+  it.each(["done", "failed", "orphaned"] as const)(
+    "settles only the admitted request after %s and refreshes the job",
+    async (terminalState) => {
+      let state = github([job()]);
+      let requestState: TurnRequestStatus["state"] = "queued";
+      const fetchJson = server(
+        () => state,
+        () => ({ id: REQUEST, state: requestState }),
+      );
+      show(fetchJson);
+      fireEvent.click(await screen.findByRole("button", { name: "Commit, push & PR" }));
+      await waitFor(() =>
+        expect(fetchJson.mock.calls.filter(([url]) => url.endsWith("/github"))).toHaveLength(2),
+      );
+      const publishState = terminalState === "done" ? "published" : "failed";
+      requestState = terminalState;
+      state = github([
+        job({
+          publishState,
+          error: publishState === "failed" ? "Push failed" : null,
+          updatedAt: "2026-10-24T11:00:00.000Z",
+          pullRequestUrl: "https://github.com/nap-team/site/pull/12",
+          pullRequestNumber: 12,
+          pullRequestState: "open",
+        }),
+      ]);
+      fireEvent.click(screen.getByRole("button", { name: "Git action options" }));
+      fireEvent.click(screen.getByRole("menuitem", { name: "Check publication status" }));
+      expect(
+        await screen.findByRole("button", {
+          name: publishState === "published" ? "View PR" : "Commit & push",
+        }),
+      ).toBeEnabled();
+      expect(screen.queryByRole("button", { name: "Publishing…" })).toBeNull();
+      if (publishState === "failed")
+        expect(screen.getByRole("alert")).toHaveTextContent("Push failed");
+    },
+  );
+
+  it("does not mistake the old published state for completion of a new push", async () => {
+    const fetchJson = server(
+      github([
+        job({
+          publishState: "published",
+          pullRequestState: "open",
+          pullRequestNumber: 12,
+          pullRequestUrl: "https://github.com/nap-team/site/pull/12",
+        }),
+      ]),
+    );
+    show(fetchJson);
+    await screen.findByRole("button", { name: "View PR" });
+    fireEvent.click(screen.getByRole("button", { name: "Git action options" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Commit & push" }));
+    await waitFor(() =>
+      expect(fetchJson.mock.calls.filter(([url]) => url.endsWith("/github"))).toHaveLength(2),
+    );
+    expect(screen.getByRole("button", { name: "Publishing…" })).toBeDisabled();
+  });
+
+  it("shows admission failure, allows retry, and clears the old error on success", async () => {
+    const backing = server(github([job()]));
+    let refuse = true;
+    const fetchJson = vi.fn(async (url: string, init?: RequestInit) =>
+      url.endsWith("/publish") && refuse
+        ? Response.json({ error: "Publication refused" }, { status: 409 })
+        : backing(url, init),
+    );
+    show(fetchJson);
+    fireEvent.click(await screen.findByRole("button", { name: "Commit, push & PR" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Publication refused");
+    refuse = false;
+    fireEvent.click(screen.getByRole("button", { name: "Commit, push & PR" }));
+    expect(await screen.findByRole("button", { name: "Publishing…" })).toBeDisabled();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("shows status-check failure without enabling duplicate publication", async () => {
+    const backing = server(github([job()]));
+    let unavailable = false;
+    const fetchJson = vi.fn(async (url: string, init?: RequestInit) =>
+      url.endsWith("/github") && unavailable
+        ? Response.json({ error: "Status unavailable" }, { status: 503 })
+        : backing(url, init),
+    );
+    show(fetchJson);
+    fireEvent.click(await screen.findByRole("button", { name: "Commit, push & PR" }));
+    await waitFor(() =>
+      expect(fetchJson.mock.calls.filter(([url]) => url.endsWith("/github"))).toHaveLength(2),
+    );
+    unavailable = true;
+    fireEvent.click(screen.getByRole("button", { name: "Git action options" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Check publication status" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Status unavailable");
+    expect(screen.getByRole("button", { name: "Publishing…" })).toBeDisabled();
+  });
+});
+
+describe("comparison lifecycle", () => {
+  it("waits for replay and repository metadata, then requests the configured base once", async () => {
+    const fetchJson = server(github([]));
+    const view = show(fetchJson, { replayed: false });
+    expect(fetchJson).not.toHaveBeenCalled();
+    view.rerender(
+      <ThreadDetailsPanel
+        projectId={PROJECT}
+        sessionId={SESSION}
+        phase={{ kind: "idle" }}
+        previewUrl={undefined}
+        revision={7}
+        replayed
+        presentation="inline"
+        onDismiss={vi.fn()}
+        onOpenChanges={vi.fn()}
+        onOpenPullRequests={vi.fn()}
+        fetchJson={fetchJson}
+        baseUrl="http://api.test"
+      />,
+    );
+    await screen.findByRole("button", { name: "Branch nap/todo" });
+    const requests = fetchJson.mock.calls.filter(([url]) => url.includes("/changes?"));
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.[0]).toBe(
+      `http://api.test/sessions/${SESSION}/changes?scope=branch&base=main`,
+    );
+  });
+
+  it.each(["revision", "sandboxId"] as const)(
+    "retries an unavailable sandbox comparison after %s changes",
+    async (changed) => {
+      const backing = server(null);
+      let ready = false;
+      const fetchJson = vi.fn(async (url: string, init?: RequestInit) =>
+        url.includes("/changes?") && !ready
+          ? Response.json({ error: "Put away" }, { status: 409 })
+          : backing(url, init),
+      );
+      const props = {
+        projectId: PROJECT,
+        sessionId: SESSION,
+        phase: { kind: "idle" } as const,
+        previewUrl: undefined,
+        revision: 0,
+        sandboxId: "old",
+        presentation: "inline" as const,
+        onDismiss: vi.fn(),
+        onOpenChanges: vi.fn(),
+        onOpenPullRequests: vi.fn(),
+        fetchJson,
+        baseUrl: "http://api.test",
+      };
+      const view = render(<ThreadDetailsPanel {...props} />);
+      await waitFor(() =>
+        expect(fetchJson.mock.calls.some(([url]) => url.includes("/changes?"))).toBe(true),
+      );
+      expect(screen.getByRole("button", { name: "Changes, not counted yet" })).toHaveTextContent(
+        "Not counted yet",
+      );
+      ready = true;
+      view.rerender(
+        <ThreadDetailsPanel
+          {...props}
+          {...(changed === "revision" ? { revision: 1 } : { sandboxId: "new" })}
+        />,
+      );
+      expect(await screen.findByRole("button", { name: "Branch nap/todo" })).toBeVisible();
+      expect(fetchJson.mock.calls.filter(([url]) => url.includes("/changes?"))).toHaveLength(2);
+    },
+  );
+
+  it("marks partial totals and discards them when a later comparison fails", async () => {
+    const backing = server(null);
+    let ready = true;
+    const fetchJson = vi.fn(async (url: string, init?: RequestInit) =>
+      url.includes("/changes?")
+        ? ready
+          ? Response.json({ ...comparison, truncated: true })
+          : Response.json({ error: "Put away" }, { status: 409 })
+        : backing(url, init),
+    );
+    const props = {
+      projectId: PROJECT,
+      sessionId: SESSION,
+      phase: { kind: "idle" } as const,
+      previewUrl: undefined,
+      revision: 0,
+      presentation: "inline" as const,
+      onDismiss: vi.fn(),
+      onOpenChanges: vi.fn(),
+      onOpenPullRequests: vi.fn(),
+      fetchJson,
+      baseUrl: "http://api.test",
+    };
+    const view = render(<ThreadDetailsPanel {...props} />);
+    expect(
+      await screen.findByRole("button", { name: /Changes, .*partial totals/ }),
+    ).toHaveTextContent("Partial");
+    ready = false;
+    view.rerender(<ThreadDetailsPanel {...props} revision={1} />);
+    expect(
+      await screen.findByRole("button", { name: "Changes, not counted yet" }),
+    ).toHaveTextContent("Not counted yet");
+    expect(screen.queryByRole("button", { name: /Changes, .*lines added/ })).toBeNull();
+  });
+});
+
+describe("keyboard and layered controls", () => {
+  it("focuses the popover on opening and returns to its toggle on Escape", async () => {
+    render(<PopoverHarness />);
+    const toggle = screen.getByRole("button", { name: "Toggle thread details panel" });
+    toggle.focus();
+    fireEvent.click(toggle);
+    const dialog = screen.getByRole("dialog", { name: "Thread details" });
+    expect(dialog).toHaveFocus();
+    expect(toggle).toHaveAttribute("aria-haspopup", "dialog");
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(toggle).toHaveAttribute("aria-controls", dialog.id);
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Thread details" })).toBeNull();
+    expect(toggle).toHaveFocus();
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("excludes its own toggle from outside dismissal so a pointer click closes it", () => {
+    render(<PopoverHarness />);
+    const toggle = screen.getByRole("button", { name: "Toggle thread details panel" });
+    fireEvent.click(toggle);
+    fireEvent.pointerDown(toggle);
+    fireEvent.click(toggle);
+    expect(screen.queryByRole("dialog", { name: "Thread details" })).toBeNull();
+  });
+
+  it("leaves focus on an outside control when a pointer dismisses the popover", () => {
+    render(<PopoverHarness />);
+    fireEvent.click(screen.getByRole("button", { name: "Toggle thread details panel" }));
+    const outside = screen.getByRole("button", { name: "After toggle" });
+    fireEvent.pointerDown(outside);
+    outside.focus();
+    expect(screen.queryByRole("dialog", { name: "Thread details" })).toBeNull();
+    expect(outside).toHaveFocus();
+  });
+
+  it("moves through menu items with arrows, Home and End, and restores focus on activation and Tab", async () => {
+    show(server(null));
+    const trigger = await screen.findByRole("button", { name: "Branch nap/todo" });
+    fireEvent.click(trigger);
+    const selected = screen.getByRole("menuitemradio", { name: "nap/todo" });
+    const compare = screen.getByRole("menuitem", { name: "Compare with main" });
+    const copy = screen.getByRole("menuitem", { name: "Copy branch name" });
+    expect(selected).toHaveFocus();
+    fireEvent.keyDown(selected, { key: "ArrowDown" });
+    expect(compare).toHaveFocus();
+    fireEvent.keyDown(compare, { key: "End" });
+    expect(copy).toHaveFocus();
+    fireEvent.keyDown(copy, { key: "ArrowDown" });
+    expect(selected).toHaveFocus();
+    fireEvent.keyDown(selected, { key: "ArrowUp" });
+    expect(copy).toHaveFocus();
+    fireEvent.keyDown(copy, { key: "Home" });
+    expect(selected).toHaveFocus();
+    fireEvent.click(selected);
+    expect(trigger).toHaveFocus();
+    fireEvent.click(trigger);
+    const first = screen.getByRole("menuitemradio", { name: "nap/todo" });
+    expect(fireEvent.keyDown(first, { key: "Tab" })).toBe(true);
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(trigger).toHaveFocus();
+  });
+
+  it("keeps menus open during unrelated transcript scrolling, but closes when their card scrolls", async () => {
+    show(server(null));
+    const trigger = await screen.findByRole("button", { name: "Branch nap/todo" });
+    fireEvent.click(trigger);
+    const transcript = document.body.appendChild(document.createElement("div"));
+    fireEvent.scroll(transcript);
+    transcript.remove();
+    expect(screen.getByRole("menu", { name: "Branch" })).toBeVisible();
+    fireEvent.scroll(screen.getByRole("region", { name: "Version Control" }));
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("handles rejected clipboard access with a visible error", async () => {
+    const previous = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: vi.fn().mockRejectedValue(new Error("Denied")) },
+    });
+    try {
+      show(server(null));
+      fireEvent.click(await screen.findByRole("button", { name: "Branch nap/todo" }));
+      fireEvent.click(screen.getByRole("menuitem", { name: "Copy branch name" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent("Could not copy the branch name.");
+    } finally {
+      if (previous) Object.defineProperty(navigator, "clipboard", previous);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    }
+  });
+});
+
+describe("project scripts", () => {
+  it.each([true, false])("saves scripts with success=%s and shows the result", async (success) => {
+    const backing = server(github([]));
+    const fetchJson = vi.fn(async (url: string, init?: RequestInit) =>
+      url.endsWith("/environment") && !success
+        ? Response.json({ error: "Scripts refused" }, { status: 409 })
+        : backing(url, init),
+    );
+    show(fetchJson);
+    fireEvent.click(await screen.findByRole("button", { name: "Add project script" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Development command" }), {
+      target: { value: "npm run dev" },
+    });
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Preview port" }), {
+      target: { value: "5173" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save environment" }));
+    expect(await screen.findByRole(success ? "status" : "alert")).toHaveTextContent(
+      success ? "Saved." : "Scripts refused",
+    );
+    expect(fetchJson).toHaveBeenCalledWith(
+      `http://api.test/projects/${PROJECT}/github/environment`,
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({
+          setupCommand: "npm ci",
+          devCommand: "npm run dev",
+          previewPort: 5173,
+        }),
+      }),
+    );
+    expect(fetchJson.mock.calls.filter(([url]) => url.endsWith("/github"))).toHaveLength(
+      success ? 2 : 1,
+    );
+  });
+
+  it("leaves the underlying popover open when Escape is handled by the scripts dialog", async () => {
+    const { onDismiss } = show(server(github([])), { presentation: "popover" });
+    fireEvent.click(await screen.findByRole("button", { name: "Add project script" }));
+    const input = screen.getByRole("textbox", { name: "Development command" });
+    fireEvent.change(input, { target: { value: "npm run dev" } });
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(onDismiss).not.toHaveBeenCalled();
+    const scripts = screen.getByRole("dialog", { name: "Project scripts" });
+    if (!(scripts instanceof HTMLDialogElement)) throw new Error("Expected native scripts dialog");
+    act(() => scripts.close());
+    expect(screen.getByRole("dialog", { name: "Thread details" })).toBeVisible();
+    expect(screen.queryByRole("dialog", { name: "Project scripts" })).toBeNull();
+  });
+
+  it("opens the base branch on GitHub until the sandbox branch is pushed", async () => {
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    show(server(github([job()])));
+    await screen.findByRole("button", { name: "Add project script" });
+    fireEvent.click(screen.getByRole("button", { name: "Choose where to open" }));
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: "GitHub" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open in GitHub" }));
+    expect(open).toHaveBeenCalledWith(
+      "https://github.com/nap-team/site/tree/main",
+      "_blank",
+      "noopener,noreferrer",
+    );
   });
 });

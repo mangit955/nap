@@ -171,6 +171,8 @@ export function AppShell({
     log.events.findLast(
       (event) =>
         event.type === "system.notice" ||
+        event.type === "preview.ready" ||
+        event.type === "preview.stopped" ||
         event.type === "turn.completed" ||
         event.type === "turn.failed" ||
         event.type === "verification.completed",
@@ -227,6 +229,8 @@ export function AppShell({
             panelOpen={visiblePanel}
             onTogglePanel={panels.toggle}
             detailsOpen={details.open}
+            detailsId={details.id}
+            detailsPresentation={details.presentation}
             onToggleDetails={details.toggle}
           />
           <LiveChatPane
@@ -242,11 +246,15 @@ export function AppShell({
           />
           {details.open && status === "ready" && (
             <ThreadDetailsPanel
+              key={projectId}
+              id={details.id}
               projectId={projectId}
               sessionId={sessionId}
               phase={phase}
               previewUrl={previewUrl}
               revision={githubRevision}
+              replayed={log.replayed}
+              sandboxId={project?.sandboxId}
               presentation={details.presentation}
               onDismiss={details.dismiss}
               onOpenChanges={() => panels.open({ kind: "diff" })}

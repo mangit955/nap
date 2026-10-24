@@ -31,13 +31,9 @@ export function detailsPresentation(container: {
   return "inline";
 }
 
-/** The job last touched: the branch nap is working on or has just finished. */
+/** The server lists jobs newest first; PR refreshes can touch an older job at any time. */
 export function currentJob(jobs: readonly RepositoryJob[]): RepositoryJob | null {
-  let latest: RepositoryJob | null = null;
-  for (const job of jobs) {
-    if (latest === null || Date.parse(job.updatedAt) > Date.parse(latest.updatedAt)) latest = job;
-  }
-  return latest;
+  return jobs[0] ?? null;
 }
 
 /**
@@ -47,7 +43,10 @@ export function currentJob(jobs: readonly RepositoryJob[]): RepositoryJob | null
  */
 export function canPublish(job: RepositoryJob): boolean {
   return (
-    job.publishState !== "working" &&
+    (job.publishState === "ready" ||
+      job.publishState === "publishing" ||
+      job.publishState === "failed" ||
+      job.publishState === "published") &&
     job.pullRequestState !== "closed" &&
     job.pullRequestState !== "merged"
   );
