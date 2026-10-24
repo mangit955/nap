@@ -466,5 +466,5 @@ it("continues a durable subscription job using the same pinned account and gener
   await open(RESUME_TURN, target);
   expect(agent.requests).toHaveLength(1);
   expect(agent.requests[0]?.target).toEqual(target);
-  expect(agent.requests[0]?.credentials).toBeUndefined();
+  expect(agent.requests[0]).not.toHaveProperty("credentials");
 });

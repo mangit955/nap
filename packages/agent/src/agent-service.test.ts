@@ -1,6 +1,6 @@
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { NapEventSchema, type NapEventType } from "@nap/shared/events";
-import type { AgentTurnRequest } from "@nap/shared/ports/agent-service";
+import type { ApiAgentTurnRequest } from "@nap/shared/ports/agent-service";
 import type { BuiltContext } from "@nap/shared/ports/context-engine";
 import type { PendingEvent } from "@nap/shared/ports/event-store";
 import type { LLMMessage, LLMToolCall } from "@nap/shared/ports/llm-provider";
@@ -60,7 +60,7 @@ const CONTEXT: BuiltContext = {
   estimatedTokens: 42,
 };
 
-function request(overrides: Partial<AgentTurnRequest> = {}): AgentTurnRequest {
+function request(overrides: Partial<ApiAgentTurnRequest> = {}): ApiAgentTurnRequest {
   return {
     sessionId: SESSION_ID,
     turnId: TURN_ID,
@@ -647,17 +647,27 @@ it("does not send a request past a reported model window after compaction fails"
 
 it("never executes a subscription target through the API provider", async () => {
   const { provider, agent } = service([[{ text: "must not run", toolCalls: [] }]]);
-  await agent.runTurn(
-    request({
-      target: {
-        kind: "subscription",
-        driver: "claude",
-        accountId: crypto.randomUUID(),
-        generation: 2,
-        model: "claude-sonnet",
-      },
-    }),
-  );
+  await agent.runTurn({
+    kind: "native",
+    userId: "owner",
+    projectId: "project",
+    sessionId: SESSION_ID,
+    turnId: TURN_ID,
+    sandboxId,
+    sandbox: manager,
+    onEvent: recorder.emit,
+    onStoredEvent: () => {},
+    drain: async () => {},
+    lease: null,
+    input: { prompt: "Must not use the API", trustedInstructions: "Native instructions" },
+    target: {
+      kind: "subscription",
+      driver: "claude",
+      accountId: crypto.randomUUID(),
+      generation: 2,
+      model: "claude-sonnet",
+    },
+  });
   expect(provider.turnOptions).toEqual([]);
   expect(provider.requests).toEqual([]);
   expect(recorder.types).toEqual(["turn.started", "turn.failed"]);

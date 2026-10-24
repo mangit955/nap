@@ -5,6 +5,7 @@ import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { InMemoryGitHubStore } from "@nap/db/testing/in-memory-github-store";
 import { InMemoryProjectSandboxStore } from "@nap/db/testing/in-memory-project-sandbox-store";
 import { FAKE_OWNER, InMemoryProjectStore } from "@nap/db/testing/in-memory-project-store";
+import { InMemoryProviderAccountStore } from "@nap/db/testing/in-memory-provider-account-store";
 import { InMemorySandboxCapacity } from "@nap/db/testing/in-memory-sandbox-capacity";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
@@ -24,6 +25,7 @@ import { encryptionKeyFrom } from "./account/secret-box.ts";
 import { composeNap, type NapDeps } from "./compose.ts";
 import { GitHubApp } from "./github/app.ts";
 import { createLogger } from "./logger.ts";
+import { ScriptedProviderSignIn } from "./providers/scripted-sign-in.ts";
 
 /**
  * The composition, assembled from nothing but fakes.
@@ -153,6 +155,111 @@ function compose(overrides: Partial<NapDeps> = {}) {
 }
 
 describe("composeNap", () => {
+  it("routes the selected subscription through admission and the worker without API keys or API execution", async () => {
+    const accounts = new InMemoryProviderAccountStore();
+    const account = await accounts.create({
+      userId: FAKE_OWNER,
+      driver: "claude",
+      label: "Personal",
+    });
+    await accounts.completeSignIn(FAKE_OWNER, account.id, {
+      generation: 0,
+      credentials: { ciphertext: "private-fixture", iv: "private-fixture" },
+      identity: { email: null, plan: null },
+    });
+    const sessions = new InMemorySessionStore([{ sessionId: SESSION, projectId: PROJECT }]);
+    const events = new InMemoryEventStore();
+    const provider = chattyProvider();
+    const startApi = vi.spyOn(provider, "startTurn");
+    const userKeys = new InMemoryUserKeyStore();
+    const keyRead = vi.spyOn(userKeys, "get");
+    const execute = vi.fn<
+      import("@nap/shared/ports/native-turn-executor").NativeTurnExecutor["run"]
+    >(async (input, options) => {
+      expect(input.target).toMatchObject({
+        driver: "claude",
+        accountId: account.id,
+        model: "claude-native",
+      });
+      expect(input.lease.requestId).toBeTruthy();
+      const stored = await events.append({
+        sessionId: SESSION,
+        turnId: input.turnId,
+        type: "agent.message",
+        createdAt: new Date().toISOString(),
+        payload: { text: "Native result" },
+      });
+      if (stored === undefined) throw new Error("missing stored event");
+      await options.publish(stored);
+      return {
+        kind: "completed" as const,
+        usage: null,
+        usageIncomplete: true,
+        quiescence: {
+          kind: "confirmed" as const,
+          agent: {
+            kind: "exit" as const,
+            sequence: 1,
+            code: 0,
+            reason: "exited" as const,
+            containment: "cgroup" as const,
+          },
+          writers: [],
+        },
+      };
+    });
+    const { app } = compose({
+      sessions,
+      executionSelections: sessions,
+      projects: projectHolding(SESSION),
+      sandbox: turnableSandbox(),
+      events,
+      provider,
+      userKeys,
+      providerAccounts: { store: accounts, signIn: new ScriptedProviderSignIn() },
+      native: {
+        executor: { run: execute },
+        providers: new Map([
+          ["claude", [{ id: "claude-native", label: "Claude", supportsImages: true }]],
+        ]),
+      },
+    });
+    const catalog = await app.request("/providers/targets");
+    expect(await catalog.json()).toMatchObject({ accounts: [{ availability: "ready" }] });
+    const response = await app.request(`/sessions/${SESSION}/turns`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: CONFIG.NAP_WEB_ORIGIN },
+      body: JSON.stringify({
+        message: "Build a page",
+        selection: {
+          kind: "subscription",
+          accountId: account.id,
+          model: "claude-native",
+        },
+      }),
+    });
+    expect(response.status).toBe(202);
+    await expect
+      .poll(
+        async () =>
+          (await events.readFrom(SESSION, 0)).some((event) => event.type === "turn.completed"),
+        { timeout: 10000 },
+      )
+      .toBe(true);
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(startApi).not.toHaveBeenCalled();
+    expect(keyRead).not.toHaveBeenCalled();
+    const logged = await events.readFrom(SESSION, 0);
+    expect(
+      logged.filter(
+        (event) => event.type === "agent.message" && event.payload.text === "Native result",
+      ),
+    ).toHaveLength(1);
+    expect(logged.find((event) => event.type === "turn.completed")).toMatchObject({
+      payload: { usageIncomplete: true },
+    });
+  });
+
   it("mounts the routes the API serves", async () => {
     const { app } = compose();
 

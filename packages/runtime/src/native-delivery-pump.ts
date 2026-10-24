@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
-import { NativeStoredFrameSchema } from "@nap/shared/native-delivery-protocol";
-import type { DistributiveOmit, PendingEvent, StoredEvent } from "@nap/shared/ports/event-store";
+import {
+  type NativeOutputEvent,
+  NativeStoredFrameSchema,
+} from "@nap/shared/native-delivery-protocol";
+import type { StoredEvent } from "@nap/shared/ports/event-store";
 import type {
   NativeDeliveryCipher,
   NativeDeliveryScope,
@@ -13,24 +16,7 @@ import {
 } from "@nap/shared/ports/native-run-store";
 import type { ProcessEvent } from "@nap/shared/ports/sandbox-process";
 
-type Output = DistributiveOmit<
-  Extract<
-    PendingEvent,
-    {
-      type:
-        | "agent.message"
-        | "agent.thinking"
-        | "tool.call"
-        | "tool.result"
-        | "file.changed"
-        | "command.output"
-        | "context.usage"
-        | "system.notice";
-    }
-  >,
-  "createdAt" | "sessionId" | "turnId"
->;
-export type NativeOutputDecoder = { accept(event: ProcessEvent): Output[] };
+export type NativeOutputDecoder = { accept(event: ProcessEvent): NativeOutputEvent[] };
 type Options = {
   store: Pick<NativeRunStore, "read" | "deliveries" | "append">;
   cipher: NativeDeliveryCipher;

@@ -1,6 +1,7 @@
 import type { SessionExecutionStore } from "@nap/shared/ports/session-execution-store";
 import type { SessionNavigationStore } from "@nap/shared/ports/session-navigation-store";
 import type { SessionStartStore } from "@nap/shared/ports/session-start-store";
+
 /**
  * The composition: everything above the infrastructure, assembled from parts somebody else chose.
  *
@@ -27,6 +28,7 @@ import type { SessionStartStore } from "@nap/shared/ports/session-start-store";
  */
 
 import { NapAgentService } from "@nap/agent/agent-service";
+import { NativeAgentService } from "@nap/agent/native-agent-service";
 import { BoundedPageCapture } from "@nap/capture/bounded-page-capture";
 import { NapContextEngine } from "@nap/context/context-engine";
 import { NoopMemoryProvider } from "@nap/context/noop-memory-provider";
@@ -41,6 +43,7 @@ import type { EventBus } from "@nap/shared/ports/event-bus";
 import type { EventStore } from "@nap/shared/ports/event-store";
 import type { GitHubStore } from "@nap/shared/ports/github-store";
 import type { LLMProvider } from "@nap/shared/ports/llm-provider";
+import type { NativeTurnExecutor } from "@nap/shared/ports/native-turn-executor";
 import type { ObjectStore } from "@nap/shared/ports/object-store";
 import type { PageCapture } from "@nap/shared/ports/page-capture";
 import type { ProjectSandboxStore } from "@nap/shared/ports/project-sandbox-store";
@@ -55,6 +58,8 @@ import type { SweepLock } from "@nap/shared/ports/sweep-lock";
 import type { TurnQueue } from "@nap/shared/ports/turn-queue";
 import type { TurnRateLimiter } from "@nap/shared/ports/turn-rate-limit";
 import type { UserKeyStore } from "@nap/shared/ports/user-key-store";
+import type { ProviderDriver } from "@nap/shared/provider-accounts-protocol";
+import type { NativeModel } from "@nap/shared/subscription-protocol";
 import type { Hono } from "hono";
 import type { VerifyKey } from "./account/routes.ts";
 import { type EncryptionKey, open } from "./account/secret-box.ts";
@@ -125,6 +130,11 @@ export type NapRole = "api" | "worker" | "reaper" | "all";
 export type NapDeps = {
   sessionStarts?: SessionStartStore;
   executionSelections?: SessionExecutionStore;
+  /** Installed execution and its catalog are supplied together; boot leaves this absent until release gates pass. */
+  native?: {
+    executor: NativeTurnExecutor;
+    providers: ReadonlyMap<ProviderDriver, readonly NativeModel[]>;
+  };
   sessionNavigation?: SessionNavigationStore;
   github?: { store: GitHubStore; app: GitHubApp | null; broker?: GitBroker };
   config: NapConfig;
@@ -344,9 +354,12 @@ export function composeNap(deps: NapDeps): ComposedNap {
     capacity: deps.capacity,
     sandboxTtlMs: config.NAP_SANDBOX_TTL_MINUTES * 60 * 1000,
     context: new NapContextEngine({ budgetTokens: config.NAP_CONTEXT_BUDGET_TOKENS }),
-    agent: new NapAgentService({
-      provider: deps.provider,
-      budget: { maxSteps: config.NAP_MAX_STEPS },
+    agent: new NativeAgentService({
+      api: new NapAgentService({
+        provider: deps.provider,
+        budget: { maxSteps: config.NAP_MAX_STEPS },
+      }),
+      ...(deps.native === undefined ? {} : { executor: deps.native.executor }),
     }),
     events: deps.events,
     bus: deps.bus,
@@ -397,7 +410,10 @@ export function composeNap(deps: NapDeps): ComposedNap {
   const subscriptionAccess =
     deps.providerAccounts === undefined
       ? undefined
-      : new SubscriptionAccess({ accounts: deps.providerAccounts.store });
+      : new SubscriptionAccess({
+          accounts: deps.providerAccounts.store,
+          ...(deps.native === undefined ? {} : { providers: deps.native.providers }),
+        });
   const app = createApp({
     ...(deps.executionSelections === undefined
       ? {}

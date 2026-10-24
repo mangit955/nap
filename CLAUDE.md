@@ -190,7 +190,7 @@ Drift here is the most expensive kind of mistake. Before adding code to a compon
 | `PageCapture` | Turning a URL that is already serving into PNG bytes | Waiting for a dev server, deciding when to photograph, or knowing where the picture is kept. Deciding how many may happen at once — that is the composition's, since it depends on the worker's concurrency |
 | `EventStore` / `EventBus` | Durable append, **then** fanout — in that order | Business logic |
 
-**Where tools execute:** we run no agent harness with built-in tools, because a harness's `Read`/`Write`/`Edit`/`Bash` act on the API server's filesystem, not the sandbox. `AgentService` owns its own loop over the `LLMProvider` port, and **the only tools that exist are the six in `packages/agent/src/tools/`**, every one of which proxies to `SandboxManager`. See `docs/PLAN.md` §0.
+**Where tools execute:** API turns use Nap’s own `LLMProvider` loop. The experimental subscription helper disables local tools and forwards the same six Nap tools through a scoped workspace client. Production native execution remains gated. See `docs/native-subscription-runtime.md`; the original API design is in `docs/PLAN.md` §0.
 
 ## Testing
 

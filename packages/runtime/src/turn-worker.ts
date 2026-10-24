@@ -268,6 +268,9 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
         turnId: request.id,
         model: request.target.model,
         target: request.target,
+        ...(request.target.kind === "subscription"
+          ? { nativeLease: { requestId: request.id, workerId: owner } }
+          : {}),
         // A resume that continues a job runs turns, so it answers to the lease exactly as a turn
         // does. Without the signal the `AbortController` above would be wired to nothing on this
         // branch, and a worker that lost its lease mid-continuation would keep writing.
@@ -293,6 +296,9 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
       signal,
       model: request.target.model,
       target: request.target,
+      ...(request.target.kind === "subscription"
+        ? { nativeLease: { requestId: request.id, workerId: owner } }
+        : {}),
       ...(credentials === undefined ? {} : { credentials }),
     });
     logger.info({ requestId: request.id, turnId: outcome.turnId, outcome }, "turn settled");

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { NativeHostExitReasonSchema } from "./native-process-protocol.ts";
+import type { DistributiveOmit, PendingEvent } from "./ports/event-store.ts";
 
 const sequence = z.int().positive().max(2_147_483_647);
 /** Private, encrypted frame representation; stdout may end halfway through a UTF-8 character. */
@@ -24,3 +25,22 @@ export const NativeStoredFrameSchema = z.strictObject({
     }),
   ]),
 });
+
+/** The public subset a provider decoder may append with a private delivery receipt. */
+export type NativeOutputEvent = DistributiveOmit<
+  Extract<
+    PendingEvent,
+    {
+      type:
+        | "agent.message"
+        | "agent.thinking"
+        | "tool.call"
+        | "tool.result"
+        | "file.changed"
+        | "command.output"
+        | "context.usage"
+        | "system.notice";
+    }
+  >,
+  "createdAt" | "sessionId" | "turnId"
+>;

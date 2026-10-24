@@ -1,4 +1,7 @@
+import { buildNativePrompt } from "@nap/context/native-prompt";
 import { type ExecutionTarget, sameExecutionTarget } from "@nap/shared/execution-target";
+import type { NativeExecutionLease } from "@nap/shared/ports/agent-service";
+import { NativeWorkspaceFencedError } from "@nap/shared/ports/native-turn-executor";
 /**
  * One turn, end to end: get a sandbox, build the context, run the agent, write down
  * everything that happened, commit the result, and ask the project whether it holds up.
@@ -101,6 +104,7 @@ type TurnScope = {
  * whoever opened the project is the signal, the model and whose account pays, and nothing else.
  */
 type TurnSettings = {
+  nativeLease?: NativeExecutionLease | undefined;
   target?: ExecutionTarget | undefined;
   sessionId: string;
   signal?: AbortSignal | undefined;
@@ -561,13 +565,15 @@ export class SingleAgentRuntime implements Runtime {
       if (run.open) {
         run.turn.emit("job.completed", { jobId: run.jobId, outcome: "abandoned" });
         await sink.drain().catch(() => {});
-        await this.#finishRepositoryJob({
-          scope: run.turn,
-          sandboxId,
-          jobId: run.jobId,
-          requestId: run.requestId,
-          signal: options.signal,
-        });
+        if (!(error instanceof NativeWorkspaceFencedError)) {
+          await this.#finishRepositoryJob({
+            scope: run.turn,
+            sandboxId,
+            jobId: run.jobId,
+            requestId: run.requestId,
+            signal: options.signal,
+          });
+        }
       }
     }
   }
@@ -778,7 +784,7 @@ export class SingleAgentRuntime implements Runtime {
 
       // Best effort: if persistence is what broke, there is nowhere left to record it.
       await sink.drain().catch(() => {});
-      if (run !== null) {
+      if (run !== null && !(error instanceof NativeWorkspaceFencedError)) {
         await this.#finishRepositoryJob({
           scope: run.turn,
           sandboxId: run.sandboxId,
@@ -971,80 +977,117 @@ export class SingleAgentRuntime implements Runtime {
 
     // Preparation belongs to this turn too, even if it fails before the agent starts.
     sink.beginTurn();
-    const context = await this.#options.context.build({
-      sessionId: settings.sessionId,
-      sandboxId,
-      userMessage: prompt,
-      model: settings.model,
-      attachments: options.attachments,
-      history,
-      ...(job === undefined ? {} : { job }),
-      ...(options.manualCompaction === undefined ? {} : { continuation: true }),
-      sandbox: this.#options.sandbox,
-      memory: this.#options.memory,
-      ...(settings.workspace === undefined ? {} : { workspace: settings.workspace }),
-    });
-
-    settings.signal?.throwIfAborted();
-
-    await this.#options.agent.runTurn({
-      target: settings.target,
-      userId: scope.session.userId,
-      sessionId: settings.sessionId,
-      turnId,
-      sandboxId,
-      context,
-      sandbox: this.#options.sandbox,
-      onEvent: sink.emit,
-      ...(options.manualCompaction === undefined ? {} : { operation: "compact" }),
-      compactContext: contextCompactor({
-        ...(options.manualCompaction === undefined
-          ? {}
-          : { startedId: options.manualCompaction.id }),
-        budgetTokens: context.budgetTokens ?? 80_000,
-        read: async () => {
-          await sink.drain();
-          return this.#options.events.readFrom(settings.sessionId, 0);
-        },
-        emit: (event) => {
-          switch (event.type) {
-            case "compaction.started":
-              emit(event.type, event.payload);
-              break;
-            case "compaction.completed":
-              options.manualCompaction?.onSettled();
-              emit(event.type, event.payload);
-              break;
-            case "compaction.failed":
-              options.manualCompaction?.onSettled();
-              emit(event.type, event.payload);
-              break;
-          }
-        },
+    if (settings.target?.kind === "subscription") {
+      settings.signal?.throwIfAborted();
+      const result = await this.#options.agent.runTurn({
+        kind: "native",
+        target: settings.target,
+        model: settings.target.model,
+        userId: scope.session.userId,
+        projectId: scope.session.projectId,
+        sessionId: settings.sessionId,
+        turnId,
+        sandboxId,
+        input: buildNativePrompt({
+          prompt,
+          attachments: options.attachments,
+          workspace: settings.workspace,
+          job,
+        }),
+        lease: settings.nativeLease ?? null,
+        sandbox: this.#options.sandbox,
+        onEvent: sink.emit,
+        onStoredEvent: sink.publishStored,
         drain: () => sink.drain(),
-        rebuild: (history) =>
-          this.#options.context.build({
-            sessionId: settings.sessionId,
-            sandboxId,
-            userMessage: prompt,
-            model: settings.model,
-            continuation: true,
-            history,
-            ...(job === undefined ? {} : { job }),
-            sandbox: this.#options.sandbox,
-            memory: this.#options.memory,
-          }),
-      }),
-      promptSource,
-      ...(options.manualCompaction !== undefined
-        ? {}
-        : { finalize: () => this.#commit(sandboxId, commitSubject) }),
-      ...(settings.signal === undefined ? {} : { signal: settings.signal }),
-      ...(settings.model === undefined ? {} : { model: settings.model }),
-      // Passed straight through and read nowhere here: the runtime decides *when* a turn
-      // runs, never who pays for it.
-      ...(settings.credentials === undefined ? {} : { credentials: settings.credentials }),
-    });
+        promptSource,
+        ...(options.manualCompaction === undefined ? {} : { operation: "compact" }),
+        ...(options.manualCompaction === undefined
+          ? { finalize: () => this.#commit(sandboxId, commitSubject) }
+          : {}),
+        ...(settings.signal === undefined ? {} : { signal: settings.signal }),
+      });
+      if (result?.kind === "workspace_fenced") {
+        // Persistence failure must not replace the error that forbids repository finalization.
+        await sink.drain().catch(() => {});
+        throw new NativeWorkspaceFencedError();
+      }
+      await sink.drain();
+    } else {
+      const context = await this.#options.context.build({
+        sessionId: settings.sessionId,
+        sandboxId,
+        userMessage: prompt,
+        model: settings.model,
+        attachments: options.attachments,
+        history,
+        ...(job === undefined ? {} : { job }),
+        ...(options.manualCompaction === undefined ? {} : { continuation: true }),
+        sandbox: this.#options.sandbox,
+        memory: this.#options.memory,
+        ...(settings.workspace === undefined ? {} : { workspace: settings.workspace }),
+      });
+
+      settings.signal?.throwIfAborted();
+
+      await this.#options.agent.runTurn({
+        target: settings.target,
+        userId: scope.session.userId,
+        sessionId: settings.sessionId,
+        turnId,
+        sandboxId,
+        context,
+        sandbox: this.#options.sandbox,
+        onEvent: sink.emit,
+        ...(options.manualCompaction === undefined ? {} : { operation: "compact" }),
+        compactContext: contextCompactor({
+          ...(options.manualCompaction === undefined
+            ? {}
+            : { startedId: options.manualCompaction.id }),
+          budgetTokens: context.budgetTokens ?? 80_000,
+          read: async () => {
+            await sink.drain();
+            return this.#options.events.readFrom(settings.sessionId, 0);
+          },
+          emit: (event) => {
+            switch (event.type) {
+              case "compaction.started":
+                emit(event.type, event.payload);
+                break;
+              case "compaction.completed":
+                options.manualCompaction?.onSettled();
+                emit(event.type, event.payload);
+                break;
+              case "compaction.failed":
+                options.manualCompaction?.onSettled();
+                emit(event.type, event.payload);
+                break;
+            }
+          },
+          drain: () => sink.drain(),
+          rebuild: (history) =>
+            this.#options.context.build({
+              sessionId: settings.sessionId,
+              sandboxId,
+              userMessage: prompt,
+              model: settings.model,
+              continuation: true,
+              history,
+              ...(job === undefined ? {} : { job }),
+              sandbox: this.#options.sandbox,
+              memory: this.#options.memory,
+            }),
+        }),
+        promptSource,
+        ...(options.manualCompaction !== undefined
+          ? {}
+          : { finalize: () => this.#commit(sandboxId, commitSubject) }),
+        ...(settings.signal === undefined ? {} : { signal: settings.signal }),
+        ...(settings.model === undefined ? {} : { model: settings.model }),
+        // Passed straight through and read nowhere here: the runtime decides *when* a turn
+        // runs, never who pays for it.
+        ...(settings.credentials === undefined ? {} : { credentials: settings.credentials }),
+      });
+    }
 
     await sink.drain();
 
