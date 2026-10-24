@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "template": "nap-vite-react",
+  "cpuCount": 2,
+  "memoryMB": 1024,
+  "files": {
+    "app/.gitignore": "4ff7a22a5675949dfe1371c019e058e0cdd557e0b0deb5c7b92a4a3295980d86",
+    "app/AGENTS.md": "0f8b2354d3a1e0caa0e4f21ca66681a440312f6e720d56b535d14e01a600d662",
+    "app/index.html": "96303f8376607461b8a2a559e4372f3e98cf669f23bcd6ddc5e8a79763623ac2",
+    "app/package.json": "1daf0580d139750a56a58ca7112fbf64de104ca147d981fa25ddd8d5e61f0e5a",
+    "app/src/App.tsx": "f2c58e14a0add30d4d7e7ebfc54c6eb455057d15decae5b3c0a3e66213877f89",
+    "app/src/components/ui/badge.tsx": "785c8bb5924b426d2c2b52a97efcdc2fe960777e22401db797b16f10378b2919",
+    "app/src/components/ui/button.tsx": "0f1175ae299b87a1d81570ee0c0a8c1ba409d301c85a3690ef4ee84c5b1e7843",
+    "app/src/components/ui/card.tsx": "e5bfa18aa004118202086c8c65268e49d38b78a267455142ed8edbb26d469cab",
+    "app/src/components/ui/checkbox.tsx": "69289a794da2f706d88c31169cd87fd792c1736063ad6419f25c01a190099973",
+    "app/src/components/ui/dialog.tsx": "6ed417d04802bcfab2438b0c6a199a870536b47aca391aa27f1ffb4627672674",
+    "app/src/components/ui/input.tsx": "112d7d8053353afb8a88d9897ef3095efb98555911691466e8e348cc8b3672e1",
+    "app/src/components/ui/label.tsx": "4c8798181ca87cc723f2d4683cfa08bef9d1a4b24d878dcd5b59ef1382808372",
+    "app/src/components/ui/select.tsx": "b22d95e715909f8dd24e855134bd426f221b3921d01487d6c8f9c87699ad683c",
+    "app/src/components/ui/separator.tsx": "59f0cca22e8ca29da36a9905035b773270673ac0dcd738c8868cacef696fde6d",
+    "app/src/components/ui/tabs.tsx": "0c6143d374396e6c509633f2aa3b7ad85e61301e1b8bb3f8cedd3023ec901841",
+    "app/src/components/ui/textarea.tsx": "1d7805cd575f04eeb4fdd1a4bb475edc6d53bfdb6539ee3588a5c8a8584b9363",
+    "app/src/index.css": "c3a5a671dd70326dc33174e9736006da37960447cb98a825ce56e15f0755e611",
+    "app/src/lib/utils.ts": "83bfeaafd88c138fe5b12cc8dd20324d4740625f033221c1c30a9223f33251b8",
+    "app/src/main.tsx": "e8e1f401568a2be8150b5df856cd379a63248f7690a293833d20e627db9ea067",
+    "app/tsconfig.json": "785fe2eb73e4dea5c634a7caf61b3704db580b8c8096115a76d0ec64b03f68f2",
+    "app/vite.config.ts": "d3a8a74c01edc6fe33322c91b43b30a1f3aca82549d4f2126eb48d8e633a888a",
+    "desktop/driver.mjs": "3bd1aae5917d0c3beecbe452b6fbb70d34c2ae89289977972d9557e9b4267e3e",
+    "desktop/start-desktop.sh": "85fb4d8c8d9d8cfdf0f2cdf248dd19c79bd5666b9228b5d1e0f5f0d0e6a2e342"
+  }
+}
