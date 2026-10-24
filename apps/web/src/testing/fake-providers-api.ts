@@ -7,9 +7,11 @@
  */
 
 import {
+  CompleteProviderSignInSchema,
   CreateProviderAccountSchema,
   type ProviderAccounts,
   type ProviderAccountView,
+  type ProviderDriver,
   type ProviderSignIn,
   SIGN_IN_UNAVAILABLE,
   UpdateProviderAccountSchema,
@@ -27,9 +29,9 @@ export type FakeProvidersApi = {
 };
 
 export function fakeProvidersApi(
-  options: { signInAvailable?: boolean; accounts?: ProviderAccountView[] } = {},
+  options: { signInDrivers?: ProviderDriver[]; accounts?: ProviderAccountView[] } = {},
 ): FakeProvidersApi {
-  const signInAvailable = options.signInAvailable ?? true;
+  const signInDrivers = options.signInDrivers ?? ["claude", "codex"];
   let sequence = 0;
   const api: FakeProvidersApi = {
     accounts: structuredClone(options.accounts ?? []),
@@ -52,7 +54,7 @@ export function fakeProvidersApi(
   function answer(method: string, path: string, body: unknown): Response {
     if (method === "GET" && path === "/providers")
       return json({
-        signInAvailable,
+        signInDrivers,
         checkedAt: "2026-10-23T09:00:00.000Z",
         accounts: api.accounts,
       } satisfies ProviderAccounts);
@@ -73,7 +75,8 @@ export function fakeProvidersApi(
       return json(account, 201);
     }
 
-    const match = /^\/providers\/accounts\/([^/]+)(\/sign-in|\/sign-out)?$/.exec(path);
+    const match =
+      /^\/providers\/accounts\/([^/]+)(\/sign-in\/complete|\/sign-in|\/sign-out)?$/.exec(path);
     const account = api.accounts.find((candidate) => candidate.id === match?.[1]);
     if (match === null || account === undefined)
       return json({ error: "No such provider account." }, 404);
@@ -89,7 +92,7 @@ export function fakeProvidersApi(
         api.accounts.splice(api.accounts.indexOf(account), 1);
         return new Response(null, { status: 204 });
       case "POST /sign-in":
-        if (!signInAvailable)
+        if (!signInDrivers.includes(account.driver))
           return json(
             { error: "Signing in is not available here.", code: SIGN_IN_UNAVAILABLE },
             503,
@@ -104,6 +107,14 @@ export function fakeProvidersApi(
           message: null,
         };
         return json(account);
+      case "POST /sign-in/complete": {
+        const input = CompleteProviderSignInSchema.parse(body);
+        if (account.signIn?.flowId !== input.flowId || account.signIn.phase !== "waiting")
+          return json({ error: "Sign-in was replaced.", code: "stale" }, 409);
+        account.signIn = { ...account.signIn, phase: "succeeded", interaction: null };
+        account.auth = { status: "authenticated", email: "fixture@example.com", plan: null };
+        return json(account);
+      }
       case "DELETE /sign-in":
         if (account.signIn !== null)
           account.signIn = { ...account.signIn, phase: "cancelled", interaction: null };

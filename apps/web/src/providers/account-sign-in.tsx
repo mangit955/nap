@@ -12,7 +12,10 @@
  * Adapted from T3 Code (MIT); see `THIRD_PARTY_NOTICES.md`.
  */
 
-import type { ProviderAccountView } from "@nap/shared/provider-accounts-protocol";
+import type {
+  CompleteProviderSignIn,
+  ProviderAccountView,
+} from "@nap/shared/provider-accounts-protocol";
 import { useEffect, useState } from "react";
 import { CopyIcon } from "../ui/icons.tsx";
 import { isSigningIn } from "./account-status.ts";
@@ -31,6 +34,7 @@ export function AccountSignIn({
   signInAvailable,
   onStart,
   onCancel,
+  onComplete,
   onSignOut,
   startError = null,
   confirm = (message) => window.confirm(message),
@@ -39,6 +43,7 @@ export function AccountSignIn({
   signInAvailable: boolean;
   onStart: () => Promise<Outcome<unknown>>;
   onCancel: () => Promise<Outcome<unknown>>;
+  onComplete: (input: CompleteProviderSignIn) => Promise<Outcome<unknown>>;
   onSignOut: () => Promise<Outcome<unknown>>;
   startError?: string | null;
   /** Injected so a test can answer the sign-out question without a browser dialog. */
@@ -176,6 +181,14 @@ export function AccountSignIn({
         </>
       }
     >
+      {interaction?.type === "browser" && flow?.phase === "waiting" ? (
+        <BrowserCallbackForm
+          key={flow.flowId}
+          flowId={flow.flowId}
+          pending={pending}
+          onComplete={(input) => run(() => onComplete(input))}
+        />
+      ) : null}
       {interaction?.type === "deviceCode" || interaction?.type === "terminal" || error ? (
         <div className="pb-2">
           {interaction?.type === "deviceCode" ? (
@@ -203,5 +216,52 @@ export function AccountSignIn({
         </div>
       ) : null}
     </ProviderRow>
+  );
+}
+
+function BrowserCallbackForm({
+  flowId,
+  pending,
+  onComplete,
+}: {
+  flowId: string;
+  pending: boolean;
+  onComplete: (input: CompleteProviderSignIn) => Promise<void>;
+}) {
+  const [callback, setCallback] = useState("");
+  return (
+    <form
+      className="space-y-2 py-3"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const redirect = callback.trim();
+        if (!redirect || pending) return;
+        setCallback("");
+        void onComplete({ flowId, redirect });
+      }}
+    >
+      <p className="text-sm text-muted">
+        After signing in, paste the callback URL from your browser to finish connecting this
+        account.
+      </p>
+      <label className="block text-xs text-muted" htmlFor={`${flowId}-callback`}>
+        Sign-in callback URL
+      </label>
+      <input
+        id={`${flowId}-callback`}
+        type="url"
+        autoComplete="off"
+        spellCheck={false}
+        maxLength={16_384}
+        required
+        disabled={pending}
+        value={callback}
+        onChange={(event) => setCallback(event.target.value)}
+        className="w-full rounded-lg border border-edge bg-surface px-3 py-2 text-sm text-ink outline-none focus:border-ink-2"
+      />
+      <button type="submit" disabled={pending || !callback.trim()} className={ACCENT_BUTTON}>
+        Complete sign-in
+      </button>
+    </form>
   );
 }

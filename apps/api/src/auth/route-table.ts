@@ -105,6 +105,15 @@ export const GUARDED_ROUTES: GuardedRoute[] = [
     examplePath: `/providers/accounts/${PROVIDER_ACCOUNT}/sign-in`,
   },
   {
+    method: "POST",
+    path: "/providers/accounts/:accountId/sign-in/complete",
+    examplePath: `/providers/accounts/${PROVIDER_ACCOUNT}/sign-in/complete`,
+    body: {
+      flowId: "00000000-0000-4000-8000-000000000099",
+      redirect: "https://nap.example/callback?code=fixture",
+    },
+  },
+  {
     method: "DELETE",
     path: "/providers/accounts/:accountId/sign-in",
     examplePath: `/providers/accounts/${PROVIDER_ACCOUNT}/sign-in`,

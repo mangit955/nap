@@ -100,6 +100,13 @@ export const ProviderSignInSchema = z.object({
 });
 export type ProviderSignIn = z.infer<typeof ProviderSignInSchema>;
 
+/** Browser-owned handoff; the server validates the registered callback and single-use state. */
+export const CompleteProviderSignInSchema = z.strictObject({
+  flowId: z.uuid(),
+  redirect: z.string().min(1).max(16_384),
+});
+export type CompleteProviderSignIn = z.infer<typeof CompleteProviderSignInSchema>;
+
 /**
  * An account as the settings page shows it: what is stored, and the sign-in running on it now.
  * Folded into one answer so the page polls a single endpoint while somebody is signing in.
@@ -110,12 +117,8 @@ export const ProviderAccountViewSchema = ProviderAccountSchema.extend({
 export type ProviderAccountView = z.infer<typeof ProviderAccountViewSchema>;
 
 export const ProviderAccountsSchema = z.object({
-  /**
-   * Whether this deployment can run a provider's sign-in at all. False until the runtime that
-   * hosts the provider's agent is configured, and the page says so rather than offering a button
-   * that fails.
-   */
-  signInAvailable: z.boolean(),
+  /** Only these providers have a configured, supported sign-in implementation. */
+  signInDrivers: z.array(ProviderDriverSchema).max(2),
   /** When the statuses below were read, for the page's "Checked …" line. */
   checkedAt: z.iso.datetime(),
   accounts: z.array(ProviderAccountViewSchema),

@@ -190,7 +190,7 @@ export function ProvidersPage({
                     <AccountEditor
                       key={selectedAccount.id}
                       account={selectedAccount}
-                      signInAvailable={loaded.signInAvailable}
+                      signInAvailable={loaded.signInDrivers.includes(selectedAccount.driver)}
                       api={api}
                       startError={signInErrors[selectedAccount.id] ?? null}
                       onStartSignIn={() => {
@@ -242,7 +242,7 @@ export function ProvidersPage({
         <AddProviderDialog
           open={adding}
           onClose={() => setAdding(false)}
-          signInAvailable={loaded.signInAvailable}
+          signInDrivers={loaded.signInDrivers}
           onCreate={api.create}
           onStartSignIn={api.startSignIn}
           onCreated={(id, startError) => {
@@ -531,6 +531,7 @@ function AccountEditor({
           signInAvailable={signInAvailable}
           onStart={onStartSignIn}
           onCancel={() => api.cancelSignIn(account.id)}
+          onComplete={(input) => api.completeSignIn(account.id, input)}
           onSignOut={() => api.signOut(account.id)}
           confirm={confirm}
           startError={startError}

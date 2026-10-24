@@ -4,11 +4,19 @@
  * show, and the test decides how it ends.
  */
 
-import type { ProviderAccount, ProviderSignIn } from "@nap/shared/provider-accounts-protocol";
-import type { ProviderSignInRunner, ProviderSignInSession } from "./sign-in.ts";
+import type {
+  ProviderAccount,
+  ProviderDriver,
+  ProviderSignIn,
+} from "@nap/shared/provider-accounts-protocol";
+import type {
+  ProviderSignInResult,
+  ProviderSignInRunner,
+  ProviderSignInSession,
+} from "./sign-in.ts";
 
 export class ScriptedProviderSignIn implements ProviderSignInRunner {
-  readonly available = true;
+  constructor(readonly drivers: readonly ProviderDriver[] = ["claude", "codex"]) {}
   readonly signedOut: string[] = [];
   readonly #flows = new Map<string, { userId: string; accountId: string; flow: ProviderSignIn }>();
   #sequence = 0;
@@ -36,7 +44,10 @@ export class ScriptedProviderSignIn implements ProviderSignInRunner {
     return entry === undefined ? null : structuredClone(entry.flow);
   }
 
-  async start(session: ProviderSignInSession, account: ProviderAccount): Promise<ProviderSignIn> {
+  async start(
+    session: ProviderSignInSession,
+    account: ProviderAccount,
+  ): Promise<ProviderSignInResult> {
     this.#cancelAccount(session.userId, account);
     this.#sequence += 1;
     const flow: ProviderSignIn = {
@@ -53,7 +64,11 @@ export class ScriptedProviderSignIn implements ProviderSignInRunner {
       accountId: account.id,
       flow,
     });
-    return structuredClone(flow);
+    return { ok: true, value: structuredClone(flow) };
+  }
+
+  async complete(): Promise<ProviderSignInResult> {
+    return { ok: false, error: { code: "unavailable" } };
   }
 
   async cancel(session: ProviderSignInSession, account: ProviderAccount): Promise<void> {

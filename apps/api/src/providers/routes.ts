@@ -17,6 +17,7 @@
 import { SIGN_IN_REQUIRED, type SignInRequired } from "@nap/shared/api-error";
 import type { ProviderAccountStore } from "@nap/shared/ports/provider-account-store";
 import {
+  CompleteProviderSignInSchema,
   CreateProviderAccountSchema,
   PROVIDER_ACCOUNT_LIMIT,
   PROVIDER_ACCOUNT_LIMIT_REACHED,
@@ -28,7 +29,11 @@ import {
 } from "@nap/shared/provider-accounts-protocol";
 import type { Context, Hono } from "hono";
 import type { AuthVariables } from "../auth/require-user.ts";
-import type { ProviderSignInRunner, ProviderSignInSession } from "./sign-in.ts";
+import type {
+  ProviderSignInError,
+  ProviderSignInRunner,
+  ProviderSignInSession,
+} from "./sign-in.ts";
 
 export type ProviderRouteDeps = {
   accounts: ProviderAccountStore;
@@ -54,6 +59,7 @@ export function registerProviderRoutes(
     account: ProviderAccount,
   ): Promise<ProviderAccountView> => {
     const binding = session(c);
+    c.header("cache-control", "no-store");
     return {
       ...account,
       signIn: binding === null ? null : await deps.signIn.current(binding, account),
@@ -67,6 +73,25 @@ export function registerProviderRoutes(
       } satisfies SignInRequired,
       403,
     );
+
+  const signInRefusal = (c: Context<{ Variables: AuthVariables }>, error: ProviderSignInError) => {
+    const failures = {
+      missing: { status: 404, message: "No such sign-in attempt." },
+      disabled: { status: 409, message: "Switch this provider on first." },
+      stale: { status: 409, message: "This sign-in was replaced or disconnected. Start again." },
+      expired: { status: 410, message: "Sign-in expired. Start again." },
+      unavailable: { status: 503, message: "Signing in to this provider is unavailable here." },
+      invalid_callback: {
+        status: 400,
+        message: "This callback does not match the sign-in request.",
+      },
+    } satisfies Record<
+      ProviderSignInError["code"],
+      { status: 400 | 404 | 409 | 410 | 503; message: string }
+    >;
+    const failure = failures[error.code];
+    return c.json({ error: failure.message, code: error.code }, failure.status);
+  };
 
   /**
    * The two refusals every route makes, in the order that leaks nothing: a guest is told to sign
@@ -101,13 +126,14 @@ export function registerProviderRoutes(
   };
 
   app.get("/providers", async (c) => {
+    c.header("cache-control", "no-store");
     const refused = guest(c);
     if (refused !== null) return refused;
 
     const userId = c.get("userId");
     const accounts = await deps.accounts.list(userId);
     return c.json({
-      signInAvailable: deps.signIn.available,
+      signInDrivers: [...deps.signIn.drivers],
       checkedAt: now().toISOString(),
       accounts: await Promise.all(accounts.map((account) => view(c, account))),
     } satisfies ProviderAccounts);
@@ -171,7 +197,7 @@ export function registerProviderRoutes(
   app.post("/providers/accounts/:accountId/sign-in", async (c) => {
     const found = await owned(c);
     if (found.refused !== undefined) return found.refused;
-    if (!deps.signIn.available)
+    if (!deps.signIn.drivers.includes(found.account.driver))
       return c.json(
         {
           error: "Signing in to a provider is not available on this deployment yet.",
@@ -183,8 +209,23 @@ export function registerProviderRoutes(
 
     const binding = session(c);
     if (binding === null) return sessionRequired(c);
-    await deps.signIn.start(binding, found.account);
+    const result = await deps.signIn.start(binding, found.account);
+    if (!result.ok) return signInRefusal(c, result.error);
     return c.json(await view(c, found.account));
+  });
+
+  app.post("/providers/accounts/:accountId/sign-in/complete", async (c) => {
+    const found = await owned(c);
+    if (found.refused !== undefined) return found.refused;
+    const binding = session(c);
+    if (binding === null) return sessionRequired(c);
+    const input = CompleteProviderSignInSchema.safeParse(await readJson(c.req.raw));
+    if (!input.success) return c.json({ error: "Invalid sign-in callback." }, 400);
+    const result = await deps.signIn.complete(binding, found.account, input.data);
+    if (!result.ok) return signInRefusal(c, result.error);
+    const account = await deps.accounts.get(binding.userId, found.account.id);
+    if (account === null) return c.json({ error: "No such provider account." }, 404);
+    return c.json(await view(c, account));
   });
 
   app.delete("/providers/accounts/:accountId/sign-in", async (c) => {

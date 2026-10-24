@@ -44,11 +44,25 @@ account, driver and authorization generation. Copying ciphertext to another scop
 uses the existing AES-GCM utility but does not rely on opaque encryption alone for ownership.
 The DB receives sealed envelopes only and never holds the encryption key.
 
-These are server-side operations. HTTP authentication supplies the verified cookie-session ID
-to the status runner; request headers and bodies cannot select that ID. Interactions are scoped
-to that session, and starting sign-in requires the binding. A real provider adapter still needs
-to connect the durable store, provider verification and scoped sealing. Production keeps
-`UNAVAILABLE_SIGN_IN`; the store and sealer do not implement OAuth exchange or launch a provider CLI. Database cancellation
+HTTP authentication supplies the verified cookie-session ID to the sign-in runner; request
+headers and bodies cannot select that ID. Interactions are scoped to that session. The browser
+coordinator now connects the durable store and scoped sealer: it creates a private challenge,
+persists pending state, consumes the callback claim once, bounds provider requests, then seals
+and commits the verified grant atomically. Provider exceptions produce fixed public messages.
+A lost exchange response is terminal and cannot trigger another automatic exchange.
+
+`POST /providers/accounts/:accountId/sign-in/complete` accepts a browser handoff only from the
+trusted web Origin and initiating Nap session. Its body contains the flow ID and callback URL,
+never an account label or claimed identity. The configured provider adapter must validate its exact
+registered redirect URI and protocol-specific PKCE, nonce, issuer, audience and scope requirements.
+The settings page offers callback handoff only while its browser flow is waiting, clears the
+input on submission or flow replacement, and sends it in the POST body, not a Nap navigation URL.
+
+Availability is now `signInDrivers`, a list of configured providers, rather than one global
+boolean. Both the API and settings page check the selected driver. The API and web must deploy
+together for this response-contract change. Production still configures no driver and keeps
+`UNAVAILABLE_SIGN_IN`. The browser coordinator is exercised with a local provider fixture; it is
+not an implemented OpenAI OAuth client or a Claude terminal-login driver. Database cancellation
 also does not prove a native process stopped; its supervisor and credential owner must coordinate
 that before reuse.
 
@@ -76,8 +90,8 @@ migration has been run. Existing API keys retain their existing storage and exec
 [The process transport proof](native-process-host.md) has local pipe and PTY coverage. A second,
 separately approved [E2B probe](e2b-native-process-probe-20261024.md) passed privilege checks,
 confirmed cgroup termination and detached-child cancellation, then destroyed its sandbox.
-Live PTY, reconnect and worker-loss expiry remain unverified. Provider login, sign-in adapter
-wiring, refresh ownership, account checks during execution, native Claude/Codex adapters,
+Live PTY, reconnect and worker-loss expiry remain unverified. Provider-specific login adapters,
+refresh ownership, account checks during execution, native Claude/Codex adapters,
 recovery archives and UI selection are still required. No provider has been enabled.
 
 Project code running under the same UID as a native agent can inspect that agent's credential

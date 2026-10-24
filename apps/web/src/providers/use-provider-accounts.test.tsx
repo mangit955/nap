@@ -19,7 +19,7 @@ const CLAUDE: ProviderAccountView = {
 
 describe("useProviderAccounts", () => {
   it("loads the accounts and whether sign-in can run", async () => {
-    const api = fakeProvidersApi({ signInAvailable: false });
+    const api = fakeProvidersApi({ signInDrivers: [] });
 
     const { result } = renderHook(() =>
       useProviderAccounts({ fetchJson: api.fetchJson, baseUrl: FAKE_API }),
@@ -28,7 +28,7 @@ describe("useProviderAccounts", () => {
     await waitFor(() => expect(result.current.state.kind).toBe("loaded"));
     expect(result.current.state).toMatchObject({
       kind: "loaded",
-      value: { signInAvailable: false, accounts: [] },
+      value: { signInDrivers: [], accounts: [] },
     });
   });
 
@@ -52,7 +52,7 @@ describe("useProviderAccounts", () => {
   });
 
   it("answers a refusal with the server's sentence and code", async () => {
-    const api = fakeProvidersApi({ signInAvailable: false });
+    const api = fakeProvidersApi({ signInDrivers: [] });
     const { result } = renderHook(() =>
       useProviderAccounts({ fetchJson: api.fetchJson, baseUrl: FAKE_API }),
     );

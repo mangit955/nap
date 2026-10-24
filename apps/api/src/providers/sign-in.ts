@@ -11,19 +11,39 @@
  */
 
 import type { ProviderSignInOwner } from "@nap/shared/ports/provider-sign-in-store";
-import type { ProviderAccount, ProviderSignIn } from "@nap/shared/provider-accounts-protocol";
+import type {
+  ProviderAccount,
+  ProviderDriver,
+  ProviderSignIn,
+} from "@nap/shared/provider-accounts-protocol";
+import type { Result } from "@nap/shared/result";
 
 export type ProviderSignInSession = Pick<ProviderSignInOwner, "userId" | "authSessionId">;
 
+export type ProviderSignInError = {
+  code: "missing" | "disabled" | "stale" | "expired" | "unavailable" | "invalid_callback";
+};
+export type ProviderSignInResult = Result<ProviderSignIn, ProviderSignInError>;
+
 export interface ProviderSignInRunner {
-  /** False when this deployment has nowhere to run a provider's agent. */
-  readonly available: boolean;
+  /** Provider-specific availability; an empty list exposes no sign-in action. */
+  readonly drivers: readonly ProviderDriver[];
 
   /** Only this Nap session's attempt. Other sessions must never receive its interaction. */
   current(session: ProviderSignInSession, account: ProviderAccount): Promise<ProviderSignIn | null>;
 
-  /** Starts an attempt, replacing any still running. Only called when `available`. */
-  start(session: ProviderSignInSession, account: ProviderAccount): Promise<ProviderSignIn>;
+  /** Starts an attempt, replacing any still running. Only called for a configured driver. */
+  start(session: ProviderSignInSession, account: ProviderAccount): Promise<ProviderSignInResult>;
+
+  /** Browser handoff only. A native terminal must implement a separate input transport. */
+  complete(
+    session: ProviderSignInSession,
+    account: ProviderAccount,
+    input: {
+      flowId: string;
+      redirect: string;
+    },
+  ): Promise<ProviderSignInResult>;
 
   /** Stops this session's running attempt. Silent when there is none. */
   cancel(session: ProviderSignInSession, account: ProviderAccount): Promise<void>;
@@ -34,14 +54,13 @@ export interface ProviderSignInRunner {
 
 /**
  * The runner for a deployment with no provider runtime: nothing is running, and nothing can be
- * started. The page reads `available` and says so instead of offering a button that fails.
+ * started. The page reads `drivers` and says so instead of offering a button that fails.
  */
 export const UNAVAILABLE_SIGN_IN: ProviderSignInRunner = {
-  available: false,
+  drivers: [],
   current: async () => null,
-  start: async () => {
-    throw new Error("start was called on a deployment that cannot sign in");
-  },
+  start: async () => ({ ok: false, error: { code: "unavailable" } }),
+  complete: async () => ({ ok: false, error: { code: "unavailable" } }),
   cancel: async () => {},
   signOut: async () => {},
 };

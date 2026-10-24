@@ -71,7 +71,7 @@ describe("GET /providers", () => {
 
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toEqual({
-      signInAvailable: false,
+      signInDrivers: [],
       checkedAt: NOW.toISOString(),
       accounts: [],
     });
@@ -280,6 +280,14 @@ const ACCOUNT_ROUTES = [
   { method: "PATCH", path: "/providers/accounts/:id", body: { label: "Changed", enabled: false } },
   { method: "DELETE", path: "/providers/accounts/:id" },
   { method: "POST", path: "/providers/accounts/:id/sign-in" },
+  {
+    method: "POST",
+    path: "/providers/accounts/:id/sign-in/complete",
+    body: {
+      flowId: "00000000-0000-4000-8000-000000000099",
+      redirect: "https://nap.example/callback?code=fixture",
+    },
+  },
   { method: "DELETE", path: "/providers/accounts/:id/sign-in" },
   { method: "POST", path: "/providers/accounts/:id/sign-out" },
 ];
@@ -328,7 +336,7 @@ describe("provider route guards", () => {
       expect(signIn.signedOut).toEqual([]);
       await expect(
         signIn.current({ userId: USER, authSessionId: AUTH_SESSION }, account),
-      ).resolves.toEqual(flow);
+      ).resolves.toEqual(flow.ok ? flow.value : null);
     },
   );
 });
@@ -371,4 +379,69 @@ it("requires a cookie-session binding before starting an available provider runn
   const response = await send(instance.app, "POST", `/providers/accounts/${account.id}/sign-in`);
   expect(response.status).toBe(403);
   expect(start).not.toHaveBeenCalled();
+});
+
+it("enables sign-in only for the configured provider driver", async () => {
+  const signIn = new ScriptedProviderSignIn(["claude"]);
+  const { app: instance } = app({ signIn });
+  const claude = await create(instance, "claude");
+  const codex = await create(instance, "codex");
+  const denied = await send(instance, "POST", `/providers/accounts/${codex.id}/sign-in`);
+  expect(denied.status).toBe(503);
+  expect(await denied.json()).toMatchObject({ code: SIGN_IN_UNAVAILABLE });
+  expect(await signIn.current({ userId: USER, authSessionId: AUTH_SESSION }, codex)).toBeNull();
+  expect((await send(instance, "POST", `/providers/accounts/${claude.id}/sign-in`)).status).toBe(
+    200,
+  );
+  expect(await (await instance.request("/providers")).json()).toMatchObject({
+    signInDrivers: ["claude"],
+  });
+});
+
+it("requires browser callbacks to use the owning Nap cookie session and trusted web origin", async () => {
+  const signIn = new ScriptedProviderSignIn();
+  const complete = vi.spyOn(signIn, "complete").mockResolvedValue({
+    ok: true,
+    value: {
+      flowId: "00000000-0000-4000-8000-000000000099",
+      phase: "succeeded",
+      interaction: null,
+      message: null,
+    },
+  });
+  const { app: instance, accounts } = app({ signIn });
+  const account = await create(instance, "codex");
+  const path = `/providers/accounts/${account.id}/sign-in/complete`;
+  const body = {
+    flowId: "00000000-0000-4000-8000-000000000099",
+    redirect: "https://nap.example/callback?code=private&state=bound",
+  };
+  const wrongOrigin = await send(instance, "POST", path, body, "https://evil.example");
+  expect(wrongOrigin.status).toBe(403);
+  const noSession = app({ signIn, accounts, authSessionId: null });
+  expect((await send(noSession.app, "POST", path, body)).status).toBe(403);
+  expect(complete).not.toHaveBeenCalled();
+  expect(
+    (await send(instance, "POST", path, { ...body, authSessionId: OTHER_SESSION })).status,
+  ).toBe(400);
+  const result = await send(instance, "POST", path, body);
+  expect(result.status).toBe(200);
+  expect(complete).toHaveBeenCalledWith(
+    { userId: USER, authSessionId: AUTH_SESSION },
+    expect.objectContaining({ id: account.id }),
+    body,
+  );
+});
+
+it("returns a refused sign-in as an error instead of a successful empty account view", async () => {
+  const signIn = new ScriptedProviderSignIn();
+  vi.spyOn(signIn, "start").mockResolvedValue({ ok: false, error: { code: "stale" } });
+  const { app: instance } = app({ signIn });
+  const account = await create(instance, "codex");
+  const result = await send(instance, "POST", `/providers/accounts/${account.id}/sign-in`);
+  expect(result.status).toBe(409);
+  expect(await result.json()).toEqual({
+    error: "This sign-in was replaced or disconnected. Start again.",
+    code: "stale",
+  });
 });
