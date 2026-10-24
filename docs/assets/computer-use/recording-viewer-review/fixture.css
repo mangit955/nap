@@ -1,0 +1,56 @@
+/* Workspace tokens copied from globals.css for this isolated fixture. */
+:root {
+  --color-surface: #0a0a0a;
+  --color-panel: #111111;
+  --color-edge: #242424;
+  --color-line-strong: #383838;
+  --color-ink: #e5e5e5;
+  --color-ink-2: #b8b8b8;
+  --color-muted: #858585;
+  --color-accent: #346bf1;
+  --color-accent-ink: #8cacff;
+  --color-danger: #e05561;
+  --color-success: #69c79a;
+  --color-hover: #ffffff10;
+  --color-row-hover: #e5e5e514;
+  --color-row-active: #e5e5e51c;
+  --shadow-raised: 0 12px 32px -8px #000000b8, 0 0 0 1px #ffffff14;
+  font-family: system-ui, sans-serif;
+  background: var(--color-surface);
+  color: var(--color-ink);
+  color-scheme: dark;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+main {
+  display: flex;
+  min-height: 100dvh;
+}
+aside {
+  width: 230px;
+  padding: 28px;
+  border-right: 1px solid var(--color-edge);
+}
+small {
+  display: block;
+  color: var(--color-muted);
+  margin-top: 12px;
+}
+article {
+  padding: 50px;
+}
+article p {
+  color: var(--color-muted);
+}
+article button {
+  background: var(--color-panel);
+  color: var(--color-ink);
+  border: 1px solid var(--color-edge);
+  padding: 10px;
+  margin-right: 8px;
+  border-radius: 8px;
+}

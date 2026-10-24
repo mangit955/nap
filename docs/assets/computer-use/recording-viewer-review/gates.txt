@@ -1,0 +1,396 @@
+bun run test --maxWorkers=4 (exit 1)
+$ vitest run --project unit --project types --project web --project db "--maxWorkers=4"
+Testing types with tsc and vue-tsc is an experimental feature.
+Breaking changes might not follow SemVer, please pin Vitest's version when using it.
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/t3-55804d73
+
+(node:79192) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:79442) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ❯ |web| apps/web/src/workspace/file-panel.test.tsx (5 tests | 1 failed) 1415ms
+     × shows the manual fallback when clipboard unavailable 1266ms
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |web| apps/web/src/workspace/file-panel.test.tsx > file clipboard > shows the manual fallback when clipboard unavailable
+TestingLibraryElementError: Unable to find role="alert"
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<section[39m
+      [33maria-label[39m=[32m"app.ts (read-only)"[39m
+      [33mclass[39m=[32m"t3-file-panel"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"t3-file-toolbar"[39m
+      [36m>[39m
+        [36m<svg[39m
+          [33maria-hidden[39m=[32m"true"[39m
+          [33mclass[39m=[32m"lucide lucide-file-code-corner lucide-file-code-2"[39m
+          [33mfill[39m=[32m"none"[39m
+          [33mheight[39m=[32m"14"[39m
+          [33mstroke[39m=[32m"currentColor"[39m
+          [33mstroke-linecap[39m=[32m"round"[39m
+          [33mstroke-linejoin[39m=[32m"round"[39m
+          [33mstroke-width[39m=[32m"2"[39m
+          [33mviewBox[39m=[32m"0 0 24 24"[39m
+          [33mwidth[39m=[32m"14"[39m
+          [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+        [36m>[39m
+          [36m<path[39m
+            [33md[39m=[32m"M4 12.15V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.706.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2h-3.35"[39m
+          [36m/>[39m
+          [36m<path[39m
+            [33md[39m=[32m"M14 2v5a1 1 0 0 0 1 1h5"[39m
+          [36m/>[39m
+          [36m<path[39m
+            [33md[39m=[32m"m5 16-3 3 3 3"[39m
+          [36m/>[39m
+          [36m<path[39m
+            [33md[39m=[32m"m9 22 3-3-3-3"[39m
+          [36m/>[39m
+        [36m</svg>[39m
+        [36m<span[39m
+          [33mtitle[39m=[32m"app.ts"[39m
+        [36m>[39m
+          [0mapp.ts[0m
+        [36m</span>[39m
+        [36m<button[39m
+          [33maria-label[39m=[32m"Wrap file lines"[39m
+          [33maria-pressed[39m=[32m"false"[39m
+          [33mclass[39m=[32m"t3-icon-button"[39m
+          [33mtitle[39m=[32m"Wrap lines"[39m
+          [33mtype[39m=[32m"button"[39m
+        [36m>[39m
+          [36m<svg[39m
+            [33maria-hidden[39m=[32m"true"[39m
+            [33mclass[39m=[32m"lucide lucide-text-wrap lucide-wrap-text"[39m
+            [33mfill[39m=[32m"none"[39m
+            [33mheight[39m=[32m"24"[39m
+            [33mstroke[39m=[32m"currentColor"[39m
+            [33mstroke-linecap[39m=[32m"round"[39m
+            [33mstroke-linejoin[39m=[32m"round"[39m
+            [33mstroke-width[39m=[32m"2"[39m
+            [33mviewBox[39m=[32m"0 0 24 24"[39m
+            [33mwidth[39m=[32m"24"[39m
+            [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+          [36m>[39m
+            [36m<path[39m
+              [33md[39m=[32m"m16 16-3 3 3 3"[39m
+            [36m/>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M3 12h14.5a1 1 0 0 1 0 7H13"[39m
+            [36m/>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M3 19h6"[39m
+            [36m/>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M3 5h18"[39m
+            [36m/>[39m
+          [36m</svg>[39m
+        [36m</button>[39m
+        [36m<button[39m
+          [33maria-label[39m=[32m"Copy file"[39m
+          [33mclass[39m=[32m"t3-icon-button"[39m
+          [33mtitle[39m=[32m"Copy file"[39m
+          [33mtype[39m=[32m"button"[39m
+        [36m>[39m
+          [36m<svg[39m
+            [33maria-hidden[39m=[32m"true"[39m
+            [33mclass[39m=[32m"lucide lucide-copy"[39m
+            [33mfill[39m=[32m"none"[39m
+            [33mheight[39m=[32m"24"[39m
+            [33mstroke[39m=[32m"currentColor"[39m
+            [33mstroke-linecap[39m=[32m"round"[39m
+            [33mstroke-linejoin[39m=[32m"round"[39m
+            [33mstroke-width[39m=[32m"2"[39m
+            [33mviewBox[39m=[32m"0 0 24 24"[39m
+            [33mwidth[39m=[32m"24"[39m
+            [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+          [36m>[39m
+            [36m<rect[39m
+              [33mheight[39m=[32m"14"[39m
+              [33mrx[39m=[32m"2"[39m
+              [33mry[39m=[32m"2"[39m
+              [33mwidth[39m=[32m"14"[39m
+              [33mx[39m=[32m"8"[39m
+              [33my[39m=[32m"8"[39m
+            [36m/>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"[39m
+            [36m/>[39m
+          [36m</svg>[39m
+        [36m</button>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"t3-file-content nap-scroll"[39m
+      [36m>[39m
+        [36m<pre>[39m
+          [0moriginal[0m
+        [36m</pre>[39m
+      [36m</div>[39m
+    [36m</section>[39m
+  [36m</div>[39m
+[36m</body>[39m
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<section[39m
+      [33maria-label[39m=[32m"app.ts (read-only)"[39m
+      [33mclass[39m=[32m"t3-file-panel"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"t3-file-toolbar"[39m
+      [36m>[39m
+        [36m<svg[39m
+          [33maria-hidden[39m=[32m"true"[39m
+          [33mclass[39m=[32m"lucide lucide-file-code-corner lucide-file-code-2"[39m
+          [33mfill[39m=[32m"none"[39m
+          [33mheight[39m=[32m"14"[39m
+          [33mstroke[39m=[32m"currentColor"[39m
+          [33mstroke-linecap[39m=[32m"round"[39m
+          [33mstroke-linejoin[39m=[32m"round"[39m
+          [33mstroke-width[39m=[32m"2"[39m
+          [33mviewBox[39m=[32m"0 0 24 24"[39m
+          [33mwidth[39m=[32m"14"[39m
+          [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+        [36m>[39m
+          [36m<path[39m
+            [33md[39m=[32m"M4 12.15V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.706.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2h-3.35"[39m
+          [36m/>[39m
+          [36m<path[39m
+            [33md[39m=[32m"M14 2v5a1 1 0 0 0 1 1h5"[39m
+          [36m/>[39m
+          [36m<path[39m
+            [33md[39m=[32m"m5 16-3 3 3 3"[39m
+          [36m/>[39m
+          [36m<path[39m
+            [33md[39m=[32m"m9 22 3-3-3-3"[39m
+          [36m/>[39m
+        [36m</svg>[39m
+        [36m<span[39m
+          [33mtitle[39m=[32m"app.ts"[39m
+        [36m>[39m
+          [0mapp.ts[0m
+        [36m</span>[39m
+        [36m<button[39m
+          [33maria-label[39m=[32m"Wrap file lines"[39m
+          [33maria-pressed[39m=[32m"false"[39m
+          [33mclass[39m=[32m"t3-icon-button"[39m
+          [33mtitle[39m=[32m"Wrap lines"[39m
+          [33mtype[39m=[32m"button"[39m
+        [36m>[39m
+          [36m<svg[39m
+            [33maria-hidden[39m=[32m"true"[39m
+            [33mclass[39m=[32m"lucide lucide-text-wrap lucide-wrap-text"[39m
+            [33mfill[39m=[32m"none"[39m
+            [33mheight[39m=[32m"24"[39m
+            [33mstroke[39m=[32m"currentColor"[39m
+            [33mstroke-linecap[39m=[32m"round"[39m
+            [33mstroke-linejoin[39m=[32m"round"[39m
+            [33mstroke-width[39m=[32m"2"[39m
+            [33mviewBox[39m=[32m"0 0 24 24"[39m
+            [33mwidth[39m=[32m"24"[39m
+            [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+          [36m>[39m
+            [36m<path[39m
+              [33md[39m=[32m"m16 16-3 3 3 3"[39m
+            [36m/>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M3 12h14.5a1 1 0 0 1 0 7H13"[39m
+            [36m/>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M3 19h6"[39m
+            [36m/>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M3 5h18"[39m
+            [36m/>[39m
+          [36m</svg>[39m
+        [36m</button>[39m
+        [36m<button[39m
+          [33maria-label[39m=[32m"Copy file"[39m
+          [33mclass[39m=[32m"t3-icon-button"[39m
+          [33mtitle[39m=[32m"Copy file"[39m
+          [33mtype[39m=[32m"button"[39m
+        [36m>[39m
+          [36m<svg[39m
+            [33maria-hidden[39m=[32m"true"[39m
+            [33mclass[39m=[32m"lucide lucide-copy"[39m
+            [33mfill[39m=[32m"none"[39m
+            [33mheight[39m=[32m"24"[39m
+            [33mstroke[39m=[32m"currentColor"[39m
+            [33mstroke-linecap[39m=[32m"round"[39m
+            [33mstroke-linejoin[39m=[32m"round"[39m
+            [33mstroke-width[39m=[32m"2"[39m
+            [33mviewBox[39m=[32m"0 0 24 24"[39m
+            [33mwidth[39m=[32m"24"[39m
+            [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+          [36m>[39m
+            [36m<rect[39m
+              [33mheight[39m=[32m"14"[39m
+              [33mrx[39m=[32m"2"[39m
+              [33mry[39m=[32m"2"[39m
+              [33mwidth[39m=[32m"14"[39m
+              [33mx[39m=[32m"8"[39m
+              [33my[39m=[32m"8"[39m
+            [36m/>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"[39m
+            [36m/>[39m
+          [36m</svg>[39m
+        [36m</button>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"t3-file-content nap-scroll"[39m
+      [36m>[39m
+        [36m<pre>[39m
+          [0moriginal[0m
+        [36m</pre>[39m
+      [36m</div>[39m
+    [36m</section>[39m
+  [36m</div>[39m
+[36m</body>[39m
+ ❯ waitForWrapper node_modules/.bun/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:163:27
+ ❯ node_modules/.bun/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:86:33
+ ❯ apps/web/src/workspace/file-panel.test.tsx:69:27
+     67|       await screen.findByText("original");
+     68|       fireEvent.click(screen.getByRole("button", { name: "Copy file" }…
+     69|       expect(await screen.findByRole("alert")).toHaveTextContent(
+       |                           ^
+     70|         "Select its contents to copy manually",
+     71|       );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 392 passed (393)
+      Tests  1 failed | 5141 passed (5142)
+Type Errors  no errors
+   Start at  11:29:19
+   Duration  157.17s (transform 11.35s, setup 23.48s, import 68.00s, tests 142.63s, environment 98.26s, typecheck 327ms)
+
+error: script "test" exited with code 1
+
+bun run typecheck (exit 0)
+$ turbo run typecheck && tsc --noEmit
+• turbo 2.10.8
+
+   • Packages in scope: @nap/agent, @nap/api, @nap/bench, @nap/capture, @nap/context, @nap/db, @nap/loadgen, @nap/napbench, @nap/runtime, @nap/sandbox, @nap/shared, @nap/storage, @nap/verify, @nap/web
+   • Running typecheck in 14 packages
+   • Remote caching disabled, using shared worktree cache
+
+@nap/capture:typecheck: cache hit, replaying logs c532b22851d61585
+@nap/context:typecheck: cache hit, replaying logs c846e3386bc5987c
+@nap/storage:typecheck: cache hit, replaying logs 735befe956df0ec2
+@nap/capture:typecheck: $ tsc --noEmit
+@nap/context:typecheck: $ tsc --noEmit
+@nap/storage:typecheck: $ tsc --noEmit
+@nap/shared:typecheck: cache hit, replaying logs bda8289ddc8b8185
+@nap/db:typecheck: cache hit, replaying logs 97d39aaf491984a8
+@nap/shared:typecheck: $ tsc --noEmit
+@nap/loadgen:typecheck: cache hit, replaying logs 277ab0d3515361de
+@nap/db:typecheck: $ tsc --noEmit
+@nap/sandbox:typecheck: cache hit, replaying logs 16172b1f07f6ab7b
+@nap/loadgen:typecheck: $ tsc --noEmit
+@nap/sandbox:typecheck: $ tsc --noEmit
+@nap/agent:typecheck: cache hit, replaying logs 490f2299c087f0e2
+@nap/agent:typecheck: $ tsc --noEmit
+@nap/bench:typecheck: cache hit, replaying logs 91339653a0fc8c0b
+@nap/bench:typecheck: $ tsc --noEmit
+@nap/verify:typecheck: cache hit, replaying logs 46b400fd33e37045
+@nap/verify:typecheck: $ tsc --noEmit
+@nap/web:typecheck: cache miss, executing a682ae6e1f2d9df1
+@nap/api:typecheck: cache hit, replaying logs 8e9db3909e82ebd5
+@nap/api:typecheck: $ tsc --noEmit
+@nap/napbench:typecheck: cache hit, replaying logs 5871fb9fce9ff1f1
+@nap/napbench:typecheck: $ tsc --noEmit
+@nap/runtime:typecheck: cache hit, replaying logs 63a2cfc9d9c6e084
+@nap/runtime:typecheck: $ tsc --noEmit
+@nap/web:typecheck: $ tsc --noEmit
+
+ Tasks:    14 successful, 14 total
+Cached:    13 cached, 14 total
+  Time:    3.643s
+
+bun run lint (exit 0, existing warning and information)
+$ biome check .
+packages/sandbox/src/git-comparison-limits.test.ts:20:17 lint/style/useTemplate  FIXABLE  ━━━━━━━━━━
+
+  i Template literals are preferred over string concatenation.
+
+    18 │   const calls: { args: string[]; timeout: number; startedAt: number }[] = [];
+    19 │   const patches: string[] = [];
+  > 20 │   const patch = "@@ -1 +1,25000 @@\n-old\n" + "+new\n".repeat(25_000);
+       │                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    21 │   const childProcess = {
+    22 │     execFileSync(_command: string, args: string[], options: { timeout: number }) {
+
+  i Unsafe fix: Use a template literal.
+
+     18  18 │     const calls: { args: string[]; timeout: number; startedAt: number }[] = [];
+     19  19 │     const patches: string[] = [];
+     20     │ - ··const·patch·=·"@@·-1·+1,25000·@@\n-old\n"·+·"+new\n".repeat(25_000);
+         20 │ + ··const·patch·=·`@@·-1·+1,25000·@@\n-old\n${"+new\n".repeat(25_000)}`;
+     21  21 │     const childProcess = {
+     22  22 │       execFileSync(_command: string, args: string[], options: { timeout: number }) {
+
+
+apps/web/src/app/globals.css:2282:3 lint/style/noDescendingSpecificity ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ! Descending specificity selector found. This selector specificity is (0, 2, 0)
+
+    2280 │     margin-top: -32px;
+    2281 │   }
+  > 2282 │   .dashboard-frame .workspace-header {
+         │   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2283 │     padding-left: 48px;
+    2284 │   }
+
+  i This selector specificity is (0, 3, 0)
+
+    1913 │   left: 14px;
+    1914 │ }
+  > 1915 │ .dashboard-frame[data-sidebar-collapsed="true"] .workspace-header {
+         │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    1916 │   padding-left: 52px;
+    1917 │ }
+
+  i Descending specificity selector may not be applied. Consider rearranging the order of the selectors. See MDN web docs for more details.
+
+
+Checked 1008 files in 1606ms. No fixes applied.
+Found 1 warning.
+Found 1 info.
+
+bunx vitest list --project web apps/web/src/computer/recording-viewer.test.tsx (exit 0)
+[web] apps/web/src/computer/recording-viewer.test.tsx > renders the empty view with an accessible close and restores focus
+[web] apps/web/src/computer/recording-viewer.test.tsx > renders counts, ordered chapters, latest assertion verdicts and the owner download URL
+[web] apps/web/src/computer/recording-viewer.test.tsx > seeks chapters, keeps declarations paired with final results and loops only the chosen chapter
+[web] apps/web/src/computer/recording-viewer.test.tsx > updates playback from native events, supports scoped shortcuts, speed and seeking
+[web] apps/web/src/computer/recording-viewer.test.tsx > traps focus, handles Escape and removes keyboard/media work on unmount
+[web] apps/web/src/computer/recording-viewer.test.tsx > resets a replaced source and ignores late native events and rejected play promises
+[web] apps/web/src/computer/recording-viewer.test.tsx > shows playback rejection and works with no test chapters
+[web] apps/web/src/computer/recording-viewer.test.tsx > requests fullscreen on the native video and reports fullscreen rejection
+
+node docs/assets/computer-use/recording-viewer-review/check.mjs (exit 0)
+Recording viewer browser checks passed
+
+Isolated rerun of existing failing suite plus recording viewer
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/t3-55804d73
+
+
+ Test Files  2 passed (2)
+      Tests  13 passed (13)
+   Start at  11:32:23
+   Duration  2.23s (transform 366ms, setup 588ms, import 519ms, tests 963ms, environment 1.65s)

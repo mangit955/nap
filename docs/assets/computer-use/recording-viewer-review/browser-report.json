@@ -1,0 +1,30 @@
+{
+  "reviewedAt": "2026-10-24T05:55:20.706Z",
+  "browser": {
+    "protocolVersion": "1.3",
+    "product": "Chrome/153.0.8010.54",
+    "revision": "@ab3ecba863fd7852cc9b0fe5736187e19ed52a1c",
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36",
+    "jsVersion": "15.3.76.13"
+  },
+  "glass": {
+    "background": "color(srgb 0.0666667 0.0666667 0.0666667 / 0.8)",
+    "filter": "blur(16px) saturate(1.08)",
+    "radius": "24px"
+  },
+  "checks": [
+    "actual native playback advances",
+    "Space pauses",
+    "Shift+Arrow seeks",
+    "native ended loops chapter",
+    "fullscreen entry and exit",
+    "owner-cookie video attributes",
+    "modal focus and inert background",
+    "Escape closes and restores focus",
+    "390px overflow",
+    "reduced transparency",
+    "empty state",
+    "unavailable source"
+  ],
+  "errors": []
+}

@@ -1,0 +1,32 @@
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/t3-55804d73
+
+ ❯ |web| apps/web/src/computer/recording-viewer.test.tsx (8 tests | 1 failed | 7 skipped) 84ms
+   × seeks chapters, keeps declarations paired with final results and loops only the chosen chapter 83ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |web| apps/web/src/computer/recording-viewer.test.tsx > seeks chapters, keeps declarations paired with final results and loops only the chosen chapter
+AssertionError: expected 5.1 to be 2 // Object.is equality
+
+- Expected
++ Received
+
+- 2
++ 5.1
+
+ ❯ apps/web/src/computer/recording-viewer.test.tsx:140:31
+    138|   video().currentTime = 5.1;
+    139|   fireEvent.timeUpdate(video());
+    140|   expect(video().currentTime).toBe(2);
+       |                               ^
+    141|   fireEvent.click(screen.getByRole("button", { name: "Next chapter" })…
+    142|   expect(video().currentTime).toBe(5);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 7 skipped (8)
+   Start at  11:23:02
+   Duration  560ms (transform 43ms, setup 70ms, import 42ms, tests 84ms, environment 236ms)
