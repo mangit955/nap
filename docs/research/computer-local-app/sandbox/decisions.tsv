@@ -1,0 +1,4 @@
+ts	phase	decision	why	evidence	result
+2026-10-24T13:14:05Z	baseline	ran the full free suite with two workers after installing the frozen lockfile	confirm this worktree matches the parent's green baseline without unbounded concurrency	docs/research/computer-local-app/sandbox/README.md	425 files and 5587 tests passed
+2026-10-24T13:14:05Z	export guard	wrote the public export and signature test before the module existed	pin the assigned class boundary and observe the guard fail for the intended reason	docs/research/computer-local-app/sandbox/README.md	RED on missing implementation module
+2026-10-24T13:31:00Z	identity	used the verified Docker container ID as Sandbox.id	allow the existing owner API to address the native sandbox without another route or public wire type	apps/api/scripts/computer-local-sandbox.test.ts	focused 10-test boundary suite passed
