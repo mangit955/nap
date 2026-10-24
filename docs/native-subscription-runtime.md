@@ -51,8 +51,11 @@ its public server type. This exercises no real provider CLI, authentication or m
 It does not prove E2B containment or subscription entitlement.
 
 The code-entry UI and its separate POST endpoint carry only a single-use code and attempt ID.
-The account stays unverified after input receipt. The actual native login driver is still absent;
-the browser driver refuses terminal input, and production exposes no terminal code prompt.
+The account stays unverified after input receipt. `TerminalProviderSignIn` coordinates private,
+encrypted login checkpoints across API instances, claims code input once, and promotes an
+account only after driver verification and cgroup termination receipts. Its database tests use
+a fixture driver. The actual native CLI driver is still absent; the browser driver refuses
+terminal input, and production exposes no terminal code prompt.
 
 ## Remaining release work
 
@@ -88,7 +91,9 @@ There is a separate, conditional exception for hosting an unmodified Claude Code
 end users' own authentication under the [hosting conditions](https://code.claude.com/docs/en/legal-and-compliance).
 That exception must not be presented as blanket SDK approval, or as a blanket ban on CLI
 hosting. A direct hosted CLI terminal is a different product experience from the integrated
-Nap chat plan. Confirm the applicable route before further production-driver implementation.
+Nap chat plan. The owner selected integrated Nap chat with provider approval first. Production
+driver implementation remains gated. The [approval request drafts](subscription-provider-approval-requests.md)
+record the official contact routes and the exact requests awaiting review.
 
 OpenAI's [app-server authentication documentation](https://learn.chatgpt.com/docs/app-server)
 excludes commercial and hosted services from built-in authentication. Its
