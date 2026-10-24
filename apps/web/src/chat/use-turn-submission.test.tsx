@@ -563,6 +563,7 @@ it("admits an app test without an optimistic user message and follows its prepar
   expect(http.bodies[0]).toEqual({ jobId: "job", model: "anthropic/claude-sonnet-5" });
   expect(view.result.current.pending).toBeUndefined();
   expect(view.result.current.running).toBe(true);
+  expect(view.result.current.testPhase).toBe("starting");
   const testStarted = ev("test.started", {
     jobId: "job",
     commitSha: "abcdef1",
@@ -571,6 +572,8 @@ it("admits an app test without an optimistic user message and follows its prepar
   view.rerender([testStarted]);
   await waitFor(() => expect(view.result.current.openedAt).toBe(testStarted.createdAt));
   expect(view.result.current.running).toBe(true);
+  expect(view.result.current.testPhase).toBe("running");
   view.rerender([testStarted, completed()]);
   await waitFor(() => expect(view.result.current.running).toBe(false));
+  expect(view.result.current.testPhase).toBe("idle");
 });

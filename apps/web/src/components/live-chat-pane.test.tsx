@@ -626,3 +626,67 @@ it("wires Fix it to a normal turn without repairing on a failed test event", asy
   await waitFor(() => expect(turns).toHaveLength(1));
   expect(turns[0]?.message).toContain("The saved note appears");
 });
+
+it("shows app-test progress at the clicked card before any stream event arrives", async () => {
+  const events = [
+    ev("job.started", { jobId: JOB_ID, objective: "Save notes" }, 1),
+    ev(
+      "turn.completed",
+      { commitSha: "abc", usage: { inputTokens: 0, outputTokens: 0 }, durationMs: 1 },
+      2,
+    ),
+    ev("job.checkpointed", { jobId: JOB_ID, commitSha: "abc" }, 3),
+    ev("job.completed", { jobId: JOB_ID, outcome: "verified" }, 4),
+  ];
+  let accept: ((response: Response) => void) | undefined;
+  const http = async (url: string, init?: RequestInit) => {
+    if (url.endsWith("/models"))
+      return Response.json({ ...MODELS, fallback: "anthropic/claude-opus-5" });
+    if (url.endsWith("/tests"))
+      return new Promise<Response>((resolve) => {
+        accept = resolve;
+      });
+    return fetchJson(url, init);
+  };
+  const view = render(
+    <LiveChatPane
+      sessionId={SESSION_ID}
+      log={{ ...failedTurn(), events, lastSeq: 4, jobs: jobView(events) }}
+      fetchJson={http}
+    />,
+  );
+  const button = await screen.findByRole("button", { name: "Test the app" });
+  await waitFor(() => expect(button).toBeEnabled());
+  fireEvent.click(button);
+  expect(screen.getByRole("status", { name: "App test progress" })).toHaveTextContent(
+    "Starting app test…",
+  );
+  expect(screen.getByRole("button", { name: "Starting app test…" })).toBeDisabled();
+  await act(async () => {
+    accept?.(
+      Response.json(
+        { accepted: true, requestId: "e7a1c2d3-4b5a-4c6d-8e9f-0a1b2c3d4e5f" },
+        { status: 202 },
+      ),
+    );
+  });
+  expect(screen.getByRole("status", { name: "App test progress" })).toHaveTextContent(
+    "Starting app test…",
+  );
+  const started = ev(
+    "test.started",
+    { jobId: JOB_ID, commitSha: "abc", objective: "Save notes" },
+    5,
+    { turnId: "e7a1c2d3-4b5a-4c6d-8e9f-0a1b2c3d4e5f" },
+  );
+  view.rerender(
+    <LiveChatPane
+      sessionId={SESSION_ID}
+      log={{ ...failedTurn(), events: [...events, started], lastSeq: 5, jobs: jobView(events) }}
+      fetchJson={http}
+    />,
+  );
+  expect(screen.getByRole("status", { name: "App test progress" })).toHaveTextContent(
+    "Testing the app…",
+  );
+});

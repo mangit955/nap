@@ -3,16 +3,19 @@
 import { appTestTarget } from "@nap/shared/app-testing";
 import { modelSupportsImages } from "@nap/shared/model-capabilities";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
+import type { TurnSubmission } from "../chat/use-turn-submission.ts";
 import { type AppTestState, appTestRepairPrompt } from "./app-test-state.ts";
 
 export function AppTestCards({
   events,
   running,
+  testPhase = "idle",
   model,
   onTest,
 }: {
   events: readonly StoredEvent[];
   running: boolean;
+  testPhase?: TurnSubmission["testPhase"];
   model: string | undefined;
   onTest?: ((jobId: string) => void) | undefined;
 }) {
@@ -25,6 +28,12 @@ export function AppTestCards({
         ? "Computer tests are unavailable."
         : null;
   if (!target) return null;
+  const progress =
+    testPhase === "starting"
+      ? "Starting app test…"
+      : testPhase === "running"
+        ? "Testing the app…"
+        : null;
   return (
     <div className="app-test-cards">
       <section className="app-test-card" aria-label="Test the app">
@@ -37,9 +46,15 @@ export function AppTestCards({
           disabled={reason !== null}
           onClick={() => onTest?.(target.jobId)}
         >
-          Test the app
+          {progress ?? "Test the app"}
         </button>
-        {reason && <p className="app-test-reason">{reason}</p>}
+        {progress ? (
+          <p className="app-test-reason" role="status" aria-label="App test progress">
+            {progress} The plan, computer actions and results will appear in this conversation.
+          </p>
+        ) : (
+          reason && <p className="app-test-reason">{reason}</p>
+        )}
       </section>
     </div>
   );

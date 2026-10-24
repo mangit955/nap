@@ -58,6 +58,7 @@ export type TurnSubmission = {
   pendingAttachments: MediaAttachment[] | undefined;
   pendingAfterCompaction: boolean;
   running: boolean;
+  testPhase: "idle" | "starting" | "running";
   startedAt: string | undefined;
   /** When the turn in flight was first written to the log; see `InFlightTurn`. */
   openedAt: string | undefined;
@@ -373,6 +374,14 @@ export function useTurnSubmission(options: {
     events.filter((event) => event.sessionId === sessionId),
     observation?.idleThroughSeq,
   );
+  const testIsRunning =
+    turn !== undefined &&
+    events.some(
+      (event) =>
+        event.sessionId === sessionId &&
+        event.turnId === turn.turnId &&
+        event.type === "test.started",
+    );
 
   return {
     submit,
@@ -386,6 +395,11 @@ export function useTurnSubmission(options: {
       (pending !== undefined && pending.sessionId === sessionId) ||
       observation?.active === true ||
       turn !== undefined,
+    testPhase: testIsRunning
+      ? "running"
+      : pending?.sessionId === sessionId && pending?.purpose === "test"
+        ? "starting"
+        : "idle",
     startedAt: turn?.startedAt,
     openedAt: turn?.openedAt,
     error,

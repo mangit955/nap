@@ -18,7 +18,7 @@ import { TranscriptSkeleton } from "../chat/transcript-skeleton.tsx";
 import { useFirstPrompt } from "../chat/use-first-prompt.ts";
 import { useModels } from "../chat/use-models.ts";
 import { useStickToBottom } from "../chat/use-stick-to-bottom.ts";
-import { useTurnSubmission } from "../chat/use-turn-submission.ts";
+import { type TurnSubmission, useTurnSubmission } from "../chat/use-turn-submission.ts";
 import { WorkingRow } from "../chat/work-log-rows.tsx";
 import { inFlightTurn } from "../chat/working-state.ts";
 import { AppTestCards } from "../computer/app-test-cards.tsx";
@@ -46,6 +46,7 @@ export function ChatPane({
   pendingAttachments,
   pendingAfterCompaction = false,
   running = false,
+  testPhase = "idle",
   activity,
   error,
   firstPrompt,
@@ -76,6 +77,7 @@ export function ChatPane({
   pendingAttachments?: MediaAttachment[] | undefined;
   pendingAfterCompaction?: boolean;
   running?: boolean;
+  testPhase?: TurnSubmission["testPhase"];
   activity?: { startedAt: string | undefined; openedAt?: string | undefined };
   error?: string | undefined;
   /** The dashboard request, retained until admission so a refusal can restore the composer. */
@@ -181,7 +183,13 @@ export function ChatPane({
                 {pending !== undefined && !pendingAfterCompaction && (
                   <PendingMessage text={pending} />
                 )}
-                <AppTestCards events={events} running={running} model={model} onTest={onTestApp} />
+                <AppTestCards
+                  events={events}
+                  running={running}
+                  testPhase={testPhase}
+                  model={model}
+                  onTest={onTestApp}
+                />
               </>
             )}
 
@@ -343,6 +351,7 @@ export function LiveChatPane({
     pendingAttachments,
     pendingAfterCompaction,
     running,
+    testPhase,
     startedAt,
     openedAt,
     error,
@@ -394,6 +403,7 @@ export function LiveChatPane({
         pendingAttachments={pendingAttachments}
         pendingAfterCompaction={pendingAfterCompaction}
         running={running}
+        testPhase={testPhase}
         activity={{ startedAt, openedAt }}
         error={error}
         firstPrompt={firstPrompt}
