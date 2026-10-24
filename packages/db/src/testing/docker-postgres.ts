@@ -17,17 +17,18 @@
  * different databases.
  */
 
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { MIGRATIONS_FOLDER, type MigratedPostgres, POSTGRES_IMAGE } from "./postgres-container.ts";
 
-const run = promisify(execFile);
-
 /** Generous: it covers pulling the image on a machine that has never seen it. */
 const READY_TIMEOUT_MS = 120_000;
+const CLEANUP_TIMEOUT_MS = 5_000;
+const DRAIN_TIMEOUT_MS = 1_000;
 
 const PASSWORD = "nap-loadgen";
 
@@ -46,47 +47,178 @@ export function portFrom(dockerPortOutput: string): number {
  * `--rm` and a `stop` that force-removes: a container outliving the process that started it is
  * a database somebody will later connect to by accident, and it is billed in memory either way.
  */
-export async function startDockerPostgres(): Promise<MigratedPostgres> {
-  const started = await run("docker", [
-    "run",
-    "--detach",
-    "--rm",
-    "--publish-all",
-    "--env",
-    `POSTGRES_PASSWORD=${PASSWORD}`,
-    POSTGRES_IMAGE,
-  ]);
-  const containerId = started.stdout.trim();
-
-  const stop = async () => {
-    await run("docker", ["rm", "--force", containerId]).catch(() => undefined);
+export async function startDockerPostgres(
+  options: { signal?: AbortSignal; timeoutMs?: number } = {},
+): Promise<MigratedPostgres> {
+  const timeoutMs = options.timeoutMs ?? READY_TIMEOUT_MS;
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0 || timeoutMs > 2_147_483_647) {
+    throw new RangeError("Postgres startup timeoutMs must be positive and fit a timer");
+  }
+  options.signal?.throwIfAborted();
+  const startup = new AbortController();
+  const abort = () => startup.abort(options.signal?.reason);
+  options.signal?.addEventListener("abort", abort, { once: true });
+  const timer = setTimeout(
+    () => startup.abort(new Error(`Postgres startup timed out after ${timeoutMs}ms`)),
+    timeoutMs,
+  );
+  const { signal } = startup;
+  // The name is owned before Docker can allocate, even if its stdout never delivers the ID.
+  const name = `nap-postgres-${randomUUID()}`;
+  let stopping: Promise<void> | undefined;
+  const stop = () => {
+    stopping ??= removeOwnedContainer(name).catch((error: unknown) => {
+      stopping = undefined; // A failed cleanup can be retried by the owner.
+      throw error;
+    });
+    return stopping;
   };
 
   try {
-    const published = await run("docker", ["port", containerId, "5432/tcp"]);
-    const url = `postgres://postgres:${PASSWORD}@127.0.0.1:${portFrom(published.stdout)}/postgres`;
+    await runDocker(
+      [
+        "run",
+        "--detach",
+        "--rm",
+        "--name",
+        name,
+        "--publish-all",
+        "--env",
+        `POSTGRES_PASSWORD=${PASSWORD}`,
+        POSTGRES_IMAGE,
+      ],
+      signal,
+    );
+    const published = await runDocker(["port", name, "5432/tcp"], signal);
+    const url = `postgres://postgres:${PASSWORD}@127.0.0.1:${portFrom(published)}/postgres`;
 
-    // Published is not the same as accepting connections: Postgres starts, restarts itself once
-    // during first-time initialisation, and only then listens. Polling a real query is the only
-    // signal that survives that.
-    const deadline = Date.now() + READY_TIMEOUT_MS;
+    // Published is not the same as accepting connections: Postgres restarts itself during
+    // first-time initialisation. Each attempt shares the acquisition deadline, including SQL.
     for (;;) {
+      signal.throwIfAborted();
       const client = postgres(url, { max: 1, onnotice: () => {} });
-      try {
+      const work = (async () => {
         await client`select 1`;
-        // Migrations run here, so every caller sees an already-migrated database — and if they
-        // do not apply to a clean database, nothing that needs one can start at all.
+        signal.throwIfAborted();
         await migrate(drizzle(client), { migrationsFolder: MIGRATIONS_FOLDER });
-        return { url, stop };
-      } catch (error) {
-        if (Date.now() > deadline) throw error;
-        await new Promise((resolve) => setTimeout(resolve, 250));
+        signal.throwIfAborted();
+      })();
+      try {
+        await untilAborted(work, signal);
+      } catch {
+        signal.throwIfAborted();
+        await delay(250, undefined, { signal });
+        continue;
       } finally {
-        await client.end();
+        // end(timeout:0) terminates active postgres.js queries instead of waiting for SQL.
+        await drain(client.end({ timeout: 0 }), "Postgres client shutdown");
+        await drain(
+          work.catch(() => {}),
+          "Postgres SQL",
+        );
       }
+      signal.throwIfAborted();
+      return { url, stop };
     }
   } catch (error) {
-    await stop();
+    try {
+      await stop();
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        `Postgres startup failed; cleanup failed for ${name}: ${String(cleanupError)}`,
+      );
+    }
     throw error;
+  } finally {
+    clearTimeout(timer);
+    options.signal?.removeEventListener("abort", abort);
+  }
+}
+
+/** Kill and drain the allocating CLI before rollback; a raced promise can allocate after cleanup. */
+function runDocker(args: string[], signal: AbortSignal): Promise<string> {
+  signal.throwIfAborted();
+  return new Promise((resolve, reject) => {
+    const child = spawn("docker", args, { stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    let failure: unknown;
+    let drainTimer: ReturnType<typeof setTimeout> | undefined;
+    const kill = (error: unknown) => {
+      failure ??= error;
+      child.kill("SIGKILL");
+      drainTimer ??= setTimeout(() => {
+        child.stdout.destroy();
+        child.stderr.destroy();
+        finish(new AggregateError([failure], `Docker process did not drain: ${args[0]}`));
+      }, DRAIN_TIMEOUT_MS);
+    };
+    const aborted = () => kill(signal.reason);
+    const finish = (error?: unknown) => {
+      clearTimeout(drainTimer);
+      signal.removeEventListener("abort", aborted);
+      if (error) reject(error);
+      else resolve(stdout);
+    };
+    child.stdout.setEncoding("utf8").on("data", (chunk: string) => {
+      stdout += chunk;
+      if (stdout.length > 1_048_576) kill(new Error("Docker stdout exceeded 1MiB"));
+    });
+    child.stderr.setEncoding("utf8").on("data", (chunk: string) => {
+      stderr += chunk;
+      if (stderr.length > 1_048_576) kill(new Error("Docker stderr exceeded 1MiB"));
+    });
+    child.on("error", (error) => {
+      failure ??= error;
+    });
+    child.once("close", (code) =>
+      finish(
+        failure ??
+          (code === 0 ? undefined : new Error(`docker ${args[0]} failed (${code}): ${stderr}`)),
+      ),
+    );
+    signal.addEventListener("abort", aborted, { once: true });
+    if (signal.aborted) aborted();
+  });
+}
+
+async function removeOwnedContainer(name: string): Promise<void> {
+  const deadline = Date.now() + CLEANUP_TIMEOUT_MS;
+  // Cleanup has its own budget. An aborted startup must still be able to remove its database.
+  try {
+    await runDocker(["rm", "--force", name], AbortSignal.timeout(CLEANUP_TIMEOUT_MS / 2));
+  } catch {
+    // `--rm` may already have removed it. Only an exact, successful inventory proves absence.
+  }
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) throw new Error(`Postgres cleanup deadline exceeded for ${name}`);
+  const found = await runDocker(
+    ["container", "ls", "--all", "--filter", `name=^/${name}$`, "--format", "{{.ID}}"],
+    AbortSignal.timeout(remaining),
+  );
+  if (found.trim())
+    throw new Error(`Postgres cleanup left owned container ${name}: ${found.trim()}`);
+}
+
+function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(signal.reason);
+    signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) abort();
+    work.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+  });
+}
+
+async function drain<T>(work: Promise<T>, description: string): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(
+    () => controller.abort(new Error(`${description} did not drain`)),
+    DRAIN_TIMEOUT_MS,
+  );
+  try {
+    return await untilAborted(work, controller.signal);
+  } finally {
+    clearTimeout(timer);
   }
 }

@@ -1,0 +1,1 @@
+{"runtime":"Bun","version":"1.4.2","case":"real postgres.js stalled startup","result":"PASS","elapsedMs":42,"openFixtureSockets":0}

@@ -1,0 +1,178 @@
+
+=== original rollback RED: exit 1 ===
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/t3-10949670
+
+ ❯ |unit| packages/db/src/testing/docker-postgres.test.ts (14 tests | 1 failed | 13 skipped) 611ms
+     × surfaces rollback failure with the owned name instead of hiding a leaked allocation 610ms
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 13 skipped (14)
+   Start at  19:27:22
+   Duration  970ms (transform 53ms, setup 0ms, import 76ms, tests 611ms, environment 0ms)
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |unit| packages/db/src/testing/docker-postgres.test.ts > startDockerPostgres > surfaces rollback failure with the owned name instead of hiding a leaked allocation
+AssertionError: expected 'Error: could not read a published por…' to match /cleanup failed.*nap-postgres-/
+
+- Expected:
+/cleanup failed.*nap-postgres-/
+
++ Received:
+"Error: could not read a published port from: invalid mapping
+"
+
+ ❯ packages/db/src/testing/docker-postgres.test.ts:155:36
+    153|   it("surfaces rollback failure with the owned name instead of hiding …
+    154|     await writeFile(join(fixture, "mode"), "bad-port,rm-fail");
+    155|     expect(await failure(start())).toMatch(/cleanup failed.*nap-postgr…
+       |                                    ^
+    156|     expect(await readFile(join(fixture, "resource"), "utf8")).toMatch(…
+    157|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+
+=== kill allocating CLI: exit 1 ===
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/t3-10949670
+
+ ❯ |unit| packages/db/src/testing/docker-postgres.test.ts (14 tests | 1 failed | 13 skipped) 1705ms
+     × aborts an allocating CLI, drains it, and rolls back by its pre-known owned name 1704ms
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 13 skipped (14)
+   Start at  19:27:24
+   Duration  2.04s (transform 50ms, setup 0ms, import 73ms, tests 1.71s, environment 0ms)
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |unit| packages/db/src/testing/docker-postgres.test.ts > startDockerPostgres > aborts an allocating CLI, drains it, and rolls back by its pre-known owned name
+AssertionError: expected 'AggregateError: Docker process did no…' to contain 'startup interrupted'
+
+Expected: "startup interrupted"
+Received: "AggregateError: Docker process did not drain: run"
+
+ ❯ packages/db/src/testing/docker-postgres.test.ts:141:36
+    139|     const allocating = await waitFor("run");
+    140|     controller.abort(new Error("startup interrupted"));
+    141|     expect(await failure(startup)).toContain("startup interrupted");
+       |                                    ^
+    142|     expect(() => process.kill(allocating.pid, 0)).toThrow();
+    143|     const calls = await events();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+
+=== startup rollback: exit 1 ===
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/t3-10949670
+
+ ❯ |unit| packages/db/src/testing/docker-postgres.test.ts (14 tests | 1 failed | 13 skipped) 249ms
+     × aborts an allocating CLI, drains it, and rolls back by its pre-known owned name 248ms
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 13 skipped (14)
+   Start at  19:27:26
+   Duration  602ms (transform 51ms, setup 0ms, import 80ms, tests 249ms, environment 0ms)
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |unit| packages/db/src/testing/docker-postgres.test.ts > startDockerPostgres > aborts an allocating CLI, drains it, and rolls back by its pre-known owned name
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ packages/db/src/testing/docker-postgres.test.ts:148:7
+    146|     expect(
+    147|       calls.some((call) => call.args.includes(name ?? "missing-name") …
+    148|     ).toBe(true);
+       |       ^
+    149|     expect(calls.some((call) => call.args[0] === "container")).toBe(tr…
+    150|     await expect(readFile(join(fixture, "resource"))).rejects.toThrow(…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+
+=== exact resource absence: exit 1 ===
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/t3-10949670
+
+ ❯ |unit| packages/db/src/testing/docker-postgres.test.ts (14 tests | 1 failed | 13 skipped) 763ms
+     × surfaces rollback failure with the owned name instead of hiding a leaked allocation 762ms
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 13 skipped (14)
+   Start at  19:27:27
+   Duration  1.09s (transform 52ms, setup 0ms, import 73ms, tests 763ms, environment 0ms)
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |unit| packages/db/src/testing/docker-postgres.test.ts > startDockerPostgres > surfaces rollback failure with the owned name instead of hiding a leaked allocation
+AssertionError: expected 'Error: could not read a published por…' to match /cleanup failed.*nap-postgres-/
+
+- Expected:
+/cleanup failed.*nap-postgres-/
+
++ Received:
+"Error: could not read a published port from: invalid mapping
+"
+
+ ❯ packages/db/src/testing/docker-postgres.test.ts:155:36
+    153|   it("surfaces rollback failure with the owned name instead of hiding …
+    154|     await writeFile(join(fixture, "mode"), "bad-port,rm-fail");
+    155|     expect(await failure(start())).toMatch(/cleanup failed.*nap-postgr…
+       |                                    ^
+    156|     expect(await readFile(join(fixture, "resource"), "utf8")).toMatch(…
+    157|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+
+=== SQL cancellation: exit 1 ===
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/t3-10949670
+
+ ❯ |unit| packages/db/src/testing/docker-postgres.test.ts (14 tests | 2 failed | 12 skipped) 6808ms
+     × interrupts stalled query and drains SQL before rollback 3433ms
+     × interrupts stalled migrate and drains SQL before rollback 3373ms
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 12 skipped (14)
+   Start at  19:27:29
+   Duration  7.14s (transform 47ms, setup 0ms, import 72ms, tests 6.81s, environment 0ms)
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |unit| packages/db/src/testing/docker-postgres.test.ts > startDockerPostgres > interrupts stalled query and drains SQL before rollback
+ FAIL  |unit| packages/db/src/testing/docker-postgres.test.ts > startDockerPostgres > interrupts stalled migrate and drains SQL before rollback
+AssertionError: expected 'startup did not settle within test bo…' to contain 'cancel SQL startup'
+
+Expected: "cancel SQL startup"
+Received: "startup did not settle within test bound"
+
+ ❯ packages/db/src/testing/docker-postgres.test.ts:196:38
+    194|       await reached;
+    195|       controller.abort(new Error("cancel SQL startup"));
+    196|       expect(await failure(startup)).toContain("cancel SQL startup");
+       |                                      ^
+    197|       expect(sql.end).toHaveBeenCalledWith({ timeout: 0 });
+    198|       if (stage === "query") expect(sql.migrate).not.toHaveBeenCalled(…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+
