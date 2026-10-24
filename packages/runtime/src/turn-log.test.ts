@@ -17,6 +17,20 @@ function base(seq: number) {
 
 /** One of every event type, so the exhaustiveness assertions below have something to walk. */
 const ONE_OF_EACH: Record<NapEventType, StoredEvent> = {
+  "test.recording": stored({
+    ...base(100),
+    type: "test.recording",
+    payload: {
+      recording: {
+        state: "available",
+        key: "private recording key",
+        durationMs: 1200,
+        width: 1024,
+        height: 768,
+        interrupted: false,
+      },
+    },
+  }),
   "test.started": stored({
     ...base(30),
     type: "test.started",

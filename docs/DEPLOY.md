@@ -537,3 +537,11 @@ starting the updated processes. The container includes Git for the server broker
 signed webhook processing and the PR refresh that catches missed deliveries. The exact URLs, permissions, setup steps and rollout limits are in
 [GitHub integration](github-integration.md). The existing `GITHUB_CLIENT_*` sign-in app and
 model-provider credentials have separate purposes.
+
+## Computer capability rollout
+
+The boot composition supplies the exec-based desktop and recording adapter, the Postgres project input guard and the already-required auth secret. VNC remains view-only; owner input uses the authenticated API and is excluded while any project session has a lease. Stream credentials never enter events. Deploy strict event readers and owner media routes before producing `test.recording` events.
+
+The desktop image is a separate manual publication. Prepare and review it with `bun run --cwd packages/sandbox template:build --prepare`; publishing requires explicit paid mode, the target alias, the prepared directory and its reviewed manifest hash. Preparation selects two vCPUs and 1,024 MB. The cloud spike measured a minimal Chrome/Vite fixture at that size; it did not establish capacity for larger applications. Production publication and integrated cloud validation remain pending approval.
+
+Existing VMs do not receive a rebuilt template. Close and reopen a project through the ordinary snapshot/restore flow when a fresh machine is needed; do not destroy an active workspace to install the desktop. Recording media survives VM teardown in object storage, behind owner authorization, and project deletion derives its possible keys from durable test starts.

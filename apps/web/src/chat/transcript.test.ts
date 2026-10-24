@@ -125,6 +125,19 @@ const DRAWN_ELSEWHERE = [
  */
 const CASES = [
   {
+    type: "test.recording",
+    payload: {
+      recording: {
+        state: "available",
+        key: "computer/p/s/t/recording.mp4",
+        durationMs: 1000,
+        width: 1024,
+        height: 768,
+        interrupted: false,
+      },
+    },
+  },
+  {
     type: "test.started",
     payload: {
       jobId: "7c9b1a52-8d3e-4f21-a0c4-1b2d3e4f5a6b",

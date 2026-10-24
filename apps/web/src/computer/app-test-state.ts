@@ -1,6 +1,7 @@
 import type { ComputerAnnotation } from "@nap/shared/computer";
 import type { NapEventOf } from "@nap/shared/events";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
+import type { TestRecordingState } from "@nap/shared/test-recording";
 
 type Assertion = Extract<ComputerAnnotation, { type: "assertion" }>;
 export type AppTestState = {
@@ -9,6 +10,8 @@ export type AppTestState = {
   objective: string | null;
   status: "running" | NapEventOf<"test.completed">["payload"]["status"];
   assertions: Assertion[];
+  annotations: NapEventOf<"test.annotation">["payload"][];
+  recording: TestRecordingState | { state: "none" };
   counts: NapEventOf<"test.completed">["payload"]["counts"];
 };
 
@@ -22,9 +25,13 @@ export function foldAppTests(events: readonly StoredEvent[]): AppTestState[] {
         objective: event.payload.objective,
         status: "running",
         assertions: [],
+        annotations: [],
+        recording: { state: "none" },
         counts: { passed: 0, failed: 0, untested: 0 },
       });
     const test = tests.get(event.turnId);
+    if (test && event.type === "test.annotation") test.annotations.push(event.payload);
+    if (test && event.type === "test.recording") test.recording = event.payload.recording;
     if (event.type === "test.annotation" && event.payload.annotation.type === "assertion" && test) {
       const annotation = event.payload.annotation;
       const index = test.assertions.findIndex((entry) => entry.id === annotation.id);
@@ -39,6 +46,8 @@ export function foldAppTests(events: readonly StoredEvent[]): AppTestState[] {
         jobId: event.payload.jobId,
         objective: test?.objective ?? null,
         assertions: test?.assertions ?? [],
+        annotations: test?.annotations ?? [],
+        recording: test?.recording ?? { state: "none" },
         status: event.payload.status,
         counts: { ...event.payload.counts },
       });

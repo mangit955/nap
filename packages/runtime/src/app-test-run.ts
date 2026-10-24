@@ -31,7 +31,10 @@ export class AppTestRun {
     this.#emit = options.emit;
   }
 
-  annotate(annotation: ComputerAnnotation): AnnotationResult {
+  async annotate(
+    annotation: ComputerAnnotation,
+    clock?: () => Promise<number | null>,
+  ): Promise<AnnotationResult> {
     const refuse = (message: string): AnnotationResult => ({ ok: false, error: { message } });
     switch (annotation.type) {
       case "setup":
@@ -78,9 +81,10 @@ export class AppTestRun {
         break;
       }
     }
+    const timeMs = clock ? await clock() : null;
     this.#emit({
       annotation: { ...annotation },
-      timeMs: Math.max(0, Math.round(this.#now() - this.#startedAt)),
+      timeMs: timeMs ?? Math.max(0, Math.round(this.#now() - this.#startedAt)),
     });
     return { ok: true, value: undefined };
   }

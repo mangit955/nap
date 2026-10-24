@@ -19,19 +19,19 @@ function fixture() {
     },
   };
 }
-it("records expectations before input and requires a later screenshot before a verdict", () => {
+it("records expectations before input and requires a later screenshot before a verdict", async () => {
   const { run, emit, tick } = fixture();
-  expect(run.annotate({ type: "test_start", id: "main", description: "Save an item" }).ok).toBe(
-    true,
-  );
+  expect(
+    (await run.annotate({ type: "test_start", id: "main", description: "Save an item" })).ok,
+  ).toBe(true);
   expect(run.beforeAction({ action: "left_click", coordinate: [1, 2] }).ok).toBe(false);
-  expect(run.annotate({ ...declaration, result: "passed" }).ok).toBe(false);
-  expect(run.annotate(declaration).ok).toBe(true);
+  expect((await run.annotate({ ...declaration, result: "passed" })).ok).toBe(false);
+  expect((await run.annotate(declaration)).ok).toBe(true);
   expect(run.beforeAction({ action: "left_click", coordinate: [1, 2] }).ok).toBe(true);
-  expect(run.annotate({ ...declaration, result: "passed" }).ok).toBe(false);
+  expect((await run.annotate({ ...declaration, result: "passed" })).ok).toBe(false);
   tick();
   run.observed();
-  expect(run.annotate({ ...declaration, result: "passed" }).ok).toBe(true);
+  expect((await run.annotate({ ...declaration, result: "passed" })).ok).toBe(true);
   expect(run.counts()).toEqual({ passed: 1, failed: 0, untested: 0 });
   expect(emit).toHaveBeenLastCalledWith({
     annotation: { ...declaration, result: "passed" },
@@ -39,33 +39,55 @@ it("records expectations before input and requires a later screenshot before a v
   });
   expect(run.beforeAction({ action: "type", text: "private" }).ok).toBe(false);
 });
-it("rejects late expectations, changed expectations, duplicate IDs and out-of-chapter results", () => {
+it("rejects late expectations, changed expectations, duplicate IDs and out-of-chapter results", async () => {
   const { run } = fixture();
-  expect(run.annotate(declaration).ok).toBe(false);
-  run.annotate({ type: "setup", description: "Open the app" });
+  expect((await run.annotate(declaration)).ok).toBe(false);
+  await run.annotate({ type: "setup", description: "Open the app" });
   expect(run.beforeAction({ action: "key", text: "ctrl+l" }).ok).toBe(true);
-  run.annotate({ type: "test_start", id: "main", description: "Save" });
-  run.annotate(declaration);
+  await run.annotate({ type: "test_start", id: "main", description: "Save" });
+  await run.annotate(declaration);
   run.observed();
-  expect(run.annotate({ ...declaration, result: "passed" }).ok).toBe(false);
+  expect((await run.annotate({ ...declaration, result: "passed" })).ok).toBe(false);
   run.beforeAction({ action: "type", text: "item" });
   run.observed();
-  expect(run.annotate({ ...declaration, expectation: "different", result: "passed" }).ok).toBe(
+  expect(
+    (await run.annotate({ ...declaration, expectation: "different", result: "passed" })).ok,
+  ).toBe(false);
+  expect((await run.annotate(declaration)).ok).toBe(false);
+  await run.annotate({ type: "test_start", id: "other", description: "Other" });
+  expect((await run.annotate({ ...declaration, result: "passed" })).ok).toBe(false);
+  expect((await run.annotate({ type: "test_start", id: "main", description: "Again" })).ok).toBe(
     false,
   );
-  expect(run.annotate(declaration).ok).toBe(false);
-  run.annotate({ type: "test_start", id: "other", description: "Other" });
-  expect(run.annotate({ ...declaration, result: "passed" }).ok).toBe(false);
-  expect(run.annotate({ type: "test_start", id: "main", description: "Again" }).ok).toBe(false);
 });
-it("keeps failed and untested assertions separate and exposes no repair callback", () => {
+it("keeps failed and untested assertions separate and exposes no repair callback", async () => {
   const { run } = fixture();
-  run.annotate({ type: "test_start", id: "main", description: "Save" });
-  run.annotate(declaration);
+  await run.annotate({ type: "test_start", id: "main", description: "Save" });
+  await run.annotate(declaration);
   run.beforeAction({ action: "left_click", coordinate: [1, 2] });
   run.observed();
-  run.annotate({ ...declaration, result: "failed" });
-  run.annotate({ ...declaration, id: "later" });
+  await run.annotate({ ...declaration, result: "failed" });
+  await run.annotate({ ...declaration, id: "later" });
   expect(run.counts()).toEqual({ passed: 0, failed: 1, untested: 1 });
-  expect(run.annotate({ type: "setup", description: "Late setup" }).ok).toBe(false);
+  expect((await run.annotate({ type: "setup", description: "Late setup" })).ok).toBe(false);
+});
+
+it("timestamps annotations with encoder time and awaits it before emission", async () => {
+  const { run, emit } = fixture();
+  let ready: ((time: number | null) => void) | undefined;
+  const pending = run.annotate(
+    { type: "setup", description: "Open the app" },
+    () =>
+      new Promise<number | null>((resolve) => {
+        ready = resolve;
+      }),
+  );
+  expect(emit).not.toHaveBeenCalled();
+  if (!ready) throw new Error("Encoder clock was not requested.");
+  ready(375);
+  expect((await pending).ok).toBe(true);
+  expect(emit).toHaveBeenLastCalledWith({
+    annotation: { type: "setup", description: "Open the app" },
+    timeMs: 375,
+  });
 });

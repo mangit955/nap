@@ -197,6 +197,19 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
     const key = event.seq;
 
     switch (event.type) {
+      case "test.recording":
+        items.push({
+          kind: "notice",
+          key,
+          level: event.payload.recording.state === "unavailable" ? "warning" : "info",
+          text:
+            event.payload.recording.state === "started"
+              ? "Started recording"
+              : event.payload.recording.state === "available"
+                ? "Stopped recording"
+                : "Nap couldn't save this test recording.",
+        });
+        break;
       case "test.annotation":
         break;
       case "test.completed": {

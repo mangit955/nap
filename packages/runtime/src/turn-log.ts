@@ -61,6 +61,8 @@ function detail(event: NapEvent): Record<string, unknown> {
   switch (event.type) {
     case "test.started":
       return { jobId: event.payload.jobId, commitSha: event.payload.commitSha };
+    case "test.recording":
+      return { state: event.payload.recording.state };
     case "test.annotation":
       return {
         annotationType: event.payload.annotation.type,

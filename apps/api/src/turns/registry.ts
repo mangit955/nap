@@ -20,6 +20,7 @@
  * only removed if it is still the one that was adopted.
  */
 
+import { TurnAbortError } from "@nap/shared/turn-abort";
 export class TurnRegistry {
   readonly #running = new Map<string, AbortController>();
 
@@ -44,7 +45,7 @@ export class TurnRegistry {
     const controller = this.#running.get(sessionId);
     if (controller === undefined) return false;
 
-    controller.abort();
+    controller.abort(new TurnAbortError("cancelled"));
     this.#running.delete(sessionId);
     return true;
   }

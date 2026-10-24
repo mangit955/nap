@@ -1,5 +1,6 @@
 import type { SessionNavigationStore } from "@nap/shared/ports/session-navigation-store";
 import type { SessionStartStore } from "@nap/shared/ports/session-start-store";
+
 /**
  * The composition: everything above the infrastructure, assembled from parts somebody else chose.
  *
@@ -34,6 +35,7 @@ import { sweepIdleProjects } from "@nap/runtime/reaper";
 import { SingleAgentRuntime } from "@nap/runtime/single-agent-runtime";
 import { startSweeping } from "@nap/runtime/sweep-schedule";
 import { startTurnWorker, type TurnWorker } from "@nap/runtime/turn-worker";
+import { TEMPLATE_DEV_PORT } from "@nap/sandbox/template";
 import type { Logger } from "@nap/shared/logging";
 import type { CapacityReconciler } from "@nap/shared/ports/capacity-reconciler";
 import type { EventBus } from "@nap/shared/ports/event-bus";
@@ -48,6 +50,7 @@ import type { SandboxCapacity } from "@nap/shared/ports/sandbox-capacity";
 import type { SandboxDesktop } from "@nap/shared/ports/sandbox-desktop";
 import type { SandboxInventory } from "@nap/shared/ports/sandbox-inventory";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
+import type { SandboxRecordings } from "@nap/shared/ports/sandbox-recordings";
 import type { SessionStore } from "@nap/shared/ports/session-store";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
 import type { SweepLock } from "@nap/shared/ports/sweep-lock";
@@ -60,6 +63,7 @@ import { type EncryptionKey, open } from "./account/secret-box.ts";
 import { createApp, type UpgradeWebSocket } from "./app.ts";
 import type { Authenticate, AuthInstance } from "./auth/auth.ts";
 import type { AuthVariables } from "./auth/require-user.ts";
+import type { ComputerAccessDeps } from "./computer/access.ts";
 import type { Env } from "./env.ts";
 import type { GitHubApp } from "./github/app.ts";
 import { type GitBroker, ServerGitBroker } from "./github/git-broker.ts";
@@ -198,6 +202,8 @@ export type NapDeps = {
   /** Model policy is the provider's; which provider it is, is the caller's. */
   provider: LLMProvider;
   desktop?: SandboxDesktop;
+  recordings?: SandboxRecordings;
+  computerAccess?: Pick<ComputerAccessDeps, "access" | "secret">;
   /**
    * A browser to photograph finished turns with, if this deployment has one.
    *
@@ -317,7 +323,13 @@ export function composeNap(deps: NapDeps): ComposedNap {
     sandbox: deps.sandbox,
     ...(deps.desktop === undefined
       ? {}
-      : { computer: { desktop: deps.desktop, objects: deps.objects } }),
+      : {
+          computer: {
+            desktop: deps.desktop,
+            objects: deps.objects,
+            ...(deps.recordings ? { recordings: deps.recordings } : {}),
+          },
+        }),
     // With these, a project outlives its sandbox: a session whose sandbox is gone is restored
     // from its last snapshot rather than starting again from an empty template.
     objects: deps.objects,
@@ -389,6 +401,19 @@ export function composeNap(deps: NapDeps): ComposedNap {
             ),
         });
   const app = createApp({
+    testRecordings: { sessions: deps.sessions, events: deps.events, objects: deps.objects },
+    ...(deps.computerAccess && deps.desktop
+      ? {
+          computerAccess: {
+            ...deps.computerAccess,
+            desktop: deps.desktop,
+            sessions: deps.sessions,
+            previewPort: async (session) =>
+              (await deps.github?.store.repository(session.projectId, session.userId))?.environment
+                .previewPort ?? TEMPLATE_DEV_PORT,
+          },
+        }
+      : {}),
     computerScreenshots: { sessions: deps.sessions, events: deps.events, objects: deps.objects },
     ...(deps.sessionNavigation === undefined
       ? {}
@@ -716,6 +741,9 @@ export function composeNap(deps: NapDeps): ComposedNap {
         sweep: async () => {
           const result = await sweepOrphanedRequests({
             queue: deps.queue,
+            ...(deps.recordings
+              ? { computer: { recordings: deps.recordings, sessions: deps.sessions } }
+              : {}),
             // The same store and bus as everything else: the terminal event it writes is replayed
             // from the log by whoever reconnects, exactly like the ones a turn writes.
             events: deps.events,

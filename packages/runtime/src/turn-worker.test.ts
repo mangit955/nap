@@ -9,6 +9,7 @@ import type {
   TurnRequest,
 } from "@nap/shared/ports/runtime";
 import type { LeasedTurnRequest, TurnQueue } from "@nap/shared/ports/turn-queue";
+import { TurnAbortError } from "@nap/shared/turn-abort";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type RunningTurns, startTurnWorker, type TurnWorker } from "./turn-worker.ts";
 
@@ -401,6 +402,7 @@ describe("the lease", () => {
     queue.stealLease(id, "worker-2");
 
     await vi.waitFor(() => expect(runtime.signal?.aborted).toBe(true));
+    expect(runtime.signal?.reason).toMatchObject({ code: "lease_lost" });
   });
 
   it("leaves a lost request alone rather than settling somebody else's", async () => {
@@ -704,4 +706,22 @@ it("runs an app test under the normal lease using its approved job identity, mod
   expect(runtime.turns[0]?.message).toBeUndefined();
   await queue.requestCancel("app-test");
   await vi.waitFor(() => expect(runtime.turns[0]?.signal?.aborted).toBe(true));
+});
+
+it("updates authority loss while cancelled runtime cleanup is still draining", async () => {
+  const queue = new InMemoryTurnQueue();
+  const runtime = RecordingRuntime.deaf();
+  start(queue, runtime);
+  const { id } = await enqueueTurn(queue);
+  await vi.waitFor(() => expect(runtime.turns).toHaveLength(1));
+  // Use the actual claimed session, independent of the fixture's label.
+  const sessionId = runtime.turns[0]?.sessionId;
+  if (!sessionId) throw new Error("No turn was claimed.");
+  await queue.requestCancel(sessionId);
+  await vi.waitFor(() => expect(runtime.signal?.aborted).toBe(true));
+  const reason = runtime.signal?.reason;
+  if (!(reason instanceof TurnAbortError)) throw new Error("Missing structured abort reason.");
+  queue.stealLease(id, "other-worker");
+  await vi.waitFor(() => expect(reason.leaseLost).toBe(true));
+  runtime.complete({ ok: false, reason: "cancelled", message: "cleanup finished" });
 });

@@ -7,3 +7,12 @@ export function computerScreenshotKey(identity: {
 }): string {
   return `computer/${[identity.projectId, identity.sessionId, identity.turnId, identity.toolCallId].map(encodeURIComponent).join("/")}.jpg`;
 }
+
+/** The durable test start reserves this possible video key before capture or upload. */
+export function computerRecordingKey(identity: {
+  projectId: string;
+  sessionId: string;
+  turnId: string;
+}): string {
+  return `computer/${[identity.projectId, identity.sessionId, identity.turnId].map(encodeURIComponent).join("/")}/recording.mp4`;
+}

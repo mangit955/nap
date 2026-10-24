@@ -68,3 +68,51 @@ it("keeps interrupted and orphan results readable without inventing repair conte
     untested: 1,
   });
 });
+
+it("retains the complete annotation timeline and the latest recording state", () => {
+  const source: StoredEvent[] = [
+    testEvents[0]!,
+    { ...base, seq: 2, type: "test.recording", payload: { recording: { state: "started" } } },
+    ...testEvents.slice(1, 3),
+    {
+      ...base,
+      seq: 5,
+      type: "test.recording",
+      payload: {
+        recording: {
+          state: "available",
+          key: "computer/p/s/t/recording.mp4",
+          durationMs: 1200,
+          width: 1024,
+          height: 768,
+          interrupted: false,
+        },
+      },
+    },
+    testEvents[3]!,
+  ];
+  const log = source.map((event, index) => ({ ...event, seq: index + 1 }));
+  const test = foldAppTests(log)[0];
+  expect(test?.annotations).toHaveLength(2);
+  expect(test?.annotations.map((entry) => entry.timeMs)).toEqual([0, 1000]);
+  expect(test?.recording).toMatchObject({ state: "available", durationMs: 1200 });
+  expect(
+    foldAppTests([
+      ...log,
+      {
+        ...base,
+        seq: 7,
+        type: "test.recording",
+        payload: { recording: { state: "unavailable", reason: "timing_failed" } },
+      },
+    ])[0]?.recording,
+  ).toEqual({ state: "unavailable", reason: "timing_failed" });
+});
+it("keeps historical tests unrecorded and ignores recording metadata without a test start", () => {
+  expect(foldAppTests(testEvents)[0]?.recording).toEqual({ state: "none" });
+  expect(
+    foldAppTests([
+      { ...base, seq: 1, type: "test.recording", payload: { recording: { state: "started" } } },
+    ]),
+  ).toEqual([]);
+});

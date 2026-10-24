@@ -15,6 +15,7 @@ import { InMemoryUserKeyStore } from "@nap/db/testing/in-memory-user-key-store";
 import { TEMPLATE_DEV_PORT } from "@nap/sandbox/template";
 import { FakeSandboxDesktop } from "@nap/sandbox/testing/fake-sandbox-desktop";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
+import { ComputerControlGrantSchema } from "@nap/shared/computer-access";
 import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
 import type { TurnQueue } from "@nap/shared/ports/turn-queue";
 import type { TurnRateLimiter } from "@nap/shared/ports/turn-rate-limit";
@@ -733,4 +734,90 @@ it("wires an optional desktop into real computer turns and private screenshot st
   expect(screenshot).toBeDefined();
   if (screenshot?.type === "computer.screenshot")
     expect((await objects.get(screenshot.payload.key)).ok).toBe(true);
+});
+
+it("composes private desktop transport and guarded owner input", async () => {
+  const sandbox = turnableSandbox();
+  const created = await sandbox.create(PROJECT);
+  if (!created.ok) throw new Error("sandbox");
+  const desktop = new FakeSandboxDesktop({ bytes: new Uint8Array([1]), width: 1024, height: 768 });
+  const nap = compose({
+    role: "api",
+    sandbox,
+    desktop,
+    sessions: new InMemorySessionStore([
+      { sessionId: SESSION, projectId: PROJECT, userId: FAKE_OWNER, sandboxId: created.value.id },
+    ]),
+    computerAccess: {
+      secret: "test-control-secret",
+      access: {
+        withIdleProject: async (_request, operation) => ({
+          ok: true,
+          value: await operation({
+            sandboxId: created.value.id,
+            revision: "72a3e710-65bf-420e-8cea-d4aa8e0b2f7d",
+          }),
+        }),
+      },
+    },
+  });
+  const stream = await nap.app.request(`/sessions/${SESSION}/computer/stream`);
+  expect(stream.status).toBe(200);
+  expect(stream.headers.get("cache-control")).toBe("private, no-store");
+  const grant = await nap.app.request(`/sessions/${SESSION}/computer/control`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{}",
+  });
+  const parsed = ComputerControlGrantSchema.parse(await grant.json());
+  const input = await nap.app.request(`/sessions/${SESSION}/computer/input`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      grant: parsed.grant,
+      actions: [{ action: "left_click", coordinate: [3, 4] }],
+    }),
+  });
+  expect(input.status).toBe(200);
+  expect(desktop.actions).toEqual([
+    { sandboxId: created.value.id, action: { action: "left_click", coordinate: [3, 4] } },
+  ]);
+});
+it("composes the owner recording media route with the same durable event store", async () => {
+  const events = new InMemoryEventStore();
+  const objects = new InMemoryObjectStore();
+  const turnId = "72a3e710-65bf-420e-8cea-d4aa8e0b2f7d";
+  const key = `computer/${PROJECT}/${SESSION}/${turnId}/recording.mp4`;
+  await objects.put(key, new Uint8Array([1, 2, 3]));
+  const base = { sessionId: SESSION, turnId, createdAt: "2026-10-24T00:00:00Z" };
+  await events.append({
+    ...base,
+    type: "test.started",
+    payload: { jobId: turnId, commitSha: "abc", objective: "Save a note" },
+  });
+  await events.append({
+    ...base,
+    type: "test.recording",
+    payload: {
+      recording: {
+        state: "available",
+        key,
+        durationMs: 1000,
+        width: 1024,
+        height: 768,
+        interrupted: false,
+      },
+    },
+  });
+  const nap = compose({
+    role: "api",
+    events,
+    objects,
+    sessions: new InMemorySessionStore([
+      { sessionId: SESSION, projectId: PROJECT, userId: FAKE_OWNER },
+    ]),
+  });
+  const response = await nap.app.request(`/sessions/${SESSION}/tests/${turnId}/recording`);
+  expect(response.status).toBe(200);
+  expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]));
 });

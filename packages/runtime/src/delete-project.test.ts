@@ -216,3 +216,43 @@ it("retains rows and screenshot key identity when deleting their object fails", 
   expect((await remove()).ok).toBe(true);
   expect(objects.keys()).toEqual([]);
 });
+
+it("removes a video reserved by a test start even if the upload announcement was lost", async () => {
+  const sessionId = "2a3f8a24-6c1b-4e0e-9b6f-3a5c0a1d9e77";
+  const turnId = "72a3e710-65bf-420e-8cea-d4aa8e0b2f7d";
+  const key = `computer/${PROJECT}/${sessionId}/${turnId}/recording.mp4`;
+  await screenshotEvents.append({
+    type: "test.started",
+    sessionId,
+    turnId,
+    createdAt: "2026-10-24T00:00:00Z",
+    payload: { jobId: crypto.randomUUID(), commitSha: "abc", objective: "Save a note" },
+  });
+  await objects.put(key, new Uint8Array([1, 2, 3]));
+  expect(await remove()).toMatchObject({ ok: true, value: { objectsDeleted: 3 } });
+  expect(objects.keys()).toEqual([]);
+});
+it("retains the durable test index if deleting its video fails", async () => {
+  const sessionId = "2a3f8a24-6c1b-4e0e-9b6f-3a5c0a1d9e77";
+  const turnId = "72a3e710-65bf-420e-8cea-d4aa8e0b2f7d";
+  const key = `computer/${PROJECT}/${sessionId}/${turnId}/recording.mp4`;
+  await screenshotEvents.append({
+    type: "test.started",
+    sessionId,
+    turnId,
+    createdAt: "2026-10-24T00:00:00Z",
+    payload: { jobId: crypto.randomUUID(), commitSha: "abc", objective: "Save a note" },
+  });
+  await objects.put(key, new Uint8Array([1, 2, 3]));
+  const deleteObject = objects.delete.bind(objects);
+  objects.delete = async (candidate) =>
+    candidate === key
+      ? { ok: false, error: { code: "unavailable", message: "offline" } }
+      : deleteObject(candidate);
+  expect(await remove()).toMatchObject({ ok: false, error: { reason: "objects_failed" } });
+  expect(await projects.get(PROJECT, FAKE_OWNER)).not.toBeNull();
+  expect(await screenshotEvents.readFrom(sessionId, 0)).toHaveLength(1);
+  objects.delete = deleteObject;
+  expect((await remove()).ok).toBe(true);
+  expect(objects.keys()).toEqual([]);
+});

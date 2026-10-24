@@ -12,6 +12,7 @@ describe("TurnRegistry", () => {
 
     expect(registry.cancel(SESSION)).toBe(true);
     expect(controller.signal.aborted).toBe(true);
+    expect(controller.signal.reason).toMatchObject({ code: "cancelled" });
   });
 
   it("reports that there was nothing to cancel here", () => {

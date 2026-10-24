@@ -60,10 +60,12 @@ import type {
 } from "@nap/shared/ports/runtime";
 import type { SandboxCapacity } from "@nap/shared/ports/sandbox-capacity";
 import type { SandboxError, SandboxManager } from "@nap/shared/ports/sandbox-manager";
+import type { SandboxRecordings } from "@nap/shared/ports/sandbox-recordings";
 import type { SessionRecord, SessionStore } from "@nap/shared/ports/session-store";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
 import type { Result } from "@nap/shared/result";
 import { shellQuote } from "@nap/shared/shell";
+import { TurnAbortError } from "@nap/shared/turn-abort";
 import type { VerificationResult } from "@nap/verify/run-checks";
 import {
   type AcquiredSandbox,
@@ -71,6 +73,7 @@ import {
   type RestoreDeps,
   restoreDepsOf,
 } from "./acquire-sandbox.ts";
+import { type AppTestRecordingClock, withAppTestRecording } from "./app-test-recording.ts";
 import { AppTestRun } from "./app-test-run.ts";
 import { contextCompactor } from "./compaction.ts";
 import { continuationFor } from "./continue-job.ts";
@@ -196,7 +199,9 @@ export type SingleAgentRuntimeOptions = {
   sandbox: SandboxManager;
   context: ContextEngine;
   agent: AgentService;
-  computer?: Pick<NonNullable<AgentTurnRequest["computer"]>, "desktop" | "objects">;
+  computer?: Pick<NonNullable<AgentTurnRequest["computer"]>, "desktop" | "objects"> & {
+    recordings?: SandboxRecordings;
+  };
   events: EventStore;
   bus: EventBus;
   memory: MemoryProvider;
@@ -621,35 +626,55 @@ export class SingleAgentRuntime implements Runtime {
         throw new Error("Could not read this job's source diff.");
       request.signal?.throwIfAborted();
       const prompt = testPrompt({ objective: target.objective, diff: diff.value.stdout });
-      run = new AppTestRun({
+      const ledger = new AppTestRun({
         now: () => Date.parse(this.#now()),
         emit: (entry) => emit("test.annotation", entry),
       });
-      emit("test.started", {
-        jobId: target.jobId,
-        commitSha: target.commitSha,
-        objective: target.objective,
-      });
-      // The goal and source commit are durable above. Replaying the generated diff prompt as
-      // a user request would protect it forever in context, long after this test ended.
-      await sink.drain();
-      for (const notice of acquired.value.notices) emit("system.notice", notice);
+      run = ledger;
       const previewPort = acquired.value.repository?.previewPort ?? this.#previewPort;
-      if (acquired.value.created) await this.#announcePreview(sandboxId, emit, previewPort);
-      const outcome = await this.#attempt({
-        settings: {
-          ...request,
-          ...(acquired.value.repository ? { workspace: "repository" as const } : {}),
+      // The generated diff prompt stays ephemeral; the durable goal and source commit reserve
+      // the recording identity before any capture or upload can occur.
+      const outcome = await withAppTestRecording(
+        {
+          projectId: scope.session.projectId,
+          sessionId,
+          turnId,
+          sandboxId,
+          devServerUrl: `http://localhost:${previewPort}`,
+          started: {
+            jobId: target.jobId,
+            commitSha: target.commitSha,
+            objective: target.objective,
+          },
+          desktop: this.#options.computer.desktop,
+          recordings: this.#options.computer.recordings,
+          objects: this.#options.computer.objects,
+          ...(request.signal ? { signal: request.signal } : {}),
+          emit,
+          beforeCapture: async () => {
+            await sink.drain();
+            for (const notice of acquired.value.notices) emit("system.notice", notice);
+            if (acquired.value.created) await this.#announcePreview(sandboxId, emit, previewPort);
+            await sink.drain();
+          },
         },
-        scope,
-        sandboxId,
-        prompt,
-        promptSource: "test",
-        commitSubject: "",
-        history,
-        appTest: run,
-        previewPort,
-      });
+        async (clock) => {
+          return this.#attempt({
+            settings: {
+              ...request,
+              ...(acquired.value.repository ? { workspace: "repository" as const } : {}),
+            },
+            scope,
+            sandboxId,
+            prompt,
+            promptSource: "test",
+            commitSubject: "",
+            history,
+            appTest: { run: ledger, ...(clock ? { clock } : {}) },
+            previewPort,
+          });
+        },
+      );
       emit("test.completed", {
         jobId: target.jobId,
         status: outcome.ok ? "completed" : "interrupted",
@@ -1047,7 +1072,7 @@ export class SingleAgentRuntime implements Runtime {
      */
     job?: JobContext;
     manualCompaction?: { id: string; onSettled: () => void };
-    appTest?: AppTestRun;
+    appTest?: { run: AppTestRun; clock?: AppTestRecordingClock };
     previewPort?: number;
   }): Promise<TurnOutcome> {
     const { settings, scope, sandboxId, prompt, promptSource, commitSubject, history, job } =
@@ -1073,81 +1098,99 @@ export class SingleAgentRuntime implements Runtime {
 
     settings.signal?.throwIfAborted();
 
-    await this.#options.agent.runTurn({
-      sessionId: settings.sessionId,
-      turnId,
-      sandboxId,
-      context,
-      sandbox: this.#options.sandbox,
-      ...(this.#options.computer === undefined
-        ? {}
-        : {
-            computer: {
-              ...this.#options.computer,
-              projectId: scope.session.projectId,
-              devServerUrl: `http://localhost:${options.previewPort ?? this.#previewPort}`,
-              beforeStore: () => sink.drain(),
-              ...(appTest
-                ? {
-                    annotate: async (annotation) => appTest.annotate(annotation),
-                    beforeAction: (action) => appTest.beforeAction(action),
-                    observed: () => appTest.observed(),
-                  }
-                : {}),
-            },
-          }),
-      onEvent: sink.emit,
-      ...(options.manualCompaction === undefined ? {} : { operation: "compact" }),
-      compactContext: contextCompactor({
-        ...(options.manualCompaction === undefined
+    let usedComputer = false;
+    try {
+      await this.#options.agent.runTurn({
+        sessionId: settings.sessionId,
+        turnId,
+        sandboxId,
+        context,
+        sandbox: this.#options.sandbox,
+        ...(this.#options.computer === undefined
           ? {}
-          : { startedId: options.manualCompaction.id }),
-        budgetTokens: context.budgetTokens ?? 80_000,
-        read: async () => {
-          await sink.drain();
-          return this.#options.events.readFrom(settings.sessionId, 0);
+          : {
+              computer: {
+                desktop: this.#options.computer.desktop,
+                objects: this.#options.computer.objects,
+                projectId: scope.session.projectId,
+                devServerUrl: `http://localhost:${options.previewPort ?? this.#previewPort}`,
+                beforeStore: () => sink.drain(),
+                ...(appTest
+                  ? {
+                      annotate: async (annotation) =>
+                        appTest.run.annotate(annotation, appTest.clock),
+                      beforeAction: (action) => appTest.run.beforeAction(action),
+                      observed: () => appTest.run.observed(),
+                    }
+                  : {}),
+              },
+            }),
+        onEvent: (event) => {
+          if (event.type === "computer.status" && event.payload.state === "ready")
+            usedComputer = true;
+          sink.emit(event);
         },
-        emit: (event) => {
-          switch (event.type) {
-            case "compaction.started":
-              emit(event.type, event.payload);
-              break;
-            case "compaction.completed":
-              options.manualCompaction?.onSettled();
-              emit(event.type, event.payload);
-              break;
-            case "compaction.failed":
-              options.manualCompaction?.onSettled();
-              emit(event.type, event.payload);
-              break;
-          }
-        },
-        drain: () => sink.drain(),
-        rebuild: (history) =>
-          this.#options.context.build({
-            sessionId: settings.sessionId,
-            sandboxId,
-            userMessage: prompt,
-            model: settings.model,
-            // A generated test prompt is not in durable user history. Reintroduce it as
-            // the current request after compaction, without protecting it in later turns.
-            continuation: appTest === undefined,
-            history,
-            ...(job === undefined ? {} : { job }),
-            sandbox: this.#options.sandbox,
-            memory: this.#options.memory,
-          }),
-      }),
-      promptSource,
-      ...(options.manualCompaction !== undefined || options.appTest !== undefined
-        ? {}
-        : { finalize: () => this.#commit(sandboxId, commitSubject) }),
-      ...(settings.signal === undefined ? {} : { signal: settings.signal }),
-      ...(settings.model === undefined ? {} : { model: settings.model }),
-      // Passed straight through and read nowhere here: the runtime decides *when* a turn
-      // runs, never who pays for it.
-      ...(settings.credentials === undefined ? {} : { credentials: settings.credentials }),
-    });
+        ...(options.manualCompaction === undefined ? {} : { operation: "compact" }),
+        compactContext: contextCompactor({
+          ...(options.manualCompaction === undefined
+            ? {}
+            : { startedId: options.manualCompaction.id }),
+          budgetTokens: context.budgetTokens ?? 80_000,
+          read: async () => {
+            await sink.drain();
+            return this.#options.events.readFrom(settings.sessionId, 0);
+          },
+          emit: (event) => {
+            switch (event.type) {
+              case "compaction.started":
+                emit(event.type, event.payload);
+                break;
+              case "compaction.completed":
+                options.manualCompaction?.onSettled();
+                emit(event.type, event.payload);
+                break;
+              case "compaction.failed":
+                options.manualCompaction?.onSettled();
+                emit(event.type, event.payload);
+                break;
+            }
+          },
+          drain: () => sink.drain(),
+          rebuild: (history) =>
+            this.#options.context.build({
+              sessionId: settings.sessionId,
+              sandboxId,
+              userMessage: prompt,
+              model: settings.model,
+              // A generated test prompt is not in durable user history. Reintroduce it as
+              // the current request after compaction, without protecting it in later turns.
+              continuation: appTest === undefined,
+              history,
+              ...(job === undefined ? {} : { job }),
+              sandbox: this.#options.sandbox,
+              memory: this.#options.memory,
+            }),
+        }),
+        promptSource,
+        ...(options.manualCompaction !== undefined || options.appTest !== undefined
+          ? {}
+          : { finalize: () => this.#commit(sandboxId, commitSubject) }),
+        ...(settings.signal === undefined ? {} : { signal: settings.signal }),
+        ...(settings.model === undefined ? {} : { model: settings.model }),
+        // Passed straight through and read nowhere here: the runtime decides *when* a turn
+        // runs, never who pays for it.
+        ...(settings.credentials === undefined ? {} : { credentials: settings.credentials }),
+      });
+    } finally {
+      // Whole turns must not leave a pointer held down. A worker that lost its lease
+      // must leave input alone, since another turn may already own the computer.
+      const lostLease =
+        settings.signal?.reason instanceof TurnAbortError && settings.signal.reason.leaseLost;
+      if (usedComputer && !lostLease && this.#options.computer)
+        await this.#options.computer.desktop
+          .act(sandboxId, { action: "left_mouse_up" }, AbortSignal.timeout(2000))
+          .catch(() => undefined);
+    }
 
     await sink.drain();
 

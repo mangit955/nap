@@ -32,6 +32,8 @@
 import { getLogger } from "@nap/shared/logging";
 import type { EventBus } from "@nap/shared/ports/event-bus";
 import type { EventStore } from "@nap/shared/ports/event-store";
+import type { SandboxRecordings } from "@nap/shared/ports/sandbox-recordings";
+import type { SessionStore } from "@nap/shared/ports/session-store";
 import type { OrphanedTurnRequest, TurnQueue } from "@nap/shared/ports/turn-queue";
 import { EventSink } from "./event-sink.ts";
 
@@ -65,6 +67,7 @@ export type JanitorResult = {
 };
 
 export type JanitorOptions = {
+  computer?: { recordings: SandboxRecordings; sessions: SessionStore };
   queue: TurnQueue;
   events: EventStore;
   bus: EventBus;
@@ -175,6 +178,35 @@ async function announce(
         turnId,
         createdAt,
       });
+    }
+    if (request.kind === "test") {
+      if (options.computer) {
+        try {
+          const session = await options.computer.sessions.get(request.sessionId);
+          if (session?.sandboxId) {
+            const discarded = await options.computer.recordings.discard({
+              sandboxId: session.sandboxId,
+              recordingId: request.id,
+            });
+            if (!discarded.ok)
+              getLogger().warn(
+                { requestId: request.id },
+                "could not discard an interrupted recording",
+              );
+          }
+        } catch {
+          getLogger().warn({ requestId: request.id }, "could not discard an interrupted recording");
+        }
+      }
+      const recording = requestHistory.findLast((event) => event.type === "test.recording");
+      if (recording?.type === "test.recording" && recording.payload.recording.state === "started")
+        sink.emit({
+          type: "test.recording",
+          payload: { recording: { state: "unavailable", reason: "lease_lost" } },
+          sessionId: request.sessionId,
+          turnId: request.id,
+          createdAt,
+        });
     }
     if (
       request.kind === "test" &&

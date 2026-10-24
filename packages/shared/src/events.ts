@@ -24,6 +24,7 @@ import { z } from "zod";
 import { CheckOutcomeSchema } from "./check-outcome.ts";
 import { CompactionResultSchema, TokenUsageSchema } from "./compaction.ts";
 import { ComputerAnnotationSchema } from "./computer.ts";
+import { TestRecordingStateSchema } from "./test-recording.ts";
 
 /** The sandbox tools, including the image-gated computer capability. See ADR-0018. */
 export const TOOL_NAMES = [
@@ -128,6 +129,7 @@ export const NapEventSchema = z.discriminatedUnion("type", [
     commitSha: z.string().min(1),
     objective: z.string().min(1),
   }),
+  event("test.recording", { recording: TestRecordingStateSchema }),
   event("test.annotation", { annotation: ComputerAnnotationSchema, timeMs: z.int().nonnegative() }),
   event("test.completed", {
     jobId: z.uuid(),

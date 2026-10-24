@@ -68,6 +68,16 @@ export type GuardedRoute = RouteEntry & {
 export const GUARDED_ROUTES: GuardedRoute[] = [
   {
     method: "GET",
+    path: "/sessions/:sessionId/tests/:turnId/recording",
+    examplePath: `/sessions/${SESSION}/tests/${REQUEST}/recording`,
+  },
+  {
+    method: "HEAD",
+    path: "/sessions/:sessionId/tests/:turnId/recording",
+    examplePath: `/sessions/${SESSION}/tests/${REQUEST}/recording`,
+  },
+  {
+    method: "GET",
     path: "/sessions/:sessionId/computer/stream",
     examplePath: `/sessions/${SESSION}/computer/stream`,
   },
@@ -209,6 +219,31 @@ export async function seedSandbox(): Promise<SeededSandbox> {
     createdAt: "2026-10-24T00:00:00Z",
     payload: { toolCallId: "screen", key, width: 1024, height: 768 },
   });
+  const recordingKey = `computer/${PROJECT}/${SESSION}/${REQUEST}/recording.mp4`;
+  await objects.put(recordingKey, new Uint8Array([1, 2, 3]));
+  await screenshotEvents.append({
+    type: "test.started",
+    sessionId: SESSION,
+    turnId: REQUEST,
+    createdAt: "2026-10-24T00:00:00Z",
+    payload: { jobId: REQUEST, commitSha: "abc", objective: "Save a note" },
+  });
+  await screenshotEvents.append({
+    type: "test.recording",
+    sessionId: SESSION,
+    turnId: REQUEST,
+    createdAt: "2026-10-24T00:00:00Z",
+    payload: {
+      recording: {
+        state: "available",
+        key: recordingKey,
+        durationMs: 1000,
+        width: 1024,
+        height: 768,
+        interrupted: false,
+      },
+    },
+  });
   return { sandbox, sandboxId: created.value.id, objects, screenshotEvents };
 }
 
@@ -255,6 +290,11 @@ export function fullyWiredDeps(seeded?: SeededSandbox): Omit<AppDeps, "logger"> 
           }),
         }),
       },
+    },
+    testRecordings: {
+      sessions,
+      events: seeded?.screenshotEvents ?? new InMemoryEventStore(),
+      objects: seeded?.objects ?? new InMemoryObjectStore(),
     },
     computerScreenshots: {
       sessions,

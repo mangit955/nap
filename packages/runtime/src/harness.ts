@@ -169,6 +169,8 @@ function detail(event: NapEvent): string {
   switch (event.type) {
     case "test.started":
       return "App test started";
+    case "test.recording":
+      return `App test recording ${event.payload.recording.state}`;
     case "test.annotation":
       return `App test ${event.payload.annotation.type}`;
     case "test.completed":

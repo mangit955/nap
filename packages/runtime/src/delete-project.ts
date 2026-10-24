@@ -22,7 +22,7 @@
  * after a partial failure finishes the job rather than reporting a new one.
  */
 
-import { computerScreenshotKey } from "@nap/shared/computer-artifacts";
+import { computerRecordingKey, computerScreenshotKey } from "@nap/shared/computer-artifacts";
 import type { EventStore } from "@nap/shared/ports/event-store";
 import type { ObjectStore } from "@nap/shared/ports/object-store";
 import type { ProjectStore } from "@nap/shared/ports/project-store";
@@ -42,7 +42,7 @@ export type DeleteError = { reason: DeleteFailureReason; message: string };
 export type DeleteResult = {
   /** False when there was no such project — two clicks, or two tabs. */
   deleted: boolean;
-  /** Snapshot and reserved screenshot keys processed. A retry may find them already absent. */
+  /** Snapshot and reserved computer artifact keys processed. A retry may find them already absent. */
   objectsDeleted: number;
   /**
    * Whether the sandbox was destroyed. False means it was already gone *or* could not be
@@ -89,6 +89,8 @@ export async function deleteProject(
   try {
     for (const sessionId of project.sessionIds) {
       for (const event of await options.events.readFrom(sessionId, 0)) {
+        if (event.type === "test.started")
+          computerKeys.add(computerRecordingKey({ projectId, sessionId, turnId: event.turnId }));
         if (
           (event.type === "tool.call" && event.payload.toolName === "computer") ||
           event.type === "computer.screenshot"
@@ -107,7 +109,7 @@ export async function deleteProject(
   } catch {
     return {
       ok: false,
-      error: { reason: "objects_failed", message: "Could not read the computer screenshot index." },
+      error: { reason: "objects_failed", message: "Could not read the computer artifact index." },
     };
   }
   for (const key of computerKeys) {
@@ -115,7 +117,7 @@ export async function deleteProject(
     if (!removed.ok)
       return {
         ok: false,
-        error: { reason: "objects_failed", message: "Could not delete a computer screenshot." },
+        error: { reason: "objects_failed", message: "Could not delete a computer artifact." },
       };
   }
 

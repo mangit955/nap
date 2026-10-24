@@ -7,11 +7,13 @@ import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { FakeSandboxDesktop } from "@nap/sandbox/testing/fake-sandbox-desktop";
+import { FakeSandboxRecordings } from "@nap/sandbox/testing/fake-sandbox-recordings";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { FAKE_COMMIT_SHA, scriptGit } from "@nap/sandbox/testing/script-git";
 import type { ComputerAction } from "@nap/shared/computer";
 import type { ContextEngine } from "@nap/shared/ports/context-engine";
 import type { PendingEvent } from "@nap/shared/ports/event-store";
+import type { DesktopAction } from "@nap/shared/ports/sandbox-desktop";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import { expect, it, vi } from "vitest";
 import { SingleAgentRuntime } from "./single-agent-runtime.ts";
@@ -24,7 +26,13 @@ const annotation = {
   expectation: "The saved note appears",
   result: "untested",
 } as const;
-async function fixture(result: "passed" | "failed" = "passed", compact = false) {
+async function fixture(
+  result: "passed" | "failed" = "passed",
+  compact = false,
+  record = false,
+  inputAction: DesktopAction = { action: "left_click", coordinate: [512, 384] },
+  cold = false,
+) {
   const events = new InMemoryEventStore();
   const base = { sessionId, turnId: jobId, createdAt: "2026-10-24T00:00:00Z" };
   const prefix: PendingEvent[] = [
@@ -78,7 +86,7 @@ async function fixture(result: "passed" | "failed" = "passed", compact = false) 
           annotation: { type: "test_start", id: "main", description: "Save a note" },
         },
         { action: "annotate", annotation },
-        { action: "left_click", coordinate: [512, 384] },
+        inputAction,
       ]),
       batch("result", [{ action: "annotate", annotation: { ...annotation, result } }]),
       { text: "" },
@@ -89,17 +97,25 @@ async function fixture(result: "passed" | "failed" = "passed", compact = false) 
     width: 1024,
     height: 768,
   });
+  const objects = new InMemoryObjectStore();
+  const recordings = new FakeSandboxRecordings({
+    bytes: new Uint8Array([1, 2, 3]),
+    durationMs: 1000,
+    width: 1024,
+    height: 768,
+  });
+  const sessions = new InMemorySessionStore([
+    { sessionId, projectId: "project", sandboxId: cold ? null : created.value.id },
+  ]);
   const runtime = new SingleAgentRuntime({
-    sessions: new InMemorySessionStore([
-      { sessionId, projectId: "project", sandboxId: created.value.id },
-    ]),
+    sessions,
     sandbox,
     events,
     bus: new InMemoryEventBus(),
     context: assembly,
     agent: new NapAgentService({ provider }),
     memory: new NoopMemoryProvider(),
-    computer: { desktop, objects: new InMemoryObjectStore() },
+    computer: { desktop, objects, ...(record ? { recordings } : {}) },
   });
   const request = {
     kind: "test" as const,
@@ -110,6 +126,7 @@ async function fixture(result: "passed" | "failed" = "passed", compact = false) 
   };
   return {
     runtime,
+    sessions,
     request,
     events,
     sandbox,
@@ -117,6 +134,8 @@ async function fixture(result: "passed" | "failed" = "passed", compact = false) 
     context,
     provider,
     desktop,
+    recordings,
+    objects,
   };
 }
 it.each(["passed", "failed"] as const)(
@@ -193,4 +212,112 @@ it("retains the active generated test prompt through real context compaction wit
   expect(
     (await f.events.readFrom(sessionId, 0)).some((event) => event.type === "user.message"),
   ).toBe(false);
+});
+
+it("captures a test turn after its durable start and uploads video before test completion", async () => {
+  const f = await fixture("passed", false, true);
+  const begin = f.recordings.begin.bind(f.recordings);
+  vi.spyOn(f.recordings, "begin").mockImplementation(async (options) => {
+    expect(
+      (await f.events.readFrom(sessionId, 0)).some(
+        (event) => event.type === "test.started" && event.turnId === f.request.turnId,
+      ),
+    ).toBe(true);
+    return begin(options);
+  });
+  vi.spyOn(f.recordings, "timestamp").mockResolvedValue({ ok: true, value: 375 });
+  expect((await f.runtime.runTurn(f.request)).ok).toBe(true);
+  const events = await f.events.readFrom(sessionId, 4);
+  const available = events.find(
+    (event) => event.type === "test.recording" && event.payload.recording.state === "available",
+  );
+  expect(available).toMatchObject({
+    payload: {
+      recording: {
+        state: "available",
+        durationMs: 1000,
+        width: 1024,
+        height: 768,
+        interrupted: false,
+      },
+    },
+  });
+  expect(events.filter((event) => event.type === "test.annotation")).toHaveLength(3);
+  expect(
+    events
+      .filter((event) => event.type === "test.annotation")
+      .every((event) => event.payload.timeMs === 375),
+  ).toBe(true);
+  expect(events.at(-1)?.type).toBe("test.completed");
+  expect(
+    (await f.objects.get(`computer/project/${sessionId}/${f.request.turnId}/recording.mp4`)).ok,
+  ).toBe(true);
+  expect(f.recordings.calls.at(-1)?.operation).toBe("discard");
+});
+
+it("waits for a newly created workspace preview before starting the desktop capture", async () => {
+  const f = await fixture(
+    "passed",
+    false,
+    true,
+    { action: "left_click", coordinate: [512, 384] },
+    true,
+  );
+  let release: (() => void) | undefined;
+  const ready = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const wait = vi.spyOn(f.sandbox, "waitForPreview").mockImplementation(async () => {
+    await ready;
+    return { ok: true, value: "https://preview.test" };
+  });
+  const start = vi.spyOn(f.desktop, "start");
+  const running = f.runtime.runTurn(f.request);
+  await vi.waitFor(() => expect(wait).toHaveBeenCalledOnce());
+  expect(start).not.toHaveBeenCalled();
+  release?.();
+  expect((await running).ok).toBe(true);
+  expect(start).toHaveBeenCalled();
+});
+it("finalizes an interrupted recording after cancellation without an aborted cleanup signal", async () => {
+  const f = await fixture("passed", false, true);
+  const controller = new AbortController();
+  const act = f.desktop.act.bind(f.desktop);
+  vi.spyOn(f.desktop, "act").mockImplementation(async (...args) => {
+    const result = await act(...args);
+    controller.abort();
+    return result;
+  });
+  expect(await f.runtime.runTurn({ ...f.request, signal: controller.signal })).toMatchObject({
+    ok: false,
+    reason: "cancelled",
+  });
+  const events = await f.events.readFrom(sessionId, 4);
+  expect(events.findLast((event) => event.type === "test.recording")).toMatchObject({
+    payload: { recording: { state: "available", interrupted: true } },
+  });
+  expect(events.at(-1)).toMatchObject({
+    type: "test.completed",
+    payload: { status: "interrupted" },
+  });
+  expect(f.recordings.calls.filter((call) => call.operation === "finish")).toHaveLength(1);
+});
+
+it("releases held pointer input after a computer turn with a fresh cleanup signal", async () => {
+  const f = await fixture("passed", false, false, { action: "left_mouse_down" });
+  await f.runtime.runTurn(f.request);
+  expect(f.desktop.actions.at(-1)?.action).toEqual({ action: "left_mouse_up" });
+});
+it("does not send cleanup input after losing the session lease", async () => {
+  const { TurnAbortError } = await import("@nap/shared/turn-abort");
+  const f = await fixture();
+  const controller = new AbortController();
+  const act = f.desktop.act.bind(f.desktop);
+  vi.spyOn(f.desktop, "act").mockImplementation(async (...args) => {
+    const result = await act(...args);
+    controller.abort(new TurnAbortError("lease_lost"));
+    return result;
+  });
+  await f.runtime.runTurn({ ...f.request, signal: controller.signal });
+  expect(f.desktop.actions.at(-1)?.action.action).toBe("left_click");
 });

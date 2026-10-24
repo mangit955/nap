@@ -21,6 +21,7 @@ import type { Authenticate, AuthInstance } from "./auth/auth.ts";
 import { findOwnedSession } from "./auth/owned-session.ts";
 import { type AuthVariables, requireUser } from "./auth/require-user.ts";
 import { type ComputerAccessDeps, registerComputerAccessRoutes } from "./computer/access.ts";
+import { registerTestRecordingRoutes, type TestRecordingDeps } from "./computer/recordings.ts";
 import {
   type ComputerScreenshotDeps,
   registerComputerScreenshotRoutes,
@@ -45,6 +46,7 @@ import { parseStreamQuery } from "./ws/query.ts";
 export type UpgradeWebSocket = (c: Context, events: WSEvents) => Promise<Response>;
 
 export type AppDeps = {
+  testRecordings?: TestRecordingDeps;
   computerScreenshots?: ComputerScreenshotDeps;
   computerAccess?: ComputerAccessDeps;
   sessionNavigation?: { store: SessionNavigationStore; webOrigin: string };
@@ -342,6 +344,7 @@ export function createApp(deps: AppDeps): Hono<{ Variables: AuthVariables }> {
     );
   }
 
+  if (deps.testRecordings !== undefined) registerTestRecordingRoutes(app, deps.testRecordings);
   if (deps.computerAccess !== undefined)
     registerComputerAccessRoutes(app, deps.computerAccess, deps.webOrigin);
   if (deps.computerScreenshots !== undefined)

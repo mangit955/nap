@@ -51,6 +51,38 @@ type Case = {
 
 const CASES = [
   {
+    type: "test.recording",
+    valid: {
+      ...ENVELOPE,
+      type: "test.recording",
+      payload: {
+        recording: {
+          state: "available",
+          key: "computer/p/s/t/recording.mp4",
+          durationMs: 1000,
+          width: 1024,
+          height: 768,
+          interrupted: false,
+        },
+      },
+    },
+    malformed: {
+      ...ENVELOPE,
+      type: "test.recording",
+      payload: {
+        recording: {
+          state: "available",
+          key: "clip",
+          durationMs: 1000,
+          width: 0,
+          height: 768,
+          interrupted: false,
+        },
+      },
+    },
+    issuePath: ["payload", "recording", "width"],
+  },
+  {
     type: "test.started",
     valid: {
       ...ENVELOPE,
