@@ -1,0 +1,38 @@
+[
+  {
+    "intendedTimeoutMs": 12000,
+    "actualTimeoutMs": 30000,
+    "argumentSentInsteadOfOptions": {
+      "value": {
+        "o": [
+          {
+            "k": "timeout",
+            "v": {
+              "n": 12000
+            }
+          }
+        ],
+        "id": 1
+      },
+      "handles": []
+    }
+  },
+  {
+    "intendedTimeoutMs": 15000,
+    "actualTimeoutMs": 30000,
+    "argumentSentInsteadOfOptions": {
+      "value": {
+        "o": [
+          {
+            "k": "timeout",
+            "v": {
+              "n": 15000
+            }
+          }
+        ],
+        "id": 1
+      },
+      "handles": []
+    }
+  }
+]

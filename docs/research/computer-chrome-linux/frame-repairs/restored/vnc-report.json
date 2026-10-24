@@ -1,0 +1,45 @@
+{
+  "checkerSha256": "6e4c504255f5f664dd271b8cd23136cb29a02909629d255bc43d32071dd9502e",
+  "noVncVersion": "1.5.0",
+  "transport": "loopback ephemeral HTTP/WS to byte-preserving docker exec TCP pipe",
+  "cloud": false,
+  "wrongPasswordRejected": true,
+  "decodedFramebuffer": true,
+  "adversarialClientViewOnly": false,
+  "productionClientViewOnly": true,
+  "clientBundleSha256": "f0ab8fdf35db090dd1bec544c6ce0ab257bbff179d09c9e250af4d6cce17d888",
+  "frozenObservationControl": false,
+  "ownedResourcesVisibleToVerificationFilters": true,
+  "loopbackPort": 56721,
+  "localChromeVersion": "153.0.8010.54",
+  "decodedFrame": {
+    "width": 1024,
+    "height": 768,
+    "sampledColors": 354,
+    "bytes": 141334,
+    "sha256": "56d51ebba590e7232704560f88aa201f6f9b55b6c549acf93cc4ac39754de263"
+  },
+  "adversarialMessages": {
+    "key": 2,
+    "pointer": 2
+  },
+  "adversarialObservedResult": "Waiting for input",
+  "serverDeniedPointer": true,
+  "serverDeniedKey": true,
+  "resultRegion": {
+    "x": 24,
+    "y": 292,
+    "width": 500,
+    "height": 36,
+    "minimumGrowth": 100,
+    "beforeGreenPixels": 443,
+    "afterGreenPixels": 997
+  },
+  "productionPhysicalInputWorks": true,
+  "sameClientResultRegionUpdated": true,
+  "ok": true,
+  "httpListenerClosed": true,
+  "temporaryProfileRemoved": true,
+  "cleanupVerified": true,
+  "elapsedMs": 99573
+}

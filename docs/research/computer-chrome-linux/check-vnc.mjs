@@ -78,6 +78,9 @@ async function until(check, timeout = 15000) {
   }
   throw new Error("Bounded VNC probe condition timed out.");
 }
+function waitForPage(page, condition, timeout = 15000) {
+  return page.waitForFunction(condition, undefined, { timeout });
+}
 function saveReport() {
   writeFileSync(
     join(output, "vnc-report.json"),
@@ -112,7 +115,13 @@ window.frame=()=>{
   const canvas=document.querySelector('canvas'); if(!canvas)return null;
   const data=canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height).data;
   const colors=new Set();for(let i=0;i<data.length;i+=4*127)colors.add(data[i]+','+data[i+1]+','+data[i+2]);
-  return {width:canvas.width,height:canvas.height,colors:colors.size,png:canvas.toDataURL('image/png')};
+  // The pinned fixture's green result text occupies this region; exclude input focus and cursor.
+  let resultGreenPixels=0;
+  if(canvas.width>=524&&canvas.height>=328)for(let y=292;y<328;y++)for(let x=24;x<524;x++){
+    const i=(y*canvas.width+x)*4;const r=data[i],g=data[i+1],b=data[i+2];
+    if(g>100&&g-r>30&&g-b>10)resultGreenPixels++;
+  }
+  return {width:canvas.width,height:canvas.height,colors:colors.size,resultGreenPixels,png:canvas.toDataURL('image/png')};
 };
 window.attackRfb=()=>{
   const rfb=window.rfb; if(rfb.viewOnly)throw new Error('Adversarial client must permit input.');
@@ -138,7 +147,8 @@ window.attackRfb=()=>{
     .update(readFileSync(join(temporary, "client-bundle.js")))
     .digest("hex");
   const args = [join(root, "packages/sandbox/scripts/desktop-chrome-smoke/run.ts"), output];
-  assert(process.argv[3] === undefined || process.argv[3] === "writable");
+  assert([undefined, "writable", "frozen"].includes(process.argv[3]));
+  report.frozenObservationControl = process.argv[3] === "frozen";
   if (process.argv[3] === "writable") args.push("vnc-input");
   runner = spawn("bun", args, {
     cwd: root,
@@ -244,7 +254,7 @@ window.attackRfb=()=>{
   async function connect(password, viewOnly) {
     const page = await browser.newPage();
     await page.goto(url);
-    await page.waitForFunction(() => typeof window.connectRfb === "function");
+    await waitForPage(page, () => typeof window.connectRfb === "function");
     await page.evaluate(({ password, viewOnly }) => window.connectRfb(password, viewOnly), {
       password,
       viewOnly,
@@ -252,7 +262,7 @@ window.attackRfb=()=>{
     return page;
   }
   const wrong = await connect("intentionally-wrong-fixture-password", true);
-  await wrong.waitForFunction(() => window.state.securityFailure, { timeout: 12000 });
+  await waitForPage(wrong, () => window.state.securityFailure, 12000);
   assert.equal(await wrong.evaluate(() => window.state.connected), false);
   report.wrongPasswordRejected = true;
   await wrong.close();
@@ -260,9 +270,7 @@ window.attackRfb=()=>{
   const password = driver("credentials").password;
   assert.equal(typeof password, "string");
   const view = await connect(password, true);
-  await view.waitForFunction(() => window.state.connected && window.frame()?.colors > 8, {
-    timeout: 15000,
-  });
+  await waitForPage(view, () => window.state.connected && window.frame()?.colors > 8);
   report.productionClientViewOnly = await view.evaluate(() => window.rfb.viewOnly);
   assert.equal(report.productionClientViewOnly, true);
   const decoded = await view.evaluate(() => window.frame());
@@ -287,9 +295,7 @@ window.attackRfb=()=>{
   act({ action: "left_click", coordinate: [170, 265] });
   act({ action: "type", text: "BASE" });
   const attack = await connect(password, false);
-  await attack.waitForFunction(() => window.state.connected && window.frame()?.colors > 8, {
-    timeout: 15000,
-  });
+  await waitForPage(attack, () => window.state.connected && window.frame()?.colors > 8);
   report.adversarialClientViewOnly = await attack.evaluate(() => window.rfb.viewOnly);
   assert.equal(report.adversarialClientViewOnly, false);
   report.adversarialMessages = await attack.evaluate(() => window.attackRfb());
@@ -318,19 +324,42 @@ window.attackRfb=()=>{
     true,
     "The actual server accepted adversarial RFB key input.",
   );
+  // Baseline the same decoder immediately before physical marker input.
+  let beforePhysical;
+  await until(async () => {
+    beforePhysical = await attack.evaluate(() => window.frame());
+    return beforePhysical?.resultGreenPixels > 100;
+  }, 5000);
+  writeFileSync(
+    join(output, "vnc-before-physical.png"),
+    Buffer.from(beforePhysical.png.split(",")[1], "base64"),
+  );
+  report.resultRegion = {
+    x: 24,
+    y: 292,
+    width: 500,
+    height: 36,
+    minimumGrowth: 100,
+    beforeGreenPixels: beforePhysical.resultGreenPixels,
+  };
   act({ action: "left_click", coordinate: [170, 265] });
   act({ action: "key", text: "CTRL+a" });
   act({ action: "type", text: "PHYSICAL-AFTER-VNC" });
   act({ action: "left_click", coordinate: [370, 265] });
   await until(() => dom().includes("Applied: PHYSICAL-AFTER-VNC"));
   report.productionPhysicalInputWorks = true;
-  await delay(500);
-  const after = await attack.evaluate(() => window.frame());
-  const afterImage = Buffer.from(after.png.split(",")[1], "base64");
-  writeFileSync(join(output, "vnc-after-physical.png"), afterImage);
-  assert.notEqual(
-    createHash("sha256").update(afterImage).digest("hex"),
-    report.decodedFrame.sha256,
+  let after;
+  await until(async () => {
+    after = report.frozenObservationControl
+      ? beforePhysical
+      : await attack.evaluate(() => window.frame());
+    report.resultRegion.afterGreenPixels = after.resultGreenPixels;
+    return after.resultGreenPixels > beforePhysical.resultGreenPixels + 100;
+  }, 5000);
+  report.sameClientResultRegionUpdated = true;
+  writeFileSync(
+    join(output, "vnc-after-physical.png"),
+    Buffer.from(after.png.split(",")[1], "base64"),
   );
   await attack.close();
   docker(["exec", ownedContainer, "touch", "/evidence/vnc-finished"]);
