@@ -327,7 +327,10 @@ export function buildTimeline(
     pending ||
     open.some(
       (item) =>
-        item.kind !== "notice" && item.kind !== "preview" && item.kind !== "preview-stopped",
+        item.kind !== "notice" &&
+        item.kind !== "computer-recording" &&
+        item.kind !== "preview" &&
+        item.kind !== "preview-stopped",
     );
   const working = running && opened;
   // The agent has been handed the turn. Until `turn.started`, the runtime is still acquiring a

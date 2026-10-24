@@ -1,0 +1,124 @@
+Testing types with tsc and vue-tsc is an experimental feature.
+Breaking changes might not follow SemVer, please pin Vitest's version when using it.
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/feat-computer-use
+
+ ❯ |web| apps/web/src/computer/computer-work-log.test.tsx (5 tests | 1 failed) 83ms
+   × seeks recording lifecycle rows and keeps failed capture as a warning 7ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |web| apps/web/src/computer/computer-work-log.test.tsx > seeks recording lifecycle rows and keeps failed capture as a warning
+TestingLibraryElementError: Unable to find an accessible element with the role "button" and name "Started recording"
+
+Here are the accessible roles:
+
+  log:
+
+  Name "Transcript":
+  [36m<div[39m
+    [33maria-label[39m=[32m"Transcript"[39m
+    [33mclass[39m=[32m"mx-auto flex max-w-[46rem] flex-col px-5 py-6"[39m
+    [33mrole[39m=[32m"log"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  paragraph:
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"font-mono text-[11.5px] leading-relaxed text-muted"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"font-mono text-[11.5px] leading-relaxed text-muted"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"font-mono text-[11.5px] leading-relaxed text-danger"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33maria-label[39m=[32m"Transcript"[39m
+      [33mclass[39m=[32m"mx-auto flex max-w-[46rem] flex-col px-5 py-6"[39m
+      [33mrole[39m=[32m"log"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m""[39m
+      [36m>[39m
+        [36m<p[39m
+          [33mclass[39m=[32m"font-mono text-[11.5px] leading-relaxed text-muted"[39m
+        [36m>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"uppercase tracking-wide"[39m
+          [36m>[39m
+            [0mNote[0m
+          [36m</span>[39m
+          [0m [0m
+          [0m· [0m
+          [0mStarted recording[0m
+        [36m</p>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"mt-5"[39m
+      [36m>[39m
+        [36m<p[39m
+          [33mclass[39m=[32m"font-mono text-[11.5px] leading-relaxed text-muted"[39m
+        [36m>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"uppercase tracking-wide"[39m
+          [36m>[39m
+            [0mNote[0m
+          [36m</span>[39m
+          [0m [0m
+          [0m· [0m
+          [0mStopped recording[0m
+        [36m</p>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"mt-5"[39m
+      [36m>[39m
+        [36m<p[39m
+          [33mclass[39m=[32m"font-mono text-[11.5px] leading-relaxed text-danger"[39m
+        [36m>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"uppercase tracking-wide"[39m
+          [36m>[39m
+            [0mWarning[0m
+          [36m</span>[39m
+          [0m [0m
+          [0m· [0m
+          [0mNap couldn't save this test recording.[0m
+        [36m</p>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</body>[39m
+ ❯ Object.getElementError node_modules/.bun/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ node_modules/.bun/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ node_modules/.bun/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ node_modules/.bun/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ apps/web/src/computer/computer-work-log.test.tsx:144:26
+    142|     </ComputerNavigation.Provider>,
+    143|   );
+    144|   fireEvent.click(screen.getByRole("button", { name: "Started recordin…
+       |                          ^
+    145|   fireEvent.click(screen.getByRole("button", { name: "Stopped recordin…
+    146|   expect(seek.mock.calls).toEqual([[4], [8]]);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 4 passed (5)
+Type Errors  no errors
+   Start at  15:05:03
+   Duration  735ms (transform 125ms, setup 61ms, import 246ms, tests 83ms, environment 222ms)
+

@@ -19,8 +19,10 @@ import type { MediaAttachment } from "@nap/shared/media";
  * unusable for the person who most needs to know the agent is still working.
  */
 
-import { useMemo, useState } from "react";
+import { Monitor } from "lucide-react";
+import { use, useMemo, useState } from "react";
 import { AppTestResult } from "../computer/app-test-cards.tsx";
+import { ComputerNavigation } from "../computer/navigation.tsx";
 import { ScreenshotCard } from "../computer/screenshot-card.tsx";
 import { turnFailureCopy } from "../errors/failure-copy.ts";
 import { AlertIcon, CopyIcon } from "../ui/icons.tsx";
@@ -36,6 +38,7 @@ import {
   WorkEntryRow,
   WorkGroupList,
   WorkingRow,
+  WorkLogRow,
   WorkToggleRow,
 } from "./work-log-rows.tsx";
 
@@ -378,6 +381,9 @@ function Item({
         <Meta>Preview stopped · the project was put away</Meta>
       );
 
+    case "computer-recording":
+      return <ComputerRecordingRow item={item} />;
+
     case "notice":
       // Labelled in words rather than by colour, so it survives being read aloud and being read
       // by someone who cannot tell the two colours apart.
@@ -556,5 +562,28 @@ function TurnFailure({
         </button>
       )}
     </div>
+  );
+}
+
+function ComputerRecordingRow({
+  item,
+}: {
+  item: Extract<TranscriptItem, { kind: "computer-recording" }>;
+}) {
+  const seek = use(ComputerNavigation);
+  return (
+    <WorkLogRow
+      label={
+        <button
+          type="button"
+          onClick={() => seek?.(item.key)}
+          disabled={!seek}
+          className="flex w-full cursor-pointer items-center gap-1.5 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
+        >
+          <Monitor aria-hidden="true" className="mx-1 size-4 shrink-0" />
+          {item.text}
+        </button>
+      }
+    />
   );
 }

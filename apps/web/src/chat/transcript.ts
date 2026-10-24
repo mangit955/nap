@@ -89,6 +89,7 @@ export type TranscriptItem =
       frame?: NapEventOf<"computer.screenshot">;
       desktop?: { state: "starting" | "ready"; at: string };
     }
+  | { kind: "computer-recording"; key: number; text: "Started recording" | "Stopped recording" }
   | { kind: "computer-frame"; key: number; frame: NapEventOf<"computer.screenshot"> }
   | { kind: "files"; key: number; files: FileChange[] }
   | { kind: "preview"; key: number; url: string; port: number }
@@ -198,17 +199,23 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
 
     switch (event.type) {
       case "test.recording":
-        items.push({
-          kind: "notice",
-          key,
-          level: event.payload.recording.state === "unavailable" ? "warning" : "info",
-          text:
-            event.payload.recording.state === "started"
-              ? "Started recording"
-              : event.payload.recording.state === "available"
-                ? "Stopped recording"
-                : "Nap couldn't save this test recording.",
-        });
+        items.push(
+          event.payload.recording.state === "unavailable"
+            ? {
+                kind: "notice",
+                key,
+                level: "warning",
+                text: "Nap couldn't save this test recording.",
+              }
+            : {
+                kind: "computer-recording",
+                key,
+                text:
+                  event.payload.recording.state === "started"
+                    ? "Started recording"
+                    : "Stopped recording",
+              },
+        );
         break;
       case "test.annotation":
         break;

@@ -102,3 +102,49 @@ it("attaches frames and startup to their own call across interleaved tools", () 
   expect(steps[1]?.desktop).toBeUndefined();
   expect(new Set(items.map((item) => item.key)).size).toBe(items.length);
 });
+
+it("seeks recording lifecycle rows and keeps failed capture as a warning", () => {
+  const seek = vi.fn();
+  const started: NapEventOf<"test.recording"> = {
+    ...frame,
+    type: "test.recording",
+    seq: 4,
+    payload: { recording: { state: "started" } },
+  };
+  const stopped: NapEventOf<"test.recording"> = {
+    ...started,
+    seq: 8,
+    payload: {
+      recording: {
+        state: "available",
+        key: "private-recording",
+        durationMs: 2000,
+        width: 1024,
+        height: 768,
+        interrupted: false,
+      },
+    },
+  };
+  render(
+    <ComputerNavigation.Provider value={seek}>
+      <ChatTranscript
+        items={buildTranscript([
+          started,
+          stopped,
+          {
+            ...started,
+            seq: 9,
+            payload: { recording: { state: "unavailable", reason: "upload_failed" } },
+          },
+        ])}
+        running
+      />
+    </ComputerNavigation.Provider>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Started recording" }));
+  fireEvent.click(screen.getByRole("button", { name: "Stopped recording" }));
+  expect(seek.mock.calls).toEqual([[4], [8]]);
+  expect(screen.getByText(/Nap couldn't save this test recording/)).toHaveTextContent("Warning");
+  expect(screen.queryByText(/private-recording/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Working for/)).not.toBeInTheDocument();
+});
