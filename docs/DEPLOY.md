@@ -36,13 +36,56 @@ processes on it. What is different here, and why:
   database accepts no connections from outside Render.
 - **The worker is the 2 GB plan.** It runs Chromium for the preview screenshots; the Kubernetes
   manifests request 1 GiB for the same process, and 512 MB is where it runs out.
-- **Nothing deploys on push.** The services build the public repository by URL, so no webhook
-  reaches them; a release is `render deploys create <service-id> --commit <sha>`, in the order
-  above. That is also what the ordered rollouts below require.
+- **GitHub Actions releases production after CI passes on `main`.** Render's own auto-deploys
+  stay off. The `production` job deploys the API, reaper and worker in that order, then Vercel,
+  using the same commit SHA throughout. See [Release production](#release-production).
 - **The free database expires after thirty days.** Upgrade `nap-db` to `basic-256mb` before then,
   or its data goes with it. Render Postgres rather than Neon's free tier because three processes
   each hold a permanent `LISTEN` connection, so a Neon compute never scales to zero and its free
   quota runs out within the month.
+
+## Release production
+
+Add these repository Actions secrets at
+<https://github.com/mangit955/nap/settings/secrets/actions> before merging the release workflow:
+
+- `RENDER_API_KEY`: a persistent API key from [Render Account Settings](https://dashboard.render.com/u/settings#api-keys).
+  The token saved by `render login` expires and is unsuitable for CI.
+- `VERCEL_TOKEN`: an access token for the team containing the `nap` project, from
+  [Vercel account tokens](https://vercel.com/account/tokens). A CLI login's refreshable token
+  is unsuitable for CI. Rotate the Actions secret before the access token expires.
+
+Merging to `main` runs both CI jobs before the production job. `apps/web/vercel.json` disables
+automatic Git deployments from `main`; preview branches remain enabled. The release script
+uses Vercel's deployment API with an explicit SHA instead of a branch-based deploy hook, so
+another merge cannot change which frontend is deployed.
+
+`scripts/production-release.ts` checks both providers' credentials and confirms all three
+Render services have auto-deploy disabled before changing anything. It waits for the API to
+be live and `/readyz` to report `ok`, then waits for the reaper and worker before starting
+Vercel. It verifies each deployed commit and waits for Vercel to reach `READY`. Each deployment
+has a twenty-minute timeout. A failed step stops the release; earlier successful steps remain
+deployed. Investigate the failed service before retrying. No database rollback runs automatically.
+
+To retry, run the **CI** workflow with **Run workflow**, selecting `main`. Releases on `main`
+are serialized and newer merges cannot cancel an active release. A retry reuses a Render
+deployment at the requested commit if it is live or still deploying. Vercel can rebuild the
+same commit on a retry.
+
+For a manual release, export those two credentials in your shell and run from the repo root:
+
+```sh
+bun run scripts/production-release.ts <full-40-character-commit-sha>
+```
+
+Keep Render auto-deploy off and run the manual command without a concurrent Actions release.
+For a release that changes the durable event contract, follow the controlled rollout below
+instead of relying on the normal rolling deployment sequence.
+
+The [Render deploy API](https://api-docs.render.com/reference/create-deploy),
+[Vercel deployment API](https://vercel.com/docs/rest-api/deployments/create-a-new-deployment),
+and [Vercel Git configuration](https://vercel.com/docs/project-configuration/git-configuration)
+describe the provider settings used here.
 
 ## Three entrypoints, one image
 
