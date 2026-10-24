@@ -50,3 +50,13 @@ concurrent cancellation, and MP4 recording. The test destroyed its exact sandbox
 The post-run safeguard found the original `nap-local-db` id `8d3bd782…` still running. It also found
 that the baseline host listeners and PIDs for 3037/3038/3039 were no longer present. The adapter has no
 host-process or fixed-port operation, so no restart or speculative attribution was made.
+
+## Transport regression and final bounded suite
+
+- Temporarily allowing port 9222 made the focused bridge test fail at its explicit rejection assertion;
+  reverting the mutation restored the intended allowlist.
+- Early file-helper and bridge exits with buffered stdin initially produced two uncaught `write EPIPE`
+  errors. After routing stdin errors through typed process/socket teardown, the two regression tests
+  passed with no unhandled error.
+- The post-change bounded full suite passed 426 files and 5,597 tests with no type errors using two
+  workers.

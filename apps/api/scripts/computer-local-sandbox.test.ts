@@ -123,6 +123,15 @@ async function main() {
   if (!id || !fs.existsSync(containerPath(id))) return fail("No such object");
   const script = args[idIndex + 2];
   const operation = args[idIndex + 3];
+  if (
+    (process.env.NAP_LOCAL_DOCKER_FAKE_FAULT === "file_stdin_close" &&
+      script === "/usr/local/lib/nap-local/file-helper.mjs") ||
+    (process.env.NAP_LOCAL_DOCKER_FAKE_FAULT === "bridge_stdin_close" &&
+      script === "/usr/local/lib/nap-local/tcp-forward.mjs")
+  ) {
+    process.stdin.destroy();
+    process.exit(0);
+  }
   if (script === "/usr/local/lib/nap-local/file-helper.mjs") {
     const encodedPath = args[idIndex + 4];
     if (operation === "exec-result") {
@@ -444,6 +453,18 @@ describe.sequential("LocalDockerSandboxManager boundaries", () => {
     await manager.close();
   });
 
+  it("contains an early helper stdin close as a typed transport failure", async () => {
+    const manager = await openManager();
+    const created = await manager.create("project-stdin-close");
+    if (!created.ok) throw new Error(created.error.message);
+    process.env.NAP_LOCAL_DOCKER_FAKE_FAULT = "file_stdin_close";
+
+    await expect(
+      manager.writeFile(created.value.id, "/home/user/app/large-input.txt", "x".repeat(16_000_000)),
+    ).resolves.toMatchObject({ ok: false, error: { code: "unavailable" } });
+    await expect(manager.close()).resolves.toEqual({ ok: true, value: undefined });
+  });
+
   it("bridges only Vite and VNC over raw loopback TCP with binary half-close intact", async () => {
     const manager = await openManager();
     const created = await manager.create("project-bridges");
@@ -467,6 +488,19 @@ describe.sequential("LocalDockerSandboxManager boundaries", () => {
     expect(
       calls().filter((args) => args.includes("/usr/local/lib/nap-local/tcp-forward.mjs")),
     ).toHaveLength(1);
+  });
+
+  it("contains an early bridge stdin close without crashing the launcher", async () => {
+    const manager = await openManager();
+    const created = await manager.create("project-bridge-close");
+    if (!created.ok) throw new Error(created.error.message);
+    process.env.NAP_LOCAL_DOCKER_FAKE_FAULT = "bridge_stdin_close";
+    const preview = await manager.getPreviewUrl(created.value.id, 5173);
+    if (!preview.ok) throw new Error(preview.error.message);
+
+    await roundTrip(preview.value, Buffer.alloc(1_000_000)).catch(() => Buffer.alloc(0));
+    await expect(manager.resume(created.value.id)).resolves.toMatchObject({ ok: true });
+    await expect(manager.close()).resolves.toEqual({ ok: true, value: undefined });
   });
 
   it("fails closed by removing the container before returning a Docker exec loss", async () => {

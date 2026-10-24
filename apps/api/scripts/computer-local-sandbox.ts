@@ -239,6 +239,7 @@ function runProcess(
     options.onSpawn?.(child);
     child.stdout.on("data", (chunk: Buffer) => consume("stdout", chunk));
     child.stderr.on("data", (chunk: Buffer) => consume("stderr", chunk));
+    child.stdin.once("error", (cause) => stop("spawn", cause.message));
     child.once("error", (cause) => stop("spawn", cause.message));
     child.once("close", (code) => complete(code ?? 125));
     options.signal?.addEventListener("abort", abort, { once: true });
@@ -249,8 +250,12 @@ function runProcess(
       );
       timeoutTimer.unref();
     }
-    if (options.input === undefined) child.stdin.end();
-    else child.stdin.end(options.input);
+    try {
+      if (options.input === undefined) child.stdin.end();
+      else child.stdin.end(options.input);
+    } catch (cause) {
+      stop("spawn", cause instanceof Error ? cause.message : String(cause));
+    }
   });
 }
 
@@ -1059,6 +1064,10 @@ export class LocalDockerSandboxManager implements SandboxManager {
         child.kill("SIGKILL");
         socket.destroy();
       }
+    });
+    child.stdin.once("error", () => {
+      socket.destroy();
+      child.kill("SIGTERM");
     });
     child.once("error", () => socket.destroy());
     child.once("close", (code) => {
