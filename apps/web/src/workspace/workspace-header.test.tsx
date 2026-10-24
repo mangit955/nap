@@ -16,10 +16,18 @@ import { WorkspaceHeader } from "./workspace-header.tsx";
 function show(props: Partial<Parameters<typeof WorkspaceHeader>[0]> = {}) {
   const handlers = {
     onTogglePanel: vi.fn(),
+    onToggleDetails: vi.fn(),
   };
 
   render(
-    <WorkspaceHeader projectName="Todo app" panelOpen={true} job={null} {...handlers} {...props} />,
+    <WorkspaceHeader
+      projectName="Todo app"
+      panelOpen={true}
+      detailsOpen={false}
+      job={null}
+      {...handlers}
+      {...props}
+    />,
   );
 
   return handlers;

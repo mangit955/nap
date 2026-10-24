@@ -18,12 +18,21 @@ export function Dashboard({
   grid,
   fading = false,
   contentLandmark = true,
+  contentRef,
+  details,
+  detailsCard,
 }: {
   sidebar: ReactNode;
   hero: ReactNode;
   grid?: ReactNode;
   fading?: boolean;
   contentLandmark?: boolean;
+  /** Measures the content area, which decides whether the details card floats or pops over. */
+  contentRef?: ((element: HTMLElement | null) => void) | undefined;
+  /** The thread details card and its toggle, drawn over the content's top right. */
+  details?: ReactNode;
+  /** How the card is showing, so the composer's lane can keep clear of it. */
+  detailsCard?: "inline" | "popover" | undefined;
 }) {
   const Content = contentLandmark ? "main" : "div";
   useDocumentScrollLock();
@@ -154,6 +163,7 @@ export function Dashboard({
       data-signing-out={fading}
       data-sidebar-collapsed={collapsed}
       data-navigation-open={navigationOpen}
+      data-details-card={detailsCard}
     >
       <button
         type="button"
@@ -229,12 +239,14 @@ export function Dashboard({
         </div>
       )}
       <Content
+        ref={contentRef}
         inert={navigationOpen}
         className="dashboard-content nap-scroll-hidden relative min-h-0 min-w-0 overflow-y-auto"
       >
         {hero}
         {grid}
       </Content>
+      {details}
     </div>
   );
 }
