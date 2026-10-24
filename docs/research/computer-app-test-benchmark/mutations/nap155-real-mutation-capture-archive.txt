@@ -1,0 +1,43 @@
+$ vitest run --project unit --project types --project web --project db --project unit apps/napbench/scripts/app-test-command.test.ts "--maxWorkers=2" -t "screenshot archiving fails"
+Testing types with tsc and vue-tsc is an experimental feature.
+Breaking changes might not follow SemVer, please pin Vitest's version when using it.
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/t3-024ab7b9
+
+ ❯ |unit| apps/napbench/scripts/app-test-command.test.ts (26 tests | 1 failed | 25 skipped) 848ms
+   × destroys the VM even when screenshot archiving fails after the test 848ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |unit| apps/napbench/scripts/app-test-command.test.ts > destroys the VM even when screenshot archiving fails after the test
+AssertionError: expected { status: 'measured', score: 1, …(1) } to match object { status: 'unmeasured', score: null }
+(1 matching property omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "score": null,
+-   "status": "unmeasured",
++   "score": 1,
++   "status": "measured",
+  }
+
+ ❯ apps/napbench/scripts/app-test-command.test.ts:412:45
+    410|     factories: f.factories,
+    411|   });
+    412|   expect(result.report.runs[0]?.assessment).toMatchObject({ status: "u…
+       |                                             ^
+    413|   expect(f.sandboxes[0]?.destroy).toHaveBeenCalledTimes(1);
+    414|   expect(result.exitCode).toBe(1);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 25 skipped (26)
+Type Errors  no errors
+   Start at  15:06:39
+   Duration  1.15s (transform 124ms, setup 0ms, import 180ms, tests 848ms, environment 0ms)
+
+error: script "test" exited with code 1

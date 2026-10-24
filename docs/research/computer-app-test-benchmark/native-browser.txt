@@ -1,0 +1,9 @@
+$ vitest run --project integration --passWithNoTests apps/napbench/src/app-test-browser.integration.test.ts
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/feat-computer-use
+
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  15:25:23
+   Duration  5.91s (transform 53ms, setup 33ms, import 341ms, tests 5.23s, environment 0ms)

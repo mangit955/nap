@@ -118,7 +118,16 @@ There are two app flows, each with a correct and a buggy version:
 The specimens live in `apps/napbench/fixtures/app-test/`. Each pair has the same HTML and differs
 by one expression in its JavaScript. The independent DOM tests in
 `apps/napbench/src/app-test-flows.test.tsx` execute those actual handlers and distinguish the
-versions. They simulate remounting for reload and do not establish real-browser behavior.
+versions. They simulate remounting for reload. A separate free native-Chrome suite exercises
+saving, actual page reload, and quantity changes using the same fixture bytes. Every browser
+request is fulfilled locally and each specimen gets fresh storage:
+
+```bash
+NAP_CHROME_PATH="/path/to/chrome" bun run test:integration apps/napbench/src/app-test-browser.integration.test.ts
+```
+
+Run that exact file, since other integration suites use paid services. It skips without Chrome.
+These checks establish the fixture outcomes, not the agent's ability to identify them.
 The fixtures are outside Biome, like the product corpus; their JavaScript is syntax-checked
 and executed by these tests instead of being silently treated as TypeScript.
 
@@ -224,7 +233,7 @@ construction tests replace every external client. They make no E2B or OpenRouter
 The ordinary free CLI still reports `execution: "scripted"` and cannot claim model capability.
 Only production execution can record real-model observations.
 
-The implementation is ready for separate paid validation. No production composition, template build,
+The user selected free checks only on 2026-10-24, so real evaluation is deferred. The implementation is prepared for future, separately approved validation. No production composition, template build,
 VM, or model evaluation has been executed for this ticket. The issue remains open until approved
 real trials establish the measured behavior. Repeated, balanced trials and a reviewed desktop
 template are prerequisites for a capability claim beyond individual observations.

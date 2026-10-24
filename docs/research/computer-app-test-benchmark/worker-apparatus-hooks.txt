@@ -1,0 +1,82 @@
+╭───────────────────────────────────────╮
+│ lefthook  v2.1.14   hook:  [1mpre-commit[m │
+╰───────────────────────────────────────╯
+┃  biome ❯
+Checked 9 files in 33ms. No fixes applied.
+
+┃  typecheck ❯
+$ turbo run typecheck && tsc --noEmit
+• turbo 2.10.8
+
+   • Packages in scope: @nap/agent, @nap/api, @nap/bench, @nap/capture, @nap/context, @nap/db, @nap/loadgen, @nap/napbench, @nap/runtime, @nap/sandbox, @nap/shared, @nap/storage, @nap/verify, @nap/web
+   • Running typecheck in 14 packages
+   • Remote caching disabled, using shared worktree cache
+
+@nap/db:typecheck: cache hit, replaying logs 4637d4d99ba9f0ab
+@nap/db:typecheck: $ tsc --noEmit
+@nap/bench:typecheck: cache hit, replaying logs d53468deebc88c7d
+@nap/bench:typecheck: $ tsc --noEmit
+@nap/runtime:typecheck: cache hit, replaying logs 5b5bf941a30a4b3d
+@nap/runtime:typecheck: $ tsc --noEmit
+@nap/agent:typecheck: cache hit, replaying logs eb12dbc0225058e6
+@nap/sandbox:typecheck: cache hit, replaying logs 106a53627273df63
+@nap/shared:typecheck: cache hit, replaying logs b6bc0607e2b90f4a
+@nap/agent:typecheck: $ tsc --noEmit
+@nap/verify:typecheck: cache hit, replaying logs 8a5453fe2ebc16cf
+@nap/loadgen:typecheck: cache hit, replaying logs f0c64211e341907c
+@nap/api:typecheck: cache hit, replaying logs 344de6db1953c38d
+@nap/storage:typecheck: cache hit, replaying logs 678f4bab8d27a0f6
+@nap/sandbox:typecheck: $ tsc --noEmit
+@nap/storage:typecheck: $ tsc --noEmit
+@nap/context:typecheck: cache hit, replaying logs 82a7b285bf2d237b
+@nap/capture:typecheck: cache hit, replaying logs a92624fc799baea7
+@nap/shared:typecheck: $ tsc --noEmit
+@nap/context:typecheck: $ tsc --noEmit
+@nap/capture:typecheck: $ tsc --noEmit
+@nap/web:typecheck: cache hit, replaying logs 32b20ee92f1a9e49
+@nap/verify:typecheck: $ tsc --noEmit
+@nap/loadgen:typecheck: $ tsc --noEmit
+@nap/api:typecheck: $ tsc --noEmit
+@nap/napbench:typecheck: cache hit, replaying logs 4202864e625a9b5a
+@nap/web:typecheck: $ tsc --noEmit
+@nap/napbench:typecheck: $ tsc --noEmit
+
+ Tasks:    14 successful, 14 total
+Cached:    14 cached, 14 total
+  Time:    30ms >>> FULL TURBO
+
+
+┃  test ❯
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/t3-024ab7b9
+
+
+ Test Files  5 passed (5)
+      Tests  28 passed (28)
+   Start at  14:35:09
+   Duration  3.57s (transform 75ms, setup 141ms, import 214ms, tests 8.38s, environment 588ms)
+
+
+│  python (skip) no matching staged files
+[38;2;56;56;56m  ────────────────────────────────────[m
+summary: (done in 5.83 seconds)
+✓ biome (0.19 seconds)
+✓ typecheck (0.47 seconds)
+✓ test (5.16 seconds)
+[t3/test-mode-bug-benchmark d598eb9] wip(bench): add planted app-test apparatus with real trials pending
+ 16 files changed, 1182 insertions(+)
+ create mode 100644 apps/napbench/fixtures/app-test/cart/app-buggy.js
+ create mode 100644 apps/napbench/fixtures/app-test/cart/app.js
+ create mode 100644 apps/napbench/fixtures/app-test/cart/index.html
+ create mode 100644 apps/napbench/fixtures/app-test/notes/app-buggy.js
+ create mode 100644 apps/napbench/fixtures/app-test/notes/app.js
+ create mode 100644 apps/napbench/fixtures/app-test/notes/index.html
+ create mode 100644 apps/napbench/scripts/app-test-harness.test.ts
+ create mode 100644 apps/napbench/scripts/app-test-harness.ts
+ create mode 100644 apps/napbench/scripts/napbench-app-test.test.ts
+ create mode 100644 apps/napbench/scripts/napbench-app-test.ts
+ create mode 100644 apps/napbench/src/app-test-fixture.test.ts
+ create mode 100644 apps/napbench/src/app-test-fixture.ts
+ create mode 100644 apps/napbench/src/app-test-flows.test.tsx
+ create mode 100644 packages/bench/src/app-test.test.ts
+ create mode 100644 packages/bench/src/app-test.ts

@@ -1,0 +1,94 @@
+[unit] apps/napbench/scripts/app-test-command.test.ts > validates all arguments, credentials, models and limits before touching any factory
+[unit] apps/napbench/scripts/app-test-command.test.ts > rejects an unwritable report destination before factory construction
+[unit] apps/napbench/scripts/app-test-command.test.ts > runs the real selection through injected ports, authentic remote commits and production test turns
+[unit] apps/napbench/scripts/app-test-command.test.ts > destroys its owned VM and makes no model call after write preparation failure
+[unit] apps/napbench/scripts/app-test-command.test.ts > destroys its owned VM and makes no model call after syntax preparation failure
+[unit] apps/napbench/scripts/app-test-command.test.ts > destroys its owned VM and makes no model call after diff preparation failure
+[unit] apps/napbench/scripts/app-test-command.test.ts > destroys its owned VM and makes no model call after paths preparation failure
+[unit] apps/napbench/scripts/app-test-command.test.ts > destroys its owned VM and makes no model call after blob preparation failure
+[unit] apps/napbench/scripts/app-test-command.test.ts > destroys its owned VM and makes no model call after parent preparation failure
+[unit] apps/napbench/scripts/app-test-command.test.ts > destroys its owned VM and makes no model call after dirty preparation failure
+[unit] apps/napbench/scripts/app-test-command.test.ts > destroys its owned VM and makes no model call after read preparation failure
+[unit] apps/napbench/scripts/app-test-command.test.ts > destroys its owned VM and makes no model call after preview preparation failure
+[unit] apps/napbench/scripts/app-test-command.test.ts > destroys its owned VM and makes no model call after serving preparation failure
+[unit] apps/napbench/scripts/app-test-command.test.ts > destroys its owned VM and makes no model call after desktop preparation failure
+[unit] apps/napbench/scripts/app-test-command.test.ts > destroys its owned VM and makes no model call after desktop-construction preparation failure
+[unit] apps/napbench/scripts/app-test-command.test.ts > destroys its owned VM and makes no model call after dom preparation failure
+[unit] apps/napbench/scripts/app-test-command.test.ts > destroys its owned VM and makes no model call after capture preparation failure
+[unit] apps/napbench/scripts/app-test-command.test.ts > never treats runtime failure as a successful result
+[unit] apps/napbench/scripts/app-test-command.test.ts > never treats provider-construction failure as a successful result
+[unit] apps/napbench/scripts/app-test-command.test.ts > never treats destroy failure as a successful result
+[unit] apps/napbench/scripts/app-test-command.test.ts > never treats destroy-throws failure as a successful result
+[unit] apps/napbench/scripts/app-test-command.test.ts > never treats create failure as a successful result
+[unit] apps/napbench/scripts/app-test-command.test.ts > never treats post-source failure as a successful result
+[unit] apps/napbench/scripts/app-test-command.test.ts > enforces the separately configured production test-step budget
+[unit] apps/napbench/scripts/app-test-command.test.ts > enforces the separately configured production test-token budget
+[unit] apps/napbench/scripts/app-test-command.test.ts > destroys the VM even when screenshot archiving fails after the test
+[unit] packages/bench/src/app-test.test.ts > keeps two independent app flows balanced, with the same neutral objective in each pair
+[unit] packages/bench/src/app-test.test.ts > scores the designated structured passed assertion against evaluator-only truth
+[unit] packages/bench/src/app-test.test.ts > scores the designated structured failed assertion against evaluator-only truth
+[unit] packages/bench/src/app-test.test.ts > unmeasured guards > requires test.started evidence
+[unit] packages/bench/src/app-test.test.ts > unmeasured guards > requires turn.started evidence
+[unit] packages/bench/src/app-test.test.ts > unmeasured guards > requires turn.completed evidence
+[unit] packages/bench/src/app-test.test.ts > unmeasured guards > requires test.completed evidence
+[unit] packages/bench/src/app-test.test.ts > unmeasured guards > requires computer.screenshot evidence
+[unit] packages/bench/src/app-test.test.ts > unmeasured guards > never uses prose or unrelated/history assertions, including empty reports
+[unit] packages/bench/src/app-test.test.ts > unmeasured guards > refuses runtime interruption, capture/tool failure, count disagreement, wrong checkpoint and wrong job
+[unit] packages/bench/src/app-test.test.ts > unmeasured guards > requires the designated assertion ID and isolates sessions as well as turns
+[unit] packages/bench/src/app-test.test.ts > unmeasured guards > does not turn an untested extra assertion into success on the designated flow
+[unit] packages/bench/src/app-test.test.ts > runs exactly one test turn without a message, then grades its scoped log
+[unit] packages/bench/src/app-test.test.ts > makes a thrown runtime failure unmeasured
+[unit] packages/bench/src/app-test.test.ts > parses a free default, explicit real intent and rejects typos before composition
+[unit] packages/bench/src/app-test.test.ts > requires every real limit, canonical image model and strict positive safe integers
+[unit] apps/napbench/scripts/app-test-production.test.ts > constructs only the existing production adapters with the requested template, mapper and output limit
+[unit] apps/napbench/scripts/app-test-harness.test.ts > drives production test turns on all fixtures with zero scripted bug detection
+[unit] apps/napbench/scripts/app-test-harness.test.ts > cannot pass a capture outage or a model that merely answers
+[unit] apps/napbench/scripts/app-test-harness.test.ts > leaves the planted source intact when a provider attempts a repair
+[unit] apps/napbench/scripts/napbench-app-test.test.ts > runs the actual free CLI and writes all four apparatus reports
+[unit] apps/napbench/scripts/napbench-app-test.test.ts > rejects --real without starting infrastructure
+[unit] apps/napbench/scripts/napbench-app-test.test.ts > rejects --rael without starting infrastructure
+[unit] apps/napbench/scripts/napbench-app-test.test.ts > rejects --task=unknown without starting infrastructure
+[unit] packages/runtime/src/app-test-recording.test.ts > reserves the recording identity durably before capture and announces only stored video
+[unit] packages/runtime/src/app-test-recording.test.ts > does not capture or run if the durable reservation fails
+[unit] packages/runtime/src/app-test-recording.test.ts > keeps unrecorded test turns usable when no capture adapter is composed
+[unit] packages/runtime/src/app-test-recording.test.ts > preserves interrupted video using a fresh cleanup context after turn cancellation
+[unit] packages/runtime/src/app-test-recording.test.ts > finishes capture on a thrown turn error and propagates the original error
+[unit] packages/runtime/src/app-test-recording.test.ts > keeps assertion execution when capture cannot start without claiming a recording exists
+[unit] packages/runtime/src/app-test-recording.test.ts > does not publish a video whose annotation clock was lost
+[unit] packages/runtime/src/app-test-recording.test.ts > leaves a durable cleanup index when upload succeeds but its announcement throws
+[unit] packages/runtime/src/app-test-recording.test.ts > reports upload failure without changing assertion outcome
+[unit] packages/runtime/src/app-test-recording.test.ts > does not advertise video after lease loss before_upload
+[unit] packages/runtime/src/app-test-recording.test.ts > does not advertise video after lease loss during_upload
+[unit] packages/runtime/src/app-test-recording.test.ts > waits for video storage before announcing availability
+[unit] packages/runtime/src/app-test-recording.test.ts > notices lease loss after a cancellation has already fixed the abort reason
+[unit] packages/runtime/src/app-test-runtime.test.ts > runs a passed app test as a source-grounded turn without a commit or automatic repair
+[unit] packages/runtime/src/app-test-runtime.test.ts > runs a failed app test as a source-grounded turn without a commit or automatic repair
+[unit] packages/runtime/src/app-test-runtime.test.ts > rejects stale job approval, changed HEAD, dirty source and a text-only model without calling the model
+[unit] packages/runtime/src/app-test-runtime.test.ts > ends a cancelled app test as interrupted with untested assertions and no repair
+[unit] packages/runtime/src/app-test-runtime.test.ts > retains the active generated test prompt through real context compaction without protecting it in future history
+[unit] packages/runtime/src/app-test-runtime.test.ts > captures a test turn after its durable start and uploads video before test completion
+[unit] packages/runtime/src/app-test-runtime.test.ts > waits for a newly created workspace preview before starting the desktop capture
+[unit] packages/runtime/src/app-test-runtime.test.ts > finalizes an interrupted recording after cancellation without an aborted cleanup signal
+[unit] packages/runtime/src/app-test-runtime.test.ts > releases held pointer input after a computer turn with a fresh cleanup signal
+[unit] packages/runtime/src/app-test-runtime.test.ts > does not send cleanup input after losing the session lease
+[unit] apps/napbench/src/app-test-fixture.test.ts > prepares reproducible real commits, source diffs and syntax checks for every variant
+[unit] apps/napbench/src/app-test-fixture.test.ts > isolates fixture git commands from caller and hook git-routing variables
+[unit] packages/runtime/src/app-test-run.test.ts > records expectations before input and requires a later screenshot before a verdict
+[unit] packages/runtime/src/app-test-run.test.ts > rejects late expectations, changed expectations, duplicate IDs and out-of-chapter results
+[unit] packages/runtime/src/app-test-run.test.ts > keeps failed and untested assertions separate and exposes no repair callback
+[unit] packages/runtime/src/app-test-run.test.ts > timestamps annotations with encoder time and awaits it before emission
+[unit] apps/web/src/computer/app-test-state.test.ts > folds declaration and verdict into one assertion and builds repair data only on request
+[unit] apps/web/src/computer/app-test-state.test.ts > keeps interrupted and orphan results readable without inventing repair context
+[unit] apps/web/src/computer/app-test-state.test.ts > retains the complete annotation timeline and the latest recording state
+[unit] apps/web/src/computer/app-test-state.test.ts > keeps historical tests unrecorded and ignores recording metadata without a test start
+[unit] packages/shared/src/app-testing.test.ts > selects only the newest completed job at its own checkpoint and finds its diff base
+[web] apps/web/src/testing/app-test-review.test.tsx > drives the live pane's app-test admission and explicit repair with an in-memory server
+[web] apps/napbench/src/app-test-flows.test.tsx > executes 'notes-correct''s actual DOM handlers and separates its planted behavior
+[web] apps/napbench/src/app-test-flows.test.tsx > executes 'notes-buggy''s actual DOM handlers and separates its planted behavior
+[web] apps/napbench/src/app-test-flows.test.tsx > executes 'cart-correct''s actual DOM handlers and separates its planted behavior
+[web] apps/napbench/src/app-test-flows.test.tsx > executes 'cart-buggy''s actual DOM handlers and separates its planted behavior
+[web] apps/web/src/computer/app-test-cards.test.tsx > opens the live computer when app testing is requested
+[web] apps/web/src/computer/app-test-cards.test.tsx > opens only a completed available recording by turn identity
+[web] apps/web/src/computer/app-test-cards.test.tsx > offers app testing only after the latest completed job and respects busy/model states
+[web] apps/web/src/computer/app-test-cards.test.tsx > keeps a failed assertion as data until Fix it is clicked and labels unavailable recordings
+[web] apps/web/src/computer/app-test-cards.test.tsx > shows an honest empty assertion result and disables repair while another turn runs

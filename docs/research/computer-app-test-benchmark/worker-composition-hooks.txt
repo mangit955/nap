@@ -1,0 +1,71 @@
+╭───────────────────────────────────────╮
+│ lefthook  v2.1.14   hook:  [1mpre-commit[m │
+╰───────────────────────────────────────╯
+┃  biome ❯
+Checked 8 files in 43ms. No fixes applied.
+
+┃  typecheck ❯
+$ turbo run typecheck && tsc --noEmit
+• turbo 2.10.8
+
+   • Packages in scope: @nap/agent, @nap/api, @nap/bench, @nap/capture, @nap/context, @nap/db, @nap/loadgen, @nap/napbench, @nap/runtime, @nap/sandbox, @nap/shared, @nap/storage, @nap/verify, @nap/web
+   • Running typecheck in 14 packages
+   • Remote caching disabled, using shared worktree cache
+
+@nap/bench:typecheck: cache hit, replaying logs 07675887b9da6459
+@nap/shared:typecheck: cache hit, replaying logs b6bc0607e2b90f4a
+@nap/context:typecheck: cache hit, replaying logs 82a7b285bf2d237b
+@nap/verify:typecheck: cache hit, replaying logs 8a5453fe2ebc16cf
+@nap/loadgen:typecheck: cache hit, replaying logs f0c64211e341907c
+@nap/storage:typecheck: cache hit, replaying logs 678f4bab8d27a0f6
+@nap/agent:typecheck: cache hit, replaying logs eb12dbc0225058e6
+@nap/db:typecheck: cache hit, replaying logs 4637d4d99ba9f0ab
+@nap/sandbox:typecheck: cache hit, replaying logs 106a53627273df63
+@nap/storage:typecheck: $ tsc --noEmit
+@nap/bench:typecheck: $ tsc --noEmit
+@nap/capture:typecheck: cache hit, replaying logs a92624fc799baea7
+@nap/agent:typecheck: $ tsc --noEmit
+@nap/verify:typecheck: $ tsc --noEmit
+@nap/capture:typecheck: $ tsc --noEmit
+@nap/shared:typecheck: $ tsc --noEmit
+@nap/context:typecheck: $ tsc --noEmit
+@nap/loadgen:typecheck: $ tsc --noEmit
+@nap/db:typecheck: $ tsc --noEmit
+@nap/sandbox:typecheck: $ tsc --noEmit
+@nap/napbench:typecheck: cache hit, replaying logs d80b1a7aac3d4ea0
+@nap/runtime:typecheck: cache hit, replaying logs 5b5bf941a30a4b3d
+@nap/api:typecheck: cache hit, replaying logs 344de6db1953c38d
+@nap/api:typecheck: $ tsc --noEmit
+@nap/web:typecheck: cache hit, replaying logs 32b20ee92f1a9e49
+@nap/runtime:typecheck: $ tsc --noEmit
+@nap/web:typecheck: $ tsc --noEmit
+@nap/napbench:typecheck: $ tsc --noEmit
+
+ Tasks:    14 successful, 14 total
+Cached:    14 cached, 14 total
+  Time:    40ms >>> FULL TURBO
+
+
+┃  test ❯
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/t3-024ab7b9
+
+
+ Test Files  7 passed (7)
+      Tests  56 passed (56)
+   Start at  15:12:44
+   Duration  18.52s (transform 153ms, setup 202ms, import 862ms, tests 32.03s, environment 1.13s)
+
+
+│  python (skip) no matching staged files
+[38;2;56;56;56m  ────────────────────────────────────[m
+summary: (done in 22.14 seconds)
+✓ biome (0.21 seconds)
+✓ typecheck (0.59 seconds)
+✓ test (21.33 seconds)
+[t3/test-mode-bug-benchmark 3038642] feat(bench): compose real app tests behind explicit model limits
+ 9 files changed, 1047 insertions(+), 56 deletions(-)
+ create mode 100644 apps/napbench/scripts/app-test-command.test.ts
+ create mode 100644 apps/napbench/scripts/app-test-command.ts
+ create mode 100644 apps/napbench/scripts/app-test-production.test.ts
+ create mode 100644 apps/napbench/scripts/app-test-production.ts

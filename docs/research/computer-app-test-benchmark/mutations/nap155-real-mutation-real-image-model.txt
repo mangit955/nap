@@ -1,0 +1,31 @@
+$ vitest run --project unit --project types --project web --project db --project unit packages/bench/src/app-test.test.ts "--maxWorkers=2" -t "canonical image model"
+Testing types with tsc and vue-tsc is an experimental feature.
+Breaking changes might not follow SemVer, please pin Vitest's version when using it.
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/t3-024ab7b9
+
+ ❯ |unit| packages/bench/src/app-test.test.ts (16 tests | 1 failed | 15 skipped) 5ms
+   × requires every real limit, canonical image model and strict positive safe integers 4ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |unit| packages/bench/src/app-test.test.ts > requires every real limit, canonical image model and strict positive safe integers
+AssertionError: expected [Function] to throw an error
+ ❯ packages/bench/src/app-test.test.ts:354:7
+    352|     expect(() =>
+    353|       parseAppTestArgs([...flags.filter((f) => f.split("=")[0] !== key…
+    354|     ).toThrow();
+       |       ^
+    355|   }
+    356|   expect(parseAppTestArgs([...flags, "--effort=low", "--template=appro…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 15 skipped (16)
+Type Errors  no errors
+   Start at  15:06:28
+   Duration  188ms (transform 22ms, setup 0ms, import 53ms, tests 5ms, environment 0ms)
+
+error: script "test" exited with code 1

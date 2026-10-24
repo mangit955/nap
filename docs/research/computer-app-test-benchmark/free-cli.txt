@@ -1,0 +1,2 @@
+Scripted apparatus only; no model capability measured. {"bugsCaught":0,"bugsTested":2,"correctAccepted":2,"correctTested":2,"unmeasured":0}
+/tmp/nap-benchmark-free-integrated.json

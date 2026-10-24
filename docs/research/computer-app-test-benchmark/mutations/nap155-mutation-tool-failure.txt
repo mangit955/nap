@@ -1,0 +1,43 @@
+$ vitest run --project unit --project types --project web --project db --project unit packages/bench/src/app-test.test.ts "--maxWorkers=2"
+Testing types with tsc and vue-tsc is an experimental feature.
+Breaking changes might not follow SemVer, please pin Vitest's version when using it.
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/t3-024ab7b9
+
+ ❯ |unit| packages/bench/src/app-test.test.ts (15 tests | 1 failed) 8ms
+     × refuses runtime interruption, capture/tool failure, count disagreement, wrong checkpoint and wrong job 4ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |unit| packages/bench/src/app-test.test.ts > unmeasured guards > refuses runtime interruption, capture/tool failure, count disagreement, wrong checkpoint and wrong job
+AssertionError: expected { status: 'measured', score: 1, …(1) } to match object { status: 'unmeasured', score: null }
+(1 matching property omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "score": null,
+-   "status": "unmeasured",
++   "score": 1,
++   "status": "measured",
+  }
+
+ ❯ packages/bench/src/app-test.test.ts:196:30
+    194|       ),
+    195|     ])
+    196|       expect(assess(events)).toMatchObject({ status: "unmeasured", sco…
+       |                              ^
+    197|   });
+    198|   it("requires the designated assertion ID and isolates sessions as we…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 14 passed (15)
+Type Errors  no errors
+   Start at  14:23:00
+   Duration  160ms (transform 16ms, setup 0ms, import 22ms, tests 8ms, environment 0ms)
+
+error: script "test" exited with code 1
