@@ -1,0 +1,9 @@
+# Desktop observations and Chrome UI targets
+
+A free local Docker check with actual Chrome Stable 156.0.8078.47-1 exposed a production observer bug. After physical Ctrl+L, typing a URL and Return, Chrome's debugger listed its omnibox popup as type page before the app tab. The screenshot showed the intended policy-error page, while production read_dom returned the omnibox page title. The [captured target list](failure-targets.json) retains the order and debugger addresses from that run. No E2B or model call was involved.
+
+The observer selected the first target whose type was page. It now requires a web-content URL: HTTP, HTTPS, a browser error document, or the blank tab. Chrome UI, extension and DevTools targets are excluded. This classification applies to DOM and console observations and preserves the loopback debugger-address check. It adds no page JavaScript execution. It does not add independent foreground-tab discovery when several web pages exist.
+
+The minimized DOM and console regressions failed against the old selector. Restoring that selector deliberately failed six regression cases, then the fixed source was restored and the focused suite passed. The final gate passes all 5,581 tests across 425 files, typecheck and lint. The adjacent logs preserve those assertions, collection and integration results. Text logs have trailing whitespace normalized. The original screenshots, DOM diagnostic and failed capture remain in the isolated smoke evidence; the repaired actual-Chrome rerun is pending at this commit.
+
+The free prepared template manifest was regenerated after the bundled driver changed. Its SHA-256 is `286aae1372bcd56986c894b5192242b9602ae515ff67470ccb20c4ce0997a4bb`; the driver SHA-256 is `43b4452b243572503d33f1b5f9c8d45cab23654343bd1164ef2af433cf3dc139`. No production template was published. Real E2B proxy, process and transport behavior remains unverified under the user's free-only instruction.

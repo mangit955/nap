@@ -19,7 +19,13 @@ class Socket extends EventTarget {
     this.closed++;
   }
 }
-const target = [{ type: "page", webSocketDebuggerUrl: "ws://127.0.0.1:9222/devtools/page/1" }];
+const target = [
+  {
+    type: "page",
+    url: "http://localhost:5173/",
+    webSocketDebuggerUrl: "ws://127.0.0.1:9222/devtools/page/1",
+  },
+];
 it("reads DOM through fixed protocol operations and closes its connection", async () => {
   const socket = new Socket((method, id) => [
     {
@@ -69,7 +75,11 @@ it("refuses non-loopback debugger targets before connecting", async () => {
   await expect(
     observeDesktopPage("dom", {
       fetchTargets: async () => [
-        { type: "page", webSocketDebuggerUrl: "wss://example.com/private" },
+        {
+          type: "page",
+          url: "http://localhost:5173/",
+          webSocketDebuggerUrl: "wss://example.com/private",
+        },
       ],
       createSocket: () => {
         connected = true;
@@ -104,4 +114,92 @@ it("does not connect for an aborted observation", async () => {
     }),
   ).rejects.toThrow();
   expect(read).toBe(false);
+});
+
+it.each(["dom", "console"] as const)(
+  "observes the web page for %s when Chrome exposes internal page targets first",
+  async (kind) => {
+    const urls: string[] = [];
+    const socket = new Socket((method, id) => [
+      {
+        id,
+        result:
+          method === "DOM.getDocument"
+            ? { root: { nodeId: 1 } }
+            : method === "DOM.getOuterHTML"
+              ? { outerHTML: "<main>Blocked by your organization</main>" }
+              : {},
+      },
+    ]);
+    const result = await observeDesktopPage(kind, {
+      fetchTargets: async () => [
+        {
+          type: "page",
+          url: "chrome://omnibox-popup.top-chrome/",
+          webSocketDebuggerUrl: "ws://127.0.0.1:9222/devtools/page/omnibox",
+        },
+        {
+          type: "page",
+          url: "https://example.com/",
+          webSocketDebuggerUrl: "ws://127.0.0.1:9222/devtools/page/app",
+        },
+        {
+          type: "page",
+          url: "chrome://omnibox-popup.top-chrome/omnibox_popup_aim.html",
+          webSocketDebuggerUrl: "ws://127.0.0.1:9222/devtools/page/aim",
+        },
+      ],
+      createSocket: (url) => {
+        urls.push(url);
+        queueMicrotask(() => socket.dispatchEvent(new Event("open")));
+        return socket;
+      },
+    });
+    expect(urls).toEqual(["ws://127.0.0.1:9222/devtools/page/app"]);
+    if (kind === "dom") expect(result).toContain("Blocked by your organization");
+    expect(socket.closed).toBe(1);
+  },
+);
+
+it.each([
+  "http://localhost:5173/",
+  "https://example.com/",
+  "about:blank",
+  "chrome-error://chromewebdata/",
+])("observes a web-content target at %s", async (url) => {
+  const socket = new Socket((method, id) => [
+    {
+      id,
+      result:
+        method === "DOM.getDocument" ? { root: { nodeId: 1 } } : { outerHTML: "<main>App</main>" },
+    },
+  ]);
+  expect(
+    await observeDesktopPage("dom", {
+      fetchTargets: async () => [{ ...target[0], url }],
+      createSocket: () => {
+        queueMicrotask(() => socket.dispatchEvent(new Event("open")));
+        return socket;
+      },
+    }),
+  ).toBe("<main>App</main>");
+});
+
+it.each([
+  "chrome://omnibox-popup.top-chrome/",
+  "chrome://newtab/",
+  "chrome-extension://extension/popup.html",
+  "devtools://devtools/bundled/inspector.html",
+])("does not observe browser UI at %s when no web page exists", async (url) => {
+  let connected = false;
+  await expect(
+    observeDesktopPage("dom", {
+      fetchTargets: async () => [{ ...target[0], url }],
+      createSocket: () => {
+        connected = true;
+        return new Socket(() => []);
+      },
+    }),
+  ).rejects.toThrow("No browser page is open.");
+  expect(connected).toBe(false);
 });

@@ -118,6 +118,8 @@ read the section covering whatever you are about to touch, not the whole file.
 
 ## Sandbox and storage
 
+- **Chrome browser UI can also be a debugger page target.** The actual Chrome 156 smoke listed an omnibox popup before the app after address-bar input. Selecting the first type page made DOM and console observations target browser UI. Classify web-content URLs as well, retain browser error pages, and keep the debugger connection loopback-only. [Regression and observed target order](research/computer-cdp-targets/README.md).
+
 - **An encoder's file stop threshold is not its finalized output size.** ffmpeg may write another packet and the MP4 index after reaching `-fs`. The desktop recorder leaves headroom below the accepted output ceiling and tests that agreement against real encoded video. It also records the encoder's PID and Linux start ticks, rather than its timeout monitor: killing only a stalled monitor left ffmpeg alive in the forced-stop experiment. [Reproduction and limits](research/computer-recording-linux/README.md).
 
 - **Nested repetition in a base64 regex can overflow on a valid video.** The desktop protocol uses a linear alphabet check and a separate length constraint. Its maximum-size regression executes the actual schema; small fixture strings missed the overflow. Transport limits also allow JSON escaping before base64, so a schema-valid text action fits the command envelope.

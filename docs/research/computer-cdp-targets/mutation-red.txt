@@ -1,0 +1,59 @@
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/feat-computer-use
+
+ ❯ |unit| packages/sandbox/src/desktop-cdp.test.ts (15 tests | 6 failed) 20233ms
+   × observes the web page for dom when Chrome exposes internal page targets first 3ms
+   × observes the web page for console when Chrome exposes internal page targets first 102ms
+   × does not observe browser UI at chrome://omnibox-popup.top-chrome/ when no web page exists 5005ms
+   × does not observe browser UI at chrome://newtab/ when no web page exists 5002ms
+   × does not observe browser UI at chrome-extension://extension/popup.html when no web page exists 5002ms
+   × does not observe browser UI at devtools://devtools/bundled/inspector.html when no web page exists 5002ms
+
+ Test Files  1 failed (1)
+      Tests  6 failed | 9 passed (15)
+Type Errors  no errors
+   Start at  15:43:51
+   Duration  20.42s (transform 17ms, setup 0ms, import 46ms, tests 20.23s, environment 0ms)
+
+Testing types with tsc and vue-tsc is an experimental feature.
+Breaking changes might not follow SemVer, please pin Vitest's version when using it.
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |unit| packages/sandbox/src/desktop-cdp.test.ts > observes the web page for dom when Chrome exposes internal page targets first
+ FAIL  |unit| packages/sandbox/src/desktop-cdp.test.ts > observes the web page for console when Chrome exposes internal page targets first
+AssertionError: expected [ Array(1) ] to deeply equal [ Array(1) ]
+
+- Expected
++ Received
+
+  [
+-   "ws://127.0.0.1:9222/devtools/page/app",
++   "ws://127.0.0.1:9222/devtools/page/omnibox",
+  ]
+
+ ❯ packages/sandbox/src/desktop-cdp.test.ts:158:18
+    156|       },
+    157|     });
+    158|     expect(urls).toEqual(["ws://127.0.0.1:9222/devtools/page/app"]);
+       |                  ^
+    159|     if (kind === "dom") expect(result).toContain("Blocked by your orga…
+    160|     expect(socket.closed).toBe(1);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+ FAIL  |unit| packages/sandbox/src/desktop-cdp.test.ts > does not observe browser UI at chrome://omnibox-popup.top-chrome/ when no web page exists
+ FAIL  |unit| packages/sandbox/src/desktop-cdp.test.ts > does not observe browser UI at chrome://newtab/ when no web page exists
+ FAIL  |unit| packages/sandbox/src/desktop-cdp.test.ts > does not observe browser UI at chrome-extension://extension/popup.html when no web page exists
+ FAIL  |unit| packages/sandbox/src/desktop-cdp.test.ts > does not observe browser UI at devtools://devtools/bundled/inspector.html when no web page exists
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ packages/sandbox/src/desktop-cdp.test.ts:193:3
+    191|   "chrome-extension://extension/popup.html",
+    192|   "devtools://devtools/bundled/inspector.html",
+    193| ])("does not observe browser UI at %s when no web page exists", async …
+       |   ^
+    194|   let connected = false;
+    195|   await expect(
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯

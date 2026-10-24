@@ -8,7 +8,7 @@ type Options = {
   signal?: AbortSignal;
 };
 const Targets = z.array(
-  z.object({ type: z.string(), webSocketDebuggerUrl: z.string().optional() }),
+  z.object({ type: z.string(), url: z.string(), webSocketDebuggerUrl: z.string().optional() }),
 );
 const Envelope = z.object({
   id: z.number().optional(),
@@ -35,7 +35,12 @@ export async function observeDesktopPage(
     })
   )();
   options.signal?.throwIfAborted();
-  const address = Targets.parse(raw).find((page) => page.type === "page")?.webSocketDebuggerUrl;
+  // Chrome exposes omnibox and extension surfaces as page targets too.
+  const address = Targets.parse(raw).find(
+    (page) =>
+      page.type === "page" &&
+      (/^(?:https?:|chrome-error:)/.test(page.url) || page.url === "about:blank"),
+  )?.webSocketDebuggerUrl;
   if (!address) throw new Error("No browser page is open.");
   const url = new URL(address);
   if (
