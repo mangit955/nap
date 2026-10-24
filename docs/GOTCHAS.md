@@ -118,6 +118,8 @@ read the section covering whatever you are about to touch, not the whole file.
 
 ## Sandbox and storage
 
+- **A synchronous mousemove can stall when the pointer is already there.** The installed xdotool timed out moving to its current position in the real local app, so an owner mouse-move followed by a click never reached the click. Chain ordinary mousemove and click in one xdotool invocation; X11 preserves that command order. The same-position regression and the native local-app run cover this path. See [local app evidence](research/computer-local-app/README.md).
+
 - **A DOM prefix can contain only head scripts and styles.** The actual Chrome 156 policy page exceeded the DOM allowance before its visible blocked message appeared. Observe the body through fixed read-only CDP calls, fall back to the root when there is no body, and mark output truncation. The bounded result then prioritizes page content rather than head metadata. [Regression and native diagnostic](research/computer-cdp-body/README.md).
 
 - **Chrome browser UI can also be a debugger page target.** The actual Chrome 156 smoke listed an omnibox popup before the app after address-bar input. Selecting the first type page made DOM and console observations target browser UI. Classify web-content URLs as well, retain browser error pages, and keep the debugger connection loopback-only. [Regression and observed target order](research/computer-cdp-targets/README.md).
@@ -169,6 +171,10 @@ read the section covering whatever you are about to touch, not the whole file.
 - **Anything that writes to the real bucket from a test must delete every key it wrote, not the newest one.** `full-cycle.integration.test.ts` runs against a throwaway Postgres and a *real* R2, so the rows naming its objects die with the container — it collects `snapshots.listFor` inside `beforeAll` and deletes them all in `afterAll`. It used to delete exactly one, which was correct only while a run produced exactly one; per-turn snapshots would have silently turned it into an orphan generator. There is no automatic orphan detection: the check is joining `ListObjectsV2` against the `snapshots` table by hand, and it has found real orphans.
 
 ## API, auth and logging
+
+- **An abandoned desktop request can block its replacement.** Strict Mode and navigation can abort a stream fetch while its server-side desktop start keeps the action lock. Forward the request signal to startup and skip credential acquisition after cancellation. Otherwise a later start can hold the lock beyond the earlier credential command's five-second wait and fail the visible connection. The local app exposed this race; the route regression checks signal forwarding and the post-start cancellation boundary.
+
+- **Bun HTTP idle timeout also bounds lazy desktop requests.** The installed Bun defaults to ten seconds, while a real desktop start plus credential command exceeded that. Both API launchers use the shared 120-second listener setting. The free `apps/api/scripts/http-idle-smoke.ts` uses an actual Bun listener and external curl: `--default` reproduces the disconnected response, and the normal command retains it. Desktop commands retain their own shorter execution bounds.
 
 - **An unowned legacy repair can remain open in the log after its request ended.** Do not guess ownership from text, time, job or proximity, and do not reset all activity when an unrelated terminal arrives. The ownership-checked activity endpoint reads an event prefix before queue state; its idle result retires only that covered prefix for controls and the clock. A stale response must not settle a newer local request or suppress later events. Old browser sockets receive prompts without the optional repair metadata unless they opt in. See [ADR-0017](adr/0017-repair-prompts-record-request-ownership.md).
 

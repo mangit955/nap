@@ -17,6 +17,7 @@
 import { websocket } from "hono/bun";
 import { bootNap } from "./boot.ts";
 import { announce } from "./boot-line.ts";
+import { HTTP_SERVER_OPTIONS } from "./http-options.ts";
 
 const nap = await bootNap("api");
 
@@ -31,6 +32,7 @@ announce(nap, "api listening", {
 });
 
 export default {
+  ...HTTP_SERVER_OPTIONS,
   port: nap.env.PORT,
   fetch: nap.composed.app.fetch,
   // Bun dispatches socket lifecycle here; without it an upgraded connection is never read.

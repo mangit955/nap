@@ -16,12 +16,12 @@ Test tool availability selects the computer-only path. It never writes source, r
 
 1. Annotate setup. Use `ctrl+l`, type `http://localhost:5173/`, press `Return`, wait one second, and return a screenshot.
 2. After receiving that screenshot, annotate chapter `save-note`, assertion `save` with result `untested`, and the action description. The stable expectation is `The saved note appears in the list.`
-3. Click input `[448, 330]`, press `ctrl+a`, type a fresh `Note` plus UUID with alphanumeric characters, click Save `[744, 330]`, wait 0.3 seconds, and return a screenshot.
+3. Click input `[448, 400]`, press `ctrl+a`, type a fresh `Note` plus UUID with alphanumeric characters, click Save `[744, 400]`, wait 0.3 seconds, and return a screenshot.
 4. After receiving the input screenshot, issue a separate `read_dom` computer call.
 5. In a later model step, match exactly one ordered assistant tool use and successful user tool result for that call's unique ID, name, and input. Find the app marker and one complete saved list in its text. Pass only for `<li data-testid="saved-note">CURRENT_UNIQUE_NOTE</li>` inside that list. A complete list without the current note fails. Missing, failed, stale, duplicate, mismatched, or incomplete observations leave the original assertion untested.
 6. Annotate a tested verdict using the original assertion ID and expectation. Finish without repair. The owner can explicitly request Fix it in a normal turn.
 
-The source places the controls at CSS y212–340 and x224–672 for input, x688–800 for Save at width1024. The scripted desktop clicks account for browser chrome by using y330 within the tall controls. These are source-derived coordinates. The parent owns live calibration on the actual 1024×768 desktop and integrated source, browser, recording, and repair acceptance.
+The source places the controls at CSS y212–340 and x224–672 for input, x688–800 for Save at width1024. The parent corrected the scripted clicks to y400. This lies inside the source-derived row for both the observed 145px Chrome content offset and an 85px offset. The original y330 missed the row when Chrome showed its unsupported-flag banner. The parent owns live calibration on the actual 1024×768 desktop and integrated source, browser, recording, and repair acceptance.
 
 Stable DOM markers are `notes-app`, `note-input`, `save-note`, `saved-notes`, and `saved-note`. Tool IDs and typed note text are unique per turn. Earlier turns' tool exchanges cannot supply a verdict for the current turn.
 

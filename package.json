@@ -9,6 +9,7 @@
     "apps/*"
   ],
   "scripts": {
+    "computer:local": "bun apps/api/scripts/computer-local.ts",
     "dev": "turbo run dev",
     "dev:worker": "turbo run dev:worker",
     "dev:reaper": "turbo run dev:reaper",

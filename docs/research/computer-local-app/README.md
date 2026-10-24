@@ -1,8 +1,22 @@
 # Real local computer integration
 
-Status: implementation in progress. This document records a design and falsifiable acceptance plan, not a working launcher.
+Status: the actual authenticated UI completed the local Test → recording → explicit Fix it → owner input → passing retest flow. See [native integration evidence](integration/README.md).
 
-The current free demo composes real auth, Postgres, queue and events but fake files, commands and desktop. It omits computerAccess and recordings; the authenticated stream route returns 404. The replacement must connect actual Nap to one Docker machine whose source, Git, checks, browser, screenshots and recordings are real. Only the model remains scripted and object storage remains temporary RAM. Existing demo ports 3037–3039 and its database stay intact.
+Run `bun run computer:local` from the repository root with Docker running. It builds or reuses a local image, creates its own disposable Postgres and Docker sandbox, seeds the Notes app through Nap's runtime, then prints the workspace URL at `http://127.0.0.1:3047/p/<project-id>`. Sign in with `reader@computer.test` / `Computer-local-42`. The API is on 3048. Occupied launcher ports cause startup to fail rather than replace another service.
+
+Open Computer through the right panel's Add panel menu. Live view, idle Take control, physical input, screenshots, source files, Git, Vite checks and ffmpeg recordings use the real Docker machine. Click Test the app to detect the deliberately broken Save action. Watch recording plays the actual capture. Fix it explicitly changes `src/App.tsx`; the next Test the app should pass. The project name and transcript disclose that the model follows a fixed Notes scenario. This is an integration environment, not a general-purpose autonomous model. Objects and recordings are RAM-only and disappear when the launcher stops.
+
+Stop the launcher with Ctrl-C. It closes its exact owned containers, bridges, database client, worker, isolated Next copy and server. Shared Docker image caches remain. The old demo's ports and database are outside its ownership.
+
+The opt-in free browser check runs against a freshly seeded launcher, using its printed run directory:
+
+```sh
+NAP_COMPUTER_LOCAL_MANIFEST=<run-directory>/run.json \
+NAP_CHROME_PATH="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+bunx vitest run --project integration apps/napbench/src/computer-local.integration.test.ts --maxWorkers=1
+```
+
+A repeated identical source-writing turn has no new checkpoint and is unverified. The acceptance harness therefore starts from a fresh seeded launcher, rather than rewriting identical code before testing.
 
 ## Design decision
 

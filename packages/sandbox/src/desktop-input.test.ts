@@ -22,6 +22,23 @@ function fixture() {
   return { host, calls, waits, crops };
 }
 describe("physical desktop action driver", () => {
+  it("clicks after moving to the same point without waiting for another motion event", async () => {
+    const f = fixture();
+    let position = "0,0";
+    f.host.xdotool = async (args) => {
+      const offset = args[1] === "--sync" ? 2 : 1;
+      const next = args.slice(offset, offset + 2).join(",");
+      if (args.includes("--sync") && next === position)
+        throw new Error("Stationary synchronous mousemove waits for an event that never arrives.");
+      position = next;
+      f.calls.push({ args });
+      return "";
+    };
+    await performDesktopAction({ action: "mouse_move", coordinate: [10, 20] }, f.host);
+    await expect(
+      performDesktopAction({ action: "left_click", coordinate: [10, 20] }, f.host),
+    ).resolves.toEqual({ kind: "none" });
+  });
   it.each([
     ["left_click", "1", "1"],
     ["right_click", "3", "1"],
@@ -45,7 +62,6 @@ describe("physical desktop action driver", () => {
       });
       expect(f.calls[0]?.args).toEqual([
         "mousemove",
-        "--sync",
         "10",
         "20",
         "click",
@@ -116,8 +132,8 @@ describe("physical desktop action driver", () => {
     expect(f.calls.map((c) => c.args)).toEqual([
       ["mousedown", "1"],
       ["mouseup", "1"],
-      ["mousemove", "--sync", "2", "3"],
-      ["mousemove", "--sync", "20", "30", "click", "--repeat", "4", "--delay", "15", "5"],
+      ["mousemove", "2", "3"],
+      ["mousemove", "20", "30", "click", "--repeat", "4", "--delay", "15", "5"],
     ]);
     expect(f.waits).toEqual([500]);
   });

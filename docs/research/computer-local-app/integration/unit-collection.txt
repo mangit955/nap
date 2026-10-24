@@ -1,0 +1,15 @@
+[unit] packages/sandbox/src/desktop-input.test.ts > physical desktop action driver > clicks after moving to the same point without waiting for another motion event
+[unit] packages/sandbox/src/desktop-input.test.ts > physical desktop action driver > maps left_click to real mouse input
+[unit] packages/sandbox/src/desktop-input.test.ts > physical desktop action driver > maps right_click to real mouse input
+[unit] packages/sandbox/src/desktop-input.test.ts > physical desktop action driver > maps middle_click to real mouse input
+[unit] packages/sandbox/src/desktop-input.test.ts > physical desktop action driver > maps double_click to real mouse input
+[unit] packages/sandbox/src/desktop-input.test.ts > physical desktop action driver > maps triple_click to real mouse input
+[unit] packages/sandbox/src/desktop-input.test.ts > physical desktop action driver > types through stdin and maps named key chords
+[unit] packages/sandbox/src/desktop-input.test.ts > physical desktop action driver > releases a held key with a fresh cleanup operation after cancellation
+[unit] packages/sandbox/src/desktop-input.test.ts > physical desktop action driver > releases the drag button when movement fails
+[unit] packages/sandbox/src/desktop-input.test.ts > physical desktop action driver > covers explicit button state, pointer movement, scrolling and waits
+[unit] packages/sandbox/src/desktop-input.test.ts > physical desktop action driver > returns actual cursor and bounded read-only observations and consumes zoom separately
+[unit] packages/sandbox/src/desktop-input.test.ts > physical desktop action driver > dispatches nothing after cancellation
+[unit] apps/api/scripts/computer-local-web.test.ts > isolates the real web source and config while preserving the original build and secrets
+[unit] apps/api/scripts/computer-local-web.test.ts > refuses to overwrite an existing web directory and leaves it intact
+[unit] apps/api/scripts/computer-local-web.test.ts > unwinds its newly created copy when required source configuration is absent

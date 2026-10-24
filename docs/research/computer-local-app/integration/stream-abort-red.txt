@@ -1,0 +1,33 @@
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/feat-computer-use
+
+ ❯ |unit| apps/api/src/computer/access.test.ts (39 tests | 1 failed) 39ms
+     × cancels an abandoned stream start before it can contend for credentials 2ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |unit| apps/api/src/computer/access.test.ts > owner desktop stream > cancels an abandoned stream start before it can contend for credentials
+AssertionError: expected undefined to be true // Object.is equality
+
+- Expected:
+true
+
++ Received:
+undefined
+
+ ❯ apps/api/src/computer/access.test.ts:202:54
+    200|     );
+    201|     expect(response.status).toBe(503);
+    202|     expect(start.mock.calls[0]?.[0].signal?.aborted).toBe(true);
+       |                                                      ^
+    203|     expect(credentials).not.toHaveBeenCalled();
+    204|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 38 passed (39)
+   Start at  20:18:40
+   Duration  379ms (transform 139ms, setup 0ms, import 219ms, tests 39ms, environment 0ms)
+

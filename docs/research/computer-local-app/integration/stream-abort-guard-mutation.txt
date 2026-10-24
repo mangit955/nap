@@ -1,0 +1,38 @@
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/feat-computer-use
+
+ ❯ |unit| apps/api/src/computer/access.test.ts (39 tests | 1 failed) 42ms
+     × cancels an abandoned stream start before it can contend for credentials 3ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |unit| apps/api/src/computer/access.test.ts > owner desktop stream > cancels an abandoned stream start before it can contend for credentials
+AssertionError: expected "streamCredentials" to not be called at all, but actually been called 1 times
+
+Received:
+
+  1st streamCredentials call:
+
+    Array [
+      "box",
+    ]
+
+
+Number of calls: 1
+
+ ❯ apps/api/src/computer/access.test.ts:203:29
+    201|     expect(response.status).toBe(503);
+    202|     expect(start.mock.calls[0]?.[0].signal?.aborted).toBe(true);
+    203|     expect(credentials).not.toHaveBeenCalled();
+       |                             ^
+    204|   });
+    205|   it("validates credentials before returning them", async () => {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 38 passed (39)
+   Start at  20:19:32
+   Duration  368ms (transform 132ms, setup 0ms, import 202ms, tests 42ms, environment 0ms)
+

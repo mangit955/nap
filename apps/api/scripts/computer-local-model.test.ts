@@ -176,10 +176,10 @@ it("declares setup and expectations before physical save input, then reads DOM i
       },
     },
     { action: "annotate", annotation: { type: "action", description: expect.any(String) } },
-    { action: "left_click", coordinate: [448, 330] },
+    { action: "left_click", coordinate: [448, 400] },
     { action: "key", text: "ctrl+a" },
     { action: "type", text: flow.note },
-    { action: "left_click", coordinate: [744, 330] },
+    { action: "left_click", coordinate: [744, 400] },
     { action: "wait", duration: 0.3 },
     { action: "screenshot" },
   ]);

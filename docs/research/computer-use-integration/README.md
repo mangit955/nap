@@ -1,6 +1,6 @@
 # Integrated computer-use checks
 
-This branch integrates the desktop adapter, guarded owner routes, noVNC frame, owner input, test recording lifecycle and recording viewer. Production template publication and real E2B validation are still pending. The normal local demo uses fake cloud and model ports.
+This branch integrates the desktop adapter, guarded owner routes, noVNC frame, owner input, test recording lifecycle and recording viewer. Production template publication and real E2B validation are still pending. The older local demo uses fake cloud and model ports. The new [real local launcher](../computer-local-app/README.md) uses actual Docker source, Git, builds, Chrome, noVNC, guarded owner input and ffmpeg video with a scripted model and RAM storage. Its authenticated UI completed the failed-test, recording, explicit repair and passing-retest flow.
 
 The verified UI integration is committed as `ec4fbd6`, after backend capture and playback integration in `a72f7c3`. The bounded [UI repair review](../../assets/computer-use/live-view-review/integration-review-round2.md) found no actionable issues. Its 128 focused tests passed. The [native browser evidence](../../assets/computer-use/live-view-review/README.md) distinguishes actual noVNC rendering and local MP4 playback from fake owner identity, input replies, storage and annotations. [Linux capture evidence](../computer-recording-linux/README.md) exercises real X11/ffmpeg separately.
 

@@ -187,6 +187,21 @@ describe("owner desktop stream", () => {
     expect(response.status).toBe(503);
     expect(JSON.stringify(f.logs)).not.toContain("private-password");
   });
+  it("cancels an abandoned stream start before it can contend for credentials", async () => {
+    const f = fixture();
+    const controller = new AbortController();
+    const start = vi.spyOn(f.desktop, "start").mockImplementation(async () => {
+      controller.abort();
+      return { ok: true, value: { width: 1024, height: 768 } };
+    });
+    const credentials = vi.spyOn(f.desktop, "streamCredentials");
+    const response = await f.app.request(
+      new Request(`http://localhost${base}/stream`, { signal: controller.signal }),
+    );
+    expect(response.status).toBe(503);
+    expect(start.mock.calls[0]?.[0].signal?.aborted).toBe(true);
+    expect(credentials).not.toHaveBeenCalled();
+  });
   it("validates credentials before returning them", async () => {
     const f = fixture();
     vi.spyOn(f.desktop, "streamCredentials").mockResolvedValue({

@@ -50,7 +50,8 @@ export async function performDesktopAction(
   signal?.throwIfAborted();
   const options = signal ? { signal } : undefined;
   const run = (args: readonly string[]) => host.xdotool(args, options);
-  const move = (coordinate: [number, number]) => ["mousemove", "--sync", ...coordinate.map(String)];
+  // Chained X11 requests retain their order. --sync hangs when the pointer is already there.
+  const move = (coordinate: [number, number]) => ["mousemove", ...coordinate.map(String)];
   switch (action.action) {
     case "left_click":
     case "right_click":

@@ -163,8 +163,9 @@ export function registerComputerAccessRoutes(
       const started = await deps.desktop.start({
         sandboxId: session.sandboxId,
         devServerUrl: `http://localhost:${port.data}`,
+        signal: c.req.raw.signal,
       });
-      if (!started.ok) return c.json(unavailable, 503);
+      if (c.req.raw.signal.aborted || !started.ok) return c.json(unavailable, 503);
       const credentials = await deps.desktop.streamCredentials(session.sandboxId);
       if (!credentials.ok) return c.json(unavailable, 503);
       const stream = ComputerStreamSchema.safeParse({ ...credentials.value, ...started.value });
