@@ -35,9 +35,12 @@ import type {
   ProviderSignInSession,
 } from "./sign-in.ts";
 
+import { SubscriptionAccess } from "./subscription-access.ts";
+
 export type ProviderRouteDeps = {
   accounts: ProviderAccountStore;
   signIn: ProviderSignInRunner;
+  subscriptions?: SubscriptionAccess;
   webOrigin: string;
   /** Injected so a test can pin the "Checked …" time. */
   now?: () => Date;
@@ -48,6 +51,7 @@ export function registerProviderRoutes(
   deps: ProviderRouteDeps,
 ): void {
   const now = deps.now ?? (() => new Date());
+  const subscriptions = deps.subscriptions ?? new SubscriptionAccess({ accounts: deps.accounts });
   const session = (c: Context<{ Variables: AuthVariables }>): ProviderSignInSession | null => {
     const id = c.get("authSessionId");
     return typeof id === "string" && id.length > 0
@@ -124,6 +128,13 @@ export function registerProviderRoutes(
     const untrusted = forged(c);
     return untrusted === null ? { account } : { refused: untrusted };
   };
+
+  app.get("/providers/targets", async (c) => {
+    c.header("cache-control", "no-store");
+    const refused = guest(c);
+    if (refused !== null) return refused;
+    return c.json(await subscriptions.catalog(c.get("userId")));
+  });
 
   app.get("/providers", async (c) => {
     c.header("cache-control", "no-store");

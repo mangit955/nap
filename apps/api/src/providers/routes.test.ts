@@ -276,6 +276,7 @@ describe("POST /providers/accounts/:accountId/sign-out", () => {
 
 const ACCOUNT_ROUTES = [
   { method: "GET", path: "/providers" },
+  { method: "GET", path: "/providers/targets" },
   { method: "POST", path: "/providers/accounts", body: { driver: "claude" } },
   { method: "PATCH", path: "/providers/accounts/:id", body: { label: "Changed", enabled: false } },
   { method: "DELETE", path: "/providers/accounts/:id" },
@@ -444,4 +445,28 @@ it("returns a refused sign-in as an error instead of a successful empty account 
     error: "This sign-in was replaced or disconnected. Start again.",
     code: "stale",
   });
+});
+
+it("publishes owned subscription choices without treating account metadata as an installed runtime", async () => {
+  const { app: instance, accounts } = app();
+  const account = await create(instance, "claude");
+  await accounts.completeSignIn(USER, account.id, {
+    generation: 0,
+    credentials: { ciphertext: "private-sealed-grant", iv: "grant-iv" },
+    identity: { email: "verified@example.com", plan: null },
+  });
+  const result = await instance.request("/providers/targets");
+  expect(result.status).toBe(200);
+  expect(result.headers.get("cache-control")).toBe("no-store");
+  const body = await result.json();
+  expect(body).toMatchObject({
+    accounts: [
+      {
+        account: { id: account.id, auth: { status: "authenticated" } },
+        models: [],
+        availability: "unavailable",
+      },
+    ],
+  });
+  expect(JSON.stringify(body)).not.toContain("private-sealed-grant");
 });

@@ -788,3 +788,93 @@ it("reads a real covered prefix before checking queue activity and never caches 
   };
   expect((await hono.request(`/sessions/${SESSION}/activity`)).status).toBe(500);
 });
+
+describe("explicit subscription admission", () => {
+  it("pins an owned subscription generation without reading or billing an API key", async () => {
+    const { InMemoryProviderAccountStore } = await import(
+      "@nap/db/testing/in-memory-provider-account-store"
+    );
+    const { SubscriptionAccess } = await import("../providers/subscription-access.ts");
+    const accounts = new InMemoryProviderAccountStore();
+    const account = await accounts.create({ userId: FAKE_OWNER, driver: "claude", label: "Work" });
+    await accounts.completeSignIn(FAKE_OWNER, account.id, {
+      generation: 0,
+      credentials: { ciphertext: "sealed-native-grant", iv: "grant-iv" },
+      identity: { email: "verified@example.com", plan: null },
+    });
+    const subscriptions = new SubscriptionAccess({
+      accounts,
+      providers: new Map([
+        ["claude", [{ id: "native-fixture", label: "Native fixture", supportsImages: false }]],
+      ]),
+    });
+    const queue = new InMemoryTurnQueue();
+    const sessions = new InMemorySessionStore([{ sessionId: SESSION, projectId: "project-1" }]);
+    let keyReads = 0;
+    const hono = createApp({
+      logger: silent(),
+      authenticate: async () => ({ userId: FAKE_OWNER, isAnonymous: false }),
+      stream: {
+        store: new InMemoryEventStore(),
+        bus: new InMemoryEventBus(),
+        upgradeWebSocket: async () => new Response(null),
+      },
+      turns: {
+        queue,
+        registry: new TurnRegistry(),
+        projects: unnamedProject(),
+        sessions,
+        subscriptions,
+        selections: sessions,
+        webOrigin: "http://web.test",
+        keys: async () => {
+          keyReads++;
+          return OPENROUTER_KEY;
+        },
+        allowedModels: ALLOWED,
+        freeModel: FREE_MODEL,
+        defaultModel: ALLOWED[0] ?? "",
+      },
+    });
+    const selection = { kind: "subscription", accountId: account.id, model: "native-fixture" };
+    const result = await hono.request(`/sessions/${SESSION}/turns`, {
+      method: "POST",
+      headers: { origin: "http://web.test", "content-type": "application/json" },
+      body: JSON.stringify({ message: "Build the form", selection }),
+    });
+    expect(result.status).toBe(202);
+    expect(keyReads).toBe(0);
+    expect(queue.enqueued[0]?.target).toEqual({ ...selection, driver: "claude", generation: 1 });
+    expect(await sessions.selection(FAKE_OWNER, SESSION)).toEqual({ selection });
+    expect(JSON.stringify(queue.enqueued)).not.toContain("sealed-native-grant");
+    const legacy = await post(hono, `/sessions/${SESSION}/turns`, {
+      message: "Continue",
+      model: ALLOWED[0],
+    });
+    expect(legacy.status).toBe(409);
+    expect(await legacy.json()).toMatchObject({ code: "execution_selection_required" });
+    expect(keyReads).toBe(0);
+    expect(queue.enqueued).toHaveLength(1);
+    const forged = await hono.request(`/sessions/${SESSION}/turns`, {
+      method: "POST",
+      headers: { origin: "https://evil.example", "content-type": "application/json" },
+      body: JSON.stringify({
+        message: "Switch payer",
+        selection: { kind: "api", model: ALLOWED[0] },
+      }),
+    });
+    expect(forged.status).toBe(403);
+    expect(keyReads).toBe(0);
+    expect(queue.enqueued).toHaveLength(1);
+    await accounts.revokeAuthorization(FAKE_OWNER, account.id);
+    const disconnected = await hono.request(`/sessions/${SESSION}/turns`, {
+      method: "POST",
+      headers: { origin: "http://web.test", "content-type": "application/json" },
+      body: JSON.stringify({ message: "Continue", selection }),
+    });
+    expect(disconnected.status).toBe(403);
+    expect(await disconnected.json()).toMatchObject({ code: "provider_sign_in_required" });
+    expect(keyReads).toBe(0);
+    expect(queue.enqueued).toHaveLength(1);
+  });
+});

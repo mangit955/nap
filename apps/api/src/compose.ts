@@ -1,3 +1,4 @@
+import type { SessionExecutionStore } from "@nap/shared/ports/session-execution-store";
 import type { SessionNavigationStore } from "@nap/shared/ports/session-navigation-store";
 import type { SessionStartStore } from "@nap/shared/ports/session-start-store";
 /**
@@ -69,6 +70,7 @@ import type { HealthProbe } from "./health.ts";
 import { createMetrics, type Metrics } from "./metrics.ts";
 import type { CreatedProject } from "./projects/routes.ts";
 import type { ProviderSignInRunner } from "./providers/sign-in.ts";
+import { SubscriptionAccess } from "./providers/subscription-access.ts";
 import { TurnRegistry } from "./turns/registry.ts";
 
 /**
@@ -122,6 +124,7 @@ export type NapRole = "api" | "worker" | "reaper" | "all";
 
 export type NapDeps = {
   sessionStarts?: SessionStartStore;
+  executionSelections?: SessionExecutionStore;
   sessionNavigation?: SessionNavigationStore;
   github?: { store: GitHubStore; app: GitHubApp | null; broker?: GitBroker };
   config: NapConfig;
@@ -391,7 +394,21 @@ export function composeNap(deps: NapDeps): ComposedNap {
               "GitHub sweep was interrupted; durable deliveries will retry.",
             ),
         });
+  const subscriptionAccess =
+    deps.providerAccounts === undefined
+      ? undefined
+      : new SubscriptionAccess({ accounts: deps.providerAccounts.store });
   const app = createApp({
+    ...(deps.executionSelections === undefined
+      ? {}
+      : {
+          execution: {
+            selections: deps.executionSelections,
+            ...(subscriptionAccess === undefined ? {} : { subscriptions: subscriptionAccess }),
+            allowedModels: config.NAP_ALLOWED_MODELS,
+            webOrigin: config.NAP_WEB_ORIGIN,
+          },
+        }),
     ...(deps.sessionNavigation === undefined
       ? {}
       : { sessionNavigation: { store: deps.sessionNavigation, webOrigin: config.NAP_WEB_ORIGIN } }),
@@ -480,6 +497,7 @@ export function composeNap(deps: NapDeps): ComposedNap {
           providers: {
             accounts: deps.providerAccounts.store,
             signIn: deps.providerAccounts.signIn,
+            ...(subscriptionAccess === undefined ? {} : { subscriptions: subscriptionAccess }),
             webOrigin: config.NAP_WEB_ORIGIN,
           },
         }),
@@ -497,6 +515,9 @@ export function composeNap(deps: NapDeps): ComposedNap {
       keys: (userId) => deps.userKeys.get(userId),
     },
     turns: {
+      ...(subscriptionAccess === undefined ? {} : { subscriptions: subscriptionAccess }),
+      ...(deps.executionSelections === undefined ? {} : { selections: deps.executionSelections }),
+      webOrigin: config.NAP_WEB_ORIGIN,
       queue: deps.queue,
       registry,
       sessions: deps.sessions,
@@ -528,6 +549,7 @@ export function composeNap(deps: NapDeps): ComposedNap {
       },
     },
     projects: {
+      ...(subscriptionAccess === undefined ? {} : { subscriptions: subscriptionAccess }),
       projects: deps.projects,
       projectSandboxes: deps.projectSandboxes,
       snapshots: deps.snapshots,
@@ -681,6 +703,9 @@ export function composeNap(deps: NapDeps): ComposedNap {
   const worker = !executes
     ? NOT_CLAIMING
     : startTurnWorker({
+        ...(subscriptionAccess === undefined
+          ? {}
+          : { authorizeSubscription: subscriptionAccess.authorize }),
         queue: deps.queue,
         runtime,
         ...(github === undefined

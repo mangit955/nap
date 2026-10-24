@@ -11,7 +11,11 @@
  * a wider interface here would mean every caller with a fake had to implement all of it.
  */
 
+import type { ExecutionSelection } from "../execution-target.ts";
+
 export type SessionRecord = {
+  /** User preference, independent from a queued request's immutable authorization target. */
+  executionSelection?: ExecutionSelection;
   sessionId: string;
   projectId: string;
   /**

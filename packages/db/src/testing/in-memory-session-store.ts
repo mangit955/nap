@@ -10,6 +10,8 @@
  * session up: it is a bug in the caller rather than an outcome to hand back.
  */
 
+import { type ExecutionSelection, ExecutionSelectionSchema } from "@nap/shared/execution-target";
+import type { SessionExecutionStore } from "@nap/shared/ports/session-execution-store";
 import type { SessionRecord, SessionStore } from "@nap/shared/ports/session-store";
 import { FAKE_OWNER } from "./in-memory-project-store.ts";
 
@@ -25,9 +27,10 @@ export type SeedSession = {
    */
   userId?: string;
   sandboxId?: string | null;
+  executionSelection?: ExecutionSelection;
 };
 
-export class InMemorySessionStore implements SessionStore {
+export class InMemorySessionStore implements SessionStore, SessionExecutionStore {
   readonly #sessions = new Map<string, SessionRecord>();
 
   constructor(seed: SeedSession[] = []) {
@@ -37,13 +40,34 @@ export class InMemorySessionStore implements SessionStore {
         projectId: session.projectId,
         userId: session.userId ?? FAKE_OWNER,
         sandboxId: session.sandboxId ?? null,
+        ...(session.executionSelection === undefined
+          ? {}
+          : { executionSelection: ExecutionSelectionSchema.parse(session.executionSelection) }),
       });
     }
   }
 
   async get(sessionId: string): Promise<SessionRecord | null> {
     const record = this.#sessions.get(sessionId);
-    return record === undefined ? null : { ...record };
+    return record === undefined ? null : structuredClone(record);
+  }
+
+  async selection(
+    userId: string,
+    sessionId: string,
+  ): Promise<{ selection: ExecutionSelection | null } | null> {
+    const record = await this.get(sessionId);
+    return record?.userId === userId ? { selection: record.executionSelection ?? null } : null;
+  }
+
+  async select(userId: string, sessionId: string, selection: ExecutionSelection): Promise<boolean> {
+    const record = this.#sessions.get(sessionId);
+    if (record?.userId !== userId) return false;
+    this.#sessions.set(sessionId, {
+      ...record,
+      executionSelection: ExecutionSelectionSchema.parse(selection),
+    });
+    return true;
   }
 
   async setSandboxId(sessionId: string, sandboxId: string): Promise<void> {

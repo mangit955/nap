@@ -65,3 +65,21 @@ it("compares target identity including account generation and API payer", async 
     ),
   ).toBe(false);
 });
+
+it("keeps user selections distinct from server authorization targets", async () => {
+  const { ExecutionSelectionSchema } = await import("./execution-target.ts");
+  const selection = {
+    kind: "subscription",
+    accountId: "00000000-0000-4000-8000-000000000099",
+    model: "offline-native-fixture",
+  };
+  expect(ExecutionSelectionSchema.parse(selection)).toEqual(selection);
+  expect(ExecutionSelectionSchema.parse({ kind: "api" })).toEqual({ kind: "api" });
+  expect(ExecutionSelectionSchema.safeParse({ ...selection, generation: 1 }).success).toBe(false);
+  expect(ExecutionSelectionSchema.safeParse({ ...selection, driver: "claude" }).success).toBe(
+    false,
+  );
+  expect(ExecutionSelectionSchema.safeParse({ kind: "api", billsToUser: false }).success).toBe(
+    false,
+  );
+});

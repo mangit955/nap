@@ -1,5 +1,5 @@
+import { ExecutionSelectionSchema } from "@nap/shared/execution-target";
 import { MediaAttachmentsSchema } from "@nap/shared/media";
-import { MODEL_MEDIA_UNSUPPORTED, modelSupportsImages } from "@nap/shared/model-capabilities";
 /**
  * Starting and stopping a turn.
  *
@@ -30,6 +30,7 @@ import { getLogger } from "@nap/shared/logging";
 import type { EventStore } from "@nap/shared/ports/event-store";
 import type { ModelCredentials } from "@nap/shared/ports/llm-provider";
 import type { ProjectStore } from "@nap/shared/ports/project-store";
+import type { SessionExecutionStore } from "@nap/shared/ports/session-execution-store";
 import type { SessionRecord, SessionStore } from "@nap/shared/ports/session-store";
 import type { TurnQueue } from "@nap/shared/ports/turn-queue";
 import type { TurnRateLimiter } from "@nap/shared/ports/turn-rate-limit";
@@ -38,11 +39,15 @@ import type { Context, Hono } from "hono";
 import { z } from "zod";
 import { findOwnedSession } from "../auth/owned-session.ts";
 import type { AuthVariables } from "../auth/require-user.ts";
-import { refusalStatus, resolveTurnAccess } from "./model-access.ts";
+import type { SubscriptionAccess } from "../providers/subscription-access.ts";
+import { EXECUTION_REFUSAL_STATUS, ExecutionAccess } from "./execution-access.ts";
 import type { TurnRegistry } from "./registry.ts";
 import { checkSandboxQuota, type SandboxLimits } from "./sandbox-quota.ts";
 
 export type TurnRouteDeps = {
+  subscriptions?: SubscriptionAccess;
+  selections?: SessionExecutionStore;
+  webOrigin?: string;
   /** Where an admitted turn goes. A worker takes it from here; this route never runs one. */
   queue: TurnQueue;
   /**
@@ -108,28 +113,34 @@ export type TurnRouteDeps = {
  */
 export type CallerKeys = (userId: string) => Promise<ModelCredentials | null>;
 
-const TurnBodySchema = z.strictObject({
-  attachments: MediaAttachmentsSchema.optional(),
-  /** Trimmed before the check: a message of spaces is an accident, not a prompt. */
-  message: z
-    .string()
-    .transform((text) => text.trim())
-    .refine((text) => text.length > 0, { message: "message must not be empty" }),
-  /**
-   * Which model to run on. Absent is the deployment's default, which is the normal case.
-   *
-   * Checked against the allowlist below rather than passed through: an unchecked model id from
-   * a request body is a stranger choosing what each of your turns costs, and the expensive
-   * models are the ones they would choose.
-   */
-  model: z.string().min(1).optional(),
-});
+const TurnBodySchema = z
+  .strictObject({
+    attachments: MediaAttachmentsSchema.optional(),
+    /** Trimmed before the check: a message of spaces is an accident, not a prompt. */
+    message: z
+      .string()
+      .transform((text) => text.trim())
+      .refine((text) => text.length > 0, { message: "message must not be empty" }),
+    /**
+     * Which model to run on. Absent is the deployment's default, which is the normal case.
+     *
+     * Checked against the allowlist below rather than passed through: an unchecked model id from
+     * a request body is a stranger choosing what each of your turns costs, and the expensive
+     * models are the ones they would choose.
+     */
+    model: z.string().min(1).optional(),
+    selection: ExecutionSelectionSchema.optional(),
+  })
+  .refine((body) => body.model === undefined || body.selection === undefined, {
+    message: "Choose one execution selection; do not also supply a legacy model.",
+  });
 
 export function registerTurnRoutes(
   app: Hono<{ Variables: AuthVariables }>,
   deps: TurnRouteDeps,
   events: EventStore,
 ): void {
+  const executionAccess = new ExecutionAccess(deps);
   app.get("/sessions/:sessionId/activity", async (c) => {
     const found = await findOwnedSession(deps.sessions, c.req.param("sessionId"), c.get("userId"));
     if (!found.ok) return c.json({ error: found.error.message }, found.error.status);
@@ -167,31 +178,51 @@ export function registerTurnRoutes(
         return c.json({ error: "Wait for the current turn to finish before compacting." }, 409);
     }
 
-    // Whose account this turn is billed to, which is also what decides which models they may
-    // name. One lookup answers both, and both are needed before anything is spent.
-    const key = (await deps.keys?.(c.get("userId"))) ?? null;
-
-    // Before the ceilings, because an unreachable model is a malformed request rather than a
-    // limit: refusing it must not consume the asker's rate-limit allowance.
-    const access = resolveTurnAccess({
-      requested: body.data.model,
-      key,
-      allowed: deps.allowedModels,
-      freeModel: deps.freeModel,
-      defaultModel: deps.defaultModel,
+    if (body.data.selection !== undefined && deps.selections === undefined)
+      return c.json(
+        {
+          error: "Execution preferences are unavailable here.",
+          code: "execution_selection_unavailable",
+        },
+        503,
+      );
+    if (
+      body.data.selection !== undefined &&
+      (deps.webOrigin === undefined || c.req.header("origin") !== deps.webOrigin)
+    )
+      return c.json({ error: "Untrusted request origin." }, 403);
+    const access = await executionAccess.resolve({
+      userId: c.get("userId"),
+      isAnonymous: c.get("isAnonymous"),
+      preference: found.value.executionSelection,
+      hasImages: (body.data.attachments?.length ?? 0) > 0,
+      choice:
+        body.data.selection === undefined
+          ? { kind: "legacy", model: body.data.model }
+          : { kind: "explicit", selection: body.data.selection },
     });
-    if (!access.ok) {
-      return c.json({ error: access.message, code: access.code }, refusalStatus(access.code));
-    }
-    if (body.data.attachments?.length && !modelSupportsImages(access.model)) {
-      return c.json({ error: MODEL_MEDIA_UNSUPPORTED, code: "model_media_unsupported" }, 400);
-    }
+    if (!access.ok)
+      return c.json(
+        { error: access.error.message, code: access.error.code },
+        EXECUTION_REFUSAL_STATUS[access.error.code],
+      );
 
     // Both ceilings are checked after the body, so a malformed request never costs somebody a
     // slot, and before the registry, so a refused turn leaves no trace of having been started.
     // Which ceilings apply depends on who is paying — see `refuse`.
-    const refusal = await refuse(deps, found.value, c.get("userId"), key !== null);
+    const refusal = await refuse(
+      deps,
+      found.value,
+      c.get("userId"),
+      access.value.kind === "subscription" || access.value.billsToUser,
+    );
     if (refusal !== undefined) return refusal(c);
+
+    if (
+      body.data.selection !== undefined &&
+      !(await deps.selections?.select(c.get("userId"), found.value.sessionId, body.data.selection))
+    )
+      return c.json({ error: "No such session." }, 404);
 
     const { sessionId } = found.value;
 
@@ -219,7 +250,7 @@ export function registerTurnRoutes(
       // Concrete by now. The resolver always returns a model rather than leaving a default to be
       // applied later, because the default that would be applied is a *paid* one and forgetting
       // it is this deployment buying tokens for a stranger.
-      target: { kind: "api", model: access.model, billsToUser: access.credentials !== undefined },
+      target: access.value,
     });
 
     getLogger().info({ requestId: id, sessionId }, "turn request queued");

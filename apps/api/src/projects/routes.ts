@@ -38,13 +38,16 @@ import type { Hono } from "hono";
 import { z } from "zod";
 import type { AuthVariables } from "../auth/require-user.ts";
 import { parseProjectId } from "../files/params.ts";
-import { refusalStatus, resolveTurnAccess } from "../turns/model-access.ts";
+import type { SubscriptionAccess } from "../providers/subscription-access.ts";
+import { EXECUTION_REFUSAL_STATUS, type ExecutionAccessError } from "../turns/execution-access.ts";
+import { resolveTurnAccess } from "../turns/model-access.ts";
 import type { CallerKeys } from "../turns/routes.ts";
 import { checkSandboxQuota, type SandboxLimits } from "../turns/sandbox-quota.ts";
 
 export type CreatedProject = { projectId: string; sessionId: string };
 
 export type ProjectRouteDeps = {
+  subscriptions?: SubscriptionAccess;
   projects: ProjectStore;
   /** The reaper's slice of the same tables — `putProjectAway` records the release through it. */
   projectSandboxes: ProjectSandboxStore;
@@ -241,7 +244,7 @@ export function registerProjectRoutes(
     if (!access.ok) {
       return c.json(
         { error: access.message, code: access.code },
-        access.code === "subscription_unavailable" ? 503 : refusalStatus(access.code),
+        EXECUTION_REFUSAL_STATUS[access.code],
       );
     }
 
@@ -378,21 +381,21 @@ async function continueAccess(
   sessionId: string,
 ): Promise<
   | { ok: true; target: import("@nap/shared/execution-target").ExecutionTarget }
-  | {
-      ok: false;
-      code: "byok_required" | "model_not_allowed" | "subscription_unavailable";
-      message: string;
-    }
+  | ({ ok: false } & ExecutionAccessError)
 > {
   const { models } = deps;
   const history = await deps.events.events.readFrom(sessionId, 0);
   const target = openJob(foldJobs(history))?.target;
-  if (target?.kind === "subscription")
-    return {
-      ok: false,
-      code: "subscription_unavailable",
-      message: "This job requires its subscription runtime. No API request was queued.",
-    };
+  if (target?.kind === "subscription") {
+    if (deps.subscriptions === undefined)
+      return {
+        ok: false,
+        code: "subscription_unavailable",
+        message: "This job requires its subscription runtime. No API request was queued.",
+      };
+    const allowed = await deps.subscriptions.authorize({ userId, target, phase: "start" });
+    return allowed.ok ? { ok: true, target } : { ok: false, ...allowed.error };
+  }
   const key = target?.billsToUser === false ? null : ((await models.keys?.(userId)) ?? null);
   if (target?.billsToUser === true && key === null)
     return {

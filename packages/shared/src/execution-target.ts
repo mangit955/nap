@@ -30,3 +30,19 @@ export function sameExecutionTarget(
     a.generation === b.generation
   );
 }
+
+/** User intent. Only the server supplies a billing decision, driver and account generation. */
+export const ExecutionSelectionSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("api"), model: z.string().min(1).optional() }),
+  z.strictObject({
+    kind: z.literal("subscription"),
+    model: z.string().min(1),
+    accountId: z.uuid(),
+  }),
+]);
+export type ExecutionSelection = z.infer<typeof ExecutionSelectionSchema>;
+
+export const ExecutionPreferenceSchema = z.strictObject({
+  selection: ExecutionSelectionSchema.nullable(),
+});
+export type ExecutionPreference = z.infer<typeof ExecutionPreferenceSchema>;

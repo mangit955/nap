@@ -127,6 +127,13 @@
       "when": 1792834173891,
       "tag": "0017_managed_provider_refresh",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1792837207314,
+      "tag": "0018_session_execution_selection",
+      "breakpoints": true
     }
   ]
 }

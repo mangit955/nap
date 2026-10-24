@@ -35,6 +35,7 @@ let created: { projectId: string; sessionId: string };
 let queue: InMemoryTurnQueue;
 /** The model settings the routes are built with. */
 let models: ProjectRouteDeps["models"];
+let subscriptions: import("../providers/subscription-access.ts").SubscriptionAccess | undefined;
 let limits: SandboxLimits | undefined;
 /** The log the app writes to, so a close's announcement can be read back. */
 let events: InMemoryEventStore;
@@ -80,6 +81,7 @@ beforeEach(async () => {
   };
   limits = undefined;
   events = new InMemoryEventStore();
+  subscriptions = undefined;
 });
 
 function app() {
@@ -103,6 +105,7 @@ function app() {
       events: { events, bus: new InMemoryEventBus() },
       queue,
       models,
+      ...(subscriptions === undefined ? {} : { subscriptions }),
       ...(limits === undefined ? {} : { limits: { projects, sandboxes: limits } }),
     },
   });
@@ -594,4 +597,52 @@ it("rejects an unrecognized execution target on project open before reading a pa
   });
   expect(result.status).toBe(400);
   expect(queue.enqueued).toHaveLength(0);
+});
+
+it("reopens a subscription job on its pinned account without reading an API key", async () => {
+  const { InMemoryProviderAccountStore } = await import(
+    "@nap/db/testing/in-memory-provider-account-store"
+  );
+  const { SubscriptionAccess } = await import("../providers/subscription-access.ts");
+  projects = new InMemoryProjectStore([summary({ sandboxId: null, status: "idle" })]);
+  const accounts = new InMemoryProviderAccountStore();
+  const account = await accounts.create({ userId: FAKE_OWNER, driver: "claude", label: "Work" });
+  await accounts.completeSignIn(FAKE_OWNER, account.id, {
+    generation: 0,
+    credentials: { ciphertext: "sealed-native-grant", iv: "grant-iv" },
+    identity: { email: "verified@example.com", plan: null },
+  });
+  subscriptions = new SubscriptionAccess({
+    accounts,
+    providers: new Map([
+      ["claude", [{ id: "native-fixture", label: "Native fixture", supportsImages: false }]],
+    ]),
+  });
+  const target = {
+    kind: "subscription",
+    driver: "claude",
+    accountId: account.id,
+    model: "native-fixture",
+    generation: 1,
+  } as const;
+  await events.append({
+    type: "job.started",
+    sessionId: SESSION,
+    turnId: account.id,
+    createdAt: "2026-10-24T10:00:00Z",
+    payload: { jobId: account.id, objective: "Finish the form", target },
+  });
+  let keyReads = 0;
+  models = {
+    ...models,
+    keys: async () => {
+      keyReads++;
+      return { platform: "openrouter", apiKey: "private-api-key" };
+    },
+  };
+  const result = await app().request(`/projects/${PROJECT}/open`, { method: "POST" });
+  expect(result.status).toBe(202);
+  expect(queue.enqueued[0]?.target).toEqual(target);
+  expect(keyReads).toBe(0);
+  expect(JSON.stringify(queue.enqueued)).not.toContain("sealed-native-grant");
 });

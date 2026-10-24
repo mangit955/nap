@@ -81,7 +81,19 @@ export const GUARDED_ROUTES: GuardedRoute[] = [
     body: { apiKey: "sk-or-v1-0123456789abcdef0123" },
   },
   { method: "DELETE", path: "/account/api-key", examplePath: "/account/api-key" },
+  {
+    method: "GET",
+    path: "/sessions/:sessionId/execution",
+    examplePath: `/sessions/${SESSION}/execution`,
+  },
+  {
+    method: "PATCH",
+    path: "/sessions/:sessionId/execution",
+    examplePath: `/sessions/${SESSION}/execution`,
+    body: { kind: "api", model: "free" },
+  },
   { method: "GET", path: "/providers", examplePath: "/providers" },
+  { method: "GET", path: "/providers/targets", examplePath: "/providers/targets" },
   {
     method: "POST",
     path: "/providers/accounts",
@@ -237,6 +249,11 @@ export function fullyWiredDeps(seeded?: SeededSandbox): Omit<AppDeps, "logger"> 
   ]);
 
   return {
+    execution: {
+      selections: sessions,
+      allowedModels: ["free"],
+      webOrigin: "http://localhost:3000",
+    },
     stream: {
       store: new InMemoryEventStore(),
       bus: new InMemoryEventBus(),

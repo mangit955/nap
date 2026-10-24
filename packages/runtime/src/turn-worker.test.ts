@@ -116,6 +116,7 @@ function start(
   runtime: Runtime,
   overrides: {
     concurrency?: number;
+    authorizeSubscription?: import("@nap/shared/ports/subscription-access").SubscriptionAuthorizer;
     credentialsFor?: (userId: string) => Promise<ModelCredentials | null>;
     running?: RunningTurns;
     drainTimeoutMs?: number;
@@ -132,6 +133,9 @@ function start(
     pollIntervalMs: POLL_MS,
     renewIntervalMs: RENEW_MS,
     ...(overrides.credentialsFor === undefined ? {} : { credentialsFor: overrides.credentialsFor }),
+    ...(overrides.authorizeSubscription === undefined
+      ? {}
+      : { authorizeSubscription: overrides.authorizeSubscription }),
     ...(overrides.running === undefined ? {} : { running: overrides.running }),
     ...(overrides.drainTimeoutMs === undefined ? {} : { drainTimeoutMs: overrides.drainTimeoutMs }),
     ...(overrides.abortGraceMs === undefined ? {} : { abortGraceMs: overrides.abortGraceMs }),
@@ -693,4 +697,116 @@ it("refuses a subscription target without calling the API runtime or opening an 
   expect(runtime.turns).toEqual([]);
   expect(runtime.resumes).toEqual([]);
   expect(credentialsFor).not.toHaveBeenCalled();
+});
+
+it("rechecks a subscription target before execution without opening an API key", async () => {
+  const queue = new InMemoryTurnQueue();
+  const runtime = new RecordingRuntime();
+  const credentialsFor = vi.fn(async () => null);
+  const target = {
+    kind: "subscription",
+    driver: "claude",
+    accountId: crypto.randomUUID(),
+    model: "native-fixture",
+    generation: 4,
+  } as const;
+  const { id } = await enqueueRequest(queue, {
+    userId: "user-1",
+    sessionId: "native",
+    kind: "turn",
+    message: "edit",
+    target,
+  });
+  const authorizeSubscription = vi.fn<
+    import("@nap/shared/ports/subscription-access").SubscriptionAuthorizer
+  >(async () => ({ ok: true, value: undefined }));
+  start(queue, runtime, { credentialsFor, authorizeSubscription });
+  await vi.waitFor(() => expect(runtime.turns).toHaveLength(1));
+  runtime.complete();
+  await vi.waitFor(() => expect(queue.stateOf(id)).toBe("done"));
+  expect(runtime.turns[0]?.target).toEqual(target);
+  expect(runtime.turns[0]?.credentials).toBeUndefined();
+  expect(credentialsFor).not.toHaveBeenCalled();
+  expect(authorizeSubscription).toHaveBeenCalledWith({
+    userId: "user-1",
+    target,
+    hasImages: false,
+    phase: "start",
+  });
+});
+
+it.each(["changed", "unavailable"])(
+  "aborts an active native turn when account authority becomes %s",
+  async (mode) => {
+    const queue = new InMemoryTurnQueue();
+    const runtime = new RecordingRuntime();
+    const credentialsFor = vi.fn(async () => null);
+    const target = {
+      kind: "subscription",
+      driver: "claude",
+      accountId: crypto.randomUUID(),
+      model: "native-fixture",
+      generation: 4,
+    } as const;
+    const { id } = await enqueueRequest(queue, {
+      userId: "user-1",
+      sessionId: "native",
+      kind: "turn",
+      message: "edit",
+      target,
+    });
+    let revoked = false;
+    const authorizeSubscription = vi.fn<
+      import("@nap/shared/ports/subscription-access").SubscriptionAuthorizer
+    >(async () => {
+      if (!revoked) return { ok: true, value: undefined };
+      if (mode === "unavailable") throw new Error("private authority details must not be logged");
+      return {
+        ok: false,
+        error: { code: "provider_authentication_changed", message: "Account changed." },
+      };
+    });
+    start(queue, runtime, { credentialsFor, authorizeSubscription });
+    await vi.waitFor(() => expect(runtime.turns).toHaveLength(1));
+    revoked = true;
+    await vi.waitFor(() => expect(runtime.signal?.aborted).toBe(true));
+    await vi.waitFor(() => expect(queue.stateOf(id)).toBe("failed"));
+    expect(credentialsFor).not.toHaveBeenCalled();
+    expect(authorizeSubscription).toHaveBeenCalledWith({
+      userId: "user-1",
+      target,
+      hasImages: false,
+      phase: "continue",
+    });
+  },
+);
+
+it("refuses a stale queued account generation before starting any runtime", async () => {
+  const queue = new InMemoryTurnQueue();
+  const runtime = new RecordingRuntime();
+  const target = {
+    kind: "subscription",
+    driver: "claude",
+    accountId: crypto.randomUUID(),
+    model: "native-fixture",
+    generation: 4,
+  } as const;
+  const { id } = await enqueueRequest(queue, {
+    userId: "user-1",
+    sessionId: "native",
+    kind: "turn",
+    message: "edit",
+    target,
+  });
+  const authorizeSubscription = vi.fn<
+    import("@nap/shared/ports/subscription-access").SubscriptionAuthorizer
+  >(async () => ({
+    ok: false,
+    error: { code: "provider_authentication_changed", message: "Account changed." },
+  }));
+  start(queue, runtime, { authorizeSubscription });
+  await vi.waitFor(() => expect(queue.stateOf(id)).toBe("failed"));
+  expect(runtime.turns).toHaveLength(0);
+  expect(runtime.resumes).toHaveLength(0);
+  expect(authorizeSubscription).toHaveBeenCalled();
 });

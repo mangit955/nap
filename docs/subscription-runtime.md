@@ -79,6 +79,32 @@ not an implemented OpenAI OAuth client or a Claude terminal-login driver. Databa
 also does not prove a native process stopped; its supervisor and credential owner must coordinate
 that before reuse.
 
+## Selection and admission
+
+Session execution preferences live in a nullable `sessions.execution_selection` column, separate
+from sandbox lifecycle. The session adapter implements a separate owner-scoped preference port.
+Reads validate persisted selections; malformed data fails closed. Updates check the project's
+owner in the write statement. No preference contains a credential, driver claim or generation.
+Deleting a provider account leaves the user's choice unavailable rather than converting it to API.
+Migration `0018_session_execution_selection` leaves existing sessions without a preference. It has
+not been applied to production.
+
+`GET /sessions/:sessionId/execution` reads the preference and `PATCH` updates it from the trusted
+web Origin. A preference may name an owned account awaiting sign-in; it does not grant execution.
+`GET /providers/targets` lists owned account choices and configured native model capabilities,
+with disabled, unavailable, sign-in-required and refreshing states. It never returns credential
+bytes. Configured model support does not prove provider entitlement or a successful paid request.
+
+Turn admission accepts either the legacy model field or an explicit `selection`, never both.
+An explicit choice requires Origin validation and durable preference storage. A legacy request
+against a saved subscription preference is refused before API-key lookup. Explicit subscriptions
+resolve current owner, account state, configured model/media support and authorization generation;
+refusal never enters API billing resolution. The worker checks that generation again before
+execution and during renewal. New work waits during managed refresh; an active generation can wait
+for its broker, but logout, uncertain refresh or failed authority verification aborts it.
+These are logical worker fences; the native executor must still prove process termination and
+workspace quiescence before releasing its own lease or finalizing files.
+
 ## Execution targets
 
 Every queued request contains one validated target:
@@ -87,13 +113,14 @@ Every queued request contains one validated target:
 - `subscription` pins the provider driver, account ID, model and authentication generation.
 
 The subscription variant contains no billing fallback and no credential. Queue reads parse the
-persisted target, and the worker refuses subscription execution until its native integration is
-installed. Runtime turn and continuation settings preserve the target through verifier repairs;
+persisted target. Without a configured authorizer, the worker refuses subscription execution;
+production's empty native catalog refuses it as well. Runtime turn and continuation settings preserve the target through verifier repairs;
 the API agent separately refuses subscription targets before constructing an API client.
 New jobs also record their target on `job.started`. Reopening folds the durable log before
 resolving a model or reading an API key. API continuations keep their original model and payer;
-a missing user key cannot become deployment billing, even for a free model. An unavailable
-subscription continuation is refused before an API key is read or a request is queued. The runtime
+a missing user key cannot become deployment billing, even for a free model. Subscription
+continuation validates the original account and generation before queueing, without API-key
+lookup; an unavailable or changed account is refused. The runtime
 independently rejects a continuation whose account, generation, model or payer differs from its
 job's target. A target-free legacy job retains the existing API resolution behavior; labels or
 account metadata do not establish a missing historical target.
@@ -116,8 +143,8 @@ migration has been run. Existing API keys retain their existing storage and exec
 separately approved [E2B probe](e2b-native-process-probe-20261024.md) passed privilege checks,
 confirmed cgroup termination and detached-child cancellation, then destroyed its sandbox.
 Live PTY, reconnect and worker-loss expiry remain unverified. Provider-specific login adapters,
-native refresh fencing, account checks during execution, native Claude/Codex adapters,
-recovery archives and UI selection are still required. No provider has been enabled.
+native refresh fencing, authorization-bound process permits, native Claude/Codex adapters,
+recovery archives and the composer account picker are still required. No provider has been enabled.
 
 Project code running under the same UID as a native agent can inspect that agent's credential
 home, environment and accessible helper interfaces. Putting credentials outside git is not an

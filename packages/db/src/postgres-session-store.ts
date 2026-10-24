@@ -6,17 +6,20 @@
  * project resume the same workspace — which is the behaviour anyone would expect and the
  * reason the port hands back a `projectId` alongside the sandbox at all.
  *
- * Deliberately the two methods the port declares and nothing else. The rest of a project's
- * lifecycle — creating, listing, renaming, archiving — belongs to project CRUD; a wider
- * interface here would mean every caller holding a fake had to implement all of it.
+ * SessionStore remains the runtime's two-method port. The same adapter separately implements
+ * owner-scoped execution preferences, so updating a choice and reading a session cannot use
+ * different copies of selection state. Project CRUD remains a separate concern.
  */
 
+import { type ExecutionSelection, ExecutionSelectionSchema } from "@nap/shared/execution-target";
+import type { SessionExecutionStore } from "@nap/shared/ports/session-execution-store";
 import type { SessionRecord, SessionStore } from "@nap/shared/ports/session-store";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import { z } from "zod";
 import { projects, sessions } from "./schema.ts";
 
-export class PostgresSessionStore implements SessionStore {
+export class PostgresSessionStore implements SessionStore, SessionExecutionStore {
   readonly #db: PostgresJsDatabase;
 
   /** Takes a database rather than a URL, for the reason `PostgresEventStore` does. */
@@ -33,13 +36,45 @@ export class PostgresSessionStore implements SessionStore {
         // column every route addressed by a session id has to authorize against.
         userId: projects.userId,
         sandboxId: projects.sandboxId,
+        executionSelection: sessions.executionSelection,
       })
       .from(sessions)
       .innerJoin(projects, eq(sessions.projectId, projects.id))
       .where(eq(sessions.id, sessionId))
       .limit(1);
 
-    return row ?? null;
+    if (row === undefined) return null;
+    const { executionSelection, ...record } = row;
+    return executionSelection === null
+      ? record
+      : { ...record, executionSelection: ExecutionSelectionSchema.parse(executionSelection) };
+  }
+
+  async selection(
+    userId: string,
+    sessionId: string,
+  ): Promise<{ selection: ExecutionSelection | null } | null> {
+    if (!z.uuid().safeParse(userId).success || !z.uuid().safeParse(sessionId).success) return null;
+    const record = await this.get(sessionId);
+    return record?.userId === userId ? { selection: record.executionSelection ?? null } : null;
+  }
+
+  async select(userId: string, sessionId: string, selection: ExecutionSelection): Promise<boolean> {
+    if (!z.uuid().safeParse(userId).success || !z.uuid().safeParse(sessionId).success) return false;
+    const selected = await this.#db
+      .update(sessions)
+      .set({ executionSelection: ExecutionSelectionSchema.parse(selection) })
+      .where(
+        and(
+          eq(sessions.id, sessionId),
+          inArray(
+            sessions.projectId,
+            this.#db.select({ id: projects.id }).from(projects).where(eq(projects.userId, userId)),
+          ),
+        ),
+      )
+      .returning({ id: sessions.id });
+    return selected.length > 0;
   }
 
   async setSandboxId(sessionId: string, sandboxId: string): Promise<void> {

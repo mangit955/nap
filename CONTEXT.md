@@ -232,6 +232,15 @@ one Nap owner who connected it; what the UI calls a **GitHub connection**. It st
 owner across a disconnect. Only GitHub answering 404 for it marks it *removed*; a rate limit or an
 outage changes nothing stored. See `docs/github-integration.md` and `docs/adr/0016`.
 
+**Execution selection** — the API model or subscription account/model a user chooses for a
+conversation. It is a preference, not authorization. It may remain stored while the account is
+disabled, disconnected or deleted, so the app cannot silently switch that conversation to API
+billing. Actual admission resolves the selection against current ownership and authorization.
+
+**Execution target** — the immutable routing decision admitted for a request. API targets pin
+model and payer; subscription targets pin provider, account, model and authorization generation.
+The queue and the job's durable start retain it, including across verification repairs and reopen.
+
 **Provider account** — one Claude or ChatGPT subscription a Nap owner connected, so turns can run
 on the plan they already pay for; what the Providers settings page lists. A person may hold several
 of one provider ("Personal", "Work"). Public account metadata reports the identity verified by

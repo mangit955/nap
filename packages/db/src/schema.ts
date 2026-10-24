@@ -1,4 +1,4 @@
-import type { ExecutionTarget } from "@nap/shared/execution-target";
+import type { ExecutionSelection, ExecutionTarget } from "@nap/shared/execution-target";
 import type {
   GitHubInstallation,
   RepositoryFeedback,
@@ -369,6 +369,7 @@ export const projects = pgTable(
 );
 
 export const sessions = pgTable("sessions", {
+  executionSelection: jsonb("execution_selection").$type<ExecutionSelection>(),
   id: uuid("id").primaryKey().defaultRandom(),
   projectId: uuid("project_id")
     .notNull()
