@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { eq, sql as sqlOf } from "drizzle-orm";
+import { eq, inArray, sql as sqlOf } from "drizzle-orm";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, inject, it } from "vitest";
@@ -33,7 +33,8 @@ let db: PostgresJsDatabase;
 let queue: PostgresTurnQueue;
 
 beforeAll(() => {
-  sql = postgres(inject("postgresUrl"), { max: 24 });
+  // A broken SKIP LOCKED must fail and unwind the barriers rather than hang the suite.
+  sql = postgres(inject("postgresUrl"), { max: 24, connection: { lock_timeout: 2_000 } });
   db = drizzle(sql);
   queue = new PostgresTurnQueue(db);
 });
@@ -175,6 +176,67 @@ describe("enqueue", () => {
 });
 
 describe("claim", () => {
+  it("skips a locked project, including more candidates than the retry limit", async () => {
+    const blocked = await seedSession();
+    const free = await seedSession();
+    const otherBlocked = await Promise.all(Array.from({ length: 5 }, () => seedSession()));
+    for (let index = 0; index < 6; index += 1) {
+      const request = await enqueueTurn(blocked);
+      await db
+        .update(turnRequests)
+        .set({ createdAt: sqlOf`now() - interval '1 minute'` })
+        .where(eq(turnRequests.id, request.id));
+    }
+    for (const seed of otherBlocked) {
+      const request = await enqueueTurn(seed);
+      await db
+        .update(turnRequests)
+        .set({ createdAt: sqlOf`now() - interval '1 minute'` })
+        .where(eq(turnRequests.id, request.id));
+    }
+    const blockedSessions = await db
+      .select({ projectId: sessions.projectId })
+      .from(sessions)
+      .where(
+        inArray(sessions.id, [
+          blocked.sessionId,
+          ...otherBlocked.map(({ sessionId }) => sessionId),
+        ]),
+      );
+    const elsewhere = await enqueueTurn(free);
+    let release = () => {};
+    const drain = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered = () => {};
+    const locked = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const holding = db.transaction(async (tx) => {
+      await tx
+        .select()
+        .from(projects)
+        .where(
+          inArray(
+            projects.id,
+            blockedSessions.map(({ projectId }) => projectId),
+          ),
+        )
+        .for("update");
+      entered();
+      await drain;
+    });
+    try {
+      await locked;
+      expect((await queue.claim("other-project"))?.id).toBe(elsewhere.id);
+      expect(await queue.claim("locked-project")).toBeNull();
+    } finally {
+      release();
+      await holding;
+    }
+    expect((await queue.claim("after-drain"))?.sessionId).toBe(blocked.sessionId);
+  });
+
   it("answers null when nothing is queued", async () => {
     expect(await queue.claim("worker-1")).toBeNull();
   });
@@ -291,6 +353,11 @@ describe("claim", () => {
   it("moves on to the next candidate when the index refuses one", async () => {
     const busy = await seedSession();
     const free = await seedSession();
+    const [before] = await db
+      .select({ id: projects.id, revision: projects.computerRevision })
+      .from(projects)
+      .innerJoin(sessions, eq(sessions.projectId, projects.id))
+      .where(eq(sessions.id, busy.sessionId));
     const first = await enqueueTurn(busy, "first");
     await enqueueTurn(busy, "second");
     const elsewhere = await enqueueTurn(free, "elsewhere");
@@ -330,23 +397,31 @@ describe("claim", () => {
     // Not an error, and not an empty answer: the refusal costs one candidate, and the worker goes
     // on to find real work on a session nobody holds.
     expect((await claiming)?.id).toBe(elsewhere.id);
+    const [after] = await db
+      .select({ revision: projects.computerRevision })
+      .from(projects)
+      .where(eq(projects.id, before!.id));
+    expect(after?.revision).toBe(before!.revision);
   });
 
-  it("gives a hundred workers a hundred sessions with no collisions", async () => {
-    const seeds = await Promise.all(Array.from({ length: 100 }, () => seedSession()));
-    await Promise.all(seeds.map((seed) => enqueueTurn(seed)));
+  it.each([1, 2, 3, 4, 5])(
+    "gives a hundred workers a hundred sessions with no collisions, burst %i",
+    async () => {
+      const seeds = await Promise.all(Array.from({ length: 100 }, () => seedSession()));
+      await Promise.all(seeds.map((seed) => enqueueTurn(seed)));
 
-    const claims = await Promise.all(
-      Array.from({ length: 100 }, (_, index) => queue.claim(`worker-${index}`)),
-    );
+      const claims = await Promise.all(
+        Array.from({ length: 100 }, (_, index) => queue.claim(`worker-${index}`)),
+      );
 
-    const leased = claims.filter((claim) => claim !== null);
-    expect(leased).toHaveLength(100);
-    // Distinct requests and distinct sessions: the failure this guards is two workers handed the
-    // same row, which would show up as a duplicate in either set.
-    expect(new Set(leased.map((claim) => claim.id)).size).toBe(100);
-    expect(new Set(leased.map((claim) => claim.sessionId)).size).toBe(100);
-  });
+      const leased = claims.filter((claim) => claim !== null);
+      expect(leased).toHaveLength(100);
+      // Distinct requests and distinct sessions: the failure this guards is two workers handed the
+      // same row, which would show up as a duplicate in either set.
+      expect(new Set(leased.map((claim) => claim.id)).size).toBe(100);
+      expect(new Set(leased.map((claim) => claim.sessionId)).size).toBe(100);
+    },
+  );
 });
 
 describe("renew", () => {

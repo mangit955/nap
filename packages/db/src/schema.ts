@@ -223,6 +223,8 @@ export const projects = pgTable(
       unread: false,
     }),
     navigationRevision: integer("navigation_revision").notNull().default(0),
+    /** Changes with every lease grant, so a completed turn still invalidates prior input grants. */
+    computerRevision: uuid("computer_revision").notNull().defaultRandom(),
     status: projectStatus("status").notNull().default("creating"),
     /** Null until a sandbox has been created for this project. §5 marks both optional. */
     sandboxId: text("sandbox_id"),

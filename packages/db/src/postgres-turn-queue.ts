@@ -8,7 +8,7 @@ import { MediaAttachmentsSchema } from "@nap/shared/media";
  * stop paying for the second. Here the rule is a **partial unique index** over `state = 'leased'`,
  * which is the same posture the repo already takes with `unique(session_id, seq)`.
  *
- * **The claim is two statements inside one transaction, deliberately.** The design writes it as a
+ * **Candidate selection and grant are separate statements in one transaction.** The design uses a
  * single `update … where id = (select … for update skip locked)`, which is correct but loses the
  * one thing the retry needs: when the unique index fires, that form has aborted the transaction
  * without ever telling the caller *which* candidate it was about to take, so "try the next one"
@@ -16,6 +16,10 @@ import { MediaAttachmentsSchema } from "@nap/shared/media";
  * row is held for the transaction and no other worker can take it — makes the id known before the
  * update that may violate the index, and a retry can skip past it. The lock and the index behave
  * exactly as the one-statement form's do.
+ *
+ * After selecting a request, claim separately locks its project row, shared with owner computer
+ * input, then grants the lease and changes the project's input revision in the same transaction.
+ * The project lock ends at commit, before any turn execution begins.
  *
  * A `not exists (… leased on this session …)` filter sits in the candidate query as well. It is
  * *not* what enforces the rule — it reads committed rows, so two workers racing still both see a
@@ -41,7 +45,7 @@ import type {
 } from "@nap/shared/ports/turn-queue";
 import { and, asc, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { turnRequests } from "./schema.ts";
+import { projects, sessions, turnRequests } from "./schema.ts";
 
 /**
  * How long a claim is good for, as a Postgres interval.
@@ -170,48 +174,73 @@ export class PostgresTurnQueue implements TurnQueue {
 
     try {
       const leased = await this.#db.transaction(async (tx) => {
-        const [candidate] = await tx
-          .select({ id: turnRequests.id })
-          .from(turnRequests)
-          .where(
-            and(
-              eq(turnRequests.state, "queued"),
-              eq(turnRequests.cancelRequested, false),
-              exclude.length === 0 ? undefined : notInArray(turnRequests.id, [...exclude]),
-              // Reads committed rows, so it does not enforce anything — two workers racing both
-              // see a free session and the index settles it. What it buys is that the ordinary
-              // case never reaches the violation, so the retry above is for the race rather than
-              // for a queue of requests piled up on one busy session.
-              sql`not exists (
-                select 1 from ${turnRequests} held
-                where held.session_id = ${turnRequests.sessionId} and held.state = 'leased'
-              )`,
-            ),
-          )
-          .orderBy(turnRequests.createdAt)
-          .limit(1)
-          // Holds the row for this transaction, and steps over anything another worker is already
-          // holding rather than queueing behind it.
-          .for("update", { skipLocked: true });
+        const skippedProjects: string[] = [];
+        for (;;) {
+          const [candidate] = await tx
+            .select({ id: turnRequests.id, projectId: sessions.projectId })
+            .from(turnRequests)
+            .innerJoin(sessions, eq(sessions.id, turnRequests.sessionId))
+            .where(
+              and(
+                eq(turnRequests.state, "queued"),
+                eq(turnRequests.cancelRequested, false),
+                exclude.length === 0 ? undefined : notInArray(turnRequests.id, [...exclude]),
+                skippedProjects.length === 0
+                  ? undefined
+                  : notInArray(sessions.projectId, skippedProjects),
+                // Reads committed rows, so it does not enforce anything — two workers racing both
+                // see a free session and the index settles it. What it buys is that the ordinary
+                // case never reaches the violation, so the retry above is for the race rather than
+                // for a queue of requests piled up on one busy session.
+                sql`not exists (
+                  select 1 from ${turnRequests} held
+                  where held.session_id = ${turnRequests.sessionId} and held.state = 'leased'
+                )`,
+              ),
+            )
+            .orderBy(turnRequests.createdAt)
+            .limit(1)
+            // Lock only the request here. The separate project lookup below avoids taking
+            // project locks for candidates that the request scan skips.
+            .for("update", { of: turnRequests, skipLocked: true });
 
-        if (candidate === undefined) return null;
-        candidateId = candidate.id;
+          if (candidate === undefined) return null;
+          const [project] = await tx
+            .select({ id: projects.id })
+            .from(projects)
+            .where(eq(projects.id, candidate.projectId))
+            .for("update", { skipLocked: true });
+          if (project === undefined) {
+            // Skip all sessions of this project, without spending the session-race retry budget.
+            // These request locks last only until this short claim transaction ends.
+            skippedProjects.push(candidate.projectId);
+            continue;
+          }
+          candidateId = candidate.id;
 
-        const [row] = await tx
-          .update(turnRequests)
-          .set({
-            state: "leased",
-            leaseOwner: owner,
-            leaseExpiresAt: sql`now() + ${LEASE_TTL}::interval`,
-            // Coalesced, so `started_at` is when a request first ran rather than when it last did.
-            // Nothing requeues today, but the column should not quietly start lying if anything
-            // ever does.
-            startedAt: sql`coalesce(${turnRequests.startedAt}, now())`,
-          })
-          .where(and(eq(turnRequests.id, candidate.id), eq(turnRequests.state, "queued")))
-          .returning();
+          const [row] = await tx
+            .update(turnRequests)
+            .set({
+              state: "leased",
+              leaseOwner: owner,
+              leaseExpiresAt: sql`now() + ${LEASE_TTL}::interval`,
+              // Coalesced, so `started_at` is when a request first ran rather than when it last did.
+              // Nothing requeues today, but the column should not quietly start lying if anything
+              // ever does.
+              startedAt: sql`coalesce(${turnRequests.startedAt}, now())`,
+            })
+            .where(and(eq(turnRequests.id, candidate.id), eq(turnRequests.state, "queued")))
+            .returning();
 
-        return row ?? null;
+          if (row === undefined) return null;
+          // Atomic with the grant, and changed only when the grant succeeded. A claim followed by
+          // completion must still invalidate any input grant issued before it began.
+          await tx
+            .update(projects)
+            .set({ computerRevision: sql`gen_random_uuid()` })
+            .where(eq(projects.id, candidate.projectId));
+          return row;
+        }
       });
 
       if (leased === null) return { leased: null, skip: candidateId };
