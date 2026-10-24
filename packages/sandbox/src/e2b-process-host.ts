@@ -8,6 +8,7 @@ import {
   type NativeHostEvent,
   NativeHostEventSchema,
   NativeHostStartSchema,
+  NativeTerminalSizeSchema,
 } from "@nap/shared/native-process-protocol";
 import type {
   ProcessError,
@@ -42,6 +43,7 @@ const referenceSchema = z.strictObject({
   pid: z.int().positive(),
   token: z.string().regex(/^[a-f0-9]{64}$/),
   containment: z.enum(["cgroup", "process_group"]),
+  terminal: z.boolean().optional(),
 });
 const quote = (text: string) => `'${text.replaceAll("'", "'\\''")}'`;
 const realClient: ProcessClient = {
@@ -269,6 +271,14 @@ function channel(options: {
                 failure("invalid_request", "Native process input exceeds its limit."),
               );
         },
+        resize: (size) => {
+          const parsed = NativeTerminalSizeSchema.safeParse(size);
+          if (!reference.terminal || !parsed.success)
+            return Promise.resolve(
+              failure("invalid_request", "This process cannot accept that terminal size."),
+            );
+          return send({ type: "resize", token: options.token, ...parsed.data });
+        },
         renew: () => send({ type: "renew", token: options.token }),
         interrupt: () => send({ type: "interrupt", token: options.token }),
         stop: () => send({ type: "stop", token: options.token }),
@@ -343,6 +353,7 @@ export class E2BProcessHost implements SandboxProcessHost {
                 pid: handle.pid,
                 token,
                 containment: "cgroup",
+                ...(request.terminal === undefined ? {} : { terminal: true }),
               }),
             }
           : result;

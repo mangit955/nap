@@ -58,7 +58,13 @@ describe("native process framing", () => {
       containment: { kind: "process_group" },
     };
     expect(NativeHostCommandSchema.safeParse(start).success).toBe(true);
-    for (const change of [{ leaseMs: 0 }, { maxReplayBytes: 0 }, { token: "short" }]) {
+    for (const change of [
+      { leaseMs: 0 },
+      { maxReplayBytes: 0 },
+      { token: "short" },
+      { terminal: { columns: 0, rows: 24 } },
+      { terminal: { columns: 80, rows: 1001 } },
+    ]) {
       expect(NativeHostCommandSchema.safeParse({ ...start, ...change }).success).toBe(false);
     }
     expect(

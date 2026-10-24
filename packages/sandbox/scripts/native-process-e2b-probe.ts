@@ -67,7 +67,8 @@ if (!process.argv.includes("--real")) {
       },
       async (event) => {
         events.push(event);
-        if (event.kind === "output") firstOutput();
+        if (event.kind === "output" && event.stream === "stdout" && event.data.includes(10))
+          firstOutput();
       },
     );
     if (!running.ok) throw new Error(`Native host refused to start: ${running.error.code}`);

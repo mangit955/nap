@@ -13,6 +13,11 @@ const containment = z.discriminatedUnion("kind", [
   }),
 ]);
 
+export const NativeTerminalSizeSchema = z.strictObject({
+  columns: z.int().min(1).max(1000),
+  rows: z.int().min(1).max(1000),
+});
+
 export const NativeHostStartSchema = z.strictObject({
   type: z.literal("start"),
   token,
@@ -30,6 +35,7 @@ export const NativeHostStartSchema = z.strictObject({
     .positive()
     .max(64 * 1024 * 1024),
   containment,
+  terminal: NativeTerminalSizeSchema.optional(),
 });
 export type NativeHostStart = z.infer<typeof NativeHostStartSchema>;
 
@@ -38,6 +44,7 @@ export const NativeHostCommandSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("input"), token, data: z.string().max(65536) }),
   z.strictObject({ type: z.literal("ack"), token, sequence }),
   z.strictObject({ type: z.literal("replay"), token, afterSequence: sequence }),
+  NativeTerminalSizeSchema.extend({ type: z.literal("resize"), token }),
   z.strictObject({ type: z.literal("renew"), token }),
   z.strictObject({ type: z.literal("interrupt"), token }),
   z.strictObject({ type: z.literal("stop"), token }),

@@ -44,7 +44,8 @@ migration has been run. Existing API keys retain their existing storage and exec
 ## Remaining release gates
 
 [The process transport proof](native-process-host.md) is implemented locally. Its E2B containment
-probe requires a paid sandbox and has not run. PTY login, durable login attempts, refresh ownership,
+probe requires a paid sandbox and has not run. Pipe and PTY transport work locally; provider login
+has not run. Durable login attempts, refresh ownership,
 account checks during execution, native Claude/Codex adapters, recovery archives and UI selection
 are still required. No provider has been enabled by these database and transport changes.
 

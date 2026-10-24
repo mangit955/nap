@@ -19,6 +19,8 @@ import {
   NativeHostStartSchema,
 } from "@nap/shared/native-process-protocol";
 import { z } from "zod";
+import { waitForCgroupEmpty } from "./cgroup-termination.ts";
+import { TERMINAL_BRIDGE } from "./terminal-bridge.ts";
 
 const childConfigSchema = NativeHostStartSchema.pick({
   executable: true,
@@ -105,7 +107,7 @@ if (process.argv[2] === "--contained-child") {
       return error instanceof Error && "code" in error && error.code === "ESRCH";
     }
   }
-  function finish(code: number | null) {
+  async function finish(code: number | null) {
     if (finished) return;
     finished = true;
     clearTimeout(lease);
@@ -115,11 +117,8 @@ if (process.argv[2] === "--contained-child") {
     if (!terminated || !child?.pid) containment = "unknown";
     if (group) {
       try {
-        const populated = readFileSync(join(group, "cgroup.events"), "utf8").includes(
-          "populated 1",
-        );
-        if (populated) containment = "unknown";
-        else rmdirSync(group);
+        if (await waitForCgroupEmpty(group, 1000)) rmdirSync(group);
+        else containment = "unknown";
       } catch {
         containment = "unknown";
       }
@@ -181,8 +180,23 @@ if (process.argv[2] === "--contained-child") {
   }
   function start(input: NativeHostStart) {
     config = input;
-    let executable = input.executable;
-    let args = input.args;
+    const launch =
+      input.terminal === undefined
+        ? { executable: input.executable, args: input.args }
+        : {
+            executable: "/usr/bin/python3",
+            args: [
+              "-c",
+              TERMINAL_BRIDGE,
+              JSON.stringify({
+                executable: input.executable,
+                args: input.args,
+                terminal: input.terminal,
+              }),
+            ],
+          };
+    let executable = launch.executable;
+    let args = launch.args;
     let cgroupBootstrap: string | undefined;
     if (input.containment.kind === "cgroup") {
       try {
@@ -201,7 +215,7 @@ if (process.argv[2] === "--contained-child") {
           String(input.containment.uid),
           String(input.containment.gid),
         ];
-        cgroupBootstrap = JSON.stringify(childConfigSchema.parse(input));
+        cgroupBootstrap = JSON.stringify(childConfigSchema.parse({ ...input, ...launch }));
       } catch {
         reason = "containment_unavailable";
         finish(null);
@@ -286,10 +300,28 @@ if (process.argv[2] === "--contained-child") {
         }
         switch (command.type) {
           case "input": {
-            if (child && !child.stdin.write(command.data)) process.stdin.pause();
+            const data =
+              config.terminal === undefined
+                ? command.data
+                : encodeNativeFrame({ type: "input", data: command.data });
+            if (child && !child.stdin.write(data)) process.stdin.pause();
             if (child && child.stdin.writableLength > 2 * 1024 * 1024) stop("input_limit");
             break;
           }
+          case "resize":
+            if (config.terminal === undefined) {
+              stop("protocol_error");
+              return;
+            }
+            if (
+              child &&
+              !child.stdin.write(
+                encodeNativeFrame({ type: "resize", columns: command.columns, rows: command.rows }),
+              )
+            )
+              process.stdin.pause();
+            if (child && child.stdin.writableLength > 2 * 1024 * 1024) stop("input_limit");
+            break;
           case "renew":
             if (!stopping) renew();
             break;

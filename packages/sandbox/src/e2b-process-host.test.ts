@@ -228,3 +228,41 @@ describe("E2B supervised process transport", () => {
     );
   });
 });
+
+it("starts and reconnects a terminal with validated resize controls", async () => {
+  const f = fixture();
+  const found = await f.host.start(
+    { ...request, terminal: { columns: 80, rows: 24 } },
+    async () => {},
+  );
+  if (!found.ok) throw new Error("terminal start failed");
+  expect(f.sent[0]).toMatchObject({ terminal: { columns: 80, rows: 24 } });
+  expect(await found.value.resize({ columns: 100, rows: 40 })).toMatchObject({ ok: true });
+  expect(f.sent.at(-1)).toMatchObject({ type: "resize", columns: 100, rows: 40 });
+  const count = f.sent.length;
+  expect(await found.value.resize({ columns: 0, rows: 40 })).toMatchObject({
+    ok: false,
+    error: { code: "invalid_request" },
+  });
+  expect(f.sent).toHaveLength(count);
+  const reference = found.value.reference;
+  await found.value.disconnect();
+  const connected = await f.host.connect(reference, 0, async () => {});
+  if (!connected.ok) throw new Error("terminal reconnect failed");
+  expect(await connected.value.resize({ columns: 110, rows: 45 })).toMatchObject({ ok: true });
+  await connected.value.disconnect();
+});
+
+it("refuses terminal controls on a pipe process without disturbing its channel", async () => {
+  const f = fixture();
+  const found = await f.host.start(request, async () => {});
+  if (!found.ok) throw new Error("pipe start failed");
+  const count = f.sent.length;
+  expect(await found.value.resize({ columns: 80, rows: 24 })).toMatchObject({
+    ok: false,
+    error: { code: "invalid_request" },
+  });
+  expect(f.sent).toHaveLength(count);
+  expect(await found.value.write("still connected")).toMatchObject({ ok: true });
+  await found.value.disconnect();
+});

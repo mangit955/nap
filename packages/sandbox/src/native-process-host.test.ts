@@ -1,5 +1,8 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { once } from "node:events";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   encodeNativeFrame,
@@ -31,8 +34,10 @@ function host(
   program: string,
   options: {
     leaseMs?: number;
+    executable?: string;
     maxOutputBytes?: number;
     containment?: NativeHostStart["containment"];
+    terminal?: { columns: number; rows: number };
   } = {},
 ) {
   const child = spawn(process.execPath, [
@@ -56,11 +61,12 @@ function host(
     encodeNativeFrame({
       type: "start",
       token,
-      executable: process.execPath,
+      executable: options.executable ?? process.execPath,
       args: ["-e", program],
       cwd: process.cwd(),
       env: {},
-      leaseMs: options.leaseMs ?? 3000,
+      ...(options.terminal === undefined ? {} : { terminal: options.terminal }),
+      leaseMs: options.leaseMs ?? (options.terminal === undefined ? 3000 : 10000),
       maxOutputBytes: options.maxOutputBytes ?? 1024 * 1024,
       maxReplayBytes: 1024 * 1024,
       containment: options.containment ?? { kind: "process_group" },
@@ -73,11 +79,14 @@ function host(
     send: (command: Record<string, unknown>) =>
       child.stdin.write(encodeNativeFrame({ ...command, token })),
     async waitFor(predicate: (event: NativeHostEvent) => boolean) {
-      const deadline = Date.now() + 4000;
+      const deadline = Date.now() + (options.terminal === undefined ? 4000 : 8000);
       while (!events.some(predicate)) {
         if (child.exitCode !== null || child.signalCode !== null)
           throw new Error(`Host exited: ${stderr}`);
-        if (Date.now() >= deadline) throw new Error(`Host event timeout: ${stderr}`);
+        if (Date.now() >= deadline)
+          throw new Error(
+            `Host event timeout: ${stderr}; received ${events.map((event) => event.type).join(",")}`,
+          );
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
     },
@@ -226,3 +235,80 @@ describe("supervised native processes", () => {
     }
   });
 });
+
+describe("native terminal", () => {
+  it("creates a controlling terminal, preserves Unicode input and reports dimensions", async () => {
+    const run = host(
+      String.raw`
+      if (!process.stdin.isTTY || !process.stdout.isTTY) process.exit(9);
+      process.stdout.write("READY:" + process.stdout.columns + ":" + process.stdout.rows + "\n");
+      process.stdin.once("data", bytes => { process.stdout.write("RECEIVED:" + bytes); process.stdin.destroy(); });
+    `,
+      { terminal: { columns: 93, rows: 31 } },
+    );
+    await run.waitFor((event) => event.type === "output");
+    run.send({ type: "input", data: "héllo\n" });
+    const result = await run.finish();
+    expect(output(result.events)).toContain("READY:93:31");
+    expect(output(result.events)).toContain("RECEIVED:héllo");
+    expect(result.events.at(-1)).toMatchObject({ type: "exit", code: 0 });
+  }, 15000);
+
+  it("resizes the native terminal without sending control frames into its input", async () => {
+    const run = host(
+      `
+      process.stdout.on("resize", () => { process.stdout.write("SIZE:" + process.stdout.columns + ":" + process.stdout.rows); process.exit(0); });
+      process.stdout.write("READY");
+      setInterval(() => {}, 1000);
+    `,
+      { terminal: { columns: 80, rows: 24 } },
+    );
+    await run.waitFor((event) => event.type === "output");
+    run.send({ type: "resize", columns: 105, rows: 37 });
+    const result = await run.finish();
+    expect(output(result.events)).toContain("SIZE:105:37");
+    expect(output(result.events)).not.toContain('"resize"');
+    expect(result.events.at(-1)).toMatchObject({ type: "exit", code: 0 });
+  }, 15000);
+});
+
+it("demonstrates that an outside-git private credential file is readable by same-UID project code", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "nap-credential-boundary-"));
+  const file = join(directory, ".credentials.json");
+  try {
+    await writeFile(file, "fake-credential-for-isolation-proof", { mode: 0o600 });
+    const run = host(
+      `const fs = require("node:fs"); const data = fs.readFileSync(${JSON.stringify(file)}, "utf8"); process.stdout.write(data === "fake-credential-for-isolation-proof" ? "SAME_UID_CAN_READ" : "unexpected");`,
+    );
+    const result = await run.finish();
+    expect(output(result.events)).toBe("SAME_UID_CAN_READ");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+it("reports terminal launch failure and preserves merged terminal stderr and exit status", async () => {
+  const failed = host("", {
+    executable: "/does-not-exist/agent",
+    terminal: { columns: 80, rows: 24 },
+  });
+  const failure = await failed.finish();
+  expect(failure.events.at(-1)).toMatchObject({ type: "exit", code: 126 });
+  expect(output(failure.events)).toContain("Terminal bootstrap failed.");
+  const run = host('process.stderr.write("terminal diagnostic", () => process.exit(7));', {
+    terminal: { columns: 80, rows: 24 },
+  });
+  const result = await run.finish();
+  expect(output(result.events)).toContain("terminal diagnostic");
+  expect(result.events.at(-1)).toMatchObject({ type: "exit", code: 7 });
+});
+
+it("expires a terminal independently of further controller traffic", async () => {
+  const run = host('process.stdout.write("READY"); setInterval(() => {}, 1000);', {
+    terminal: { columns: 80, rows: 24 },
+    leaseMs: 3000,
+  });
+  await run.waitFor((event) => event.type === "output");
+  const result = await run.finish();
+  expect(result.events.at(-1)).toMatchObject({ type: "exit", reason: "lease_expired" });
+}, 15000);
