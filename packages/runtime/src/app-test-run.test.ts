@@ -28,9 +28,11 @@ it("records expectations before input and requires a later screenshot before a v
   expect((await run.annotate({ ...declaration, result: "passed" })).ok).toBe(false);
   expect((await run.annotate(declaration)).ok).toBe(true);
   expect(run.beforeAction({ action: "left_click", coordinate: [1, 2] }).ok).toBe(true);
+  run.afterAction({ action: "left_click", coordinate: [1, 2] }, true);
   expect((await run.annotate({ ...declaration, result: "passed" })).ok).toBe(false);
   tick();
-  run.observed();
+  run.screenshotStored("frame");
+  run.delivered(["frame"]);
   expect((await run.annotate({ ...declaration, result: "passed" })).ok).toBe(true);
   expect(run.counts()).toEqual({ passed: 1, failed: 0, untested: 0 });
   expect(emit).toHaveBeenLastCalledWith({
@@ -46,10 +48,13 @@ it("rejects late expectations, changed expectations, duplicate IDs and out-of-ch
   expect(run.beforeAction({ action: "key", text: "ctrl+l" }).ok).toBe(true);
   await run.annotate({ type: "test_start", id: "main", description: "Save" });
   await run.annotate(declaration);
-  run.observed();
+  run.screenshotStored("frame");
+  run.delivered(["frame"]);
   expect((await run.annotate({ ...declaration, result: "passed" })).ok).toBe(false);
   run.beforeAction({ action: "type", text: "item" });
-  run.observed();
+  run.afterAction({ action: "type", text: "item" }, true);
+  run.screenshotStored("frame");
+  run.delivered(["frame"]);
   expect(
     (await run.annotate({ ...declaration, expectation: "different", result: "passed" })).ok,
   ).toBe(false);
@@ -65,7 +70,9 @@ it("keeps failed and untested assertions separate and exposes no repair callback
   await run.annotate({ type: "test_start", id: "main", description: "Save" });
   await run.annotate(declaration);
   run.beforeAction({ action: "left_click", coordinate: [1, 2] });
-  run.observed();
+  run.afterAction({ action: "left_click", coordinate: [1, 2] }, true);
+  run.screenshotStored("frame");
+  run.delivered(["frame"]);
   await run.annotate({ ...declaration, result: "failed" });
   await run.annotate({ ...declaration, id: "later" });
   expect(run.counts()).toEqual({ passed: 0, failed: 1, untested: 1 });
@@ -90,4 +97,24 @@ it("timestamps annotations with encoder time and awaits it before emission", asy
     annotation: { type: "setup", description: "Open the app" },
     timeMs: 375,
   });
+});
+
+it("keeps stored screenshots ineligible until delivered and invalidates them after uncertain input", async () => {
+  const { run } = fixture();
+  await run.annotate({ type: "test_start", id: "main", description: "Save" });
+  await run.annotate(declaration);
+  run.afterAction({ action: "left_click", coordinate: [1, 2] }, true);
+  run.screenshotStored("earlier");
+  expect((await run.annotate({ ...declaration, result: "passed" })).ok).toBe(false);
+  run.afterAction({ action: "key", text: "Return" }, false);
+  run.delivered(["earlier"]);
+  expect((await run.annotate({ ...declaration, result: "passed" })).ok).toBe(false);
+  run.screenshotStored("after-failure");
+  run.delivered(["after-failure"]);
+  expect((await run.annotate({ ...declaration, result: "passed" })).ok).toBe(false);
+  expect(run.beforeAction({ action: "left_click", coordinate: [1, 2] }).ok).toBe(true);
+  run.afterAction({ action: "left_click", coordinate: [1, 2] }, true);
+  run.screenshotStored("fresh");
+  run.delivered(["missing", "fresh"]);
+  expect((await run.annotate({ ...declaration, result: "passed" })).ok).toBe(true);
 });

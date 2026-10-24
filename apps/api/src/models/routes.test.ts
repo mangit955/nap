@@ -3,6 +3,7 @@ import type { StoredKeyRecord } from "@nap/shared/ports/user-key-store";
 import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import type { AuthVariables } from "../auth/require-user.ts";
+import { resolveTurnAccess } from "../turns/model-access.ts";
 import { modelLabel, registerModelRoutes } from "./routes.ts";
 
 /**
@@ -156,3 +157,27 @@ describe("modelLabel", () => {
     expect(modelLabel("openai/gpt-oss-20b:free")).toBe("Gpt Oss 20b");
   });
 });
+
+it.each(["openai/gpt-5.6-luna", "openai/gpt-oss-20b:free"])(
+  "advertises the ordinary Anthropic-key default when the deployment default is %s",
+  async (fallback) => {
+    const allowed = [fallback, "anthropic/claude-sonnet-5", "anthropic/claude-opus-5"];
+    const result = await app(allowed, fallback, {
+      ...OPENROUTER_KEY,
+      platform: "anthropic",
+    }).request("/models");
+    expect(result.status).toBe(200);
+    const body = ModelListSchema.parse(await result.json());
+    const key = { platform: "anthropic", apiKey: "owner-test-key" } as const;
+    const policy = { allowed, key, defaultModel: fallback, freeModel: "openai/gpt-5.6-luna" };
+    const ordinary = resolveTurnAccess({ ...policy, requested: undefined });
+    expect(ordinary).toEqual({ ok: true, model: "anthropic/claude-sonnet-5", credentials: key });
+    expect(body.fallback).toBe("anthropic/claude-sonnet-5");
+    expect(body.models.find((model) => model.id === body.fallback)?.available).toBe(true);
+    expect(resolveTurnAccess({ ...policy, requested: body.fallback })).toEqual(ordinary);
+    expect(resolveTurnAccess({ ...policy, requested: fallback })).toMatchObject({
+      ok: false,
+      code: "model_not_allowed",
+    });
+  },
+);

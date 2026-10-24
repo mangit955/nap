@@ -41,7 +41,14 @@ export async function runComputer(
     }
     const allowed = access.beforeAction?.(action);
     if (allowed && !allowed.ok) return { ok: false, output: allowed.error.message };
-    const result = await access.desktop.act(ctx.sandboxId, action, ctx.signal);
+    let result: Awaited<ReturnType<typeof access.desktop.act>>;
+    try {
+      result = await access.desktop.act(ctx.sandboxId, action, ctx.signal);
+    } catch {
+      access.afterAction?.(action, false);
+      return { ok: false, output: "Computer input completion is unknown. No action was replayed." };
+    }
+    access.afterAction?.(action, result.ok);
     if (!result.ok) return { ok: false, output: result.error.message };
     if (result.value.kind === "text") observations.push(result.value.text.slice(0, 30000));
     if (result.value.kind === "cursor")
@@ -67,7 +74,7 @@ export async function runComputer(
     createdAt: ctx.now?.() ?? new Date().toISOString(),
     payload: { toolCallId, key, width, height },
   });
-  access.observed?.();
+  access.screenshotStored?.(toolCallId);
   const output = [
     `Completed ${actions.length} computer actions. Screenshot ${width}×${height}.`,
     ...observations,

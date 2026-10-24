@@ -44,11 +44,11 @@ Account for nested images at the existing local image estimate. Apply pruning be
 
 ### D6: Gate the capability and budget test turns separately
 
-Offer `computer` only when `modelSupportsImages(model)` permits image input. An unknown model is text-only. Test turns use their own step and token budget rather than raising the normal turn's limits. A separately selected test model is later work and still needs model access and billing policy at admission.
+Offer `computer` only when `modelSupportsImages(model)` permits image input. An unknown model is text-only. Test turns use their own step and token budget rather than raising the normal turn's limits. The model picker and Test action use the same effective default as ordinary turn admission for the owner's key platform. An Anthropic key defaults to an allowed Claude model, with the owner's credentials and billing unchanged. A separately selected test model is later work and still needs model access and billing policy at admission.
 
 ### D7: Default Chrome to the project's dev server
 
-Use Chrome's URL policy to allow the project's own dev server and block other navigation. The default is approved. Loosening that policy per project is later work. This is a browser navigation policy, not a claim that the sandbox has no network or that a command-capable agent cannot access the network through another tool.
+Use Chrome's URL policy to allow the project's own dev server and block other navigation. Ordinary turns, repairs, resumed repairs and the owner stream use the acquired running repository preview port. Saved environment edits apply on the next workspace start. The stream reads the running marker, uses saved settings only for a missing legacy marker, and refuses null or unreadable/invalid configuration before starting Chrome. An explicit null preview omits the computer capability and prevents an app test from using a starter port. The default is approved. Loosening that policy per project is later work. This is a browser navigation policy, not a claim that the sandbox has no network or that a command-capable agent cannot access the network through another tool.
 
 ### D8: Start app testing from a system-built prompt
 
@@ -62,7 +62,7 @@ The queue stores an approved job ID as a `test` request and applies the ordinary
 
 `annotate` records `setup`, `test_start`, `action`, and `assertion`. Assertions carry an expectation stated before the action and a result of `passed`, `failed`, or `untested`. An unexecuted assertion is never a pass. Recording timestamps use the capture's source timeline.
 
-The ledger requires a declaration with result `untested`, input after that declaration, and a later stored screenshot before a matching assertion receives a verdict. Assertion IDs and expectations cannot change between declaration and result. Interrupted tests preserve their assertion data and need an explicit rerun.
+The ledger requires a declaration with result `untested`, confirmed successful input after that declaration, and a later stored screenshot included in a model request before a matching assertion receives a verdict. Sibling tool calls authored before that request cannot use its image as evidence. Pruning or compaction that removes an undelivered image does not qualify a verdict; removing a previously delivered image retains its eligibility. Failed, ambiguous or thrown input invalidates earlier input evidence until fresh successful input and a delivered screenshot follow. Input is never automatically replayed. Assertion IDs and expectations cannot change between declaration and result. Interrupted tests preserve their assertion data and need an explicit rerun.
 
 A failed assertion offers **Fix it**. Only that explicit click queues a normal repair turn. Test failure never starts repair automatically and never changes the deterministic verification checkpoint into an agent-reported pass. The manual repair choice is approved.
 

@@ -32,6 +32,7 @@ import { NapContextEngine } from "@nap/context/context-engine";
 import { NoopMemoryProvider } from "@nap/context/noop-memory-provider";
 import { sweepOrphanedRequests } from "@nap/runtime/janitor";
 import { sweepIdleProjects } from "@nap/runtime/reaper";
+import { readRepositoryPreviewPort } from "@nap/runtime/repository-environment";
 import { SingleAgentRuntime } from "@nap/runtime/single-agent-runtime";
 import { startSweeping } from "@nap/runtime/sweep-schedule";
 import { startTurnWorker, type TurnWorker } from "@nap/runtime/turn-worker";
@@ -416,9 +417,20 @@ export function composeNap(deps: NapDeps): ComposedNap {
             ...deps.computerAccess,
             desktop: deps.desktop,
             sessions: deps.sessions,
-            previewPort: async (session) =>
-              (await deps.github?.store.repository(session.projectId, session.userId))?.environment
-                .previewPort ?? TEMPLATE_DEV_PORT,
+            previewPort: async (session) => {
+              const repository = await deps.github?.store.repository(
+                session.projectId,
+                session.userId,
+              );
+              if (!repository) return TEMPLATE_DEV_PORT;
+              if (!session.sandboxId) return null;
+              const running = await readRepositoryPreviewPort({
+                sandbox: deps.sandbox,
+                sandboxId: session.sandboxId,
+                fallback: repository.environment.previewPort,
+              });
+              return running.ok ? running.value : null;
+            },
           },
         }
       : {}),

@@ -15,7 +15,7 @@ export type ComputerAccessDeps = {
   /** The already-required BETTER_AUTH_SECRET, injected by composition. */
   secret: string;
   now?: () => number;
-  previewPort?: (session: SessionRecord) => Promise<number>;
+  previewPort?: (session: SessionRecord) => Promise<number | null>;
 };
 const PortSchema = z.int().min(1).max(65535);
 const unavailable = { error: "Desktop is unavailable.", code: "desktop_unavailable" };

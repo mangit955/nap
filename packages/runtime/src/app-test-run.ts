@@ -10,16 +10,19 @@ type Assertion = {
 };
 type AnnotationResult = Result<void, { message: string }>;
 
-/** An expectation becomes a verdict only after input and a fresh observation, in that order. */
+/** A verdict needs confirmed input and a later screenshot delivered to the model. */
 export class AppTestRun {
   readonly #now: () => number;
   readonly #emit: (entry: { annotation: ComputerAnnotation; timeMs: number }) => void;
   readonly #startedAt: number;
   readonly #chapters = new Set<string>();
   readonly #assertions = new Map<string, Assertion>();
+  readonly #screenshots = new Map<string, number>();
   #chapter: string | null = null;
   #setup = false;
   #action = 0;
+  #confirmedAction = 0;
+  #failedAction = 0;
   #observedAction = 0;
 
   constructor(options: {
@@ -90,6 +93,40 @@ export class AppTestRun {
   }
 
   beforeAction(action: DesktopAction): AnnotationResult {
+    if (!this.#isInput(action)) return { ok: true, value: undefined };
+    if (this.#chapter === null ? !this.#setup : !this.#pending())
+      return {
+        ok: false,
+        error: { message: "Record setup or an untested assertion before computer input." },
+      };
+    return { ok: true, value: undefined };
+  }
+
+  afterAction(action: DesktopAction, succeeded: boolean): void {
+    if (!this.#isInput(action)) return;
+    this.#action += 1;
+    if (succeeded) {
+      this.#confirmedAction = this.#action;
+    } else {
+      this.#confirmedAction = 0;
+      this.#failedAction = this.#action;
+      this.#observedAction = 0;
+    }
+  }
+
+  screenshotStored(toolCallId: string): void {
+    this.#screenshots.set(toolCallId, this.#confirmedAction);
+  }
+
+  delivered(toolCallIds: readonly string[]): void {
+    for (const id of toolCallIds) {
+      const action = this.#screenshots.get(id);
+      if (action !== undefined && action > this.#failedAction)
+        this.#observedAction = Math.max(this.#observedAction, action);
+    }
+  }
+
+  #isInput(action: DesktopAction): boolean {
     switch (action.action) {
       case "screenshot":
       case "cursor_position":
@@ -97,20 +134,10 @@ export class AppTestRun {
       case "console":
       case "wait":
       case "zoom":
-        return { ok: true, value: undefined };
+        return false;
       default:
-        if (this.#chapter === null ? !this.#setup : !this.#pending())
-          return {
-            ok: false,
-            error: { message: "Record setup or an untested assertion before computer input." },
-          };
-        this.#action += 1;
-        return { ok: true, value: undefined };
+        return true;
     }
-  }
-
-  observed(): void {
-    this.#observedAction = this.#action;
   }
 
   counts(): { passed: number; failed: number; untested: number } {

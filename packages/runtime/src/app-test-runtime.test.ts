@@ -1,5 +1,5 @@
 import { NapAgentService } from "@nap/agent/agent-service";
-import { ScriptedLLMProvider } from "@nap/agent/testing/scripted-llm-provider";
+import { ScriptedLLMProvider, type ScriptedTurn } from "@nap/agent/testing/scripted-llm-provider";
 import { NapContextEngine } from "@nap/context/context-engine";
 import { NoopMemoryProvider } from "@nap/context/noop-memory-provider";
 import { StubContextEngine } from "@nap/context/testing/stub-context-engine";
@@ -11,8 +11,9 @@ import { FakeSandboxRecordings } from "@nap/sandbox/testing/fake-sandbox-recordi
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { FAKE_COMMIT_SHA, scriptGit } from "@nap/sandbox/testing/script-git";
 import type { ComputerAction } from "@nap/shared/computer";
+import { pruneComputerImages } from "@nap/shared/computer-context";
 import type { ContextEngine } from "@nap/shared/ports/context-engine";
-import type { PendingEvent } from "@nap/shared/ports/event-store";
+import type { PendingEvent, StoredEvent } from "@nap/shared/ports/event-store";
 import type { DesktopAction } from "@nap/shared/ports/sandbox-desktop";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import { expect, it, vi } from "vitest";
@@ -32,6 +33,8 @@ async function fixture(
   record = false,
   inputAction: DesktopAction = { action: "left_click", coordinate: [512, 384] },
   cold = false,
+  script?: ScriptedTurn,
+  repositoryPreview?: number | null,
 ) {
   const events = new InMemoryEventStore();
   const base = { sessionId, turnId: jobId, createdAt: "2026-10-24T00:00:00Z" };
@@ -78,7 +81,7 @@ async function fixture(
     toolCalls: [{ id, name: "computer", input: { actions } }],
   });
   const provider = new ScriptedLLMProvider([
-    [
+    script ?? [
       ...(compact ? [{ text: "A compact session summary" }] : []),
       batch("act", [
         {
@@ -107,15 +110,39 @@ async function fixture(
   const sessions = new InMemorySessionStore([
     { sessionId, projectId: "project", sandboxId: cold ? null : created.value.id },
   ]);
+  if (repositoryPreview !== undefined)
+    await sandbox.writeFile(
+      created.value.id,
+      "/tmp/nap-repository-preview.json",
+      JSON.stringify({ previewPort: repositoryPreview }),
+    );
+  const agent = new NapAgentService({ provider });
   const runtime = new SingleAgentRuntime({
     sessions,
     sandbox,
     events,
     bus: new InMemoryEventBus(),
     context: assembly,
-    agent: new NapAgentService({ provider }),
+    agent,
     memory: new NoopMemoryProvider(),
     computer: { desktop, objects, ...(record ? { recordings } : {}) },
+    ...(repositoryPreview === undefined
+      ? {}
+      : {
+          repository: {
+            source: async () => ({
+              ok: true as const,
+              value: {
+                previewPort: repositoryPreview,
+                setupCommand: null,
+                devCommand: repositoryPreview === null ? null : "bun run dev",
+                initialBundle: async () => ({ ok: true as const, value: Buffer.from("bundle") }),
+              },
+            }),
+            prepareJob: async () => ({ ok: true as const, value: undefined }),
+            finishJob: async () => ({ ok: true as const, value: undefined }),
+          },
+        }),
   });
   const request = {
     kind: "test" as const,
@@ -133,6 +160,7 @@ async function fixture(
     sandboxId: created.value.id,
     context,
     provider,
+    agent,
     desktop,
     recordings,
     objects,
@@ -321,3 +349,291 @@ it("does not send cleanup input after losing the session lease", async () => {
   await f.runtime.runTurn({ ...f.request, signal: controller.signal });
   expect(f.desktop.actions.at(-1)?.action.action).toBe("left_click");
 });
+
+const screenshotCall = (id: string) => ({
+  id,
+  name: "computer",
+  input: { actions: [{ action: "screenshot" }] },
+});
+const clickCall = (id: string) => ({
+  id,
+  name: "computer",
+  input: { actions: [{ action: "left_click", coordinate: [512, 384] }] },
+});
+const resultsOf = (log: readonly StoredEvent[]) =>
+  log
+    .filter((event) => event.type === "tool.result")
+    .map((event) => [event.payload.toolCallId, event.payload.ok]);
+
+const inputCall = (id: string) => ({
+  id,
+  name: "computer",
+  input: {
+    actions: [
+      {
+        action: "annotate",
+        annotation: { type: "test_start", id: "main", description: "Save a note" },
+      },
+      { action: "annotate", annotation },
+      { action: "left_click", coordinate: [512, 384] },
+    ],
+  },
+});
+const verdictCall = (id: string, result: "passed" | "failed" = "passed") => ({
+  id,
+  name: "computer",
+  input: { actions: [{ action: "annotate", annotation: { ...annotation, result } }] },
+});
+
+it.each(["passed", "failed"] as const)(
+  "rejects a sibling %s verdict until a later model response has received the screenshot",
+  async (result) => {
+    const f = await fixture("passed", false, false, undefined, false, [
+      { toolCalls: [inputCall("act"), verdictCall("prediction", result)] },
+      { toolCalls: [verdictCall("observed", result)] },
+      { text: "" },
+    ]);
+    const emittedAt: number[] = [];
+    const append = f.events.append.bind(f.events);
+    vi.spyOn(f.events, "append").mockImplementation(async (event, options) => {
+      if (
+        event.type === "test.annotation" &&
+        event.payload.annotation.type === "assertion" &&
+        event.payload.annotation.result !== "untested"
+      )
+        emittedAt.push(f.provider.requests.length);
+      return append(event, options);
+    });
+    expect((await f.runtime.runTurn(f.request)).ok).toBe(true);
+    const log = await f.events.readFrom(sessionId, 4);
+    const results = log.filter((event) => event.type === "tool.result");
+    expect(results.map((event) => [event.payload.toolCallId, event.payload.ok])).toEqual([
+      ["act", true],
+      ["prediction", false],
+      ["observed", true],
+    ]);
+    expect(emittedAt).toEqual([2]);
+    const feedback = f.provider.requests[1]?.messages.at(-1)?.content;
+    expect(feedback).toEqual([
+      expect.objectContaining({
+        type: "tool_result",
+        toolCallId: "act",
+        content: expect.arrayContaining([
+          expect.objectContaining({ type: "image", mediaType: "image/jpeg" }),
+        ]),
+      }),
+      expect.objectContaining({ type: "tool_result", toolCallId: "prediction", isError: true }),
+    ]);
+    expect(log.find((event) => event.type === "test.completed")?.payload.counts).toEqual({
+      passed: result === "passed" ? 1 : 0,
+      failed: result === "failed" ? 1 : 0,
+      untested: 0,
+    });
+  },
+);
+
+it.each(["unavailable", "timeout", "throw"] as const)(
+  "keeps an assertion untested after %s input and a later screenshot without replaying input",
+  async (code) => {
+    const f = await fixture("passed", false, false, undefined, false, [
+      { toolCalls: [inputCall("act")] },
+      { toolCalls: [screenshotCall("observe")] },
+      { toolCalls: [verdictCall("result")] },
+      { text: "" },
+    ]);
+    const input = vi.spyOn(f.desktop, "act");
+    if (code === "throw") input.mockRejectedValueOnce(new Error("Input completion is unknown"));
+    else
+      input.mockResolvedValueOnce({
+        ok: false,
+        error: { code, message: "Input was not confirmed." },
+      });
+    expect((await f.runtime.runTurn(f.request)).ok).toBe(true);
+    const log = await f.events.readFrom(sessionId, 4);
+    expect(log.find((event) => event.type === "test.completed")?.payload.counts).toEqual({
+      passed: 0,
+      failed: 0,
+      untested: 1,
+    });
+    expect(resultsOf(log)).toEqual([
+      ["act", false],
+      ["observe", true],
+      ["result", false],
+    ]);
+    expect(f.desktop.screenshots).toHaveLength(1);
+    expect(f.desktop.actions.filter((entry) => entry.action.action === "left_click")).toEqual([]);
+    expect(input.mock.calls.filter((call) => call[1].action === "left_click")).toHaveLength(1);
+  },
+);
+
+it("requires fresh successful input after an ambiguous attempt before accepting a verdict", async () => {
+  const f = await fixture("passed", false, false, undefined, false, [
+    { toolCalls: [inputCall("act")] },
+    { toolCalls: [screenshotCall("observe")] },
+    { toolCalls: [verdictCall("premature")] },
+    { toolCalls: [clickCall("retry")] },
+    { toolCalls: [verdictCall("confirmed")] },
+    { text: "" },
+  ]);
+  vi.spyOn(f.desktop, "act").mockResolvedValueOnce({
+    ok: false,
+    error: { code: "timeout", message: "Input completion is unknown." },
+  });
+  expect((await f.runtime.runTurn(f.request)).ok).toBe(true);
+  const log = await f.events.readFrom(sessionId, 4);
+  expect(resultsOf(log)).toEqual([
+    ["act", false],
+    ["observe", true],
+    ["premature", false],
+    ["retry", true],
+    ["confirmed", true],
+  ]);
+  expect(f.desktop.actions.filter((entry) => entry.action.action === "left_click")).toHaveLength(1);
+  expect(log.find((event) => event.type === "test.completed")?.payload.counts).toEqual({
+    passed: 1,
+    failed: 0,
+    untested: 0,
+  });
+});
+
+it("invalidates earlier input evidence when a later physical action is ambiguous", async () => {
+  const f = await fixture("passed", false, false, undefined, false, [
+    { toolCalls: [inputCall("first")] },
+    {
+      toolCalls: [
+        {
+          id: "uncertain",
+          name: "computer",
+          input: { actions: [{ action: "key", text: "Return" }] },
+        },
+      ],
+    },
+    { toolCalls: [screenshotCall("observe")] },
+    { toolCalls: [verdictCall("premature")] },
+    { toolCalls: [clickCall("fresh")] },
+    { toolCalls: [verdictCall("confirmed")] },
+    { text: "" },
+  ]);
+  const act = f.desktop.act.bind(f.desktop);
+  vi.spyOn(f.desktop, "act").mockImplementation(async (...args) =>
+    args[1].action === "key"
+      ? { ok: false, error: { code: "timeout", message: "Input completion is unknown." } }
+      : act(...args),
+  );
+  expect((await f.runtime.runTurn(f.request)).ok).toBe(true);
+  const log = await f.events.readFrom(sessionId, 4);
+  expect(resultsOf(log)).toEqual([
+    ["first", true],
+    ["uncertain", false],
+    ["observe", true],
+    ["premature", false],
+    ["fresh", true],
+    ["confirmed", true],
+  ]);
+  expect(f.desktop.actions.filter((entry) => entry.action.action === "left_click")).toHaveLength(2);
+  expect(log.find((event) => event.type === "test.completed")?.payload.counts).toEqual({
+    passed: 1,
+    failed: 0,
+    untested: 0,
+  });
+});
+
+it.each([false, true, "summary"] as const)(
+  "keeps verdict eligibility tied to delivered images when compaction removes screenshots, delivered=%s",
+  async (delivery) => {
+    const delivered = delivery === true;
+    const summaryHasImage = delivery === "summary";
+    const eligible = delivered || summaryHasImage;
+    const pressure = { inputTokens: 19_000, outputTokens: 0 };
+    const f = await fixture("passed", false, false, undefined, false, [
+      {
+        toolCalls: [inputCall("act")],
+        usage: delivered ? { inputTokens: 0, outputTokens: 0 } : pressure,
+      },
+      ...(delivered
+        ? [
+            {
+              toolCalls: [
+                { id: "source", name: "read_file", input: { path: "/home/user/app/package.json" } },
+              ],
+              usage: pressure,
+            },
+          ]
+        : []),
+      { text: "A compact summary" },
+      { toolCalls: [verdictCall("verdict")] },
+      { text: "" },
+    ]);
+    await f.sandbox.writeFile(f.sandboxId, "/home/user/app/package.json", "{}");
+    const runTurn = f.agent.runTurn.bind(f.agent);
+    const compact = vi.fn<NonNullable<Parameters<typeof runTurn>[0]["compactContext"]>>(
+      async (request) => {
+        const messages = pruneComputerImages(request.messages, 0);
+        await request.complete({
+          purpose: "compaction",
+          systemPrompt: request.systemPrompt,
+          messages: summaryHasImage ? request.messages : messages,
+          tools: [],
+          maxOutputTokens: 100,
+        });
+        return { ok: true, messages };
+      },
+    );
+    vi.spyOn(f.agent, "runTurn").mockImplementation((request) =>
+      runTurn({
+        ...request,
+        context: { ...request.context, budgetTokens: 20_000 },
+        compactContext: compact,
+      }),
+    );
+    expect((await f.runtime.runTurn(f.request)).ok).toBe(true);
+    expect(compact).toHaveBeenCalledOnce();
+    const verdictRequestIndex = delivered ? 3 : 2;
+    const containsActionImage = f.provider.requests
+      .slice(0, verdictRequestIndex + 1)
+      .map((request) =>
+        request.messages.some(
+          (message) =>
+            Array.isArray(message.content) &&
+            message.content.some(
+              (block) =>
+                block.type === "tool_result" &&
+                block.toolCallId === "act" &&
+                Array.isArray(block.content) &&
+                block.content.some((child) => child.type === "image"),
+            ),
+        ),
+      );
+    expect(containsActionImage).toEqual(
+      delivered ? [false, true, false, false] : [false, summaryHasImage, false],
+    );
+    expect(f.provider.requests[verdictRequestIndex - 1]?.purpose).toBe("compaction");
+    const log = await f.events.readFrom(sessionId, 4);
+    expect(
+      log
+        .filter((event) => event.type === "tool.result")
+        .filter((event) => event.payload.toolCallId === "verdict")
+        .map((event) => event.payload.ok),
+    ).toEqual([eligible]);
+    expect(log.find((event) => event.type === "test.completed")?.payload.counts).toEqual({
+      passed: eligible ? 1 : 0,
+      failed: 0,
+      untested: eligible ? 0 : 1,
+    });
+  },
+);
+
+it.each([3000, null])(
+  "uses repository preview %s for app tests without a starter fallback",
+  async (previewPort) => {
+    const f = await fixture("passed", false, false, undefined, false, undefined, previewPort);
+    const outcome = await f.runtime.runTurn(f.request);
+    expect(outcome.ok).toBe(previewPort !== null);
+    if (previewPort === null) {
+      expect(f.provider.requests).toHaveLength(0);
+      expect(f.desktop.starts).toEqual([]);
+    } else {
+      expect(f.desktop.starts[0]?.devServerUrl).toBe("http://localhost:3000");
+    }
+  },
+);

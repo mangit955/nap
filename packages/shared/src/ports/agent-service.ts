@@ -37,7 +37,10 @@ export type AgentTurnRequest = {
         beforeStore: () => Promise<void>;
         annotate?: (annotation: ComputerAnnotation) => Promise<Result<void, { message: string }>>;
         beforeAction?: (action: DesktopAction) => Result<void, { message: string }>;
-        observed?: () => void;
+        afterAction?: (action: DesktopAction, succeeded: boolean) => void;
+        screenshotStored?: (toolCallId: string) => void;
+        /** Only images included in a model request can qualify a verdict. */
+        delivered?: (toolCallIds: readonly string[]) => void;
       }
     | undefined;
   /**

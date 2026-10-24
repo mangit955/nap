@@ -269,7 +269,7 @@ it("checks test expectations before input and announces observations only after 
   const observed = vi.fn();
   if (!context.computer) throw new Error("Missing computer");
   context.computer.beforeAction = before;
-  context.computer.observed = observed;
+  context.computer.screenshotStored = observed;
   const denied = await executeTool(call([{ action: "left_click", coordinate: [1, 2] }]), context);
   expect(denied.ok).toBe(false);
   expect(desktop.actions).toEqual([]);
@@ -282,6 +282,29 @@ it("checks test expectations before input and announces observations only after 
   expect((await executeTool(call([{ action: "screenshot" }]), context)).ok).toBe(false);
   expect(observed).not.toHaveBeenCalled();
   await executeTool(call([{ action: "screenshot" }]), context);
-  expect(observed).toHaveBeenCalledOnce();
+  expect(observed).toHaveBeenCalledExactlyOnceWith("screen");
   expect(events.at(-2)?.type).toBe("computer.screenshot");
 });
+
+it.each(["success", "failure", "throw"] as const)(
+  "reports physical action completion after %s dispatch while preserving the tool pair",
+  async (outcome) => {
+    const { context, desktop, events } = fixture();
+    const afterAction = vi.fn();
+    if (!context.computer) throw new Error("Missing computer");
+    context.computer.afterAction = afterAction;
+    const action: DesktopAction = { action: "left_click", coordinate: [1, 2] };
+    vi.spyOn(desktop, "act").mockImplementation(async () => {
+      expect(afterAction).not.toHaveBeenCalled();
+      if (outcome === "throw") throw new Error("Transport lost after dispatch");
+      return outcome === "success"
+        ? { ok: true, value: { kind: "none" } }
+        : { ok: false, error: { code: "timeout", message: "Completion unknown" } };
+    });
+    const result = await executeTool(call([action]), context);
+    expect(result.ok).toBe(outcome === "success");
+    expect(afterAction).toHaveBeenCalledExactlyOnceWith(action, outcome === "success");
+    expect(events[0]?.type).toBe("tool.call");
+    expect(events.at(-1)).toMatchObject({ type: "tool.result", payload: { ok: result.ok } });
+  },
+);

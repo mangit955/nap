@@ -215,11 +215,13 @@ it("emits setup, chapter, expectation, action and later verdict accepted by the 
         expect((await run.annotate(action.annotation)).ok).toBe(true);
       else {
         expect(run.beforeAction(action).ok).toBe(true);
+        run.afterAction(action, true);
         if (step === 1 && action.action === "type") note = action.text;
       }
     }
-    run.observed();
+    run.screenshotStored(call.id);
     answer(req, call, step === 2 ? [{ type: "text", text: domBody(note) }, image] : screenshot);
+    run.delivered([call.id]);
   }
   expect(annotations.map((entry) => entry.type)).toEqual([
     "setup",

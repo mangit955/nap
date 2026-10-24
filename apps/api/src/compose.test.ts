@@ -821,3 +821,75 @@ it("composes the owner recording media route with the same durable event store",
   expect(response.status).toBe(200);
   expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]));
 });
+
+it.each([
+  { marker: '{"previewPort":3000}', expectedStatus: 200, expectedUrl: "http://localhost:3000" },
+  { marker: '{"previewPort":null}', expectedStatus: 503, expectedUrl: undefined },
+  { marker: '{"previewPort":"3000"}', expectedStatus: 503, expectedUrl: undefined },
+  { marker: "invalid JSON", expectedStatus: 503, expectedUrl: undefined },
+  { marker: "read failure", expectedStatus: 503, expectedUrl: undefined },
+  { marker: "absent", expectedStatus: 200, expectedUrl: "http://localhost:4000" },
+])(
+  "opens the owner stream from running preview marker $marker instead of future settings",
+  async ({ marker, expectedStatus, expectedUrl }) => {
+    const sandbox = turnableSandbox();
+    const created = await sandbox.create(PROJECT);
+    if (!created.ok) throw new Error(created.error.message);
+    if (marker === "read failure") {
+      const readFile = sandbox.readFile.bind(sandbox);
+      vi.spyOn(sandbox, "readFile").mockImplementation(async (id, path) =>
+        path === "/tmp/nap-repository-preview.json"
+          ? { ok: false, error: { code: "unavailable", message: "Cannot read running preview" } }
+          : readFile(id, path),
+      );
+    } else if (marker !== "absent") {
+      await sandbox.writeFile(created.value.id, "/tmp/nap-repository-preview.json", marker);
+    }
+    const store = new InMemoryGitHubStore().putRepository({
+      projectId: PROJECT,
+      sessionId: SESSION,
+      userId: FAKE_OWNER,
+      installationId: 99,
+      repository: { id: 101, fullName: "owner/app", defaultBranch: "main", private: true },
+      baseBranch: "main",
+      autoPublish: false,
+      environment: { setupCommand: null, devCommand: "bun run dev --port 4000", previewPort: 4000 },
+    });
+    const desktop = new FakeSandboxDesktop({
+      bytes: new Uint8Array([1]),
+      width: 1024,
+      height: 768,
+    });
+    const start = vi.spyOn(desktop, "start");
+    const credentials = vi.spyOn(desktop, "streamCredentials");
+    const nap = compose({
+      role: "api",
+      sandbox,
+      desktop,
+      github: { store, app: null },
+      sessions: new InMemorySessionStore([
+        { sessionId: SESSION, projectId: PROJECT, userId: FAKE_OWNER, sandboxId: created.value.id },
+      ]),
+      computerAccess: {
+        secret: "test-control-secret",
+        access: {
+          withIdleProject: async () => {
+            throw new Error("Stream must not request writable control");
+          },
+        },
+      },
+    });
+    const response = await nap.app.request(`/sessions/${SESSION}/computer/stream`);
+    expect(response.status).toBe(expectedStatus);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    if (expectedUrl === undefined) {
+      expect(start).not.toHaveBeenCalled();
+      expect(credentials).not.toHaveBeenCalled();
+    } else {
+      expect(start).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ sandboxId: created.value.id, devServerUrl: expectedUrl }),
+      );
+      expect(credentials).toHaveBeenCalledOnce();
+    }
+  },
+);

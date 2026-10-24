@@ -195,10 +195,11 @@ class Turn {
       // The provider receives the signal too, but a proxy or upstream stream can take a while
       // to honour it. Racing here ends our turn immediately, preventing further tool calls or
       // streamed output while the transport tears itself down in the background.
+      const messages = [...this.#messages];
       const completed = await stopAware(
         this.#turn.complete({
           systemPrompt: this.#request.context.systemPrompt,
-          messages: [...this.#messages],
+          messages,
           tools: this.#tools,
           onThinkingDelta: (delta) => thinking.push(delta),
           onTextDelta: (delta) => prose.push(delta),
@@ -242,6 +243,8 @@ class Turn {
         return this.#fail(result.retryable ? "model_unavailable" : "internal", result.message);
       }
 
+      this.#delivered(messages);
+
       const tokenBudget = this.#budget.check();
       if (!tokenBudget.ok) return this.#failWith(tokenBudget.failure);
 
@@ -268,6 +271,22 @@ class Turn {
     return this.#nativeContext && this.#reportedInput !== undefined
       ? Math.max(0, calibrated)
       : Math.max(estimate, calibrated);
+  }
+
+  #delivered(messages: readonly LLMMessage[]): void {
+    this.#request.computer?.delivered?.(
+      messages.flatMap((message) =>
+        typeof message.content === "string"
+          ? []
+          : message.content.flatMap((block) =>
+              block.type === "tool_result" &&
+              Array.isArray(block.content) &&
+              block.content.some((child) => child.type === "image")
+                ? [block.toolCallId]
+                : [],
+            ),
+      ),
+    );
   }
 
   #headroom(): number {
@@ -343,6 +362,7 @@ class Turn {
       this.#budget.recordStep();
       const result = await stopAware(this.#turn.complete(request), this.#request.signal);
       if (result === CANCELLED) throw new Error("Compaction cancelled.");
+      if (result.type === "message") this.#delivered(request.messages);
       this.#budget.recordUsage(result.usage);
       return result;
     };

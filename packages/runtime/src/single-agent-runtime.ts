@@ -631,7 +631,11 @@ export class SingleAgentRuntime implements Runtime {
         emit: (entry) => emit("test.annotation", entry),
       });
       run = ledger;
-      const previewPort = acquired.value.repository?.previewPort ?? this.#previewPort;
+      const previewPort =
+        acquired.value.repository === undefined
+          ? this.#previewPort
+          : acquired.value.repository.previewPort;
+      if (previewPort === null) throw new Error("App tests need a running project preview.");
       // The generated diff prompt stays ephemeral; the durable goal and source commit reserve
       // the recording identity before any capture or upload can occur.
       const outcome = await withAppTestRecording(
@@ -754,13 +758,19 @@ export class SingleAgentRuntime implements Runtime {
           throw new Error("There is no complete conversation to compact yet.");
         const acquired = await this.#acquire(session);
         if (!acquired.ok) throw new Error(acquired.error.message);
+        const previewPort =
+          acquired.value.repository === undefined
+            ? this.#previewPort
+            : acquired.value.repository.previewPort;
         for (const notice of acquired.value.notices) emit("system.notice", notice);
-        if (acquired.value.created) await this.#announcePreview(acquired.value.id, emit);
+        if (acquired.value.created)
+          await this.#announcePreview(acquired.value.id, emit, previewPort);
         request.signal?.throwIfAborted();
         const outcome = await this.#attempt({
           settings: request,
           scope,
           sandboxId: acquired.value.id,
+          previewPort,
           prompt: "",
           promptSource: "user",
           commitSubject: "",
@@ -854,6 +864,7 @@ export class SingleAgentRuntime implements Runtime {
         settings: run.settings,
         scope,
         sandboxId: run.sandboxId,
+        previewPort: run.previewPort,
         prompt: request.message,
         attachments: request.attachments,
         promptSource: "user",
@@ -1031,6 +1042,7 @@ export class SingleAgentRuntime implements Runtime {
           scope: run.turn,
           sandboxId,
           failed: repaired,
+          previewPort: run.previewPort,
           attempt,
           job: { objective, attempts: [...attempts] },
         }),
@@ -1073,7 +1085,7 @@ export class SingleAgentRuntime implements Runtime {
     job?: JobContext;
     manualCompaction?: { id: string; onSettled: () => void };
     appTest?: { run: AppTestRun; clock?: AppTestRecordingClock };
-    previewPort?: number;
+    previewPort: number | null;
   }): Promise<TurnOutcome> {
     const { settings, scope, sandboxId, prompt, promptSource, commitSubject, history, job } =
       options;
@@ -1106,21 +1118,24 @@ export class SingleAgentRuntime implements Runtime {
         sandboxId,
         context,
         sandbox: this.#options.sandbox,
-        ...(this.#options.computer === undefined
+        ...(this.#options.computer === undefined || options.previewPort === null
           ? {}
           : {
               computer: {
                 desktop: this.#options.computer.desktop,
                 objects: this.#options.computer.objects,
                 projectId: scope.session.projectId,
-                devServerUrl: `http://localhost:${options.previewPort ?? this.#previewPort}`,
+                devServerUrl: `http://localhost:${options.previewPort}`,
                 beforeStore: () => sink.drain(),
                 ...(appTest
                   ? {
                       annotate: async (annotation) =>
                         appTest.run.annotate(annotation, appTest.clock),
                       beforeAction: (action) => appTest.run.beforeAction(action),
-                      observed: () => appTest.run.observed(),
+                      afterAction: (action, succeeded) =>
+                        appTest.run.afterAction(action, succeeded),
+                      screenshotStored: (toolCallId) => appTest.run.screenshotStored(toolCallId),
+                      delivered: (toolCallIds) => appTest.run.delivered(toolCallIds),
                     }
                   : {}),
               },
@@ -1226,6 +1241,7 @@ export class SingleAgentRuntime implements Runtime {
     scope: TurnScope;
     sandboxId: string;
     failed: CheckFailure;
+    previewPort: number | null;
     attempt: number;
     job: JobContext;
   }): Promise<TurnOutcome> {
@@ -1247,6 +1263,7 @@ export class SingleAgentRuntime implements Runtime {
       settings,
       scope,
       sandboxId,
+      previewPort: options.previewPort,
       prompt,
       promptSource: "verification",
       commitSubject: repairCommitSubject(failed, attempt),

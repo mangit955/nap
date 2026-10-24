@@ -13,10 +13,15 @@
  * into the transcript the button is drawn from.
  */
 
+import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
+import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import type { MediaAttachment } from "@nap/shared/media";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createApp } from "../../../api/src/app.ts";
+import { createLogger } from "../../../api/src/logger.ts";
+import { resolveTurnAccess } from "../../../api/src/turns/model-access.ts";
 import { stashFirstPrompt } from "../chat/first-prompt.ts";
 import { jobView } from "../chat/job-summary.ts";
 import type { SessionLog } from "../hooks/use-session-log.ts";
@@ -697,3 +702,87 @@ it("shows app-test progress at the clicked card before any stream event arrives"
     "Testing the app…",
   );
 });
+
+it.each(["openai/gpt-5.6-luna", "openai/gpt-oss-20b:free"])(
+  "starts a default app test with the owner's Anthropic key when deployment default is %s",
+  async (defaultModel) => {
+    const allowed = [defaultModel, "anthropic/claude-sonnet-5", "anthropic/claude-opus-5"];
+    const key = { platform: "anthropic", apiKey: "owner-test-key" } as const;
+    const models = createApp({
+      logger: createLogger({ level: "silent" }, { write: () => {} }),
+      authenticate: async () => ({ userId: "owner", isAnonymous: false }),
+      stream: {
+        store: new InMemoryEventStore(),
+        bus: new InMemoryEventBus(),
+        upgradeWebSocket: async () => new Response(null),
+      },
+      models: {
+        allowed,
+        fallback: defaultModel,
+        freeModel: "openai/gpt-5.6-luna",
+        keys: async () => ({
+          userId: "owner",
+          platform: "anthropic",
+          ciphertext: "sealed",
+          iv: "iv",
+          hint: "sk-ant-test",
+          updatedAt: "2026-10-24T00:00:00Z",
+        }),
+      },
+    });
+    const submitted: unknown[] = [];
+    const admitted: ReturnType<typeof resolveTurnAccess>[] = [];
+    const http = async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/models")) return models.request("/models");
+      if (url.endsWith("/tests")) {
+        const body: unknown = JSON.parse(String(init?.body));
+        submitted.push(body);
+        const requested =
+          typeof body === "object" &&
+          body !== null &&
+          "model" in body &&
+          typeof body.model === "string"
+            ? body.model
+            : undefined;
+        const access = resolveTurnAccess({
+          requested,
+          key,
+          allowed,
+          defaultModel,
+          freeModel: "openai/gpt-5.6-luna",
+        });
+        admitted.push(access);
+        return access.ok
+          ? Response.json(
+              { accepted: true, requestId: "e7a1c2d3-4b5a-4c6d-8e9f-0a1b2c3d4e5f" },
+              { status: 202 },
+            )
+          : Response.json({ error: access.message, code: access.code }, { status: 400 });
+      }
+      return fetchJson(url, init);
+    };
+    const events = [
+      ev("job.started", { jobId: JOB_ID, objective: "Save notes" }, 1),
+      ev(
+        "turn.completed",
+        { commitSha: "abc", usage: { inputTokens: 0, outputTokens: 0 }, durationMs: 1 },
+        2,
+      ),
+      ev("job.checkpointed", { jobId: JOB_ID, commitSha: "abc" }, 3),
+      ev("job.completed", { jobId: JOB_ID, outcome: "verified" }, 4),
+    ];
+    render(
+      <LiveChatPane
+        sessionId={SESSION_ID}
+        log={{ ...failedTurn(), events, lastSeq: 4, jobs: jobView(events) }}
+        fetchJson={http}
+      />,
+    );
+    const button = await screen.findByRole("button", { name: "Test the app" });
+    await waitFor(() => expect(button).toBeEnabled());
+    fireEvent.click(button);
+    await waitFor(() => expect(submitted).toHaveLength(1));
+    expect(submitted).toEqual([{ jobId: JOB_ID, model: "anthropic/claude-sonnet-5" }]);
+    expect(admitted).toEqual([{ ok: true, model: "anthropic/claude-sonnet-5", credentials: key }]);
+  },
+);
