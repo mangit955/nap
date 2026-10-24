@@ -1,4 +1,5 @@
 import { estimateContextTokens } from "@nap/shared/compaction";
+import { pruneComputerImages } from "@nap/shared/computer-context";
 /**
  * Driving the model through one turn.
  *
@@ -116,7 +117,7 @@ class Turn {
     this.#now = now;
     this.#startedAt = clock();
     this.#clock = clock;
-    this.#messages = [...request.context.messages];
+    this.#messages = pruneComputerImages(request.context.messages, 0);
   }
 
   async run(): Promise<void> {
@@ -376,7 +377,7 @@ class Turn {
     });
     this.#lastCompactionStep = this.#budget.spent().steps;
     if (result.ok) {
-      this.#messages.splice(0, this.#messages.length, ...result.messages);
+      this.#messages.splice(0, this.#messages.length, ...pruneComputerImages(result.messages));
       this.#nativeContext = native !== undefined;
       this.#reportedInput = result.contextTokens;
       this.#inputEstimate =
@@ -437,6 +438,7 @@ class Turn {
     this.#messages.push({ role: "assistant", content: assistant });
     // Every result in one message: see the note at the top of this file.
     this.#messages.push({ role: "user", content: results });
+    this.#messages.splice(0, this.#messages.length, ...pruneComputerImages(this.#messages));
 
     return false;
   }

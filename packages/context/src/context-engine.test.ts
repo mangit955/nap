@@ -992,3 +992,50 @@ describe("media in context", () => {
     },
   );
 });
+
+it.each([MIN_BUDGET_TOKENS, 4000, DEFAULT_BUDGET_TOKENS])(
+  "does not replay computer frames from a checkpoint at budget %s",
+  async (budgetTokens) => {
+    const checkpoint = event("compaction.completed", 1, {
+      id: turnId(1),
+      result: {
+        kind: "api",
+        checkpoint: {
+          coveredThrough: 0,
+          summary: "Prior work",
+          tail: [
+            {
+              role: "assistant",
+              content: [{ type: "tool_use", id: "screen", name: "computer", input: {} }],
+            },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "tool_result",
+                  toolCallId: "screen",
+                  isError: false,
+                  content: [{ type: "image", mediaType: "image/jpeg", data: "checkpoint-frame" }],
+                },
+              ],
+            },
+          ],
+        },
+      },
+      usage: null,
+      beforeTokens: null,
+      afterTokens: null,
+    });
+    const built = await new NapContextEngine({ budgetTokens, verbatimTurns: 10 }).build(
+      request({ model: "anthropic/claude-sonnet-5", history: [checkpoint] }),
+    );
+    expect(JSON.stringify(built.messages)).not.toContain("checkpoint-frame");
+    expect(toolUses(built.messages).map((block) => block.id)).toEqual(
+      toolResults(built.messages).map((block) => block.toolCallId),
+    );
+    if (budgetTokens === DEFAULT_BUDGET_TOKENS) {
+      expect(toolResults(built.messages)).toHaveLength(1);
+      expect(JSON.stringify(built.messages)).toContain("Earlier computer screenshot omitted");
+    }
+  },
+);

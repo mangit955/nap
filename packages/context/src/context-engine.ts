@@ -28,6 +28,7 @@ import { MODEL_MEDIA_UNSUPPORTED, modelSupportsImages } from "@nap/shared/model-
  * times against a ceiling this class does not own. See `DEFAULT_VERBATIM_TURNS` and ADR-0011.
  */
 
+import { pruneComputerImages } from "@nap/shared/computer-context";
 import type { NapEvent } from "@nap/shared/events";
 import type {
   BuiltContext,
@@ -399,7 +400,10 @@ export class NapContextEngine implements ContextEngine {
       ];
     };
     if (checkpoint !== undefined && checkpoint.tail.length > 0)
-      turns.unshift({ id: "compaction-tail", messages: structuredClone(checkpoint.tail) });
+      turns.unshift({
+        id: "compaction-tail",
+        messages: pruneComputerImages(structuredClone(checkpoint.tail), 0),
+      });
     let needsCompaction = allTurns.length > this.#maxTurns;
 
     // Staleness, before the budget is consulted at all. Everything below this point reclaims

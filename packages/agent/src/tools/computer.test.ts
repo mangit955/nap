@@ -189,3 +189,63 @@ it("admits annotations only through a test-mode handler and keeps them in batch 
   expect(annotate).toHaveBeenCalledWith(actions[0]?.annotation);
   expect(desktop.actions).toHaveLength(1);
 });
+
+it("feeds back only three recent screenshots and strips computer images supplied by history", async () => {
+  const { context, events } = fixture();
+  const provider = new ScriptedLLMProvider([
+    [
+      ...Array.from({ length: 5 }, (_, i) => ({
+        toolCalls: [{ ...call([{ action: "screenshot" }]), id: `screen${i}` }],
+      })),
+      {},
+    ],
+  ]);
+  await new NapAgentService({ provider }).runTurn({
+    sessionId,
+    turnId,
+    sandboxId: "sandbox",
+    sandbox: context.sandbox,
+    computer: context.computer,
+    model: "anthropic/claude-sonnet-5",
+    context: {
+      systemPrompt: "Build",
+      messages: [
+        {
+          role: "assistant",
+          content: [{ type: "tool_use", id: "old", name: "computer", input: {} }],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              toolCallId: "old",
+              content: [{ type: "image", mediaType: "image/jpeg", data: "old-frame" }],
+              isError: false,
+            },
+          ],
+        },
+      ],
+      estimatedTokens: 1,
+    },
+    onEvent: (event) => events.push(event),
+  });
+  expect(JSON.stringify(provider.requests[0]?.messages)).not.toContain("old-frame");
+  for (const request of provider.requests) {
+    const blocks = request.messages.flatMap((message) =>
+      Array.isArray(message.content) ? message.content : [],
+    );
+    const calls = blocks.flatMap((block) => (block.type === "tool_use" ? [block.id] : []));
+    const results = blocks.flatMap((block) =>
+      block.type === "tool_result" ? [block.toolCallId] : [],
+    );
+    expect(results).toEqual(calls);
+    expect(
+      blocks.flatMap((block) =>
+        block.type === "tool_result" && Array.isArray(block.content)
+          ? block.content.filter((child) => child.type === "image")
+          : [],
+      ),
+    ).toHaveLength(Math.min(provider.requests.indexOf(request), 3));
+  }
+});
