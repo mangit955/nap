@@ -1,0 +1,15 @@
+# Computer-use measurements
+
+Measured on 2026-10-24 under the user's approved initial US$1 scope. The production template was not replaced. The temporary templates and sandboxes named in both reports were deleted.
+
+The corrected run used two vCPUs and 1024 MB, with 976 MiB reported by the guest. Template build took 40.121 seconds, sandbox creation 0.885 seconds, and lazy desktop startup 23.789 seconds. The minimal Vite page plus Chrome, Xvfb, Openbox and VNC used 519 MiB with 456 MiB available. This is a small synthetic app, not a workload sizing guarantee. No upgrade or larger configuration was used.
+
+Five 1024×768 JPEGs were measured. The corrected report records their durations and byte lengths. Warm captures were about 0.7 seconds and 49 KB. A physical xdotool click changed the page button to Clicked. Chrome allowed the exact loopback dev-server origin and blocked external navigation. The local noVNC web endpoint responded. This proves endpoint readiness, not a complete noVNC client streaming or takeover test.
+
+The first run started the desktop but its policy mistakenly allowed a literal `/*` path, blocking the app itself. Chrome's [managed filter format](https://support.google.com/chrome/a/answer/9942583?hl=en) uses path prefixes and does not accept a wildcard at the end of the URL. The corrected policy uses exact-host loopback origins, including the dev-server port. A regression test failed before the fix. The first run measured five captures and one additional post-input capture; the corrected script uses five total, with the last after input.
+
+The first model probes were mistakenly launched before inspecting that blocked screenshot. Each model was called once through OpenRouter's Anthropic-shaped endpoint, using the production nested tool-result mapper, with reasoning disabled, a forced structured tool report and a 512-token output ceiling. Both returned UNKNOWN rather than inventing the absent marker. Input/output token counts were 1844/40 for Sonnet and 1776/40 for Opus, about US$0.013968 at the published uncached rates. The endpoint accepted nested images, but these results do not prove successful marker reading. No automatic retry occurred.
+
+The corrected script now requires a successful visible-marker preflight and an exact JPEG hash before spending on a model probe. A failing preflight test was seen red. Approval to repeat the two calls was requested separately because the proposed scope limited each model to one request. Their result will be appended when available.
+
+Artifacts are synthetic and contain no account credentials, VNC passwords or Devin material. The raw desktop reports include deleted resource IDs for cleanup audit. Reproduction scripts are `packages/sandbox/scripts/desktop-spike.ts` and `apps/api/scripts/computer-image-spike.ts`. Both default to free dry runs and require `--real --budget-usd=1` for service calls. Use the account's existing credentials via an environment file. A fresh output directory records an attempted run before any paid call, and refuses accidental reuse.

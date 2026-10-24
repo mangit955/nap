@@ -1,0 +1,51 @@
+{
+  "name": "nap-computer-spike-1792819221179-1024",
+  "memoryMB": 1024,
+  "cpuCount": 2,
+  "startedAt": "2026-10-24T05:20:21.179Z",
+  "marker": "NAP-A5EC9A84",
+  "status": "completed",
+  "build": {
+    "alias": "nap-computer-spike-1792819221179-1024",
+    "name": "nap-computer-spike-1792819221179-1024",
+    "tags": ["default"],
+    "templateId": "f5eyra6ri0912uw8yhxy",
+    "buildId": "3f86ceda-ea68-48d1-a131-1b362a9ceef5"
+  },
+  "buildMs": 40121,
+  "sandboxId": "iddspaa36p0duunpvw3t0",
+  "coldStartMs": 885,
+  "desktopStartMs": 23789,
+  "markerVerified": true,
+  "memory": "               total        used        free      shared  buff/cache   available\nMem:             976         519          73          20         547         456\nSwap:              0           0           0\nCOMMAND           RSS\nchrome          226892\nMainThread      124540\nchrome          121856\nchrome          115752\nchrome          112548\nchrome          110200\nchrome          100204\nchrome          100100\nchrome          93840\nXvfb            78068\nchrome          76856\n",
+  "effectiveMemory": "MemTotal:         999748 kB\nMemFree:           73824 kB\nMemAvailable:     465916 kB\n2\n",
+  "inputVerified": true,
+  "frameSha256": "a705c77fb54fc27a4a043e6f417e53d74bff563ff6a8df0e8b5b21e1bd8518ed",
+  "screenshots": [
+    {
+      "durationMs": 4132,
+      "bytes": 49510
+    },
+    {
+      "durationMs": 688,
+      "bytes": 49510
+    },
+    {
+      "durationMs": 683,
+      "bytes": 49510
+    },
+    {
+      "durationMs": 724,
+      "bytes": 49510
+    },
+    {
+      "durationMs": 722,
+      "bytes": 48663
+    }
+  ],
+  "externalNavigationBlocked": true,
+  "streamReachable": true,
+  "sandboxKilled": true,
+  "templateDeleted": true,
+  "totalMs": 79000
+}

@@ -1,0 +1,40 @@
+{
+  "results": [
+    {
+      "model": "anthropic/claude-sonnet-5",
+      "status": "failed",
+      "usage": {
+        "inputTokens": 1844,
+        "outputTokens": 40
+      },
+      "toolCalls": [
+        {
+          "id": "toolu_01AYARYdXR7fnRTnD6QhDKFm",
+          "name": "report_probe",
+          "input": {
+            "marker": "<UNKNOWN>"
+          }
+        }
+      ],
+      "error": "The structured marker did not match the image."
+    },
+    {
+      "model": "anthropic/claude-opus-5",
+      "status": "failed",
+      "usage": {
+        "inputTokens": 1776,
+        "outputTokens": 40
+      },
+      "toolCalls": [
+        {
+          "id": "toolu_01LnEYskmKQkxQ1E5ZELCPTt",
+          "name": "report_probe",
+          "input": {
+            "marker": "<UNKNOWN>"
+          }
+        }
+      ],
+      "error": "The structured marker did not match the image."
+    }
+  ]
+}

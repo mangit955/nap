@@ -1,6 +1,6 @@
 # Paid computer-use spike: proposed scope
 
-Status: awaiting explicit spending approval in this thread. No template build, real sandbox, model inference or OpenRouter inference request has run for this work.
+Status: the user approved the initial US$1 scope on 2026-10-24. Two throwaway desktop builds/runs completed and were cleaned up. The first two model calls received a blocked-page image; repeat-call approval is pending. See [measured evidence](computer-use-spike/README.md). The production template remains unchanged.
 
 This is the execution scope for [the spike](https://github.com/mangit955/nap/issues/138), before finalizing ADR-0018 or building the production desktop template. It does not authorize a subscription upgrade, a production-template replacement, a branch push or a PR.
 
