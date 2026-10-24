@@ -2,7 +2,7 @@ import { z } from "zod";
 import { RepositoryImportSchema } from "./github-protocol.ts";
 import { MediaAttachmentsSchema } from "./media.ts";
 
-export const InitialPromptSchema = z.object({
+export const InitialPromptSchema = z.strictObject({
   message: z.string().trim().min(1).max(100_000),
   model: z.string().min(1).optional(),
   attachments: MediaAttachmentsSchema.optional(),

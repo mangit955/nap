@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { ExecutionTarget } from "../execution-target.ts";
 import type { MediaAttachment } from "../media.ts";
 /**
  * The durable queue of turn requests, and the per-session leases that make one of them exclusive.
@@ -83,15 +84,8 @@ export type EnqueueTurnRequest = {
   /** The prompt. Null for `resume`, which asks for no new work. */
   message: string | null;
   attachments?: MediaAttachment[] | undefined;
-  /** Resolved at admission, because which models somebody may name is the route's fact. */
-  model: string;
-  /**
-   * Whether the asker's own account pays.
-   *
-   * **Never a key.** The worker re-opens the caller's stored credential by `userId`, so plaintext
-   * never touches this queue, a query log or a backup.
-   */
-  billsToUser: boolean;
+  /** Resolved at admission. The worker must execute this target or fail. */
+  target: ExecutionTarget;
 };
 
 /**

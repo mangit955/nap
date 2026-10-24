@@ -704,8 +704,7 @@ describe("job branch preparation", () => {
       sessionId: f.binding.sessionId,
       kind: "turn",
       message: "Fix the review",
-      model: "test-model",
-      billsToUser: false,
+      target: { kind: "api", model: "test-model", billsToUser: false },
     });
     const sandbox = await f.sandbox.create(f.session.projectId);
     if (!sandbox.ok) throw new Error("Fixture sandbox failed");

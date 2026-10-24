@@ -108,7 +108,7 @@ export type TurnRouteDeps = {
  */
 export type CallerKeys = (userId: string) => Promise<ModelCredentials | null>;
 
-const TurnBodySchema = z.object({
+const TurnBodySchema = z.strictObject({
   attachments: MediaAttachmentsSchema.optional(),
   /** Trimmed before the check: a message of spaces is an accident, not a prompt. */
   message: z
@@ -219,10 +219,7 @@ export function registerTurnRoutes(
       // Concrete by now. The resolver always returns a model rather than leaving a default to be
       // applied later, because the default that would be applied is a *paid* one and forgetting
       // it is this deployment buying tokens for a stranger.
-      model: access.model,
-      // Whether, never which — the worker re-opens the key by user id, so plaintext credentials
-      // never reach the queue, a query log or a backup.
-      billsToUser: access.credentials !== undefined,
+      target: { kind: "api", model: access.model, billsToUser: access.credentials !== undefined },
     });
 
     getLogger().info({ requestId: id, sessionId }, "turn request queued");

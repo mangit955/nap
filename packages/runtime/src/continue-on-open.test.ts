@@ -132,7 +132,10 @@ function headUnreadable(): void {
  */
 const RESUME_TURN = "b1e5c0de-2222-4333-8444-555566667777";
 
-function open(turnId = RESUME_TURN) {
+function open(
+  turnId = RESUME_TURN,
+  target?: import("@nap/shared/execution-target").ExecutionTarget,
+) {
   return new SingleAgentRuntime({
     sessions,
     sandbox,
@@ -141,7 +144,7 @@ function open(turnId = RESUME_TURN) {
     events,
     bus: new InMemoryEventBus(),
     memory: new NoopMemoryProvider(),
-  }).resumeSession(SESSION_ID, { turnId });
+  }).resumeSession(SESSION_ID, { turnId, target });
 }
 
 async function log(): Promise<StoredEvent[]> {
@@ -405,4 +408,19 @@ describe("continuing on a sandbox that had to be restored", () => {
     expect(outcome).toMatchObject({ ok: true, created: true });
     expect(agent.calls).toBe(1);
   });
+});
+
+it("keeps the selected subscription target when an open continues a failed verification", async () => {
+  await seedLog(started(), committed(COMMIT_SHA), ...redRound());
+  green();
+  const target = {
+    kind: "subscription",
+    driver: "claude",
+    accountId: crypto.randomUUID(),
+    generation: 5,
+    model: "claude-sonnet",
+  } as const;
+  await open(RESUME_TURN, target);
+  expect(agent.requests).toHaveLength(1);
+  expect(agent.requests[0]).toMatchObject({ target, model: target.model });
 });

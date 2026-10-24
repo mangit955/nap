@@ -123,7 +123,7 @@ describe("purgeDemoUsers", () => {
         userId,
         kind: "turn",
         state,
-        model: "purge/fake",
+        target: { kind: "api", model: "purge/fake", billsToUser: false },
         message: TAG,
       });
 

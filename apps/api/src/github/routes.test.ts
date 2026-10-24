@@ -369,8 +369,7 @@ describe("GitHub feedback approval routes", () => {
       kind: "turn",
       sessionId: f.binding.sessionId,
       userId: FAKE_OWNER,
-      model: "free",
-      billsToUser: false,
+      target: { kind: "api", model: "free", billsToUser: false },
       message: expect.stringContaining("Fix the failing test"),
     });
     expect(

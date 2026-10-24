@@ -1,3 +1,4 @@
+import type { ExecutionTarget } from "@nap/shared/execution-target";
 import type {
   GitHubInstallation,
   RepositoryFeedback,
@@ -35,6 +36,7 @@ import { sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
+  check,
   foreignKey,
   index,
   integer,
@@ -207,8 +209,8 @@ export const userApiKeys = pgTable("user_api_keys", {
 
 /**
  * The Claude and ChatGPT accounts a person connected, one row each — several per provider is
- * allowed, as "Personal" and "Work". No credential is stored here: the provider's own agent keeps
- * its login, and these columns only say what it last reported.
+ * allowed, as "Personal" and "Work". These public columns hold only reported identity.
+ * Sealed authorization and its fencing revisions live in a separate private table.
  */
 export const providerAccounts = pgTable(
   "provider_accounts",
@@ -231,6 +233,26 @@ export const providerAccounts = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("provider_accounts_user_created").on(t.userId, t.createdAt)],
+);
+
+export const providerCredentials = pgTable(
+  "provider_credentials",
+  {
+    accountId: uuid("account_id")
+      .primaryKey()
+      .references(() => providerAccounts.id, { onDelete: "cascade" }),
+    generation: integer("generation").notNull().default(0),
+    version: integer("version").notNull().default(0),
+    ciphertext: text("ciphertext"),
+    iv: text("iv"),
+  },
+  (t) => [
+    check("provider_credentials_revision", sql`${t.generation} >= 0 and ${t.version} >= 0`),
+    check(
+      "provider_credentials_pair",
+      sql`(${t.ciphertext} is null and ${t.iv} is null) or (${t.ciphertext} is not null and ${t.iv} is not null and length(${t.ciphertext}) > 0 and length(${t.iv}) > 0)`,
+    ),
+  ],
 );
 
 export const projects = pgTable(
@@ -431,15 +453,7 @@ export const turnRequests = pgTable(
     /** The prompt. Null for `resume`, which asks for no new work. */
     message: text("message"),
     attachments: jsonb("attachments").$type<MediaAttachment[]>(),
-    /** Resolved at admission: which models somebody may name is a fact about who is asking. */
-    model: text("model").notNull(),
-    /**
-     * Whether the asker's own account pays.
-     *
-     * **Never a key.** The worker re-opens the caller's stored credential by `user_id`, so
-     * plaintext credentials never touch this table, a query log, or a backup.
-     */
-    billsToUser: boolean("bills_to_user").notNull().default(false),
+    target: jsonb("target").$type<ExecutionTarget>().notNull(),
     cancelRequested: boolean("cancel_requested").notNull().default(false),
     /** Which worker process holds the lease. Every renewal is conditional on it. */
     leaseOwner: text("lease_owner"),

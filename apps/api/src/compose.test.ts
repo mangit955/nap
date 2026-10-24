@@ -537,8 +537,7 @@ describe("composeNap", () => {
       userId: FAKE_OWNER,
       kind: "turn",
       message: "add a dark mode toggle",
-      model: CONFIG.NAP_MODEL,
-      billsToUser: false,
+      target: { kind: "api", model: CONFIG.NAP_MODEL, billsToUser: false },
     });
     await queue.claim("a-worker-on-another-pod");
 

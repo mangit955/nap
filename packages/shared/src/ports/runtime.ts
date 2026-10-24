@@ -1,3 +1,4 @@
+import type { ExecutionTarget } from "../execution-target.ts";
 import type { MediaAttachment } from "../media.ts";
 /**
  * Turn orchestration: acquire a sandbox, build context, run the agent, persist each
@@ -17,6 +18,8 @@ import type { TurnFailureReason } from "../events.ts";
 import type { ModelCredentials } from "./llm-provider.ts";
 
 export type TurnRequest = {
+  /** Explicit queued routing decision. Direct API harnesses may use model/credentials. */
+  target?: ExecutionTarget | undefined;
   sessionId: string;
   /**
    * The id this turn's events are written under, allocated by the caller.
@@ -87,6 +90,7 @@ export type ResumeOutcome =
  * quietly pay for the repair loop of a user who brought their own key.
  */
 export type ContinueOptions = {
+  target?: ExecutionTarget | undefined;
   /**
    * The id the resume's own events are written under — the same rule a turn's `turnId` follows,
    * and for the same reason: a resume is a queued request too, and its row's id is this.

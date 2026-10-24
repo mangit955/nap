@@ -143,8 +143,7 @@ function request(repository: ProjectRepository): EnqueueTurnRequest {
     userId: repository.userId,
     kind: "turn",
     message: "Address reviewed feedback",
-    model: "test-model",
-    billsToUser: false,
+    target: { kind: "api", model: "test-model", billsToUser: false },
   };
 }
 
@@ -296,8 +295,7 @@ describe("repository ownership and import", () => {
         userId: owner,
         kind: "resume",
         message: null,
-        model: "test-model",
-        billsToUser: false,
+        target: { kind: "api", model: "test-model", billsToUser: false },
         state: "queued",
       },
     ]);

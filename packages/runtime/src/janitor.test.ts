@@ -49,8 +49,7 @@ async function enqueue(sessionId = SESSION, kind: "turn" | "resume" | "publish" 
     userId: "user-1",
     kind,
     message: kind === "turn" ? "build me a thing" : null,
-    model: "openai/gpt-5-mini",
-    billsToUser: false,
+    target: { kind: "api", model: "openai/gpt-5-mini", billsToUser: false },
   });
 }
 

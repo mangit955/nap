@@ -42,7 +42,11 @@ it("validates model access before creating and replays an admitted operation bef
   expect((await send()).status).toBe(201);
   expect(store.start).toHaveBeenCalledWith(
     expect.objectContaining({
-      request: expect.objectContaining({ kind: "turn", message: "Build a page", model: "free" }),
+      request: expect.objectContaining({
+        kind: "turn",
+        message: "Build a page",
+        target: { kind: "api", model: "free", billsToUser: false },
+      }),
     }),
   );
   const admitted = vi.mocked(store.start).mock.calls[0]?.[0];

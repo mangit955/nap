@@ -89,5 +89,150 @@ export function providerAccountStoreContract(name: string, harness: () => StoreH
       await expect(store.get(owner, MISSING)).resolves.toBeNull();
       await expect(store.update(owner, MISSING, { enabled: true })).resolves.toBeNull();
     });
+
+    it("stores sealed authorization separately from public account metadata", async () => {
+      const { store, user } = harness();
+      const owner = await user();
+      const account = await store.create({ userId: owner, driver: "claude", label: null });
+      await expect(store.authorization(owner, account.id)).resolves.toEqual({
+        kind: "disconnected",
+        generation: 0,
+        version: 0,
+      });
+      const result = await store.completeSignIn(owner, account.id, {
+        generation: 0,
+        credentials: { ciphertext: "sealed-private-credentials", iv: "private-iv" },
+        identity: { email: "work@example.com", plan: null },
+      });
+      expect(result).toMatchObject({
+        kind: "updated",
+        authorization: { kind: "connected", generation: 1, version: 1 },
+      });
+      expect(JSON.stringify(await store.get(owner, account.id))).not.toContain(
+        "sealed-private-credentials",
+      );
+      expect(JSON.stringify(await store.list(owner))).not.toContain("private-iv");
+      await expect(store.get(owner, account.id)).resolves.toMatchObject({
+        auth: { status: "authenticated", email: "work@example.com", plan: null },
+      });
+    });
+
+    it("rejects another owner's private authorization operations", async () => {
+      const { store, user } = harness();
+      const owner = await user();
+      const stranger = await user();
+      const account = await store.create({ userId: owner, driver: "claude", label: null });
+      await expect(store.authorization(stranger, account.id)).resolves.toBeNull();
+      await expect(
+        store.completeSignIn(stranger, account.id, {
+          generation: 0,
+          credentials: { ciphertext: "sealed", iv: "iv" },
+          identity: { email: null, plan: null },
+        }),
+      ).resolves.toEqual({ kind: "missing" });
+      await expect(store.revokeAuthorization(stranger, account.id)).resolves.toBeNull();
+      await expect(store.authorization(owner, account.id)).resolves.toMatchObject({
+        generation: 0,
+      });
+    });
+
+    it("fences login completion after logout and rejects replayed completion", async () => {
+      const { store, user } = harness();
+      const owner = await user();
+      const account = await store.create({ userId: owner, driver: "claude", label: null });
+      const signIn = {
+        generation: 0,
+        credentials: { ciphertext: "sealed", iv: "iv" },
+        identity: { email: null, plan: null },
+      };
+      await expect(store.revokeAuthorization(owner, account.id)).resolves.toEqual({
+        kind: "disconnected",
+        generation: 1,
+        version: 1,
+      });
+      await expect(store.completeSignIn(owner, account.id, signIn)).resolves.toEqual({
+        kind: "stale",
+      });
+      await expect(
+        store.completeSignIn(owner, account.id, { ...signIn, generation: 1 }),
+      ).resolves.toMatchObject({ kind: "updated" });
+      await expect(
+        store.completeSignIn(owner, account.id, { ...signIn, generation: 1 }),
+      ).resolves.toEqual({ kind: "stale" });
+    });
+
+    it("accepts one concurrent credential refresh and never overwrites a newer login", async () => {
+      const { store, user } = harness();
+      const owner = await user();
+      const account = await store.create({ userId: owner, driver: "codex", label: null });
+      const credentials = { ciphertext: "sealed", iv: "iv" };
+      await store.completeSignIn(owner, account.id, {
+        generation: 0,
+        credentials,
+        identity: { email: null, plan: null },
+      });
+      const results = await Promise.all(
+        ["one", "two"].map((ciphertext) =>
+          store.replaceCredentials(owner, account.id, {
+            generation: 1,
+            version: 1,
+            credentials: { ciphertext, iv: "iv" },
+          }),
+        ),
+      );
+      expect(results.map((result) => result.kind).sort()).toEqual(["stale", "updated"]);
+      await expect(store.authorization(owner, account.id)).resolves.toMatchObject({
+        kind: "connected",
+        generation: 1,
+        version: 2,
+      });
+      await store.revokeAuthorization(owner, account.id);
+      await expect(
+        store.replaceCredentials(owner, account.id, { generation: 1, version: 2, credentials }),
+      ).resolves.toEqual({ kind: "stale" });
+    });
+
+    it("disabling an account atomically revokes its generation and credentials", async () => {
+      const { store, user } = harness();
+      const owner = await user();
+      const account = await store.create({ userId: owner, driver: "claude", label: null });
+      const signIn = {
+        generation: 0,
+        credentials: { ciphertext: "sealed", iv: "iv" },
+        identity: { email: "a@example.com", plan: "reported plan" },
+      };
+      await store.completeSignIn(owner, account.id, signIn);
+      await store.update(owner, account.id, { enabled: false });
+      await expect(store.authorization(owner, account.id)).resolves.toEqual({
+        kind: "disconnected",
+        generation: 2,
+        version: 2,
+      });
+      await expect(
+        store.completeSignIn(owner, account.id, { ...signIn, generation: 2 }),
+      ).resolves.toEqual({ kind: "disabled" });
+      await store.update(owner, account.id, { enabled: true });
+      await expect(store.authorization(owner, account.id)).resolves.toEqual({
+        kind: "disconnected",
+        generation: 2,
+        version: 2,
+      });
+      await expect(store.get(owner, account.id)).resolves.toMatchObject({
+        auth: { status: "unauthenticated", email: null, plan: null },
+      });
+    });
+
+    it("deleting an account removes its private authorization", async () => {
+      const { store, user } = harness();
+      const owner = await user();
+      const account = await store.create({ userId: owner, driver: "claude", label: null });
+      await store.completeSignIn(owner, account.id, {
+        generation: 0,
+        credentials: { ciphertext: "sealed", iv: "iv" },
+        identity: { email: null, plan: null },
+      });
+      await store.remove(owner, account.id);
+      await expect(store.authorization(owner, account.id)).resolves.toBeNull();
+    });
   });
 }

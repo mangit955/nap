@@ -644,3 +644,21 @@ it("does not send a request past a reported model window after compaction fails"
     expect.objectContaining({ reason: "budget_exceeded" }),
   ]);
 });
+
+it("never executes a subscription target through the API provider", async () => {
+  const { provider, agent } = service([[{ text: "must not run", toolCalls: [] }]]);
+  await agent.runTurn(
+    request({
+      target: {
+        kind: "subscription",
+        driver: "claude",
+        accountId: crypto.randomUUID(),
+        generation: 2,
+        model: "claude-sonnet",
+      },
+    }),
+  );
+  expect(provider.turnOptions).toEqual([]);
+  expect(provider.requests).toEqual([]);
+  expect(recorder.types).toEqual(["turn.started", "turn.failed"]);
+});

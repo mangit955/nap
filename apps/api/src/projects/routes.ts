@@ -251,10 +251,7 @@ export function registerProjectRoutes(
       // A resume asks for no new work: what it does is decided by folding the log, not by a
       // prompt somebody typed.
       message: null,
-      model: access.model,
-      // Whether, never which — the worker re-opens the key by user id, so plaintext credentials
-      // never reach the queue, a query log or a backup.
-      billsToUser: access.billsToUser,
+      target: access.target,
     });
 
     getLogger().info({ requestId: id, sessionId }, "resume request queued");
@@ -371,7 +368,7 @@ async function continueAccess(
   deps: ProjectRouteDeps,
   userId: string,
 ): Promise<
-  | { ok: true; model: string; billsToUser: boolean }
+  | { ok: true; target: import("@nap/shared/execution-target").ExecutionTarget }
   | { ok: false; code: "byok_required" | "model_not_allowed"; message: string }
 > {
   const { models } = deps;
@@ -385,7 +382,10 @@ async function continueAccess(
   });
   if (!access.ok) return access;
 
-  return { ok: true, model: access.model, billsToUser: access.credentials !== undefined };
+  return {
+    ok: true,
+    target: { kind: "api", model: access.model, billsToUser: access.credentials !== undefined },
+  };
 }
 
 type RouteError = { status: 400 | 404; message: string };

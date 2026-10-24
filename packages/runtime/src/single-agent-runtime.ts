@@ -1,3 +1,4 @@
+import type { ExecutionTarget } from "@nap/shared/execution-target";
 /**
  * One turn, end to end: get a sandbox, build the context, run the agent, write down
  * everything that happened, commit the result, and ask the project whether it holds up.
@@ -100,6 +101,7 @@ type TurnScope = {
  * whoever opened the project is the signal, the model and whose account pays, and nothing else.
  */
 type TurnSettings = {
+  target?: ExecutionTarget | undefined;
   sessionId: string;
   signal?: AbortSignal | undefined;
   model?: string | undefined;
@@ -311,6 +313,7 @@ export class SingleAgentRuntime implements Runtime {
    * every `await`, including the ones that outlive the request that started it.
    */
   async #runTurn(request: TurnRequest): Promise<TurnOutcome> {
+    if (request.target !== undefined) request = { ...request, model: request.target.model };
     const { turnId } = request;
     return await withLogContext(getLogger(), { sessionId: request.sessionId, turnId }, () =>
       this.#runTurnLogged(request, turnId),
@@ -489,6 +492,7 @@ export class SingleAgentRuntime implements Runtime {
       settings: {
         sessionId: session.sessionId,
         ...inherited,
+        ...(inherited.target === undefined ? {} : { model: inherited.target.model }),
         ...(repository === undefined ? {} : { workspace: "repository" }),
       },
       session,
@@ -968,6 +972,8 @@ export class SingleAgentRuntime implements Runtime {
     settings.signal?.throwIfAborted();
 
     await this.#options.agent.runTurn({
+      target: settings.target,
+      userId: scope.session.userId,
       sessionId: settings.sessionId,
       turnId,
       sandboxId,

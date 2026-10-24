@@ -141,6 +141,7 @@ export function registerProviderRoutes(
     const userId = c.get("userId");
     // Stopped first, so a login finishing a moment later has no account to land on.
     await deps.signIn.cancel(userId, found.account);
+    await deps.accounts.revokeAuthorization(userId, found.account.id);
     await deps.signIn.signOut(userId, found.account);
     await deps.accounts.remove(userId, found.account.id);
     return c.body(null, 204);
@@ -178,6 +179,7 @@ export function registerProviderRoutes(
     if (found.refused !== undefined) return found.refused;
 
     const userId = c.get("userId");
+    await deps.accounts.revokeAuthorization(userId, found.account.id);
     await deps.signIn.signOut(userId, found.account);
     // Read again: signing out is what changes the account's status, and the page shows the
     // answer it is sent rather than guessing.

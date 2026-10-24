@@ -309,8 +309,7 @@ it("imports through the queue, publishes a verified dedicated branch, and retrie
       sessionId: repository.sessionId,
       kind: "publish",
       message: job.jobId,
-      model: MODEL,
-      billsToUser: true,
+      target: { kind: "api", model: MODEL, billsToUser: true },
     });
     await vi.waitFor(() => expect(queue.stateOf(publishId)).toBe("done"));
     expect(keyReads).not.toHaveBeenCalled();

@@ -234,8 +234,10 @@ outage changes nothing stored. See `docs/github-integration.md` and `docs/adr/00
 
 **Provider account** — one Claude or ChatGPT subscription a Nap owner connected, so turns can run
 on the plan they already pay for; what the Providers settings page lists. A person may hold several
-of one provider ("Personal", "Work"). The provider's own agent keeps its login — Nap stores no
-credential for it, only what the provider last reported about who is signed in. Not the
+of one provider ("Personal", "Work"). Public account metadata reports the identity verified by
+the provider. Private authorization stores sealed credentials separately, with a generation that
+changes at login, logout and disable, and a version that changes at refresh. Those revisions fence
+stale writes; they cannot recover an ambiguous provider-side token rotation. Not the
 `LLMProvider`, which is model policy, and not an API key, which pays per token.
 
 **Repository job** — the GitHub side of a **Job** in an imported project: its `nap/<job-id>` branch,

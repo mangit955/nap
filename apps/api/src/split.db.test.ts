@@ -217,8 +217,7 @@ describe("an API pod and a worker pod over one database", () => {
       userId,
       kind: "turn",
       message: "add a dark mode toggle",
-      model: CONFIG.NAP_MODEL,
-      billsToUser: false,
+      target: { kind: "api", model: CONFIG.NAP_MODEL, billsToUser: false },
     });
     await elsewhere.claim("a-worker-on-another-pod");
 

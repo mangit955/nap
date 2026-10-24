@@ -242,7 +242,12 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
     // Read here rather than carried on the row: the queue stores *whether* the asker pays, never
     // their key, so plaintext credentials never touch the table, a query log, or a backup.
     let credentials: ModelCredentials | undefined;
-    if (request.billsToUser) {
+    if (request.target.kind === "subscription") {
+      // No native executor is installed in this composition yet. Never bill an API as fallback.
+      logger.warn({ requestId: request.id }, "subscription execution is unavailable");
+      return false;
+    }
+    if (request.target.billsToUser) {
       const opened = (await credentialsFor?.(request.userId)) ?? null;
       if (opened === null) {
         // The key was deleted or its secret rotated between admission and here. Failing is the
@@ -262,7 +267,8 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
         // Resume lifecycle events use this id. Any repair it starts records this request as
         // its owner while retaining its own turn id.
         turnId: request.id,
-        model: request.model,
+        model: request.target.model,
+        target: request.target,
         // A resume that continues a job runs turns, so it answers to the lease exactly as a turn
         // does. Without the signal the `AbortController` above would be wired to nothing on this
         // branch, and a worker that lost its lease mid-continuation would keep writing.
@@ -286,7 +292,8 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
       message: request.message,
       ...(request.attachments === undefined ? {} : { attachments: request.attachments }),
       signal,
-      model: request.model,
+      model: request.target.model,
+      target: request.target,
       ...(credentials === undefined ? {} : { credentials }),
     });
     logger.info({ requestId: request.id, turnId: outcome.turnId, outcome }, "turn settled");

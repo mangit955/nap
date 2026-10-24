@@ -69,7 +69,7 @@ it("refuses Done/archive while queued, and organization never releases the sandb
     userId: owner,
     kind: "turn",
     message: "Work",
-    model: "free",
+    target: { kind: "api", model: "free", billsToUser: false },
   });
   const row = (await store.list(owner)).sessions.find(
     (entry) => entry.projectId === created.projectId,
@@ -121,7 +121,7 @@ it("allows reordering a Done session reopened by a later request", async () => {
     userId: owner,
     kind: "turn",
     message: "Continue",
-    model: "free",
+    target: { kind: "api", model: "free", billsToUser: false },
     createdAt: new Date(Date.now() + 1000),
   });
   expect(

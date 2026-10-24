@@ -311,3 +311,21 @@ describe("provider route guards", () => {
     },
   );
 });
+
+it("revokes private authorization and pending login generations even when native sign-out is unavailable", async () => {
+  const { app: instance, accounts } = app({ signIn: UNAVAILABLE_SIGN_IN });
+  const account = await create(instance, "claude");
+  await accounts.completeSignIn(USER, account.id, {
+    generation: 0,
+    credentials: { ciphertext: "sealed", iv: "iv" },
+    identity: { email: "verified@example.com", plan: null },
+  });
+  const response = await send(instance, "POST", `/providers/accounts/${account.id}/sign-out`);
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({ auth: { status: "unauthenticated", email: null } });
+  await expect(accounts.authorization(USER, account.id)).resolves.toEqual({
+    kind: "disconnected",
+    generation: 2,
+    version: 2,
+  });
+});

@@ -126,6 +126,16 @@ describe("accepted request status", () => {
 });
 
 describe("POST /sessions/:sessionId/turns", () => {
+  it("refuses an unsupported explicit target before it can become an API request", async () => {
+    const { app: hono, queue } = app(new InMemoryTurnQueue());
+    const response = await post(hono, `/sessions/${SESSION}/turns`, {
+      message: "edit",
+      target: { kind: "subscription", accountId: crypto.randomUUID() },
+    });
+    expect(response.status).toBe(400);
+    expect(queue.enqueued).toEqual([]);
+  });
+
   it("accepts the message and answers before the turn is done", async () => {
     // A turn is a minute of model calls and sandbox commands. The client already has the
     // whole story over the socket, so holding the request open buys nothing and loses to the
@@ -187,7 +197,10 @@ describe("POST /sessions/:sessionId/turns", () => {
 
     await post(hono, `/sessions/${SESSION}/turns`, { message: "hello" });
 
-    expect(queue.enqueued[0]).toMatchObject({ userId: FAKE_OWNER, billsToUser: true });
+    expect(queue.enqueued[0]).toMatchObject({
+      userId: FAKE_OWNER,
+      target: { kind: "api", billsToUser: true },
+    });
     expect(JSON.stringify(queue.enqueued)).not.toContain(OPENROUTER_KEY.apiKey);
   });
 
@@ -421,7 +434,10 @@ describe("limits", () => {
         model,
       });
       expect(accepted.status).toBe(202);
-      expect(queue.enqueued[0]).toMatchObject({ message: "Build a text-only page", model });
+      expect(queue.enqueued[0]).toMatchObject({
+        message: "Build a text-only page",
+        target: { model },
+      });
       expect(rate.size).toBe(1);
     },
   );
@@ -436,7 +452,7 @@ describe("limits", () => {
     });
 
     expect(accepted.status).toBe(202);
-    expect(queue.enqueued[0]).toMatchObject({ model: "anthropic/claude-opus-5" });
+    expect(queue.enqueued[0]).toMatchObject({ target: { model: "anthropic/claude-opus-5" } });
   });
 
   it("resolves the default itself rather than leaving the worker to apply one", async () => {
@@ -450,7 +466,7 @@ describe("limits", () => {
 
     await post(hono, `/sessions/${SESSION}/turns`, { message: "hello" });
 
-    expect(queue.enqueued[0]).toMatchObject({ model: ALLOWED[0] });
+    expect(queue.enqueued[0]).toMatchObject({ target: { model: ALLOWED[0] } });
   });
 
   it("marks a turn as billed to the caller when they brought a key", async () => {
@@ -462,7 +478,7 @@ describe("limits", () => {
 
     await post(hono, `/sessions/${SESSION}/turns`, { message: "hello" });
 
-    expect(queue.enqueued[0]).toMatchObject({ billsToUser: true });
+    expect(queue.enqueued[0]).toMatchObject({ target: { kind: "api", billsToUser: true } });
   });
 
   it("marks a turn from somebody with no key as the deployment's to pay for", async () => {
@@ -474,7 +490,9 @@ describe("limits", () => {
 
     await post(hono, `/sessions/${SESSION}/turns`, { message: "hello" });
 
-    expect(queue.enqueued[0]).toMatchObject({ billsToUser: false, model: FREE_MODEL });
+    expect(queue.enqueued[0]).toMatchObject({
+      target: { kind: "api", billsToUser: false, model: FREE_MODEL },
+    });
   });
 
   it("refuses a paid model to somebody with no key, and says a key is what is missing", async () => {

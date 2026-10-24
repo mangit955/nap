@@ -67,6 +67,28 @@ export class NapAgentService implements AgentService {
   }
 
   async runTurn(request: AgentTurnRequest): Promise<void> {
+    if (request.target?.kind === "subscription") {
+      const envelope = {
+        sessionId: request.sessionId,
+        turnId: request.turnId,
+        createdAt: this.#now(),
+      };
+      request.onEvent({
+        ...envelope,
+        type: "turn.started",
+        payload: { source: request.promptSource ?? "user" },
+      });
+      request.onEvent({
+        ...envelope,
+        type: "turn.failed",
+        payload: {
+          reason: "model_unavailable",
+          message: "This subscription requires a native agent runtime. No API request was made.",
+        },
+      });
+      return;
+    }
+    if (request.target !== undefined) request = { ...request, model: request.target.model };
     await new Turn(request, this.#provider, this.#budget, this.#now, this.#clock).run();
   }
 }

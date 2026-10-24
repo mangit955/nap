@@ -84,7 +84,12 @@ function redUntil(attempt: number): void {
  */
 const REQUEST_TURN_ID = "c0ffee00-1111-4222-8333-444455556666";
 
-function run(options: { signal?: AbortSignal } = {}) {
+function run(
+  options: {
+    signal?: AbortSignal;
+    target?: import("@nap/shared/execution-target").ExecutionTarget;
+  } = {},
+) {
   return new SingleAgentRuntime({
     sessions,
     sandbox,
@@ -97,6 +102,7 @@ function run(options: { signal?: AbortSignal } = {}) {
     turnId: REQUEST_TURN_ID,
     sessionId: SESSION_ID,
     message: "add a delete button",
+    ...(options.target === undefined ? {} : { target: options.target }),
     ...(options.signal === undefined ? {} : { signal: options.signal }),
   });
 }
@@ -352,4 +358,19 @@ describe("cancelling a job mid-repair", () => {
     expect(outcome).toMatchObject({ ok: false, reason: "cancelled" });
     expect((await jobs()).jobs.at(-1)?.phase).toBe("abandoned");
   });
+});
+
+it("pins a subscription account and generation across every verifier repair", async () => {
+  redUntil(3);
+  const target = {
+    kind: "subscription",
+    driver: "claude",
+    accountId: crypto.randomUUID(),
+    generation: 4,
+    model: "claude-sonnet",
+  } as const;
+  await run({ target });
+  expect(agent.requests).toHaveLength(3);
+  for (const request of agent.requests)
+    expect(request).toMatchObject({ target, model: target.model });
 });

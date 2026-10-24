@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { eq, sql as sqlOf } from "drizzle-orm";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
@@ -76,8 +77,7 @@ async function enqueueTurn(
     userId: seed.userId,
     kind: "turn",
     message,
-    model: "openai/gpt-5-mini",
-    billsToUser: false,
+    target: { kind: "api", model: "openai/gpt-5-mini", billsToUser: false },
   });
 }
 
@@ -131,8 +131,7 @@ describe("enqueue", () => {
       ...seed,
       kind: "turn",
       message: "Use this image",
-      model: "anthropic/claude-opus-5",
-      billsToUser: true,
+      target: { kind: "api", model: "anthropic/claude-opus-5", billsToUser: true },
       attachments,
     });
     const leased = await queue.claim("media-worker");
@@ -168,8 +167,8 @@ describe("enqueue", () => {
     const seed = await seedSession();
 
     await expect(
-      sql`insert into turn_requests (session_id, user_id, kind, model)
-          values (${seed.sessionId}::uuid, ${seed.userId}::uuid, 'turn', 'openai/gpt-5-mini')`,
+      sql`insert into turn_requests (session_id, user_id, kind, target)
+          values (${seed.sessionId}::uuid, ${seed.userId}::uuid, 'turn', '{"kind":"api","model":"openai/gpt-5-mini","billsToUser":false}'::jsonb)`,
     ).rejects.toMatchObject({ code: NOT_NULL_VIOLATION });
   });
 });
@@ -190,8 +189,7 @@ describe("claim", () => {
       userId: seed.userId,
       kind: "turn",
       message: "build me a thing",
-      model: "openai/gpt-5-mini",
-      billsToUser: false,
+      target: { kind: "api", model: "openai/gpt-5-mini", billsToUser: false },
     });
 
     const row = await rowOf(id);
@@ -774,4 +772,44 @@ it("reports queued and leased activity until settlement, including cancellation 
   expect(await queue.hasPending(sessionId)).toBe(true);
   await queue.requestCancel(sessionId);
   expect(await queue.hasPending(sessionId)).toBe(false);
+});
+
+it("preserves the subscription account and generation through admission and claim", async () => {
+  const seed = await seedSession();
+  const target = {
+    kind: "subscription",
+    driver: "claude",
+    model: "claude-sonnet",
+    accountId: "00000000-0000-4000-8000-000000000001",
+    generation: 7,
+  } as const;
+  await queue.enqueue({ id: crypto.randomUUID(), ...seed, kind: "turn", message: "edit", target });
+  expect(await queue.claim("native-worker")).toMatchObject({ ...seed, target });
+});
+
+it("backfills the actual target migration without changing a queued API model or payer", async () => {
+  const name = `migration_${randomUUID().replaceAll("-", "")}`;
+  const table = `"${name}"."turn_requests"`;
+  await sql.unsafe(`create schema "${name}"`);
+  try {
+    await sql.unsafe(
+      `create table ${table} (id integer primary key, model text not null, bills_to_user boolean not null)`,
+    );
+    await sql.unsafe(`insert into ${table} values (1, 'free', false), (2, 'paid', true)`);
+    const migration = await readFile(
+      new URL("../drizzle/0015_execution_targets.sql", import.meta.url),
+      "utf8",
+    );
+    for (const statement of migration
+      .replaceAll('"turn_requests"', table)
+      .split("--> statement-breakpoint")) {
+      if (statement.trim()) await sql.unsafe(statement);
+    }
+    expect(await sql.unsafe(`select * from ${table} order by id`)).toEqual([
+      { id: 1, target: { kind: "api", model: "free", billsToUser: false } },
+      { id: 2, target: { kind: "api", model: "paid", billsToUser: true } },
+    ]);
+  } finally {
+    await sql.unsafe(`drop schema "${name}" cascade`);
+  }
 });

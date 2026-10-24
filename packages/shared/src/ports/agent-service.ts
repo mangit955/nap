@@ -1,3 +1,4 @@
+import type { ExecutionTarget } from "../execution-target.ts";
 /**
  * Drives the model loop for exactly one turn.
  *
@@ -16,6 +17,10 @@ import type { ModelCredentials } from "./llm-provider.ts";
 import type { SandboxManager } from "./sandbox-manager.ts";
 
 export type AgentTurnRequest = {
+  /** A subscription target is handled only by a native AgentService. */
+  target?: ExecutionTarget | undefined;
+  /** Ownership resolved from the session, never from provider output. */
+  userId?: string | undefined;
   compactContext?: import("../compaction.ts").CompactContext;
   operation?: "compact";
   sessionId: string;

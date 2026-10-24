@@ -151,8 +151,11 @@ function enqueueTurn(
     userId: "user-1",
     kind: "turn",
     message: overrides.message ?? "build me a thing",
-    model: "openai/gpt-5-mini",
-    billsToUser: overrides.billsToUser ?? false,
+    target: {
+      kind: "api",
+      model: "openai/gpt-5-mini",
+      billsToUser: overrides.billsToUser ?? false,
+    },
   });
 }
 
@@ -167,8 +170,7 @@ describe("running a claimed request", () => {
       userId: "user-1",
       kind: "publish",
       message: null,
-      model: "unused",
-      billsToUser: true,
+      target: { kind: "api", model: "unused", billsToUser: true },
     });
     start(queue, runtime, { credentialsFor, publish });
     await vi.waitFor(() => expect(publish).toHaveBeenCalledOnce());
@@ -221,8 +223,7 @@ describe("running a claimed request", () => {
       userId: "user-1",
       kind: "resume",
       message: null,
-      model: "openai/gpt-5-mini",
-      billsToUser: false,
+      target: { kind: "api", model: "openai/gpt-5-mini", billsToUser: false },
     });
 
     await vi.waitFor(() => expect(runtime.resumes).toHaveLength(1));
@@ -286,8 +287,7 @@ describe("running a claimed request", () => {
       userId: "user-1",
       kind: "resume",
       message: null,
-      model: "openai/gpt-5-mini",
-      billsToUser: false,
+      target: { kind: "api", model: "openai/gpt-5-mini", billsToUser: false },
     });
 
     await vi.waitFor(() => expect(runtime.resumes).toHaveLength(1));
@@ -308,8 +308,7 @@ describe("running a claimed request", () => {
       userId: "user-1",
       kind: "resume",
       message: null,
-      model: "openai/gpt-5-mini",
-      billsToUser: false,
+      target: { kind: "api", model: "openai/gpt-5-mini", billsToUser: false },
     });
 
     await vi.waitFor(() => expect(runtime.resumes).toHaveLength(1));
@@ -333,8 +332,7 @@ describe("running a claimed request", () => {
       userId: "user-1",
       kind: "resume",
       message: null,
-      model: "openai/gpt-5-mini",
-      billsToUser: false,
+      target: { kind: "api", model: "openai/gpt-5-mini", billsToUser: false },
     });
 
     await vi.waitFor(() => expect(runtime.turns).toHaveLength(1));
@@ -671,4 +669,28 @@ describe("stopping", () => {
     expect(runtime.signal?.aborted).toBe(false);
     expect(queue.stateOf(id)).toBe("done");
   });
+});
+
+it("refuses a subscription target without calling the API runtime or opening an API key", async () => {
+  const queue = new InMemoryTurnQueue();
+  const runtime = new RecordingRuntime();
+  const credentialsFor = vi.fn(async () => null);
+  const { id } = await enqueueRequest(queue, {
+    userId: "user-1",
+    sessionId: "native",
+    kind: "turn",
+    message: "edit",
+    target: {
+      kind: "subscription",
+      driver: "claude",
+      model: "claude",
+      accountId: crypto.randomUUID(),
+      generation: 1,
+    },
+  });
+  start(queue, runtime, { credentialsFor });
+  await vi.waitFor(() => expect(queue.stateOf(id)).toBe("failed"));
+  expect(runtime.turns).toEqual([]);
+  expect(runtime.resumes).toEqual([]);
+  expect(credentialsFor).not.toHaveBeenCalled();
 });

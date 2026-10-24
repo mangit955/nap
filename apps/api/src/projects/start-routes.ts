@@ -130,8 +130,7 @@ export function registerSessionStartRoutes(
       request: {
         kind: input.prompt ? "turn" : "resume",
         message: input.prompt?.message ?? null,
-        model: access.model,
-        billsToUser: access.credentials !== undefined,
+        target: { kind: "api", model: access.model, billsToUser: access.credentials !== undefined },
         ...(input.prompt?.attachments === undefined
           ? {}
           : { attachments: input.prompt.attachments }),

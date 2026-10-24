@@ -329,7 +329,7 @@ describe("POST /projects/:projectId/open", () => {
     // `billsToUser` rather than the key itself: the worker re-opens it by user id, so plaintext
     // credentials never reach the queue, a query log or a backup.
     expect(queue.enqueued).toEqual([
-      expect.objectContaining({ model: PAID_MODEL, billsToUser: true }),
+      expect.objectContaining({ target: { kind: "api", model: PAID_MODEL, billsToUser: true } }),
     ]);
   });
 
@@ -337,7 +337,7 @@ describe("POST /projects/:projectId/open", () => {
     await app().request(`/projects/${PROJECT}/open`, { method: "POST" });
 
     expect(queue.enqueued).toEqual([
-      expect.objectContaining({ model: FREE_MODEL, billsToUser: false }),
+      expect.objectContaining({ target: { kind: "api", model: FREE_MODEL, billsToUser: false } }),
     ]);
   });
 

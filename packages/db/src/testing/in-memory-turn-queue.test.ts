@@ -22,8 +22,7 @@ async function enqueue(sessionId: string, message = "do a thing") {
     userId: "user-1",
     kind: "turn",
     message,
-    model: "openai/gpt-5-mini",
-    billsToUser: false,
+    target: { kind: "api", model: "openai/gpt-5-mini", billsToUser: false },
   });
 }
 
@@ -42,8 +41,7 @@ describe("claim", () => {
       userId: "user-1",
       kind: "turn",
       message: "first",
-      model: "openai/gpt-5-mini",
-      billsToUser: false,
+      target: { kind: "api", model: "openai/gpt-5-mini", billsToUser: false },
     });
   });
 
@@ -326,4 +324,17 @@ it("reports queued and leased activity until settlement, including cancellation 
   expect(await queue.hasPending(sessionId)).toBe(true);
   await queue.requestCancel(sessionId);
   expect(await queue.hasPending(sessionId)).toBe(false);
+});
+
+it("preserves the subscription account and generation through admission and claim", async () => {
+  const seed = { sessionId: "native-session", userId: "user-1" };
+  const target = {
+    kind: "subscription",
+    driver: "claude",
+    model: "claude-sonnet",
+    accountId: "00000000-0000-4000-8000-000000000001",
+    generation: 7,
+  } as const;
+  await queue.enqueue({ id: crypto.randomUUID(), ...seed, kind: "turn", message: "edit", target });
+  expect(await queue.claim("native-worker")).toMatchObject({ ...seed, target });
 });

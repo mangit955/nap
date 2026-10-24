@@ -178,8 +178,7 @@ export class PostgresGitHubStore implements GitHubStore {
           userId: input.userId,
           kind: "resume",
           message: null,
-          model: input.open.model,
-          billsToUser: false,
+          target: { kind: "api", model: input.open.model, billsToUser: false },
         });
       }
       return association;

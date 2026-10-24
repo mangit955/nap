@@ -70,8 +70,7 @@ export class InMemoryTurnQueue implements TurnQueue {
       ...(request.attachments === undefined
         ? {}
         : { attachments: structuredClone(request.attachments) }),
-      model: request.model,
-      billsToUser: request.billsToUser,
+      target: structuredClone(request.target),
       state: "queued",
       cancelRequested: false,
       leaseOwner: null,
@@ -126,8 +125,7 @@ export class InMemoryTurnQueue implements TurnQueue {
       ...(candidate.attachments === undefined
         ? {}
         : { attachments: structuredClone(candidate.attachments) }),
-      model: candidate.model,
-      billsToUser: candidate.billsToUser,
+      target: structuredClone(candidate.target),
     };
   }
 
@@ -246,8 +244,7 @@ export class InMemoryTurnQueue implements TurnQueue {
       kind: row.kind,
       message: row.message,
       ...(row.attachments === undefined ? {} : { attachments: structuredClone(row.attachments) }),
-      model: row.model,
-      billsToUser: row.billsToUser,
+      target: structuredClone(row.target),
     }));
   }
 
