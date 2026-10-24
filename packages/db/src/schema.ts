@@ -4,6 +4,7 @@ import type {
   RepositoryJob,
 } from "@nap/shared/github-protocol";
 import type { MediaAttachment } from "@nap/shared/media";
+import type { ProviderAuthStatus, ProviderDriver } from "@nap/shared/provider-accounts-protocol";
 import type { SessionNavigation } from "@nap/shared/session-navigation";
 /**
  * The Postgres schema, per docs/PLAN.md §5.
@@ -203,6 +204,34 @@ export const userApiKeys = pgTable("user_api_keys", {
   createdAt,
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * The Claude and ChatGPT accounts a person connected, one row each — several per provider is
+ * allowed, as "Personal" and "Work". No credential is stored here: the provider's own agent keeps
+ * its login, and these columns only say what it last reported.
+ */
+export const providerAccounts = pgTable(
+  "provider_accounts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    driver: text("driver").$type<ProviderDriver>().notNull(),
+    /** Null means "use the provider's own name". */
+    label: text("label"),
+    enabled: boolean("enabled").notNull().default(true),
+    authStatus: text("auth_status")
+      .$type<ProviderAuthStatus>()
+      .notNull()
+      .default("unauthenticated"),
+    accountEmail: text("account_email"),
+    accountPlan: text("account_plan"),
+    createdAt,
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("provider_accounts_user_created").on(t.userId, t.createdAt)],
+);
 
 export const projects = pgTable(
   "projects",

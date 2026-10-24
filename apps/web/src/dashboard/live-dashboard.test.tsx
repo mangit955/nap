@@ -164,3 +164,20 @@ describe("signing out", () => {
     expect(replace).not.toHaveBeenCalledWith("/");
   });
 });
+
+it("wires the dashboard header toggle to a focused draft details popover", () => {
+  useSession.mockReturnValue({
+    data: { user: { id: "00000000-0000-4000-8000-000000000001", name: "Manas" } },
+    isPending: false,
+  });
+  render(<LiveDashboard />);
+  const toggle = screen.getByRole("button", { name: "Toggle thread details panel" });
+  fireEvent.click(toggle);
+  const card = screen.getByRole("dialog", { name: "Thread details" });
+  expect(card).toHaveFocus();
+  expect(toggle).toHaveAttribute("aria-controls", card.id);
+  expect(screen.getByRole("button", { name: "Open in Browser" })).toBeDisabled();
+  fireEvent.keyDown(card, { key: "Escape" });
+  expect(screen.queryByRole("dialog", { name: "Thread details" })).toBeNull();
+  expect(toggle).toHaveFocus();
+});

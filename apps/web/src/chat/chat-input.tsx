@@ -7,6 +7,7 @@ import { Paperclip } from "lucide-react";
 import {
   type ReactNode,
   type RefObject,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -14,7 +15,11 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { appendDictation, useDictation } from "../dashboard/use-dictation.ts";
-import { type ComposerDraft, ComposerDraftStore } from "../projects/composer-draft.ts";
+import {
+  type ComposerDraft,
+  ComposerDraftStore,
+  isBlankDraft,
+} from "../projects/composer-draft.ts";
 import { useDraftNavigation } from "../projects/use-draft-navigation.ts";
 import { ComposerAddMenu } from "./composer-add-menu.tsx";
 import { AttachmentTray, DictationButton } from "./composer-controls.tsx";
@@ -87,6 +92,37 @@ export function ChatInput({
   const [draftReady, setDraftReady] = useState(!draftIdentity);
   const latestDraft = useRef<ComposerDraft | undefined>(undefined);
   const draftStore = useRef(new ComposerDraftStore());
+  const writes = useRef(new Map<string, { blank: boolean; tail: Promise<void> | undefined }>());
+  const persistenceFor = useCallback((value: Pick<ComposerDraft, "ownerId" | "id">) => {
+    const key = `${value.ownerId}.${value.id}`;
+    let state = writes.current.get(key);
+    if (!state) {
+      state = { blank: true, tail: undefined };
+      writes.current.set(key, state);
+    }
+    return state;
+  }, []);
+  const write = useCallback(
+    (value: ComposerDraft) => {
+      const state = persistenceFor(value);
+      // A queued nonblank write can survive departure even before its completion is delivered.
+      if (!isBlankDraft(value)) state.blank = false;
+      const pending = state.tail
+        ? state.tail.catch(() => {}).then(() => draftStore.current.save(value))
+        : draftStore.current.save(value);
+      const saved = pending
+        .then(() => {
+          // Only the final queued write can establish that leaving a blank box is safe.
+          if (state.tail === saved) state.blank = isBlankDraft(value);
+        })
+        .finally(() => {
+          if (state.tail === saved) state.tail = undefined;
+        });
+      state.tail = saved;
+      return saved;
+    },
+    [persistenceFor],
+  );
   const draftOwner = draftIdentity?.ownerId;
   const draftProject = draftIdentity?.projectId;
   const restoreModel = useRef(onModelChange);
@@ -100,6 +136,8 @@ export function ChatInput({
       .load(draftOwner, draftProject)
       .then((saved) => {
         if (cancelled) return;
+        const state = persistenceFor({ ownerId: draftOwner, id: draftProject });
+        state.blank &&= !saved || isBlankDraft(saved);
         if (saved) {
           setText(saved.text);
           media.setAttachments(
@@ -122,7 +160,7 @@ export function ChatInput({
     return () => {
       cancelled = true;
     };
-  }, [draftOwner, draftProject, media.setAttachments]);
+  }, [draftOwner, draftProject, media.setAttachments, persistenceFor]);
   if (draftReady && draftOwner && draftProject)
     latestDraft.current = {
       id: draftProject,
@@ -139,13 +177,11 @@ export function ChatInput({
     const save = () => {
       const value = latestDraft.current;
       if (value)
-        void draftStore.current
-          .save(value)
-          .catch(() =>
-            setDraftError(
-              "Could not save this draft. Keep the session open and free browser storage.",
-            ),
-          );
+        void write(value).catch(() =>
+          setDraftError(
+            "Could not save this draft. Keep the session open and free browser storage.",
+          ),
+        );
     };
     const timer = setTimeout(save, 250);
     return () => clearTimeout(timer);
@@ -153,15 +189,17 @@ export function ChatInput({
   useEffect(
     () => () => {
       const value = latestDraft.current;
-      if (value) void draftStore.current.save(value).catch(() => {});
+      if (value) void write(value).catch(() => {});
     },
-    [],
+    [write],
   );
+  // A blank box over a blank record has nothing to lose, so its links are never held for a save.
   useDraftNavigation(
-    draftReady && draftOwner && draftProject
-      ? async () => {
+    draftReady
+      ? () => {
           const value = latestDraft.current;
-          if (value) await draftStore.current.save(value);
+          if (!value || (isBlankDraft(value) && persistenceFor(value).blank)) return undefined;
+          return write(value);
         }
       : undefined,
     () =>
@@ -322,7 +360,7 @@ export function ChatInput({
           <button
             type="button"
             onClick={scroll.scrollToEnd}
-            className="composer-surface pointer-events-auto flex h-7 items-center gap-1 rounded-full px-2.5 text-xs text-ink-2 shadow-raised hover:text-ink focus-visible:outline-accent"
+            className="surface-glass pointer-events-auto flex h-7 items-center gap-1 rounded-full px-2.5 text-xs text-ink-2 shadow-sm hover:text-ink focus-visible:outline-accent"
           >
             <svg
               aria-hidden="true"

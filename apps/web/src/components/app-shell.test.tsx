@@ -60,7 +60,7 @@ describe("AppShell", () => {
   it("opens the recording viewer empty state from thread details", async () => {
     render(shell());
     await screen.findByRole("button", { name: /Rename this project.*Todo app/ });
-    fireEvent.click(screen.getByLabelText("Thread details"));
+    fireEvent.click(screen.getByRole("button", { name: "Toggle thread details panel" }));
     fireEvent.click(screen.getByRole("button", { name: "Test recordings" }));
     const dialog = await screen.findByRole("dialog", { name: "Test recording viewer" });
     expect(
@@ -146,6 +146,67 @@ describe("AppShell", () => {
     expect(net.opened).toHaveLength(1);
     fireEvent.click(within(dialog).getByRole("button", { name: "Close test recording viewer" }));
     expect(screen.queryByRole("dialog", { name: "Test recording viewer" })).not.toBeInTheDocument();
+  });
+
+  it("opens thread details through the header, waits for replay, and refreshes after preview readiness", async () => {
+    const net = sockets();
+    let ready = false;
+    const request = vi.fn(async (url: string) => {
+      if (url.endsWith("/github"))
+        return Response.json({
+          repository: null,
+          jobs: [],
+          feedback: [],
+          followUpPolicy: "owner_approval",
+        });
+      if (url.includes("/changes?"))
+        return ready
+          ? Response.json({
+              ready: true,
+              scope: "branch",
+              base: "a",
+              head: "b",
+              baseLabel: "main",
+              branch: "nap/restored",
+              revision: "restored",
+              capturedAt: "2026-10-24T10:00:00.000Z",
+              truncated: false,
+              files: [],
+            })
+          : Response.json({ error: "Start a task to create the workspace." }, { status: 409 });
+      return fetchJson(url);
+    });
+    const view = render(
+      <AppShell projectId={PROJECT_ID} fetchJson={request} createSocket={net.createSocket} />,
+    );
+    try {
+      await waitFor(() => expect(net.opened).toHaveLength(1));
+      const toggle = screen.getByRole("button", { name: "Toggle thread details panel" });
+      fireEvent.click(toggle);
+      expect(screen.getByRole("dialog", { name: "Thread details" })).toHaveFocus();
+      expect(request.mock.calls.filter(([url]) => url.includes("/changes?"))).toHaveLength(0);
+      await act(async () => {
+        net.latest.open();
+        net.latest.deliver({ type: "ready" });
+      });
+      await waitFor(() =>
+        expect(request.mock.calls.filter(([url]) => url.includes("/changes?"))).toHaveLength(1),
+      );
+      expect(screen.getByRole("button", { name: "Changes, not counted yet" })).toBeVisible();
+      ready = true;
+      await act(async () =>
+        net.latest.deliver({
+          type: "event",
+          event: ev("preview.ready", { url: "https://preview.test", port: 5173 }, 1),
+        }),
+      );
+      expect(await screen.findByRole("button", { name: "Branch nap/restored" })).toBeVisible();
+      expect(request.mock.calls.filter(([url]) => url.includes("/changes?"))).toHaveLength(2);
+      fireEvent.keyDown(screen.getByRole("dialog", { name: "Thread details" }), { key: "Escape" });
+      expect(toggle).toHaveFocus();
+    } finally {
+      view.unmount();
+    }
   });
 
   it.each(["ordinary-event", "socket-reconnect"])(

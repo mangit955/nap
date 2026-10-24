@@ -50,12 +50,12 @@ export function SourceFilter({
           setOpen(!open);
           setQuery("");
         }}
-        className={`grid size-8 place-items-center rounded-md hover:bg-hover ${value ? "text-accent-ink" : "text-muted"}`}
+        className={`grid size-7 place-items-center rounded-md hover:bg-hover hover:text-ink ${value ? "text-info" : "text-sidebar-icon"}`}
       >
         <ListFilter aria-hidden className="size-4" />
       </button>
       {open && (
-        <div className="composer-surface absolute left-0 top-full z-40 mt-1 w-full rounded-lg p-1.5">
+        <div className="composer-surface nap-float absolute left-0 top-full z-40 mt-1 w-full rounded-[10px] p-1.5 [--float-origin:top]">
           <input
             aria-label="Search sources"
             placeholder="Find a source…"

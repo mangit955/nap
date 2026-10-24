@@ -26,6 +26,7 @@
   grid-template-columns: minmax(0, 1fr);
 }
 .t3-chat-column {
+  position: relative;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -307,46 +308,313 @@
   width: 14px;
   height: 14px;
 }
-.t3-details {
+/*
+ * The thread details card. T3 Code's values throughout: a 280px card 12px in from the canvas's top
+ * right, 24px radius, in the menus' glass; sections padded 8/8/10 and ruled at 65% of the edge
+ * colour; 32px rows at 13px medium, 80% ink, an 8% white fill on hover; split and select rows ruled
+ * by a 16px hairline before a 32px chevron.
+ * Adapted from T3 Code (MIT — see apps/web/THIRD_PARTY_NOTICES.md).
+ */
+.t3-thread-details {
+  position: absolute;
+  z-index: 20;
+  top: calc(52px + 12px);
+  right: 12px;
+  width: 280px;
+  max-width: calc(100% - 24px);
+  max-height: calc(100% - 52px - 24px);
+  display: grid;
+}
+.t3-thread-details[data-presentation="popover"] {
+  z-index: 40;
+  top: 60px;
+  left: auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+.t3-thread-details-card {
+  min-height: 0;
+  overflow-y: auto;
+  border-radius: 24px;
+  box-shadow: inset 0 1px rgb(255 255 255 / 4%);
+}
+.t3-thread-details[data-presentation="popover"] .t3-thread-details-card {
+  box-shadow:
+    inset 0 1px rgb(255 255 255 / 4%),
+    0 24px 72px -20px rgb(0 0 0 / 90%);
+}
+/*
+ * The conversation keeps its lane clear of an inline card: the lane is centred until its right edge
+ * would come within 32px of the card, and is pushed left from there. 1384px is the 736px lane plus
+ * twice the 324px the card, its gap and that clearance take from the right.
+ */
+.t3-chat-column[data-details-card="inline"] .chat-scroller,
+.t3-chat-column[data-details-card="inline"] .chat-composer-dock {
+  padding-right: max(0px, calc(1384px - 100%));
+}
+/*
+ * On the dashboard the card belongs to the composer, before any session exists. The frame has no
+ * header bar, so the toggle sits where T3 Code's window controls do, and the composer's lane — a
+ * box padded 48px either side — is pushed left the same way the conversation's is.
+ */
+.dashboard-details-toggle {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 40;
+}
+.dashboard-frame .t3-thread-details[data-presentation="popover"] {
+  top: 48px;
+}
+.dashboard-frame[data-details-card="inline"] .dashboard-home {
+  padding-right: max(48px, calc(1432px - 100%));
+}
+.t3-td-section {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 8px 10px;
+}
+.t3-td-section[data-separated] {
+  border-top: 1px solid color-mix(in srgb, var(--color-edge) 65%, transparent);
+}
+.t3-td-row,
+.t3-td-split-primary,
+.t3-td-split-secondary {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  color: color-mix(in srgb, var(--color-ink) 80%, transparent);
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+  transition: scale 150ms ease-out;
+}
+.t3-td-row {
+  width: 100%;
+}
+.t3-td-row:is(button:enabled, a):hover,
+.t3-td-split:hover,
+.t3-td-split[data-open] {
+  background: rgb(255 255 255 / 8%);
+}
+.t3-td-row:is(button:enabled, a):not([aria-haspopup]):active,
+.t3-td-split-primary:enabled:not([aria-disabled="true"]):active {
+  scale: 0.97;
+}
+.t3-td-row[data-locked] {
+  cursor: default;
+}
+.t3-td-row:disabled {
+  opacity: 0.64;
+  pointer-events: none;
+}
+.t3-td-row svg,
+.t3-td-split svg,
+.t3-td-icons svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  color: var(--color-muted);
+  pointer-events: none;
+}
+.t3-td-icons {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+}
+.t3-td-label {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.t3-td-meta,
+.t3-td-counts {
+  flex: 0 0 auto;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.t3-td-counts {
+  display: flex;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.t3-td-anchor {
   position: relative;
 }
-.t3-details-card {
-  position: absolute;
-  top: 38px;
-  right: 0;
-  z-index: 40;
-  width: 280px;
-  max-width: calc(100vw - 24px);
-  padding: 20px;
-  border: 1px solid #242424;
-  border-radius: 24px;
-  background: #111111f2;
-  backdrop-filter: blur(16px);
-  box-shadow: 0 12px 40px #0006;
-  font-size: 12px;
+.t3-td-row[data-select] {
+  gap: 0;
+  padding: 0;
 }
-.t3-details-card h2 {
-  font-size: 14px;
-  font-weight: 500;
-  overflow-wrap: anywhere;
-}
-.t3-details-card p {
-  overflow-wrap: anywhere;
-}
-.t3-details-label {
-  color: #818181;
-  font-size: 11px;
-  margin: 16px 0 6px;
-}
-.t3-details-actions {
+.t3-td-select-label {
   display: flex;
-  gap: 8px;
-  margin-top: 16px;
+  height: 100%;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px;
+  border-radius: 8px 0 0 8px;
 }
-.t3-details-actions button {
-  border: 1px solid #242424;
-  padding: 5px 8px;
+.t3-td-select-icon {
+  position: relative;
+  display: flex;
+  width: 32px;
+  height: 100%;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  margin-right: -1px;
+  border-radius: 0 8px 8px 0;
+}
+.t3-td-select-icon::before,
+.t3-td-split-rule {
+  width: 1px;
+  height: 16px;
+  background: color-mix(in srgb, var(--color-edge) 65%, transparent);
+}
+.t3-td-select-icon::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: -1px;
+  translate: 0 -50%;
+}
+.t3-td-select-label:hover,
+.t3-td-select-icon:hover,
+.t3-td-split-primary:enabled:hover,
+.t3-td-split-secondary:enabled:hover {
+  background: rgb(255 255 255 / 8%);
+}
+.t3-td-row[data-select][aria-expanded="true"] {
+  background: rgb(255 255 255 / 8%);
+}
+.t3-td-split {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  border-radius: 8px;
+}
+.t3-td-split[data-busy] {
+  background: rgb(255 255 255 / 5.5%);
+}
+.t3-td-split-primary {
+  flex: 1 1 auto;
+  border-radius: 8px 0 0 8px;
+}
+.t3-td-split-secondary {
+  width: 32px;
+  justify-content: center;
+  padding: 0;
+  border-radius: 0 8px 8px 0;
+}
+.t3-td-split-rule {
+  flex: 0 0 auto;
+}
+.t3-td-split-primary:disabled,
+.t3-td-split-primary[aria-disabled="true"],
+.t3-td-split-secondary:disabled {
+  opacity: 0.64;
+  cursor: not-allowed;
+}
+.t3-td-split-primary:disabled[aria-busy="true"] {
+  opacity: 1;
+  cursor: progress;
+}
+.t3-td-row .t3-td-brand,
+.t3-td-split .t3-td-brand {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  color: var(--color-muted);
+}
+.t3-td-menu .t3-td-brand {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  color: var(--color-muted);
+}
+.t3-td-spin {
+  animation: t3-td-spin 900ms linear infinite;
+}
+@keyframes t3-td-spin {
+  to {
+    rotate: 360deg;
+  }
+}
+.t3-td-error,
+.t3-td-note {
+  padding: 2px 10px 4px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.t3-td-error {
+  color: var(--color-danger);
+}
+.t3-td-note {
+  color: var(--color-muted);
+}
+.t3-td-menu {
+  position: fixed;
+  z-index: 60;
+  padding: 4px;
+  border-radius: 10px;
+  --float-origin: top;
+}
+.t3-td-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 32px;
+  padding: 4px 8px;
   border-radius: 6px;
+  color: var(--color-ink-2);
+  font-size: 13px;
+  text-align: left;
+}
+.t3-td-menu button:enabled:hover,
+.t3-td-menu button:focus-visible {
+  outline: none;
+  background: var(--color-hover);
+  color: var(--color-ink);
+}
+.t3-td-menu button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.t3-td-menu svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  color: var(--color-muted);
+}
+.t3-td-menu-label {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (prefers-reduced-motion: reduce) {
+  .t3-td-spin {
+    animation: none;
+  }
+  .t3-td-row,
+  .t3-td-split-primary {
+    transition: none;
+  }
 }
 .t3-pr-panel {
   overflow: auto;

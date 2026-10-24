@@ -87,6 +87,17 @@
   /* The accent, legible as text. `accent` is a fill colour and fails contrast on a dark ground at 13px. */
   --color-accent-ink: #8cacff;
   --color-accent-tint: #346bf126;
+  /*
+   * The sidebar's quieter greys and its status blue, measured off T3 Code's dark sidebar: a row's
+   * source and time sit a step below `muted`, the header icons below that, and *Working* is a
+   * saturated blue rather than `accent-ink`, which washes out at 12px beside grey text.
+   * Both greys sit below the 12px legibility floor `gutter` states above, and below AA, on
+   * purpose: they reproduce T3 Code's rendered sidebar, which this one was asked to match. Raise
+   * them and it stops matching; do not take them as having been checked for contrast.
+   */
+  --color-sidebar-label: #6b6b6b;
+  --color-sidebar-icon: #505050;
+  --color-info: #4b82f7;
 
   --radius-chip: 7px;
 
@@ -1879,6 +1890,9 @@ body {
   --color-accent: #346bf1;
   --color-accent-ink: #8cacff;
   --color-accent-tint: #346bf126;
+  --color-sidebar-label: #6b6b6b;
+  --color-sidebar-icon: #505050;
+  --color-info: #4b82f7;
 }
 .dashboard-frame {
   grid-template-columns: 260px minmax(0, 1fr);
@@ -2026,17 +2040,87 @@ body {
   }
 }
 /*
- * The prompt box's own glass, for every popover in the app — the composer's menus and context
- * popup, the sidebar's menus, the repository picker — so whatever floats reads as the same
- * material as the prompt box it usually rises out of. It is the blur, not the 80% opacity, that
- * keeps a draft behind a popover from reading through it: a deliberate reversal of the add menu's
- * earlier opaque panel, which is why the fallbacks below go opaque wherever the blur is missing.
+ * T3 Code's dropdown glass for menus and popovers, deliberately a step more opaque than the
+ * prompt box's own glass. Blur keeps a draft behind a popover from reading through it; the
+ * fallbacks below go opaque wherever blur is missing.
+ * Adapted from T3 Code (MIT — see apps/web/THIRD_PARTY_NOTICES.md).
  */
 .composer-surface {
-  border: 1px solid rgb(255 255 255 / 5%);
-  background: color-mix(in srgb, var(--color-panel) 80%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-ink) 10%, transparent);
+  /*
+   * T3 Code's `dropdown-glass`, value for value: the raised panel colour at the 80% glass opacity,
+   * with 18% of the solid colour mixed back over it — about 84% in all. The extra 4% is what
+   * keeps a menu's rows legible over a busy transcript without the panel turning opaque.
+   */
+  background: color-mix(
+    in srgb,
+    var(--color-panel) 18%,
+    color-mix(in srgb, var(--color-panel) 80%, transparent)
+  );
   -webkit-backdrop-filter: blur(16px) saturate(1.08);
   backdrop-filter: blur(16px) saturate(1.08);
+}
+/*
+ * A popover rather than a menu — something that holds content, like the repository picker.
+ * T3's popover adds one thing its menus do not: a 1px highlight along the top edge, drawn by a pseudo-element's shadow so it sits over the border rather than inside it.
+ * Adapted from T3 Code (MIT — see apps/web/THIRD_PARTY_NOTICES.md).
+ */
+.glass-popover::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 -1px rgb(255 255 255 / 6%);
+  pointer-events: none;
+}
+/*
+ * T3 Code's `surface-glass`, for a control that floats over content rather than opening from
+ * it — the transcript's scroll-to-end pill. The page's own surface, not the raised panel, so it
+ * reads as a hole in the page rather than a card on it.
+ * Adapted from T3 Code (MIT — see apps/web/THIRD_PARTY_NOTICES.md).
+ */
+.surface-glass {
+  border: 1px solid color-mix(in srgb, var(--color-ink) 6%, transparent);
+  background: color-mix(in srgb, var(--color-surface) 80%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(1.08);
+  backdrop-filter: blur(16px) saturate(1.08);
+}
+.surface-glass:hover {
+  border-color: color-mix(in srgb, var(--color-ink) 10%, transparent);
+}
+/*
+ * T3 Code's `dialog-glass` and `dialog-backdrop`: a modal is the page's surface under glass, not
+ * an opaque card, so the work behind it stays faintly present; and the room behind is dimmed to
+ * 64% and softened by 4px rather than blacked out. The inset line along the top is the light
+ * catching the panel's edge.
+ * Adapted from T3 Code (MIT — see apps/web/THIRD_PARTY_NOTICES.md).
+ *
+ * `::backdrop` reads custom properties from its dialog in current browsers; the fallback colour is
+ * the surface itself, for one that does not.
+ */
+.dialog-glass {
+  border-color: rgb(255 255 255 / 8%);
+  background: color-mix(in srgb, var(--color-surface, #0a0a0a) 80%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(1.08);
+  backdrop-filter: blur(16px) saturate(1.08);
+  box-shadow:
+    inset 0 1px rgb(255 255 255 / 4%),
+    0 24px 72px -20px rgb(0 0 0 / 90%);
+}
+.dialog-glass::backdrop,
+.sheet-backdrop::backdrop {
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+.dialog-glass::backdrop {
+  background: color-mix(in srgb, var(--color-surface, #0a0a0a) 64%, transparent);
+}
+/*
+ * T3's sheet: an opaque panel, over the same softened room at 60%.
+ * Adapted from T3 Code (MIT — see apps/web/THIRD_PARTY_NOTICES.md).
+ */
+.sheet-backdrop::backdrop {
+  background: color-mix(in srgb, var(--color-surface, #0a0a0a) 60%, transparent);
 }
 /*
  * A popup that lives in a `<details>` — the context popup, the sidebar's settings menu — is
@@ -2112,8 +2196,12 @@ details[open] > .nap-float {
   .workspace-composer[data-resting="true"] .composer-model-controls {
     background: var(--color-panel);
   }
-  .composer-surface {
+  .composer-surface,
+  .dialog-glass {
     background: var(--color-panel);
+  }
+  .surface-glass {
+    background: var(--color-surface);
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -2143,8 +2231,14 @@ details[open] > .nap-float {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
-  .composer-surface {
+  .composer-surface,
+  .dialog-glass {
     background: var(--color-panel);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .surface-glass {
+    background: var(--color-surface);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
@@ -2592,18 +2686,32 @@ details[open] > .nap-float {
   z-index: 45;
   touch-action: none;
 }
+/* T3's shelf header: the label, a hairline to the edge, and a chevron that points where it opens. */
 .session-section-label {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   width: 100%;
-  padding: 7px 10px;
-  color: var(--color-muted);
-  font-size: 11px;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: 6px;
+  color: color-mix(in srgb, var(--color-muted) 60%, transparent);
+  font-size: 12px;
+  font-weight: 500;
   text-align: left;
 }
-.session-section-label span {
-  font-variant-numeric: tabular-nums;
+.session-section-label:hover {
+  color: var(--color-muted);
+}
+.session-section-label:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+.session-section-label .session-section-rule {
+  flex: 1;
+  min-width: 8px;
+  height: 1px;
+  background: color-mix(in srgb, var(--color-edge) 60%, transparent);
 }
 [data-drop="true"]::before {
   content: "";

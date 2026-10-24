@@ -13,12 +13,15 @@ export function EnvironmentSettings({
   environment,
   busy,
   onSave,
+  defaultExpanded = false,
 }: {
   environment: RepositoryEnvironment;
   busy: boolean;
   onSave: (environment: RepositoryEnvironment) => Promise<boolean>;
+  /** Open at once where the form is the only reason the surface was opened. */
+  defaultExpanded?: boolean;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(defaultExpanded);
   const [changed, setChanged] = useState(false);
   const [setup, setSetup] = useState(environment.setupCommand ?? "");
   const [dev, setDev] = useState(environment.devCommand ?? "");

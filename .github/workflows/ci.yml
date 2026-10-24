@@ -10,7 +10,8 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # A newer merge must not cancel a production release between backend and web deployments.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   check:
@@ -64,3 +65,28 @@ jobs:
       # gate at all. Skipped tests in the first run are expected; see harbor/tests/test_agent.py.
       - run: uv run --directory harbor --with pytest pytest -q
       - run: uv run --directory harbor --extra harbor --with pytest pytest -q
+
+  production:
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    needs: [check, python]
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+
+      - run: bun install --frozen-lockfile
+
+      - name: Deploy API, reaper, worker, then web
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          RELEASE_COMMIT: ${{ github.sha }}
+        run: bun run scripts/production-release.ts "$RELEASE_COMMIT"

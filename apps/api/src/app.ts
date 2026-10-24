@@ -34,6 +34,7 @@ import { METRICS_CONTENT_TYPE, type Metrics } from "./metrics.ts";
 import { type ModelRouteDeps, registerModelRoutes } from "./models/routes.ts";
 import { type ProjectRouteDeps, registerProjectRoutes } from "./projects/routes.ts";
 import { registerSessionStartRoutes, type SessionStartRouteDeps } from "./projects/start-routes.ts";
+import { type ProviderRouteDeps, registerProviderRoutes } from "./providers/routes.ts";
 import { registerTurnRoutes, type TurnRouteDeps } from "./turns/routes.ts";
 import { type HeartbeatOptions, openEventStream } from "./ws/event-stream.ts";
 import { parseStreamQuery } from "./ws/query.ts";
@@ -140,6 +141,12 @@ export type AppDeps = {
    * save one.
    */
   account?: AccountRouteDeps;
+  /**
+   * The Claude and ChatGPT accounts somebody connected, and running each provider's sign-in.
+   * Optional like `account`: an app with no store of accounts has no route that pretends to list
+   * them.
+   */
+  providers?: ProviderRouteDeps;
   /**
    * Listing, creating, closing and deleting projects — the front door. Optional for the same
    * reason as above: most route tests have no database behind them, and an app built without
@@ -350,6 +357,7 @@ export function createApp(deps: AppDeps): Hono<{ Variables: AuthVariables }> {
   if (deps.computerScreenshots !== undefined)
     registerComputerScreenshotRoutes(app, deps.computerScreenshots);
   if (deps.account !== undefined) registerAccountRoutes(app, deps.account);
+  if (deps.providers !== undefined) registerProviderRoutes(app, deps.providers);
   if (deps.files !== undefined) registerFileRoutes(app, deps.files);
   if (deps.turns !== undefined) registerTurnRoutes(app, deps.turns, deps.stream.store);
   if (deps.models !== undefined) registerModelRoutes(app, deps.models);

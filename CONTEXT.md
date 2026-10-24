@@ -233,6 +233,12 @@ one Nap owner who connected it; what the UI calls a **GitHub connection**. It st
 owner across a disconnect. Only GitHub answering 404 for it marks it *removed*; a rate limit or an
 outage changes nothing stored. See `docs/github-integration.md` and `docs/adr/0016`.
 
+**Provider account** — one Claude or ChatGPT subscription a Nap owner connected, so turns can run
+on the plan they already pay for; what the Providers settings page lists. A person may hold several
+of one provider ("Personal", "Work"). The provider's own agent keeps its login — Nap stores no
+credential for it, only what the provider last reported about who is signed in. Not the
+`LLMProvider`, which is model policy, and not an API key, which pays per token.
+
 **Repository job** — the GitHub side of a **Job** in an imported project: its `nap/<job-id>` branch,
 base and head commits, the commit it pushed, and its pull request. A row in `repository_jobs`, keyed
 by the Job's id; it records where the work went, while the Job itself still says how far it got.

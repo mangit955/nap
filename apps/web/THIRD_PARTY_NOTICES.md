@@ -23,10 +23,26 @@ The chat pane's timeline is a clone of T3 Code's chat timeline:
   `src/chat/context-control.tsx`)
 - the compaction divider and its short token counts (`src/chat/compaction-row.tsx`)
 
+The provider settings — the list beside its editor, the Account sign-in row, the three-step
+"Add provider" wizard, and the OpenAI and Claude marks (`src/providers/`) — follow T3 Code at
+commit `71a283aed253f23be1860a31d4ea48f1c06e0b1c`.
+
+The menu and popover glass, floating surface, dialog glass, and dialog and sheet backdrops
+(`.composer-surface`, `.glass-popover`, `.surface-glass`, `.dialog-glass`, `.sheet-backdrop` in
+`src/app/globals.css`) are adapted from T3 Code at commit
+`71a283aed253f23be1860a31d4ea48f1c06e0b1c`. The switch in `src/ui/switch.tsx` is an independent
+implementation inspired by the provider switches at that commit.
+
 The right-panel shell, tabs, toolbar dimensions, dark palette, and Pierre diff theme
 (`src/workspace/right-panel.css`, `src/workspace/workbench.tsx`, `src/workspace/diff-theme.ts`)
 follow T3 Code at commit `51273020db3245f4ec29514a419d29b5dcb012dc`. The panel uses
 `@pierre/diffs` 1.5.2 under its Apache-2.0 license; its notices ship with that package.
+
+The thread details card — its inline and popover placement, sections, and select, split and plain
+rows, and the git action labels (`src/workspace/thread-details.tsx`,
+`src/workspace/thread-details-logic.ts`, and the `.t3-thread-details` and `.t3-td-*` rules in
+`src/workspace/right-panel.css`) — follows T3 Code at commit
+`d53873b6a4799e87afd63c8d288ef0089f5a3748`.
 
 The chat adaptations below use the earlier reference commit.
 

@@ -29,6 +29,7 @@ import { BrowserToolbar } from "../workspace/browser-toolbar.tsx";
 import { ChangesPanel } from "../workspace/changes-panel.tsx";
 import { FilePanel } from "../workspace/file-panel.tsx";
 import { PANEL_SPLIT } from "../workspace/split.ts";
+import { ThreadDetailsPanel, useThreadDetails } from "../workspace/thread-details.tsx";
 import { useNarrowPanel } from "../workspace/use-narrow-panel.ts";
 import { usePaneWidth } from "../workspace/use-pane-width.ts";
 import { usePanelLayout } from "../workspace/use-panel-layout.ts";
@@ -185,6 +186,8 @@ export function AppShell({
     log.events.findLast(
       (event) =>
         event.type === "system.notice" ||
+        event.type === "preview.ready" ||
+        event.type === "preview.stopped" ||
         event.type === "turn.completed" ||
         event.type === "turn.failed" ||
         event.type === "verification.completed",
@@ -261,6 +264,7 @@ export function AppShell({
         }
       : null;
   const narrow = useNarrowPanel();
+  const details = useThreadDetails(`${ownerId ?? "guest"}:${projectId}`);
   const chatHidden = visiblePanel && (maximized || narrow);
   const selected = panels.layout.tabs.find(
     (tab) => tab.kind === "file" && `file:${tab.path}` === panels.layout.active,
@@ -275,52 +279,22 @@ export function AppShell({
         data-maximized={maximized && visiblePanel}
         style={paneStyle}
       >
-        <div className="t3-chat-column min-h-0 min-w-0" hidden={chatHidden}>
+        <div
+          ref={details.ref}
+          className="t3-chat-column min-h-0 min-w-0"
+          hidden={chatHidden}
+          data-details-card={details.open ? details.presentation : undefined}
+        >
           <WorkspaceHeader
             projectName={headerNote(status, project?.name)}
             {...(status === "ready" && project !== undefined ? { onRename: rename } : {})}
             job={log.jobs.summary}
             panelOpen={visiblePanel}
             onTogglePanel={panels.toggle}
-            details={
-              <>
-                <p className="t3-details-label">Workspace</p>
-                <p>{project?.name ?? "Opening…"}</p>
-                {repository && (
-                  <>
-                    <p className="t3-details-label">Repository</p>
-                    <p>{repository.repository.fullName}</p>
-                    <p className="t3-details-label">Base branch</p>
-                    <code>{repository.baseBranch}</code>
-                  </>
-                )}
-                <div className="t3-details-actions">
-                  <button type="button" onClick={() => panels.open({ kind: "diff" })}>
-                    View changes
-                  </button>
-                  <button type="button" onClick={() => panels.open({ kind: "pr" })}>
-                    Pull requests
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!sessionId}
-                    onClick={() => {
-                      if (sessionId)
-                        setRecordingPosition({
-                          sessionId,
-                          turnId:
-                            tests.findLast(
-                              (test) =>
-                                test.status !== "running" && test.recording.state === "available",
-                            )?.turnId ?? null,
-                        });
-                    }}
-                  >
-                    Test recordings
-                  </button>
-                </div>
-              </>
-            }
+            detailsOpen={details.open}
+            detailsId={details.id}
+            detailsPresentation={details.presentation}
+            onToggleDetails={details.toggle}
           />
           <ComputerNavigation.Provider value={openComputer}>
             <RecordingNavigation.Provider
@@ -342,6 +316,34 @@ export function AppShell({
               />
             </RecordingNavigation.Provider>
           </ComputerNavigation.Provider>
+          {details.open && status === "ready" && (
+            <ThreadDetailsPanel
+              key={projectId}
+              id={details.id}
+              projectId={projectId}
+              sessionId={sessionId}
+              phase={phase}
+              previewUrl={previewUrl}
+              revision={githubRevision}
+              replayed={log.replayed}
+              sandboxId={project?.sandboxId}
+              presentation={details.presentation}
+              onDismiss={details.dismiss}
+              onOpenChanges={() => panels.open({ kind: "diff" })}
+              onOpenPullRequests={() => panels.open({ kind: "pr" })}
+              onOpenRecordings={() => {
+                if (sessionId)
+                  setRecordingPosition({
+                    sessionId,
+                    turnId:
+                      tests.findLast(
+                        (test) => test.status !== "running" && test.recording.state === "available",
+                      )?.turnId ?? null,
+                  });
+              }}
+              fetchJson={fetchJson}
+            />
+          )}
         </div>
         {visiblePanel && !maximized && (
           <div className="t3-panel-divider">

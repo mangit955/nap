@@ -17,6 +17,20 @@ export const ComposerDraftSchema = z.object({
 export type ComposerDraft = z.infer<typeof ComposerDraftSchema>;
 const suspendedOwners = new Set<string>();
 
+/**
+ * Whether the draft holds nothing the author wrote or attached. The model is left out on purpose:
+ * one picked on an empty box is not worth holding a link for, so it is kept by the debounced save
+ * alone, and a link followed before that save runs drops it.
+ */
+export function isBlankDraft(draft: ComposerDraft): boolean {
+  return (
+    !draft.text.trim() &&
+    draft.attachments.length === 0 &&
+    draft.source === null &&
+    draft.pendingStart === undefined
+  );
+}
+
 /** Prepared media lives in IndexedDB, never in a redirect URL or a small localStorage quota. */
 export class ComposerDraftStore {
   constructor(private readonly factory: IDBFactory | undefined = globalThis.indexedDB) {}
