@@ -18,6 +18,7 @@ function Workspace({ scope = "test" }: { scope?: string }) {
         controller={controller}
         maximized={false}
         onMaximize={() => {}}
+        computer={<p>the computer</p>}
         preview={<input aria-label="App state" defaultValue="kept" />}
         code={<p>the files</p>}
         diff={<p>the changes</p>}
@@ -216,4 +217,15 @@ describe("the right panel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Toggle panel" }));
     expect(screen.getByRole("tabpanel", { name: "Files" })).toBeVisible();
   });
+});
+
+it("opens and persists the Computer tab from the panel menu", () => {
+  const view = render(<Workspace />);
+  fireEvent.click(screen.getByLabelText("Add panel"));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Computer" }));
+  expect(screen.getByRole("tab", { name: "Computer" })).toHaveAttribute("aria-selected", "true");
+  expect(screen.getByText("the computer")).toBeVisible();
+  view.unmount();
+  render(<Workspace />);
+  expect(screen.getByRole("tab", { name: "Computer" })).toHaveAttribute("aria-selected", "true");
 });

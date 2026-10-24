@@ -8,6 +8,7 @@ import {
   GitPullRequest,
   Maximize2,
   Minimize2,
+  Monitor,
   Plus,
   X,
 } from "lucide-react";
@@ -26,6 +27,8 @@ import type { PanelController } from "./use-panel-layout.ts";
 
 export function TabIcon({ tab }: { tab: WorkbenchTab }) {
   switch (tab.kind) {
+    case "computer":
+      return <Monitor />;
     case "preview":
       return <Earth />;
     case "code":
@@ -44,6 +47,7 @@ export function Workbench({
   maximized,
   onMaximize,
   preview,
+  computer,
   code,
   diff,
   pullRequests,
@@ -59,6 +63,7 @@ export function Workbench({
   maximized: boolean;
   onMaximize: () => void;
   preview: ReactNode;
+  computer: ReactNode;
   code: ReactNode;
   diff: ReactNode;
   pullRequests: ReactNode;
@@ -145,6 +150,8 @@ export function Workbench({
   };
   const body = (tab: WorkbenchTab) => {
     switch (tab.kind) {
+      case "computer":
+        return computer;
       case "preview":
         return preview;
       case "code":

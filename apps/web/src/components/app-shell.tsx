@@ -2,6 +2,8 @@
 
 import type { ProjectRepository } from "@nap/shared/github-protocol";
 import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react";
+import { ComputerPane } from "../computer/computer-pane.tsx";
+import { ComputerNavigation } from "../computer/navigation.tsx";
 import { type FetchJson, useProjectFiles } from "../files/use-project-files.ts";
 import { ProjectGitHubControl } from "../github/project-github.tsx";
 import type { CreateSocket } from "../hooks/use-event-stream.ts";
@@ -195,6 +197,17 @@ export function AppShell({
   const { width, containerRef, onGrab, onKeyDown } = usePaneWidth(PANEL_SPLIT, 540);
   useDocumentScrollLock();
   const paneStyle: CSSProperties & { "--panel-width": string } = { "--panel-width": `${width}px` };
+  const [computerPosition, setComputerPosition] = useState<{
+    sessionId: string | undefined;
+    seq: number | null;
+  } | null>(null);
+  const computerSeq =
+    computerPosition && computerPosition.sessionId === sessionId ? computerPosition.seq : null;
+  const seekComputer = (seq: number | null) => setComputerPosition({ sessionId, seq });
+  const openComputer = (seq: number) => {
+    seekComputer(seq);
+    panels.open({ kind: "computer" });
+  };
   const openFile = (path: string) => panels.open({ kind: "file", path });
   const visiblePanel = panels.layout.open;
   const narrow = useNarrowPanel();
@@ -242,17 +255,19 @@ export function AppShell({
               </>
             }
           />
-          <LiveChatPane
-            ownerId={ownerId}
-            active={!chatHidden}
-            sessionId={sessionId}
-            projectId={projectId}
-            log={log}
-            files={files.listing?.files}
-            onOpenFile={openFile}
-            onOpenChanges={() => panels.open({ kind: "diff" })}
-            {...(fetchJson === undefined ? {} : { fetchJson })}
-          />
+          <ComputerNavigation.Provider value={openComputer}>
+            <LiveChatPane
+              ownerId={ownerId}
+              active={!chatHidden}
+              sessionId={sessionId}
+              projectId={projectId}
+              log={log}
+              files={files.listing?.files}
+              onOpenFile={openFile}
+              onOpenChanges={() => panels.open({ kind: "diff" })}
+              {...(fetchJson === undefined ? {} : { fetchJson })}
+            />
+          </ComputerNavigation.Provider>
         </div>
         {visiblePanel && !maximized && (
           <div className="t3-panel-divider">
@@ -281,6 +296,9 @@ export function AppShell({
           controller={panels}
           maximized={maximized}
           onMaximize={() => setMaximized((value) => !value)}
+          computer={
+            <ComputerPane events={log.events} selectedSeq={computerSeq} onSeek={seekComputer} />
+          }
           preview={
             <>
               <BrowserToolbar

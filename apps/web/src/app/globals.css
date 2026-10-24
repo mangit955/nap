@@ -2637,3 +2637,172 @@ details[open] > .nap-float {
     pointer-events: auto;
   }
 }
+
+.computer-pane {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  height: 100%;
+  min-height: 0;
+  padding: 16px;
+  background: var(--color-surface);
+  color: var(--color-ink);
+}
+.computer-stage {
+  display: grid;
+  place-items: center;
+  flex: 1;
+  min-height: 0;
+  padding: 16px 0;
+}
+.computer-frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  max-height: 100%;
+  border: 1px solid var(--color-edge);
+  box-shadow: var(--shadow-raised);
+  background: var(--color-surface);
+  overflow: hidden;
+}
+.computer-frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.computer-state {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: var(--color-surface);
+}
+.computer-state > * {
+  max-width: 360px;
+}
+.computer-state-card {
+  padding: 24px;
+  border: 1px solid var(--color-edge);
+  border-radius: 20px;
+  background: var(--color-panel);
+  box-shadow: var(--shadow-card);
+  text-align: center;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+.computer-controls {
+  position: relative;
+  flex-shrink: 0;
+  padding: 14px;
+  border: 1px solid var(--color-edge);
+  border-radius: 20px;
+  background: var(--color-panel);
+  box-shadow:
+    var(--shadow-card),
+    inset 0 1px rgb(255 255 255 / 3%);
+}
+.computer-controls input {
+  display: block;
+  width: 100%;
+  height: 4px;
+  margin: 2px 0 14px;
+  accent-color: var(--color-accent);
+  background: linear-gradient(
+    to right,
+    var(--color-accent) var(--computer-progress),
+    var(--color-edge) var(--computer-progress)
+  );
+}
+.computer-control-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.computer-control-row button,
+.computer-control-row select,
+.computer-state button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 7px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.computer-control-row button:hover,
+.computer-state button:hover {
+  color: var(--color-ink);
+  background: var(--color-edge);
+}
+.computer-control-row button:disabled,
+.computer-control-row select:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.computer-control-row svg {
+  width: 16px;
+  height: 16px;
+}
+.computer-control-row select {
+  margin-left: auto;
+}
+.computer-control-row .computer-live {
+  border-color: var(--color-edge);
+  border-radius: 24px;
+  white-space: nowrap;
+  color: var(--color-ink);
+}
+.computer-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-danger);
+}
+.computer-live[data-playing="true"] .computer-live-dot {
+  animation: computer-live-pulse 1600ms ease-in-out;
+}
+.computer-caption {
+  margin: 8px 0 0;
+  font-size: 10px;
+  color: var(--color-muted);
+}
+@keyframes computer-live-pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+@supports (backdrop-filter: blur(1px)) {
+  .computer-controls {
+    background: color-mix(in srgb, var(--color-panel) 80%, transparent);
+    backdrop-filter: blur(16px) saturate(1.08);
+  }
+}
+@supports not (backdrop-filter: blur(1px)) {
+  .computer-controls {
+    background: var(--color-panel);
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .computer-controls {
+    background: var(--color-panel);
+    backdrop-filter: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .computer-live-dot {
+    animation: none;
+  }
+}
+@supports (width: 1cqh) {
+  .computer-stage {
+    container-type: size;
+  }
+  .computer-frame {
+    width: min(100cqw, calc(100cqh * 4 / 3), 1024px);
+  }
+}
