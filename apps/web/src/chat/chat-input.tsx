@@ -47,8 +47,17 @@ export function ChatInput({
   onModelChange,
   onAddKey,
   dropZone,
+  executionControl,
+  executionBlocked = false,
+  supportsImages,
+  restoreDraftModel = true,
 }: {
   draftIdentity?: { ownerId: string; projectId: string } | undefined;
+  executionControl?: ReactNode;
+  executionBlocked?: boolean | undefined;
+  supportsImages?: boolean | undefined;
+  /** A server-owned execution preference takes precedence over an old local API draft. */
+  restoreDraftModel?: boolean;
   /**
    * Where a dropped file is taken from: the pane's whole chat stage, which is where the overlay
    * saying so is drawn. Absent, the composer itself is the target, with only its ring to show it.
@@ -109,7 +118,7 @@ export function ChatInput({
               media: item,
             })),
           );
-          if (saved.model) restoreModel.current?.(saved.model);
+          if (saved.model && restoreDraftModel) restoreModel.current?.(saved.model);
         }
         setDraftReady(true);
       })
@@ -122,7 +131,7 @@ export function ChatInput({
     return () => {
       cancelled = true;
     };
-  }, [draftOwner, draftProject, media.setAttachments]);
+  }, [draftOwner, draftProject, media.setAttachments, restoreDraftModel]);
   if (draftReady && draftOwner && draftProject)
     latestDraft.current = {
       id: draftProject,
@@ -172,7 +181,7 @@ export function ChatInput({
     enabled: !running && draftReady,
     onFiles: (dropped) => void media.add(dropped),
   });
-  const images = modelSupportsImages(model);
+  const images = supportsImages ?? modelSupportsImages(model);
   const incompatibleMedia = media.attachments.length > 0 && !images;
   const dictation = useDictation((spoken) =>
     setText((current) => appendDictation(current, spoken)),
@@ -287,6 +296,7 @@ export function ChatInput({
       text.trim() || (media.attachments.length > 0 ? "Use these references for the app." : "");
     if (
       !draftReady ||
+      executionBlocked ||
       message === "" ||
       (running && !queueing) ||
       media.processing ||
@@ -515,15 +525,17 @@ export function ChatInput({
         </div>
         <div className="composer-toolbar flex items-center justify-between gap-2 px-3 pb-3 sm:px-4 sm:pb-4">
           <div className="composer-model-controls flex min-w-0 items-center gap-1">
-            <ModelPicker
-              models={models}
-              model={model}
-              disabled={!draftReady || (running && !queueing)}
-              onChange={(choice) => onModelChange?.(choice)}
-              onAddKey={onAddKey}
-              onPick={() => box.current?.focus()}
-              closeWhen={`${visible}:${text}`}
-            />
+            {executionControl ?? (
+              <ModelPicker
+                models={models}
+                model={model}
+                disabled={!draftReady || (running && !queueing)}
+                onChange={(choice) => onModelChange?.(choice)}
+                onAddKey={onAddKey}
+                onPick={() => box.current?.focus()}
+                closeWhen={`${visible}:${text}`}
+              />
+            )}
             <DictationButton dictation={dictation} disabled={running || media.processing} />
           </div>
           <div className="composer-primary-actions flex shrink-0 items-center gap-1.5">
@@ -557,7 +569,9 @@ export function ChatInput({
               <button
                 type="button"
                 onClick={send}
-                disabled={!draftReady || empty || media.processing || incompatibleMedia}
+                disabled={
+                  !draftReady || executionBlocked || empty || media.processing || incompatibleMedia
+                }
                 aria-label={queueing ? "Queue message" : "Send"}
                 className="composer-send relative isolate flex size-9 items-center justify-center overflow-hidden rounded-full bg-accent text-white transition-all duration-150 enabled:cursor-pointer disabled:pointer-events-none disabled:opacity-64 sm:size-8 focus-visible:outline-accent [&_svg]:pointer-events-none"
               >

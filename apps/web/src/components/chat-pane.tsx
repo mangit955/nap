@@ -4,19 +4,21 @@ import type { MediaAttachment } from "@nap/shared/media";
 
 import type { ModelChoice } from "@nap/shared/models-protocol";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ApiKeyPanel } from "../account/api-key-panel.tsx";
 import { useApiKey } from "../account/use-api-key.ts";
 import { NapMark } from "../brand/nap-mark.tsx";
 import { ChatInput } from "../chat/chat-input.tsx";
 import { ChatTranscript } from "../chat/chat-transcript.tsx";
 import { ContextControl } from "../chat/context-control.tsx";
+import { ExecutionPicker } from "../chat/execution-picker.tsx";
 import type { FirstPrompt } from "../chat/first-prompt.ts";
 import { modelInUse } from "../chat/model-picker.tsx";
 import { buildTranscript } from "../chat/transcript.ts";
 import { TranscriptSkeleton } from "../chat/transcript-skeleton.tsx";
 import { useFirstPrompt } from "../chat/use-first-prompt.ts";
 import { useModels } from "../chat/use-models.ts";
+import { useSessionExecution } from "../chat/use-session-execution.ts";
 import { useStickToBottom } from "../chat/use-stick-to-bottom.ts";
 import { useTurnSubmission } from "../chat/use-turn-submission.ts";
 import { WorkingRow } from "../chat/work-log-rows.tsx";
@@ -58,6 +60,11 @@ export function ChatPane({
   model,
   onModelChange,
   onAddKey,
+  executionControl,
+  executionBlocked,
+  supportsImages,
+  restoreDraftModel,
+  executionNotice,
 }: {
   draftIdentity?: { ownerId: string; projectId: string } | undefined;
   active?: boolean;
@@ -93,6 +100,11 @@ export function ChatPane({
   onModelChange?: ((model: string) => void) | undefined;
   /** Opening the key form, for a model this caller cannot reach. */
   onAddKey?: (() => void) | undefined;
+  executionControl?: ReactNode;
+  executionBlocked?: boolean | undefined;
+  supportsImages?: boolean | undefined;
+  restoreDraftModel?: boolean;
+  executionNotice?: ReactNode;
 }) {
   const empty = events.length === 0 && pending === undefined;
   // Folded once, read twice: the transcript renders it and the composer asks it whether a
@@ -189,6 +201,7 @@ export function ChatPane({
           </section>
 
           <div ref={composerDock} className="chat-composer-dock absolute inset-x-0 bottom-0 z-10">
+            {executionNotice}
             <ChatInput
               draftIdentity={draftIdentity}
               dropZone={stage}
@@ -213,6 +226,10 @@ export function ChatPane({
               visible={active}
               running={running}
               error={error}
+              executionControl={executionControl}
+              executionBlocked={executionBlocked}
+              supportsImages={supportsImages}
+              {...(restoreDraftModel === undefined ? {} : { restoreDraftModel })}
               firstPrompt={firstPrompt}
               onSubmit={onSubmit}
               onCancel={onCancel}
@@ -349,13 +366,15 @@ export function LiveChatPane({
     ...injected,
   });
   const { models } = useModels(injected);
+  const execution = useSessionExecution({ sessionId, ...injected });
   // Somebody who meets a locked model, or a turn refused for want of a key, should be able to
   // fix it here rather than being sent to the dashboard and back.
   const key = useApiKey(injected);
   const [keyPanelOpen, setKeyPanelOpen] = useState(false);
   // Held here rather than in the composer: the choice has to outlive the box being cleared on
   // send, and a retry has to go out on the same model the user picked.
-  const [model, setModel] = useState<string | undefined>(undefined);
+  const [firstModel, setFirstModel] = useState<string | undefined>(undefined);
+  const model = execution.selection?.model ?? firstModel;
   const [firstPrompt, setFirstPrompt] = useState<FirstPrompt>();
 
   // Through the same submission path as the input, so the front page's first message is an
@@ -366,7 +385,7 @@ export function LiveChatPane({
     submit: (message, firstModel, attachments) => {
       // The dashboard's selected model is part of its first prompt. Put it in the workspace
       // state before sending, so the composer stays truthful for the turns that follow.
-      if (firstModel !== undefined) setModel(firstModel);
+      if (firstModel !== undefined) setFirstModel(firstModel);
       setFirstPrompt({ text: message, model: firstModel, attachments });
       void submit(message, firstModel, attachments).then((accepted) => {
         if (accepted) setFirstPrompt(undefined);
@@ -391,21 +410,63 @@ export function LiveChatPane({
         running={running}
         activity={{ startedAt, openedAt }}
         error={error}
+        executionNotice={
+          execution.message === undefined ? undefined : (
+            <div
+              role="status"
+              aria-label="Execution selection"
+              className="mx-4 mb-2 flex flex-wrap items-center gap-2 text-xs text-muted"
+            >
+              <span>{execution.message}</span>
+              {(execution.status === "error" || execution.status === "ready") && (
+                <>
+                  <button type="button" onClick={execution.reload} className="underline">
+                    Retry selection
+                  </button>
+                  <a href="/settings/providers" className="underline">
+                    Providers
+                  </a>
+                </>
+              )}
+            </div>
+          )
+        }
+        executionBlocked={execution.blocked}
+        restoreDraftModel={false}
+        supportsImages={execution.supportsImages}
+        executionControl={
+          execution.accounts.length > 0 || execution.selection?.kind === "subscription" ? (
+            <ExecutionPicker
+              models={models?.models ?? []}
+              fallback={models?.fallback}
+              accounts={execution.accounts}
+              selection={execution.selection}
+              disabled={running || execution.status === "saving" || execution.status === "loading"}
+              onChange={(selection) => {
+                void execution.choose(selection);
+              }}
+            />
+          ) : undefined
+        }
         firstPrompt={firstPrompt}
         onOpenFile={onOpenFile}
         onOpenChanges={onOpenChanges}
         onSubmit={(message, attachments) => {
           setFirstPrompt(undefined);
-          void submit(message, model, attachments);
+          if (!execution.blocked) void submit(message, execution.selection ?? model, attachments);
         }}
         onCancel={() => void cancel()}
         // The same submission path as the input: a retry is an ordinary turn, and routing it
         // anywhere else would give it different rate-limit and optimistic-message behaviour.
-        onRetry={(message, attachments) => void submit(message, model, attachments)}
+        onRetry={(message, attachments) => {
+          if (!execution.blocked) void submit(message, execution.selection ?? model, attachments);
+        }}
         files={files ?? []}
         models={models?.models ?? []}
         model={model ?? models?.fallback}
-        onModelChange={setModel}
+        onModelChange={(model) => {
+          void execution.choose({ kind: "api", model });
+        }}
         onAddKey={() => setKeyPanelOpen(true)}
       />
     </>

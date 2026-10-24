@@ -132,6 +132,14 @@ WebSocket clients opt into routing metadata with `executionTargets=1`. Older tab
 original strict job payloads; only the wire copy omits the target. The durable log always retains
 it. Replay and live delivery use the same compatibility gate, and the web opts in on reconnect.
 
+The workspace composer reads the session preference before allowing a send. It shows owned
+subscription accounts beside API models and saves explicit changes through the preference route.
+An unavailable or deleted account remains selected and blocks sending; an ambiguous preference
+write requires a confirmed reread or another explicit selection. Native model IDs use their
+configured image capability rather than the API model catalog. Local draft model restoration
+does not override the server preference. Requests carry either a legacy API model or an explicit
+selection, never both. The dashboard and new-project flows remain API-only.
+
 Migration `0015_execution_targets` backfills existing requests with their original API model and
 payer before replacing the two columns. It changes the worker contract, so deployment must drain
 old API and worker processes before applying it and starting the new version. No production
@@ -144,7 +152,9 @@ separately approved [E2B probe](e2b-native-process-probe-20261024.md) passed pri
 confirmed cgroup termination and detached-child cancellation, then destroyed its sandbox.
 Live PTY, reconnect and worker-loss expiry remain unverified. Provider-specific login adapters,
 native refresh fencing, authorization-bound process permits, native Claude/Codex adapters,
-recovery archives and the composer account picker are still required. No provider has been enabled.
+recovery archives and dashboard selection are still required. The workspace account picker has
+offline interaction coverage; live browser inspection timed out and has not established visual
+validation. No provider has been enabled.
 
 Project code running under the same UID as a native agent can inspect that agent's credential
 home, environment and accessible helper interfaces. Putting credentials outside git is not an

@@ -22,7 +22,12 @@ import { AppShell } from "./app-shell.tsx";
  * than stubbing the global `fetch` with a promise that never settles, which pinned every
  * assertion here to the first frame.
  */
-const fetchJson = async (url: string): Promise<Response> => {
+const fetchJson = async (url: string, init?: RequestInit): Promise<Response> => {
+  if (url.endsWith("/execution"))
+    return Response.json({
+      selection: init?.method === "PATCH" ? JSON.parse(String(init.body)) : null,
+    });
+  if (url.endsWith("/providers/targets")) return Response.json({ accounts: [] });
   const body = url.includes("/files")
     ? { files: ["src/App.tsx"], ready: true }
     : {
@@ -136,8 +141,8 @@ describe("AppShell", () => {
       <AppShell
         projectId={PROJECT_ID}
         createSocket={net.createSocket}
-        fetchJson={(url) =>
-          url.endsWith("/models") ? Promise.resolve(Response.json(models)) : fetchJson(url)
+        fetchJson={(url, init) =>
+          url.endsWith("/models") ? Promise.resolve(Response.json(models)) : fetchJson(url, init)
         }
       />,
     );
