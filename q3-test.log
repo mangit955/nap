@@ -1,0 +1,29 @@
+$ vitest run --project unit --project types --project web --project db
+Testing types with tsc and vue-tsc is an experimental feature.
+Breaking changes might not follow SemVer, please pin Vitest's version when using it.
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/Developer/s-30/nap
+
+(node:37006) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:38237) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+
+ Test Files  381 passed (381)
+      Tests  5142 passed (5142)
+Type Errors  no errors
+   Start at  18:43:18
+   Duration  59.56s (transform 10.14s, setup 14.11s, import 46.85s, tests 112.12s, environment 61.47s, typecheck 233ms)
+

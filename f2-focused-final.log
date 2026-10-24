@@ -1,0 +1,23 @@
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/Developer/s-30/nap
+
+(node:75292) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+
+ Test Files  4 passed (4)
+      Tests  80 passed (80)
+   Start at  18:36:15
+   Duration  5.85s (transform 250ms, setup 337ms, import 508ms, tests 9.84s, environment 1.29s)
+

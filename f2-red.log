@@ -1,0 +1,59 @@
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/Developer/s-30/nap
+
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+ ❯ |web| apps/web/src/dashboard/new-session-composer.test.tsx (12 tests | 1 failed | 11 skipped) 702ms
+   × waits for a committed nonblank save and the blank flush before leaving after clear 702ms
+Not implemented: navigation to another Document
+ ❯ |web| apps/web/src/chat/chat-input.test.tsx (50 tests | 2 failed | 48 skipped) 1185ms
+   × waits for a committed nonblank save and the blank flush before leaving after clear 623ms
+   × waits for a committed nonblank save and the blank flush before leaving after send 562ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |web| apps/web/src/dashboard/new-session-composer.test.tsx > waits for a committed nonblank save and the blank flush before leaving after clear
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ apps/web/src/dashboard/new-session-composer.test.tsx:302:80
+    300|     await waitFor(async () => expect((await store.load(ownerId, id))?.…
+    301|     fireEvent.change(box, { target: { value: "" } });
+    302|     expect(fireEvent.click(screen.getByRole("link", { name: "Connectio…
+       |                                                                                ^
+    303|     expect(blankStarted).not.toHaveBeenCalled();
+    304|     expect(navigate).not.toHaveBeenCalled();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |web| apps/web/src/chat/chat-input.test.tsx > waits for a committed nonblank save and the blank flush before leaving after clear
+ FAIL  |web| apps/web/src/chat/chat-input.test.tsx > waits for a committed nonblank save and the blank flush before leaving after send
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ apps/web/src/chat/chat-input.test.tsx:733:82
+    731|       if (action === "send") fireEvent.click(screen.getByRole("button"…
+    732|       else type("");
+    733|       expect(fireEvent.click(screen.getByRole("link", { name: "Connect…
+       |                                                                                  ^
+    734|       expect(blankStarted).not.toHaveBeenCalled();
+    735|       expect(navigate).not.toHaveBeenCalled();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  3 failed | 59 skipped (62)
+   Start at  18:29:53
+   Duration  2.05s (transform 184ms, setup 258ms, import 379ms, tests 1.89s, environment 849ms)
+
