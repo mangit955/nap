@@ -1,0 +1,204 @@
+{
+  "message": "Error: Smoke condition did not become true in 12 seconds.",
+  "stack": "Error: Smoke condition did not become true in 12 seconds.\n    at until (file:///smoke/smoke.mjs:5075:9)\n    at async file:///smoke/smoke.mjs:5240:3",
+  "steps": [
+    {
+      "name": "Two container-local fixture ports ready",
+      "elapsedMs": 532
+    },
+    {
+      "name": "Actual Chrome PID, start ticks, socket ownership and initial JPEG checked",
+      "elapsedMs": 15811
+    },
+    {
+      "name": "Physical typing, click, scroll and drag changed visible fixture outcomes",
+      "elapsedMs": 23864
+    },
+    {
+      "name": "Same-port start preserved Chrome identity, page state and private credential",
+      "elapsedMs": 32773
+    },
+    {
+      "name": "Stale start-tick guard failed closed without killing actual owned Chrome, then recovered",
+      "elapsedMs": 41563
+    }
+  ],
+  "timings": [
+    {
+      "op": "start",
+      "ms": 13440
+    },
+    {
+      "op": "act",
+      "ms": 553
+    },
+    {
+      "op": "screenshot",
+      "ms": 1103
+    },
+    {
+      "op": "recording_begin",
+      "ms": 981
+    },
+    {
+      "op": "recording_timestamp",
+      "ms": 441
+    },
+    {
+      "op": "act",
+      "ms": 508
+    },
+    {
+      "op": "act",
+      "ms": 538
+    },
+    {
+      "op": "act",
+      "ms": 511
+    },
+    {
+      "op": "act",
+      "ms": 508
+    },
+    {
+      "op": "act",
+      "ms": 463
+    },
+    {
+      "op": "act",
+      "ms": 619
+    },
+    {
+      "op": "act",
+      "ms": 437
+    },
+    {
+      "op": "act",
+      "ms": 496
+    },
+    {
+      "op": "act",
+      "ms": 517
+    },
+    {
+      "op": "screenshot",
+      "ms": 704
+    },
+    {
+      "op": "recording_timestamp",
+      "ms": 458
+    },
+    {
+      "op": "start",
+      "ms": 7864
+    },
+    {
+      "op": "act",
+      "ms": 525
+    },
+    {
+      "op": "act",
+      "ms": 516
+    },
+    {
+      "op": "start",
+      "ms": 437
+    },
+    {
+      "op": "start",
+      "ms": 8350
+    },
+    {
+      "op": "act",
+      "ms": 473
+    },
+    {
+      "op": "act",
+      "ms": 836
+    },
+    {
+      "op": "act",
+      "ms": 427
+    },
+    {
+      "op": "act",
+      "ms": 545
+    },
+    {
+      "op": "act",
+      "ms": 595
+    },
+    {
+      "op": "act",
+      "ms": 551
+    },
+    {
+      "op": "act",
+      "ms": 545
+    },
+    {
+      "op": "act",
+      "ms": 584
+    },
+    {
+      "op": "act",
+      "ms": 550
+    },
+    {
+      "op": "act",
+      "ms": 540
+    },
+    {
+      "op": "act",
+      "ms": 537
+    },
+    {
+      "op": "act",
+      "ms": 560
+    },
+    {
+      "op": "act",
+      "ms": 545
+    },
+    {
+      "op": "act",
+      "ms": 573
+    },
+    {
+      "op": "act",
+      "ms": 545
+    },
+    {
+      "op": "act",
+      "ms": 560
+    },
+    {
+      "op": "act",
+      "ms": 552
+    },
+    {
+      "op": "act",
+      "ms": 559
+    },
+    {
+      "op": "act",
+      "ms": 532
+    },
+    {
+      "op": "act",
+      "ms": 537
+    },
+    {
+      "op": "screenshot",
+      "ms": 734
+    },
+    {
+      "op": "recording_finish",
+      "ms": 627
+    },
+    {
+      "op": "recording_discard",
+      "ms": 410
+    }
+  ]
+}

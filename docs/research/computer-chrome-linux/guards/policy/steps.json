@@ -1,0 +1,22 @@
+[
+  {
+    "name": "Two container-local fixture ports ready",
+    "elapsedMs": 563
+  },
+  {
+    "name": "Actual Chrome PID, start ticks, socket ownership and initial JPEG checked",
+    "elapsedMs": 13906
+  },
+  {
+    "name": "Physical typing, click, scroll and drag changed visible fixture outcomes",
+    "elapsedMs": 21705
+  },
+  {
+    "name": "Same-port start preserved Chrome identity, page state and private credential",
+    "elapsedMs": 30503
+  },
+  {
+    "name": "Stale start-tick guard failed closed without killing actual owned Chrome, then recovered",
+    "elapsedMs": 38790
+  }
+]

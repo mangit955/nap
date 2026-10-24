@@ -1,0 +1,9 @@
+{
+  "directory": "/var/folders/m4/thrg0hcd617gvscsm24p45n00000gn/T/nap-desktop-template-GdNRpX",
+  "manifestSha256": "665d66118d3347df757652caa3164186482ece62b358d9d9d9c2cccf52347e81",
+  "driverSha256": "a37b17e66de0576068bdcc44eed9b3a0b47a5f42ed7239287c9e7e3a89cd7a11",
+  "startupSha256": "85fb4d8c8d9d8cfdf0f2cdf248dd19c79bd5666b9228b5d1e0f5f0d0e6a2e342",
+  "driverMatchesPrepared": true,
+  "startupMatchesPrepared": true,
+  "scope": "Driver and startup bytes only; the local Docker image is not an E2B template."
+}

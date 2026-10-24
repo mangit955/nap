@@ -1,0 +1,18 @@
+ VERBOSE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  i Files processed:
+  
+  - packages/sandbox/scripts/desktop-chrome-smoke/fixture.ts
+  - packages/sandbox/scripts/desktop-chrome-smoke/run.ts
+  - packages/sandbox/scripts/desktop-chrome-smoke/smoke.ts
+  
+
+ VERBOSE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  i Files fixed:
+  
+  ! The list is empty.
+  
+
+Scanned project folder in 2ms.
+Checked 3 files in 32ms. No fixes applied.

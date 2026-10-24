@@ -1,0 +1,132 @@
+{
+  "message": "Error: Smoke condition did not become true in 12 seconds.",
+  "stack": "Error: Smoke condition did not become true in 12 seconds.\n    at until (file:///smoke/smoke.mjs:5075:9)\n    at async file:///smoke/smoke.mjs:5200:3",
+  "steps": [
+    {
+      "name": "Two container-local fixture ports ready",
+      "elapsedMs": 546
+    },
+    {
+      "name": "Actual Chrome PID, start ticks, socket ownership and initial JPEG checked",
+      "elapsedMs": 17500
+    }
+  ],
+  "timings": [
+    {
+      "op": "start",
+      "ms": 15434
+    },
+    {
+      "op": "act",
+      "ms": 612
+    },
+    {
+      "op": "screenshot",
+      "ms": 725
+    },
+    {
+      "op": "recording_begin",
+      "ms": 868
+    },
+    {
+      "op": "recording_timestamp",
+      "ms": 473
+    },
+    {
+      "op": "act",
+      "ms": 584
+    },
+    {
+      "op": "act",
+      "ms": 538
+    },
+    {
+      "op": "act",
+      "ms": 502
+    },
+    {
+      "op": "act",
+      "ms": 560
+    },
+    {
+      "op": "act",
+      "ms": 539
+    },
+    {
+      "op": "act",
+      "ms": 566
+    },
+    {
+      "op": "act",
+      "ms": 520
+    },
+    {
+      "op": "act",
+      "ms": 531
+    },
+    {
+      "op": "act",
+      "ms": 561
+    },
+    {
+      "op": "act",
+      "ms": 545
+    },
+    {
+      "op": "act",
+      "ms": 544
+    },
+    {
+      "op": "act",
+      "ms": 530
+    },
+    {
+      "op": "act",
+      "ms": 539
+    },
+    {
+      "op": "act",
+      "ms": 577
+    },
+    {
+      "op": "act",
+      "ms": 533
+    },
+    {
+      "op": "act",
+      "ms": 545
+    },
+    {
+      "op": "act",
+      "ms": 527
+    },
+    {
+      "op": "act",
+      "ms": 529
+    },
+    {
+      "op": "act",
+      "ms": 557
+    },
+    {
+      "op": "act",
+      "ms": 539
+    },
+    {
+      "op": "act",
+      "ms": 535
+    },
+    {
+      "op": "screenshot",
+      "ms": 633
+    },
+    {
+      "op": "recording_finish",
+      "ms": 712
+    },
+    {
+      "op": "recording_discard",
+      "ms": 370
+    }
+  ]
+}

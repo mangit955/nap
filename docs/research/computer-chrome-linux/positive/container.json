@@ -1,0 +1,194 @@
+[
+  {
+    "Id": "4c87891ca925af7d33ae31b4c26fb2676e5521956d2bbfc7fa9e4f21688041cb",
+    "Created": "2026-10-24T10:38:25.412878345Z",
+    "Path": "timeout",
+    "Args": ["--signal=TERM", "--kill-after=5s", "240s", "node", "/smoke/smoke.mjs"],
+    "State": {
+      "Status": "exited",
+      "Running": false,
+      "Paused": false,
+      "Restarting": false,
+      "OOMKilled": false,
+      "Dead": false,
+      "Pid": 0,
+      "ExitCode": 0,
+      "Error": "",
+      "StartedAt": "2026-10-24T10:38:33.709326243Z",
+      "FinishedAt": "2026-10-24T10:39:38.554509946Z"
+    },
+    "Image": "sha256:00d5ba12c1c091cc8769fc8dd98e9aa0d067c7d3f1c09a8a227cbf9e0512832b",
+    "ResolvConfPath": "/var/lib/docker/containers/4c87891ca925af7d33ae31b4c26fb2676e5521956d2bbfc7fa9e4f21688041cb/resolv.conf",
+    "HostnamePath": "/var/lib/docker/containers/4c87891ca925af7d33ae31b4c26fb2676e5521956d2bbfc7fa9e4f21688041cb/hostname",
+    "HostsPath": "/var/lib/docker/containers/4c87891ca925af7d33ae31b4c26fb2676e5521956d2bbfc7fa9e4f21688041cb/hosts",
+    "LogPath": "/var/lib/docker/containers/4c87891ca925af7d33ae31b4c26fb2676e5521956d2bbfc7fa9e4f21688041cb/4c87891ca925af7d33ae31b4c26fb2676e5521956d2bbfc7fa9e4f21688041cb-json.log",
+    "Name": "/nap-chrome-smoke-89dcfd3a-3eca-4a1f-acc7-067c4761bb43",
+    "RestartCount": 0,
+    "Driver": "overlayfs",
+    "Platform": "linux",
+    "MountLabel": "",
+    "ProcessLabel": "",
+    "AppArmorProfile": "",
+    "ExecIDs": null,
+    "HostConfig": {
+      "Binds": null,
+      "ContainerIDFile": "",
+      "LogConfig": {
+        "Type": "json-file",
+        "Config": {
+          "max-file": "5",
+          "max-size": "20m"
+        }
+      },
+      "NetworkMode": "none",
+      "PortBindings": {},
+      "RestartPolicy": {
+        "Name": "no",
+        "MaximumRetryCount": 0
+      },
+      "AutoRemove": false,
+      "VolumeDriver": "",
+      "VolumesFrom": null,
+      "ConsoleSize": [0, 0],
+      "CapAdd": null,
+      "CapDrop": null,
+      "CgroupnsMode": "private",
+      "Dns": null,
+      "DnsOptions": [],
+      "DnsSearch": [],
+      "ExtraHosts": null,
+      "GroupAdd": null,
+      "IpcMode": "private",
+      "Cgroup": "",
+      "Links": null,
+      "OomScoreAdj": 0,
+      "PidMode": "",
+      "Privileged": false,
+      "PublishAllPorts": false,
+      "ReadonlyRootfs": false,
+      "SecurityOpt": null,
+      "UTSMode": "",
+      "UsernsMode": "",
+      "ShmSize": 4195352576,
+      "Runtime": "runc",
+      "Isolation": "",
+      "CpuShares": 0,
+      "Memory": 1073741824,
+      "NanoCpus": 2000000000,
+      "CgroupParent": "",
+      "BlkioWeight": 0,
+      "BlkioWeightDevice": [],
+      "BlkioDeviceReadBps": [],
+      "BlkioDeviceWriteBps": [],
+      "BlkioDeviceReadIOps": [],
+      "BlkioDeviceWriteIOps": [],
+      "CpuPeriod": 0,
+      "CpuQuota": 0,
+      "CpuRealtimePeriod": 0,
+      "CpuRealtimeRuntime": 0,
+      "CpusetCpus": "",
+      "CpusetMems": "",
+      "Devices": [],
+      "DeviceCgroupRules": null,
+      "DeviceRequests": null,
+      "MemoryReservation": 0,
+      "MemorySwap": 1073741824,
+      "MemorySwappiness": null,
+      "OomKillDisable": null,
+      "PidsLimit": null,
+      "Ulimits": null,
+      "CpuCount": 0,
+      "CpuPercent": 0,
+      "IOMaximumIOps": 0,
+      "IOMaximumBandwidth": 0,
+      "MaskedPaths": [
+        "/proc/acpi",
+        "/proc/asound",
+        "/proc/interrupts",
+        "/proc/kcore",
+        "/proc/keys",
+        "/proc/latency_stats",
+        "/proc/sched_debug",
+        "/proc/scsi",
+        "/proc/timer_list",
+        "/proc/timer_stats",
+        "/sys/devices/virtual/powercap",
+        "/sys/firmware"
+      ],
+      "ReadonlyPaths": ["/proc/bus", "/proc/fs", "/proc/irq", "/proc/sys", "/proc/sysrq-trigger"]
+    },
+    "Storage": {
+      "RootFS": {
+        "Snapshot": {
+          "Name": "overlayfs"
+        }
+      }
+    },
+    "Mounts": [],
+    "Config": {
+      "Hostname": "4c87891ca925",
+      "Domainname": "",
+      "User": "user",
+      "AttachStdin": false,
+      "AttachStdout": true,
+      "AttachStderr": true,
+      "Tty": false,
+      "OpenStdin": false,
+      "StdinOnce": false,
+      "Env": [
+        "NAP_CHROME_SMOKE_FAULT=",
+        "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "NODE_VERSION=24.22.1",
+        "YARN_VERSION=1.22.22",
+        "HOME=/home/user",
+        "DISPLAY=:99"
+      ],
+      "Cmd": null,
+      "Image": "nap-chrome-smoke-89dcfd3a-3eca-4a1f-acc7-067c4761bb43:local",
+      "Volumes": null,
+      "WorkingDir": "",
+      "Entrypoint": [
+        "timeout",
+        "--signal=TERM",
+        "--kill-after=5s",
+        "240s",
+        "node",
+        "/smoke/smoke.mjs"
+      ],
+      "Labels": {}
+    },
+    "NetworkSettings": {
+      "SandboxID": "",
+      "SandboxKey": "",
+      "Ports": {},
+      "Networks": {
+        "none": {
+          "IPAMConfig": null,
+          "Links": null,
+          "Aliases": null,
+          "DriverOpts": null,
+          "GwPriority": 0,
+          "NetworkID": "6102cdcd884eec50952928c7761002d8e86bef1d3190caf48f7b10d6a96f9661",
+          "EndpointID": "",
+          "Gateway": "",
+          "IPAddress": "",
+          "MacAddress": "",
+          "IPPrefixLen": 0,
+          "IPv6Gateway": "",
+          "GlobalIPv6Address": "",
+          "GlobalIPv6PrefixLen": 0,
+          "DNSNames": null
+        }
+      }
+    },
+    "ImageManifestDescriptor": {
+      "mediaType": "application/vnd.oci.image.manifest.v1+json",
+      "digest": "sha256:c165a1aba713f2ad4f91273e386bfb42a08385d366d975252979036db1d83e24",
+      "size": 2577,
+      "platform": {
+        "architecture": "amd64",
+        "os": "linux"
+      }
+    }
+  }
+]
