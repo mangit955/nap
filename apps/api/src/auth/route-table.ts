@@ -65,6 +65,11 @@ export type GuardedRoute = RouteEntry & {
  * as somebody else, and signed in as the owner.
  */
 export const GUARDED_ROUTES: GuardedRoute[] = [
+  {
+    method: "GET",
+    path: "/sessions/:sessionId/computer/screenshots/:seq",
+    examplePath: `/sessions/${SESSION}/computer/screenshots/1`,
+  },
   { method: "GET", path: "/ws", examplePath: `/ws?sessionId=${SESSION}` },
   { method: "GET", path: "/models", examplePath: "/models" },
   // Somebody else's API key is the single most sensitive thing this app stores, so these are
@@ -144,6 +149,7 @@ export type SeededSandbox = {
   sandbox: InMemorySandboxManager;
   sandboxId: string;
   objects: InMemoryObjectStore;
+  screenshotEvents: InMemoryEventStore;
 };
 
 /**
@@ -164,7 +170,17 @@ export async function seedSandbox(): Promise<SeededSandbox> {
   const objects = new InMemoryObjectStore();
   await objects.put(`projects/${PROJECT}/thumbnail.png`, new Uint8Array([137, 80, 78, 71]));
 
-  return { sandbox, sandboxId: created.value.id, objects };
+  const screenshotEvents = new InMemoryEventStore();
+  const key = `computer/${PROJECT}/${SESSION}/${REQUEST}/screen.jpg`;
+  await objects.put(key, new Uint8Array([255, 216, 255, 217]));
+  await screenshotEvents.append({
+    type: "computer.screenshot",
+    sessionId: SESSION,
+    turnId: REQUEST,
+    createdAt: "2026-10-24T00:00:00Z",
+    payload: { toolCallId: "screen", key, width: 1024, height: 768 },
+  });
+  return { sandbox, sandboxId: created.value.id, objects, screenshotEvents };
 }
 
 /**
@@ -196,6 +212,11 @@ export function fullyWiredDeps(seeded?: SeededSandbox): Omit<AppDeps, "logger"> 
       bus: new InMemoryEventBus(),
       sessions,
       upgradeWebSocket: async () => new Response(null),
+    },
+    computerScreenshots: {
+      sessions,
+      events: seeded?.screenshotEvents ?? new InMemoryEventStore(),
+      objects: seeded?.objects ?? new InMemoryObjectStore(),
     },
     files: { sessions, sandbox },
     account: {

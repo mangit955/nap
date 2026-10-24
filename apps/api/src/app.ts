@@ -20,6 +20,10 @@ import { type AccountRouteDeps, registerAccountRoutes } from "./account/routes.t
 import type { Authenticate, AuthInstance } from "./auth/auth.ts";
 import { findOwnedSession } from "./auth/owned-session.ts";
 import { type AuthVariables, requireUser } from "./auth/require-user.ts";
+import {
+  type ComputerScreenshotDeps,
+  registerComputerScreenshotRoutes,
+} from "./computer/screenshots.ts";
 import { type FileRouteDeps, registerFileRoutes } from "./files/routes.ts";
 import { type GitHubRouteDeps, registerGitHubRoutes } from "./github/routes.ts";
 import type { HealthProbe, HealthReport } from "./health.ts";
@@ -40,6 +44,7 @@ import { parseStreamQuery } from "./ws/query.ts";
 export type UpgradeWebSocket = (c: Context, events: WSEvents) => Promise<Response>;
 
 export type AppDeps = {
+  computerScreenshots?: ComputerScreenshotDeps;
   sessionNavigation?: { store: SessionNavigationStore; webOrigin: string };
   sessionStarts?: SessionStartRouteDeps;
   github?: GitHubRouteDeps;
@@ -335,6 +340,8 @@ export function createApp(deps: AppDeps): Hono<{ Variables: AuthVariables }> {
     );
   }
 
+  if (deps.computerScreenshots !== undefined)
+    registerComputerScreenshotRoutes(app, deps.computerScreenshots);
   if (deps.account !== undefined) registerAccountRoutes(app, deps.account);
   if (deps.files !== undefined) registerFileRoutes(app, deps.files);
   if (deps.turns !== undefined) registerTurnRoutes(app, deps.turns, deps.stream.store);

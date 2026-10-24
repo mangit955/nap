@@ -981,6 +981,7 @@ export class SingleAgentRuntime implements Runtime {
               ...this.#options.computer,
               projectId: scope.session.projectId,
               devServerUrl: `http://localhost:${this.#previewPort}`,
+              beforeStore: () => sink.drain(),
             },
           }),
       onEvent: sink.emit,

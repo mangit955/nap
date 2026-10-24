@@ -25,7 +25,13 @@ function fixture() {
     sandboxId: "sandbox",
     sandbox: new InMemorySandboxManager(),
     emit: (event) => events.push(event),
-    computer: { desktop, objects, projectId: "project", devServerUrl: "http://localhost:5173" },
+    computer: {
+      desktop,
+      objects,
+      projectId: "project",
+      devServerUrl: "http://localhost:5173",
+      beforeStore: async () => {},
+    },
   };
   return { desktop, objects, events, context };
 }
@@ -41,6 +47,10 @@ describe("computer tool", () => {
       { action: "screenshot" },
     ];
     const journal: string[] = [];
+    if (context.computer)
+      context.computer.beforeStore = async () => {
+        journal.push("durable");
+      };
     const put = objects.put.bind(objects);
     vi.spyOn(objects, "put").mockImplementation(async (...args) => {
       const stored = await put(...args);
@@ -53,7 +63,7 @@ describe("computer tool", () => {
       emit(event);
     };
     const result = await executeTool(call(actions), context);
-    expect(journal).toEqual(["stored", "screenshot"]);
+    expect(journal).toEqual(["durable", "stored", "screenshot"]);
     expect(result.ok).toBe(true);
     expect(desktop.actions.map((entry) => entry.action)).toEqual(
       actions.filter((action) => action.action !== "screenshot"),

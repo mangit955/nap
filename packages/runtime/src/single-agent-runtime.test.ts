@@ -37,7 +37,7 @@ import type { ObjectStore } from "@nap/shared/ports/object-store";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { commitMessage, SingleAgentRuntime } from "./single-agent-runtime.ts";
 
 const SESSION_ID = "2a3f8a24-6c1b-4e0e-9b6f-3a5c0a1d9e77";
@@ -1097,4 +1097,49 @@ it("binds computer access to the project's sandbox dev port rather than the publ
   });
   expect(agent.requests[0]?.computer?.projectId).toBe(PROJECT_ID);
   expect(agent.requests[0]?.computer?.devServerUrl).toBe("http://localhost:4444");
+});
+
+it("makes the computer call durable before creating its screenshot object", async () => {
+  const desktop = new FakeSandboxDesktop({
+    bytes: new Uint8Array([255, 216, 255, 217]),
+    width: 1024,
+    height: 768,
+  });
+  const objects = new InMemoryObjectStore();
+  const put = objects.put.bind(objects);
+  vi.spyOn(objects, "put").mockImplementation(async (key, bytes) => {
+    expect(
+      (await events.readFrom(SESSION_ID, 0)).some(
+        (event) => event.type === "tool.call" && event.payload.toolCallId === "screen",
+      ),
+    ).toBe(true);
+    return put(key, bytes);
+  });
+  const provider = new ScriptedLLMProvider([
+    [
+      {
+        toolCalls: [
+          { id: "screen", name: "computer", input: { actions: [{ action: "screenshot" }] } },
+        ],
+      },
+      {},
+    ],
+  ]);
+  const result = await new SingleAgentRuntime({
+    sessions,
+    sandbox,
+    context,
+    events: slowAppend(events),
+    bus,
+    agent: new NapAgentService({ provider }),
+    memory: new NoopMemoryProvider(),
+    computer: { desktop, objects },
+  }).runTurn({
+    sessionId: SESSION_ID,
+    turnId: crypto.randomUUID(),
+    message: "inspect",
+    model: "anthropic/claude-sonnet-5",
+  });
+  expect(result.ok).toBe(true);
+  expect(objects.keys()).toHaveLength(1);
 });

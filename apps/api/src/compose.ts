@@ -384,6 +384,7 @@ export function composeNap(deps: NapDeps): ComposedNap {
             ),
         });
   const app = createApp({
+    computerScreenshots: { sessions: deps.sessions, events: deps.events, objects: deps.objects },
     ...(deps.sessionNavigation === undefined
       ? {}
       : { sessionNavigation: { store: deps.sessionNavigation, webOrigin: config.NAP_WEB_ORIGIN } }),

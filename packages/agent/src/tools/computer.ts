@@ -1,4 +1,5 @@
 import type { ComputerAction } from "@nap/shared/computer";
+import { computerScreenshotKey } from "@nap/shared/computer-artifacts";
 import type { ToolContext, ToolOutcome } from "./execute.ts";
 
 /** Validate the entire batch before this function; a bad final action must have no effects. */
@@ -48,7 +49,13 @@ export async function runComputer(
   const screenshot = await access.desktop.screenshot(ctx.sandboxId, ctx.signal);
   if (!screenshot.ok) return { ok: false, output: screenshot.error.message };
   const { bytes, width, height } = screenshot.value;
-  const key = `computer/${encodeURIComponent(access.projectId)}/${encodeURIComponent(ctx.sessionId)}/${encodeURIComponent(ctx.turnId)}/${encodeURIComponent(toolCallId)}.jpg`;
+  await access.beforeStore();
+  const key = computerScreenshotKey({
+    projectId: access.projectId,
+    sessionId: ctx.sessionId,
+    turnId: ctx.turnId,
+    toolCallId,
+  });
   const stored = await access.objects.put(key, bytes);
   if (!stored.ok) return { ok: false, output: "Could not store the computer screenshot." };
   ctx.emit({

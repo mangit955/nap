@@ -33,6 +33,8 @@ export type AgentTurnRequest = {
         objects: ObjectStore;
         projectId: string;
         devServerUrl: string;
+        /** Makes the call identity durable before its screenshot object exists. */
+        beforeStore: () => Promise<void>;
         annotate?: (annotation: ComputerAnnotation) => Promise<Result<void, { message: string }>>;
       }
     | undefined;

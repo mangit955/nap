@@ -340,6 +340,7 @@ export function registerProjectRoutes(
       projects: deps.projects,
       snapshots: deps.snapshots,
       objects: deps.objects,
+      events: deps.events.events,
       sandbox: deps.sandbox,
       projectId: projectId.value,
       userId: c.get("userId"),
