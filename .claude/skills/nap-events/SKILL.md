@@ -9,7 +9,9 @@ description: Use when writing or testing anything that emits, stores, orders, re
 
 The shapes live in **`packages/shared/src/events.ts`** (M0-3) — one Zod discriminated union on `type`. Import from it; never hand-write an event literal's type alongside it.
 
-## The 13 event types
+## Event contracts
+
+Read `NapEventSchema` and its exported enums for the current event and tool sets. The table below shows core examples, not an exhaustive list. Computer, test, recording and job events also use the same contract.
 
 Every event is `{ type, sessionId, turnId, seq, createdAt, payload }` — the envelope mirrors the `events` row in `docs/PLAN.md` §5 one-to-one, so `EventStore` append/read is a straight mapping. `seq` is assigned by `EventStore.append`, not by the emitter.
 
@@ -29,7 +31,7 @@ Every event is `{ type, sessionId, turnId, seq, createdAt, payload }` — the en
 | `turn.failed` | `{ reason, message }` | M2-6, M2-7, M2-8 |
 | `system.notice` | `{ level, text }` — the platform in its own voice, never the model's | M4-2 |
 
-Closed sets, all exported from the same module: `toolName` is one of the six M2-5 tools (`TOOL_NAMES`); `changeType` is `created \| modified \| deleted`; `stream` is `stdout \| stderr`; `level` is `info \| warning`; `reason` is `refusal \| budget_exceeded \| cancelled \| sandbox_unavailable \| internal` (`TurnFailureReasonSchema`). Adding a value is a deliberate schema change — that is the point.
+Closed sets are exported from the same module. Derive tool names from `TOOL_NAMES` and failure reasons from `TurnFailureReasonSchema`; read the event schemas for change types, output streams and notice levels. The computer tool's availability depends on the model and composed desktop capability. Adding a value is a deliberate schema change, and all exhaustive consumers must handle it.
 
 **Two rules when you extend this, both about surviving Postgres `jsonb`:** no `Date` and no `undefined` (timestamps are ISO-8601 strings, absent values are `null`), and payloads are `strictObject` so an unknown key is rejected rather than silently dropped on the way into the log. Both are proven by the M0-3 tests — see below.
 
@@ -45,12 +47,12 @@ Model output is not deterministic and not a contract. A test that asserts on wor
 
 ## Schema tests — the four assertions (M0-3)
 
-Every event type gets all four. Eleven types × four = the M0-3 gate, met in `packages/shared/src/events.test.ts` by a single `CASES` table driving four `describe.each` blocks — add a type to the union and its case is required, so the count stays structural.
+Every event type gets all four. `packages/shared/src/events.test.ts` uses a typed `CASES` table across the schema assertions. Add the new event to that table and every downstream exhaustive consumer. The event union determines coverage; do not hard-code an event count here.
 
 1. A valid fixture **parses**.
 2. A malformed fixture **rejects with a useful issue path** — assert the path, not just that it threw. "It failed" doesn't tell a future debugger which field was wrong.
 3. The discriminated union **resolves to the right member** for that `type`, *and* rejects that type paired with a structurally foreign payload. Pick the foreign payload deliberately: `user.message`, `agent.thinking` and `agent.message` all carry `{ text }` and are interchangeable at the payload level by design.
-4. **Round-trip identity:** `parse(JSON.parse(JSON.stringify(x)))` deep-equals `x`. Use `toStrictEqual`, not `toEqual` — `toEqual` treats a dropped `undefined` key as equal to a present one, which is the exact `jsonb` bug this assertion exists to catch. It also catches `Date` fields: swapping `createdAt` to `z.coerce.date()` fails all 11 round-trip assertions, which is how this was verified.
+4. **Round-trip identity:** `parse(JSON.parse(JSON.stringify(x)))` deep-equals `x`. Use `toStrictEqual`, not `toEqual` — `toEqual` treats a dropped `undefined` key as equal to a present one, which is the exact `jsonb` bug this assertion exists to catch. It also catches `Date` fields: swapping `createdAt` to `z.coerce.date()` was observed failing the round-trip assertions.
 
 ## The invariants, and who owns them
 
