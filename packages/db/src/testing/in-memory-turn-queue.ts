@@ -1,7 +1,7 @@
 /**
  * The turn queue in one process, for tests of everything that sits *on* it.
  *
- * It honours the same rules the Postgres one does — one lease per session, no path back to
+ * It honours the same rules the Postgres one does — one lease per project, no path back to
  * `queued`, renewal conditional on the owner — but it honours them by construction, in a single
  * thread, which is exactly why it proves nothing about them. The rules are properties of a
  * partial unique index under concurrency, and `postgres-turn-queue.db.test.ts` is where they are
@@ -27,6 +27,7 @@ import type {
 } from "@nap/shared/ports/turn-queue";
 
 type Row = EnqueueTurnRequest & {
+  projectId: string;
   state: TurnRequestState;
   cancelRequested: boolean;
   leaseOwner: string | null;
@@ -37,6 +38,9 @@ type Row = EnqueueTurnRequest & {
 };
 
 export type InMemoryTurnQueueOptions = {
+  /** Defaults to one project per fixture session. Supply this for sibling-session fixtures. */
+  projectForSession?: (sessionId: string) => string;
+  isProjectFenced?: (projectId: string) => boolean;
   /** Milliseconds since the epoch. Defaults to the real clock. */
   now?: () => number;
   /** How long a claim is good for. Defaults to the shared lease TTL. */
@@ -50,12 +54,16 @@ export class InMemoryTurnQueue implements TurnQueue {
   readonly #now: () => number;
   readonly #leaseTtlMs: number;
   readonly #leaseGraceMs: number;
+  readonly #projectForSession: (sessionId: string) => string;
+  readonly #isProjectFenced: (projectId: string) => boolean;
   #sequence = 0;
 
   constructor(options: InMemoryTurnQueueOptions = {}) {
     this.#now = options.now ?? (() => Date.now());
     this.#leaseTtlMs = options.leaseTtlMs ?? LEASE_TTL_MS;
     this.#leaseGraceMs = options.leaseGraceMs ?? LEASE_GRACE_MS;
+    this.#projectForSession = options.projectForSession ?? ((sessionId) => sessionId);
+    this.#isProjectFenced = options.isProjectFenced ?? (() => false);
   }
 
   async enqueue(request: EnqueueTurnRequest): Promise<void> {
@@ -64,6 +72,7 @@ export class InMemoryTurnQueue implements TurnQueue {
       // The caller's, as in Postgres: it is the first Turn's id and had to exist before this row.
       id: request.id,
       sessionId: request.sessionId,
+      projectId: this.#projectForSession(request.sessionId),
       userId: request.userId,
       kind: request.kind,
       message: request.message,
@@ -104,11 +113,17 @@ export class InMemoryTurnQueue implements TurnQueue {
 
   async claim(owner: string): Promise<LeasedTurnRequest | null> {
     const held = new Set(
-      this.#rows.filter((row) => this.#isLeased(row)).map((row) => row.sessionId),
+      this.#rows.filter((row) => this.#isLeased(row)).map((row) => row.projectId),
     );
 
     const candidate = this.#rows
-      .filter((row) => row.state === "queued" && !row.cancelRequested && !held.has(row.sessionId))
+      .filter(
+        (row) =>
+          row.state === "queued" &&
+          !row.cancelRequested &&
+          !held.has(row.projectId) &&
+          !this.#isProjectFenced(row.projectId),
+      )
       .sort((a, b) => a.createdAt - b.createdAt)[0];
     if (candidate === undefined) return null;
 
@@ -157,9 +172,12 @@ export class InMemoryTurnQueue implements TurnQueue {
     return true;
   }
 
-  async anyLeased(sessionIds: readonly string[]): Promise<boolean> {
-    const asked = new Set(sessionIds);
-    return this.#rows.some((row) => asked.has(row.sessionId) && this.#isLeased(row));
+  async isBusy(sessionIds: readonly string[]): Promise<boolean> {
+    const asked = new Set(sessionIds.map((sessionId) => this.#projectForSession(sessionId)));
+    return (
+      [...asked].some((projectId) => this.#isProjectFenced(projectId)) ||
+      this.#rows.some((row) => asked.has(row.projectId) && this.#isLeased(row))
+    );
   }
 
   async requestCancel(sessionId: string): Promise<CancelOutcome> {

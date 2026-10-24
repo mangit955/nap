@@ -384,7 +384,7 @@ describe("composeNap", () => {
       renew: (requestId, owner) => queue.renew(requestId, owner),
       settle: (requestId, owner, state) => queue.settle(requestId, owner, state),
       requestCancel: (sessionId) => queue.requestCancel(sessionId),
-      anyLeased: (sessionIds) => queue.anyLeased(sessionIds),
+      isBusy: (sessionIds) => queue.isBusy(sessionIds),
       unannouncedOrphans: (limit) => queue.unannouncedOrphans(limit),
       markOrphanAnnounced: (requestId) => queue.markOrphanAnnounced(requestId),
     };

@@ -280,7 +280,7 @@ describe("when the announcement does not get through", () => {
       renew: (requestId, owner) => queue.renew(requestId, owner),
       settle: (requestId, owner, state) => queue.settle(requestId, owner, state),
       requestCancel: (sessionId) => queue.requestCancel(sessionId),
-      anyLeased: (sessionIds) => queue.anyLeased(sessionIds),
+      isBusy: (sessionIds) => queue.isBusy(sessionIds),
     };
 
     const result = await sweepOrphanedRequests({
@@ -306,7 +306,7 @@ describe("when the announcement does not get through", () => {
       renew: (requestId, owner) => queue.renew(requestId, owner),
       settle: (requestId, owner, state) => queue.settle(requestId, owner, state),
       requestCancel: (sessionId) => queue.requestCancel(sessionId),
-      anyLeased: (sessionIds) => queue.anyLeased(sessionIds),
+      isBusy: (sessionIds) => queue.isBusy(sessionIds),
       markOrphanAnnounced: (requestId) => queue.markOrphanAnnounced(requestId),
     };
 

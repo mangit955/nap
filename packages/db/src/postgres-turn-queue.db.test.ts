@@ -4,6 +4,8 @@ import { eq, sql as sqlOf } from "drizzle-orm";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, inject, it } from "vitest";
+import { PostgresNativeRunStore } from "./postgres-native-run-store.ts";
+import { PostgresProviderAccountStore } from "./postgres-provider-account-store.ts";
 import { PostgresTurnQueue } from "./postgres-turn-queue.ts";
 import { projects, sessions, turnRequests, users } from "./schema.ts";
 import { enqueueRequest } from "./testing/enqueue-request.ts";
@@ -93,6 +95,110 @@ async function expireLease(id: string): Promise<void> {
     .set({ leaseExpiresAt: sqlOf`now() - interval '1 hour'` })
     .where(eq(turnRequests.id, id));
 }
+
+it("serializes different sessions that share one project across worker races", async () => {
+  const first = await seedSession();
+  const [scope] = await db.select().from(sessions).where(eq(sessions.id, first.sessionId));
+  if (!scope) throw new Error("Missing first session");
+  const [second] = await db
+    .insert(sessions)
+    .values({ projectId: scope.projectId, title: "Second" })
+    .returning();
+  if (!second) throw new Error("Missing second session");
+  const a = await enqueueTurn(first);
+  const b = await enqueueTurn({ ...first, sessionId: second.id });
+  const claims = await Promise.all([
+    queue.claim("project-worker-a"),
+    queue.claim("project-worker-b"),
+  ]);
+  expect(claims.filter((claim) => claim !== null)).toHaveLength(1);
+  expect(await queue.claim("project-worker-c")).toBeNull();
+  const index = claims.findIndex((claim) => claim !== null);
+  const held = claims[index];
+  if (!held) throw new Error("No held request");
+  await expect(
+    db
+      .update(turnRequests)
+      .set({ state: "leased", leaseOwner: "bypass-worker" })
+      .where(eq(turnRequests.id, held.id === a.id ? b.id : a.id)),
+  ).rejects.toMatchObject({
+    cause: { code: "23505", constraint_name: "turn_requests_one_leased_per_project" },
+  });
+  await queue.settle(held.id, index === 0 ? "project-worker-a" : "project-worker-b", "done");
+  expect((await queue.claim("project-worker-c"))?.id).toBe(held.id === a.id ? b.id : a.id);
+});
+
+it("derives queue project identity from its session and rejects a forged project field", async () => {
+  const seed = await seedSession();
+  const other = await seedSession();
+  const [otherSession] = await db.select().from(sessions).where(eq(sessions.id, other.sessionId));
+  if (!otherSession) throw new Error("Missing foreign project");
+  await expect(
+    db.insert(turnRequests).values({
+      id: randomUUID(),
+      sessionId: seed.sessionId,
+      userId: seed.userId,
+      projectId: otherSession.projectId,
+      kind: "turn",
+      message: "Invalid",
+      target: { kind: "api", model: "fixture", billsToUser: false },
+    }),
+  ).rejects.toMatchObject({ cause: { code: "23514" } });
+});
+
+it("keeps API work queued behind an unresolved native process after its queue lease ends", async () => {
+  const seed = await seedSession();
+  await db.update(users).set({ isAnonymous: false }).where(eq(users.id, seed.userId));
+  const accounts = new PostgresProviderAccountStore(db);
+  const account = await accounts.create({ userId: seed.userId, driver: "claude", label: "Work" });
+  await accounts.completeSignIn(seed.userId, account.id, {
+    generation: 0,
+    credentials: { ciphertext: "sealed", iv: "iv" },
+    identity: { email: null, plan: null },
+  });
+  const target = {
+    kind: "subscription" as const,
+    accountId: account.id,
+    driver: "claude" as const,
+    model: "native-fixture",
+    generation: 1,
+  };
+  const admitted = await enqueueRequest(queue, { ...seed, kind: "turn", message: "Edit", target });
+  await queue.claim("native-worker");
+  const native = new PostgresNativeRunStore(db);
+  const begun = await native.begin({
+    id: randomUUID(),
+    requestId: admitted.id,
+    workerId: "native-worker",
+    turnId: admitted.id,
+  });
+  if (begun.kind !== "created") throw new Error(`Could not begin native run: ${begun.kind}`);
+  await queue.settle(admitted.id, "native-worker", "failed");
+  const next = await enqueueTurn(seed);
+  expect(await queue.claim("api-worker")).toBeNull();
+  expect(await queue.isBusy([seed.sessionId])).toBe(true);
+  const unrelated = await enqueueTurn(await seedSession());
+  expect((await queue.claim("unrelated-worker"))?.id).toBe(unrelated.id);
+  expect(
+    await native.stopped(begun.handle, {
+      kind: "exit",
+      sequence: 1,
+      code: null,
+      reason: "stopped",
+      containment: "process_group",
+    }),
+  ).toBe(false);
+  expect(await queue.claim("api-worker")).toBeNull();
+  await native.stopped(begun.handle, {
+    kind: "exit",
+    sequence: 1,
+    code: null,
+    reason: "stopped",
+    containment: "cgroup",
+  });
+  expect(await queue.isBusy([seed.sessionId])).toBe(false);
+  expect((await queue.claim("api-worker"))?.id).toBe(next.id);
+});
 
 it("reads exact request status only for its session and owner across cancellation and settlement", async () => {
   const seed = await seedSession();
@@ -434,15 +540,15 @@ describe("settle", () => {
   });
 });
 
-describe("anyLeased", () => {
+describe("isBusy", () => {
   it("is false for sessions with nothing in flight", async () => {
     const seed = await seedSession();
 
-    expect(await queue.anyLeased([seed.sessionId])).toBe(false);
+    expect(await queue.isBusy([seed.sessionId])).toBe(false);
     // And for a request nobody has claimed yet: a queued turn creates no sandbox and holds
     // nothing, so a project whose only request is waiting for a worker is closable.
     await enqueueTurn(seed);
-    expect(await queue.anyLeased([seed.sessionId])).toBe(false);
+    expect(await queue.isBusy([seed.sessionId])).toBe(false);
   });
 
   it("is true while another process holds the lease", async () => {
@@ -452,7 +558,7 @@ describe("anyLeased", () => {
     await enqueueTurn(seed);
     await new PostgresTurnQueue(db).claim("some-other-pod");
 
-    expect(await queue.anyLeased([seed.sessionId])).toBe(true);
+    expect(await queue.isBusy([seed.sessionId])).toBe(true);
   });
 
   it("goes quiet again once the turn is settled", async () => {
@@ -461,7 +567,7 @@ describe("anyLeased", () => {
     await queue.claim("worker-1");
     await queue.settle(id, "worker-1", "done");
 
-    expect(await queue.anyLeased([seed.sessionId])).toBe(false);
+    expect(await queue.isBusy([seed.sessionId])).toBe(false);
   });
 
   it("answers across a project's sessions, and about those alone", async () => {
@@ -475,14 +581,14 @@ describe("anyLeased", () => {
     await queue.claim("worker-1");
     await queue.claim("worker-2");
 
-    expect(await queue.anyLeased([quiet.sessionId, busy.sessionId])).toBe(true);
-    expect(await queue.anyLeased([quiet.sessionId])).toBe(false);
+    expect(await queue.isBusy([quiet.sessionId, busy.sessionId])).toBe(true);
+    expect(await queue.isBusy([quiet.sessionId])).toBe(false);
   });
 
   it("is false for no sessions at all", async () => {
     // A project with no sessions is not busy. Asked because `= any('{}')` is the sort of thing
     // that quietly becomes `in ()` and fails to parse.
-    expect(await queue.anyLeased([])).toBe(false);
+    expect(await queue.isBusy([])).toBe(false);
   });
 });
 

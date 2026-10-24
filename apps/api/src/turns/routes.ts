@@ -174,7 +174,7 @@ export function registerTurnRoutes(
     if (body.data.message === "/compact") {
       if (body.data.attachments?.length)
         return c.json({ error: "Send /compact without attachments." }, 400);
-      if (await deps.queue.anyLeased([found.value.sessionId]))
+      if (await deps.queue.isBusy([found.value.sessionId]))
         return c.json({ error: "Wait for the current turn to finish before compacting." }, 409);
     }
 

@@ -156,9 +156,11 @@ start intent never returns permission to launch again. A lost process receipt ca
 Partial unique indexes retain one unresolved native run per project and account. They remain
 after worker lease expiry, logout or account deletion. A verified cgroup termination receipt can
 release a fence even after execution authority is gone. The journal records that receipt; its
-caller must verify it with the authenticated supervisor. It does not establish kernel isolation
-or block the existing API queue by itself. Integration with the project-wide execution gate,
-reaper and native credential lifecycle remains required before a provider can be configured.
+caller must verify it with the authenticated supervisor. It does not establish kernel isolation.
+The queue now blocks both API and subscription claims while a project's native fence is unresolved.
+Integration with the reaper and native credential lifecycle remains required before a provider can
+be configured. [Project exclusion](adr/0018-execution-is-exclusive-per-project.md) covers the queue,
+busy-query migration and upgrade verification.
 
 Raw native frames are encrypted under owner, project, session, request, turn, account generation,
 run and delivery identity. The store commits each raw frame, normalized events and delivery

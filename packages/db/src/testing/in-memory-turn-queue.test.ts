@@ -27,6 +27,24 @@ async function enqueue(sessionId: string, message = "do a thing") {
 }
 
 describe("claim", () => {
+  it("serializes sibling sessions and retains an external native fence after settlement", async () => {
+    const fenced = new Set<string>();
+    queue = new InMemoryTurnQueue({
+      projectForSession: (sessionId) => (sessionId === "elsewhere" ? "other" : "shared-project"),
+      isProjectFenced: (projectId) => fenced.has(projectId),
+    });
+    const first = await enqueue("session-a");
+    const second = await enqueue("session-b");
+    expect((await queue.claim("first"))?.id).toBe(first.id);
+    expect(await queue.claim("second")).toBeNull();
+    fenced.add("shared-project");
+    await queue.settle(first.id, "first", "failed");
+    expect(await queue.claim("second")).toBeNull();
+    const elsewhere = await enqueue("elsewhere");
+    expect((await queue.claim("third"))?.id).toBe(elsewhere.id);
+    fenced.clear();
+    expect((await queue.claim("second"))?.id).toBe(second.id);
+  });
   it("answers null when nothing is queued", async () => {
     expect(await queue.claim("worker-1")).toBeNull();
   });

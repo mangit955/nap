@@ -533,6 +533,8 @@ export const turnRequests = pgTable(
     sessionId: uuid("session_id")
       .notNull()
       .references(() => sessions.id, { onDelete: "cascade" }),
+    /** The database derives this from session_id before checking the non-null constraint. */
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -555,6 +557,10 @@ export const turnRequests = pgTable(
     // project holding two sandboxes, and it is unreachable only because this index exists.
     uniqueIndex("turn_requests_one_leased_per_session")
       .on(t.sessionId)
+      .where(sql`${t.state} = 'leased'`),
+    check("turn_requests_project_required", sql`${t.projectId} is not null`),
+    uniqueIndex("turn_requests_one_leased_per_project")
+      .on(t.projectId)
       .where(sql`${t.state} = 'leased'`),
     // The claim's exact shape: oldest queued row first. Partial, so the index stays the size of
     // the backlog rather than of every turn this deployment has ever run.

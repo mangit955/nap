@@ -314,6 +314,11 @@ it("fences a fresh login even when the account still reports authenticated", asy
 
 it("serializes native runs across projects sharing an account and accounts sharing a project", async () => {
   const f = await fixture();
+  // The native fence must survive the queue lease that originally admitted it.
+  await db
+    .update(turnRequests)
+    .set({ state: "failed", finishedAt: new Date() })
+    .where(eq(turnRequests.id, f.input.requestId));
   const otherAccount = await f.accounts.create({
     userId: f.user.id,
     driver: "claude",

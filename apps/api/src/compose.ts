@@ -586,7 +586,7 @@ export function composeNap(deps: NapDeps): ComposedNap {
       // in-memory registry this replaced knew only about turns claimed in *this* process, so an
       // API pod composed apart from its workers read every busy session as idle and would happily
       // close a project mid-turn.
-      isBusy: (sessionIds) => deps.queue.anyLeased(sessionIds),
+      isBusy: (sessionIds) => deps.queue.isBusy(sessionIds),
     },
   });
 
@@ -649,7 +649,7 @@ export function composeNap(deps: NapDeps): ComposedNap {
             idleMs: config.NAP_REAP_IDLE_MINUTES * 60 * 1000,
             // The same question the close and delete routes ask, of the same rows: a project is
             // busy while any of its sessions holds a lease, wherever the worker holding it is.
-            isBusy: (project) => deps.queue.anyLeased(project.sessionIds),
+            isBusy: (project) => deps.queue.isBusy(project.sessionIds),
             // A swept project's tabs are still open on it, showing an address that is about to stop
             // answering. Same store and bus as everything else, for the same reason.
             announce: { events: deps.events, bus: deps.bus },

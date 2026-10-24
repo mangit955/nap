@@ -113,11 +113,11 @@ It shares that request's lease, not its identity. See `docs/adr/0009` and `docs/
 activity; it does not grant permission to execute. A historical turn can remain unended in the
 log while its request is no longer active. See `docs/adr/0017`.
 
-**Lease** — a worker's time-bounded, exclusive claim on a session, and what took over from the
+**Lease** — a worker's time-bounded, exclusive claim on a project through a session, and what took over from the
 in-process `SessionQueue` as the thing that makes a session's turns serial. The `SessionQueue` is
 still there and is now a *second, in-process line* rather than the only rope: it serialises two
 turns that happen to land in one process, and it could never have serialised two processes. Held by
-at most one worker per session cluster-wide, enforced by the partial unique index `unique (session_id) where state = 'leased'` rather than by application logic — two callers in
+at most one worker per project cluster-wide, including sibling sessions, enforced by partial unique indexes over leased session and project IDs rather than by application logic — two callers in
 two processes cannot agree about anything a database is not adjudicating. Renewed on a timer, and
 **renewal is conditional on the request id, the owner and the state**: renewing is how a worker asks
 whether it is still allowed to run, and zero rows back means the lease is gone and the turn must be
@@ -144,8 +144,8 @@ connection of its own; a process that does not hold it does nothing that tick. I
 seconds of a rolling update when two reapers are running, and it guards those two sweeps alone —
 the **janitor** beside them is safe to run twice over and deliberately unguarded.
 
-**Busy** — whether any of a project's sessions holds a *lease* right now. One question with one
-answer for the whole cluster (`TurnQueue.anyLeased`), asked by closing a project, deleting one, and
+**Busy** — whether a project has a leased request or an unresolved native execution fence. One
+answer for the whole cluster (`TurnQueue.isBusy`), asked by closing a project, deleting one, and
 the idle sweep. It is a **filter, not a lock**: it describes the instant it was asked, and a turn
 starting immediately afterwards loses its sandbox and is restored from the snapshot the sweep just
 took. Holding a lock across a teardown instead would let a wedged sweep block turns.

@@ -183,7 +183,7 @@ it.each(cases)("reconciles already-announced legacy repair activity: %s", async 
   expect(await events.readFrom(SESSION, 0)).toEqual(before);
   expect(await queue.unannouncedOrphans()).toEqual([]);
   const active = scenario === "later-resume-active";
-  expect(await queue.anyLeased([SESSION])).toBe(active);
+  expect(await queue.isBusy([SESSION])).toBe(active);
   const app = api(queue, events);
   const hook = renderHook(() =>
     useTurnSubmission({
