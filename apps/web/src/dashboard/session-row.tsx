@@ -7,7 +7,7 @@ import {
   CircleAlert,
   CircleCheck,
   CircleDashed,
-  GitBranch,
+  FolderGit2,
   GitPullRequest,
   Pin,
   SquarePen,
@@ -105,6 +105,11 @@ export function SessionRow({
     : hasDraft
       ? "bg-warning/[0.04] hover:bg-warning/[0.08]"
       : "hover:bg-row-hover";
+  // T3 fades work in progress that is not open, so the eye goes to rows that want something.
+  const fade =
+    quiet && working && variant === "card"
+      ? "opacity-70 transition-opacity hover:opacity-100 focus-within:opacity-100 motion-reduce:transition-none"
+      : "";
 
   const title = renaming ? (
     <RenameField
@@ -117,14 +122,16 @@ export function SessionRow({
     />
   ) : (
     <span
-      className={`min-w-0 flex-1 truncate text-sm ${quiet ? "font-normal" : "font-medium"} ${
+      className={`min-w-0 flex-1 truncate text-sm ${
         variant === "card"
           ? quiet
-            ? "text-ink-2"
-            : "text-ink"
+            ? "font-normal text-sidebar-label"
+            : status === null
+              ? "font-medium text-ink-2"
+              : "font-medium text-ink"
           : isOpen
-            ? "text-ink"
-            : "text-ink-2 group-hover:text-ink"
+            ? "font-medium text-ink"
+            : "font-normal text-sidebar-label group-hover:text-ink"
       }`}
     >
       {session.name}
@@ -187,7 +194,7 @@ export function SessionRow({
               {hasDraft && <DraftMark />}
               {title}
               <span
-                className={`ml-auto shrink-0 text-xs tabular-nums transition-opacity group-hover:opacity-0 ${snoozed ? "text-accent-ink" : "text-muted"}`}
+                className={`ml-auto shrink-0 text-xs tabular-nums transition-opacity group-hover:opacity-0 ${snoozed ? "text-info" : "text-sidebar-label"}`}
               >
                 {time}
               </span>
@@ -229,12 +236,12 @@ export function SessionRow({
           <Pin aria-label="Pinned" role="img" className="size-3 shrink-0 text-muted" />
         )}
         <span
-          className={`min-w-0 flex-1 truncate text-xs text-ink-2 ${quiet ? "font-normal" : "font-medium"}`}
+          className={`min-w-0 flex-1 truncate text-xs text-sidebar-label ${quiet ? "font-normal" : "font-medium"}`}
         >
           {source.label}
         </span>
         <span
-          className={`ml-auto flex shrink-0 items-center text-xs tabular-nums text-muted transition-opacity ${
+          className={`ml-auto flex shrink-0 items-center text-xs tabular-nums text-sidebar-label transition-opacity ${
             onSettle || onSnooze ? "group-hover:opacity-0 group-has-[:focus-visible]:opacity-0" : ""
           } ${menuOpen ? "opacity-0" : ""}`}
         >
@@ -246,11 +253,11 @@ export function SessionRow({
         </span>
       </span>
       <span className="mt-1 flex min-w-0">{title}</span>
-      <span className="mt-0.5 flex h-4 min-w-0 items-center gap-1.5 text-xs text-muted">
+      <span className="mt-0.5 flex h-4 min-w-0 items-center gap-1.5 text-xs text-sidebar-label">
         {session.branch ? (
           <>
-            <GitBranch aria-hidden className="size-3 shrink-0 text-muted/60" />
-            <span className="flex min-w-0 flex-1 text-muted/70" title={session.branch}>
+            <FolderGit2 aria-hidden className="size-3 shrink-0 text-muted/40" />
+            <span className="flex min-w-0 flex-1 text-muted/45" title={session.branch}>
               <span className="truncate">{session.branch.slice(0, -12)}</span>
               <span className="shrink-0">{session.branch.slice(-12)}</span>
             </span>
@@ -276,7 +283,7 @@ export function SessionRow({
 
   return (
     <li className="group relative list-none py-0.5" {...rowProps}>
-      <div className={`relative h-[4.875rem] rounded-md ${surface}`}>
+      <div className={`relative h-[4.875rem] rounded-md ${surface} ${fade}`}>
         {renaming ? (
           <div className="flex h-full flex-col px-2.5 py-2">{inner}</div>
         ) : (
@@ -358,7 +365,7 @@ function StatusSlot({
   if (status === null) return <span>{compactTime(timestamp, now)}</span>;
   if (status.kind === "working")
     return (
-      <span className="inline-flex items-center gap-1 font-medium text-accent-ink">
+      <span className="inline-flex items-center gap-1 font-medium text-info">
         <CircleDashed aria-hidden className="size-4 shrink-0" />
         <span role="status">Working</span>
         {status.since && <Elapsed since={status.since} />}

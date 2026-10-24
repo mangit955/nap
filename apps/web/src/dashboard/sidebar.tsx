@@ -118,7 +118,7 @@ export function Sidebar({
   return (
     <nav
       aria-label="Dashboard"
-      className="flex h-full min-h-0 flex-col border-r border-edge bg-sidebar px-2.5 pt-3 pb-2"
+      className="flex h-full min-h-0 flex-col border-r border-edge bg-sidebar px-2 pt-3 pb-2"
     >
       <a
         href="/dashboard"
@@ -127,9 +127,11 @@ export function Sidebar({
       >
         <NapMark className="size-6" /> nap
       </a>
-      <div className="relative mb-3 flex h-8 items-center gap-1">
-        <label className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-md border border-edge px-2 text-muted focus-within:border-accent">
-          <SearchIcon />
+      <div className="relative mb-1 flex h-8 items-center gap-1">
+        <label className="flex h-full min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-muted hover:bg-row-hover focus-within:bg-row-hover">
+          <span className="flex text-sidebar-icon">
+            <SearchIcon />
+          </span>
           <input
             aria-label="Search sessions"
             placeholder="Search"
@@ -138,7 +140,7 @@ export function Sidebar({
             onKeyDown={(event) => {
               if (event.key === "Escape") setQuery("");
             }}
-            className="min-w-0 flex-1 bg-transparent text-xs text-ink outline-none"
+            className="min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-muted"
           />
         </label>
         <SourceFilter sessions={sessions} value={repository} onChange={setRepository} />
@@ -148,7 +150,7 @@ export function Sidebar({
           title="New session"
           data-new-session
           onClick={onNewProject}
-          className="grid size-8 shrink-0 place-items-center rounded-md text-muted hover:bg-hover hover:text-ink"
+          className="grid size-7 shrink-0 place-items-center rounded-md text-sidebar-icon hover:bg-hover hover:text-ink"
         >
           <SquarePen className="size-4" aria-hidden />
         </button>
@@ -223,7 +225,7 @@ export function Sidebar({
           </button>
         </div>
       )}
-      <div className="relative mt-4 flex shrink-0 items-center gap-0.5 pt-2">
+      <div className="relative mt-2 flex shrink-0 items-center gap-1 px-1 pt-2">
         <AccountMenu
           name={name}
           email={email}
@@ -237,7 +239,7 @@ export function Sidebar({
           href="/docs"
           aria-label="Help"
           title="Help"
-          className="rounded-lg p-1.5 text-muted hover:bg-hover hover:text-ink"
+          className="grid size-7 place-items-center rounded-md text-sidebar-icon hover:bg-hover hover:text-ink"
         >
           <HelpIcon />
         </a>
@@ -295,7 +297,7 @@ export function AccountMenu({
         onClick={() => setOpen((it) => !it)}
         aria-label="Settings"
         title="Settings"
-        className="grid size-8 place-items-center rounded-md text-muted hover:bg-hover hover:text-ink focus-visible:outline-accent"
+        className="grid size-7 place-items-center rounded-md text-sidebar-icon hover:bg-hover hover:text-ink focus-visible:outline-accent"
       >
         <SettingsIcon />
       </button>
