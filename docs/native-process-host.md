@@ -70,11 +70,11 @@ Node runtime and `/usr/bin/setpriv`. The build command emits
 `packages/sandbox/dist/native-process-host.mjs`. The artifact path is supplied to
 `E2BProcessHost`; building it does not publish an E2B template or install it in production.
 
-The [approved E2B probe](e2b-native-process-probe-20261024.md) passed the UID, no-new-privs,
-sudo and parent-cgroup escape checks, then failed termination confirmation. Detached-child
-termination, E2B reconnect and PTY behavior remain unverified. Another allocation needs new
-approval.
-Local process tests and an injected SDK client do not establish those properties on E2B.
+The [separately approved verification probe](e2b-native-process-probe-20261024.md) passed on
+E2B after the first run was inconclusive. It confirmed UID 1000, no-new-privileges, refused sudo
+and parent-cgroup escape, a cgroup termination receipt, stopped detached child, and successful
+sandbox destruction. The two approved allocations have been consumed; another needs fresh approval.
+Live E2B reconnect, PTY behavior and worker-loss expiry remain unverified by this cancellation case.
 Local PTY transport is implemented; interactive provider login and its live callback behavior
 have not been exercised. Provider-specific authentication, credential isolation from native tools,
 and durable native-session archives are later integrations. No claim of live subscription

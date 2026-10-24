@@ -43,11 +43,12 @@ migration has been run. Existing API keys retain their existing storage and exec
 
 ## Remaining release gates
 
-[The process transport proof](native-process-host.md) is implemented locally. One approved [E2B probe](e2b-native-process-probe-20261024.md)
-passed privilege checks but failed termination confirmation; that live gate remains open. Pipe and PTY transport work locally; provider login
-has not run. Durable login attempts, refresh ownership,
-account checks during execution, native Claude/Codex adapters, recovery archives and UI selection
-are still required. No provider has been enabled by these database and transport changes.
+[The process transport proof](native-process-host.md) has local pipe and PTY coverage. A second,
+separately approved [E2B probe](e2b-native-process-probe-20261024.md) passed privilege checks,
+confirmed cgroup termination and detached-child cancellation, then destroyed its sandbox.
+Live PTY, reconnect and worker-loss expiry remain unverified. Provider login, durable login
+attempts, refresh ownership, account checks during execution, native Claude/Codex adapters,
+recovery archives and UI selection are still required. No provider has been enabled.
 
 Project code running under the same UID as a native agent can inspect that agent's credential
 home, environment and accessible helper interfaces. Putting credentials outside git is not an
@@ -62,5 +63,5 @@ and [SDK subscription restriction](https://code.claude.com/docs/en/agent-sdk/ove
 provider-specific release decision. The [headless CLI documentation](https://code.claude.com/docs/en/headless)
 now describes `claude -p` as SDK use and says bare mode skips subscription credentials. Merely
 launching the stock binary does not settle whether a particular hosted integration is approved.
-One approved E2B allocation ran and was destroyed. No authentication, subscription model call
+Two separately approved E2B allocations ran and were destroyed. No authentication, subscription model call
 or template publication has run here.
