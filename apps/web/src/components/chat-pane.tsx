@@ -21,6 +21,7 @@ import { useStickToBottom } from "../chat/use-stick-to-bottom.ts";
 import { useTurnSubmission } from "../chat/use-turn-submission.ts";
 import { WorkingRow } from "../chat/work-log-rows.tsx";
 import { inFlightTurn } from "../chat/working-state.ts";
+import { AppTestCards } from "../computer/app-test-cards.tsx";
 import type { FetchJson } from "../files/use-project-files.ts";
 import type { SessionLog } from "../hooks/use-session-log.ts";
 import { Pane } from "./pane.tsx";
@@ -53,6 +54,7 @@ export function ChatPane({
   onSubmit = () => {},
   onCancel = () => {},
   onRetry,
+  onTestApp,
   files,
   models,
   model,
@@ -85,6 +87,7 @@ export function ChatPane({
   onCancel?: () => void;
   /** Re-sends a failed turn's message. Optional so the many render tests need not supply one. */
   onRetry?: ((message: string, attachments?: MediaAttachment[]) => void) | undefined;
+  onTestApp?: ((jobId: string) => void) | undefined;
   /** The project's files, for the composer's `@` menu. */
   files?: readonly string[] | undefined;
   /** What this deployment will run a turn on, and which of them is chosen. */
@@ -178,6 +181,7 @@ export function ChatPane({
                 {pending !== undefined && !pendingAfterCompaction && (
                   <PendingMessage text={pending} />
                 )}
+                <AppTestCards events={events} running={running} model={model} onTest={onTestApp} />
               </>
             )}
 
@@ -333,6 +337,7 @@ export function LiveChatPane({
   const injected = fetchJson === undefined ? {} : { fetchJson };
   const {
     submit,
+    startTest,
     cancel,
     pending,
     pendingAttachments,
@@ -402,6 +407,7 @@ export function LiveChatPane({
         // The same submission path as the input: a retry is an ordinary turn, and routing it
         // anywhere else would give it different rate-limit and optimistic-message behaviour.
         onRetry={(message, attachments) => void submit(message, model, attachments)}
+        onTestApp={(jobId) => void startTest(jobId, model ?? models?.fallback)}
         files={files ?? []}
         models={models?.models ?? []}
         model={model ?? models?.fallback}

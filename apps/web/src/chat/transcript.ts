@@ -25,6 +25,7 @@ import type { MediaAttachment } from "@nap/shared/media";
 
 import type { NapEventOf, PromptSource, ToolName } from "@nap/shared/events";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
+import { type AppTestState, foldAppTests } from "../computer/app-test-state.ts";
 
 export type FileChange = {
   path: string;
@@ -69,6 +70,7 @@ export type TranscriptItem =
       attachments?: MediaAttachment[] | undefined;
     }
   | CompactionItem
+  | { kind: "app-test"; key: number; test: AppTestState }
   | { kind: "thinking"; key: number; text: string }
   | {
       kind: "step";
@@ -159,6 +161,7 @@ function repairTurns(events: readonly StoredEvent[]): ReadonlySet<string> {
 }
 
 export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[] {
+  const tests = new Map(foldAppTests(events).map((test) => [test.turnId, test]));
   const repairs = repairTurns(events);
   const items: TranscriptItem[] = [];
   /**
@@ -194,19 +197,19 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
     const key = event.seq;
 
     switch (event.type) {
-      case "test.started":
       case "test.annotation":
-      case "test.completed":
+        break;
+      case "test.completed": {
+        const test = tests.get(event.turnId);
+        if (test) items.push({ kind: "app-test", key, test });
+        break;
+      }
+      case "test.started":
         items.push({
           kind: "notice",
           key,
           level: "info",
-          text:
-            event.type === "test.started"
-              ? "App test started"
-              : event.type === "test.completed"
-                ? `App test ${event.payload.status}`
-                : `App test ${event.payload.annotation.type}`,
+          text: `App test started: ${event.payload.objective}`,
         });
         break;
       case "computer.screenshot": {

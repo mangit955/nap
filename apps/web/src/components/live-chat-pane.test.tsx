@@ -584,3 +584,45 @@ it("shares reconciled legacy activity with composer, Context and the visible clo
     vi.useRealTimers();
   }
 });
+
+it("wires Fix it to a normal turn without repairing on a failed test event", async () => {
+  const goal = "Save notes";
+  const testTurn = "00000000-0000-4000-8000-000000000099";
+  const events = [
+    ev("test.started", { jobId: JOB_ID, objective: goal, commitSha: "abcdef1" }, 1, {
+      turnId: testTurn,
+    }),
+    ev(
+      "test.annotation",
+      {
+        annotation: {
+          type: "assertion",
+          id: "save",
+          expectation: "The saved note appears",
+          result: "failed",
+        },
+        timeMs: 1000,
+      },
+      2,
+      { turnId: testTurn },
+    ),
+    ev(
+      "turn.completed",
+      { commitSha: null, usage: { inputTokens: 0, outputTokens: 0 }, durationMs: 1 },
+      3,
+      { turnId: testTurn },
+    ),
+    ev(
+      "test.completed",
+      { jobId: JOB_ID, status: "completed", counts: { passed: 0, failed: 1, untested: 0 } },
+      4,
+      { turnId: testTurn },
+    ),
+  ];
+  const log: SessionLog = { ...failedTurn(), events, lastSeq: 4, jobs: jobView(events) };
+  render(<LiveChatPane sessionId={SESSION_ID} log={log} fetchJson={fetchJson} />);
+  expect(turns).toHaveLength(0);
+  fireEvent.click(screen.getByRole("button", { name: "Fix it" }));
+  await waitFor(() => expect(turns).toHaveLength(1));
+  expect(turns[0]?.message).toContain("The saved note appears");
+});

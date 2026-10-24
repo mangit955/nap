@@ -108,3 +108,20 @@ it("retires only covered activity while retaining terminal identity across the i
     openedAt: newer.createdAt,
   });
 });
+
+it("counts app test preparation as busy before the model starts and closes only its own turn", () => {
+  const event = {
+    type: "test.started" as const,
+    sessionId: "s",
+    turnId: "app-test",
+    seq: 1,
+    createdAt: "2026-10-24T00:00:00Z",
+    payload: { jobId: "job", commitSha: "abcdef1", objective: "Save notes" },
+  };
+  expect(inFlightTurn([event])).toMatchObject({
+    turnId: "app-test",
+    openedAt: event.createdAt,
+    startedAt: undefined,
+  });
+  expect(inFlightTurn([event], 1)).toBeUndefined();
+});

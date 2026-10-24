@@ -42,6 +42,7 @@ export function inFlightTurn(
     if (
       event.type !== "user.message" &&
       event.type !== "turn.started" &&
+      event.type !== "test.started" &&
       event.type !== "compaction.started"
     )
       continue;

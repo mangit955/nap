@@ -109,6 +109,7 @@ function stepsOf(items: TranscriptItem[]) {
  * exhaustive across both.
  */
 const DRAWN_ELSEWHERE = [
+  "test.annotation",
   "context.usage",
   "job.started",
   "verification.started",
@@ -129,18 +130,6 @@ const CASES = [
       jobId: "7c9b1a52-8d3e-4f21-a0c4-1b2d3e4f5a6b",
       commitSha: "abcdef1",
       objective: "Save notes",
-    },
-  },
-  {
-    type: "test.annotation",
-    payload: {
-      annotation: {
-        type: "assertion",
-        id: "save",
-        expectation: "private expectation",
-        result: "untested",
-      },
-      timeMs: 0,
     },
   },
   {
@@ -222,12 +211,12 @@ describe("the treatment table covers the union", () => {
     void _exhaustive;
   });
 
-  it("lets nothing but a job event out of the treatment table", () => {
+  it("restricts omissions to status and assertion data", () => {
     // Otherwise the list above is an escape hatch: anything moved into it keeps both the count
     // and the compile check green while rendering nowhere at all, which is the exact failure
-    // this table exists to catch. Only job, verification and context events may sit there.
+    // this table exists to catch. Only status events and assertion data rendered in the result card may sit there.
     for (const type of DRAWN_ELSEWHERE) {
-      expect(type).toMatch(/^(job|verification|context)\./);
+      expect(type).toMatch(/^(job|verification|context)\.|^test\.annotation$/);
       expect(CASES.map((c) => c.type)).not.toContain(type);
     }
   });
