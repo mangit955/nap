@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { IDBFactory } from "fake-indexeddb";
 import { afterEach, expect, it, vi } from "vitest";
 import { type ComposerDraft, ComposerDraftStore } from "../projects/composer-draft.ts";
+import * as draftNavigation from "../projects/use-draft-navigation.ts";
 import { NewSessionComposer } from "./new-session-composer.tsx";
 
 const push = vi.fn();
@@ -208,6 +209,279 @@ it("flushes current text, model and media on an anchor click and stops if storag
     }),
   );
   expect(box).toHaveValue("Last edit before leaving");
+});
+
+it("lets a link go at once from an empty composer, even with storage broken", async () => {
+  vi.stubGlobal("indexedDB", new IDBFactory());
+  render(
+    <>
+      <NewSessionComposer
+        ownerId="00000000-0000-4000-8000-000000000001"
+        models={[]}
+        modelsLoading={false}
+        onAddKey={vi.fn()}
+      />
+      <a href="/settings/providers">Providers</a>
+    </>,
+  );
+  const box = await screen.findByRole("textbox", { name: "Describe the app you want" });
+  await waitFor(() => expect(box).toBeEnabled());
+  const save = vi
+    .spyOn(ComposerDraftStore.prototype, "save")
+    .mockReturnValue(new Promise<void>(() => {}));
+  try {
+    await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ text: "" })));
+    save.mockClear();
+    expect(fireEvent.click(screen.getByRole("link", { name: "Providers" }))).toBe(true);
+    expect(save).not.toHaveBeenCalled();
+  } finally {
+    save.mockRestore();
+  }
+});
+
+it("writes the emptied composer before a link once its text had been saved", async () => {
+  vi.stubGlobal("indexedDB", new IDBFactory());
+  const ownerId = "00000000-0000-4000-8000-000000000001";
+  render(
+    <>
+      <NewSessionComposer ownerId={ownerId} models={[]} modelsLoading={false} onAddKey={vi.fn()} />
+      <a href="/settings/providers">Providers</a>
+    </>,
+  );
+  const box = await screen.findByRole("textbox", { name: "Describe the app you want" });
+  await waitFor(() => expect(box).toBeEnabled());
+  fireEvent.change(box, { target: { value: "A todo app" } });
+  await waitFor(async () => {
+    const id = sessionStorage.getItem(`nap.composer.${ownerId}`);
+    expect(id && (await new ComposerDraftStore().load(ownerId, id))?.text).toBe("A todo app");
+  });
+  const save = vi
+    .spyOn(ComposerDraftStore.prototype, "save")
+    .mockReturnValue(new Promise<void>(() => {}));
+  fireEvent.change(box, { target: { value: "" } });
+  expect(fireEvent.click(screen.getByRole("link", { name: "Providers" }))).toBe(false);
+  await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ text: "" })));
+});
+
+it.each(["clear", "failed blank", "failed nonblank"])(
+  "waits for a committed nonblank save and the blank flush before leaving after %s",
+  async (action) => {
+    vi.stubGlobal("indexedDB", new IDBFactory());
+    const ownerId = crypto.randomUUID();
+    const store = new ComposerDraftStore();
+    const navigate = vi.fn(() => view.unmount());
+    const useNavigation = draftNavigation.useDraftNavigation;
+    vi.spyOn(draftNavigation, "useDraftNavigation").mockImplementation((save, onError) =>
+      useNavigation(save, onError, navigate),
+    );
+    const view = render(
+      <>
+        <NewSessionComposer
+          ownerId={ownerId}
+          models={[]}
+          modelsLoading={false}
+          onAddKey={vi.fn()}
+        />
+        <a href="/settings/connections">Connections</a>
+      </>,
+    );
+    const box = screen.getByRole("textbox", { name: "Describe the app you want" });
+    await waitFor(() => expect(sessionStorage.getItem(`nap.composer.${ownerId}`)).not.toBeNull());
+    const id = sessionStorage.getItem(`nap.composer.${ownerId}`)!;
+    expect(await store.load(ownerId, id)).toMatchObject({ text: "" });
+    let finishNonblank = () => {};
+    let finishBlank = () => {};
+    const nonblankCompletion = new Promise<void>((resolve) => {
+      finishNonblank = resolve;
+    });
+    const blankCompletion = new Promise<void>((resolve) => {
+      finishBlank = resolve;
+    });
+    const blankStarted = vi.fn();
+    let rejectBlank = action === "failed blank";
+    const realSave = ComposerDraftStore.prototype.save;
+    const save = vi.spyOn(ComposerDraftStore.prototype, "save").mockImplementation(async function (
+      this: ComposerDraftStore,
+      value,
+    ) {
+      if (value.text) {
+        await realSave.call(this, value);
+        await nonblankCompletion;
+        if (action === "failed nonblank") throw new Error("Completion failed");
+      } else {
+        blankStarted();
+        await blankCompletion;
+        if (rejectBlank) {
+          rejectBlank = false;
+          throw new Error("Storage full");
+        }
+        await realSave.call(this, value);
+      }
+    });
+    try {
+      fireEvent.change(box, { target: { value: "Durable before completion" } });
+      await waitFor(async () =>
+        expect((await store.load(ownerId, id))?.text).toBe("Durable before completion"),
+      );
+      fireEvent.change(box, { target: { value: "" } });
+      expect(fireEvent.click(screen.getByRole("link", { name: "Connections" }))).toBe(false);
+      expect(blankStarted).not.toHaveBeenCalled();
+      expect(navigate).not.toHaveBeenCalled();
+      finishNonblank();
+      await waitFor(() => expect(blankStarted).toHaveBeenCalled());
+      expect(navigate).not.toHaveBeenCalled();
+      expect((await store.load(ownerId, id))?.text).toBe("Durable before completion");
+      finishBlank();
+      if (action === "failed blank") {
+        await screen.findByText(/Could not save your draft/);
+        expect(navigate).not.toHaveBeenCalled();
+        expect(fireEvent.click(screen.getByRole("link", { name: "Connections" }))).toBe(false);
+      }
+      await waitFor(() => expect(navigate).toHaveBeenCalledOnce());
+      expect(await store.load(ownerId, id)).toMatchObject({ text: "", attachments: [] });
+    } finally {
+      finishNonblank();
+      finishBlank();
+      view.unmount();
+      save.mockRestore();
+    }
+  },
+);
+
+it("keeps a queued nonblank write unsafe when an older blank finishes", async () => {
+  vi.stubGlobal("indexedDB", new IDBFactory());
+  const ownerId = crypto.randomUUID();
+  const store = new ComposerDraftStore();
+  const useNavigation = draftNavigation.useDraftNavigation;
+  const navigate = vi.fn(() => view.unmount());
+  vi.spyOn(draftNavigation, "useDraftNavigation").mockImplementation((save, onError) =>
+    useNavigation(save, onError, navigate),
+  );
+  let finishOldBlank = () => {};
+  let finishNonblank = () => {};
+  const oldBlank = new Promise<void>((resolve) => {
+    finishOldBlank = resolve;
+  });
+  const nonblank = new Promise<void>((resolve) => {
+    finishNonblank = resolve;
+  });
+  const realSave = ComposerDraftStore.prototype.save;
+  const nonblankStarted = vi.fn();
+  let firstBlank = true;
+  let id = "";
+  const save = vi.spyOn(ComposerDraftStore.prototype, "save").mockImplementation(async function (
+    this: ComposerDraftStore,
+    value,
+  ) {
+    id = value.id;
+    if (!value.text && firstBlank) {
+      firstBlank = false;
+      await realSave.call(this, value);
+      await oldBlank;
+    } else {
+      if (value.text) {
+        nonblankStarted();
+        await nonblank;
+      }
+      await realSave.call(this, value);
+    }
+  });
+  const view = render(
+    <>
+      <NewSessionComposer ownerId={ownerId} models={[]} modelsLoading={false} onAddKey={vi.fn()} />
+      <a href="/settings/connections">Connections</a>
+    </>,
+  );
+  const box = screen.getByRole("textbox", { name: "Describe the app you want" });
+  try {
+    await waitFor(async () =>
+      expect(id && (await store.load(ownerId, id))).toMatchObject({ text: "" }),
+    );
+    fireEvent.change(box, { target: { value: "Queued behind blank" } });
+    // Let the autosave debounce enqueue the text while the older blank is still held.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    });
+    finishOldBlank();
+    await waitFor(() => expect(nonblankStarted).toHaveBeenCalledOnce());
+    fireEvent.change(box, { target: { value: "" } });
+    expect(fireEvent.click(screen.getByRole("link", { name: "Connections" }))).toBe(false);
+    expect(navigate).not.toHaveBeenCalled();
+    expect(save.mock.calls.filter(([value]) => !value.text)).toHaveLength(1);
+    finishNonblank();
+    await waitFor(() => expect(navigate).toHaveBeenCalledOnce());
+    expect(await store.load(ownerId, id)).toMatchObject({ text: "" });
+  } finally {
+    finishOldBlank();
+    finishNonblank();
+    view.unmount();
+    save.mockRestore();
+  }
+});
+
+it("keeps a previous owner's late nonblank completion out of the current blank state", async () => {
+  vi.stubGlobal("indexedDB", new IDBFactory());
+  const firstOwner = crypto.randomUUID();
+  const secondOwner = crypto.randomUUID();
+  const secondId = crypto.randomUUID();
+  const store = new ComposerDraftStore();
+  await store.save({
+    id: secondId,
+    ownerId: secondOwner,
+    operationId: secondId,
+    text: "",
+    source: null,
+    attachments: [],
+    expiresAt: Date.now() + 10000,
+  });
+  sessionStorage.setItem(`nap.composer.${secondOwner}`, secondId);
+  let complete = () => {};
+  const completion = new Promise<void>((resolve) => {
+    complete = resolve;
+  });
+  const finished = vi.fn();
+  const realSave = ComposerDraftStore.prototype.save;
+  const save = vi.spyOn(ComposerDraftStore.prototype, "save").mockImplementation(async function (
+    this: ComposerDraftStore,
+    value,
+  ) {
+    await realSave.call(this, value);
+    if (value.ownerId === firstOwner && value.text) {
+      await completion;
+      finished();
+    }
+  });
+  const composer = (ownerId: string) => (
+    <>
+      <NewSessionComposer ownerId={ownerId} models={[]} modelsLoading={false} onAddKey={vi.fn()} />
+      <a href="/settings/connections">Connections</a>
+    </>
+  );
+  const view = render(composer(firstOwner));
+  const box = screen.getByRole("textbox", { name: "Describe the app you want" });
+  try {
+    await waitFor(() =>
+      expect(sessionStorage.getItem(`nap.composer.${firstOwner}`)).not.toBeNull(),
+    );
+    const firstId = sessionStorage.getItem(`nap.composer.${firstOwner}`)!;
+    fireEvent.change(box, { target: { value: "Previous owner" } });
+    await waitFor(async () =>
+      expect((await store.load(firstOwner, firstId))?.text).toBe("Previous owner"),
+    );
+    view.rerender(composer(secondOwner));
+    await waitFor(() => expect(box).toHaveValue(""));
+    complete();
+    await waitFor(() => expect(finished).toHaveBeenCalled());
+    save.mockClear();
+    expect(fireEvent.click(screen.getByRole("link", { name: "Connections" }))).toBe(true);
+    expect(save).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem(`nap.composer.${secondOwner}`)).toBe(secondId);
+    expect((await store.load(secondOwner, secondId))?.text).toBe("");
+  } finally {
+    complete();
+    view.unmount();
+    save.mockRestore();
+  }
 });
 
 it("starts a template with its task and model once, without browser first-prompt replay", async () => {

@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { IDBFactory } from "fake-indexeddb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type ComposerDraft, ComposerDraftStore } from "../projects/composer-draft.ts";
+import * as draftNavigation from "../projects/use-draft-navigation.ts";
 import { mediaBrowser } from "../testing/media-browser.ts";
 import { ChatInput } from "./chat-input.tsx";
 
@@ -574,6 +575,395 @@ it("flushes the latest workspace draft before a document link and retains it on 
     expect(box()).toHaveValue("Last workspace edit");
     view.unmount();
   } finally {
+    save.mockRestore();
+    vi.unstubAllGlobals();
+  }
+});
+
+it("never holds a link for a save when the workspace box is empty", async () => {
+  vi.stubGlobal("indexedDB", new IDBFactory());
+  const draftIdentity = { ownerId: crypto.randomUUID(), projectId: crypto.randomUUID() };
+  const view = render(
+    <>
+      <ChatInput
+        draftIdentity={draftIdentity}
+        running={false}
+        error={undefined}
+        onSubmit={vi.fn()}
+        onCancel={vi.fn()}
+      />
+      <a href="/dashboard">Dashboard</a>
+    </>,
+  );
+  await waitFor(() => expect(box()).toBeEnabled());
+  const save = vi
+    .spyOn(ComposerDraftStore.prototype, "save")
+    .mockReturnValue(new Promise<void>(() => {}));
+  try {
+    await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ text: "" })));
+    save.mockClear();
+    expect(fireEvent.click(screen.getByRole("link", { name: "Dashboard" }))).toBe(true);
+    expect(save).not.toHaveBeenCalled();
+    view.unmount();
+  } finally {
+    save.mockRestore();
+    vi.unstubAllGlobals();
+  }
+});
+
+it("writes the emptied box before a link once the message it held was saved and sent", async () => {
+  vi.stubGlobal("indexedDB", new IDBFactory());
+  const draftIdentity = { ownerId: crypto.randomUUID(), projectId: crypto.randomUUID() };
+  const onSubmit = vi.fn();
+  const view = render(
+    <>
+      <ChatInput
+        draftIdentity={draftIdentity}
+        running={false}
+        error={undefined}
+        onSubmit={onSubmit}
+        onCancel={vi.fn()}
+      />
+      <a href="/dashboard">Dashboard</a>
+    </>,
+  );
+  await waitFor(() => expect(box()).toBeEnabled());
+  type("Already sent");
+  await waitFor(async () =>
+    expect(
+      (await new ComposerDraftStore().load(draftIdentity.ownerId, draftIdentity.projectId))?.text,
+    ).toBe("Already sent"),
+  );
+  const save = vi
+    .spyOn(ComposerDraftStore.prototype, "save")
+    .mockReturnValue(new Promise<void>(() => {}));
+  try {
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(onSubmit).toHaveBeenCalledWith("Already sent");
+    expect(fireEvent.click(screen.getByRole("link", { name: "Dashboard" }))).toBe(false);
+    await waitFor(() =>
+      expect(save).toHaveBeenCalledWith(expect.objectContaining({ text: "", attachments: [] })),
+    );
+    view.unmount();
+  } finally {
+    save.mockRestore();
+    vi.unstubAllGlobals();
+  }
+});
+
+it("writes the emptied box before a link when the restored draft was cleared", async () => {
+  vi.stubGlobal("indexedDB", new IDBFactory());
+  const draftIdentity = { ownerId: crypto.randomUUID(), projectId: crypto.randomUUID() };
+  await new ComposerDraftStore().save({
+    id: draftIdentity.projectId,
+    ownerId: draftIdentity.ownerId,
+    operationId: draftIdentity.projectId,
+    text: "Discard me",
+    source: null,
+    attachments: [],
+    expiresAt: Date.now() + 10000,
+  });
+  const view = render(
+    <>
+      <ChatInput
+        draftIdentity={draftIdentity}
+        running={false}
+        error={undefined}
+        onSubmit={vi.fn()}
+        onCancel={vi.fn()}
+      />
+      <a href="/dashboard">Dashboard</a>
+    </>,
+  );
+  await waitFor(() => expect(box()).toHaveValue("Discard me"));
+  const save = vi
+    .spyOn(ComposerDraftStore.prototype, "save")
+    .mockReturnValue(new Promise<void>(() => {}));
+  try {
+    type("");
+    expect(fireEvent.click(screen.getByRole("link", { name: "Dashboard" }))).toBe(false);
+    await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ text: "" })));
+    view.unmount();
+  } finally {
+    save.mockRestore();
+    vi.unstubAllGlobals();
+  }
+});
+
+it.each(["clear", "send", "failed blank", "failed nonblank"])(
+  "waits for a committed nonblank save and the blank flush before leaving after %s",
+  async (action) => {
+    vi.stubGlobal("indexedDB", new IDBFactory());
+    const draftIdentity = { ownerId: crypto.randomUUID(), projectId: crypto.randomUUID() };
+    const store = new ComposerDraftStore();
+    const navigate = vi.fn(() => view.unmount());
+    const useNavigation = draftNavigation.useDraftNavigation;
+    const navigation = vi
+      .spyOn(draftNavigation, "useDraftNavigation")
+      .mockImplementation((save, onError) => useNavigation(save, onError, navigate));
+    const view = render(
+      <>
+        <ChatInput
+          draftIdentity={draftIdentity}
+          running={false}
+          error={undefined}
+          onSubmit={vi.fn()}
+          onCancel={vi.fn()}
+        />
+        <a href="/settings/connections">Connections</a>
+      </>,
+    );
+    let finishNonblank = () => {};
+    let finishBlank = () => {};
+    const nonblankCompletion = new Promise<void>((resolve) => {
+      finishNonblank = resolve;
+    });
+    const blankCompletion = new Promise<void>((resolve) => {
+      finishBlank = resolve;
+    });
+    const blankStarted = vi.fn();
+    let rejectBlank = action === "failed blank";
+    await waitFor(async () =>
+      expect(await store.load(draftIdentity.ownerId, draftIdentity.projectId)).toMatchObject({
+        text: "",
+      }),
+    );
+    const realSave = ComposerDraftStore.prototype.save;
+    const save = vi.spyOn(ComposerDraftStore.prototype, "save").mockImplementation(async function (
+      this: ComposerDraftStore,
+      value,
+    ) {
+      if (value.text) {
+        await realSave.call(this, value);
+        await nonblankCompletion;
+        if (action === "failed nonblank") throw new Error("Completion failed");
+      } else {
+        blankStarted();
+        await blankCompletion;
+        if (rejectBlank) {
+          rejectBlank = false;
+          throw new Error("Storage full");
+        }
+        await realSave.call(this, value);
+      }
+    });
+    try {
+      type("Durable before completion");
+      await waitFor(async () =>
+        expect((await store.load(draftIdentity.ownerId, draftIdentity.projectId))?.text).toBe(
+          "Durable before completion",
+        ),
+      );
+      if (action === "send") fireEvent.click(screen.getByRole("button", { name: "Send" }));
+      else type("");
+      expect(fireEvent.click(screen.getByRole("link", { name: "Connections" }))).toBe(false);
+      expect(blankStarted).not.toHaveBeenCalled();
+      expect(navigate).not.toHaveBeenCalled();
+      finishNonblank();
+      await waitFor(() => expect(blankStarted).toHaveBeenCalled());
+      expect(navigate).not.toHaveBeenCalled();
+      expect((await store.load(draftIdentity.ownerId, draftIdentity.projectId))?.text).toBe(
+        "Durable before completion",
+      );
+      finishBlank();
+      if (action === "failed blank") {
+        await screen.findByText(/Could not save this draft/);
+        expect(navigate).not.toHaveBeenCalled();
+        expect(fireEvent.click(screen.getByRole("link", { name: "Connections" }))).toBe(false);
+      }
+      await waitFor(() => expect(navigate).toHaveBeenCalledOnce());
+      expect(await store.load(draftIdentity.ownerId, draftIdentity.projectId)).toMatchObject({
+        text: "",
+        attachments: [],
+      });
+    } finally {
+      finishNonblank();
+      finishBlank();
+      view.unmount();
+      save.mockRestore();
+      navigation.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  },
+);
+
+it("keeps a queued nonblank write unsafe when an older blank finishes", async () => {
+  vi.stubGlobal("indexedDB", new IDBFactory());
+  const draftIdentity = { ownerId: crypto.randomUUID(), projectId: crypto.randomUUID() };
+  const store = new ComposerDraftStore();
+  const useNavigation = draftNavigation.useDraftNavigation;
+  const navigate = vi.fn(() => view.unmount());
+  const navigation = vi
+    .spyOn(draftNavigation, "useDraftNavigation")
+    .mockImplementation((save, onError) => useNavigation(save, onError, navigate));
+  let finishOldBlank = () => {};
+  let finishNonblank = () => {};
+  const oldBlank = new Promise<void>((resolve) => {
+    finishOldBlank = resolve;
+  });
+  const nonblank = new Promise<void>((resolve) => {
+    finishNonblank = resolve;
+  });
+  const realSave = ComposerDraftStore.prototype.save;
+  const nonblankStarted = vi.fn();
+  let firstBlank = true;
+  const save = vi.spyOn(ComposerDraftStore.prototype, "save").mockImplementation(async function (
+    this: ComposerDraftStore,
+    value,
+  ) {
+    if (!value.text && firstBlank) {
+      firstBlank = false;
+      await realSave.call(this, value);
+      await oldBlank;
+    } else {
+      if (value.text) {
+        nonblankStarted();
+        await nonblank;
+      }
+      await realSave.call(this, value);
+    }
+  });
+  const view = render(
+    <>
+      <ChatInput
+        draftIdentity={draftIdentity}
+        running={false}
+        error={undefined}
+        onSubmit={vi.fn()}
+        onCancel={vi.fn()}
+      />
+      <a href="/settings/connections">Connections</a>
+    </>,
+  );
+  try {
+    await waitFor(async () =>
+      expect(await store.load(draftIdentity.ownerId, draftIdentity.projectId)).toMatchObject({
+        text: "",
+      }),
+    );
+    type("Queued behind blank");
+    // Let the autosave debounce enqueue the text while the older blank is still held.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    });
+    finishOldBlank();
+    await waitFor(() => expect(nonblankStarted).toHaveBeenCalledOnce());
+    type("");
+    expect(fireEvent.click(screen.getByRole("link", { name: "Connections" }))).toBe(false);
+    expect(navigate).not.toHaveBeenCalled();
+    expect(save.mock.calls.filter(([value]) => !value.text)).toHaveLength(1);
+    finishNonblank();
+    await waitFor(() => expect(navigate).toHaveBeenCalledOnce());
+    expect(await store.load(draftIdentity.ownerId, draftIdentity.projectId)).toMatchObject({
+      text: "",
+    });
+  } finally {
+    finishOldBlank();
+    finishNonblank();
+    view.unmount();
+    save.mockRestore();
+    navigation.mockRestore();
+    vi.unstubAllGlobals();
+  }
+});
+
+it("never holds a link to write one project's text while the next project's draft loads", async () => {
+  vi.stubGlobal("indexedDB", new IDBFactory());
+  const ownerId = crypto.randomUUID();
+  const first = { ownerId, projectId: crypto.randomUUID() };
+  const second = { ownerId, projectId: crypto.randomUUID() };
+  const link = <a href="/dashboard">Dashboard</a>;
+  const props = { running: false, error: undefined, onSubmit: vi.fn(), onCancel: vi.fn() };
+  const view = render(
+    <>
+      <ChatInput draftIdentity={first} {...props} />
+      {link}
+    </>,
+  );
+  await waitFor(() => expect(box()).toBeEnabled());
+  type("Only for the first project");
+  const load = vi
+    .spyOn(ComposerDraftStore.prototype, "load")
+    .mockReturnValue(new Promise<null>(() => {}));
+  const save = vi.spyOn(ComposerDraftStore.prototype, "save");
+  try {
+    view.rerender(
+      <>
+        <ChatInput draftIdentity={second} {...props} />
+        {link}
+      </>,
+    );
+    expect(load).toHaveBeenCalledWith(ownerId, second.projectId);
+    expect(fireEvent.click(screen.getByRole("link", { name: "Dashboard" }))).toBe(true);
+    expect(save).not.toHaveBeenCalled();
+    view.unmount();
+  } finally {
+    load.mockRestore();
+    save.mockRestore();
+    vi.unstubAllGlobals();
+  }
+});
+
+it("keeps a previous project's late nonblank completion out of the current blank state", async () => {
+  vi.stubGlobal("indexedDB", new IDBFactory());
+  const first = { ownerId: crypto.randomUUID(), projectId: crypto.randomUUID() };
+  const second = { ownerId: first.ownerId, projectId: crypto.randomUUID() };
+  const store = new ComposerDraftStore();
+  await store.save({
+    id: second.projectId,
+    ownerId: second.ownerId,
+    operationId: second.projectId,
+    text: "",
+    source: null,
+    attachments: [],
+    expiresAt: Date.now() + 10000,
+  });
+  let complete = () => {};
+  const completion = new Promise<void>((resolve) => {
+    complete = resolve;
+  });
+  const finished = vi.fn();
+  const realSave = ComposerDraftStore.prototype.save;
+  const save = vi.spyOn(ComposerDraftStore.prototype, "save").mockImplementation(async function (
+    this: ComposerDraftStore,
+    value,
+  ) {
+    await realSave.call(this, value);
+    if (value.id === first.projectId && value.text) {
+      await completion;
+      finished();
+    }
+  });
+  const composer = (draftIdentity: typeof first) => (
+    <>
+      <ChatInput
+        draftIdentity={draftIdentity}
+        running={false}
+        error={undefined}
+        onSubmit={vi.fn()}
+        onCancel={vi.fn()}
+      />
+      <a href="/settings/connections">Connections</a>
+    </>
+  );
+  const view = render(composer(first));
+  try {
+    await waitFor(() => expect(box()).toBeEnabled());
+    type("Previous project");
+    await waitFor(async () =>
+      expect((await store.load(first.ownerId, first.projectId))?.text).toBe("Previous project"),
+    );
+    view.rerender(composer(second));
+    await waitFor(() => expect(box()).toHaveValue(""));
+    complete();
+    await waitFor(() => expect(finished).toHaveBeenCalled());
+    save.mockClear();
+    expect(fireEvent.click(screen.getByRole("link", { name: "Connections" }))).toBe(true);
+    expect(save).not.toHaveBeenCalled();
+    expect((await store.load(second.ownerId, second.projectId))?.text).toBe("");
+  } finally {
+    complete();
+    view.unmount();
     save.mockRestore();
     vi.unstubAllGlobals();
   }
