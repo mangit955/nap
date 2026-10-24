@@ -3,8 +3,12 @@ import {
   NativeHostCommandSchema,
   type NativeHostEvent,
 } from "@nap/shared/native-process-protocol";
-import { describe, expect, it } from "vitest";
-import { E2BProcessHost, type ProcessClient } from "./e2b-process-host.ts";
+import { describe, expect, it, vi } from "vitest";
+import {
+  attachedE2BProcessClient,
+  E2BProcessHost,
+  type ProcessClient,
+} from "./e2b-process-host.ts";
 
 function fixture() {
   let notify: (text: string) => Promise<void> = async () => {};
@@ -265,4 +269,129 @@ it("refuses terminal controls on a pipe process without disturbing its channel",
   expect(f.sent).toHaveLength(count);
   expect(await found.value.write("still connected")).toMatchObject({ ok: true });
   await found.value.disconnect();
+});
+
+it.each([
+  ["queued", "cgroup"],
+  ["later", "cgroup"],
+  ["later", "unknown"],
+] as const)(
+  "preserves a %s terminal receipt with %s containment after an output ACK loses its command response",
+  async (timing, containment) => {
+    const f = fixture();
+    let rejectAck: (error: Error) => void = () => {};
+    let ackStarted: () => void = () => {};
+    const acknowledging = new Promise<void>((resolve) => {
+      ackStarted = resolve;
+    });
+    const client: ProcessClient = {
+      ...f.client,
+      async start(id, path, output) {
+        const handle = await f.client.start(id, path, output);
+        return {
+          ...handle,
+          sendStdin: async (text: string) => {
+            const command = NativeHostCommandSchema.parse(JSON.parse(text));
+            if (command.type !== "ack") return handle.sendStdin(text);
+            ackStarted();
+            return new Promise<void>((_resolve, reject) => {
+              rejectAck = reject;
+            });
+          },
+        };
+      },
+    };
+    const host = new E2BProcessHost({
+      client,
+      executablePath: "/opt/nap/host.mjs",
+      readyTimeoutMs: 100,
+    });
+    const found = await host.start(request, async () => {});
+    if (!found.ok) throw new Error("start failed");
+    const output = f.emit({ type: "output", seq: 1, stream: "stdout", data: "eA==" });
+    await acknowledging;
+    let terminal: Promise<void> | undefined;
+    const receipt = {
+      type: "exit",
+      seq: 2,
+      code: 0,
+      reason: "stopped",
+      containment,
+    } as const;
+    if (timing === "queued") terminal = f.emit(receipt);
+    rejectAck(new Error("process already exited"));
+    await output;
+    f.finish();
+    await Promise.resolve();
+    await Promise.resolve();
+    if (timing === "later") terminal = f.emit(receipt);
+    await terminal;
+    expect(await found.value.closed).toMatchObject({
+      ok: true,
+      value: { containment, reason: "stopped" },
+    });
+  },
+);
+
+it("bounds command uncertainty and prevents writes or renewals from reviving the process", async () => {
+  const f = fixture();
+  const client: ProcessClient = {
+    ...f.client,
+    async start(id, path, output) {
+      const handle = await f.client.start(id, path, output);
+      return {
+        ...handle,
+        sendStdin: async (text: string) => {
+          const command = NativeHostCommandSchema.parse(JSON.parse(text));
+          if (command.type === "input") throw new Error("private transport detail");
+          return handle.sendStdin(text);
+        },
+      };
+    },
+  };
+  const host = new E2BProcessHost({
+    client,
+    executablePath: "/opt/nap/host.mjs",
+    readyTimeoutMs: 30,
+  });
+  const found = await host.start(request, async () => {});
+  if (!found.ok) throw new Error("start failed");
+  expect(await found.value.write("hello")).toMatchObject({ ok: false });
+  const count = f.sent.length;
+  expect(await found.value.renew()).toMatchObject({ ok: false });
+  expect(await found.value.write("never replay")).toMatchObject({ ok: false });
+  expect(f.sent).toHaveLength(count);
+  expect(await found.value.closed).toMatchObject({
+    ok: false,
+    error: { code: "delivery_uncertain" },
+  });
+});
+
+it("uses only the attached sandbox commands without reconnecting or changing its timeout", async () => {
+  const handle = {
+    pid: 42,
+    sendStdin: async () => {},
+    wait: async () => ({ exitCode: 0 }),
+    disconnect: async () => {},
+  };
+  const commands = { run: vi.fn(async () => handle), connect: vi.fn(async () => handle) };
+  const client = attachedE2BProcessClient({ sandboxId: "already-created", commands });
+  const output = async () => {};
+  expect(await client.start("already-created", "/opt/nap/it's host.mjs", output)).toBe(handle);
+  expect(commands.run).toHaveBeenCalledWith("node '/opt/nap/it'\\''s host.mjs'", {
+    user: "root",
+    envs: {},
+    background: true,
+    stdin: true,
+    timeoutMs: 0,
+    onStdout: output,
+  });
+  expect(await client.connect("already-created", 42, output)).toBe(handle);
+  expect(commands.connect).toHaveBeenCalledWith(42, { timeoutMs: 0, onStdout: output });
+  await expect(client.start("another-sandbox", "/opt/nap/host.mjs", output)).rejects.toThrow(
+    "does not match",
+  );
+  await expect(client.connect("another-sandbox", 42, output)).rejects.toThrow("does not match");
+  expect(commands.run).toHaveBeenCalledOnce();
+  expect(commands.connect).toHaveBeenCalledOnce();
 });

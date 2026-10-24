@@ -20,7 +20,6 @@ import type {
   SandboxProcessHost,
 } from "@nap/shared/ports/sandbox-process";
 import type { Result, VoidResult } from "@nap/shared/result";
-import { Sandbox } from "e2b";
 import { z } from "zod";
 
 type Handle = {
@@ -46,23 +45,51 @@ const referenceSchema = z.strictObject({
   terminal: z.boolean().optional(),
 });
 const quote = (text: string) => `'${text.replaceAll("'", "'\\''")}'`;
-const realClient: ProcessClient = {
-  async start(sandboxId, executablePath, onStdout) {
-    const sandbox = await Sandbox.connect(sandboxId);
-    return sandbox.commands.run(`node ${quote(executablePath)}`, {
-      user: "root",
-      envs: {},
-      background: true,
-      stdin: true,
-      timeoutMs: 0,
-      onStdout,
-    });
-  },
-  async connect(sandboxId, pid, onStdout) {
-    const sandbox = await Sandbox.connect(sandboxId);
-    return sandbox.commands.connect(pid, { timeoutMs: 0, onStdout });
-  },
+type AttachedSandbox = {
+  sandboxId: string;
+  commands: {
+    run(
+      command: string,
+      options: {
+        user: "root";
+        envs: Record<string, string>;
+        background: true;
+        stdin: true;
+        timeoutMs: number;
+        onStdout: (text: string) => Promise<void>;
+      },
+    ): Promise<Handle>;
+    connect(
+      pid: number,
+      options: { timeoutMs: number; onStdout: (text: string) => Promise<void> },
+    ): Promise<Handle>;
+  };
 };
+
+/** Sandbox.connect can extend its lifetime. The lifecycle owner supplies its existing handle. */
+export function attachedE2BProcessClient(sandbox: AttachedSandbox): ProcessClient {
+  const owned = (sandboxId: string) => {
+    if (sandboxId !== sandbox.sandboxId)
+      throw new Error("Native process sandbox does not match its attached sandbox.");
+  };
+  return {
+    async start(sandboxId, executablePath, onStdout) {
+      owned(sandboxId);
+      return sandbox.commands.run(`node ${quote(executablePath)}`, {
+        user: "root",
+        envs: {},
+        background: true,
+        stdin: true,
+        timeoutMs: 0,
+        onStdout,
+      });
+    },
+    async connect(sandboxId, pid, onStdout) {
+      owned(sandboxId);
+      return sandbox.commands.connect(pid, { timeoutMs: 0, onStdout });
+    },
+  };
+}
 
 function failure(code: ProcessError["code"], message: string): Result<never, ProcessError> {
   return { ok: false, error: { code, message } };
@@ -93,6 +120,8 @@ function channel(options: {
   let handle: Handle | null = null;
   let cursor = options.afterSequence;
   let ended = false;
+  let controlUncertain = false;
+  let receiptTimer: ReturnType<typeof setTimeout> | undefined;
   let queuedBytes = 0;
   const prefetched: string[] = [];
   let pending = Promise.resolve();
@@ -110,6 +139,8 @@ function channel(options: {
 
   async function send(command: NativeHostCommand): Promise<VoidResult<ProcessError>> {
     if (!handle || ended) return failure("disconnected", "The native process channel is closed.");
+    if (controlUncertain)
+      return failure("delivery_uncertain", "The native process command could not be confirmed.");
     try {
       return await deadline(
         handle
@@ -117,7 +148,7 @@ function channel(options: {
           .then<VoidResult<ProcessError>>(() => ({ ok: true, value: undefined })),
         options.commandTimeoutMs,
         () => {
-          fail("delivery_uncertain", "The native process command could not be confirmed.");
+          commandUncertain();
           return failure(
             "delivery_uncertain",
             "The native process command could not be confirmed.",
@@ -125,13 +156,28 @@ function channel(options: {
         },
       );
     } catch {
-      fail("delivery_uncertain", "The native process command could not be confirmed.");
+      commandUncertain();
       return failure("delivery_uncertain", "The native process command could not be confirmed.");
     }
+  }
+  function commandUncertain() {
+    if (ended || controlUncertain) return;
+    controlUncertain = true;
+    // A process can close stdin before the ACK RPC responds while its terminal frame is in flight.
+    // Fence further input immediately, but retain the bounded opportunity to observe that proof.
+    receiptTimer = setTimeout(
+      () => fail("delivery_uncertain", "The native process command could not be confirmed."),
+      options.commandTimeoutMs,
+    );
+    if (handle)
+      void handle
+        .sendStdin(encodeNativeFrame({ type: "stop", token: options.token }))
+        .catch(() => {});
   }
   function fail(code: ProcessError["code"], message: string, stop = true) {
     if (ended) return;
     ended = true;
+    clearTimeout(receiptTimer);
     prefetched.length = 0;
     resolveReady(failure(code, message));
     resolveClosed(failure(code, message));
@@ -196,6 +242,7 @@ function channel(options: {
     cursor = event.seq;
     if (value.kind === "exit") {
       ended = true;
+      clearTimeout(receiptTimer);
       resolveReady(failure("unavailable", "The native process exited before becoming ready."));
       resolveClosed({ ok: true, value });
     } else await send({ type: "ack", token: options.token, sequence: cursor });
@@ -246,12 +293,14 @@ function channel(options: {
       void found.wait().then(
         () =>
           pending.then(() => {
-            if (!ended)
+            if (!ended && !controlUncertain)
               fail("delivery_uncertain", "The native process ended without a terminal receipt.");
           }),
-        () => {
-          fail("delivery_uncertain", "The native process connection was lost.");
-        },
+        () =>
+          pending.then(() => {
+            if (!ended && !controlUncertain)
+              fail("delivery_uncertain", "The native process connection was lost.");
+          }),
       );
     },
     fail,
@@ -307,10 +356,10 @@ export class E2BProcessHost implements SandboxProcessHost {
 
   constructor(options: {
     executablePath: string;
-    client?: ProcessClient;
+    client: ProcessClient;
     readyTimeoutMs?: number;
   }) {
-    this.#client = options.client ?? realClient;
+    this.#client = options.client;
     this.#path = options.executablePath;
     this.#readyTimeoutMs = options.readyTimeoutMs ?? 5000;
   }

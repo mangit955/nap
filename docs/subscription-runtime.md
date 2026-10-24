@@ -43,8 +43,8 @@ migration has been run. Existing API keys retain their existing storage and exec
 
 ## Remaining release gates
 
-[The process transport proof](native-process-host.md) is implemented locally. Its E2B containment
-probe requires a paid sandbox and has not run. Pipe and PTY transport work locally; provider login
+[The process transport proof](native-process-host.md) is implemented locally. One approved [E2B probe](e2b-native-process-probe-20261024.md)
+passed privilege checks but failed termination confirmation; that live gate remains open. Pipe and PTY transport work locally; provider login
 has not run. Durable login attempts, refresh ownership,
 account checks during execution, native Claude/Codex adapters, recovery archives and UI selection
 are still required. No provider has been enabled by these database and transport changes.
@@ -62,4 +62,5 @@ and [SDK subscription restriction](https://code.claude.com/docs/en/agent-sdk/ove
 provider-specific release decision. The [headless CLI documentation](https://code.claude.com/docs/en/headless)
 now describes `claude -p` as SDK use and says bare mode skips subscription credentials. Merely
 launching the stock binary does not settle whether a particular hosted integration is approved.
-No authentication, subscription model call, E2B allocation or template publication has run here.
+One approved E2B allocation ran and was destroyed. No authentication, subscription model call
+or template publication has run here.

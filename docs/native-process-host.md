@@ -24,6 +24,10 @@ as a terminal does. It requires no credentials, model, or E2B allocation. Local
 tests deliberately use process-group containment and demonstrate that a detached descendant
 can survive it. That mode cannot authorize native finalization in production.
 
+The lifecycle owner supplies an existing sandbox handle through `attachedE2BProcessClient`.
+The process adapter does not call VM lifecycle APIs or request a longer VM lifetime. This matters because
+E2B's `Sandbox.connect()` can replace a short timeout with its longer default.
+
 The probe command defaults to a dry-run. Adding `--real` requires explicit approval for one
 paid E2B sandbox and a privately configured `E2B_API_KEY`. It caps the sandbox lifetime at
 60 seconds, tests privilege restrictions and detached-child termination, and destroys the
@@ -41,6 +45,9 @@ output for replay and terminates on output or replay overflow. `E2BProcessHost` 
 caller's persistence callback before acknowledging a frame. Replay deduplicates acknowledged
 identities; a gap fails explicitly. The callback must persist delivery identity together with
 its effects. A terminal receipt is required even if the outer E2B command exits successfully.
+A failed control response fences further input and renewals immediately. The stream then has
+one bounded receipt window, because stdin can close before an ACK RPC responds while an exit
+frame is still in transit. No receipt means uncertainty; unknown containment remains unknown.
 
 The host owns the lease timer. Losing the worker therefore cannot extend native execution.
 Disconnecting the SDK stream leaves the process running only until renewal expires. Startup,
@@ -63,8 +70,10 @@ Node runtime and `/usr/bin/setpriv`. The build command emits
 `packages/sandbox/dist/native-process-host.mjs`. The artifact path is supplied to
 `E2BProcessHost`; building it does not publish an E2B template or install it in production.
 
-Writable cgroup delegation, unprivileged escape prevention, detached-child termination, E2B
-reconnect behavior, and the staged artifact's ownership need an authorized live E2B proof.
+The [approved E2B probe](e2b-native-process-probe-20261024.md) passed the UID, no-new-privs,
+sudo and parent-cgroup escape checks, then failed termination confirmation. Detached-child
+termination, E2B reconnect and PTY behavior remain unverified. Another allocation needs new
+approval.
 Local process tests and an injected SDK client do not establish those properties on E2B.
 Local PTY transport is implemented; interactive provider login and its live callback behavior
 have not been exercised. Provider-specific authentication, credential isolation from native tools,
