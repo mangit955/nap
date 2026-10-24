@@ -579,6 +579,35 @@ it("flushes the latest workspace draft before a document link and retains it on 
   }
 });
 
+it("never holds a link for a save when the workspace box is empty", async () => {
+  vi.stubGlobal("indexedDB", new IDBFactory());
+  const draftIdentity = { ownerId: crypto.randomUUID(), projectId: crypto.randomUUID() };
+  const view = render(
+    <>
+      <ChatInput
+        draftIdentity={draftIdentity}
+        running={false}
+        error={undefined}
+        onSubmit={vi.fn()}
+        onCancel={vi.fn()}
+      />
+      <a href="/dashboard">Dashboard</a>
+    </>,
+  );
+  await waitFor(() => expect(box()).toBeEnabled());
+  const save = vi
+    .spyOn(ComposerDraftStore.prototype, "save")
+    .mockReturnValue(new Promise<void>(() => {}));
+  try {
+    expect(fireEvent.click(screen.getByRole("link", { name: "Dashboard" }))).toBe(true);
+    expect(save).not.toHaveBeenCalled();
+    view.unmount();
+  } finally {
+    save.mockRestore();
+    vi.unstubAllGlobals();
+  }
+});
+
 it("resumes workspace draft persistence when its authenticated owner returns after clearing", async () => {
   vi.stubGlobal("indexedDB", new IDBFactory());
   const draftIdentity = { ownerId: crypto.randomUUID(), projectId: crypto.randomUUID() };

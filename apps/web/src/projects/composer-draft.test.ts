@@ -1,6 +1,6 @@
 import { IDBFactory } from "fake-indexeddb";
 import { expect, it } from "vitest";
-import { ComposerDraftStore } from "./composer-draft.ts";
+import { type ComposerDraft, ComposerDraftStore, isBlankDraft } from "./composer-draft.ts";
 
 it("preserves prepared media, model and source across reload, isolates owners, expires and clears on sign-out", async () => {
   const factory = new IDBFactory();
@@ -39,4 +39,35 @@ it("reports unavailable storage instead of pretending a draft is safe", async ()
   await expect(new ComposerDraftStore(undefined).load("owner", "draft")).rejects.toThrow(
     /storage/i,
   );
+});
+
+it("calls a draft blank only when leaving it loses nothing the author wrote or chose", () => {
+  const blank: ComposerDraft = {
+    id: crypto.randomUUID(),
+    ownerId: crypto.randomUUID(),
+    operationId: crypto.randomUUID(),
+    text: "  \n",
+    model: "openai/gpt-5.6-luna",
+    source: null,
+    attachments: [],
+    expiresAt: Date.now(),
+  };
+  expect(isBlankDraft(blank)).toBe(true);
+  expect(isBlankDraft({ ...blank, text: "a todo app" })).toBe(false);
+  expect(
+    isBlankDraft({
+      ...blank,
+      attachments: [
+        {
+          kind: "image",
+          name: "a.jpg",
+          frames: [{ data: "AAAA", mediaType: "image/jpeg", timestamp: 0 }],
+        },
+      ],
+    }),
+  ).toBe(false);
+  expect(isBlankDraft({ ...blank, source: {} } as ComposerDraft)).toBe(false);
+  expect(
+    isBlankDraft({ ...blank, pendingStart: { operationId: blank.operationId } } as ComposerDraft),
+  ).toBe(false);
 });

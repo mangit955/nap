@@ -14,7 +14,11 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { appendDictation, useDictation } from "../dashboard/use-dictation.ts";
-import { type ComposerDraft, ComposerDraftStore } from "../projects/composer-draft.ts";
+import {
+  type ComposerDraft,
+  ComposerDraftStore,
+  isBlankDraft,
+} from "../projects/composer-draft.ts";
 import { useDraftNavigation } from "../projects/use-draft-navigation.ts";
 import { ComposerAddMenu } from "./composer-add-menu.tsx";
 import { AttachmentTray, DictationButton } from "./composer-controls.tsx";
@@ -157,8 +161,9 @@ export function ChatInput({
     },
     [],
   );
+  // A blank box has nothing to lose, so its links are never held for a save.
   useDraftNavigation(
-    draftReady && draftOwner && draftProject
+    latestDraft.current && !isBlankDraft(latestDraft.current)
       ? async () => {
           const value = latestDraft.current;
           if (value) await draftStore.current.save(value);

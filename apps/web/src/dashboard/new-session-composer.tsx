@@ -11,7 +11,11 @@ import { useMediaAttachments } from "../chat/use-media-attachments.ts";
 import type { FetchJson } from "../files/use-project-files.ts";
 import { type RepositoryChoice, RepositoryPicker } from "../github/repository-picker.tsx";
 import { GITHUB_API_URL } from "../github/request.ts";
-import { type ComposerDraft, ComposerDraftStore } from "../projects/composer-draft.ts";
+import {
+  type ComposerDraft,
+  ComposerDraftStore,
+  isBlankDraft,
+} from "../projects/composer-draft.ts";
 import { useDraftNavigation } from "../projects/use-draft-navigation.ts";
 import { DashboardHero } from "./dashboard-hero.tsx";
 
@@ -131,8 +135,11 @@ export function NewSessionComposer({
     }, 300);
     return () => clearTimeout(timer);
   }, [snapshot, persist]);
+  const current = snapshot();
+  // Nothing to keep is nothing to wait for: holding a link on an empty box only cost somebody
+  // their click whenever storage was slow, and they had no draft to lose.
   useDraftNavigation(
-    draft
+    current && !isBlankDraft(current)
       ? async () => {
           const value = snapshot();
           if (sending.current) await saveTail.current;

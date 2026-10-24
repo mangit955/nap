@@ -210,6 +210,32 @@ it("flushes current text, model and media on an anchor click and stops if storag
   expect(box).toHaveValue("Last edit before leaving");
 });
 
+it("lets a link go at once from an empty composer, even with storage broken", async () => {
+  vi.stubGlobal("indexedDB", new IDBFactory());
+  render(
+    <>
+      <NewSessionComposer
+        ownerId="00000000-0000-4000-8000-000000000001"
+        models={[]}
+        modelsLoading={false}
+        onAddKey={vi.fn()}
+      />
+      <a href="/settings/providers">Providers</a>
+    </>,
+  );
+  const box = await screen.findByRole("textbox", { name: "Describe the app you want" });
+  await waitFor(() => expect(box).toBeEnabled());
+  const save = vi
+    .spyOn(ComposerDraftStore.prototype, "save")
+    .mockReturnValue(new Promise<void>(() => {}));
+  try {
+    expect(fireEvent.click(screen.getByRole("link", { name: "Providers" }))).toBe(true);
+    expect(save).not.toHaveBeenCalled();
+  } finally {
+    save.mockRestore();
+  }
+});
+
 it("starts a template with its task and model once, without browser first-prompt replay", async () => {
   vi.stubGlobal("indexedDB", new IDBFactory());
   const fetchJson = vi.fn(async (_url: string, _init?: RequestInit) =>

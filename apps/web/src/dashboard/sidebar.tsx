@@ -11,9 +11,6 @@ import { DraftRows } from "./draft-rows.tsx";
 import { SessionList } from "./session-list.tsx";
 import { SourceFilter } from "./source-filter.tsx";
 
-const ROW =
-  "flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-[13px] text-ink-2 transition-colors hover:bg-hover hover:text-ink focus-visible:outline-accent";
-
 export function Sidebar({
   name,
   email,
@@ -334,22 +331,15 @@ export function AccountMenu({
                 <p className="truncate text-xs text-muted">{email ?? "Personal workspace"}</p>
               </div>
             </div>
-            <a role="menuitem" href="/settings/archived" className={ROW}>
+            <a role="menuitem" href="/settings/archived" className={MENU_ROW}>
+              <ClockIcon />
               Archived sessions
             </a>
-            <a
-              role="menuitem"
-              href="/settings/connections"
-              className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] text-ink-2 hover:bg-hover hover:text-ink"
-            >
-              <SettingsIcon />
+            <a role="menuitem" href="/settings/connections" className={MENU_ROW}>
+              <PlugIcon />
               Connections
             </a>
-            <a
-              role="menuitem"
-              href="/settings/providers"
-              className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] text-ink-2 hover:bg-hover hover:text-ink"
-            >
+            <a role="menuitem" href="/settings/providers" className={MENU_ROW}>
               <ProvidersIcon className="size-4 shrink-0" />
               Providers
             </a>
@@ -375,6 +365,10 @@ export function AccountMenu({
   );
 }
 
+/** Links and buttons share one row, so their icons and labels sit on the same columns. */
+const MENU_ROW =
+  "flex items-center gap-2.5 rounded-chip px-2.5 py-2 text-left text-ink-2 text-sm transition-colors hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent disabled:hover:bg-transparent disabled:hover:text-ink-2";
+
 /** One line of the account menu. A `menuitem` rather than a button, since it is inside a `menu`. */
 function MenuItem({
   onClick,
@@ -394,7 +388,7 @@ function MenuItem({
       onClick={onClick}
       disabled={disabled}
       aria-busy={busy || undefined}
-      className="flex items-center gap-2.5 rounded-chip px-2.5 py-2 text-left text-ink-2 text-sm transition-colors hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent disabled:hover:bg-transparent disabled:hover:text-ink-2"
+      className={MENU_ROW}
     >
       {children}
     </button>
@@ -416,6 +410,23 @@ function SearchIcon() {
     <svg aria-hidden="true" {...STROKE}>
       <circle cx="7.2" cy="7.2" r="4.2" />
       <path d="m10.4 10.4 3 3" />
+    </svg>
+  );
+}
+
+function ClockIcon() {
+  return (
+    <svg aria-hidden="true" {...STROKE}>
+      <circle cx="8" cy="8" r="6" />
+      <path d="M8 4.8V8l2.2 1.4" />
+    </svg>
+  );
+}
+
+function PlugIcon() {
+  return (
+    <svg aria-hidden="true" {...STROKE}>
+      <path d="M6 2v3M10 2v3M4.5 5h7v2.5a3.5 3.5 0 0 1-7 0zM8 11v3" />
     </svg>
   );
 }
