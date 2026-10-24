@@ -142,6 +142,7 @@ function blockText(block: LLMContentBlock): string {
   if (block.type === "text") return block.text;
   if (block.type === "tool_use") return `${block.name}${JSON.stringify(block.input)}`;
   if (block.type === "image") return "";
+  if (typeof block.content !== "string") throw new Error("Expected a text-only fixture result");
   return block.content;
 }
 

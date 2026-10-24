@@ -144,8 +144,14 @@ class ScriptedTurnHandle implements RecordingLLMTurn {
       );
     }
     this.#consumed += 1;
-    this.#requests.push(request);
-    this.#allRequests.push(request);
+    // A real provider serializes now; later image pruning must not rewrite that observation.
+    const recorded = {
+      ...request,
+      messages: structuredClone(request.messages),
+      tools: structuredClone(request.tools),
+    };
+    this.#requests.push(recorded);
+    this.#allRequests.push(recorded);
 
     // Before the result, which is the order a real stream has — the reasoning arrives while
     // the call is still open, and a fake that delivered it afterwards would let a caller that

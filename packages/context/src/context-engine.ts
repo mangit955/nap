@@ -276,7 +276,9 @@ function blockTokens(block: LLMContentBlock): number {
       // The name and arguments are what actually travel; the id is a few characters.
       return estimateTokens(`${block.name}${JSON.stringify(block.input)}`);
     case "tool_result":
-      return estimateTokens(block.content);
+      return typeof block.content === "string"
+        ? estimateTokens(block.content)
+        : block.content.reduce((total, observation) => total + blockTokens(observation), 0);
   }
 }
 
@@ -468,7 +470,7 @@ export class NapContextEngine implements ContextEngine {
       for (const block of blocksOf(turn.messages)) {
         if (block.type !== "tool_result") continue;
         // Anything already marked — by an earlier pass of this loop, or by staleness above.
-        if (ELISIONS.has(block.content)) continue;
+        if (typeof block.content === "string" && ELISIONS.has(block.content)) continue;
         block.content = ELIDED_TOOL_OUTPUT;
         if (cost() <= this.#budgetTokens) break;
       }

@@ -28,11 +28,19 @@ export type TokenUsage = {
  * and the answer it gets back both have to travel in the conversation, addressed to each
  * other by id.
  */
-export type LLMContentBlock =
+export type LLMObservationBlock =
   | { type: "text"; text: string }
-  | { type: "image"; mediaType: "image/jpeg"; data: string }
+  | { type: "image"; mediaType: "image/jpeg"; data: string };
+
+export type LLMContentBlock =
+  | LLMObservationBlock
   | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
-  | { type: "tool_result"; toolCallId: string; content: string; isError: boolean };
+  | {
+      type: "tool_result";
+      toolCallId: string;
+      content: string | LLMObservationBlock[];
+      isError: boolean;
+    };
 
 export type LLMMessage = {
   role: "user" | "assistant";

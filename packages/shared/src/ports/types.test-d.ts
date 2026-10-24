@@ -168,7 +168,9 @@ expectTypeOf<LLMMessage["content"]>().toEqualTypeOf<string | LLMContentBlock[]>(
 expectTypeOf<Extract<LLMContentBlock, { type: "tool_result" }>>().toEqualTypeOf<{
   type: "tool_result";
   toolCallId: string;
-  content: string;
+  content:
+    | string
+    | ({ type: "text"; text: string } | { type: "image"; mediaType: "image/jpeg"; data: string })[];
   isError: boolean;
 }>();
 

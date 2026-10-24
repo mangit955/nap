@@ -33,6 +33,7 @@ import Anthropic, { APIConnectionError, APIError, RateLimitError } from "@anthro
 import type {
   LLMContentBlock,
   LLMMessage,
+  LLMObservationBlock,
   LLMProvider,
   LLMRequest,
   LLMToolCall,
@@ -285,7 +286,7 @@ export function toTokenUsage(usage: AnthropicMessage["usage"] | undefined): Toke
 const CACHE_BREAKPOINT = { type: "ephemeral" } as const;
 
 /**
- * The three block kinds this provider produces, and the reason the union is spelled out rather
+ * The block kinds this provider produces, and the reason the union is spelled out rather
  * than using the SDK's `ContentBlockParam`: that one also covers thinking blocks, which carry
  * no `cache_control`. Narrowing here is what lets a breakpoint be attached without a cast.
  */
@@ -303,22 +304,27 @@ function toApiContent(content: LLMMessage["content"]): ApiBlock[] {
   return content.map(toApiBlock);
 }
 
+function toApiObservation(
+  block: LLMObservationBlock,
+): Anthropic.TextBlockParam | Anthropic.ImageBlockParam {
+  return block.type === "text"
+    ? { type: "text", text: block.text }
+    : { type: "image", source: { type: "base64", media_type: block.mediaType, data: block.data } };
+}
+
 function toApiBlock(block: LLMContentBlock): ApiBlock {
   switch (block.type) {
     case "text":
-      return { type: "text", text: block.text };
     case "image":
-      return {
-        type: "image",
-        source: { type: "base64", media_type: block.mediaType, data: block.data },
-      };
+      return toApiObservation(block);
     case "tool_use":
       return { type: "tool_use", id: block.id, name: block.name, input: block.input };
     case "tool_result":
       return {
         type: "tool_result",
         tool_use_id: block.toolCallId,
-        content: block.content,
+        content:
+          typeof block.content === "string" ? block.content : block.content.map(toApiObservation),
         is_error: block.isError,
       };
   }
