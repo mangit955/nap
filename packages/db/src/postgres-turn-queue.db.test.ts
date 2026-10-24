@@ -747,6 +747,36 @@ describe("orphanExpired", () => {
     expect(new Set(taken)).toEqual(new Set(ids));
   });
 
+  it("bounds overlapping janitors and skips held rows in expiry order", async () => {
+    const seeds = await Promise.all(Array.from({ length: 5 }, () => seedSession()));
+    const ids: string[] = [];
+    for (const seed of seeds) {
+      const { id } = await enqueueTurn(seed);
+      await queue.claim("worker-1");
+      await db
+        .update(turnRequests)
+        .set({ leaseExpiresAt: sqlOf`now() - (${5 - ids.length} * interval '1 hour')` })
+        .where(eq(turnRequests.id, id));
+      ids.push(id);
+    }
+
+    await db.transaction(async (tx) => {
+      const first = await new PostgresTurnQueue(tx).orphanExpired(2);
+      expect(new Set(first.map(({ id }) => id))).toEqual(new Set(ids.slice(0, 2)));
+      // The first janitor still holds its transaction open. A second connection must take
+      // the next batch immediately, rather than wait for or return those same requests.
+      const second = await queue.orphanExpired(2);
+      expect(new Set(second.map(({ id }) => id))).toEqual(new Set(ids.slice(2, 4)));
+    });
+    expect((await queue.orphanExpired(2)).map(({ id }) => id)).toEqual(ids.slice(4));
+    expect(await queue.orphanExpired(2)).toEqual([]);
+    for (const id of ids) {
+      expect(await queue.renew(id, "worker-1")).toEqual({ held: false });
+      expect(await queue.settle(id, "worker-1", "done")).toBe(false);
+      expect((await rowOf(id))?.finishedAt).toBeNull();
+    }
+  });
+
   it("leaves a request its worker settled alone", async () => {
     const seed = await seedSession();
     const { id } = await enqueueTurn(seed);
@@ -758,16 +788,55 @@ describe("orphanExpired", () => {
     expect((await rowOf(id))?.state).toBe("done");
   });
 
-  it("takes no more than the limit in one tick", async () => {
-    const seeds = await Promise.all(Array.from({ length: 3 }, () => seedSession()));
-    for (const seed of seeds) {
-      const { id } = await enqueueTurn(seed);
-      await queue.claim("worker-1");
-      await expireLease(id);
+  it("rejects invalid limits without orphaning a lease", async () => {
+    const seed = await seedSession();
+    const { id } = await enqueueTurn(seed);
+    await queue.claim("worker-1");
+    await expireLease(id);
+    for (const limit of [-1, Number.NaN]) {
+      await expect(queue.orphanExpired(limit)).rejects.toThrow();
+      expect((await rowOf(id))?.state).toBe("leased");
     }
+  });
 
-    expect(await queue.orphanExpired(2)).toHaveLength(2);
-    expect(await queue.orphanExpired(2)).toHaveLength(1);
+  it("takes no more than the limit with stale one-row statistics", async () => {
+    const seeds = await Promise.all(Array.from({ length: 3 }, () => seedSession()));
+    // Keep autoanalyze from refreshing the deliberately stale statistics between admissions.
+    await db.transaction(async (tx) => {
+      const janitor = new PostgresTurnQueue(tx);
+      const ids: string[] = [];
+      for (const seed of seeds) {
+        const { id } = await enqueueRequest(janitor, {
+          ...seed,
+          kind: "turn",
+          message: "build me a thing",
+          model: "openai/gpt-5-mini",
+          billsToUser: false,
+        });
+        await janitor.claim("worker-1");
+        await tx
+          .update(turnRequests)
+          .set({ leaseExpiresAt: sqlOf`now() - interval '1 hour'` })
+          .where(eq(turnRequests.id, id));
+        ids.push(id);
+        // A one-row estimate permits a nested-loop semi join that rescans the locking
+        // subquery. Analyzing all three rows instead hides the exceeded-limit regression.
+        if (ids.length === 1) await tx.execute(sqlOf`analyze turn_requests`);
+      }
+
+      expect(await janitor.orphanExpired(0)).toEqual([]);
+      const first = await janitor.orphanExpired(2);
+      expect(first).toHaveLength(2);
+      const remaining = await tx
+        .select({ id: turnRequests.id })
+        .from(turnRequests)
+        .where(eq(turnRequests.state, "leased"));
+      expect(remaining).toHaveLength(1);
+      const second = await janitor.orphanExpired(2);
+      expect(second).toHaveLength(1);
+      expect(new Set([...first, ...second].map(({ id }) => id))).toEqual(new Set(ids));
+      expect(await janitor.orphanExpired(2)).toEqual([]);
+    });
   });
 });
 

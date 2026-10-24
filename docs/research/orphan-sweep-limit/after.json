@@ -1,0 +1,368 @@
+{
+  "query": {
+    "query": "with \"expired_requests\" as (\n      select id from \"turn_requests\"\n      where state = 'leased'\n        and lease_expires_at < now() - $1::interval\n      order by lease_expires_at\n      for update skip locked\n      limit $2\n    ) update \"turn_requests\" set \"state\" = $3 where \"turn_requests\".\"id\" in (select \"id\" from \"expired_requests\") returning \"id\", \"session_id\", \"kind\", \"message\"",
+    "params": ["30000 milliseconds", 2, "orphaned"]
+  },
+  "catalog": [
+    {
+      "reltuples": 1,
+      "relpages": 1
+    }
+  ],
+  "stats": [
+    {
+      "attname": "state",
+      "n_distinct": -1,
+      "most_common_vals": null,
+      "most_common_freqs": null
+    },
+    {
+      "attname": "lease_expires_at",
+      "n_distinct": -1,
+      "most_common_vals": null,
+      "most_common_freqs": null
+    }
+  ],
+  "settings": [
+    {
+      "name": "enable_async_append",
+      "setting": "on"
+    },
+    {
+      "name": "enable_bitmapscan",
+      "setting": "on"
+    },
+    {
+      "name": "enable_gathermerge",
+      "setting": "on"
+    },
+    {
+      "name": "enable_group_by_reordering",
+      "setting": "on"
+    },
+    {
+      "name": "enable_hashagg",
+      "setting": "on"
+    },
+    {
+      "name": "enable_hashjoin",
+      "setting": "on"
+    },
+    {
+      "name": "enable_incremental_sort",
+      "setting": "on"
+    },
+    {
+      "name": "enable_indexonlyscan",
+      "setting": "on"
+    },
+    {
+      "name": "enable_indexscan",
+      "setting": "on"
+    },
+    {
+      "name": "enable_material",
+      "setting": "on"
+    },
+    {
+      "name": "enable_memoize",
+      "setting": "on"
+    },
+    {
+      "name": "enable_mergejoin",
+      "setting": "on"
+    },
+    {
+      "name": "enable_nestloop",
+      "setting": "on"
+    },
+    {
+      "name": "enable_parallel_append",
+      "setting": "on"
+    },
+    {
+      "name": "enable_parallel_hash",
+      "setting": "on"
+    },
+    {
+      "name": "enable_partition_pruning",
+      "setting": "on"
+    },
+    {
+      "name": "enable_partitionwise_aggregate",
+      "setting": "off"
+    },
+    {
+      "name": "enable_partitionwise_join",
+      "setting": "off"
+    },
+    {
+      "name": "enable_presorted_aggregate",
+      "setting": "on"
+    },
+    {
+      "name": "enable_seqscan",
+      "setting": "on"
+    },
+    {
+      "name": "enable_sort",
+      "setting": "on"
+    },
+    {
+      "name": "enable_tidscan",
+      "setting": "on"
+    },
+    {
+      "name": "plan_cache_mode",
+      "setting": "auto"
+    },
+    {
+      "name": "server_version",
+      "setting": "17.11"
+    }
+  ],
+  "plan": [
+    {
+      "QUERY PLAN": [
+        {
+          "Plan": {
+            "Node Type": "ModifyTable",
+            "Operation": "Update",
+            "Parallel Aware": false,
+            "Async Capable": false,
+            "Relation Name": "turn_requests",
+            "Alias": "turn_requests",
+            "Startup Cost": 1.04,
+            "Total Cost": 2.09,
+            "Plan Rows": 1,
+            "Plan Width": 50,
+            "Actual Startup Time": 0.156,
+            "Actual Total Time": 0.173,
+            "Actual Rows": 2,
+            "Actual Loops": 1,
+            "Shared Hit Blocks": 22,
+            "Shared Read Blocks": 0,
+            "Shared Dirtied Blocks": 2,
+            "Shared Written Blocks": 1,
+            "Local Hit Blocks": 0,
+            "Local Read Blocks": 0,
+            "Local Dirtied Blocks": 0,
+            "Local Written Blocks": 0,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0,
+            "Plans": [
+              {
+                "Node Type": "Limit",
+                "Parent Relationship": "InitPlan",
+                "Subplan Name": "CTE expired_requests",
+                "Parallel Aware": false,
+                "Async Capable": false,
+                "Startup Cost": 1.03,
+                "Total Cost": 1.04,
+                "Plan Rows": 1,
+                "Plan Width": 30,
+                "Actual Startup Time": 0.036,
+                "Actual Total Time": 0.038,
+                "Actual Rows": 2,
+                "Actual Loops": 1,
+                "Shared Hit Blocks": 3,
+                "Shared Read Blocks": 0,
+                "Shared Dirtied Blocks": 0,
+                "Shared Written Blocks": 0,
+                "Local Hit Blocks": 0,
+                "Local Read Blocks": 0,
+                "Local Dirtied Blocks": 0,
+                "Local Written Blocks": 0,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0,
+                "Plans": [
+                  {
+                    "Node Type": "LockRows",
+                    "Parent Relationship": "Outer",
+                    "Parallel Aware": false,
+                    "Async Capable": false,
+                    "Startup Cost": 1.03,
+                    "Total Cost": 1.04,
+                    "Plan Rows": 1,
+                    "Plan Width": 30,
+                    "Actual Startup Time": 0.035,
+                    "Actual Total Time": 0.037,
+                    "Actual Rows": 2,
+                    "Actual Loops": 1,
+                    "Shared Hit Blocks": 3,
+                    "Shared Read Blocks": 0,
+                    "Shared Dirtied Blocks": 0,
+                    "Shared Written Blocks": 0,
+                    "Local Hit Blocks": 0,
+                    "Local Read Blocks": 0,
+                    "Local Dirtied Blocks": 0,
+                    "Local Written Blocks": 0,
+                    "Temp Read Blocks": 0,
+                    "Temp Written Blocks": 0,
+                    "Plans": [
+                      {
+                        "Node Type": "Sort",
+                        "Parent Relationship": "Outer",
+                        "Parallel Aware": false,
+                        "Async Capable": false,
+                        "Startup Cost": 1.03,
+                        "Total Cost": 1.03,
+                        "Plan Rows": 1,
+                        "Plan Width": 30,
+                        "Actual Startup Time": 0.016,
+                        "Actual Total Time": 0.016,
+                        "Actual Rows": 2,
+                        "Actual Loops": 1,
+                        "Sort Key": ["turn_requests_1.lease_expires_at"],
+                        "Sort Method": "quicksort",
+                        "Sort Space Used": 25,
+                        "Sort Space Type": "Memory",
+                        "Shared Hit Blocks": 1,
+                        "Shared Read Blocks": 0,
+                        "Shared Dirtied Blocks": 0,
+                        "Shared Written Blocks": 0,
+                        "Local Hit Blocks": 0,
+                        "Local Read Blocks": 0,
+                        "Local Dirtied Blocks": 0,
+                        "Local Written Blocks": 0,
+                        "Temp Read Blocks": 0,
+                        "Temp Written Blocks": 0,
+                        "Plans": [
+                          {
+                            "Node Type": "Seq Scan",
+                            "Parent Relationship": "Outer",
+                            "Parallel Aware": false,
+                            "Async Capable": false,
+                            "Relation Name": "turn_requests",
+                            "Alias": "turn_requests_1",
+                            "Startup Cost": 0,
+                            "Total Cost": 1.02,
+                            "Plan Rows": 1,
+                            "Plan Width": 30,
+                            "Actual Startup Time": 0.003,
+                            "Actual Total Time": 0.004,
+                            "Actual Rows": 3,
+                            "Actual Loops": 1,
+                            "Filter": "((state = 'leased'::turn_request_state) AND (lease_expires_at < (now() - '00:00:30'::interval)))",
+                            "Rows Removed by Filter": 0,
+                            "Shared Hit Blocks": 1,
+                            "Shared Read Blocks": 0,
+                            "Shared Dirtied Blocks": 0,
+                            "Shared Written Blocks": 0,
+                            "Local Hit Blocks": 0,
+                            "Local Read Blocks": 0,
+                            "Local Dirtied Blocks": 0,
+                            "Local Written Blocks": 0,
+                            "Temp Read Blocks": 0,
+                            "Temp Written Blocks": 0
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "Node Type": "Nested Loop",
+                "Parent Relationship": "Outer",
+                "Parallel Aware": false,
+                "Async Capable": false,
+                "Join Type": "Semi",
+                "Startup Cost": 0,
+                "Total Cost": 1.04,
+                "Plan Rows": 1,
+                "Plan Width": 50,
+                "Actual Startup Time": 0.051,
+                "Actual Total Time": 0.057,
+                "Actual Rows": 2,
+                "Actual Loops": 1,
+                "Inner Unique": false,
+                "Join Filter": "(expired_requests.id = turn_requests.id)",
+                "Rows Removed by Join Filter": 3,
+                "Shared Hit Blocks": 4,
+                "Shared Read Blocks": 0,
+                "Shared Dirtied Blocks": 0,
+                "Shared Written Blocks": 0,
+                "Local Hit Blocks": 0,
+                "Local Read Blocks": 0,
+                "Local Dirtied Blocks": 0,
+                "Local Written Blocks": 0,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0,
+                "Plans": [
+                  {
+                    "Node Type": "Seq Scan",
+                    "Parent Relationship": "Outer",
+                    "Parallel Aware": false,
+                    "Async Capable": false,
+                    "Relation Name": "turn_requests",
+                    "Alias": "turn_requests",
+                    "Startup Cost": 0,
+                    "Total Cost": 1.01,
+                    "Plan Rows": 1,
+                    "Plan Width": 22,
+                    "Actual Startup Time": 0.006,
+                    "Actual Total Time": 0.007,
+                    "Actual Rows": 3,
+                    "Actual Loops": 1,
+                    "Shared Hit Blocks": 1,
+                    "Shared Read Blocks": 0,
+                    "Shared Dirtied Blocks": 0,
+                    "Shared Written Blocks": 0,
+                    "Local Hit Blocks": 0,
+                    "Local Read Blocks": 0,
+                    "Local Dirtied Blocks": 0,
+                    "Local Written Blocks": 0,
+                    "Temp Read Blocks": 0,
+                    "Temp Written Blocks": 0
+                  },
+                  {
+                    "Node Type": "CTE Scan",
+                    "Parent Relationship": "Inner",
+                    "Parallel Aware": false,
+                    "Async Capable": false,
+                    "CTE Name": "expired_requests",
+                    "Alias": "expired_requests",
+                    "Startup Cost": 0,
+                    "Total Cost": 0.02,
+                    "Plan Rows": 1,
+                    "Plan Width": 56,
+                    "Actual Startup Time": 0.015,
+                    "Actual Total Time": 0.016,
+                    "Actual Rows": 2,
+                    "Actual Loops": 3,
+                    "Shared Hit Blocks": 3,
+                    "Shared Read Blocks": 0,
+                    "Shared Dirtied Blocks": 0,
+                    "Shared Written Blocks": 0,
+                    "Local Hit Blocks": 0,
+                    "Local Read Blocks": 0,
+                    "Local Dirtied Blocks": 0,
+                    "Local Written Blocks": 0,
+                    "Temp Read Blocks": 0,
+                    "Temp Written Blocks": 0
+                  }
+                ]
+              }
+            ]
+          },
+          "Planning": {
+            "Shared Hit Blocks": 2,
+            "Shared Read Blocks": 0,
+            "Shared Dirtied Blocks": 0,
+            "Shared Written Blocks": 0,
+            "Local Hit Blocks": 0,
+            "Local Read Blocks": 0,
+            "Local Dirtied Blocks": 0,
+            "Local Written Blocks": 0,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0
+          },
+          "Planning Time": 0.209,
+          "Triggers": [],
+          "Execution Time": 0.213
+        }
+      ]
+    }
+  ]
+}
