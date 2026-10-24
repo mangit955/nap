@@ -38,6 +38,12 @@ The right-panel shell, tabs, toolbar dimensions, dark palette, and Pierre diff t
 follow T3 Code at commit `51273020db3245f4ec29514a419d29b5dcb012dc`. The panel uses
 `@pierre/diffs` 1.5.2 under its Apache-2.0 license; its notices ship with that package.
 
+The thread details card — its inline and popover placement, sections, and select, split and plain
+rows, and the git action labels (`src/workspace/thread-details.tsx`,
+`src/workspace/thread-details-logic.ts`, and the `.t3-thread-details` and `.t3-td-*` rules in
+`src/workspace/right-panel.css`) — follows T3 Code at commit
+`d53873b6a4799e87afd63c8d288ef0089f5a3748`.
+
 The chat adaptations below use the earlier reference commit.
 
 Source: <https://github.com/pingdotgg/t3code>, at commit

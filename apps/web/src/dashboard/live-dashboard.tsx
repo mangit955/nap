@@ -9,6 +9,12 @@ import { useModels } from "../chat/use-models.ts";
 import { ComposerDraftStore } from "../projects/composer-draft.ts";
 import { useSessionNavigation } from "../projects/use-session-navigation.ts";
 import { SpinnerIcon } from "../ui/icons.tsx";
+import {
+  type DraftSource,
+  DraftThreadDetails,
+  ThreadDetailsToggle,
+  useThreadDetails,
+} from "../workspace/thread-details.tsx";
 import { Dashboard } from "./dashboard.tsx";
 import { greetingName, recentProjects } from "./filters.ts";
 import { NewSessionComposer } from "./new-session-composer.tsx";
@@ -69,6 +75,9 @@ function SignedInDashboard({
   const [signingOut, setSigningOut] = useState(false);
 
   const [draftVersion, setDraftVersion] = useState(0);
+  const [draftSource, setDraftSource] = useState<DraftSource | null>(null);
+  const [settingsRequest, setSettingsRequest] = useState(0);
+  const details = useThreadDetails(`${user.id}:new-session`);
   const [busyProjectId, setBusyProjectId] = useState<string | undefined>(undefined);
 
   /** Runs one action against one project, with that card held still while it is in flight. */
@@ -83,6 +92,28 @@ function SignedInDashboard({
 
       <Dashboard
         fading={signingOut}
+        contentRef={details.ref}
+        detailsCard={details.open ? details.presentation : undefined}
+        details={
+          <>
+            <ThreadDetailsToggle
+              className="t3-icon-button dashboard-details-toggle"
+              open={details.open}
+              controls={details.id}
+              presentation={details.presentation}
+              onToggle={details.toggle}
+            />
+            {details.open && (
+              <DraftThreadDetails
+                id={details.id}
+                source={draftSource}
+                presentation={details.presentation}
+                onDismiss={details.dismiss}
+                onEditSource={() => setSettingsRequest((count) => count + 1)}
+              />
+            )}
+          </>
+        }
         sidebar={
           <Sidebar
             navigation={navigation}
@@ -142,6 +173,8 @@ function SignedInDashboard({
             modelsLoading={modelsLoading}
             fallback={models?.fallback}
             onAddKey={() => setKeyPanelOpen(true)}
+            onSourceChange={setDraftSource}
+            settingsRequest={settingsRequest}
           />
         }
       />

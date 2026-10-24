@@ -17,6 +17,7 @@ import {
   isBlankDraft,
 } from "../projects/composer-draft.ts";
 import { useDraftNavigation } from "../projects/use-draft-navigation.ts";
+import type { DraftSource } from "../workspace/thread-details.tsx";
 import { DashboardHero } from "./dashboard-hero.tsx";
 
 export function NewSessionComposer({
@@ -26,6 +27,8 @@ export function NewSessionComposer({
   fallback,
   onAddKey,
   fetchJson = credentialedFetch,
+  onSourceChange,
+  settingsRequest = 0,
 }: {
   ownerId: string;
   models: readonly ModelChoice[];
@@ -33,6 +36,10 @@ export function NewSessionComposer({
   fallback?: string | undefined;
   onAddKey: () => void;
   fetchJson?: FetchJson;
+  /** The repository the draft will start from, for the thread details card beside it. */
+  onSourceChange?: ((source: DraftSource | null) => void) | undefined;
+  /** Bumped to open the source settings, where the card hands anything it would edit. */
+  settingsRequest?: number;
 }) {
   const router = useRouter();
   const media = useMediaAttachments();
@@ -42,6 +49,7 @@ export function NewSessionComposer({
   const [error, setError] = useState<string>();
   const sending = useRef(false);
   const [settingsDirty, setSettingsDirty] = useState(false);
+  const settings = useRef<HTMLDetailsElement>(null);
   const store = useRef(new ComposerDraftStore());
   const pointer = `nap.composer.${ownerId}`;
   const writes = useRef(new Map<string, { blank: boolean; tail: Promise<void> | undefined }>());
@@ -278,6 +286,22 @@ export function NewSessionComposer({
     }
   };
   const source = draft?.source;
+  const fullName = source?.repository.fullName;
+  const baseBranch = source?.baseBranch;
+  const devCommand = source?.environment.devCommand;
+  useEffect(() => {
+    onSourceChange?.(
+      fullName === undefined || baseBranch === undefined
+        ? null
+        : { fullName, baseBranch, devCommand: devCommand ?? null },
+    );
+  }, [onSourceChange, fullName, baseBranch, devCommand]);
+  useEffect(() => {
+    if (settingsRequest === 0 || !settings.current) return;
+    settings.current.open = true;
+    settings.current.scrollIntoView({ block: "nearest" });
+    settings.current.querySelector<HTMLInputElement>("input")?.focus();
+  }, [settingsRequest]);
   return (
     <DashboardHero
       value={draft?.text ?? ""}
@@ -336,7 +360,7 @@ export function NewSessionComposer({
                   ×
                 </button>
               </span>
-              <details className="source-settings">
+              <details ref={settings} className="source-settings">
                 <summary>Source settings</summary>
                 <form
                   key={`${source.installationId}-${source.repositoryId}`}

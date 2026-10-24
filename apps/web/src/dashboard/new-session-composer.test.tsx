@@ -611,3 +611,56 @@ it("resumes draft persistence for an authenticated owner returning without a dra
     view.unmount();
   }
 });
+
+it("reports the repository to thread details and opens source settings when the card requests it", async () => {
+  const draft = await seedDraft({
+    installationId: 1,
+    repositoryId: 11,
+    name: "example/storefront",
+    baseBranch: "main",
+    environment: { setupCommand: null, devCommand: null, previewPort: null },
+    autoPublish: false,
+    repository: { id: 11, fullName: "example/storefront", defaultBranch: "main", private: true },
+  });
+  const previous = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollIntoView");
+  Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+    configurable: true,
+    value: vi.fn(),
+  });
+  try {
+    const onSourceChange = vi.fn();
+    const props = {
+      ownerId: draft.ownerId,
+      models: [],
+      modelsLoading: false,
+      onAddKey: vi.fn(),
+      onSourceChange,
+    };
+    const view = render(<NewSessionComposer {...props} settingsRequest={0} />);
+    await waitFor(() =>
+      expect(onSourceChange).toHaveBeenLastCalledWith({
+        fullName: "example/storefront",
+        baseBranch: "main",
+        devCommand: null,
+      }),
+    );
+    view.rerender(<NewSessionComposer {...props} settingsRequest={1} />);
+    const branch = screen.getByRole("textbox", { name: "Base branch" });
+    expect(branch).toBeVisible();
+    expect(branch).toHaveFocus();
+    fireEvent.change(branch, { target: { value: "develop" } });
+    fireEvent.submit(screen.getByRole("form", { name: "Source settings" }));
+    await waitFor(() =>
+      expect(onSourceChange).toHaveBeenLastCalledWith({
+        fullName: "example/storefront",
+        baseBranch: "develop",
+        devCommand: null,
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Remove repository" }));
+    await waitFor(() => expect(onSourceChange).toHaveBeenLastCalledWith(null));
+  } finally {
+    if (previous) Object.defineProperty(HTMLElement.prototype, "scrollIntoView", previous);
+    else Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+  }
+});

@@ -5,7 +5,6 @@ import {
   type ProjectGitHub,
   ProjectGitHubSchema,
   type RepositoryEnvironment,
-  type RepositoryJob,
 } from "@nap/shared/github-protocol";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { z } from "zod";
@@ -13,6 +12,7 @@ import { credentialedFetch } from "../api/credentialed-fetch.ts";
 import type { FetchJson } from "../files/use-project-files.ts";
 import { BUTTON, FOCUS } from "../settings/settings-ui.tsx";
 import { CloseIcon, GithubIcon } from "../ui/icons.tsx";
+import { canPublish } from "../workspace/thread-details-logic.ts";
 import { EnvironmentSettings } from "./environment-settings.tsx";
 import { GuestSignIn } from "./guest-sign-in.tsx";
 import { PullRequestsPanel } from "./pull-requests-panel.tsx";
@@ -478,16 +478,5 @@ function DialogHeader({
         <CloseIcon className="size-4" />
       </button>
     </div>
-  );
-}
-
-function canPublish(job: RepositoryJob): boolean {
-  return (
-    (job.publishState === "ready" ||
-      job.publishState === "publishing" ||
-      job.publishState === "failed" ||
-      job.publishState === "published") &&
-    job.pullRequestState !== "closed" &&
-    job.pullRequestState !== "merged"
   );
 }
