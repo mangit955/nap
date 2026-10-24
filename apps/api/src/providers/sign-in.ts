@@ -16,6 +16,7 @@ import type {
   ProviderDriver,
   ProviderSignIn,
 } from "@nap/shared/provider-accounts-protocol";
+import type { SubmitProviderCode } from "@nap/shared/provider-auth-input-protocol";
 import type { Result } from "@nap/shared/result";
 
 export type ProviderSignInSession = Pick<ProviderSignInOwner, "userId" | "authSessionId">;
@@ -45,6 +46,13 @@ export interface ProviderSignInRunner {
     },
   ): Promise<ProviderSignInResult>;
 
+  /** Single-use input to the provider's own login, never a shell command or an API credential. */
+  submitCode(
+    session: ProviderSignInSession,
+    account: ProviderAccount,
+    input: SubmitProviderCode,
+  ): Promise<ProviderSignInResult>;
+
   /** Stops this session's running attempt. Silent when there is none. */
   cancel(session: ProviderSignInSession, account: ProviderAccount): Promise<void>;
 
@@ -61,6 +69,7 @@ export const UNAVAILABLE_SIGN_IN: ProviderSignInRunner = {
   current: async () => null,
   start: async () => ({ ok: false, error: { code: "unavailable" } }),
   complete: async () => ({ ok: false, error: { code: "unavailable" } }),
+  submitCode: async () => ({ ok: false, error: { code: "unavailable" } }),
   cancel: async () => {},
   signOut: async () => {},
 };

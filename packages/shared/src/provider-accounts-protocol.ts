@@ -76,7 +76,11 @@ export const ProviderSignInInteractionSchema = z.discriminatedUnion("type", [
     url: z.url({ protocol: /^https$/ }),
     userCode: z.string().min(1),
   }),
-  z.object({ type: z.literal("terminal"), output: z.string() }),
+  z.object({
+    type: z.literal("terminal"),
+    output: z.string().max(65_536),
+    input: z.literal("code").optional(),
+  }),
 ]);
 export type ProviderSignInInteraction = z.infer<typeof ProviderSignInInteractionSchema>;
 

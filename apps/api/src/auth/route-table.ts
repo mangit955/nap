@@ -126,6 +126,12 @@ export const GUARDED_ROUTES: GuardedRoute[] = [
     },
   },
   {
+    method: "POST",
+    path: "/providers/accounts/:accountId/sign-in/input",
+    examplePath: `/providers/accounts/${PROVIDER_ACCOUNT}/sign-in/input`,
+    body: { flowId: "00000000-0000-4000-8000-000000000099", code: "fixture-only" },
+  },
+  {
     method: "DELETE",
     path: "/providers/accounts/:accountId/sign-in",
     examplePath: `/providers/accounts/${PROVIDER_ACCOUNT}/sign-in`,

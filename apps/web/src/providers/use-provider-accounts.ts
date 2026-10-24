@@ -20,6 +20,7 @@ import {
   ProviderAccountViewSchema,
   type UpdateProviderAccount,
 } from "@nap/shared/provider-accounts-protocol";
+import type { SubmitProviderCode } from "@nap/shared/provider-auth-input-protocol";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import { credentialedFetch } from "../api/credentialed-fetch.ts";
@@ -184,6 +185,11 @@ export function useProviderAccounts({
     completeSignIn: useCallback(
       (id: string, input: CompleteProviderSignIn) =>
         change(`/${id}/sign-in/complete`, json("POST", input)),
+      [change],
+    ),
+    submitSignInCode: useCallback(
+      (id: string, input: SubmitProviderCode) =>
+        change(`/${id}/sign-in/input`, json("POST", input)),
       [change],
     ),
     cancelSignIn: useCallback((id: string) => change(`/${id}/sign-in`, json("DELETE")), [change]),

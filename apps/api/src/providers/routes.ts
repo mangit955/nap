@@ -27,6 +27,7 @@ import {
   SIGN_IN_UNAVAILABLE,
   UpdateProviderAccountSchema,
 } from "@nap/shared/provider-accounts-protocol";
+import { SubmitProviderCodeSchema } from "@nap/shared/provider-auth-input-protocol";
 import type { Context, Hono } from "hono";
 import type { AuthVariables } from "../auth/require-user.ts";
 import type {
@@ -233,6 +234,24 @@ export function registerProviderRoutes(
     const input = CompleteProviderSignInSchema.safeParse(await readJson(c.req.raw));
     if (!input.success) return c.json({ error: "Invalid sign-in callback." }, 400);
     const result = await deps.signIn.complete(binding, found.account, input.data);
+    if (!result.ok) return signInRefusal(c, result.error);
+    const account = await deps.accounts.get(binding.userId, found.account.id);
+    if (account === null) return c.json({ error: "No such provider account." }, 404);
+    return c.json(await view(c, account));
+  });
+
+  app.post("/providers/accounts/:accountId/sign-in/input", async (c) => {
+    c.header("cache-control", "no-store");
+    const found = await owned(c);
+    if (found.refused !== undefined) return found.refused;
+    const binding = session(c);
+    if (binding === null) return sessionRequired(c);
+    if (!found.account.enabled) return c.json({ error: "Switch this provider on first." }, 409);
+    if (!deps.signIn.drivers.includes(found.account.driver))
+      return signInRefusal(c, { code: "unavailable" });
+    const input = SubmitProviderCodeSchema.safeParse(await readJson(c.req.raw));
+    if (!input.success) return c.json({ error: "Enter one valid sign-in code." }, 400);
+    const result = await deps.signIn.submitCode(binding, found.account, input.data);
     if (!result.ok) return signInRefusal(c, result.error);
     const account = await deps.accounts.get(binding.userId, found.account.id);
     if (account === null) return c.json({ error: "No such provider account." }, 404);

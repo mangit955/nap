@@ -9,6 +9,7 @@ import type {
   ProviderDriver,
   ProviderSignIn,
 } from "@nap/shared/provider-accounts-protocol";
+import type { SubmitProviderCode } from "@nap/shared/provider-auth-input-protocol";
 import type {
   ProviderSignInResult,
   ProviderSignInRunner,
@@ -19,7 +20,6 @@ export class ScriptedProviderSignIn implements ProviderSignInRunner {
   constructor(readonly drivers: readonly ProviderDriver[] = ["claude", "codex"]) {}
   readonly signedOut: string[] = [];
   readonly #flows = new Map<string, { userId: string; accountId: string; flow: ProviderSignIn }>();
-  #sequence = 0;
 
   #key(session: ProviderSignInSession, account: ProviderAccount): string {
     return JSON.stringify([session.userId, session.authSessionId, account.id]);
@@ -49,13 +49,12 @@ export class ScriptedProviderSignIn implements ProviderSignInRunner {
     account: ProviderAccount,
   ): Promise<ProviderSignInResult> {
     this.#cancelAccount(session.userId, account);
-    this.#sequence += 1;
     const flow: ProviderSignIn = {
-      flowId: `flow-${this.#sequence}`,
+      flowId: crypto.randomUUID(),
       phase: "waiting",
       interaction:
         account.driver === "claude"
-          ? { type: "terminal", output: "$ claude auth login\n" }
+          ? { type: "terminal", output: "$ claude auth login\n", input: "code" }
           : { type: "browser", url: "https://auth.openai.com/oauth/authorize" },
       message: null,
     };
@@ -69,6 +68,24 @@ export class ScriptedProviderSignIn implements ProviderSignInRunner {
 
   async complete(): Promise<ProviderSignInResult> {
     return { ok: false, error: { code: "unavailable" } };
+  }
+
+  async submitCode(
+    session: ProviderSignInSession,
+    account: ProviderAccount,
+    input: SubmitProviderCode,
+  ): Promise<ProviderSignInResult> {
+    const entry = this.#flows.get(this.#key(session, account));
+    if (
+      entry?.flow.flowId !== input.flowId ||
+      entry.flow.phase !== "waiting" ||
+      entry.flow.interaction?.type !== "terminal" ||
+      entry.flow.interaction.input !== "code"
+    )
+      return { ok: false, error: { code: "stale" } };
+    // Accepting input does not prove authentication. Only a driver can verify the account.
+    entry.flow = { ...entry.flow, phase: "verifying", interaction: null };
+    return { ok: true, value: structuredClone(entry.flow) };
   }
 
   async cancel(session: ProviderSignInSession, account: ProviderAccount): Promise<void> {

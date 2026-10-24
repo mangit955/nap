@@ -208,6 +208,10 @@ export class BrowserProviderSignIn implements ProviderSignInRunner {
     }
   }
 
+  async submitCode(): Promise<ProviderSignInResult> {
+    return { ok: false, error: { code: "unavailable" } };
+  }
+
   async cancel(session: ProviderSignInSession, account: ProviderAccount): Promise<void> {
     const owner = { ...session, accountId: account.id };
     const current = await this.#options.attempts.currentSignIn(owner);

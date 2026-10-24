@@ -532,6 +532,7 @@ function AccountEditor({
           onStart={onStartSignIn}
           onCancel={() => api.cancelSignIn(account.id)}
           onComplete={(input) => api.completeSignIn(account.id, input)}
+          onSubmitCode={(input) => api.submitSignInCode(account.id, input)}
           onSignOut={() => api.signOut(account.id)}
           confirm={confirm}
           startError={startError}

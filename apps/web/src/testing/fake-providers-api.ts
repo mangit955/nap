@@ -16,6 +16,7 @@ import {
   SIGN_IN_UNAVAILABLE,
   UpdateProviderAccountSchema,
 } from "@nap/shared/provider-accounts-protocol";
+import { SubmitProviderCodeSchema } from "@nap/shared/provider-auth-input-protocol";
 import type { FetchJson } from "../files/use-project-files.ts";
 
 export const FAKE_API = "http://api.test";
@@ -40,7 +41,11 @@ export function fakeProvidersApi(
       const method = init?.method ?? "GET";
       const path = new URL(url).pathname;
       const body: unknown = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
-      api.requests.push({ method, path, body });
+      api.requests.push({
+        method,
+        path,
+        body: path.endsWith("/sign-in/input") ? "[redacted sign-in input]" : body,
+      });
       return answer(method, path, body);
     },
   };
@@ -76,7 +81,9 @@ export function fakeProvidersApi(
     }
 
     const match =
-      /^\/providers\/accounts\/([^/]+)(\/sign-in\/complete|\/sign-in|\/sign-out)?$/.exec(path);
+      /^\/providers\/accounts\/([^/]+)(\/sign-in\/complete|\/sign-in\/input|\/sign-in|\/sign-out)?$/.exec(
+        path,
+      );
     const account = api.accounts.find((candidate) => candidate.id === match?.[1]);
     if (match === null || account === undefined)
       return json({ error: "No such provider account." }, 404);
@@ -107,6 +114,19 @@ export function fakeProvidersApi(
           message: null,
         };
         return json(account);
+      case "POST /sign-in/input": {
+        const input = SubmitProviderCodeSchema.safeParse(body);
+        if (!input.success) return json({ error: "Invalid sign-in code." }, 400);
+        if (
+          account.signIn?.flowId !== input.data.flowId ||
+          account.signIn.phase !== "waiting" ||
+          account.signIn.interaction?.type !== "terminal" ||
+          account.signIn.interaction.input !== "code"
+        )
+          return json({ error: "Sign-in was replaced.", code: "stale" }, 409);
+        account.signIn = { ...account.signIn, phase: "verifying", interaction: null };
+        return json(account);
+      }
       case "POST /sign-in/complete": {
         const input = CompleteProviderSignInSchema.parse(body);
         if (account.signIn?.flowId !== input.flowId || account.signIn.phase !== "waiting")

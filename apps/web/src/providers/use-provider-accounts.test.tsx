@@ -135,3 +135,41 @@ describe("useProviderAccounts", () => {
     expect(result.current.state).toMatchObject({ value: { accounts: [{ label: "Personal" }] } });
   });
 });
+
+it("sends terminal input separately from browser callbacks and waits for provider verification", async () => {
+  const flowId = crypto.randomUUID();
+  const api = fakeProvidersApi({
+    accounts: [
+      {
+        ...CLAUDE,
+        auth: { status: "unauthenticated", email: null, plan: null },
+        signIn: {
+          flowId,
+          phase: "waiting",
+          interaction: { type: "terminal", output: "Provider login", input: "code" },
+          message: null,
+        },
+      },
+    ],
+  });
+  const { result } = renderHook(() =>
+    useProviderAccounts({ fetchJson: api.fetchJson, baseUrl: FAKE_API }),
+  );
+  await waitFor(() => expect(result.current.state.kind).toBe("loaded"));
+  await act(async () => {
+    expect(
+      await result.current.submitSignInCode(CLAUDE.id, { flowId, code: "private-fixture-code" }),
+    ).toMatchObject({ ok: true });
+  });
+  expect(result.current.state).toMatchObject({
+    value: { accounts: [{ auth: { status: "unauthenticated" }, signIn: { phase: "verifying" } }] },
+  });
+  expect(api.requests.filter((request) => request.path.endsWith("/sign-in/input"))).toEqual([
+    {
+      method: "POST",
+      path: `/providers/accounts/${CLAUDE.id}/sign-in/input`,
+      body: "[redacted sign-in input]",
+    },
+  ]);
+  expect(JSON.stringify(api.requests)).not.toContain("private-fixture-code");
+});

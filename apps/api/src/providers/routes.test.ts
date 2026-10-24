@@ -470,3 +470,55 @@ it("publishes owned subscription choices without treating account metadata as an
   });
   expect(JSON.stringify(body)).not.toContain("private-sealed-grant");
 });
+
+it("accepts one code only for the initiating Nap session and does not infer a connected account", async () => {
+  const runner = new ScriptedProviderSignIn();
+  const first = app({ signIn: runner });
+  const account = await create(first.app, "claude");
+  const flow = await runner.start({ userId: USER, authSessionId: AUTH_SESSION }, account);
+  if (!flow.ok) throw new Error("No fixture sign-in");
+  const send = (instance: typeof first.app) =>
+    instance.request(`/providers/accounts/${account.id}/sign-in/input`, {
+      method: "POST",
+      headers: { origin: WEB, "content-type": "application/json" },
+      body: JSON.stringify({ flowId: flow.value.flowId, code: "private-fixture-code" }),
+    });
+  const other = app({ accounts: first.accounts, signIn: runner, authSessionId: OTHER_SESSION });
+  expect((await send(other.app)).status).toBe(409);
+  const accepted = await send(first.app);
+  expect(accepted.status).toBe(200);
+  expect(accepted.headers.get("cache-control")).toBe("no-store");
+  const body = await accepted.json();
+  expect(body).toMatchObject({
+    auth: { status: "unauthenticated" },
+    signIn: { phase: "verifying", interaction: null },
+  });
+  expect(JSON.stringify(body)).not.toContain("private-fixture-code");
+  expect((await send(first.app)).status).toBe(409);
+});
+it("rejects forged origins and multiline terminal input before handing anything to a driver", async () => {
+  const runner = new ScriptedProviderSignIn();
+  const submit = vi.spyOn(runner, "submitCode");
+  const f = app({ signIn: runner });
+  const account = await create(f.app, "claude");
+  const path = `/providers/accounts/${account.id}/sign-in/input`;
+  expect(
+    (
+      await f.app.request(path, {
+        method: "POST",
+        headers: { origin: "https://untrusted.test", "content-type": "application/json" },
+        body: JSON.stringify({ flowId: crypto.randomUUID(), code: "private-code" }),
+      })
+    ).status,
+  ).toBe(403);
+  expect(
+    (
+      await f.app.request(path, {
+        method: "POST",
+        headers: { origin: WEB, "content-type": "application/json" },
+        body: JSON.stringify({ flowId: crypto.randomUUID(), code: "code\ncommand" }),
+      })
+    ).status,
+  ).toBe(400);
+  expect(submit).not.toHaveBeenCalled();
+});
