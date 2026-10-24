@@ -9,7 +9,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "native-helper:build": "bun build src/claude-native-helper-main.ts --target=node --outfile=dist/claude-native-helper.mjs",
-    "native-helper:smoke": "bun run native-helper:build && bun run src/claude-native-helper-smoke.ts"
+    "native-helper:smoke": "bun run native-helper:build && bun run src/claude-native-helper-smoke.ts",
+    "native-helper:proof": "bun run native-helper:build && bun build src/testing/scripted-claude-cli.ts --target=node --outfile=dist/scripted-claude-cli.mjs && bun run src/claude-native-sdk-proof.ts"
   },
   "dependencies": {
     "@anthropic-ai/bedrock-sdk": "^0.32.1",

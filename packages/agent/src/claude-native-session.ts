@@ -172,7 +172,12 @@ export class ClaudeNativeSession {
     };
     for (const name of ["PATH", "LANG", "LC_ALL", "TMPDIR"])
       if (config.environment[name] !== undefined) environment[name] = config.environment[name];
-    const server = createSdkMcpServer({ name: "nap", version: "1.0.0", tools: dependencies.tools });
+    // SDK 0.3.310 forwards this wire option but omits it from its public server type.
+    // native-helper:proof checks that initialize carries it rather than silently ignoring it.
+    const server = {
+      ...createSdkMcpServer({ name: "nap", version: "1.0.0", tools: dependencies.tools }),
+      disableAutoBackground: true,
+    };
     let session: ClaudeNativeSession | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
