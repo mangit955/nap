@@ -15,6 +15,7 @@ import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { InMemoryProjectSandboxStore } from "@nap/db/testing/in-memory-project-sandbox-store";
 import { FAKE_OWNER, InMemoryProjectStore } from "@nap/db/testing/in-memory-project-store";
+import { InMemoryProviderAccountStore } from "@nap/db/testing/in-memory-provider-account-store";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
 import { InMemoryTurnQueue } from "@nap/db/testing/in-memory-turn-queue";
@@ -24,6 +25,7 @@ import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-m
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import { encryptionKeyFrom } from "../account/secret-box.ts";
 import type { AppDeps } from "../app.ts";
+import { ScriptedProviderSignIn } from "../providers/scripted-sign-in.ts";
 import { TurnRegistry } from "../turns/registry.ts";
 
 /** A model that costs nothing, which is what a caller with no key of their own may run. */
@@ -37,6 +39,8 @@ export const STRANGER = "00000000-0000-4000-8000-0000000000ff";
 export const PROJECT = "1f2e3d4c-5b6a-4798-8765-43210fedcba9";
 export const SESSION = "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f";
 export const REQUEST = "00000000-0000-4000-8000-000000000003";
+/** A Claude account the owner connected, for the routes addressed by one. */
+export const PROVIDER_ACCOUNT = "00000000-0000-4000-8000-000000000004";
 
 type RouteEntry = {
   method: string;
@@ -77,6 +81,39 @@ export const GUARDED_ROUTES: GuardedRoute[] = [
     body: { apiKey: "sk-or-v1-0123456789abcdef0123" },
   },
   { method: "DELETE", path: "/account/api-key", examplePath: "/account/api-key" },
+  { method: "GET", path: "/providers", examplePath: "/providers" },
+  {
+    method: "POST",
+    path: "/providers/accounts",
+    examplePath: "/providers/accounts",
+    body: { driver: "claude" },
+  },
+  {
+    method: "PATCH",
+    path: "/providers/accounts/:accountId",
+    examplePath: `/providers/accounts/${PROVIDER_ACCOUNT}`,
+    body: { enabled: false },
+  },
+  {
+    method: "DELETE",
+    path: "/providers/accounts/:accountId",
+    examplePath: `/providers/accounts/${PROVIDER_ACCOUNT}`,
+  },
+  {
+    method: "POST",
+    path: "/providers/accounts/:accountId/sign-in",
+    examplePath: `/providers/accounts/${PROVIDER_ACCOUNT}/sign-in`,
+  },
+  {
+    method: "DELETE",
+    path: "/providers/accounts/:accountId/sign-in",
+    examplePath: `/providers/accounts/${PROVIDER_ACCOUNT}/sign-in`,
+  },
+  {
+    method: "POST",
+    path: "/providers/accounts/:accountId/sign-out",
+    examplePath: `/providers/accounts/${PROVIDER_ACCOUNT}/sign-out`,
+  },
   { method: "GET", path: "/projects", examplePath: "/projects" },
   { method: "POST", path: "/projects", examplePath: "/projects", body: { name: "New" } },
   { method: "GET", path: "/projects/:projectId", examplePath: `/projects/${PROJECT}` },
@@ -198,6 +235,21 @@ export function fullyWiredDeps(seeded?: SeededSandbox): Omit<AppDeps, "logger"> 
       upgradeWebSocket: async () => new Response(null),
     },
     files: { sessions, sandbox },
+    providers: {
+      accounts: new InMemoryProviderAccountStore([
+        {
+          id: PROVIDER_ACCOUNT,
+          userId: OWNER,
+          driver: "claude",
+          label: null,
+          enabled: true,
+          auth: { status: "unauthenticated", email: null, plan: null },
+          createdAt: "2026-10-23T09:00:00.000Z",
+        },
+      ]),
+      signIn: new ScriptedProviderSignIn(),
+      webOrigin: "http://localhost:3000",
+    },
     account: {
       keys: new InMemoryUserKeyStore(),
       encryptionKey: encryptionKeyFrom(Buffer.alloc(32).toString("base64")),

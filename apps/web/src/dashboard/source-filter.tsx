@@ -55,7 +55,7 @@ export function SourceFilter({
         <ListFilter aria-hidden className="size-4" />
       </button>
       {open && (
-        <div className="composer-surface absolute left-0 top-full z-40 mt-1 w-full rounded-lg p-1.5">
+        <div className="composer-surface nap-float absolute left-0 top-full z-40 mt-1 w-full rounded-[10px] p-1.5 [--float-origin:top]">
           <input
             aria-label="Search sources"
             placeholder="Find a source…"

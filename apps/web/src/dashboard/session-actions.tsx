@@ -245,7 +245,7 @@ export function SessionActions({
           setAction(undefined);
           trigger.current?.focus();
         }}
-        className="m-auto w-[calc(100%_-_32px)] max-w-sm rounded-2xl border border-edge bg-panel p-6 text-ink shadow-raised backdrop:bg-black/60"
+        className="nap-dialog dialog-glass m-auto w-[calc(100%_-_32px)] max-w-sm rounded-[18px] border p-6 text-ink"
       >
         <form
           onSubmit={(event) => {
