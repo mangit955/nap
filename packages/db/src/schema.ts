@@ -305,6 +305,7 @@ export const providerSignInAttempts = pgTable(
     phase: providerSignInPhase("phase").notNull(),
     challengeHash: text("challenge_hash"),
     claimTokenHash: text("claim_token_hash"),
+    stateVersion: integer("state_version").notNull().default(0),
     stateCiphertext: text("state_ciphertext"),
     stateIv: text("state_iv"),
     interaction: jsonb("interaction").$type<ProviderSignInInteraction>(),
@@ -313,6 +314,7 @@ export const providerSignInAttempts = pgTable(
     createdAt,
   },
   (t) => [
+    check("provider_sign_in_state_version_nonnegative", sql`${t.stateVersion} >= 0`),
     index("provider_sign_ins_session_created").on(t.accountId, t.authSessionId, t.createdAt),
     uniqueIndex("provider_sign_ins_one_active")
       .on(t.accountId)

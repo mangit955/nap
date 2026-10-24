@@ -443,3 +443,58 @@ it("orders callback locks with Nap account deletion without deadlocking", async 
     await settled;
   }
 });
+
+it("checkpoints private native login state with a version CAS and keeps it out of public views", async () => {
+  const who = await owner();
+  const attempt = await started(who);
+  const flow = { owner: who, flowId: attempt.flowId };
+  expect(await store.inspectSignInProcess(flow)).toMatchObject({
+    kind: "ready",
+    version: 0,
+    phase: "starting",
+    state: STATE,
+  });
+  const secret = { ciphertext: "sealed-native-process-reference", iv: "private-reference-iv" };
+  const writes = await Promise.all([
+    store.checkpointSignInProcess({ ...flow, version: 0, state: secret }),
+    store.checkpointSignInProcess({
+      ...flow,
+      version: 0,
+      state: { ...secret, ciphertext: "stale-writer" },
+    }),
+  ]);
+  expect(writes.map((result) => result.kind).sort()).toEqual(["conflict", "updated"]);
+  const current = await store.inspectSignInProcess(flow);
+  expect(current).toMatchObject({ kind: "ready", version: 1 });
+  expect(JSON.stringify(await store.currentSignIn(who))).not.toContain("ciphertext");
+  expect(JSON.stringify(await store.get(who.userId, who.accountId))).not.toContain("ciphertext");
+  await store.cancelSignIn(flow);
+  expect(await store.inspectSignInProcess(flow)).toEqual({ kind: "stale" });
+  expect(await store.checkpointSignInProcess({ ...flow, version: 1, state: secret })).toEqual({
+    kind: "stale",
+  });
+});
+it("rejects native login checkpoint readers from another account or Nap session", async () => {
+  const who = await owner();
+  const other = await owner();
+  const attempt = await started(who);
+  for (const forged of [
+    other,
+    { ...who, authSessionId: other.authSessionId },
+    { ...who, accountId: other.accountId },
+  ]) {
+    expect(
+      (await store.inspectSignInProcess({ owner: forged, flowId: attempt.flowId })).kind,
+    ).not.toBe("ready");
+    expect(
+      (
+        await store.checkpointSignInProcess({
+          owner: forged,
+          flowId: attempt.flowId,
+          version: 0,
+          state: STATE,
+        })
+      ).kind,
+    ).not.toBe("updated");
+  }
+});

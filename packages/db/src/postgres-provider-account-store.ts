@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+
 /**
  * The `provider_accounts` table, behind the `ProviderAccountStore` port.
  *
@@ -27,6 +28,10 @@ import {
   ProviderRefreshClaimTokenSchema,
   type ProviderRefreshStore,
 } from "@nap/shared/ports/provider-refresh-store";
+import {
+  ProviderSignInProcessStateSchema,
+  type ProviderSignInProcessStore,
+} from "@nap/shared/ports/provider-sign-in-process-store";
 import type {
   ProviderSignInAttempt,
   ProviderSignInAttemptWrite,
@@ -123,7 +128,11 @@ function toAccount(row: AccountRow): ProviderAccount {
 const isUuid = (id: string) => z.uuid().safeParse(id).success;
 
 export class PostgresProviderAccountStore
-  implements ProviderAccountStore, ProviderSignInStore, ProviderRefreshStore
+  implements
+    ProviderAccountStore,
+    ProviderSignInStore,
+    ProviderRefreshStore,
+    ProviderSignInProcessStore
 {
   readonly #db: PostgresJsDatabase;
 
@@ -347,16 +356,63 @@ export class PostgresProviderAccountStore
     );
   }
 
+  async inspectSignInProcess(
+    input: Parameters<ProviderSignInProcessStore["inspectSignInProcess"]>[0],
+  ): ReturnType<ProviderSignInProcessStore["inspectSignInProcess"]> {
+    return this.#signInAction(input, async (_tx, row) => {
+      if (!isActiveSignIn(row)) return { kind: "stale" };
+      return {
+        kind: "ready",
+        ...ProviderSignInProcessStateSchema.parse({
+          phase: row.phase,
+          version: row.stateVersion,
+          generation: row.generation,
+          challengeHash: row.challengeHash,
+          state: { ciphertext: row.stateCiphertext, iv: row.stateIv },
+        }),
+      };
+    });
+  }
+
+  async checkpointSignInProcess(
+    input: Parameters<ProviderSignInProcessStore["checkpointSignInProcess"]>[0],
+  ): ReturnType<ProviderSignInProcessStore["checkpointSignInProcess"]> {
+    if (!Number.isSafeInteger(input.version) || input.version < 0 || input.version >= 2_147_483_647)
+      return { kind: "conflict" };
+    const state = SealedProviderCredentialsSchema.safeParse(input.state);
+    if (!state.success || state.data.ciphertext.length > 1_048_576 || state.data.iv.length > 256)
+      return { kind: "stale" };
+    return this.#signInAction(input, async (tx, row) => {
+      if (!isActiveSignIn(row)) return { kind: "stale" };
+      if (row.stateVersion !== input.version) return { kind: "conflict" };
+      const version = row.stateVersion + 1;
+      await tx
+        .update(providerSignInAttempts)
+        .set({
+          stateVersion: version,
+          stateCiphertext: state.data.ciphertext,
+          stateIv: state.data.iv,
+        })
+        .where(eq(providerSignInAttempts.id, row.id));
+      return { kind: "updated", version };
+    });
+  }
+
   async presentSignIn(
     input: Parameters<ProviderSignInStore["presentSignIn"]>[0],
   ): Promise<ProviderSignInAttemptWrite> {
     return this.#signInAction(input, async (tx, row) => {
-      if (row.phase !== "starting") return { kind: "stale" };
+      if (
+        row.phase !== "starting" ||
+        (input.version !== undefined && row.stateVersion !== input.version)
+      )
+        return { kind: "stale" };
       const state = SealedProviderCredentialsSchema.parse(input.state);
       const [waiting] = await tx
         .update(providerSignInAttempts)
         .set({
           phase: "waiting",
+          stateVersion: row.stateVersion + 1,
           interaction: input.interaction,
           stateCiphertext: state.ciphertext,
           stateIv: state.iv,

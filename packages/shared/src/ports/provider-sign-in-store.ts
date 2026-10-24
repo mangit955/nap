@@ -78,7 +78,11 @@ export interface ProviderSignInStore {
     state: SealedProviderCredentials;
   }): Promise<ProviderSignInAttemptWrite>;
   presentSignIn(
-    input: Flow & { interaction: ProviderSignInInteraction; state: SealedProviderCredentials },
+    input: Flow & {
+      interaction: ProviderSignInInteraction;
+      state: SealedProviderCredentials;
+      version?: number;
+    },
   ): Promise<ProviderSignInAttemptWrite>;
   /** Single-use admission to token exchange. A worker crash never puts this back into waiting. */
   claimSignIn(
