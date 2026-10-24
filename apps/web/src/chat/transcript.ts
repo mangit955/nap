@@ -191,6 +191,20 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
     const key = event.seq;
 
     switch (event.type) {
+      case "computer.screenshot":
+        items.push({ kind: "notice", key, level: "info", text: "Computer screenshot available" });
+        break;
+      case "computer.status":
+        items.push({
+          kind: "notice",
+          key,
+          level: "info",
+          text:
+            event.payload.state === "starting"
+              ? "Waiting for Nap's computer…"
+              : "Nap's computer is ready",
+        });
+        break;
       case "compaction.started":
         if (event.payload.trigger === "manual") {
           retryByTurn.set(event.turnId, { text: "/compact" });

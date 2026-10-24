@@ -71,6 +71,16 @@ const DRAWN_ELSEWHERE = [
  */
 const TREATMENTS = [
   {
+    type: "computer.screenshot",
+    payload: { toolCallId: "screen", key: "computer/p/s/t/screen.jpg", width: 1024, height: 768 },
+    shows: /Computer screenshot available/,
+  },
+  {
+    type: "computer.status",
+    payload: { toolCallId: "screen", state: "starting" },
+    shows: /Waiting for Nap/,
+  },
+  {
     type: "compaction.started",
     payload: { id: "compact1", trigger: "manual" },
     shows: /Compacting context/,

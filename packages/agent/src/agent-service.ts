@@ -24,6 +24,7 @@ import { estimateContextTokens } from "@nap/shared/compaction";
  */
 
 import type { NapEvent, NapEventOf, TurnFailureReason } from "@nap/shared/events";
+import { modelSupportsImages } from "@nap/shared/model-capabilities";
 import type { AgentService, AgentTurnRequest } from "@nap/shared/ports/agent-service";
 import type { PendingEvent } from "@nap/shared/ports/event-store";
 import type {
@@ -86,6 +87,7 @@ class Turn {
   readonly #clock: () => number;
   readonly #startedAt: number;
   readonly #messages: LLMMessage[];
+  readonly #tools: typeof TOOL_DEFINITIONS;
   #lastCompactionStep = -3;
   #reportedInput: number | undefined;
   #inputEstimate = 0;
@@ -101,6 +103,11 @@ class Turn {
     clock: () => number,
   ) {
     this.#request = request;
+    this.#tools = TOOL_DEFINITIONS.filter(
+      (tool) =>
+        tool.name !== "computer" ||
+        (request.computer !== undefined && modelSupportsImages(request.model)),
+    );
     this.#turn = provider.startTurn({
       model: request.model,
       credentials: request.credentials,
@@ -180,7 +187,7 @@ class Turn {
         this.#turn.complete({
           systemPrompt: this.#request.context.systemPrompt,
           messages: [...this.#messages],
-          tools: TOOL_DEFINITIONS,
+          tools: this.#tools,
           onThinkingDelta: (delta) => thinking.push(delta),
           onTextDelta: (delta) => prose.push(delta),
           ...(this.#request.signal === undefined ? {} : { signal: this.#request.signal }),
@@ -197,7 +204,7 @@ class Turn {
       this.#inputEstimate = estimateContextTokens({
         systemPrompt: this.#request.context.systemPrompt,
         messages: this.#messages,
-        tools: TOOL_DEFINITIONS,
+        tools: this.#tools,
       });
       if (this.#request.context.budgetTokens !== undefined)
         this.#emit({
@@ -243,7 +250,7 @@ class Turn {
     const estimate = estimateContextTokens({
       systemPrompt: this.#request.context.systemPrompt,
       messages: this.#messages,
-      tools: TOOL_DEFINITIONS,
+      tools: this.#tools,
     });
     const calibrated = (this.#reportedInput ?? 0) + estimate - this.#inputEstimate;
     return this.#nativeContext && this.#reportedInput !== undefined
@@ -330,7 +337,7 @@ class Turn {
     const native = this.#turn.compact;
     const result = await this.#request.compactContext({
       messages: this.#messages,
-      tools: TOOL_DEFINITIONS,
+      tools: this.#tools,
       systemPrompt: this.#request.context.systemPrompt,
       trigger,
       complete,
@@ -378,7 +385,7 @@ class Turn {
           : estimateContextTokens({
               systemPrompt: this.#request.context.systemPrompt,
               messages: this.#messages,
-              tools: TOOL_DEFINITIONS,
+              tools: this.#tools,
             });
       if (this.#request.context.budgetTokens !== undefined)
         this.#emit({
@@ -413,7 +420,7 @@ class Turn {
       results.push({
         type: "tool_result",
         toolCallId: call.id,
-        content: outcome.output,
+        content: outcome.content ?? outcome.output,
         // A failed tool is a result the model reads and works around, never a dropped block.
         isError: !outcome.ok,
       });
@@ -471,6 +478,8 @@ class Turn {
       turnId: this.#request.turnId,
       sandboxId: this.#request.sandboxId,
       sandbox: this.#request.sandbox,
+      computer: modelSupportsImages(this.#request.model) ? this.#request.computer : undefined,
+      signal: this.#request.signal,
       emit: this.#request.onEvent,
       now: this.#now,
     };

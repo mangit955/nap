@@ -167,6 +167,10 @@ export function formatEvent(event: NapEvent): string {
 
 function detail(event: NapEvent): string {
   switch (event.type) {
+    case "computer.screenshot":
+      return `${event.payload.toolCallId} ${event.payload.width}×${event.payload.height} ${event.payload.key}`;
+    case "computer.status":
+      return event.payload.state;
     case "compaction.started":
       return "Compacting context";
     case "compaction.completed":
@@ -180,7 +184,9 @@ function detail(event: NapEvent): string {
     case "agent.thinking":
       return oneLine(event.payload.text);
     case "tool.call":
-      return `${event.payload.toolName} ${oneLine(JSON.stringify(event.payload.input))}`;
+      return event.payload.toolName === "computer"
+        ? "computer actions"
+        : `${event.payload.toolName} ${oneLine(JSON.stringify(event.payload.input))}`;
     case "tool.result":
       return `${event.payload.toolName} ${event.payload.ok ? "ok" : "FAILED"} ${oneLine(event.payload.output)}`;
     case "file.changed":

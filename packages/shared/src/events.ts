@@ -24,7 +24,7 @@ import { z } from "zod";
 import { CheckOutcomeSchema } from "./check-outcome.ts";
 import { CompactionResultSchema, TokenUsageSchema } from "./compaction.ts";
 
-/** The six sandbox-proxy tools. Nothing else may appear in the log. */
+/** The sandbox tools, including the image-gated computer capability. See ADR-0018. */
 export const TOOL_NAMES = [
   "read_file",
   "write_file",
@@ -32,6 +32,7 @@ export const TOOL_NAMES = [
   "list_files",
   "search_files",
   "run_command",
+  "computer",
 ] as const;
 
 export const ToolNameSchema = z.enum(TOOL_NAMES);
@@ -155,6 +156,13 @@ export const NapEventSchema = z.discriminatedUnion("type", [
   event("tool.call", { ...toolRef, input: z.record(z.string(), z.unknown()) }),
   /** A tool failure sets `ok: false` and reports through `output`; it never throws. */
   event("tool.result", { ...toolRef, ok: z.boolean(), output: z.string() }),
+  event("computer.screenshot", {
+    toolCallId: z.string().min(1),
+    key: z.string().min(1),
+    width: z.int().positive().max(1024),
+    height: z.int().positive().max(768),
+  }),
+  event("computer.status", { toolCallId: z.string().min(1), state: z.enum(["starting", "ready"]) }),
   event("file.changed", {
     path: z.string().min(1),
     changeType: z.enum(["created", "modified", "deleted"]),

@@ -106,6 +106,7 @@
       "devDependencies": {
         "@nap/context": "workspace:*",
         "@nap/sandbox": "workspace:*",
+        "@nap/storage": "workspace:*",
       },
     },
     "packages/bench": {

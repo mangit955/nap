@@ -30,7 +30,7 @@ export type WorkEntry =
   | Extract<TranscriptItem, { kind: "thinking" }>
   | Extract<TranscriptItem, { kind: "files" }>;
 
-export type ToolGroupAction = "read" | "edit" | "command" | "code-search";
+export type ToolGroupAction = "read" | "edit" | "command" | "code-search" | "computer";
 
 /** What a group is, for its icon: one kind of work, a thought, or several kinds. */
 export type ToolGroupSummaryKind = ToolGroupAction | "reasoning" | "mixed";
@@ -47,6 +47,7 @@ const ACTIONS: Record<ToolName, ToolGroupAction> = {
   list_files: "code-search",
   search_files: "code-search",
   run_command: "command",
+  computer: "computer",
 };
 
 export function toolGroupAction(entry: Step | Extract<WorkEntry, { kind: "files" }>) {
@@ -102,6 +103,8 @@ function actionCount(
 
 function actionLabel(action: ToolGroupAction, count: number): string {
   switch (action) {
+    case "computer":
+      return `Used computer ${count} ${count === 1 ? "time" : "times"}`;
     case "read":
       return `Read ${count} ${count === 1 ? "file" : "files"}`;
     case "edit":
@@ -216,6 +219,8 @@ export function workEntryDisplayLabel(entry: WorkEntry): string {
   }
 
   switch (entry.toolName) {
+    case "computer":
+      return "Used computer";
     case "run_command":
       return argument(entry, "command") ?? "Ran command";
     case "read_file": {

@@ -30,11 +30,13 @@ import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { E2BSandboxManager } from "@nap/sandbox/e2b-sandbox-manager";
 import { NAP_TEMPLATE, TEMPLATE_DEV_PORT, TEMPLATE_WORKDIR } from "@nap/sandbox/template";
+import { FakeSandboxDesktop } from "@nap/sandbox/testing/fake-sandbox-desktop";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { loadEnvFile } from "@nap/shared/env-file";
 import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
 import type { LLMProvider } from "@nap/shared/ports/llm-provider";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
+import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import { formatEvent, HARNESS_DEFAULTS, HARNESS_USAGE, parseHarnessArgs } from "../src/harness.ts";
 import { SingleAgentRuntime } from "../src/single-agent-runtime.ts";
 
@@ -59,6 +61,22 @@ const options = parsedArgs.value;
 function scriptedProvider(): LLMProvider {
   return new ScriptedLLMProvider([
     [
+      {
+        toolCalls: [
+          {
+            id: "computer_1",
+            name: "computer",
+            input: {
+              actions: [
+                { action: "key", text: "ctrl+l" },
+                { action: "type", text: "http://localhost:5173" },
+                { action: "wait", duration: 3 },
+                { action: "screenshot" },
+              ],
+            },
+          },
+        ],
+      },
       {
         thinking: ["The project has no toggle yet, ", "so I will add one component."],
         streamedText: ["I'll add ", "the component."],
@@ -171,6 +189,18 @@ bus.subscribe(sessionId, (event) => console.log(formatEvent(event)));
 const runtime = new SingleAgentRuntime({
   sessions,
   sandbox,
+  ...(options.real
+    ? {}
+    : {
+        computer: {
+          desktop: new FakeSandboxDesktop({
+            bytes: new Uint8Array([255, 216, 255, 217]),
+            width: 1024,
+            height: 768,
+          }),
+          objects: new InMemoryObjectStore(),
+        },
+      }),
   context: new NapContextEngine({ budgetTokens: options.budgetTokens }),
   agent: new NapAgentService({ provider, budget: { maxSteps: options.maxSteps } }),
   events,
@@ -185,6 +215,7 @@ const outcome = await runtime.runTurn({
   sessionId,
   turnId: crypto.randomUUID(),
   message: options.prompt,
+  model: options.model,
 });
 const seconds = ((Date.now() - startedAt) / 1000).toFixed(1);
 

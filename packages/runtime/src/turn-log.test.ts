@@ -17,6 +17,16 @@ function base(seq: number) {
 
 /** One of every event type, so the exhaustiveness assertions below have something to walk. */
 const ONE_OF_EACH: Record<NapEventType, StoredEvent> = {
+  "computer.screenshot": stored({
+    ...base(23),
+    type: "computer.screenshot",
+    payload: { toolCallId: "screen", key: "private-computer-key", width: 1024, height: 768 },
+  }),
+  "computer.status": stored({
+    ...base(24),
+    type: "computer.status",
+    payload: { toolCallId: "screen", state: "starting" },
+  }),
   "compaction.started": stored({
     ...base(19),
     type: "compaction.started",
@@ -267,5 +277,15 @@ describe("eventLogLine", () => {
       chars: "error: secret token leaked".length,
       stream: "stderr",
     });
+  });
+});
+
+it("logs screenshot dimensions and identity without copying its private storage key", () => {
+  expect(eventLogLine(ONE_OF_EACH["computer.screenshot"]).fields).toEqual({
+    eventType: "computer.screenshot",
+    seq: 23,
+    toolCallId: "screen",
+    width: 1024,
+    height: 768,
   });
 });

@@ -9,10 +9,14 @@
  * `EventStore`, and an emitter that invented its own would break replay ordering.
  */
 
+import type { ComputerAnnotation } from "../computer.ts";
 import type { PromptSource } from "../events.ts";
+import type { Result } from "../result.ts";
 import type { BuiltContext } from "./context-engine.ts";
 import type { PendingEvent } from "./event-store.ts";
 import type { ModelCredentials } from "./llm-provider.ts";
+import type { ObjectStore } from "./object-store.ts";
+import type { SandboxDesktop } from "./sandbox-desktop.ts";
 import type { SandboxManager } from "./sandbox-manager.ts";
 
 export type AgentTurnRequest = {
@@ -23,6 +27,15 @@ export type AgentTurnRequest = {
   sandboxId: string;
   context: BuiltContext;
   sandbox: SandboxManager;
+  computer?:
+    | {
+        desktop: SandboxDesktop;
+        objects: ObjectStore;
+        projectId: string;
+        devServerUrl: string;
+        annotate?: (annotation: ComputerAnnotation) => Promise<Result<void, { message: string }>>;
+      }
+    | undefined;
   /**
    * Who prompted this turn, for the `turn.started` this component writes. Absent is the user.
    *

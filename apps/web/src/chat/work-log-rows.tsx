@@ -23,6 +23,7 @@ import {
   ChevronRight,
   Eye,
   Hammer,
+  Monitor,
   Search,
   SquarePen,
   Terminal,
@@ -244,6 +245,8 @@ const ICON = "block size-4 shrink-0 stroke-2";
 /** The kind of work, as a shape: eye a read, pen a change, terminal a command, magnifier a search. */
 function EntryIcon({ kind, className = ICON }: { kind: ToolGroupSummaryKind; className?: string }) {
   switch (kind) {
+    case "computer":
+      return <Monitor aria-hidden="true" className={className} />;
     case "read":
       return <Eye aria-hidden="true" className={className} />;
     case "edit":

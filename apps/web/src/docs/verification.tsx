@@ -143,8 +143,9 @@ export function Verification() {
       </P>
 
       <P>
-        The whole loop is confined to sandbox commands and a preview probe. Driving a browser stays
-        the benchmark&rsquo;s alone — nothing that ships carries Playwright.
+        The deterministic loop runs sandbox commands and a preview probe. Agent computer use is a
+        separate capability behind a desktop port. Its assertions do not advance the verification
+        checkpoint. Playwright remains the benchmark&rsquo;s external driver.
       </P>
 
       <P>

@@ -201,7 +201,9 @@ describe("runTurn — talking to the model", () => {
 
     await agent.runTurn(request());
 
-    expect(provider.requests[0]?.tools).toEqual(TOOL_DEFINITIONS);
+    expect(provider.requests[0]?.tools).toEqual(
+      TOOL_DEFINITIONS.filter((tool) => tool.name !== "computer"),
+    );
     expect(provider.requests[0]?.systemPrompt).toBe(CONTEXT.systemPrompt);
   });
 

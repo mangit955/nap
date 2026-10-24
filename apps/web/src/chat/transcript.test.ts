@@ -123,6 +123,11 @@ const DRAWN_ELSEWHERE = [
  * until it has a case or is named above, rather than quietly rendering as nothing.
  */
 const CASES = [
+  {
+    type: "computer.screenshot",
+    payload: { toolCallId: "screen", key: "computer/p/s/t/screen.jpg", width: 1024, height: 768 },
+  },
+  { type: "computer.status", payload: { toolCallId: "screen", state: "starting" } },
   { type: "compaction.started", payload: { id: "compact1", trigger: "manual" } },
   {
     type: "compaction.completed",

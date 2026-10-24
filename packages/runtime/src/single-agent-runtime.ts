@@ -40,7 +40,7 @@ import { TEMPLATE_DEV_PORT } from "@nap/sandbox/template";
 import type { JobOutcome, NapEvent, NapEventOf, PromptSource } from "@nap/shared/events";
 import { foldJobs, MAX_REPAIR_ATTEMPTS, openJob } from "@nap/shared/job-state";
 import { addLogContext, getLogger, withLogContext } from "@nap/shared/logging";
-import type { AgentService } from "@nap/shared/ports/agent-service";
+import type { AgentService, AgentTurnRequest } from "@nap/shared/ports/agent-service";
 import type { ContextEngine, FailedAttempt, JobContext } from "@nap/shared/ports/context-engine";
 import type { EventBus } from "@nap/shared/ports/event-bus";
 import type { EventStore, PendingEvent, StoredEvent } from "@nap/shared/ports/event-store";
@@ -191,6 +191,7 @@ export type SingleAgentRuntimeOptions = {
   sandbox: SandboxManager;
   context: ContextEngine;
   agent: AgentService;
+  computer?: Pick<NonNullable<AgentTurnRequest["computer"]>, "desktop" | "objects">;
   events: EventStore;
   bus: EventBus;
   memory: MemoryProvider;
@@ -973,6 +974,15 @@ export class SingleAgentRuntime implements Runtime {
       sandboxId,
       context,
       sandbox: this.#options.sandbox,
+      ...(this.#options.computer === undefined
+        ? {}
+        : {
+            computer: {
+              ...this.#options.computer,
+              projectId: scope.session.projectId,
+              devServerUrl: `http://localhost:${this.#previewPort}`,
+            },
+          }),
       onEvent: sink.emit,
       ...(options.manualCompaction === undefined ? {} : { operation: "compact" }),
       compactContext: contextCompactor({

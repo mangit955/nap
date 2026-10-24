@@ -23,6 +23,7 @@ import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
+import { FakeSandboxDesktop } from "@nap/sandbox/testing/fake-sandbox-desktop";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { scriptGit } from "@nap/sandbox/testing/script-git";
 import { NapEventSchema, type NapEventType } from "@nap/shared/events";
@@ -1069,4 +1070,31 @@ describe("keeping a resumed sandbox alive", () => {
 
     expect(sandbox.timeoutOf(created.value.id)).toBe(90_000);
   });
+});
+
+it("binds computer access to the project's sandbox dev port rather than the public proxy", async () => {
+  const agent = new ScriptedAgent(HAPPY_SCRIPT);
+  const desktop = new FakeSandboxDesktop({
+    bytes: new Uint8Array([255, 216, 255, 217]),
+    width: 1024,
+    height: 768,
+  });
+  await new SingleAgentRuntime({
+    sessions,
+    sandbox,
+    context,
+    agent,
+    events,
+    bus,
+    memory: new NoopMemoryProvider(),
+    previewPort: 4444,
+    computer: { desktop, objects: new InMemoryObjectStore() },
+  }).runTurn({
+    sessionId: SESSION_ID,
+    turnId: crypto.randomUUID(),
+    message: "inspect app",
+    model: "anthropic/claude-sonnet-5",
+  });
+  expect(agent.requests[0]?.computer?.projectId).toBe(PROJECT_ID);
+  expect(agent.requests[0]?.computer?.devServerUrl).toBe("http://localhost:4444");
 });

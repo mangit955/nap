@@ -51,6 +51,39 @@ type Case = {
 
 const CASES = [
   {
+    type: "computer.screenshot",
+    valid: {
+      ...ENVELOPE,
+      type: "computer.screenshot",
+      payload: {
+        toolCallId: "screen",
+        key: "computer/project/session/turn/screen.jpg",
+        width: 1024,
+        height: 768,
+      },
+    },
+    malformed: {
+      ...ENVELOPE,
+      type: "computer.screenshot",
+      payload: { toolCallId: "screen", key: "k", width: 0, height: 768 },
+    },
+    issuePath: ["payload", "width"],
+  },
+  {
+    type: "computer.status",
+    valid: {
+      ...ENVELOPE,
+      type: "computer.status",
+      payload: { toolCallId: "screen", state: "starting" },
+    },
+    malformed: {
+      ...ENVELOPE,
+      type: "computer.status",
+      payload: { toolCallId: "screen", state: "secret" },
+    },
+    issuePath: ["payload", "state"],
+  },
+  {
     type: "compaction.started",
     valid: { ...ENVELOPE, type: "compaction.started", payload: { id: JOB_ID, trigger: "manual" } },
     malformed: { ...ENVELOPE, type: "compaction.started", payload: {} },

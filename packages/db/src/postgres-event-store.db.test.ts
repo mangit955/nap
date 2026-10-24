@@ -363,6 +363,11 @@ describe("the store and the bus together", () => {
 const JOB = "3f9a1c2d-5e6b-4f7a-8b9c-0d1e2f3a4b5c";
 
 const PAYLOADS = [
+  {
+    type: "computer.screenshot",
+    payload: { toolCallId: "screen", key: "computer/p/s/t/screen.jpg", width: 1024, height: 768 },
+  },
+  { type: "computer.status", payload: { toolCallId: "screen", state: "starting" } },
   { type: "compaction.started", payload: { id: JOB, trigger: "manual" } },
   {
     type: "compaction.completed",

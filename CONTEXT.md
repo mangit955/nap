@@ -44,7 +44,8 @@ refused). `foldJobs` in `@nap/shared` is the one function that decides all of it
 workspace is committed and then checked: the project's own checks, cheapest first, stopping at the
 first failure. Passing makes the commit a **checkpoint**; failing opens a repair turn carrying the
 failure. Bounded by attempts rather than by a token ledger, and confined to sandbox commands and a
-preview probe — the browser stays NapBench's alone, per `docs/adr/0001`.
+preview probe. Agent computer use is a separate image-gated capability under ADR-0018;
+agent-reported assertions do not change the deterministic checkpoint.
 
 **Check** — one command, run in the sandbox, that passed, failed, or was **absent**. Absent is not
 failure and the gap is load-bearing in both directions: a project with no `test` script has not
@@ -582,3 +583,9 @@ changes only when another funded run records something different.
 **Threshold** — one condition a run is held to, as a metric, a statistic of it, a comparison and a
 number. A threshold whose metric was never recorded **fails**, rather than passing vacuously: a
 harness that quietly stopped measuring something must not report a green run.
+
+**Computer** — the desktop inside a project's sandbox, behind `SandboxDesktop`. The agent sees
+JPEG screenshots and sends batched input and observation actions through the `computer` tool.
+Screenshot events name stored objects; the model receives images only within its active turn.
+Desktop lifecycle and stream credentials stay separate from sandbox lifecycle and event storage.
+See [ADR-0018](docs/adr/0018-the-agent-gets-a-computer.md).
