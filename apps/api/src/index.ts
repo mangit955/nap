@@ -33,6 +33,11 @@ announce(nap, "api listening", {
 export default {
   port: nap.env.PORT,
   fetch: nap.composed.app.fetch,
+  // Bun's default HTTP idle timeout is 10s and can close a connection still waiting on its handler.
+  // Give slow upstream requests, such as a large GitHub listing, time to return a response before
+  // the browser reports a misleading "Could not reach the server" error. This is finite headroom,
+  // not a request deadline. WebSockets have a separate idle timeout on `websocket`.
+  idleTimeout: 30,
   // Bun dispatches socket lifecycle here; without it an upgraded connection is never read.
   websocket,
 };
