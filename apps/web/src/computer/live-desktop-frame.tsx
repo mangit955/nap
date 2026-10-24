@@ -2,7 +2,7 @@
 
 import type { SandboxDesktop } from "@nap/shared/ports/sandbox-desktop";
 import type RFB from "@novnc/novnc/lib/rfb";
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { type ReactNode, useEffect, useEffectEvent, useRef, useState } from "react";
 import { LitBox } from "../glow/lit-box.tsx";
 import styles from "./live-desktop-frame.module.css";
 
@@ -40,11 +40,15 @@ export function LiveDesktopFrame({
   quality,
   createRfb,
   onConnectionChange,
+  onRetry,
+  children,
 }: {
   credentials: DesktopStreamCredentials;
   quality: StreamQuality;
   createRfb?: RfbFactory | Promise<RfbFactory>;
   onConnectionChange?: (status: DesktopConnectionStatus) => void;
+  onRetry?: () => void;
+  children?: ReactNode;
 }) {
   const root = useRef<HTMLDivElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
@@ -162,6 +166,7 @@ export function LiveDesktopFrame({
       aria-busy={status === "connecting"}
     >
       <div ref={viewport} className={styles.viewport} aria-hidden="true" inert />
+      {children}
       {status === "connecting" ? (
         <div className={styles.state}>
           <LitBox paletteRef={root} faceClassName={styles.card ?? ""}>
@@ -172,7 +177,10 @@ export function LiveDesktopFrame({
         <div className={styles.state}>
           <div className={styles.card}>
             <p role="status">Failed to connect to Nap's computer</p>
-            <button type="button" onClick={() => setAttempt((value) => value + 1)}>
+            <button
+              type="button"
+              onClick={() => (onRetry ? onRetry() : setAttempt((value) => value + 1))}
+            >
               Retry
             </button>
           </div>

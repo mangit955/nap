@@ -1,0 +1,13 @@
+idle-prefix: observed failing
+capture-busy: observed failing
+activity-session: observed failing
+shared-activity: observed failing
+idle-shift-escape: observed failing
+credential-parse: observed failing
+credential-abort: observed failing
+retry-credentials: observed failing
+recording-status: observed failing
+recording-download: observed failing
+control-busy: observed failing
+history-disconnect: observed failing
+vnc-readonly: observed failing

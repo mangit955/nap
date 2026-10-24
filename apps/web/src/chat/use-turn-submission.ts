@@ -58,11 +58,16 @@ export type TurnSubmission = {
   pendingAttachments: MediaAttachment[] | undefined;
   pendingAfterCompaction: boolean;
   running: boolean;
+  idleThroughSeq: number;
   testPhase: "idle" | "starting" | "running";
   startedAt: string | undefined;
   /** When the turn in flight was first written to the log; see `InFlightTurn`. */
   openedAt: string | undefined;
   error: string | undefined;
+};
+
+export type TurnActivity = Pick<TurnSubmission, "running" | "idleThroughSeq"> & {
+  sessionId: string | undefined;
 };
 
 const DEFAULT_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
@@ -385,6 +390,7 @@ export function useTurnSubmission(options: {
 
   return {
     submit,
+    idleThroughSeq: observation?.idleThroughSeq ?? 0,
     startTest,
     cancel,
     pending:

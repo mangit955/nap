@@ -3,8 +3,11 @@
 import { appTestTarget } from "@nap/shared/app-testing";
 import { modelSupportsImages } from "@nap/shared/model-capabilities";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
+import { use } from "react";
 import type { TurnSubmission } from "../chat/use-turn-submission.ts";
 import { type AppTestState, appTestRepairPrompt } from "./app-test-state.ts";
+import { ComputerNavigation } from "./navigation.tsx";
+import { RecordingNavigation } from "./recording-navigation.tsx";
 
 export function AppTestCards({
   events,
@@ -19,6 +22,7 @@ export function AppTestCards({
   model: string | undefined;
   onTest?: ((jobId: string) => void) | undefined;
 }) {
+  const openComputer = use(ComputerNavigation);
   const target = appTestTarget(events);
   const reason = running
     ? "Wait for the current turn to finish."
@@ -44,7 +48,10 @@ export function AppTestCards({
           type="button"
           className="app-test-primary"
           disabled={reason !== null}
-          onClick={() => onTest?.(target.jobId)}
+          onClick={() => {
+            openComputer?.(null);
+            onTest?.(target.jobId);
+          }}
         >
           {progress ?? "Test the app"}
         </button>
@@ -69,6 +76,8 @@ export function AppTestResult({
   running: boolean;
   onFix?: ((message: string) => void) | undefined;
 }) {
+  const watch = use(RecordingNavigation);
+  const playable = test.status !== "running" && test.recording.state === "available" && !!watch;
   const repair = appTestRepairPrompt(test);
   const total = test.counts.passed + test.counts.failed + test.counts.untested;
   return (
@@ -102,7 +111,12 @@ export function AppTestResult({
         </ul>
       )}
       <div className="app-test-actions">
-        <button type="button" disabled title="No recording is available.">
+        <button
+          type="button"
+          disabled={!playable}
+          title={playable ? "Watch this app test" : "No recording is available."}
+          onClick={() => watch?.(test.turnId)}
+        >
           Watch recording
         </button>
         {test.counts.failed > 0 && (

@@ -293,7 +293,9 @@ export function ComputerInputSurface({
           drag.current = null;
         }}
         onKeyDown={(event) => {
+          if (driving) event.stopPropagation();
           if (event.key === "Escape" && event.shiftKey) {
+            event.stopPropagation();
             event.preventDefault();
             cancel();
             release();

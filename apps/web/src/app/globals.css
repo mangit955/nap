@@ -2690,6 +2690,31 @@ details[open] > .nap-float {
   border: 1px solid var(--color-edge);
   box-shadow: var(--shadow-raised);
   background: var(--color-surface);
+  overflow: visible;
+}
+.computer-frame[data-driving] {
+  border-color: var(--color-accent);
+  box-shadow:
+    var(--shadow-raised),
+    0 0 0 1px var(--color-accent);
+}
+.computer-frame[data-driving] .ai-lights-layer {
+  background: conic-gradient(
+    from var(--ai-start),
+    var(--color-accent),
+    transparent 180deg,
+    var(--color-accent)
+  );
+}
+.computer-input-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.computer-still {
+  position: relative;
+  width: 100%;
+  height: 100%;
   overflow: hidden;
 }
 .computer-frame img {
@@ -2797,6 +2822,11 @@ details[open] > .nap-float {
   margin: 8px 0 0;
   font-size: 10px;
   color: var(--color-muted);
+}
+.computer-control-reason {
+  margin: 8px 0 0;
+  color: var(--color-muted);
+  font-size: 11px;
 }
 @keyframes computer-live-pulse {
   50% {

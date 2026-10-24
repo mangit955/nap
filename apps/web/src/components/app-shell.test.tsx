@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BACKOFF } from "../hooks/use-event-stream.ts";
 import { ev, PROJECT_ID, SESSION_ID } from "../testing/events.ts";
@@ -55,6 +55,97 @@ describe("AppShell", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.useRealTimers();
+  });
+
+  it("opens the recording viewer empty state from thread details", async () => {
+    render(shell());
+    await screen.findByRole("button", { name: /Rename this project.*Todo app/ });
+    fireEvent.click(screen.getByLabelText("Thread details"));
+    fireEvent.click(screen.getByRole("button", { name: "Test recordings" }));
+    const dialog = await screen.findByRole("dialog", { name: "Test recording viewer" });
+    expect(
+      within(dialog).getByText("No browser test recordings in this session yet"),
+    ).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close test recording viewer" }));
+    expect(screen.queryByRole("dialog", { name: "Test recording viewer" })).not.toBeInTheDocument();
+  });
+
+  it("opens the Computer tab when a pop-out URL is loaded", async () => {
+    const previous = window.location.href;
+    window.history.replaceState(null, "", "?panel=computer");
+    try {
+      render(shell());
+      await waitFor(() =>
+        expect(screen.getByRole("tab", { name: "Computer" })).toHaveAttribute(
+          "aria-selected",
+          "true",
+        ),
+      );
+    } finally {
+      window.history.replaceState(null, "", previous);
+    }
+  });
+
+  it("opens an owner recording from the existing log and unmounts the viewer on close", async () => {
+    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+    const net = sockets();
+    render(
+      <AppShell projectId={PROJECT_ID} fetchJson={fetchJson} createSocket={net.createSocket} />,
+    );
+    await waitFor(() => expect(net.opened).toHaveLength(1));
+    await act(async () => {
+      net.latest.open();
+      net.latest.deliver({
+        type: "event",
+        event: ev(
+          "test.started",
+          { jobId: JOB_ID, commitSha: "abcdef1", objective: "Save a note" },
+          1,
+        ),
+      });
+      net.latest.deliver({
+        type: "event",
+        event: ev(
+          "test.recording",
+          {
+            recording: {
+              state: "available",
+              key: "private-key",
+              durationMs: 1000,
+              width: 1024,
+              height: 768,
+              interrupted: false,
+            },
+          },
+          2,
+        ),
+      });
+      net.latest.deliver({
+        type: "event",
+        event: ev(
+          "test.completed",
+          { jobId: JOB_ID, status: "completed", counts: { passed: 1, failed: 0, untested: 0 } },
+          3,
+        ),
+      });
+      net.latest.deliver({ type: "ready" });
+    });
+    const watch = screen.getByRole("button", { name: "Watch recording" });
+    fireEvent.click(watch);
+    const dialog = await screen.findByRole("dialog", { name: "Test recording viewer" });
+    expect(within(dialog).getByLabelText("Test recording")).toHaveAttribute(
+      "src",
+      expect.stringContaining(
+        `/sessions/${SESSION_ID}/tests/7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f/recording`,
+      ),
+    );
+    expect(within(dialog).getByRole("link", { name: "Download recording" })).toHaveAttribute(
+      "href",
+      expect.stringContaining("/recording?download=1"),
+    );
+    expect(net.opened).toHaveLength(1);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close test recording viewer" }));
+    expect(screen.queryByRole("dialog", { name: "Test recording viewer" })).not.toBeInTheDocument();
   });
 
   it.each(["ordinary-event", "socket-reconnect"])(

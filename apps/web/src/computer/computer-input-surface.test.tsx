@@ -1,17 +1,46 @@
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
+import { performDesktopAction } from "@nap/sandbox/desktop-input";
+import { FakeSandboxDesktop } from "@nap/sandbox/testing/fake-sandbox-desktop";
 import { ComputerInputSchema, type HumanComputerAction } from "@nap/shared/computer-access";
 import type { ProjectComputerAccess } from "@nap/shared/ports/project-computer-access";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { performDesktopAction } from "../../../../packages/sandbox/src/desktop-input.ts";
-import { FakeSandboxDesktop } from "../../../../packages/sandbox/src/testing/fake-sandbox-desktop.ts";
 import { createApp } from "../../../api/src/app.ts";
 import { createLogger } from "../../../api/src/logger.ts";
 import type { FetchJson } from "../files/use-project-files.ts";
 import { ComputerInputSurface } from "./computer-input-surface.tsx";
 import { useComputerControl } from "./use-computer-control.ts";
+
+it.each([true, false])(
+  "keeps remote keys and Shift+Escape away from workspace controls, driving=%s",
+  (driving) => {
+    const bubbled = vi.fn();
+    window.addEventListener("keydown", bubbled);
+    try {
+      render(
+        <ComputerInputSurface
+          driving={driving}
+          available
+          sourceKey="vm"
+          sendActions={async () => true}
+          takeControl={async () => true}
+          release={vi.fn()}
+        />,
+      );
+      const input = screen.getByRole("textbox", { name: "Type on the remote computer" });
+      if (driving) {
+        fireEvent.keyDown(input, { key: "Escape" });
+        fireEvent.keyDown(input, { key: "Tab" });
+      }
+      fireEvent.keyDown(input, { key: "Escape", shiftKey: true });
+      expect(bubbled).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener("keydown", bubbled);
+    }
+  },
+);
 
 beforeEach(() => {
   vi.useFakeTimers();

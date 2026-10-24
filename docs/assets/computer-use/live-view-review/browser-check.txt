@@ -1,0 +1,1 @@
+PASS: ComputerPane/noVNC, history teardown, retry, quality, idle control, remote keys, framebuffer pixels, 390px layout, real MP4 playback/chapters/download and viewer cleanup. Fake identity/input/storage and local RFB only.

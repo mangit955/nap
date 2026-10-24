@@ -5,6 +5,7 @@ import { type RecordingView, RecordingViewer } from "./recording-viewer.tsx";
 const recording: RecordingView = {
   title: "Save a note",
   videoUrl: "/sessions/owner/test-recordings/42",
+  downloadUrl: "/sessions/owner/test-recordings/42?download=1",
   counts: { passed: 1, failed: 1, untested: 1 },
   annotations: [
     { timeMs: 0, annotation: { type: "setup", description: "Open the notes app" } },
@@ -119,7 +120,7 @@ it("renders counts, ordered chapters, latest assertion verdicts and the owner do
   expect(within(rail).getByRole("button", { name: /Delete note/ })).toHaveTextContent("failed");
   expect(screen.getByRole("link", { name: "Download recording" })).toHaveAttribute(
     "href",
-    recording.videoUrl,
+    recording.downloadUrl,
   );
   expect(video()).toHaveAttribute("crossorigin", "use-credentials");
   expect(video().muted).toBe(true);

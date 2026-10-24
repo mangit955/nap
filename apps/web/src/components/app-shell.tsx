@@ -1,9 +1,22 @@
 "use client";
 
 import type { ProjectRepository } from "@nap/shared/github-protocol";
-import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import type { TurnActivity } from "../chat/use-turn-submission.ts";
+import { foldAppTests } from "../computer/app-test-state.ts";
+import { computerIsBusy } from "../computer/computer-activity.ts";
 import { ComputerPane } from "../computer/computer-pane.tsx";
 import { ComputerNavigation } from "../computer/navigation.tsx";
+import { RecordingNavigation } from "../computer/recording-navigation.tsx";
+import { type RecordingView, RecordingViewer } from "../computer/recording-viewer.tsx";
 import { type FetchJson, useProjectFiles } from "../files/use-project-files.ts";
 import { ProjectGitHubControl } from "../github/project-github.tsx";
 import type { CreateSocket } from "../hooks/use-event-stream.ts";
@@ -192,6 +205,14 @@ export function AppShell({
 
   const panels = usePanelLayout(`${ownerId ?? "guest"}:${projectId}:${sessionId ?? "pending"}`);
   const [maximized, setMaximized] = useState(false);
+  const openPopout = useEffectEvent(() => {
+    panels.open({ kind: "computer" });
+    setMaximized(true);
+  });
+  useEffect(() => {
+    if (sessionId && new URLSearchParams(window.location.search).get("panel") === "computer")
+      openPopout();
+  }, [sessionId]);
   const [reloads, setReloads] = useState(0);
   const [route, setRoute] = useState("/");
   const { width, containerRef, onGrab, onKeyDown } = usePaneWidth(PANEL_SPLIT, 540);
@@ -204,12 +225,41 @@ export function AppShell({
   const computerSeq =
     computerPosition && computerPosition.sessionId === sessionId ? computerPosition.seq : null;
   const seekComputer = (seq: number | null) => setComputerPosition({ sessionId, seq });
-  const openComputer = (seq: number) => {
+  const openComputer = (seq: number | null) => {
     seekComputer(seq);
     panels.open({ kind: "computer" });
   };
   const openFile = (path: string) => panels.open({ kind: "file", path });
   const visiblePanel = panels.layout.open;
+  const tests = useMemo(() => foldAppTests(log.events), [log.events]);
+  const [turnActivity, setTurnActivity] = useState<TurnActivity | null>(null);
+  const computerBusy = computerIsBusy({ sessionId, events: log.events, activity: turnActivity });
+  const [recordingPosition, setRecordingPosition] = useState<{
+    sessionId: string;
+    turnId: string | null;
+  } | null>(null);
+  const viewerOpen = recordingPosition !== null && recordingPosition.sessionId === sessionId;
+  const selectedTest =
+    recordingPosition && recordingPosition.sessionId === sessionId
+      ? tests.find((test) => test.turnId === recordingPosition.turnId)
+      : undefined;
+  const recordingUrl =
+    selectedTest && sessionId
+      ? `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001"}/sessions/${encodeURIComponent(sessionId)}/tests/${encodeURIComponent(selectedTest.turnId)}/recording`
+      : null;
+  const recording: RecordingView | null =
+    selectedTest &&
+    selectedTest.status !== "running" &&
+    selectedTest.recording.state === "available" &&
+    recordingUrl
+      ? {
+          videoUrl: recordingUrl,
+          downloadUrl: `${recordingUrl}?download=1`,
+          title: selectedTest.objective ?? "App test",
+          annotations: selectedTest.annotations,
+          counts: selectedTest.counts,
+        }
+      : null;
   const narrow = useNarrowPanel();
   const chatHidden = visiblePanel && (maximized || narrow);
   const selected = panels.layout.tabs.find(
@@ -251,22 +301,46 @@ export function AppShell({
                   <button type="button" onClick={() => panels.open({ kind: "pr" })}>
                     Pull requests
                   </button>
+                  <button
+                    type="button"
+                    disabled={!sessionId}
+                    onClick={() => {
+                      if (sessionId)
+                        setRecordingPosition({
+                          sessionId,
+                          turnId:
+                            tests.findLast(
+                              (test) =>
+                                test.status !== "running" && test.recording.state === "available",
+                            )?.turnId ?? null,
+                        });
+                    }}
+                  >
+                    Test recordings
+                  </button>
                 </div>
               </>
             }
           />
           <ComputerNavigation.Provider value={openComputer}>
-            <LiveChatPane
-              ownerId={ownerId}
-              active={!chatHidden}
-              sessionId={sessionId}
-              projectId={projectId}
-              log={log}
-              files={files.listing?.files}
-              onOpenFile={openFile}
-              onOpenChanges={() => panels.open({ kind: "diff" })}
-              {...(fetchJson === undefined ? {} : { fetchJson })}
-            />
+            <RecordingNavigation.Provider
+              value={(turnId) => {
+                if (sessionId) setRecordingPosition({ sessionId, turnId });
+              }}
+            >
+              <LiveChatPane
+                ownerId={ownerId}
+                active={!chatHidden}
+                sessionId={sessionId}
+                projectId={projectId}
+                log={log}
+                onActivity={setTurnActivity}
+                files={files.listing?.files}
+                onOpenFile={openFile}
+                onOpenChanges={() => panels.open({ kind: "diff" })}
+                {...(fetchJson === undefined ? {} : { fetchJson })}
+              />
+            </RecordingNavigation.Provider>
           </ComputerNavigation.Provider>
         </div>
         {visiblePanel && !maximized && (
@@ -297,7 +371,20 @@ export function AppShell({
           maximized={maximized}
           onMaximize={() => setMaximized((value) => !value)}
           computer={
-            <ComputerPane events={log.events} selectedSeq={computerSeq} onSeek={seekComputer} />
+            <ComputerPane
+              events={log.events}
+              selectedSeq={computerSeq}
+              onSeek={seekComputer}
+              sessionId={sessionId}
+              sandboxId={project?.sandboxId ?? undefined}
+              projectId={projectId}
+              active={
+                visiblePanel && panels.layout.active === "computer" && phase.kind === "running"
+              }
+              fetchJson={fetchJson}
+              busy={computerBusy}
+              eventStreamReady={log.replayed && log.status === "open"}
+            />
           }
           preview={
             <>
@@ -357,6 +444,9 @@ export function AppShell({
           )}
         />
       </main>
+      {viewerOpen && (
+        <RecordingViewer recording={recording} onClose={() => setRecordingPosition(null)} />
+      )}
     </div>
   );
 }

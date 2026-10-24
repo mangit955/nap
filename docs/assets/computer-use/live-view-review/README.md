@@ -4,4 +4,36 @@
 
 The reference shows the Computer pane reconnecting, its timeline, previous/next controls, Live pill, quality menu and fullscreen placement. Nap deliberately omits audio under the approved scope.
 
-This is reference evidence only. The presentational LiveDesktopFrame has component and local RFB-fixture checks; the parent still needs the owner route, ComputerPane integration, real-server streaming and a matching Nap capture. Do not treat this file as completed visual parity evidence.
+`devin-live.png` is a second passive capture of the same tab, showing its live endpoint. The recording viewer and takeover state were not visible in either capture. The matching viewer/takeover references remain missing. No Devin code, assets or icons are used in Nap.
+
+Nap's captures render the actual ComputerPane, noVNC client, input overlay and recording viewer in Next. `nap-computer-live.png` and `nap-computer-disconnected.png` are the corresponding live and disconnected states. Other captures cover driving, busy input, screenshot history, a 390px layout, and the recording viewer. The screen pixels come from a local raw RFB fixture, not Chrome or E2B. The owner input HTTP replies are fake. The history JPEG is Nap's own synthetic fixture.
+
+The browser check exercises the real view-only transport, quality selection, fresh-credential Retry, disconnect on history, idle-only control feedback, remote Escape and Shift+Escape, one Remote computer application role, aligned letterbox coordinates, and narrow layout. The server records zero input/clipboard messages on the VNC wire. API and PostgreSQL tests separately cover ownership and project exclusion; the fixture cannot prove them.
+
+For playback, a real ffmpeg MP4 from the [Linux capture check](../../../research/computer-recording-linux/README.md) passes through the actual ranged owner route. The media fixture supplies fake identity and in-memory storage. Chrome decodes and plays it, navigates chapters, downloads byte-identical bytes through the attachment response, and closes/unmounts the viewer. Chapter annotations in this fixture are synthetic; this does not establish real runtime-to-video timing or real owner cookies. [Native observations](browser-evidence.json) record the scope.
+
+The [first integration review](integration-review-round1.md) found a stale activity-boundary bug and two smaller input issues. The Computer pane now consumes chat's existing authoritative activity observation, including its idle cursor, while retaining unfinished capture activity. [Thirteen mutations](guard-results.txt) were caught. Run `bash docs/assets/computer-use/live-view-review/guard-mutations.sh` only in an otherwise idle checkout; it restores every source and writes per-case output under `/tmp`.
+
+Visual inspection also caught a glow painted over the framebuffer. The [native guard failed](glow-red.txt) before moving the rim behind the opaque frame. The final browser check samples unchanged interior pixels during the visible pulse. A first coordinate oracle incorrectly compared the whole input box to the letterboxed canvas; the corrected check compares their effective desktop rectangles.
+
+## Reproduce the free browser check
+
+Run the web dev server on port 3037. Start these two local fixtures in separate terminals:
+
+```sh
+bun docs/assets/computer-use/live-view-review/rfb-fixture.mjs
+bun apps/api/scripts/computer-media-fixture.ts
+```
+
+Create a temporary Next route, then run the browser check. It launches its own headless Chrome with a temporary profile and never connects to the passive Devin browser:
+
+```sh
+mkdir -p apps/web/src/app/computer-live-review
+echo 'export { default } from "../../testing/live-computer-review.tsx";' > apps/web/src/app/computer-live-review/page.tsx
+node docs/assets/computer-use/live-view-review/check.mjs
+rm apps/web/src/app/computer-live-review/page.tsx
+```
+
+Stop the two fixture servers afterward. The route must not ship. The typed fixture is under `apps/web/src/testing/`, the media fixture under the API's scripts include, and the component suites are collected by the web project. Review tooling is linted and run explicitly. Browser-first attempts used T3 preview; two snapshots returned `Preview automation snapshot timed out after 15000ms.`, so the documented separate Chrome workflow was used.
+
+Real E2B streaming, physical owner input, cloud cancellation, recording transfer limits, and matching viewer/takeover references remain pending. See the [next paid validation scope](../../../research/computer-use-cloud-validation.md).

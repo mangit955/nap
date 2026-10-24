@@ -1,7 +1,68 @@
 import type { StoredEvent } from "@nap/shared/ports/event-store";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import { ComputerPane } from "./computer-pane.tsx";
+import type { RfbConnection, RfbFactory } from "./live-desktop-frame.tsx";
+
+it("allows owner control only on a connected live desktop and retires it when a turn starts", async () => {
+  const client = {
+    viewOnly: false,
+    resizeSession: true,
+    scaleViewport: false,
+    focusOnClick: true,
+    background: "",
+    qualityLevel: 0,
+    compressionLevel: 0,
+    addEventListener: vi.fn<RfbConnection["addEventListener"]>(),
+    removeEventListener: vi.fn<RfbConnection["removeEventListener"]>(),
+    disconnect: vi.fn(),
+  } satisfies RfbConnection;
+  const createRfb: RfbFactory = () => client;
+  const fetchJson = vi.fn(async (url: string, init?: RequestInit) =>
+    Response.json(
+      url.endsWith("stream")
+        ? {
+            url: "wss://desktop.test/websockify",
+            password: "private-password",
+            width: 1024,
+            height: 768,
+          }
+        : init?.method === "POST"
+          ? { grant: "private-grant", expiresAt: Date.now() + 60000 }
+          : { available: true },
+    ),
+  );
+  const props = {
+    events: [],
+    selectedSeq: null,
+    onSeek: vi.fn(),
+    sessionId: "session",
+    sandboxId: "vm",
+    fetchJson,
+    createRfb,
+  };
+  const view = render(<ComputerPane {...props} />);
+  expect(screen.getByRole("button", { name: "Take control of Nap's computer" })).toBeDisabled();
+  await waitFor(() => expect(client.addEventListener).toHaveBeenCalled());
+  const connected = client.addEventListener.mock.calls.find(([name]) => name === "connect")?.[1];
+  if (!connected) throw new Error("Missing connection listener");
+  act(() => connected(new CustomEvent("connect")));
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Take control of Nap's computer" })).toBeEnabled(),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Take control of Nap's computer" }));
+  await screen.findByRole("button", { name: "Release control" });
+  const remote = screen.getByRole("application", { name: "Remote computer" });
+  expect(remote).toContainElement(
+    screen.getByRole("textbox", { name: "Type on the remote computer" }),
+  );
+  view.rerender(<ComputerPane {...props} busy />);
+  expect(screen.getByRole("button", { name: "Take control of Nap's computer" })).toBeDisabled();
+  expect(screen.getByText(/A turn is running in this project/)).toBeVisible();
+  expect(screen.queryByRole("button", { name: "Release control" })).not.toBeInTheDocument();
+  expect(client.viewOnly).toBe(true);
+  expect(document.body.textContent).not.toMatch(/private-grant|private-password/);
+});
 
 const frame: StoredEvent = {
   type: "computer.screenshot",
@@ -71,4 +132,79 @@ it("recognizes an image that finished before hydration attached its load listene
     complete.mockRestore();
     width.mockRestore();
   }
+});
+
+it("connects live view with owner credentials, changes quality and disconnects for history or a hidden pane", async () => {
+  const client = {
+    viewOnly: false,
+    resizeSession: true,
+    scaleViewport: false,
+    focusOnClick: true,
+    background: "",
+    qualityLevel: 0,
+    compressionLevel: 0,
+    addEventListener: vi.fn<RfbConnection["addEventListener"]>(),
+    removeEventListener: vi.fn<RfbConnection["removeEventListener"]>(),
+    disconnect: vi.fn(),
+  } satisfies RfbConnection;
+  const createRfb = vi.fn<RfbFactory>(() => client);
+  const fetchJson = vi.fn(async () =>
+    Response.json({
+      url: "wss://desktop.test/websockify",
+      password: "private-password",
+      width: 1024,
+      height: 768,
+    }),
+  );
+  const props = {
+    events: [frame],
+    onSeek: vi.fn(),
+    sessionId: "session",
+    sandboxId: "vm",
+    fetchJson,
+    createRfb,
+  };
+  const view = render(<ComputerPane {...props} selectedSeq={null} />);
+  await waitFor(() => expect(createRfb).toHaveBeenCalledOnce());
+  expect(screen.getAllByRole("application", { name: "Remote computer" })).toHaveLength(1);
+  expect(client.viewOnly).toBe(true);
+  expect(screen.queryByRole("img", { name: "Computer screenshot" })).not.toBeInTheDocument();
+  fireEvent.change(screen.getByRole("combobox", { name: "Stream quality" }), {
+    target: { value: "sharp" },
+  });
+  expect(client.qualityLevel).toBe(9);
+  const disconnected = client.addEventListener.mock.calls.find(
+    ([type]) => type === "disconnect",
+  )?.[1];
+  if (!disconnected) throw new Error("Missing disconnect listener");
+  act(() => disconnected(new CustomEvent("disconnect")));
+  expect(screen.getByRole("status")).toHaveTextContent("Failed to connect to Nap's computer");
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  await waitFor(() => expect(createRfb).toHaveBeenCalledTimes(2));
+  expect(fetchJson).toHaveBeenCalledTimes(2);
+  view.rerender(<ComputerPane {...props} selectedSeq={3} />);
+  expect(client.disconnect).toHaveBeenCalledTimes(2);
+  expect(screen.getByRole("img", { name: "Computer screenshot" })).toBeInTheDocument();
+  expect(screen.getByRole("combobox", { name: "Stream quality" })).toBeDisabled();
+  view.rerender(<ComputerPane {...props} selectedSeq={null} active={false} />);
+  await act(async () => {});
+  expect(fetchJson).toHaveBeenCalledTimes(2);
+  expect(document.body.textContent).not.toContain("private-password");
+});
+
+it("refreshes owner credentials when a failed transport is retried", async () => {
+  const fetchJson = vi.fn(async () => new Response("unavailable", { status: 503 }));
+  render(
+    <ComputerPane
+      events={[]}
+      selectedSeq={null}
+      onSeek={vi.fn()}
+      sessionId="session"
+      sandboxId="vm"
+      fetchJson={fetchJson}
+    />,
+  );
+  await screen.findByText("Failed to connect to Nap's computer");
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  await waitFor(() => expect(fetchJson).toHaveBeenCalledTimes(2));
 });

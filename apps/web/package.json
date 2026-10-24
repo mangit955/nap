@@ -27,8 +27,10 @@
     "zod": "4.4.3"
   },
   "devDependencies": {
+    "@nap/api": "workspace:*",
     "@nap/db": "workspace:*",
     "@nap/runtime": "workspace:*",
+    "@nap/sandbox": "workspace:*",
     "@testing-library/jest-dom": "7.0.0",
     "@testing-library/react": "16.3.2",
     "@types/novnc__novnc": "1.5.0",

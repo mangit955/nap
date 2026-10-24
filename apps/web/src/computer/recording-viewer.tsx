@@ -17,6 +17,7 @@ import styles from "./recording-viewer.module.css";
 /** UI-owned projection. The caller supplies an authenticated owner API URL, never an object key. */
 export type RecordingView = {
   videoUrl: string;
+  downloadUrl: string;
   title: string;
   annotations: { annotation: ComputerAnnotation; timeMs: number }[];
   counts: { passed: number; failed: number; untested: number };
@@ -490,7 +491,7 @@ function RecordingPlayer({ recording }: { recording: RecordingView }) {
               <button type="button" disabled={!ready} onClick={() => void fullscreen()}>
                 Full screen
               </button>
-              <a href={recording.videoUrl} download>
+              <a href={recording.downloadUrl} download>
                 Download recording
               </a>
             </div>

@@ -550,6 +550,7 @@ describe("LiveChatPane", () => {
 
 it("shares reconciled legacy activity with composer, Context and the visible clock", async () => {
   vi.useFakeTimers();
+  const onActivity = vi.fn();
   const legacyTurn = "00000000-0000-4000-8000-000000000090";
   const events = [
     ev("agent.message", { text: "Original response" }, 1),
@@ -561,6 +562,7 @@ it("shares reconciled legacy activity with composer, Context and the visible clo
     <LiveChatPane
       sessionId={SESSION_ID}
       log={log}
+      onActivity={onActivity}
       fetchJson={async (url, init) => {
         if (url.includes("/activity"))
           return Response.json({ sessionId: SESSION_ID, throughSeq: 3, active: false });
@@ -577,6 +579,11 @@ it("shares reconciled legacy activity with composer, Context and the visible clo
     expect(screen.queryByRole("status", { name: "Agent is working" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Message" })).toBeEnabled();
+    expect(onActivity).toHaveBeenLastCalledWith({
+      sessionId: SESSION_ID,
+      running: false,
+      idleThroughSeq: 3,
+    });
     fireEvent.click(screen.getByLabelText("Context, usage not reported"));
     expect(screen.getByRole("button", { name: "Compact context" })).toBeEnabled();
   } finally {

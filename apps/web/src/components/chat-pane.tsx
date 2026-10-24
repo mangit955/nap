@@ -4,7 +4,7 @@ import type { MediaAttachment } from "@nap/shared/media";
 
 import type { ModelChoice } from "@nap/shared/models-protocol";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ApiKeyPanel } from "../account/api-key-panel.tsx";
 import { useApiKey } from "../account/use-api-key.ts";
 import { NapMark } from "../brand/nap-mark.tsx";
@@ -18,7 +18,11 @@ import { TranscriptSkeleton } from "../chat/transcript-skeleton.tsx";
 import { useFirstPrompt } from "../chat/use-first-prompt.ts";
 import { useModels } from "../chat/use-models.ts";
 import { useStickToBottom } from "../chat/use-stick-to-bottom.ts";
-import { type TurnSubmission, useTurnSubmission } from "../chat/use-turn-submission.ts";
+import {
+  type TurnActivity,
+  type TurnSubmission,
+  useTurnSubmission,
+} from "../chat/use-turn-submission.ts";
 import { WorkingRow } from "../chat/work-log-rows.tsx";
 import { inFlightTurn } from "../chat/working-state.ts";
 import { AppTestCards } from "../computer/app-test-cards.tsx";
@@ -326,6 +330,7 @@ export function LiveChatPane({
   fetchJson,
   onOpenFile,
   onOpenChanges,
+  onActivity,
 }: {
   ownerId?: string | undefined;
   active?: boolean;
@@ -340,6 +345,7 @@ export function LiveChatPane({
   /** Opens a file in the Code tab. See `ChatPane`. */
   onOpenFile?: ((path: string) => void) | undefined;
   onOpenChanges?: (() => void) | undefined;
+  onActivity?: ((activity: TurnActivity) => void) | undefined;
 }) {
   const { events, replayed } = log;
   const injected = fetchJson === undefined ? {} : { fetchJson };
@@ -351,6 +357,7 @@ export function LiveChatPane({
     pendingAttachments,
     pendingAfterCompaction,
     running,
+    idleThroughSeq,
     testPhase,
     startedAt,
     openedAt,
@@ -362,6 +369,10 @@ export function LiveChatPane({
     replayed,
     ...injected,
   });
+  const reportActivity = useEffectEvent((activity: TurnActivity) => onActivity?.(activity));
+  useEffect(() => {
+    reportActivity({ sessionId, running, idleThroughSeq });
+  }, [sessionId, running, idleThroughSeq]);
   const { models } = useModels(injected);
   // Somebody who meets a locked model, or a turn refused for want of a key, should be able to
   // fix it here rather than being sent to the dashboard and back.

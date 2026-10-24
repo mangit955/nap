@@ -6,6 +6,7 @@ import "./fixture.css";
 const sample = {
   title: "Save and delete a note",
   videoUrl: "/fixture.webm",
+  downloadUrl: "/fixture.webm",
   counts: { passed: 1, failed: 1, untested: 1 },
   annotations: [
     { timeMs: 0, annotation: { type: "setup", description: "Open the notes app" } },

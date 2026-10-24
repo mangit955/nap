@@ -4,6 +4,8 @@ import { expect, it, vi } from "vitest";
 import { AppTestCards, AppTestResult } from "./app-test-cards.tsx";
 
 import { foldAppTests } from "./app-test-state.ts";
+import { ComputerNavigation } from "./navigation.tsx";
+import { RecordingNavigation } from "./recording-navigation.tsx";
 
 const base = { sessionId: "s", turnId: "t", createdAt: "2026-10-24T00:00:00Z" };
 const verified: StoredEvent[] = [
@@ -45,6 +47,60 @@ const result: StoredEvent[] = [
     payload: { jobId: "job", status: "completed", counts: { passed: 0, failed: 1, untested: 0 } },
   },
 ];
+
+it("opens the live computer when app testing is requested", () => {
+  const seek = vi.fn();
+  const test = vi.fn();
+  render(
+    <ComputerNavigation.Provider value={seek}>
+      <AppTestCards
+        events={verified}
+        running={false}
+        model="anthropic/claude-sonnet-5"
+        onTest={test}
+      />
+    </ComputerNavigation.Provider>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Test the app" }));
+  expect(seek).toHaveBeenCalledWith(null);
+  expect(test).toHaveBeenCalledWith("job");
+});
+
+it("opens only a completed available recording by turn identity", () => {
+  const test = foldAppTests(result)[0]!;
+  const watch = vi.fn();
+  const available = {
+    state: "available",
+    key: "private-key",
+    durationMs: 1000,
+    width: 1024,
+    height: 768,
+    interrupted: false,
+  } as const;
+  const view = render(
+    <RecordingNavigation.Provider value={watch}>
+      <AppTestResult test={{ ...test, recording: available }} running={false} />
+    </RecordingNavigation.Provider>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Watch recording" }));
+  expect(watch).toHaveBeenCalledWith(test.turnId);
+  expect(document.body.textContent).not.toContain("private-key");
+  view.rerender(
+    <RecordingNavigation.Provider value={watch}>
+      <AppTestResult test={{ ...test, status: "running", recording: available }} running />
+    </RecordingNavigation.Provider>,
+  );
+  expect(screen.getByRole("button", { name: "Watch recording" })).toBeDisabled();
+  view.rerender(
+    <RecordingNavigation.Provider value={watch}>
+      <AppTestResult
+        test={{ ...test, recording: { state: "unavailable", reason: "capture_failed" } }}
+        running={false}
+      />
+    </RecordingNavigation.Provider>,
+  );
+  expect(screen.getByRole("button", { name: "Watch recording" })).toBeDisabled();
+});
 it("offers app testing only after the latest completed job and respects busy/model states", () => {
   const onTest = vi.fn();
   const view = render(
