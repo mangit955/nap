@@ -64,6 +64,9 @@
    * The sidebar's quieter greys and its status blue, measured off T3 Code's dark sidebar: a row's
    * source and time sit a step below `muted`, the header icons below that, and *Working* is a
    * saturated blue rather than `accent-ink`, which washes out at 12px beside grey text.
+   * Both greys sit below the 12px legibility floor `gutter` states above, and below AA, on
+   * purpose: they reproduce T3 Code's rendered sidebar, which this one was asked to match. Raise
+   * them and it stops matching; do not take them as having been checked for contrast.
    */
   --color-sidebar-label: #6b6b6b;
   --color-sidebar-icon: #505050;

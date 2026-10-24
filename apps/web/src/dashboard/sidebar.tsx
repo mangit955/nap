@@ -6,7 +6,7 @@ import { SquarePen } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { NapMark } from "../brand/nap-mark.tsx";
 import type { useSessionNavigation } from "../projects/use-session-navigation.ts";
-import { ProvidersIcon, SpinnerIcon } from "../ui/icons.tsx";
+import { ConnectionsIcon, ProvidersIcon, SpinnerIcon } from "../ui/icons.tsx";
 import { DraftRows } from "./draft-rows.tsx";
 import { SessionList } from "./session-list.tsx";
 import { SourceFilter } from "./source-filter.tsx";
@@ -128,7 +128,7 @@ export function Sidebar({
         <NapMark className="size-6" /> nap
       </a>
       <div className="relative mb-1 flex h-8 items-center gap-1">
-        <label className="flex h-full min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-muted hover:bg-row-hover focus-within:bg-row-hover">
+        <label className="flex h-full min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-muted hover:bg-row-hover focus-within:bg-row-hover has-[:focus-visible]:ring-1 has-[:focus-visible]:ring-accent has-[:focus-visible]:ring-inset">
           <span className="flex text-sidebar-icon">
             <SearchIcon />
           </span>
@@ -338,7 +338,7 @@ export function AccountMenu({
               Archived sessions
             </a>
             <a role="menuitem" href="/settings/connections" className={MENU_ROW}>
-              <PlugIcon />
+              <ConnectionsIcon className="size-4 shrink-0" />
               Connections
             </a>
             <a role="menuitem" href="/settings/providers" className={MENU_ROW}>
@@ -421,14 +421,6 @@ function ClockIcon() {
     <svg aria-hidden="true" {...STROKE}>
       <circle cx="8" cy="8" r="6" />
       <path d="M8 4.8V8l2.2 1.4" />
-    </svg>
-  );
-}
-
-function PlugIcon() {
-  return (
-    <svg aria-hidden="true" {...STROKE}>
-      <path d="M6 2v3M10 2v3M4.5 5h7v2.5a3.5 3.5 0 0 1-7 0zM8 11v3" />
     </svg>
   );
 }

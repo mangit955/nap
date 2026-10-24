@@ -19,9 +19,13 @@ function withinDeadline(work: Promise<void>): Promise<void> {
   return Promise.race([work, deadline]).finally(() => clearTimeout(timer));
 }
 
-/** A document navigation must wait for IndexedDB; unload cannot finish an async save. */
+/**
+ * A document navigation must wait for IndexedDB; unload cannot finish an async save. `save` is
+ * asked at the moment of the click, and returning nothing lets the browser follow the link
+ * itself: only the composer knows whether storage already holds what leaving would leave behind.
+ */
 export function useDraftNavigation(
-  save: (() => Promise<void>) | undefined,
+  save: (() => Promise<void> | undefined) | undefined,
   onError: () => void,
   navigate: (href: string) => void = follow,
 ) {
@@ -59,10 +63,15 @@ export function useDraftNavigation(
           destination.hash)
       )
         return;
+      if (leaving) {
+        event.preventDefault();
+        return;
+      }
+      const pending = save();
+      if (!pending) return;
       event.preventDefault();
-      if (leaving) return;
       leaving = true;
-      void withinDeadline(save()).then(
+      void withinDeadline(pending).then(
         () => {
           if (active) latest.current.navigate(destination.href);
         },

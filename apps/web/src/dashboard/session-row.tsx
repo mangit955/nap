@@ -106,9 +106,11 @@ export function SessionRow({
       ? "bg-warning/[0.04] hover:bg-warning/[0.08]"
       : "hover:bg-row-hover";
   // T3 fades work in progress that is not open, so the eye goes to rows that want something.
+  // Its menus are portaled out of the row, so an open one is matched by its trigger's
+  // aria-expanded rather than by hover or focus, which have both left the row by then.
   const fade =
     quiet && working && variant === "card"
-      ? "opacity-70 transition-opacity hover:opacity-100 focus-within:opacity-100 motion-reduce:transition-none"
+      ? "opacity-70 transition-opacity hover:opacity-100 focus-within:opacity-100 has-[[aria-expanded=true]]:opacity-100 motion-reduce:transition-none"
       : "";
 
   const title = renaming ? (
@@ -131,7 +133,7 @@ export function SessionRow({
               : "font-medium text-ink"
           : isOpen
             ? "font-medium text-ink"
-            : "font-normal text-sidebar-label group-hover:text-ink"
+            : "font-normal text-sidebar-label group-hover:text-ink group-focus-within:text-ink"
       }`}
     >
       {session.name}

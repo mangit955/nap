@@ -18,8 +18,9 @@ export type ComposerDraft = z.infer<typeof ComposerDraftSchema>;
 const suspendedOwners = new Set<string>();
 
 /**
- * Whether leaving now would lose nothing the author wrote or chose. A model picked on an empty
- * box is not worth holding a navigation for — the debounced save keeps it anyway.
+ * Whether the draft holds nothing the author wrote or attached. The model is left out on purpose:
+ * one picked on an empty box is not worth holding a link for, so it is kept by the debounced save
+ * alone, and a link followed before that save runs drops it.
  */
 export function isBlankDraft(draft: ComposerDraft): boolean {
   return (

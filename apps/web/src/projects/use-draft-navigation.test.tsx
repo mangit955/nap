@@ -15,7 +15,7 @@ function Page({
   navigate,
   onError = vi.fn(),
 }: {
-  save: () => Promise<void>;
+  save: () => Promise<void> | undefined;
   navigate: (href: string) => void;
   onError?: () => void;
 }) {
@@ -109,4 +109,34 @@ it("reports a save that never settles instead of swallowing every later click", 
   } finally {
     vi.useRealTimers();
   }
+});
+
+it("ignores a save that settles after the deadline, and the next click still leaves", async () => {
+  vi.useFakeTimers();
+  try {
+    const late = pendingWrite();
+    const save = vi.fn().mockReturnValueOnce(late.promise).mockResolvedValue(undefined);
+    const navigate = vi.fn();
+    const onError = vi.fn();
+    render(<Page save={save} navigate={navigate} onError={onError} />);
+    fireEvent.click(screen.getByRole("link"));
+    await act(async () => vi.advanceTimersByTime(SAVE_DEADLINE_MS));
+    expect(onError).toHaveBeenCalledOnce();
+    await act(async () => late.resolve());
+    expect(navigate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("link"));
+    await act(async () => {});
+    expect(navigate).toHaveBeenCalledOnce();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("lets the browser follow the link when the save says there is nothing to keep", () => {
+  const navigate = vi.fn();
+  const save = vi.fn(() => undefined);
+  render(<Page save={save} navigate={navigate} />);
+  expect(fireEvent.click(screen.getByRole("link"))).toBe(true);
+  expect(save).toHaveBeenCalledOnce();
+  expect(navigate).not.toHaveBeenCalled();
 });

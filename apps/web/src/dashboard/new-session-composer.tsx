@@ -44,7 +44,16 @@ export function NewSessionComposer({
   const [settingsDirty, setSettingsDirty] = useState(false);
   const store = useRef(new ComposerDraftStore());
   const pointer = `nap.composer.${ownerId}`;
-  const saveTail = useRef<Promise<void>>(Promise.resolve());
+  const writes = useRef(new Map<string, { blank: boolean; tail: Promise<void> | undefined }>());
+  const persistenceFor = useCallback((value: Pick<ComposerDraft, "ownerId" | "id">) => {
+    const key = `${value.ownerId}.${value.id}`;
+    let state = writes.current.get(key);
+    if (!state) {
+      state = { blank: true, tail: undefined };
+      writes.current.set(key, state);
+    }
+    return state;
+  }, []);
   useEffect(() => {
     store.current.resumeOwner(ownerId);
     let cancelled = false;
@@ -64,6 +73,8 @@ export function NewSessionComposer({
           attachments: [],
           expiresAt: Date.now() + 7 * 86400_000,
         };
+        const state = persistenceFor(next);
+        state.blank &&= !saved || isBlankDraft(saved);
         media.setAttachments(
           next.attachments.map((item) => ({
             id: crypto.randomUUID(),
@@ -99,7 +110,7 @@ export function NewSessionComposer({
     return () => {
       cancelled = true;
     };
-  }, [ownerId, pointer, media.setAttachments]);
+  }, [ownerId, pointer, media.setAttachments, persistenceFor]);
 
   const snapshot = useCallback(
     (): ComposerDraft | undefined =>
@@ -112,16 +123,24 @@ export function NewSessionComposer({
   );
   const persist = useCallback(
     async (value: ComposerDraft) => {
-      const saved = saveTail.current
-        .catch(() => {})
-        .then(async () => {
-          await store.current.save(value);
+      const state = persistenceFor(value);
+      // Invalidate at enqueue time, before any older blank completion can permit departure.
+      if (!isBlankDraft(value)) state.blank = false;
+      const pending = state.tail
+        ? state.tail.catch(() => {}).then(() => store.current.save(value))
+        : store.current.save(value);
+      const saved = pending
+        .then(() => {
           sessionStorage.setItem(pointer, value.id);
+          if (state.tail === saved) state.blank = isBlankDraft(value);
+        })
+        .finally(() => {
+          if (state.tail === saved) state.tail = undefined;
         });
-      saveTail.current = saved;
+      state.tail = saved;
       await saved;
     },
-    [pointer],
+    [pointer, persistenceFor],
   );
   useEffect(() => {
     const value = snapshot();
@@ -135,15 +154,18 @@ export function NewSessionComposer({
     }, 300);
     return () => clearTimeout(timer);
   }, [snapshot, persist]);
-  const current = snapshot();
   // Nothing to keep is nothing to wait for: holding a link on an empty box only cost somebody
-  // their click whenever storage was slow, and they had no draft to lose.
+  // their click whenever storage was slow, and they had no draft to lose — unless storage still
+  // holds text they have since cleared, which the save has to overwrite first.
   useDraftNavigation(
-    current && !isBlankDraft(current)
-      ? async () => {
+    draft
+      ? () => {
           const value = snapshot();
-          if (sending.current) await saveTail.current;
-          else if (value) await persist(value);
+          if (!value) return undefined;
+          const state = persistenceFor(value);
+          if (sending.current) return state.tail;
+          if (isBlankDraft(value) && state.blank) return undefined;
+          return persist(value);
         }
       : undefined,
     () =>
@@ -241,7 +263,7 @@ export function NewSessionComposer({
         throw new Error(message);
       }
       const result = SessionStartedSchema.parse(body);
-      await saveTail.current;
+      await persistenceFor(value).tail;
       await store.current.remove(ownerId, value.id);
       sessionStorage.removeItem(pointer);
       router.push(`/p/${result.projectId}`);
