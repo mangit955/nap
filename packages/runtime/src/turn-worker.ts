@@ -283,8 +283,12 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
     const outcome = await runtime.runTurn({
       sessionId: request.sessionId,
       turnId: request.id,
-      message: request.message,
-      ...(request.attachments === undefined ? {} : { attachments: request.attachments }),
+      ...(request.kind === "test"
+        ? { kind: "test", jobId: request.message }
+        : {
+            message: request.message,
+            ...(request.attachments === undefined ? {} : { attachments: request.attachments }),
+          }),
       signal,
       model: request.model,
       ...(credentials === undefined ? {} : { credentials }),

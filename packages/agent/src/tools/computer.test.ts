@@ -259,3 +259,29 @@ it("feeds back only three recent screenshots and strips computer images supplied
     ).toHaveLength(Math.min(provider.requests.indexOf(request), 3));
   }
 });
+
+it("checks test expectations before input and announces observations only after stored frames", async () => {
+  const { context, desktop, events, objects } = fixture();
+  const before = vi.fn(() => ({
+    ok: false as const,
+    error: { message: "Declare an expectation" },
+  }));
+  const observed = vi.fn();
+  if (!context.computer) throw new Error("Missing computer");
+  context.computer.beforeAction = before;
+  context.computer.observed = observed;
+  const denied = await executeTool(call([{ action: "left_click", coordinate: [1, 2] }]), context);
+  expect(denied.ok).toBe(false);
+  expect(desktop.actions).toEqual([]);
+  expect(observed).not.toHaveBeenCalled();
+  context.computer.beforeAction = () => ({ ok: true, value: undefined });
+  vi.spyOn(objects, "put").mockResolvedValueOnce({
+    ok: false,
+    error: { code: "unavailable", message: "down" },
+  });
+  expect((await executeTool(call([{ action: "screenshot" }]), context)).ok).toBe(false);
+  expect(observed).not.toHaveBeenCalled();
+  await executeTool(call([{ action: "screenshot" }]), context);
+  expect(observed).toHaveBeenCalledOnce();
+  expect(events.at(-2)?.type).toBe("computer.screenshot");
+});

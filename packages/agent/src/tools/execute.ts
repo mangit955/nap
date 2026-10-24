@@ -27,7 +27,7 @@ import { shellQuote } from "@nap/shared/shell";
 import type { z } from "zod";
 import { inspectCommand } from "../safety/commands.ts";
 import { runComputer } from "./computer.ts";
-import { PROJECT_ROOT, TOOL_SCHEMAS } from "./definitions.ts";
+import { APP_TEST_TOOL_NAMES, PROJECT_ROOT, TOOL_SCHEMAS } from "./definitions.ts";
 import { fileChange } from "./diff.ts";
 
 /**
@@ -47,6 +47,7 @@ export type ToolContext = {
   sandbox: SandboxManager;
   computer?: AgentTurnRequest["computer"];
   signal?: AbortSignal | undefined;
+  testMode?: boolean;
   /** Receives each event as it happens, without a `seq`. */
   emit: (event: DistributiveOmit<NapEvent, "seq">) => void;
   /** Injected so a test can assert on whole events rather than on everything but the clock. */
@@ -104,6 +105,12 @@ export async function executeTool(call: LLMToolCall, ctx: ToolContext): Promise<
  * cast is exactly the thing that would go unnoticed when a schema changes.
  */
 async function run(name: ToolName, call: LLMToolCall, ctx: ToolContext): Promise<ToolOutcome> {
+  if (ctx.testMode && !APP_TEST_TOOL_NAMES.includes(name))
+    return {
+      ok: false,
+      output:
+        "App tests can read source and use the computer. Source changes and commands require a separate repair turn.",
+    };
   switch (name) {
     case "computer": {
       const args = TOOL_SCHEMAS.computer.safeParse(call.input);

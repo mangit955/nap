@@ -56,9 +56,13 @@ After a verified job, offer **Test the app**. Its click queues a turn with promp
 
 The system prompt retains its deliberate omission of verification instructions. The existing `/\bverif/i` guard remains. Test planning belongs in the test prompt builder, not a permanent paragraph sent on every build step. Queue ownership, admission, billing, cancellation, and terminal events remain the ordinary turn machinery's responsibility.
 
+The queue stores an approved job ID as a `test` request and applies the ordinary lease, model access, billing and limits. Runtime rechecks that it is the latest verified job, HEAD still matches its checkpoint, and the worktree is clean. The diff spans the parent of the job’s first committed turn through its checkpoint, including repairs. `test.started` records goal and commit; the generated diff prompt is not a protected historical user request. Test turns can read source and use the computer, with a separate budget; source edits and commands are refused at execution as well as omitted from the offered tools. They make no commit and do not enter the repair loop.
+
 ### D9: Make assertions data and repair an explicit choice
 
 `annotate` records `setup`, `test_start`, `action`, and `assertion`. Assertions carry an expectation stated before the action and a result of `passed`, `failed`, or `untested`. An unexecuted assertion is never a pass. Recording timestamps use the capture's source timeline.
+
+The ledger requires a declaration with result `untested`, input after that declaration, and a later stored screenshot before a matching assertion receives a verdict. Assertion IDs and expectations cannot change between declaration and result. Interrupted tests preserve their assertion data and need an explicit rerun.
 
 A failed assertion offers **Fix it**. Only that explicit click queues a normal repair turn. Test failure never starts repair automatically and never changes the deterministic verification checkpoint into an agent-reported pass. The manual repair choice is approved.
 

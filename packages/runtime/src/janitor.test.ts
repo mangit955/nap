@@ -435,3 +435,49 @@ describe("the invariant, over random crash points", () => {
     }
   });
 });
+
+it("ends an orphaned app test once, preserving assertions and offering an explicit rerun", async () => {
+  const { id } = await enqueueRequest(queue, {
+    sessionId: SESSION,
+    userId: "user-1",
+    kind: "test",
+    message: "job",
+    model: "anthropic/claude-sonnet-5",
+    billsToUser: false,
+  });
+  await queue.claim("worker-1");
+  const base = { sessionId: SESSION, turnId: id, createdAt: new Date(now).toISOString() };
+  await events.append({
+    ...base,
+    type: "test.started",
+    payload: {
+      jobId: "7c9b1a52-8d3e-4f21-a0c4-1b2d3e4f5a6b",
+      commitSha: "abcdef1",
+      objective: "Save notes",
+    },
+  });
+  await events.append({
+    ...base,
+    type: "test.annotation",
+    payload: {
+      annotation: {
+        type: "assertion",
+        id: "save",
+        expectation: "Saved note appears",
+        result: "untested",
+      },
+      timeMs: 10,
+    },
+  });
+  pastGrace();
+  await sweep();
+  await sweep();
+  const log = await logOf();
+  expect(log.filter((e) => e.type === "turn.failed")).toHaveLength(1);
+  expect(log.filter((e) => e.type === "test.completed")).toHaveLength(1);
+  expect(log.find((e) => e.type === "test.completed")?.payload).toMatchObject({
+    status: "interrupted",
+    counts: { passed: 0, failed: 0, untested: 1 },
+  });
+  expect(log.find((e) => e.type === "system.notice")?.payload.text).toMatch(/test.*again/i);
+});

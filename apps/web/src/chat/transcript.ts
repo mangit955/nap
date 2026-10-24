@@ -194,6 +194,21 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
     const key = event.seq;
 
     switch (event.type) {
+      case "test.started":
+      case "test.annotation":
+      case "test.completed":
+        items.push({
+          kind: "notice",
+          key,
+          level: "info",
+          text:
+            event.type === "test.started"
+              ? "App test started"
+              : event.type === "test.completed"
+                ? `App test ${event.payload.status}`
+                : `App test ${event.payload.annotation.type}`,
+        });
+        break;
       case "computer.screenshot": {
         const step = stepsById.get(event.payload.toolCallId);
         if (step) step.frame = event;

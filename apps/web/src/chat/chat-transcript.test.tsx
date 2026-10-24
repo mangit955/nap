@@ -71,6 +71,37 @@ const DRAWN_ELSEWHERE = [
  */
 const TREATMENTS = [
   {
+    type: "test.started",
+    payload: {
+      jobId: "7c9b1a52-8d3e-4f21-a0c4-1b2d3e4f5a6b",
+      commitSha: "abcdef1",
+      objective: "Save notes",
+    },
+    shows: /App test/,
+  },
+  {
+    type: "test.annotation",
+    payload: {
+      annotation: {
+        type: "assertion",
+        id: "save",
+        expectation: "private expectation",
+        result: "untested",
+      },
+      timeMs: 0,
+    },
+    shows: /App test/,
+  },
+  {
+    type: "test.completed",
+    payload: {
+      jobId: "7c9b1a52-8d3e-4f21-a0c4-1b2d3e4f5a6b",
+      status: "completed",
+      counts: { passed: 0, failed: 1, untested: 1 },
+    },
+    shows: /App test/,
+  },
+  {
     type: "computer.screenshot",
     payload: { toolCallId: "screen", key: "computer/p/s/t/screen.jpg", width: 1024, height: 768 },
     shows: /Computer screenshot available/,

@@ -16,7 +16,7 @@ import type { MediaAttachment } from "../media.ts";
 import type { TurnFailureReason } from "../events.ts";
 import type { ModelCredentials } from "./llm-provider.ts";
 
-export type TurnRequest = {
+type TurnRequestBase = {
   sessionId: string;
   /**
    * The id this turn's events are written under, allocated by the caller.
@@ -29,7 +29,6 @@ export type TurnRequest = {
    * It names the turn this request *begins*. A repair is a distinct Turn and takes a fresh id.
    */
   turnId: string;
-  message: string;
   attachments?: MediaAttachment[] | undefined;
   signal?: AbortSignal;
   /** Which model to run on. Absent is the deployment's default; the route validates it. */
@@ -44,6 +43,9 @@ export type TurnRequest = {
    */
   credentials?: ModelCredentials | undefined;
 };
+
+export type TurnRequest = TurnRequestBase &
+  ({ kind?: "user"; message: string } | { kind: "test"; jobId: string; message?: never });
 
 export type TurnOutcome =
   | {

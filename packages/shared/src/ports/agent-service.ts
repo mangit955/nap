@@ -16,7 +16,7 @@ import type { BuiltContext } from "./context-engine.ts";
 import type { PendingEvent } from "./event-store.ts";
 import type { ModelCredentials } from "./llm-provider.ts";
 import type { ObjectStore } from "./object-store.ts";
-import type { SandboxDesktop } from "./sandbox-desktop.ts";
+import type { DesktopAction, SandboxDesktop } from "./sandbox-desktop.ts";
 import type { SandboxManager } from "./sandbox-manager.ts";
 
 export type AgentTurnRequest = {
@@ -36,6 +36,8 @@ export type AgentTurnRequest = {
         /** Makes the call identity durable before its screenshot object exists. */
         beforeStore: () => Promise<void>;
         annotate?: (annotation: ComputerAnnotation) => Promise<Result<void, { message: string }>>;
+        beforeAction?: (action: DesktopAction) => Result<void, { message: string }>;
+        observed?: () => void;
       }
     | undefined;
   /**

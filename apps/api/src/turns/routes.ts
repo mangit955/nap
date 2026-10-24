@@ -1,3 +1,4 @@
+import { appTestTarget } from "@nap/shared/app-testing";
 import { MediaAttachmentsSchema } from "@nap/shared/media";
 import { MODEL_MEDIA_UNSUPPORTED, modelSupportsImages } from "@nap/shared/model-capabilities";
 /**
@@ -130,6 +131,46 @@ export function registerTurnRoutes(
   deps: TurnRouteDeps,
   events: EventStore,
 ): void {
+  app.post("/sessions/:sessionId/tests", async (c) => {
+    const found = await findOwnedSession(deps.sessions, c.req.param("sessionId"), c.get("userId"));
+    if (!found.ok) return c.json({ error: found.error.message }, found.error.status);
+    const body = z
+      .strictObject({ jobId: z.uuid(), model: z.string().min(1).optional() })
+      .safeParse(await readJson(c.req.raw));
+    if (!body.success)
+      return c.json({ error: "Choose a completed job and a model to test it." }, 400);
+    const { sessionId } = found.value;
+    const target = appTestTarget(await events.readFrom(sessionId, 0));
+    if (!target || target.jobId !== body.data.jobId)
+      return c.json({ error: "This job is no longer the latest completed checkpoint." }, 409);
+    if (await deps.queue.hasPending(sessionId))
+      return c.json({ error: "Wait for the current turn to finish before testing." }, 409);
+    const key = (await deps.keys?.(c.get("userId"))) ?? null;
+    const access = resolveTurnAccess({
+      requested: body.data.model,
+      key,
+      allowed: deps.allowedModels,
+      freeModel: deps.freeModel,
+      defaultModel: deps.defaultModel,
+    });
+    if (!access.ok)
+      return c.json({ error: access.message, code: access.code }, refusalStatus(access.code));
+    if (!modelSupportsImages(access.model))
+      return c.json({ error: MODEL_MEDIA_UNSUPPORTED, code: "model_media_unsupported" }, 400);
+    const refusal = await refuse(deps, found.value, c.get("userId"), key !== null);
+    if (refusal) return refusal(c);
+    const id = crypto.randomUUID();
+    await deps.queue.enqueue({
+      id,
+      sessionId,
+      userId: c.get("userId"),
+      kind: "test",
+      message: target.jobId,
+      model: access.model,
+      billsToUser: access.credentials !== undefined,
+    });
+    return c.json({ accepted: true, requestId: id }, 202);
+  });
   app.get("/sessions/:sessionId/activity", async (c) => {
     const found = await findOwnedSession(deps.sessions, c.req.param("sessionId"), c.get("userId"));
     if (!found.ok) return c.json({ error: found.error.message }, found.error.status);

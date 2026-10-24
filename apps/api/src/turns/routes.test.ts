@@ -770,3 +770,65 @@ it("reads a real covered prefix before checking queue activity and never caches 
   };
   expect((await hono.request(`/sessions/${SESSION}/activity`)).status).toBe(500);
 });
+
+it("queues only an approved completed job for app testing, with no client prompt", async () => {
+  const store = new InMemoryEventStore();
+  const jobId = crypto.randomUUID();
+  const base = {
+    sessionId: SESSION,
+    turnId: crypto.randomUUID(),
+    createdAt: "2026-10-24T00:00:00Z",
+  };
+  await store.append({ ...base, type: "job.started", payload: { jobId, objective: "Save notes" } });
+  await store.append({
+    ...base,
+    type: "turn.completed",
+    payload: { commitSha: "abcdef1", usage: { inputTokens: 0, outputTokens: 0 }, durationMs: 0 },
+  });
+  await store.append({
+    ...base,
+    type: "job.checkpointed",
+    payload: { jobId, commitSha: "abcdef1" },
+  });
+  await store.append({ ...base, type: "job.completed", payload: { jobId, outcome: "verified" } });
+  const f = app(new InMemoryTurnQueue(), undefined, undefined, undefined, store);
+  expect(
+    (
+      await post(f.app, `/sessions/${SESSION}/tests`, {
+        jobId,
+        model: "anthropic/claude-opus-5",
+        message: "untrusted instructions",
+      })
+    ).status,
+  ).toBe(400);
+  expect(
+    (
+      await post(f.app, `/sessions/${SESSION}/tests`, {
+        jobId: crypto.randomUUID(),
+        model: "anthropic/claude-opus-5",
+      })
+    ).status,
+  ).toBe(409);
+  expect(
+    (await post(f.app, `/sessions/${UNKNOWN}/tests`, { jobId, model: "anthropic/claude-opus-5" }))
+      .status,
+  ).toBe(404);
+  expect(
+    (await post(f.app, `/sessions/${SESSION}/tests`, { jobId, model: FREE_MODEL })).status,
+  ).toBe(400);
+  const accepted = await post(f.app, `/sessions/${SESSION}/tests`, {
+    jobId,
+    model: "anthropic/claude-opus-5",
+  });
+  expect(accepted.status).toBe(202);
+  expect(f.queue.enqueued[0]).toMatchObject({
+    kind: "test",
+    message: jobId,
+    model: "anthropic/claude-opus-5",
+    billsToUser: true,
+  });
+  expect(
+    (await post(f.app, `/sessions/${SESSION}/tests`, { jobId, model: "anthropic/claude-opus-5" }))
+      .status,
+  ).toBe(409);
+});

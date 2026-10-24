@@ -79,6 +79,13 @@ function inputSchema(schema: z.ZodType): Record<string, unknown> {
   return rest;
 }
 
+export const APP_TEST_TOOL_NAMES: readonly ToolName[] = [
+  "read_file",
+  "list_files",
+  "search_files",
+  "computer",
+];
+
 export const TOOL_DEFINITIONS: LLMToolDefinition[] = TOOL_NAMES.map((name) => ({
   name,
   description: DESCRIPTIONS[name],

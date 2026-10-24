@@ -167,6 +167,12 @@ export function formatEvent(event: NapEvent): string {
 
 function detail(event: NapEvent): string {
   switch (event.type) {
+    case "test.started":
+      return "App test started";
+    case "test.annotation":
+      return `App test ${event.payload.annotation.type}`;
+    case "test.completed":
+      return `App test ${event.payload.status}`;
     case "computer.screenshot":
       return `${event.payload.toolCallId} ${event.payload.width}×${event.payload.height} ${event.payload.key}`;
     case "computer.status":

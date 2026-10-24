@@ -39,7 +39,7 @@ import type {
 } from "@nap/shared/ports/llm-provider";
 import { DeltaStream } from "./delta-stream.ts";
 import { TurnBudget, type TurnBudgetOptions } from "./safety/budget.ts";
-import { TOOL_DEFINITIONS } from "./tools/definitions.ts";
+import { APP_TEST_TOOL_NAMES, TOOL_DEFINITIONS } from "./tools/definitions.ts";
 import { executeTool, type ToolContext } from "./tools/execute.ts";
 
 type Payload<T extends NapEvent["type"]> = NapEventOf<T>["payload"];
@@ -49,6 +49,7 @@ export type AgentServiceOptions = {
   provider: LLMProvider;
   /** Per-turn ceilings. Defaults come from ./safety/budget.ts. */
   budget?: TurnBudgetOptions;
+  testBudget?: TurnBudgetOptions;
   /** Injected so a test can assert on whole events rather than on everything but the clock. */
   now?: () => string;
   /** Injected for the same reason, for the duration `turn.completed` reports. */
@@ -58,18 +59,26 @@ export type AgentServiceOptions = {
 export class NapAgentService implements AgentService {
   readonly #provider: LLMProvider;
   readonly #budget: TurnBudgetOptions;
+  readonly #testBudget: TurnBudgetOptions;
   readonly #now: () => string;
   readonly #clock: () => number;
 
   constructor(options: AgentServiceOptions) {
     this.#provider = options.provider;
     this.#budget = options.budget ?? {};
+    this.#testBudget = { maxSteps: 30, maxTokens: 160_000, ...options.testBudget };
     this.#now = options.now ?? (() => new Date().toISOString());
     this.#clock = options.clock ?? (() => Date.now());
   }
 
   async runTurn(request: AgentTurnRequest): Promise<void> {
-    await new Turn(request, this.#provider, this.#budget, this.#now, this.#clock).run();
+    await new Turn(
+      request,
+      this.#provider,
+      request.promptSource === "test" ? this.#testBudget : this.#budget,
+      this.#now,
+      this.#clock,
+    ).run();
   }
 }
 
@@ -106,8 +115,10 @@ class Turn {
     this.#request = request;
     this.#tools = TOOL_DEFINITIONS.filter(
       (tool) =>
-        tool.name !== "computer" ||
-        (request.computer !== undefined && modelSupportsImages(request.model)),
+        (request.promptSource !== "test" ||
+          APP_TEST_TOOL_NAMES.some((name) => name === tool.name)) &&
+        (tool.name !== "computer" ||
+          (request.computer !== undefined && modelSupportsImages(request.model))),
     );
     this.#turn = provider.startTurn({
       model: request.model,
@@ -480,6 +491,7 @@ class Turn {
       turnId: this.#request.turnId,
       sandboxId: this.#request.sandboxId,
       sandbox: this.#request.sandbox,
+      testMode: this.#request.promptSource === "test",
       computer: modelSupportsImages(this.#request.model) ? this.#request.computer : undefined,
       signal: this.#request.signal,
       emit: this.#request.onEvent,

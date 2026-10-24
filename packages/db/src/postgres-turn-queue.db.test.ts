@@ -775,3 +775,23 @@ it("reports queued and leased activity until settlement, including cancellation 
   await queue.requestCancel(sessionId);
   expect(await queue.hasPending(sessionId)).toBe(false);
 });
+
+it("persists and claims an app test's job identity through a fresh adapter", async () => {
+  const owner = await seedSession();
+  const jobId = randomUUID();
+  const { id } = await enqueueRequest(queue, {
+    ...owner,
+    kind: "test",
+    message: jobId,
+    model: "anthropic/claude-sonnet-5",
+    billsToUser: true,
+  });
+  const restarted = new PostgresTurnQueue(db);
+  expect(await restarted.claim("test-worker")).toMatchObject({
+    id,
+    kind: "test",
+    message: jobId,
+    billsToUser: true,
+  });
+  expect(await restarted.anyLeased([owner.sessionId])).toBe(true);
+});

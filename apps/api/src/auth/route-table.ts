@@ -129,6 +129,12 @@ export const GUARDED_ROUTES: GuardedRoute[] = [
   },
   {
     method: "POST",
+    path: "/sessions/:sessionId/tests",
+    examplePath: `/sessions/${SESSION}/tests`,
+    body: { jobId: REQUEST },
+  },
+  {
+    method: "POST",
     path: "/sessions/:sessionId/turns",
     examplePath: `/sessions/${SESSION}/turns`,
     body: { message: "hello" },

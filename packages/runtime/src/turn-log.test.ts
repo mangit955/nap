@@ -17,6 +17,29 @@ function base(seq: number) {
 
 /** One of every event type, so the exhaustiveness assertions below have something to walk. */
 const ONE_OF_EACH: Record<NapEventType, StoredEvent> = {
+  "test.started": stored({
+    ...base(30),
+    type: "test.started",
+    payload: { jobId: JOB, commitSha: "abcdef1", objective: "Save notes" },
+  }),
+  "test.annotation": stored({
+    ...base(31),
+    type: "test.annotation",
+    payload: {
+      annotation: {
+        type: "assertion",
+        id: "save",
+        expectation: "private expectation",
+        result: "untested",
+      },
+      timeMs: 0,
+    },
+  }),
+  "test.completed": stored({
+    ...base(32),
+    type: "test.completed",
+    payload: { jobId: JOB, status: "completed", counts: { passed: 0, failed: 1, untested: 1 } },
+  }),
   "computer.screenshot": stored({
     ...base(23),
     type: "computer.screenshot",

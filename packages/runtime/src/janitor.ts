@@ -156,7 +156,9 @@ async function announce(
     // The first ordinary/manual turn uses the request id even if preparation wrote nothing.
     // Repairs name their owner on the durable prompt, before context building or turn.started.
     // Never infer legacy child ownership from position: a later resume may own the same job.
-    const ownedTurns = new Set(request.kind === "turn" ? [request.id] : []);
+    const ownedTurns = new Set(
+      request.kind === "turn" || request.kind === "test" ? [request.id] : [],
+    );
     const endedTurns = new Set<string>();
     for (const event of history) {
       if (event.type === "user.message" && event.payload.repair?.requestId === request.id)
@@ -174,7 +176,33 @@ async function announce(
         createdAt,
       });
     }
-    const notice = request.kind === "publish" ? PUBLISH_INTERRUPTED_NOTICE : RESUME_NOTICE;
+    if (
+      request.kind === "test" &&
+      !requestHistory.some((event) => event.type === "test.completed")
+    ) {
+      const started = requestHistory.find((event) => event.type === "test.started");
+      if (started?.type === "test.started") {
+        const assertions = new Map<string, "passed" | "failed" | "untested">();
+        for (const event of requestHistory)
+          if (event.type === "test.annotation" && event.payload.annotation.type === "assertion")
+            assertions.set(event.payload.annotation.id, event.payload.annotation.result);
+        const counts = { passed: 0, failed: 0, untested: 0 };
+        for (const result of assertions.values()) counts[result] += 1;
+        sink.emit({
+          type: "test.completed",
+          sessionId: request.sessionId,
+          turnId: request.id,
+          createdAt,
+          payload: { jobId: started.payload.jobId, status: "interrupted", counts },
+        });
+      }
+    }
+    const notice =
+      request.kind === "test"
+        ? "The app test was interrupted. Test the app again when ready."
+        : request.kind === "publish"
+          ? PUBLISH_INTERRUPTED_NOTICE
+          : RESUME_NOTICE;
     if (
       !requestHistory.some(
         (event) => event.type === "system.notice" && event.payload.text === notice,

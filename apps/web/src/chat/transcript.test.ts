@@ -124,6 +124,34 @@ const DRAWN_ELSEWHERE = [
  */
 const CASES = [
   {
+    type: "test.started",
+    payload: {
+      jobId: "7c9b1a52-8d3e-4f21-a0c4-1b2d3e4f5a6b",
+      commitSha: "abcdef1",
+      objective: "Save notes",
+    },
+  },
+  {
+    type: "test.annotation",
+    payload: {
+      annotation: {
+        type: "assertion",
+        id: "save",
+        expectation: "private expectation",
+        result: "untested",
+      },
+      timeMs: 0,
+    },
+  },
+  {
+    type: "test.completed",
+    payload: {
+      jobId: "7c9b1a52-8d3e-4f21-a0c4-1b2d3e4f5a6b",
+      status: "completed",
+      counts: { passed: 0, failed: 1, untested: 1 },
+    },
+  },
+  {
     type: "computer.screenshot",
     payload: { toolCallId: "screen", key: "computer/p/s/t/screen.jpg", width: 1024, height: 768 },
   },

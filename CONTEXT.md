@@ -589,3 +589,9 @@ JPEG screenshots and sends batched input and observation actions through the `co
 Screenshot events name stored objects; the model receives images only within its active turn.
 Desktop lifecycle and stream credentials stay separate from sandbox lifecycle and event storage.
 See [ADR-0018](docs/adr/0018-the-agent-gets-a-computer.md).
+
+**App test** — a user-approved, system-prompted Turn that exercises the latest completed Job in
+its Computer. Its goal and source commit are recorded in `test.started`; its input prompt is
+built from that goal and the Job's diff. Assertions are declared before input and receive a
+verdict after a new screenshot. The result does not change the Job's checkpoint. A failed
+assertion offers a separate repair the user may request; it never starts one itself.

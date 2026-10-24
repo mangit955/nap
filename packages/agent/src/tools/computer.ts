@@ -39,6 +39,8 @@ export async function runComputer(
         return { ok: false, output: result?.error.message ?? "Annotations are unavailable." };
       continue;
     }
+    const allowed = access.beforeAction?.(action);
+    if (allowed && !allowed.ok) return { ok: false, output: allowed.error.message };
     const result = await access.desktop.act(ctx.sandboxId, action, ctx.signal);
     if (!result.ok) return { ok: false, output: result.error.message };
     if (result.value.kind === "text") observations.push(result.value.text.slice(0, 30000));
@@ -65,6 +67,7 @@ export async function runComputer(
     createdAt: ctx.now?.() ?? new Date().toISOString(),
     payload: { toolCallId, key, width, height },
   });
+  access.observed?.();
   const output = [
     `Completed ${actions.length} computer actions. Screenshot ${width}×${height}.`,
     ...observations,

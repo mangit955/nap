@@ -672,3 +672,36 @@ describe("stopping", () => {
     expect(queue.stateOf(id)).toBe("done");
   });
 });
+
+it("runs an app test under the normal lease using its approved job identity, model and cancellation", async () => {
+  const queue = new InMemoryTurnQueue();
+  const runtime = new RecordingRuntime();
+  const jobId = crypto.randomUUID();
+  const request = await enqueueRequest(queue, {
+    kind: "test",
+    message: jobId,
+    sessionId: "app-test",
+    userId: "user-1",
+    model: "anthropic/claude-sonnet-5",
+    billsToUser: false,
+  });
+  const worker = startTurnWorker({
+    queue,
+    runtime,
+    concurrency: 1,
+    pollIntervalMs: POLL_MS,
+    renewIntervalMs: RENEW_MS,
+  });
+  workers.push(worker);
+  await vi.waitFor(() => expect(runtime.turns).toHaveLength(1));
+  expect(runtime.turns[0]).toMatchObject({
+    kind: "test",
+    jobId,
+    turnId: request.id,
+    model: "anthropic/claude-sonnet-5",
+    signal: expect.any(AbortSignal),
+  });
+  expect(runtime.turns[0]?.message).toBeUndefined();
+  await queue.requestCancel("app-test");
+  await vi.waitFor(() => expect(runtime.turns[0]?.signal?.aborted).toBe(true));
+});

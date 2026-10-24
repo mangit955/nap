@@ -36,10 +36,12 @@
  */
 
 import { commitAll, currentSha } from "@nap/sandbox/git";
-import { TEMPLATE_DEV_PORT } from "@nap/sandbox/template";
+import { TEMPLATE_DEV_PORT, TEMPLATE_WORKDIR } from "@nap/sandbox/template";
+import { appTestTarget } from "@nap/shared/app-testing";
 import type { JobOutcome, NapEvent, NapEventOf, PromptSource } from "@nap/shared/events";
 import { foldJobs, MAX_REPAIR_ATTEMPTS, openJob } from "@nap/shared/job-state";
 import { addLogContext, getLogger, withLogContext } from "@nap/shared/logging";
+import { modelSupportsImages } from "@nap/shared/model-capabilities";
 import type { AgentService, AgentTurnRequest } from "@nap/shared/ports/agent-service";
 import type { ContextEngine, FailedAttempt, JobContext } from "@nap/shared/ports/context-engine";
 import type { EventBus } from "@nap/shared/ports/event-bus";
@@ -61,6 +63,7 @@ import type { SandboxError, SandboxManager } from "@nap/shared/ports/sandbox-man
 import type { SessionRecord, SessionStore } from "@nap/shared/ports/session-store";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
 import type { Result } from "@nap/shared/result";
+import { shellQuote } from "@nap/shared/shell";
 import type { VerificationResult } from "@nap/verify/run-checks";
 import {
   type AcquiredSandbox,
@@ -68,12 +71,14 @@ import {
   type RestoreDeps,
   restoreDepsOf,
 } from "./acquire-sandbox.ts";
+import { AppTestRun } from "./app-test-run.ts";
 import { contextCompactor } from "./compaction.ts";
 import { continuationFor } from "./continue-job.ts";
 import { EventSink } from "./event-sink.ts";
 import { repairCommitSubject, repairPrompt } from "./repair-prompt.ts";
 import { SessionQueue } from "./session-queue.ts";
 import { captureSnapshot } from "./teardown.ts";
+import { testPrompt } from "./test-prompt.ts";
 import { captureThumbnail } from "./turn-thumbnail.ts";
 import { type CheckFailure, failureOf, toVerifiedChecks, verifyTurn } from "./verify-turn.ts";
 
@@ -314,7 +319,7 @@ export class SingleAgentRuntime implements Runtime {
   async #runTurn(request: TurnRequest): Promise<TurnOutcome> {
     const { turnId } = request;
     return await withLogContext(getLogger(), { sessionId: request.sessionId, turnId }, () =>
-      this.#runTurnLogged(request, turnId),
+      request.kind === "test" ? this.#runAppTest(request) : this.#runTurnLogged(request, turnId),
     );
   }
 
@@ -578,7 +583,104 @@ export class SingleAgentRuntime implements Runtime {
     return null;
   }
 
-  async #runTurnLogged(request: TurnRequest, turnId: string): Promise<TurnOutcome> {
+  async #runAppTest(request: Extract<TurnRequest, { kind: "test" }>): Promise<TurnOutcome> {
+    const { turnId, sessionId } = request;
+    const scope = await this.#open(sessionId, turnId);
+    if (!scope) return { ok: false, turnId, reason: "internal", message: "No such session." };
+    const { emit, sink } = scope;
+    let run: AppTestRun | undefined;
+    try {
+      if (!this.#options.computer || !modelSupportsImages(request.model))
+        throw new Error("App tests need an available computer and an image-capable model.");
+      request.signal?.throwIfAborted();
+      const history = await this.#options.events.readFrom(sessionId, 0);
+      const target = appTestTarget(history);
+      if (!target || target.jobId !== request.jobId)
+        throw new Error("The approved job is no longer the latest completed checkpoint.");
+      const acquired = await this.#acquire(scope.session, request.signal);
+      if (!acquired.ok) throw new Error(acquired.error.message);
+      const sandboxId = acquired.value.id;
+      const head = await currentSha(this.#options.sandbox, sandboxId);
+      if (!head.ok || head.value !== target.commitSha)
+        throw new Error(
+          "The app changed after this job completed. Complete a new job before testing it.",
+        );
+      const clean = await this.#options.sandbox.exec(
+        sandboxId,
+        `cd ${shellQuote(TEMPLATE_WORKDIR)} && git status --porcelain`,
+      );
+      if (!clean.ok || clean.value.exitCode !== 0 || clean.value.stdout.trim())
+        throw new Error(
+          "The app has uncommitted source changes. Complete a new job before testing it.",
+        );
+      const diff = await this.#options.sandbox.exec(
+        sandboxId,
+        `cd ${shellQuote(TEMPLATE_WORKDIR)} && git diff --no-ext-diff --no-textconv ${shellQuote(target.baseRevision)} ${shellQuote(target.commitSha)} --`,
+      );
+      if (!diff.ok || diff.value.exitCode !== 0)
+        throw new Error("Could not read this job's source diff.");
+      request.signal?.throwIfAborted();
+      const prompt = testPrompt({ objective: target.objective, diff: diff.value.stdout });
+      run = new AppTestRun({
+        now: () => Date.parse(this.#now()),
+        emit: (entry) => emit("test.annotation", entry),
+      });
+      emit("test.started", {
+        jobId: target.jobId,
+        commitSha: target.commitSha,
+        objective: target.objective,
+      });
+      // The goal and source commit are durable above. Replaying the generated diff prompt as
+      // a user request would protect it forever in context, long after this test ended.
+      await sink.drain();
+      for (const notice of acquired.value.notices) emit("system.notice", notice);
+      const previewPort = acquired.value.repository?.previewPort ?? this.#previewPort;
+      if (acquired.value.created) await this.#announcePreview(sandboxId, emit, previewPort);
+      const outcome = await this.#attempt({
+        settings: {
+          ...request,
+          ...(acquired.value.repository ? { workspace: "repository" as const } : {}),
+        },
+        scope,
+        sandboxId,
+        prompt,
+        promptSource: "test",
+        commitSubject: "",
+        history,
+        appTest: run,
+        previewPort,
+      });
+      emit("test.completed", {
+        jobId: target.jobId,
+        status: outcome.ok ? "completed" : "interrupted",
+        counts: run.counts(),
+      });
+      await sink.drain();
+      return outcome;
+    } catch (error) {
+      const reason = request.signal?.aborted ? "cancelled" : "internal";
+      const message =
+        reason === "cancelled"
+          ? "The app test was cancelled."
+          : error instanceof Error
+            ? error.message
+            : "The app test could not start.";
+      if (!sink.terminal) emit("turn.failed", { reason, message });
+      if (run)
+        emit("test.completed", {
+          jobId: request.jobId,
+          status: "interrupted",
+          counts: run.counts(),
+        });
+      await sink.drain();
+      return { ok: false, turnId, reason, message };
+    }
+  }
+
+  async #runTurnLogged(
+    request: Extract<TurnRequest, { message: string }>,
+    turnId: string,
+  ): Promise<TurnOutcome> {
     const scope = await this.#open(request.sessionId, turnId);
 
     if (scope === null) {
@@ -945,10 +1047,13 @@ export class SingleAgentRuntime implements Runtime {
      */
     job?: JobContext;
     manualCompaction?: { id: string; onSettled: () => void };
+    appTest?: AppTestRun;
+    previewPort?: number;
   }): Promise<TurnOutcome> {
     const { settings, scope, sandboxId, prompt, promptSource, commitSubject, history, job } =
       options;
     const { sink, emit, turnId } = scope;
+    const appTest = options.appTest;
 
     // Preparation belongs to this turn too, even if it fails before the agent starts.
     sink.beginTurn();
@@ -980,8 +1085,15 @@ export class SingleAgentRuntime implements Runtime {
             computer: {
               ...this.#options.computer,
               projectId: scope.session.projectId,
-              devServerUrl: `http://localhost:${this.#previewPort}`,
+              devServerUrl: `http://localhost:${options.previewPort ?? this.#previewPort}`,
               beforeStore: () => sink.drain(),
+              ...(appTest
+                ? {
+                    annotate: async (annotation) => appTest.annotate(annotation),
+                    beforeAction: (action) => appTest.beforeAction(action),
+                    observed: () => appTest.observed(),
+                  }
+                : {}),
             },
           }),
       onEvent: sink.emit,
@@ -1017,7 +1129,9 @@ export class SingleAgentRuntime implements Runtime {
             sandboxId,
             userMessage: prompt,
             model: settings.model,
-            continuation: true,
+            // A generated test prompt is not in durable user history. Reintroduce it as
+            // the current request after compaction, without protecting it in later turns.
+            continuation: appTest === undefined,
             history,
             ...(job === undefined ? {} : { job }),
             sandbox: this.#options.sandbox,
@@ -1025,7 +1139,7 @@ export class SingleAgentRuntime implements Runtime {
           }),
       }),
       promptSource,
-      ...(options.manualCompaction !== undefined
+      ...(options.manualCompaction !== undefined || options.appTest !== undefined
         ? {}
         : { finalize: () => this.#commit(sandboxId, commitSubject) }),
       ...(settings.signal === undefined ? {} : { signal: settings.signal }),

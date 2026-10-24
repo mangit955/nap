@@ -646,3 +646,34 @@ it("does not send a request past a reported model window after compaction fails"
     expect.objectContaining({ reason: "budget_exceeded" }),
   ]);
 });
+
+it("gives app tests a separate budget and refuses source changes even if the model asks", async () => {
+  const provider = new ScriptedLLMProvider([
+    [
+      { toolCalls: [call("write_file", { path: APP, content: "forced" }, "write")] },
+      { toolCalls: [call("run_command", { command: "touch forced" }, "command")] },
+      { text: "unused" },
+    ],
+  ]);
+  const agent = new NapAgentService({
+    provider,
+    budget: { maxSteps: 40 },
+    testBudget: { maxSteps: 2 },
+  });
+  await agent.runTurn(request({ promptSource: "test" }));
+  expect(provider.requests).toHaveLength(2);
+  expect(provider.requests[0]?.tools.map((tool) => tool.name)).toEqual([
+    "read_file",
+    "list_files",
+    "search_files",
+  ]);
+  expect(
+    recorder.events
+      .filter((event) => event.type === "tool.result")
+      .every((event) => event.payload.ok === false),
+  ).toBe(true);
+  expect(recorder.events.find((event) => event.type === "turn.failed")?.payload.reason).toBe(
+    "budget_exceeded",
+  );
+  expect((await manager.readFile(sandboxId, APP)).ok).toBe(false);
+});

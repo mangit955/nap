@@ -23,6 +23,7 @@ import { MediaAttachmentsSchema } from "./media.ts";
 import { z } from "zod";
 import { CheckOutcomeSchema } from "./check-outcome.ts";
 import { CompactionResultSchema, TokenUsageSchema } from "./compaction.ts";
+import { ComputerAnnotationSchema } from "./computer.ts";
 
 /** The sandbox tools, including the image-gated computer capability. See ADR-0018. */
 export const TOOL_NAMES = [
@@ -78,7 +79,7 @@ export type JobOutcome = z.infer<typeof JobOutcomeSchema>;
  * on `turn.started` rather than derived from position in the log, because deriving it would mean
  * counting verifications back from a turn and getting it wrong on every truncated window.
  */
-export const PromptSourceSchema = z.enum(["user", "verification"]);
+export const PromptSourceSchema = z.enum(["user", "verification", "test"]);
 export type PromptSource = z.infer<typeof PromptSourceSchema>;
 
 /**
@@ -122,6 +123,21 @@ const toolRef = {
 };
 
 export const NapEventSchema = z.discriminatedUnion("type", [
+  event("test.started", {
+    jobId: z.uuid(),
+    commitSha: z.string().min(1),
+    objective: z.string().min(1),
+  }),
+  event("test.annotation", { annotation: ComputerAnnotationSchema, timeMs: z.int().nonnegative() }),
+  event("test.completed", {
+    jobId: z.uuid(),
+    status: z.enum(["completed", "interrupted"]),
+    counts: z.strictObject({
+      passed: z.int().nonnegative(),
+      failed: z.int().nonnegative(),
+      untested: z.int().nonnegative(),
+    }),
+  }),
   event("compaction.started", { id: z.uuid(), trigger: z.enum(["manual", "automatic"]) }),
   event("compaction.completed", {
     id: z.uuid(),

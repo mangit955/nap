@@ -145,7 +145,10 @@ export function Verification() {
       <P>
         The deterministic loop runs sandbox commands and a preview probe. Agent computer use is a
         separate capability behind a desktop port. Its assertions do not advance the verification
-        checkpoint. Playwright remains the benchmark&rsquo;s external driver.
+        checkpoint. App test turns have separate ceilings of 30 model steps and 160,000 tokens. They
+        can read source and use the computer; they cannot edit source or run commands. Failed
+        assertions wait for an explicit repair request. Playwright remains the benchmark&rsquo;s
+        external driver.
       </P>
 
       <P>
