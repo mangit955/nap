@@ -46,6 +46,12 @@ describe("Provider account gate", () => {
     expect(screen.getByText(/guest projects stay behind with the guest session/i)).toBeVisible();
     expect(providers).not.toHaveBeenCalled();
   });
+  it("tells a guest that running turns on a subscription is not available yet", () => {
+    useSession.mockReturnValue({ data: { user: { isAnonymous: true } }, isPending: false });
+    render(<LiveProviders />);
+    expect(screen.getByText("Running turns on a subscription isn't available yet.")).toBeVisible();
+    expect(screen.queryByText(/plan you already pay for/i)).not.toBeInTheDocument();
+  });
   it("loads providers for an authenticated permanent account", () => {
     useSession.mockReturnValue({ data: { user: { isAnonymous: false } }, isPending: false });
     render(<LiveProviders />);

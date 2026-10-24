@@ -166,11 +166,7 @@ export function AccountSignIn({
               disabled={pending}
               className={GHOST_BUTTON}
               onClick={() => {
-                if (
-                  confirm(
-                    `Sign out of ${accountName(account)}? This stops running turns that use this sign-in. Session history is kept.`,
-                  )
-                )
+                if (confirm(`Sign out of ${accountName(account)}? Session history is kept.`))
                   void run(onSignOut);
               }}
             >

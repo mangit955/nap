@@ -127,10 +127,7 @@ export function ConnectionsOverview({
           </Card>
         </Section>
 
-        <Section
-          title="Model providers"
-          description="Bring your own key, or your own subscription, for the paid models"
-        >
+        <Section title="Model providers" description="Bring your own key for the paid models">
           <Card>
             <ProviderRow
               onClick={() => setKeyOpen(true)}
@@ -148,7 +145,7 @@ export function ConnectionsOverview({
                 </span>
               }
               name="Claude and ChatGPT subscriptions"
-              status="Run turns on the plan you already pay for"
+              status="Running turns on a subscription isn't available yet"
               configure={false}
             />
           </Card>

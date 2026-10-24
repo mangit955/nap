@@ -252,7 +252,7 @@ describe("the provider list", () => {
     renderPage(api, confirm);
 
     fireEvent.click(await screen.findByRole("button", { name: "Sign out" }));
-    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("Sign out"));
+    expect(confirm).toHaveBeenCalledWith("Sign out of Work? Session history is kept.");
     expect(api.requests.some((request) => request.path.endsWith("/sign-out"))).toBe(false);
     confirm.mockReturnValue(true);
     fireEvent.click(screen.getByRole("button", { name: "Sign out" }));

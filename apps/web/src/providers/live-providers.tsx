@@ -56,7 +56,7 @@ export function GuestProviders() {
               Use your Claude or ChatGPT subscription
             </h1>
             <p className="mt-0.5 text-[13px] text-muted">
-              Run turns on the plan you already pay for.
+              Running turns on a subscription isn't available yet.
             </p>
           </div>
         </div>
