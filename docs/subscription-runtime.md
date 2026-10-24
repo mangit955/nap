@@ -145,6 +145,32 @@ payer before replacing the two columns. It changes the worker contract, so deplo
 old API and worker processes before applying it and starting the new version. No production
 migration has been run. Existing API keys retain their existing storage and execution path.
 
+## Native execution journal
+
+Migration `0019_native_execution_journal` adds private start intents and delivery records. The
+adapter derives owner, project, account and target from a live queue lease, checks the account
+generation in the write transaction, and stores a hash of the private run capability. A duplicate
+start intent never returns permission to launch again. A lost process receipt can be marked
+`start_uncertain`; it cannot be replaced with a guessed native session ID.
+
+Partial unique indexes retain one unresolved native run per project and account. They remain
+after worker lease expiry, logout or account deletion. A verified cgroup termination receipt can
+release a fence even after execution authority is gone. The journal records that receipt; its
+caller must verify it with the authenticated supervisor. It does not establish kernel isolation
+or block the existing API queue by itself. Integration with the project-wide execution gate,
+reaper and native credential lifecycle remains required before a provider can be configured.
+
+Raw native frames are encrypted under owner, project, session, request, turn, account generation,
+run and delivery identity. The store commits each raw frame, normalized events and delivery
+cursor atomically under the existing session event lock. Receipt retries reuse the durable event
+identities. Per-delivery and cumulative storage bounds stop unbounded journal growth.
+
+The awaited native delivery pump restores its decoder from committed frames, including partial
+UTF-8 and JSON input. It acknowledges only after persistence, checks replay hashes and stops after
+the first failed delivery. Losing a database response requires reconstruction from durable state;
+it does not replay a model command. Public fanout still reads the event log. These mechanisms have
+offline and Postgres fault-injection coverage; no native provider process is configured yet.
+
 ## Remaining release gates
 
 [The process transport proof](native-process-host.md) has local pipe and PTY coverage. A second,

@@ -1,4 +1,6 @@
 /** Encrypted provider state is bound to its owner and generation before any payload is returned. */
+
+import { NativeDeliveryScopeSchema } from "@nap/shared/ports/native-delivery-cipher";
 import type { SealedProviderCredentials } from "@nap/shared/ports/provider-account-store";
 import { ProviderSignInChallengeSchema } from "@nap/shared/ports/provider-sign-in-store";
 import { ProviderDriverSchema } from "@nap/shared/provider-accounts-protocol";
@@ -7,6 +9,7 @@ import { type EncryptionKey, type OpenResult, open, seal } from "../account/secr
 
 const owner = { userId: z.uuid(), accountId: z.uuid() };
 const scopeSchema = z.discriminatedUnion("kind", [
+  NativeDeliveryScopeSchema,
   z.strictObject({
     kind: z.literal("attempt"),
     ...owner,

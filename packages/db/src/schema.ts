@@ -5,6 +5,9 @@ import type {
   RepositoryJob,
 } from "@nap/shared/github-protocol";
 import type { MediaAttachment } from "@nap/shared/media";
+import type { NativeRunBinding } from "@nap/shared/ports/native-run-store";
+import type { SealedProviderCredentials } from "@nap/shared/ports/provider-account-store";
+import type { ProcessExit } from "@nap/shared/ports/sandbox-process";
 import type { ProviderAuthStatus, ProviderDriver } from "@nap/shared/provider-accounts-protocol";
 import {
   type ProviderSignInInteraction,
@@ -566,6 +569,69 @@ export const turnRequests = pgTable(
     index("turn_requests_unannounced_orphans")
       .on(t.leaseExpiresAt)
       .where(sql`${t.state} = 'orphaned' and ${t.finishedAt} is null`),
+  ],
+);
+
+/** No ownership FK: deleting an account must not erase an unresolved physical-process fence. */
+export const nativeRuns = pgTable(
+  "native_runs",
+  {
+    id: uuid("id").primaryKey(),
+    requestId: uuid("request_id").notNull(),
+    turnId: uuid("turn_id").notNull(),
+    projectId: uuid("project_id").notNull(),
+    accountId: uuid("account_id").notNull(),
+    workerId: text("worker_id").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    binding: jsonb("binding").$type<NativeRunBinding>().notNull(),
+    phase: text("phase").$type<"intent" | "start_uncertain" | "started" | "stopped">().notNull(),
+    cursor: integer("cursor").notNull().default(0),
+    deliveryBytes: integer("delivery_bytes").notNull().default(0),
+    nativeSessionId: text("native_session_id"),
+    receipt: jsonb("receipt").$type<SealedProviderCredentials>(),
+    proof: jsonb("proof").$type<ProcessExit>(),
+    createdAt,
+  },
+  (t) => [
+    uniqueIndex("native_runs_one_active_project")
+      .on(t.projectId)
+      .where(sql`${t.phase} <> 'stopped'`),
+    uniqueIndex("native_runs_one_active_account")
+      .on(t.accountId)
+      .where(sql`${t.phase} <> 'stopped'`),
+    unique("native_runs_one_intent_per_turn").on(t.turnId),
+    check("native_runs_cursor", sql`${t.cursor} >= 0`),
+    check(
+      "native_runs_delivery_bytes",
+      sql`${t.deliveryBytes} >= 0 and ${t.deliveryBytes} <= 67108864`,
+    ),
+    check(
+      "native_runs_phase",
+      sql`${t.phase} in ('intent', 'start_uncertain', 'started', 'stopped')`,
+    ),
+    check(
+      "native_runs_state",
+      sql`(${t.phase} in ('intent', 'start_uncertain') and ${t.receipt} is null and ${t.nativeSessionId} is null and ${t.proof} is null) or (${t.phase} = 'started' and ${t.receipt} is not null and ${t.nativeSessionId} is not null and ${t.proof} is null) or (${t.phase} = 'stopped' and ${t.proof} is not null)`,
+    ),
+  ],
+);
+
+export const nativeDeliveries = pgTable(
+  "native_deliveries",
+  {
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => nativeRuns.id, { onDelete: "cascade" }),
+    sequence: integer("sequence").notNull(),
+    rawHash: text("raw_hash").notNull(),
+    raw: jsonb("raw").$type<SealedProviderCredentials>().notNull(),
+    eventHash: text("event_hash").notNull(),
+    eventSequences: jsonb("event_sequences").$type<number[]>().notNull(),
+    createdAt,
+  },
+  (t) => [
+    primaryKey({ columns: [t.runId, t.sequence] }),
+    check("native_deliveries_sequence", sql`${t.sequence} > 0`),
   ],
 );
 

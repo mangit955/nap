@@ -134,6 +134,13 @@
       "when": 1792837207314,
       "tag": "0018_session_execution_selection",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1792843409441,
+      "tag": "0019_native_execution_journal",
+      "breakpoints": true
     }
   ]
 }

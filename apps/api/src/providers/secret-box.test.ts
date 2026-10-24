@@ -24,6 +24,51 @@ const ATTEMPT = {
 } as const;
 
 describe("provider secret scope", () => {
+  it("binds native output to its owner, project, account, request and delivery identity", () => {
+    const box = new ProviderSecretBox(KEY);
+    const scope = {
+      kind: "native_delivery" as const,
+      binding: {
+        userId: USER,
+        projectId: SESSION,
+        sessionId: SESSION,
+        requestId: SESSION,
+        turnId: SESSION,
+        target: {
+          kind: "subscription" as const,
+          driver: "claude" as const,
+          accountId: ACCOUNT,
+          generation: 3,
+          model: "native-model",
+        },
+      },
+      runId: SESSION,
+      sequence: 1,
+      rawHash: "a".repeat(64),
+    };
+    const secret = box.seal(scope, "private native transcript");
+    expect(JSON.stringify(secret)).not.toContain("private native transcript");
+    expect(box.open(scope, secret)).toEqual({ ok: true, value: "private native transcript" });
+    for (const other of [
+      { ...scope, runId: OTHER },
+      { ...scope, sequence: 2 },
+      { ...scope, rawHash: "b".repeat(64) },
+      { ...scope, binding: { ...scope.binding, userId: OTHER } },
+      { ...scope, binding: { ...scope.binding, projectId: OTHER } },
+      { ...scope, binding: { ...scope.binding, sessionId: OTHER } },
+      { ...scope, binding: { ...scope.binding, requestId: OTHER } },
+      { ...scope, binding: { ...scope.binding, turnId: OTHER } },
+      {
+        ...scope,
+        binding: { ...scope.binding, target: { ...scope.binding.target, accountId: OTHER } },
+      },
+      {
+        ...scope,
+        binding: { ...scope.binding, target: { ...scope.binding.target, generation: 4 } },
+      },
+    ])
+      expect(box.open(other, secret)).toEqual({ ok: false, reason: "scope_mismatch" });
+  });
   it("seals a private value with fresh nonces and opens only under its authenticated context", () => {
     const box = new ProviderSecretBox(KEY);
     const first = box.seal(GRANT, "private-refresh-grant");
