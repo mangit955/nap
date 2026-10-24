@@ -1,0 +1,14 @@
+{
+  "programmaticConfRejectedOriginalDirectory": true,
+  "disposableCopyUsesRelativeBase": true,
+  "http": [
+    {
+      "port": 3037,
+      "status": 200
+    },
+    {
+      "port": 3047,
+      "status": 200
+    }
+  ]
+}
