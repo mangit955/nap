@@ -25,7 +25,7 @@
     "app/src/main.tsx": "e8e1f401568a2be8150b5df856cd379a63248f7690a293833d20e627db9ea067",
     "app/tsconfig.json": "785fe2eb73e4dea5c634a7caf61b3704db580b8c8096115a76d0ec64b03f68f2",
     "app/vite.config.ts": "d3a8a74c01edc6fe33322c91b43b30a1f3aca82549d4f2126eb48d8e633a888a",
-    "desktop/driver.mjs": "43b4452b243572503d33f1b5f9c8d45cab23654343bd1164ef2af433cf3dc139",
+    "desktop/driver.mjs": "a37b17e66de0576068bdcc44eed9b3a0b47a5f42ed7239287c9e7e3a89cd7a11",
     "desktop/start-desktop.sh": "85fb4d8c8d9d8cfdf0f2cdf248dd19c79bd5666b9228b5d1e0f5f0d0e6a2e342"
   }
 }

@@ -7,6 +7,9 @@ type Options = {
   createSocket?: (url: string) => CdpSocket;
   signal?: AbortSignal;
 };
+const DOM_OUTPUT_LIMIT = 120000;
+const DOM_TRUNCATED = "\n[DOM truncated]";
+
 const Targets = z.array(
   z.object({ type: z.string(), url: z.string(), webSocketDebuggerUrl: z.string().optional() }),
 );
@@ -142,10 +145,18 @@ export async function observeDesktopPage(
       const document = z
         .object({ root: z.object({ nodeId: z.number() }) })
         .parse(await rpc("DOM.getDocument", { depth: 0 }));
-      return z
+      // Large head scripts and styles must not consume the observation before page content.
+      const body = z
+        .object({ nodeId: z.int().nonnegative() })
+        .parse(await rpc("DOM.querySelector", { nodeId: document.root.nodeId, selector: "body" }));
+      const html = z
         .object({ outerHTML: z.string() })
-        .parse(await rpc("DOM.getOuterHTML", { nodeId: document.root.nodeId }))
-        .outerHTML.slice(0, 120000);
+        .parse(
+          await rpc("DOM.getOuterHTML", { nodeId: body.nodeId || document.root.nodeId }),
+        ).outerHTML;
+      return html.length > DOM_OUTPUT_LIMIT
+        ? html.slice(0, DOM_OUTPUT_LIMIT - DOM_TRUNCATED.length) + DOM_TRUNCATED
+        : html;
     }
     await rpc("Log.enable");
     await rpc("Runtime.enable");

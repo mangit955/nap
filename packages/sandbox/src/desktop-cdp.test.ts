@@ -4,13 +4,19 @@ import { observeDesktopPage } from "./desktop-cdp.ts";
 class Socket extends EventTarget {
   closed = 0;
   readonly methods: string[] = [];
-  constructor(readonly result: (method: string, id: number) => unknown[]) {
+  constructor(
+    readonly result: (method: string, id: number, params: Record<string, unknown>) => unknown[],
+  ) {
     super();
   }
   send(data: string) {
-    const { method, id } = JSON.parse(data) as { method: string; id: number };
+    const { method, id, params } = JSON.parse(data) as {
+      method: string;
+      id: number;
+      params: Record<string, unknown>;
+    };
     this.methods.push(method);
-    for (const reply of this.result(method, id))
+    for (const reply of this.result(method, id, params))
       queueMicrotask(() =>
         this.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(reply) })),
       );
@@ -31,7 +37,11 @@ it("reads DOM through fixed protocol operations and closes its connection", asyn
     {
       id,
       result:
-        method === "DOM.getDocument" ? { root: { nodeId: 1 } } : { outerHTML: "<main>App</main>" },
+        method === "DOM.getDocument"
+          ? { root: { nodeId: 1 } }
+          : method === "DOM.querySelector"
+            ? { nodeId: 2 }
+            : { outerHTML: "<main>App</main>" },
     },
   ]);
   expect(
@@ -43,7 +53,7 @@ it("reads DOM through fixed protocol operations and closes its connection", asyn
       },
     }),
   ).toBe("<main>App</main>");
-  expect(socket.methods).toEqual(["DOM.getDocument", "DOM.getOuterHTML"]);
+  expect(socket.methods).toEqual(["DOM.getDocument", "DOM.querySelector", "DOM.getOuterHTML"]);
   expect(socket.closed).toBe(1);
 });
 it("reads existing console/log notifications without executing page JavaScript", async () => {
@@ -126,9 +136,11 @@ it.each(["dom", "console"] as const)(
         result:
           method === "DOM.getDocument"
             ? { root: { nodeId: 1 } }
-            : method === "DOM.getOuterHTML"
-              ? { outerHTML: "<main>Blocked by your organization</main>" }
-              : {},
+            : method === "DOM.querySelector"
+              ? { nodeId: 2 }
+              : method === "DOM.getOuterHTML"
+                ? { outerHTML: "<main>Blocked by your organization</main>" }
+                : {},
       },
     ]);
     const result = await observeDesktopPage(kind, {
@@ -171,7 +183,11 @@ it.each([
     {
       id,
       result:
-        method === "DOM.getDocument" ? { root: { nodeId: 1 } } : { outerHTML: "<main>App</main>" },
+        method === "DOM.getDocument"
+          ? { root: { nodeId: 1 } }
+          : method === "DOM.querySelector"
+            ? { nodeId: 2 }
+            : { outerHTML: "<main>App</main>" },
     },
   ]);
   expect(
@@ -203,3 +219,99 @@ it.each([
   ).rejects.toThrow("No browser page is open.");
   expect(connected).toBe(false);
 });
+
+it("prioritizes body DOM when a large head would hide the visible page message", async () => {
+  const body =
+    "<body><main>This page is blocked. Your organization does not allow this site.</main></body>";
+  const full = `<html><head><style>${"x".repeat(130000)}</style></head>${body}</html>`;
+  const socket = new Socket((method, id, params) => [
+    {
+      id,
+      result:
+        method === "DOM.getDocument"
+          ? { root: { nodeId: 1 } }
+          : method === "DOM.querySelector"
+            ? { nodeId: params.selector === "body" ? 2 : 0 }
+            : { outerHTML: params.nodeId === 2 ? body : full },
+    },
+  ]);
+  const result = await observeDesktopPage("dom", {
+    fetchTargets: async () => target,
+    createSocket: () => {
+      queueMicrotask(() => socket.dispatchEvent(new Event("open")));
+      return socket;
+    },
+  });
+  expect(result.includes("This page is blocked")).toBe(true);
+  expect(result).toBe(body);
+  expect(socket.methods).toEqual(["DOM.getDocument", "DOM.querySelector", "DOM.getOuterHTML"]);
+  expect(socket.closed).toBe(1);
+});
+
+it("marks incomplete body observations within the existing DOM character limit", async () => {
+  const body = `<body>${"x".repeat(130000)}</body>`;
+  const socket = new Socket((method, id) => [
+    {
+      id,
+      result:
+        method === "DOM.getDocument"
+          ? { root: { nodeId: 1 } }
+          : method === "DOM.querySelector"
+            ? { nodeId: 2 }
+            : { outerHTML: body },
+    },
+  ]);
+  const result = await observeDesktopPage("dom", {
+    fetchTargets: async () => target,
+    createSocket: () => {
+      queueMicrotask(() => socket.dispatchEvent(new Event("open")));
+      return socket;
+    },
+  });
+  expect(result.length).toBe(120000);
+  expect(result.startsWith("<body>")).toBe(true);
+  expect(result.endsWith("[DOM truncated]")).toBe(true);
+});
+
+it("falls back to the document for pages without a body", async () => {
+  const socket = new Socket((method, id, params) => [
+    {
+      id,
+      result:
+        method === "DOM.getDocument"
+          ? { root: { nodeId: 1 } }
+          : method === "DOM.querySelector"
+            ? { nodeId: 0 }
+            : { outerHTML: params.nodeId === 1 ? "<svg>Drawing</svg>" : "" },
+    },
+  ]);
+  expect(
+    await observeDesktopPage("dom", {
+      fetchTargets: async () => target,
+      createSocket: () => {
+        queueMicrotask(() => socket.dispatchEvent(new Event("open")));
+        return socket;
+      },
+    }),
+  ).toBe("<svg>Drawing</svg>");
+});
+
+it.each([{ nodeId: -1 }, { nodeId: "body" }, {}])(
+  "rejects malformed body query responses without a follow-up DOM read",
+  async (reply) => {
+    const socket = new Socket((method, id) => [
+      { id, result: method === "DOM.getDocument" ? { root: { nodeId: 1 } } : reply },
+    ]);
+    await expect(
+      observeDesktopPage("dom", {
+        fetchTargets: async () => target,
+        createSocket: () => {
+          queueMicrotask(() => socket.dispatchEvent(new Event("open")));
+          return socket;
+        },
+      }),
+    ).rejects.toThrow();
+    expect(socket.methods).toEqual(["DOM.getDocument", "DOM.querySelector"]);
+    expect(socket.closed).toBe(1);
+  },
+);

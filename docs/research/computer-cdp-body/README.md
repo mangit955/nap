@@ -1,0 +1,11 @@
+# Prioritize meaningful DOM content
+
+The free actual-Chrome Docker rerun confirmed that `9d463a6` selects the app target and matches the prepared driver hash. It then exposed a separate output problem. Chrome 156's policy-error document has 184,968 characters. Production read_dom returned its first 120,000, stopping in head scripts and styles before the visible policy message. The [diagnostic](chrome-diagnostic.json) records the actual visible text and document length; the [prefix observation](prefix-observation.json) records what production returned. Full diagnostic HTML is not copied here.
+
+The observer now queries the body with a fixed read-only DOM.querySelector request before serializing it. Documents without a body, such as SVG, fall back to the root. Oversized observations keep the existing character ceiling and end with an explicit truncation marker. Head metadata is omitted when a body is present. Console behavior and target classification are unchanged. No page JavaScript execution or caller-controlled selector is introduced.
+
+A minimized regression with a large head failed before the repair. Five deliberate mutations then proved the fixed body selector, body priority, document fallback, truncation marker and body-query validation guards; the source was restored. All 5,587 tests across 425 files pass, along with typecheck and lint. Adjacent logs preserve the red and restored results, collection and full gates. Text logs have trailing whitespace normalized. The repaired actual-Chrome run is pending at this commit.
+
+The original smoke expected the legacy ERR_BLOCKED_BY_ADMINISTRATOR string. Chrome 156's full error DOM contains no such string, so the revised native oracle must require its observed blocked and organization message through production read_dom. Diagnostics alone cannot pass that assertion. This oracle correction is separate from the production-prefix defect.
+
+Free preparation was regenerated again. Manifest SHA-256: `665d66118d3347df757652caa3164186482ece62b358d9d9d9c2cccf52347e81`. Driver SHA-256: `a37b17e66de0576068bdcc44eed9b3a0b47a5f42ed7239287c9e7e3a89cd7a11`. No template publication, E2B VM or model call occurred. Real cloud behavior remains unverified under the user's free-only instruction.

@@ -1,0 +1,35 @@
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/feat-computer-use
+
+ ❯ |unit| packages/sandbox/src/desktop-cdp.test.ts (21 tests | 1 failed | 20 skipped) 98ms
+   × prioritizes body DOM when a large head would hide the visible page message 96ms
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 20 skipped (21)
+Type Errors  no errors
+   Start at  15:58:38
+   Duration  1.26s (transform 78ms, setup 0ms, import 374ms, tests 98ms, environment 0ms)
+
+Testing types with tsc and vue-tsc is an experimental feature.
+Breaking changes might not follow SemVer, please pin Vitest's version when using it.
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |unit| packages/sandbox/src/desktop-cdp.test.ts > prioritizes body DOM when a large head would hide the visible page message
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ packages/sandbox/src/desktop-cdp.test.ts:245:51
+    243|     },
+    244|   });
+    245|   expect(result.includes("This page is blocked")).toBe(true);
+       |                                                   ^
+    246|   expect(result).toBe(body);
+    247|   expect(socket.methods).toEqual(["DOM.getDocument", "DOM.querySelecto…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯

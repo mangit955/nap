@@ -1,0 +1,35 @@
+Testing types with tsc and vue-tsc is an experimental feature.
+Breaking changes might not follow SemVer, please pin Vitest's version when using it.
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/feat-computer-use
+
+ ❯ |unit| packages/sandbox/src/desktop-cdp.test.ts (18 tests | 1 failed | 17 skipped) 13ms
+   × prioritizes body DOM when a large head would hide the visible page message 12ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |unit| packages/sandbox/src/desktop-cdp.test.ts > prioritizes body DOM when a large head would hide the visible page message
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ packages/sandbox/src/desktop-cdp.test.ts:235:51
+    233|     },
+    234|   });
+    235|   expect(result.includes("This page is blocked")).toBe(true);
+       |                                                   ^
+    236|   expect(result).toBe(body);
+    237|   expect(socket.methods).toEqual(["DOM.getDocument", "DOM.querySelecto…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 17 skipped (18)
+Type Errors  no errors
+   Start at  15:55:45
+   Duration  206ms (transform 18ms, setup 0ms, import 53ms, tests 13ms, environment 0ms)

@@ -118,6 +118,8 @@ read the section covering whatever you are about to touch, not the whole file.
 
 ## Sandbox and storage
 
+- **A DOM prefix can contain only head scripts and styles.** The actual Chrome 156 policy page exceeded the DOM allowance before its visible blocked message appeared. Observe the body through fixed read-only CDP calls, fall back to the root when there is no body, and mark output truncation. The bounded result then prioritizes page content rather than head metadata. [Regression and native diagnostic](research/computer-cdp-body/README.md).
+
 - **Chrome browser UI can also be a debugger page target.** The actual Chrome 156 smoke listed an omnibox popup before the app after address-bar input. Selecting the first type page made DOM and console observations target browser UI. Classify web-content URLs as well, retain browser error pages, and keep the debugger connection loopback-only. [Regression and observed target order](research/computer-cdp-targets/README.md).
 
 - **An encoder's file stop threshold is not its finalized output size.** ffmpeg may write another packet and the MP4 index after reaching `-fs`. The desktop recorder leaves headroom below the accepted output ceiling and tests that agreement against real encoded video. It also records the encoder's PID and Linux start ticks, rather than its timeout monitor: killing only a stalled monitor left ffmpeg alive in the forced-stop experiment. [Reproduction and limits](research/computer-recording-linux/README.md).
