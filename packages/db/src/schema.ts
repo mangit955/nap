@@ -259,6 +259,34 @@ export const providerCredentials = pgTable(
   ],
 );
 
+/** The absence of a row means no managed refresh owns this account. */
+export const providerCredentialRefreshes = pgTable(
+  "provider_credential_refreshes",
+  {
+    accountId: uuid("account_id").primaryKey(),
+    phase: text("phase").$type<"claimed" | "uncertain">().notNull(),
+    claimTokenHash: text("claim_token_hash"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    createdAt,
+  },
+  (t) => [
+    foreignKey({
+      name: "provider_refresh_account_fk",
+      columns: [t.accountId],
+      foreignColumns: [providerAccounts.id],
+    }).onDelete("cascade"),
+    check("provider_refresh_phase", sql`${t.phase} in ('claimed', 'uncertain')`),
+    check(
+      "provider_refresh_claim",
+      sql`(
+    ${t.phase} = 'claimed' and ${t.claimTokenHash} is not null and ${t.claimTokenHash} ~ '^[a-f0-9]{64}$' and ${t.expiresAt} is not null and ${t.expiresAt} > ${t.createdAt}
+  ) or (
+    ${t.phase} = 'uncertain' and ${t.claimTokenHash} is null and ${t.expiresAt} is null
+  )`,
+    ),
+  ],
+);
+
 export const providerSignInPhase = pgEnum("provider_sign_in_phase", ProviderSignInPhaseSchema.enum);
 export const providerSignInAttempts = pgTable(
   "provider_sign_in_attempts",

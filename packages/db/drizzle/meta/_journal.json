@@ -120,6 +120,13 @@
       "when": 1792828513907,
       "tag": "0016_provider_sign_in_attempts",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1792834173891,
+      "tag": "0017_managed_provider_refresh",
+      "breakpoints": true
     }
   ]
 }

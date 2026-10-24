@@ -237,7 +237,9 @@ on the plan they already pay for; what the Providers settings page lists. A pers
 of one provider ("Personal", "Work"). Public account metadata reports the identity verified by
 the provider. Private authorization stores sealed credentials separately, with a generation that
 changes at login, logout and disable, and a version that changes at refresh. Those revisions fence
-stale writes; they cannot recover an ambiguous provider-side token rotation. Not the
+stale writes. A managed refresh claim has one owner, blocks other credential readers, and requires
+reconnection after an ambiguous or expired exchange. It cannot recover a lost provider-side token
+rotation, and does not fence native CLI credential mutation. Not the
 `LLMProvider`, which is model policy, and not an API key, which pays per token.
 
 **Provider sign-in attempt** — one interactive authentication exchange for a **Provider account**,

@@ -16,6 +16,7 @@ import {
 } from "@nap/shared/provider-accounts-protocol";
 import type { Result } from "@nap/shared/result";
 import { z } from "zod";
+import { withAuthDeadline } from "./auth-deadline.ts";
 import type { ProviderSecretBox, ProviderSecretScope } from "./secret-box.ts";
 import type {
   ProviderSignInResult,
@@ -77,25 +78,6 @@ const publicResult = (result: ProviderSignInAttemptWrite): ProviderSignInResult 
     ? { ok: true, value: ProviderSignInSchema.parse(result.attempt) }
     : { ok: false, error: { code: result.kind } };
 
-async function bounded<T>(
-  expiresAt: string,
-  action: (signal: AbortSignal) => Promise<T>,
-): Promise<T> {
-  const signal = AbortSignal.timeout(
-    Math.max(1, Math.min(30_000, Date.parse(expiresAt) - Date.now())),
-  );
-  let aborted = () => {};
-  const timeout = new Promise<never>((_resolve, reject) => {
-    aborted = () => reject(new Error("Provider authentication deadline reached"));
-    signal.addEventListener("abort", aborted, { once: true });
-  });
-  try {
-    return await Promise.race([action(signal), timeout]);
-  } finally {
-    signal.removeEventListener("abort", aborted);
-  }
-}
-
 export class BrowserProviderSignIn implements ProviderSignInRunner {
   readonly drivers: readonly ProviderDriver[];
   readonly #options: BrowserSignInOptions;
@@ -133,9 +115,11 @@ export class BrowserProviderSignIn implements ProviderSignInRunner {
     if (started.kind !== "updated") return publicResult(started);
     const flow = { owner, flowId: started.attempt.flowId };
     try {
-      const result = await bounded(started.attempt.expiresAt, (signal) =>
-        found.value.driver.begin({ challenge, signal }),
-      );
+      const result = await withAuthDeadline({
+        expiresAt: started.attempt.expiresAt,
+        maxDurationMs: 30_000,
+        action: (signal) => found.value.driver.begin({ challenge, signal }),
+      });
       if (!result.ok) return this.#fail(flow, result.error.reason);
       const state = privateState.parse({ challenge, driverState: result.value.state });
       const interaction = ProviderSignInInteractionSchema.parse({
@@ -185,14 +169,17 @@ export class BrowserProviderSignIn implements ProviderSignInRunner {
       const attempt = await this.#options.attempts.currentSignIn(owner);
       if (attempt?.flowId !== input.flowId || attempt.phase !== "verifying")
         return { ok: false, error: { code: "stale" } };
-      const result = await bounded(attempt.expiresAt, (signal) =>
-        found.value.driver.verify({
-          redirect: input.redirect,
-          challenge,
-          state: state.driverState,
-          signal,
-        }),
-      );
+      const result = await withAuthDeadline({
+        expiresAt: attempt.expiresAt,
+        maxDurationMs: 30_000,
+        action: (signal) =>
+          found.value.driver.verify({
+            redirect: input.redirect,
+            challenge,
+            state: state.driverState,
+            signal,
+          }),
+      });
       if (!result.ok) return this.#fail(flow, result.error.reason);
       const grant = grantSchema.parse(result.value);
       return publicResult(

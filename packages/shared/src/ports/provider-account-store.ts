@@ -24,6 +24,12 @@ export const SealedProviderCredentialsSchema = z.strictObject({
 const revision = { generation: z.int().nonnegative(), version: z.int().nonnegative() };
 export const ProviderAuthorizationSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("disconnected"), ...revision }),
+  z.strictObject({ kind: z.literal("refreshing"), ...revision, expiresAt: z.iso.datetime() }),
+  z.strictObject({
+    kind: z.literal("reconnect_required"),
+    ...revision,
+    reason: z.literal("refresh_uncertain"),
+  }),
   z.strictObject({
     kind: z.literal("connected"),
     ...revision,

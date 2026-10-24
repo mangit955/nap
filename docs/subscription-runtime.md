@@ -17,10 +17,23 @@ Refresh compares both revisions and advances version, so concurrent workers cann
 other's credential writes. Parent-account row locks cover the first credential write as well as
 updates. Re-enabling an account does not restore its login.
 
-This persistence rule does not serialize provider-side refresh requests or recover a refresh token
-lost between successful provider rotation and database commit. Managed refresh still needs a
-single owner and explicit ambiguous-rotation recovery. Native CLI credential mutation additionally
-requires termination proof before a replacement CLI is allowed to start.
+Managed token exchange now uses a separate durable claim. Exactly one worker receives the sealed
+refresh grant; other readers see a credential-free `refreshing` result. The claim is bound to the
+current generation and version and stores a hash of its private completion capability. Only that
+owner may commit a replacement. A direct credential CAS cannot bypass a running managed refresh.
+Login, logout, disable and deletion fence its late result.
+
+A managed claim expires after thirty seconds and is never taken over. An expired claim or ambiguous
+provider response advances the generation, clears the unusable grant, marks the account expired,
+and requires user-driven reconnection. This deliberately does not promise recovery of a refresh
+token lost between provider rotation and database commit. The coordinator bounds provider calls
+below the claim lifetime, checks ciphertext scope before contacting the provider, and does not
+return plaintext tokens. Provider-specific adapters still own token validation and must be approved
+before configuration. No production managed refresh adapter is configured.
+
+This claim is not a protocol for native CLI refresh. Native clients may mutate credentials in the
+background and must be serialized and terminated with proof before replacement or checkpoint.
+A database lease cannot prevent an old client from contacting the provider.
 
 ## Durable sign-in attempts
 
@@ -91,7 +104,7 @@ migration has been run. Existing API keys retain their existing storage and exec
 separately approved [E2B probe](e2b-native-process-probe-20261024.md) passed privilege checks,
 confirmed cgroup termination and detached-child cancellation, then destroyed its sandbox.
 Live PTY, reconnect and worker-loss expiry remain unverified. Provider-specific login adapters,
-refresh ownership, account checks during execution, native Claude/Codex adapters,
+native refresh fencing, account checks during execution, native Claude/Codex adapters,
 recovery archives and UI selection are still required. No provider has been enabled.
 
 Project code running under the same UID as a native agent can inspect that agent's credential

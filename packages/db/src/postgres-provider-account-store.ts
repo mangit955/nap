@@ -21,6 +21,12 @@ import {
   ProviderAuthorizationSchema,
   SealedProviderCredentialsSchema,
 } from "@nap/shared/ports/provider-account-store";
+import {
+  PROVIDER_REFRESH_TTL_MS,
+  type ProviderRefreshClaim,
+  ProviderRefreshClaimTokenSchema,
+  type ProviderRefreshStore,
+} from "@nap/shared/ports/provider-refresh-store";
 import type {
   ProviderSignInAttempt,
   ProviderSignInAttemptWrite,
@@ -44,6 +50,7 @@ import { z } from "zod";
 import {
   authSessions,
   providerAccounts,
+  providerCredentialRefreshes,
   providerCredentials,
   providerSignInAttempts,
   users,
@@ -52,8 +59,22 @@ import {
 type Transaction = Parameters<Parameters<PostgresJsDatabase["transaction"]>[0]>[0];
 type CredentialRow = typeof providerCredentials.$inferSelect;
 
-function toAuthorization(row: CredentialRow | undefined): ProviderAuthorization {
+type RefreshRow = typeof providerCredentialRefreshes.$inferSelect;
+type StoredAuthorization = Extract<ProviderAuthorization, { kind: "connected" | "disconnected" }>;
+
+function toAuthorization(
+  row: CredentialRow | undefined,
+  refresh?: RefreshRow,
+): ProviderAuthorization {
   const revision = { generation: row?.generation ?? 0, version: row?.version ?? 0 };
+  if (refresh?.phase === "claimed")
+    return ProviderAuthorizationSchema.parse({
+      kind: "refreshing",
+      ...revision,
+      expiresAt: refresh.expiresAt?.toISOString(),
+    });
+  if (refresh?.phase === "uncertain")
+    return { kind: "reconnect_required", ...revision, reason: "refresh_uncertain" };
   return ProviderAuthorizationSchema.parse(
     row?.ciphertext == null
       ? { kind: "disconnected", ...revision }
@@ -101,7 +122,9 @@ function toAccount(row: AccountRow): ProviderAccount {
 
 const isUuid = (id: string) => z.uuid().safeParse(id).success;
 
-export class PostgresProviderAccountStore implements ProviderAccountStore, ProviderSignInStore {
+export class PostgresProviderAccountStore
+  implements ProviderAccountStore, ProviderSignInStore, ProviderRefreshStore
+{
   readonly #db: PostgresJsDatabase;
 
   constructor(db: PostgresJsDatabase) {
@@ -165,13 +188,7 @@ export class PostgresProviderAccountStore implements ProviderAccountStore, Provi
   }
 
   async authorization(userId: string, id: string): Promise<ProviderAuthorization | null> {
-    if (!isUuid(id)) return null;
-    const [row] = await this.#db
-      .select({ credentials: providerCredentials })
-      .from(providerAccounts)
-      .leftJoin(providerCredentials, eq(providerCredentials.accountId, providerAccounts.id))
-      .where(and(eq(providerAccounts.userId, userId), eq(providerAccounts.id, id)));
-    return row === undefined ? null : toAuthorization(row.credentials ?? undefined);
+    return this.#owned(userId, id, (tx) => this.#current(tx, id));
   }
 
   async completeSignIn(
@@ -219,6 +236,86 @@ export class PostgresProviderAccountStore implements ProviderAccountStore, Provi
 
   async revokeAuthorization(userId: string, id: string): Promise<ProviderAuthorization | null> {
     return this.#owned(userId, id, (tx) => this.#revoke(tx, id));
+  }
+
+  async claimManagedRefresh(
+    input: Parameters<ProviderRefreshStore["claimManagedRefresh"]>[0],
+  ): Promise<ProviderRefreshClaim> {
+    return (
+      (await this.#owned<ProviderRefreshClaim>(
+        input.userId,
+        input.accountId,
+        async (tx, account) => {
+          if (!account.enabled) return { kind: "disabled" };
+          const current = await this.#current(tx, account.id);
+          if (current.kind === "reconnect_required") return { kind: "reconnect_required" };
+          if (current.kind === "disconnected") return { kind: "disconnected" };
+          if (current.generation !== input.generation || current.version !== input.version)
+            return { kind: "stale" };
+          if (current.kind === "refreshing") return { kind: "busy" };
+          const token = ProviderRefreshClaimTokenSchema.parse(randomBytes(32).toString("hex"));
+          const [claim] = await tx
+            .insert(providerCredentialRefreshes)
+            .values({
+              accountId: account.id,
+              phase: "claimed",
+              claimTokenHash: signInHash(token),
+              createdAt: sql`clock_timestamp()`,
+              expiresAt: sql`clock_timestamp() + ${PROVIDER_REFRESH_TTL_MS} * interval '1 millisecond'`,
+            })
+            .returning();
+          if (!claim?.expiresAt) throw new Error("Managed refresh insert returned no deadline");
+          return {
+            kind: "claimed",
+            claimToken: token,
+            expiresAt: claim.expiresAt.toISOString(),
+            credentials: current.credentials,
+          };
+        },
+        true,
+      )) ?? { kind: "missing" }
+    );
+  }
+
+  async finishManagedRefresh(
+    input: Parameters<ProviderRefreshStore["finishManagedRefresh"]>[0],
+  ): Promise<ProviderAuthorizationWrite> {
+    return (
+      (await this.#owned<ProviderAuthorizationWrite>(
+        input.userId,
+        input.accountId,
+        async (tx, account) => {
+          if (!account.enabled) return { kind: "disabled" };
+          const current = await this.#current(tx, account.id);
+          if (
+            current.kind !== "refreshing" ||
+            current.generation !== input.generation ||
+            current.version !== input.version
+          )
+            return { kind: "stale" };
+          const [claim] = await tx
+            .select()
+            .from(providerCredentialRefreshes)
+            .where(eq(providerCredentialRefreshes.accountId, account.id));
+          if (claim?.phase !== "claimed" || claim.claimTokenHash !== signInHash(input.claimToken))
+            return { kind: "stale" };
+          if (input.outcome.kind === "uncertain")
+            return {
+              kind: "updated",
+              authorization: await this.#uncertainRefresh(tx, account.id, current),
+            };
+          const authorization: StoredAuthorization = {
+            kind: "connected",
+            generation: current.generation,
+            version: current.version + 1,
+            credentials: SealedProviderCredentialsSchema.parse(input.outcome.credentials),
+          };
+          await this.#save(tx, account.id, authorization);
+          return { kind: "updated", authorization };
+        },
+        true,
+      )) ?? { kind: "missing" }
+    );
   }
 
   async beginSignIn(
@@ -505,10 +602,23 @@ export class PostgresProviderAccountStore implements ProviderAccountStore, Provi
       .select()
       .from(providerCredentials)
       .where(eq(providerCredentials.accountId, id));
-    return toAuthorization(row);
+    const [refresh] = await tx
+      .select({
+        row: providerCredentialRefreshes,
+        expired: sql<boolean>`${providerCredentialRefreshes.expiresAt} <= clock_timestamp()`,
+      })
+      .from(providerCredentialRefreshes)
+      .where(eq(providerCredentialRefreshes.accountId, id));
+    const authorization = toAuthorization(row, refresh?.row);
+    if (refresh?.row.phase === "claimed" && refresh.expired)
+      return this.#uncertainRefresh(tx, id, authorization);
+    return authorization;
   }
 
-  async #save(tx: Transaction, id: string, authorization: ProviderAuthorization): Promise<void> {
+  async #save(tx: Transaction, id: string, authorization: StoredAuthorization): Promise<void> {
+    await tx
+      .delete(providerCredentialRefreshes)
+      .where(eq(providerCredentialRefreshes.accountId, id));
     const value = {
       accountId: id,
       generation: authorization.generation,
@@ -520,6 +630,22 @@ export class PostgresProviderAccountStore implements ProviderAccountStore, Provi
       .insert(providerCredentials)
       .values(value)
       .onConflictDoUpdate({ target: providerCredentials.accountId, set: value });
+  }
+
+  async #uncertainRefresh(
+    tx: Transaction,
+    id: string,
+    current: ProviderAuthorization,
+  ): Promise<ProviderAuthorization> {
+    const revision = { generation: current.generation + 1, version: current.version + 1 };
+    await this.#save(tx, id, { kind: "disconnected", ...revision });
+    await tx.insert(providerCredentialRefreshes).values({ accountId: id, phase: "uncertain" });
+    await tx
+      .update(providerAccounts)
+      .set({ authStatus: "expired", updatedAt: sql`clock_timestamp()` })
+      .where(eq(providerAccounts.id, id));
+    await this.#invalidateSignIns(tx, id);
+    return { kind: "reconnect_required", ...revision, reason: "refresh_uncertain" };
   }
 
   async #revoke(tx: Transaction, id: string): Promise<ProviderAuthorization> {
@@ -549,9 +675,16 @@ export class PostgresProviderAccountStore implements ProviderAccountStore, Provi
     userId: string,
     id: string,
     change: (tx: Transaction, account: AccountRow) => Promise<T>,
+    permanent = false,
   ): Promise<T | null> {
-    if (!isUuid(id)) return null;
+    if (!isUuid(userId) || !isUuid(id)) return null;
     return this.#db.transaction(async (tx) => {
+      const [user] = await tx
+        .select({ id: users.id })
+        .from(users)
+        .where(and(eq(users.id, userId), permanent ? eq(users.isAnonymous, false) : undefined))
+        .for("share");
+      if (user === undefined) return null;
       const account = await this.#lockAccount(tx, userId, id);
       return account === undefined ? null : change(tx, account);
     });
