@@ -38,3 +38,15 @@ name that import and reported no unrelated setup failure.
 - `bunx tsc --noEmit -p apps/api/tsconfig.json` passed.
 - `bunx biome check` passed for the adapter, its boundary test, and the JavaScript runtime helpers
   after applying the formatter.
+
+## Native Docker gate
+
+`NAP_RUN_LOCAL_DOCKER_INTEGRATION=1 bunx vitest run --project integration
+apps/api/scripts/computer-local-sandbox.integration.test.ts --maxWorkers=1` passed its one opt-in test
+in 518.22 seconds. The run built image `sha256:65b5cf3d…` for content digest `415d80be…` and exercised
+the real template, Git, typecheck/build, both loopback bridges, production desktop operations,
+concurrent cancellation, and MP4 recording. The test destroyed its exact sandbox and closed its manager.
+
+The post-run safeguard found the original `nap-local-db` id `8d3bd782…` still running. It also found
+that the baseline host listeners and PIDs for 3037/3038/3039 were no longer present. The adapter has no
+host-process or fixed-port operation, so no restart or speculative attribution was made.
