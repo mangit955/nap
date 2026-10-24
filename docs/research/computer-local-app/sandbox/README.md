@@ -58,5 +58,9 @@ host-process or fixed-port operation, so no restart or speculative attribution w
 - Early file-helper and bridge exits with buffered stdin initially produced two uncaught `write EPIPE`
   errors. After routing stdin errors through typed process/socket teardown, the two regression tests
   passed with no unhandled error.
-- The post-change bounded full suite passed 426 files and 5,597 tests with no type errors using two
-  workers.
+- The first post-repair full run under concurrent host load passed 424 of 426 files and 5,597 of
+  5,599 tests. Both failures were one-second child-start polls: this suite's fake image build and the
+  unrelated Git broker test. Both passed alone. The owned poll now has an explicit 10-second bound;
+  the unrelated source was not changed.
+- The final serialized full suite passed 426 files and 5,599 tests with no type errors. Full Biome
+  lint exited zero with one unrelated existing warning and one unrelated style suggestion.

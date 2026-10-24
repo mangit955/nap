@@ -528,7 +528,9 @@ describe.sequential("LocalDockerSandboxManager boundaries", () => {
     process.env.NAP_LOCAL_DOCKER_FAKE_FAULT = "build_block";
     const controller = new AbortController();
     const opening = LocalDockerSandboxManager.open({ repositoryRoot, signal: controller.signal });
-    await expect.poll(() => calls().some((args) => args[0] === "build")).toBe(true);
+    await expect
+      .poll(() => calls().some((args) => args[0] === "build"), { timeout: 10_000, interval: 20 })
+      .toBe(true);
     const build = calls().find((args) => args[0] === "build");
     const context = build?.at(-1);
 
