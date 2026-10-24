@@ -35,6 +35,27 @@ const mutations = [
   },
   {
     file: input,
+    name: "double click after flushed or acquisition click",
+    from: 'action: pending ? "double_click" : "left_click"',
+    to: 'action: "double_click"',
+    test: "remaining click",
+  },
+  {
+    file: input,
+    name: "paste request deadline isolation",
+    from: "for (const action of actions) void sendActions([action]);",
+    to: "void sendActions(actions);",
+    test: "maximum paste",
+  },
+  {
+    file: input,
+    name: "paste enqueue before later input",
+    from: "for (const action of actions) void sendActions([action]);",
+    to: "void (async () => { for (const action of actions) await sendActions([action]); })();",
+    test: "maximum paste",
+  },
+  {
+    file: input,
     name: "letterbox mapping",
     from: "(bounds.width - DESKTOP_WIDTH * scale) / 2",
     to: "0",
@@ -79,5 +100,5 @@ for (const mutation of mutations) {
   }
 }
 console.log(
-  "PASS: seven mutations caught; source restored. Rerun focused tests after this script.",
+  `PASS: ${mutations.length} mutations caught; source restored. Rerun focused tests after this script.`,
 );

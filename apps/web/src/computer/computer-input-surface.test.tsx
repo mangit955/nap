@@ -1,13 +1,24 @@
-import type { HumanComputerAction } from "@nap/shared/computer-access";
+import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
+import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
+import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
+import { ComputerInputSchema, type HumanComputerAction } from "@nap/shared/computer-access";
+import type { ProjectComputerAccess } from "@nap/shared/ports/project-computer-access";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { performDesktopAction } from "../../../../packages/sandbox/src/desktop-input.ts";
+import { FakeSandboxDesktop } from "../../../../packages/sandbox/src/testing/fake-sandbox-desktop.ts";
+import { createApp } from "../../../api/src/app.ts";
+import { createLogger } from "../../../api/src/logger.ts";
+import type { FetchJson } from "../files/use-project-files.ts";
 import { ComputerInputSurface } from "./computer-input-surface.tsx";
+import { useComputerControl } from "./use-computer-control.ts";
 
 beforeEach(() => {
   vi.useFakeTimers();
 });
 afterEach(() => {
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 function setup(driving = true) {
   const sendActions = vi.fn(async (_actions: readonly HumanComputerAction[]) => true);
@@ -74,6 +85,37 @@ it("a double click sends one double click, without two singles or a triple", () 
   });
   expect(h.sendActions).toHaveBeenCalledExactlyOnceWith([
     { action: "double_click", coordinate: [512, 384] },
+  ]);
+});
+it.each(["timer", "key", "text"])(
+  "a second click after the first was flushed by %s sends only the remaining click",
+  (flush) => {
+    const h = setup();
+    click(h.input, 510, 320, 1);
+    if (flush === "timer") act(() => vi.advanceTimersByTime(450));
+    else if (flush === "key") fireEvent.keyDown(h.input, { key: "Enter" });
+    else fireEvent.input(h.input, { target: { value: "a" } });
+    click(h.input, 510, 320, 2);
+    act(() => vi.runOnlyPendingTimers());
+    expect(
+      h.sendActions.mock.calls
+        .flatMap(([actions]) => actions)
+        .filter((action) => action.action === "left_click" || action.action === "double_click"),
+    ).toStrictEqual([
+      { action: "left_click", coordinate: [512, 384] },
+      { action: "left_click", coordinate: [512, 384] },
+    ]);
+  },
+);
+it("a grant between acquisition clicks does not turn the remaining click into a double", () => {
+  const h = setup(false);
+  click(h.input, 510, 320, 1);
+  h.rerender(<ComputerInputSurface {...h.props} driving />);
+  click(h.input, 510, 320, 2);
+  act(() => vi.runOnlyPendingTimers());
+  expect(h.takeControl).toHaveBeenCalledOnce();
+  expect(h.sendActions).toHaveBeenCalledExactlyOnceWith([
+    { action: "left_click", coordinate: [512, 384] },
   ]);
 });
 it("sends right/middle click and bounded wheel input without local menu or clipboard reads", () => {
@@ -149,9 +191,9 @@ it("explicit paste is bounded by shared batch/text limits and never repeats Ctrl
   const text = "a".repeat(2001);
   fireEvent.keyDown(h.input, { key: "v", ctrlKey: true });
   fireEvent.paste(h.input, { clipboardData: { getData: () => text } });
-  expect(h.sendActions).toHaveBeenCalledExactlyOnceWith([
-    { action: "type", text: "a".repeat(2000) },
-    { action: "type", text: "a" },
+  expect(h.sendActions.mock.calls.map(([actions]) => actions)).toStrictEqual([
+    [{ action: "type", text: "a".repeat(2000) }],
+    [{ action: "type", text: "a" }],
   ]);
 });
 it("cancels delayed clicks/composition on source changes, disable, blur and unmount", () => {
@@ -198,9 +240,9 @@ it("rejects oversized paste without a partial prefix, and keeps Unicode pairs in
   expect(h.sendActions).not.toHaveBeenCalled();
   expect(screen.getByRole("status")).toHaveTextContent("32,000");
   fireEvent.paste(h.input, { clipboardData: { getData: () => `${"a".repeat(1999)}🎉` } });
-  expect(h.sendActions).toHaveBeenCalledExactlyOnceWith([
-    { action: "type", text: "a".repeat(1999) },
-    { action: "type", text: "🎉" },
+  expect(h.sendActions.mock.calls.map(([actions]) => actions)).toStrictEqual([
+    [{ action: "type", text: "a".repeat(1999) }],
+    [{ action: "type", text: "🎉" }],
   ]);
 });
 it("retires composition on source changes and removes the native wheel listener on unmount", () => {
@@ -229,3 +271,205 @@ it("Shift Insert delegates only to explicit paste, and typing flushes an earlier
     [{ action: "type", text: "once" }],
   ]);
 });
+
+// Real client queue, API ownership/grant/schema/deadline path and adapter argv. Only
+// the project lock and physical X11 host are fakes; no cookies or cloud are used.
+async function queuedPaste() {
+  const sessionId = "00000000-0000-4000-8000-000000000001";
+  const desktop = new FakeSandboxDesktop({ bytes: new Uint8Array(), width: 1024, height: 768 });
+  const access: ProjectComputerAccess = {
+    async withIdleProject(_request, operation) {
+      return {
+        ok: true,
+        value: await operation({
+          sandboxId: "box",
+          revision: "00000000-0000-4000-8000-000000000003",
+        }),
+      };
+    },
+  };
+  const app = createApp({
+    logger: createLogger({ level: "silent" }, { write: () => {} }),
+    authenticate: async () => ({ userId: "owner", isAnonymous: false }),
+    stream: {
+      store: new InMemoryEventStore(),
+      bus: new InMemoryEventBus(),
+      upgradeWebSocket: async () => new Response(),
+    },
+    computerAccess: {
+      sessions: new InMemorySessionStore([
+        {
+          sessionId,
+          projectId: "00000000-0000-4000-8000-000000000002",
+          userId: "owner",
+          sandboxId: "box",
+        },
+      ]),
+      desktop,
+      access,
+      secret: "local-test-only",
+    },
+  });
+  let budget = 0;
+  let elapsed = 0;
+  let timeout = new AbortController();
+  const budgets: number[] = [];
+  vi.spyOn(AbortSignal, "timeout").mockImplementation((ms) => {
+    budgets.push(ms);
+    budget = ms;
+    elapsed = 0;
+    timeout = new AbortController();
+    return timeout.signal;
+  });
+  const physical: { kind: string; duration: number }[] = [];
+  vi.spyOn(desktop, "act").mockImplementation(async (_sandbox, action, signal) => {
+    try {
+      const value = await performDesktopAction(
+        action,
+        {
+          async xdotool(argv, options) {
+            const duration =
+              argv[0] === "type"
+                ? Number(argv[argv.indexOf("--delay") + 1]) * (options?.input?.length ?? 0)
+                : 0;
+            elapsed += duration;
+            physical.push({ kind: action.action, duration });
+            if (elapsed >= budget) timeout.abort();
+            signal?.throwIfAborted();
+            return "";
+          },
+          sleep: async () => {},
+          observe: async () => "",
+          zoom: async () => {},
+        },
+        signal,
+      );
+      return { ok: true, value };
+    } catch {
+      return { ok: false, error: { code: "timeout", message: "Modeled deadline" } };
+    }
+  });
+  const requests: { actions: HumanComputerAction[]; ack: () => void; status?: number }[] = [];
+  const fetcher: FetchJson = async (url, init) => {
+    let ack = () => {};
+    const gate = new Promise<void>((resolve) => {
+      ack = resolve;
+    });
+    const record = url.endsWith("/input")
+      ? {
+          actions: ComputerInputSchema.parse(JSON.parse(String(init?.body))).actions,
+          ack,
+          status: 0,
+        }
+      : null;
+    if (record) requests.push(record);
+    const response = await app.request(new URL(url).pathname, init);
+    if (record) {
+      record.status = response.status;
+      await gate;
+    }
+    return response;
+  };
+  function Client({ sourceKey }: { sourceKey: string }) {
+    const control = useComputerControl({
+      sessionId,
+      sourceKey,
+      active: true,
+      connected: true,
+      busy: false,
+      fetch: fetcher,
+    });
+    return (
+      <>
+        <ComputerInputSurface {...control} sourceKey={sourceKey} />
+        <output data-driving={control.driving}>{control.status}</output>
+      </>
+    );
+  }
+  const view = render(<Client sourceKey="a" />);
+  await act(async () => {});
+  const input = screen.getByRole("textbox");
+  fireEvent.keyDown(input, { key: "Enter" });
+  await act(async () => {});
+  expect(view.container.querySelector("output")).toHaveAttribute("data-driving", "true");
+  return {
+    ...view,
+    input,
+    requests,
+    physical,
+    budgets,
+    async ack(index: number) {
+      await act(async () => {
+        requests[index]?.ack();
+      });
+    },
+    changeSource() {
+      view.rerender(<Client sourceKey="b" />);
+    },
+  };
+}
+
+it("a maximum paste uses separately acknowledged API deadlines before later keyboard and mouse input", async () => {
+  const h = await queuedPaste();
+  vi.spyOn(h.input, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 1024, 768));
+  // Distinct chunks prove the original order and contents, without logging either.
+  const chunks = Array.from({ length: 16 }, (_, index) =>
+    String.fromCharCode(65 + index).repeat(2000),
+  );
+  fireEvent.paste(h.input, { clipboardData: { getData: () => chunks.join("") } });
+  fireEvent.keyDown(h.input, { key: "Enter" });
+  fireEvent.contextMenu(h.input, { clientX: 512, clientY: 384 });
+  await act(async () => {});
+  expect(h.requests).toHaveLength(1);
+  for (const [index, text] of chunks.entries()) {
+    expect(h.requests[index]?.actions).toHaveLength(1);
+    const action = h.requests[index]?.actions[0];
+    expect(action?.action).toBe("type");
+    expect(action?.action === "type" && action.text === text).toBe(true);
+    expect(h.requests[index]?.status).toBe(200);
+    expect(h.requests).toHaveLength(index + 1);
+    await h.ack(index);
+  }
+  expect(h.requests[16]?.actions).toStrictEqual([{ action: "key", text: "Return" }]);
+  await h.ack(16);
+  expect(h.requests[17]?.actions).toStrictEqual([
+    { action: "right_click", coordinate: [512, 384] },
+  ]);
+  await h.ack(17);
+  expect(
+    h.physical.filter((action) => action.kind === "type").map((action) => action.duration),
+  ).toStrictEqual(Array(16).fill(2000));
+  expect(h.budgets).toStrictEqual(Array(18).fill(5000));
+  expect(h.container.querySelector("output")).toHaveAttribute("data-driving", "true");
+});
+
+it.each(["failure", "source", "expiry"])(
+  "queued paste discards every unsent chunk on %s without replay",
+  async (stop) => {
+    const h = await queuedPaste();
+    fireEvent.paste(h.input, { clipboardData: { getData: () => "x".repeat(32_000) } });
+    fireEvent.keyDown(h.input, { key: "Enter" });
+    await act(async () => {});
+    expect(h.requests).toHaveLength(1);
+    expect(h.requests[0]?.actions).toHaveLength(1);
+    if (stop === "failure") {
+      // The next real API request fails after the first chunk's acknowledgement.
+      vi.spyOn(AbortSignal, "timeout").mockReturnValue(AbortSignal.abort());
+      await h.ack(0);
+      expect(h.requests[1]?.status).toBe(503);
+      await h.ack(1);
+    } else {
+      if (stop === "source") h.changeSource();
+      else
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(60_000);
+        });
+      await h.ack(0);
+    }
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(h.requests).toHaveLength(stop === "failure" ? 2 : 1);
+    expect(h.container.querySelector("output")).toHaveAttribute("data-driving", "false");
+  },
+);

@@ -1,5 +1,7 @@
 # Take-control component evidence
 
+The accepted click-count and paste-deadline P2 repairs against parent `c31107e` are recorded in [the repair evidence](REPAIRS.md). The original implementation evidence below describes that parent. The current mutation script includes the three additional repair mutations.
+
 This partial implementation of [#150](https://github.com/mangit955/nap/issues/150) adds the real `useComputerControl` hook and `ComputerInputSurface` component. [Integration instructions](INTEGRATION.md) describe the parent's button, live-frame overlay, disconnect boundaries, and `RimGlow` wiring. No ComputerPane, AppShell, API, database, shared wire schema, or global stylesheet changes are included.
 
 Seven PNGs show live takeover availability, driving, a lease in another project session, history, disconnect, input failure, and a 390×844 layout. Desktop captures are 1440×1100, scale 1. Chrome 153.0.8010.54 on macOS, Node 26.12.0, captured 2026-10-24. The narrow capture enables reduced motion and transparency. It does not emulate a touch device or OS keyboard. `SHA256SUMS` records the committed PNG bytes.

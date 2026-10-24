@@ -156,7 +156,9 @@ export function ComputerInputSurface({
     }
     flushClick();
     setMessage(null);
-    void sendActions(actions);
+    // Enqueue the whole paste before another event can interleave. Each chunk
+    // gets its own request deadline; the hook awaits acks and retires unsent work.
+    for (const action of actions) void sendActions([action]);
   };
   const wheel = useEffectEvent((event: WheelEvent) => {
     const coordinate = point(event.clientX, event.clientY);
@@ -227,9 +229,12 @@ export function ComputerInputSurface({
           }
           if (event.detail > 2) return;
           if (event.detail === 2) {
-            if (click.current) clearTimeout(click.current.timer);
+            const pending = click.current;
+            if (pending) clearTimeout(pending.timer);
             click.current = null;
-            void sendActions([{ action: "double_click", coordinate }]);
+            // Only a pending first click can be replaced by two remote clicks.
+            // It may already have been sent, or consumed by acquiring control.
+            void sendActions([{ action: pending ? "double_click" : "left_click", coordinate }]);
           } else {
             flushClick();
             click.current = { coordinate, timer: setTimeout(flushClick, 400) };
