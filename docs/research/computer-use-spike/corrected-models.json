@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "model": "anthropic/claude-sonnet-5",
+      "status": "passed",
+      "usage": {
+        "inputTokens": 1844,
+        "outputTokens": 43
+      },
+      "toolCalls": [
+        {
+          "id": "toolu_01UQEBu56erGToRv1VErHF3V",
+          "name": "report_probe",
+          "input": {
+            "marker": "NAP-A5EC9A84"
+          }
+        }
+      ]
+    },
+    {
+      "model": "anthropic/claude-opus-5",
+      "status": "passed",
+      "usage": {
+        "inputTokens": 1776,
+        "outputTokens": 43
+      },
+      "toolCalls": [
+        {
+          "id": "toolu_016WgBriXx5RGhLHUQFokTzB",
+          "name": "report_probe",
+          "input": {
+            "marker": "NAP-A5EC9A84"
+          }
+        }
+      ]
+    }
+  ]
+}
