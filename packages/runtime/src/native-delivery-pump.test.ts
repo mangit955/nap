@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
-import type { NativeDeliveryCipher } from "@nap/shared/ports/native-delivery-cipher";
 import type {
   NativeDelivery,
   NativeRunBinding,
   NativeRunStore,
   StoredNativeDelivery,
 } from "@nap/shared/ports/native-run-store";
+import type { NativeStateCipher } from "@nap/shared/ports/native-state-cipher";
 import type { ProcessEvent } from "@nap/shared/ports/sandbox-process";
 import { expect, it } from "vitest";
 import { NativeDeliveryPump } from "./native-delivery-pump.ts";
@@ -25,7 +25,7 @@ const binding: NativeRunBinding = {
   },
 };
 const handle = { id: "00000000-0000-4000-8000-000000000007", token: "a".repeat(64) };
-const cipher: NativeDeliveryCipher = {
+const cipher: NativeStateCipher = {
   seal: (scope, value) => ({
     ciphertext: Buffer.from(value).toString("base64"),
     iv: createHash("sha256").update(JSON.stringify(scope)).digest("hex"),

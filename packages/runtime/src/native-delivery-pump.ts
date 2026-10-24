@@ -4,22 +4,19 @@ import {
   NativeStoredFrameSchema,
 } from "@nap/shared/native-delivery-protocol";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
-import type {
-  NativeDeliveryCipher,
-  NativeDeliveryScope,
-} from "@nap/shared/ports/native-delivery-cipher";
 import {
   type NativeRunBinding,
   NativeRunBindingSchema,
   type NativeRunHandle,
   type NativeRunStore,
 } from "@nap/shared/ports/native-run-store";
+import type { NativeDeliveryScope, NativeStateCipher } from "@nap/shared/ports/native-state-cipher";
 import type { ProcessEvent } from "@nap/shared/ports/sandbox-process";
 
 export type NativeOutputDecoder = { accept(event: ProcessEvent): NativeOutputEvent[] };
 type Options = {
   store: Pick<NativeRunStore, "read" | "deliveries" | "append">;
-  cipher: NativeDeliveryCipher;
+  cipher: NativeStateCipher;
   handle: NativeRunHandle;
   binding: NativeRunBinding;
   decoder: NativeOutputDecoder;

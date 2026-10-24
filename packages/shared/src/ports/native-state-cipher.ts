@@ -11,10 +11,21 @@ export const NativeDeliveryScopeSchema = z.strictObject({
 });
 export type NativeDeliveryScope = z.infer<typeof NativeDeliveryScopeSchema>;
 
-export interface NativeDeliveryCipher {
-  seal(scope: NativeDeliveryScope, value: string): SealedProviderCredentials;
+export const NativeReceiptScopeSchema = z.strictObject({
+  kind: z.literal("native_receipt"),
+  binding: NativeRunBindingSchema,
+  runId: z.uuid(),
+});
+export const NativeStateScopeSchema = z.discriminatedUnion("kind", [
+  NativeDeliveryScopeSchema,
+  NativeReceiptScopeSchema,
+]);
+export type NativeStateScope = z.infer<typeof NativeStateScopeSchema>;
+
+export interface NativeStateCipher {
+  seal(scope: NativeStateScope, value: string): SealedProviderCredentials;
   open(
-    scope: NativeDeliveryScope,
+    scope: NativeStateScope,
     value: SealedProviderCredentials,
   ): { ok: true; value: string } | { ok: false; reason: string };
 }

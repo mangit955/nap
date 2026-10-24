@@ -69,6 +69,42 @@ describe("provider secret scope", () => {
     ])
       expect(box.open(other, secret)).toEqual({ ok: false, reason: "scope_mismatch" });
   });
+  it("binds a native process receipt to its run and refuses to open it as an output frame", () => {
+    const box = new ProviderSecretBox(KEY);
+    const binding = {
+      userId: USER,
+      projectId: SESSION,
+      sessionId: SESSION,
+      requestId: SESSION,
+      turnId: SESSION,
+      target: {
+        kind: "subscription" as const,
+        driver: "claude" as const,
+        accountId: ACCOUNT,
+        generation: 3,
+        model: "native",
+      },
+    };
+    const scope = { kind: "native_receipt" as const, binding, runId: SESSION };
+    const receipt = box.seal(scope, "private-supervisor-token");
+    expect(box.open(scope, receipt)).toEqual({ ok: true, value: "private-supervisor-token" });
+    expect(box.open({ ...scope, runId: OTHER }, receipt)).toEqual({
+      ok: false,
+      reason: "scope_mismatch",
+    });
+    expect(
+      box.open(
+        { ...scope, binding: { ...binding, target: { ...binding.target, accountId: OTHER } } },
+        receipt,
+      ),
+    ).toEqual({ ok: false, reason: "scope_mismatch" });
+    expect(
+      box.open(
+        { kind: "native_delivery", binding, runId: SESSION, sequence: 1, rawHash: "a".repeat(64) },
+        receipt,
+      ),
+    ).toEqual({ ok: false, reason: "scope_mismatch" });
+  });
   it("seals a private value with fresh nonces and opens only under its authenticated context", () => {
     const box = new ProviderSecretBox(KEY);
     const first = box.seal(GRANT, "private-refresh-grant");

@@ -43,8 +43,16 @@ helper and smoke source both live under `src`, so normal TypeScript and lint gat
 
 ## Remaining release work
 
-The helper is not yet connected to a production runtime allocator, a supervised workspace tool
-gateway or interactive CLI login. Account-private native archives, coherent recovery checkpoints,
+The helper now connects through `ClaudeNativeExecutor` to the supervised process port and
+`NativeWorkspaceGateway`. The gateway journals tool intent before effects, refuses duplicate
+call IDs, and runs commands through cgroup-supervised processes rather than aggregate exec.
+A scripted test exercises native MCP editing, git finalization, a failed check and a native repair.
+It uses fixture process receipts and cannot establish physical isolation on its own.
+
+Production still needs the isolated runtime allocator and interactive CLI login. The project
+profile must prove that project code cannot reach a privileged control channel or leave writers
+outside containment. Preview servers need a separate, proven write boundary. Account-private
+native archives, coherent recovery checkpoints,
 worker-loss reconciliation, preview write containment and provider-specific acceptance remain
 open. Browser automation did not validate the picker visually because the available preview
 repeatedly timed out; component tests cover its behavior.

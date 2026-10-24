@@ -168,6 +168,7 @@
       "name": "@nap/runtime",
       "version": "0.0.0",
       "dependencies": {
+        "@nap/agent": "workspace:*",
         "@nap/context": "workspace:*",
         "@nap/sandbox": "workspace:*",
         "@nap/shared": "workspace:*",
@@ -175,7 +176,7 @@
         "@nap/verify": "workspace:*",
       },
       "devDependencies": {
-        "@nap/agent": "workspace:*",
+        "@modelcontextprotocol/sdk": "1.29.0",
         "@nap/capture": "workspace:*",
         "@nap/db": "workspace:*",
       },
