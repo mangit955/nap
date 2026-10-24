@@ -118,6 +118,10 @@ read the section covering whatever you are about to touch, not the whole file.
 
 ## Sandbox and storage
 
+- **An encoder's file stop threshold is not its finalized output size.** ffmpeg may write another packet and the MP4 index after reaching `-fs`. The desktop recorder leaves headroom below the accepted output ceiling and tests that agreement against real encoded video. It also records the encoder's PID and Linux start ticks, rather than its timeout monitor: killing only a stalled monitor left ffmpeg alive in the forced-stop experiment. [Reproduction and limits](research/computer-recording-linux/README.md).
+
+- **Nested repetition in a base64 regex can overflow on a valid video.** The desktop protocol uses a linear alphabet check and a separate length constraint. Its maximum-size regression executes the actual schema; small fixture strings missed the overflow. Transport limits also allow JSON escaping before base64, so a schema-valid text action fits the command envelope.
+
 - **Chrome managed URL policy is not an extension match pattern.** A trailing `/*` in URLAllowlist blocked even the intended localhost dev server during the real desktop spike. Use a scheme, exact host and port without a trailing wildcard; prefix a hostname with a dot to disable subdomain matching. The desktop must prove its own app is visible before any model probe. The spike also hashes that checked JPEG before passing it to the nested image mapper. [Evidence and source](research/computer-use-spike/README.md).
 
 - **A screenshot announcement cannot be its only object index.** An upload can succeed and the following event append can fail. Computer screenshots use deterministic keys from the earlier tool call, and the runtime's `beforeStore` hook drains that call before any upload. Project deletion derives keys from all durable computer calls, including ones with no screenshot event, and keeps the log if reading that index or deleting an object fails. See ADR-0018 for the choice over a second table.

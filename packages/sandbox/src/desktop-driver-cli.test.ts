@@ -8,7 +8,17 @@ it("describes the sandbox driver without starting any processes", () => {
   expect(run.status).toBe(0);
   expect(JSON.parse(run.stdout)).toEqual({
     protocol: 1,
-    operations: ["start", "act", "screenshot", "credentials", "cancel"],
+    operations: [
+      "start",
+      "act",
+      "screenshot",
+      "credentials",
+      "cancel",
+      "recording_begin",
+      "recording_timestamp",
+      "recording_finish",
+      "recording_discard",
+    ],
   });
 });
 it.each([

@@ -12,6 +12,9 @@ export const DesktopRequestSchema = z.discriminatedUnion("op", [
   z.strictObject({ ...identity, op: z.literal("screenshot") }),
   z.strictObject({ ...identity, op: z.literal("credentials") }),
   z.strictObject({ ...identity, op: z.literal("cancel") }),
+  ...(
+    ["recording_begin", "recording_timestamp", "recording_finish", "recording_discard"] as const
+  ).map((op) => z.strictObject({ ...identity, op: z.literal(op), recordingId: z.uuid() })),
 ]);
 export type DesktopRequest = z.infer<typeof DesktopRequestSchema>;
 export const DesktopFailureSchema = z.strictObject({
@@ -33,7 +36,10 @@ export const DesktopImageSchema = z.strictObject({
     .string()
     .min(4)
     .max(3_000_000)
-    .regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/),
+    .refine(
+      (data) => data.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(data),
+      "Invalid base64 data.",
+    ),
 });
 export const DesktopObservationSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("none") }),
@@ -56,3 +62,24 @@ export const DesktopPasswordSchema = z.strictObject({ password: z.string().min(8
 export const DESKTOP_STATE = "/home/user/.nap-desktop";
 export const DESKTOP_DRIVER = "/usr/local/lib/nap-desktop/driver.mjs";
 export const DESKTOP_STREAM_PORT = 6080;
+
+export const RecordingTimestampSchema = z.strictObject({
+  timeMs: z.int().nonnegative().max(605_000),
+});
+export const RecordingVideoSchema = z.strictObject({
+  durationMs: z.int().positive().max(605_000),
+  width: z.literal(1024),
+  height: z.literal(768),
+  data: z
+    .string()
+    .min(16)
+    .max(21_333_336)
+    .refine(
+      (data) => data.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(data),
+      "Invalid base64 data.",
+    ),
+});
+export const RecordingEmptySchema = z.strictObject({ kind: z.literal("none") });
+
+// JSON may escape each permitted text character to six bytes before base64 encoding.
+export const DESKTOP_REQUEST_MAX_BASE64_CHARS = 100000;

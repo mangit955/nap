@@ -7,8 +7,13 @@ import type {
   SandboxDesktop,
 } from "@nap/shared/ports/sandbox-desktop";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
+import type {
+  RecordedVideo,
+  SandboxRecording,
+  SandboxRecordings,
+} from "@nap/shared/ports/sandbox-recordings";
 import type { Result } from "@nap/shared/result";
-import type { z } from "zod";
+import { z } from "zod";
 import {
   DESKTOP_DRIVER,
   DESKTOP_STATE,
@@ -19,6 +24,9 @@ import {
   DesktopReplySchema,
   type DesktopRequest,
   DesktopSizeSchema,
+  RecordingEmptySchema,
+  RecordingTimestampSchema,
+  RecordingVideoSchema,
 } from "./desktop-protocol.ts";
 
 const unavailable: DesktopError = {
@@ -28,7 +36,7 @@ const unavailable: DesktopError = {
 const cancelled: DesktopError = { code: "cancelled", message: "Desktop operation cancelled." };
 
 /** Keeps process commands and private transport data behind the existing sandbox exec port. */
-export class E2BSandboxDesktop implements SandboxDesktop {
+export class E2BSandboxDesktop implements SandboxDesktop, SandboxRecordings {
   readonly #sandbox: SandboxManager;
   constructor(options: { sandbox: SandboxManager }) {
     this.#sandbox = options.sandbox;
@@ -133,12 +141,60 @@ export class E2BSandboxDesktop implements SandboxDesktop {
     }
   }
 
+  async begin(
+    options: SandboxRecording & { signal?: AbortSignal },
+  ): Promise<Result<void, DesktopError>> {
+    if (!z.uuid().safeParse(options.recordingId).success) return { ok: false, error: unavailable };
+    const result = await this.#request(
+      options.sandboxId,
+      { id: crypto.randomUUID(), op: "recording_begin", recordingId: options.recordingId },
+      RecordingEmptySchema,
+      options.signal,
+    );
+    return result.ok ? { ok: true, value: undefined } : result;
+  }
+  async timestamp(recording: SandboxRecording): Promise<Result<number, DesktopError>> {
+    if (!z.uuid().safeParse(recording.recordingId).success)
+      return { ok: false, error: unavailable };
+    const result = await this.#request(
+      recording.sandboxId,
+      { id: crypto.randomUUID(), op: "recording_timestamp", recordingId: recording.recordingId },
+      RecordingTimestampSchema,
+    );
+    return result.ok ? { ok: true, value: result.value.timeMs } : result;
+  }
+  async finish(recording: SandboxRecording): Promise<Result<RecordedVideo, DesktopError>> {
+    if (!z.uuid().safeParse(recording.recordingId).success)
+      return { ok: false, error: unavailable };
+    const result = await this.#request(
+      recording.sandboxId,
+      { id: crypto.randomUUID(), op: "recording_finish", recordingId: recording.recordingId },
+      RecordingVideoSchema,
+    );
+    if (!result.ok) return result;
+    const { data, ...metadata } = result.value;
+    const bytes = Buffer.from(data, "base64");
+    if (bytes.byteLength > 16_000_000 || bytes.toString("ascii", 4, 8) !== "ftyp")
+      return { ok: false, error: unavailable };
+    return { ok: true, value: { bytes: Uint8Array.from(bytes), ...metadata } };
+  }
+  async discard(recording: SandboxRecording): Promise<Result<void, DesktopError>> {
+    if (!z.uuid().safeParse(recording.recordingId).success)
+      return { ok: false, error: unavailable };
+    const result = await this.#request(
+      recording.sandboxId,
+      { id: crypto.randomUUID(), op: "recording_discard", recordingId: recording.recordingId },
+      RecordingEmptySchema,
+    );
+    return result.ok ? { ok: true, value: undefined } : result;
+  }
+
   #command(request: DesktopRequest): string {
     const data = Buffer.from(JSON.stringify(request)).toString("base64");
     const invoke = `node ${DESKTOP_DRIVER} '${data}'`;
     return request.op === "cancel"
       ? `timeout 5s ${invoke}`
-      : `install -d -m700 ${DESKTOP_STATE} && timeout --signal=TERM --kill-after=2 55s flock --close --wait 5 ${DESKTOP_STATE}/action.lock ${invoke}`;
+      : `install -d -m700 ${DESKTOP_STATE} && timeout --signal=TERM --kill-after=2 55s flock --close --wait ${request.op === "start" ? 50 : 5} ${DESKTOP_STATE}/action.lock ${invoke}`;
   }
 
   async #request<T>(
@@ -173,7 +229,8 @@ export class E2BSandboxDesktop implements SandboxDesktop {
         ...unavailable,
         code: result.value.exitCode === 124 ? "timeout" : "unavailable",
       };
-      if (result.value.stdout.length > 3_200_000) return { ok: false, error: failure };
+      if (result.value.stdout.length > (request.op === "recording_finish" ? 21_400_000 : 3_200_000))
+        return { ok: false, error: failure };
       let json: unknown;
       try {
         json = JSON.parse(result.value.stdout);

@@ -1,6 +1,6 @@
 /** Bundled into the sandbox image. All input arrives through the private typed command schema. */
 import { execFile } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
 import {
   DESKTOP_HEIGHT,
@@ -8,24 +8,42 @@ import {
   DesktopActionSchema,
   type DesktopError,
 } from "@nap/shared/ports/sandbox-desktop";
-import { z } from "zod";
+
 import { observeDesktopPage } from "../src/desktop-cdp.ts";
 import { type DesktopActionHost, performDesktopAction } from "../src/desktop-input.ts";
-import { DESKTOP_STATE, DesktopRequestSchema, DesktopSizeSchema } from "../src/desktop-protocol.ts";
+import { DesktopOperations } from "../src/desktop-operations.ts";
+import {
+  DESKTOP_REQUEST_MAX_BASE64_CHARS,
+  DESKTOP_STATE,
+  DesktopRequestSchema,
+  DesktopSizeSchema,
+} from "../src/desktop-protocol.ts";
+import { DesktopRecorder } from "../src/desktop-recorder.ts";
 
 const encoded = process.argv[2];
 if (!encoded) {
   console.log(
     JSON.stringify({
       protocol: 1,
-      operations: ["start", "act", "screenshot", "credentials", "cancel"],
+      operations: [
+        "start",
+        "act",
+        "screenshot",
+        "credentials",
+        "cancel",
+        "recording_begin",
+        "recording_timestamp",
+        "recording_finish",
+        "recording_discard",
+      ],
     }),
   );
   process.exit(0);
 }
 const controller = new AbortController();
 let errorCode: DesktopError["code"] = "unavailable";
-let operationPath: string | undefined;
+let operationId: string | undefined;
+const operations = new DesktopOperations(`${DESKTOP_STATE}/ops`);
 const signal = () => controller.abort();
 function run(
   program: string,
@@ -57,32 +75,27 @@ function startTicks(pid: number): string | undefined {
 }
 let reply: unknown;
 try {
-  if (encoded.length > 30000 || !/^[A-Za-z0-9+/=]+$/.test(encoded))
+  if (encoded.length > DESKTOP_REQUEST_MAX_BASE64_CHARS || !/^[A-Za-z0-9+/=]+$/.test(encoded))
     throw new Error("Invalid command.");
   const request = DesktopRequestSchema.parse(JSON.parse(Buffer.from(encoded, "base64").toString()));
   if (request.op === "cancel") {
-    const path = `${DESKTOP_STATE}/ops/${request.id}.json`;
-    if (existsSync(path)) {
-      const identity = z
-        .object({ pid: z.int().positive(), startTicks: z.string() })
-        .parse(JSON.parse(readFileSync(path, "utf8")));
-      if (startTicks(identity.pid) === identity.startTicks) {
-        try {
-          process.kill(identity.pid, "SIGTERM");
-        } catch {
-          /* The process may have completed between identity check and signal. */
-        }
+    const identity = operations.cancel(request.id);
+    if (identity && startTicks(identity.pid) === identity.startTicks) {
+      try {
+        process.kill(identity.pid, "SIGTERM");
+      } catch {
+        /* The process may have completed after the identity check. */
       }
     }
     reply = { ok: true, value: { kind: "none" } };
   } else {
-    mkdirSync(`${DESKTOP_STATE}/ops`, { recursive: true, mode: 0o700 });
-    operationPath = `${DESKTOP_STATE}/ops/${request.id}.json`;
-    writeFileSync(
-      operationPath,
-      JSON.stringify({ pid: process.pid, startTicks: startTicks(process.pid) }),
-      { mode: 0o600 },
-    );
+    operationId = request.id;
+    const ticks = startTicks(process.pid);
+    if (!ticks) throw new Error("Cannot identify the desktop process.");
+    if (!operations.claim(request.id, { pid: process.pid, startTicks: ticks })) {
+      controller.abort();
+      controller.signal.throwIfAborted();
+    }
     process.on("SIGTERM", signal);
     process.on("SIGINT", signal);
     const host: DesktopActionHost = {
@@ -96,7 +109,24 @@ try {
       },
     };
     let value: unknown;
+    const recorder = new DesktopRecorder();
     switch (request.op) {
+      case "recording_begin":
+        await recorder.begin(request.recordingId, controller.signal);
+        value = { kind: "none" };
+        break;
+      case "recording_timestamp":
+        value = { timeMs: await recorder.timestamp(request.recordingId) };
+        break;
+      case "recording_finish": {
+        const { bytes, ...metadata } = await recorder.finish(request.recordingId);
+        value = { ...metadata, data: Buffer.from(bytes).toString("base64") };
+        break;
+      }
+      case "recording_discard":
+        await recorder.discard(request.recordingId);
+        value = { kind: "none" };
+        break;
       case "start":
         value = DesktopSizeSchema.parse(
           JSON.parse(
@@ -199,7 +229,7 @@ try {
       "Super_L",
       "Super_R",
     ]).catch(() => undefined);
-  if (operationPath) rmSync(operationPath, { force: true });
+  if (operationId) operations.complete(operationId);
   process.removeListener("SIGTERM", signal);
   process.removeListener("SIGINT", signal);
 }
