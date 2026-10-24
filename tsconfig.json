@@ -12,5 +12,5 @@
   //
   // Named as a file rather than as the directory: a bare ".railway" here expands to a wildcard,
   // and TypeScript's wildcards skip dot-prefixed paths, so it matches nothing and says nothing.
-  "include": ["test", "vitest.config.ts", ".railway/railway.ts"]
+  "include": ["test", "scripts", "vitest.config.ts", ".railway/railway.ts"]
 }

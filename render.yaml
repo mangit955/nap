@@ -21,6 +21,7 @@ databases:
 services:
   - type: web
     name: nap-api
+    autoDeployTrigger: off
     runtime: docker
     repo: https://github.com/mangit955/nap
     branch: main
@@ -93,6 +94,7 @@ services:
   # manifests request 1 GiB for the same process.
   - type: worker
     name: nap-worker
+    autoDeployTrigger: off
     runtime: docker
     repo: https://github.com/mangit955/nap
     branch: main
@@ -107,6 +109,7 @@ services:
   # Exactly one. A second would wait on the advisory lock and do nothing, but it would still bill.
   - type: worker
     name: nap-reaper
+    autoDeployTrigger: off
     runtime: docker
     repo: https://github.com/mangit955/nap
     branch: main
