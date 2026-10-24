@@ -45,6 +45,7 @@ import type { PageCapture } from "@nap/shared/ports/page-capture";
 import type { ProjectSandboxStore } from "@nap/shared/ports/project-sandbox-store";
 import type { ProjectStore } from "@nap/shared/ports/project-store";
 import type { SandboxCapacity } from "@nap/shared/ports/sandbox-capacity";
+import type { SandboxDesktop } from "@nap/shared/ports/sandbox-desktop";
 import type { SandboxInventory } from "@nap/shared/ports/sandbox-inventory";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SessionStore } from "@nap/shared/ports/session-store";
@@ -196,6 +197,7 @@ export type NapDeps = {
   objects: ObjectStore;
   /** Model policy is the provider's; which provider it is, is the caller's. */
   provider: LLMProvider;
+  desktop?: SandboxDesktop;
   /**
    * A browser to photograph finished turns with, if this deployment has one.
    *
@@ -313,6 +315,9 @@ export function composeNap(deps: NapDeps): ComposedNap {
     ...(github === undefined ? {} : { repository: github }),
     sessions: deps.sessions,
     sandbox: deps.sandbox,
+    ...(deps.desktop === undefined
+      ? {}
+      : { computer: { desktop: deps.desktop, objects: deps.objects } }),
     // With these, a project outlives its sandbox: a session whose sandbox is gone is restored
     // from its last snapshot rather than starting again from an empty template.
     objects: deps.objects,

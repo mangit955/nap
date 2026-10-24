@@ -14,6 +14,32 @@ App tests offer source-reading tools and the image-gated computer. The executor 
 
 Cancellation preserves untested assertions and closes the test as interrupted. The janitor does the same after a lost worker, reading durable annotations and avoiding duplicate terminals on a later sweep. It does not requeue the test. A failing assertion never invokes a repair callback. The UI's explicit repair action belongs to the next UI ticket.
 
+## Try the local app
+
+```sh
+bun apps/api/scripts/computer-preview.ts
+```
+
+Open `http://localhost:3037/sign-in` and sign in as `reader@computer.test` with password
+`Computer-preview-42`. Open **Computer playground** from the dashboard. Its seeded history
+includes a screenshot; clicking that card opens the Computer tab. Try **Test the app**, then
+**Fix it**, then test again. The scripted first test fails and a test after another editing
+turn passes. These outcomes demonstrate the event and UI flow, not a model finding a bug.
+
+This starts the real web app, email authentication, API routes, queue, worker, runtime,
+WebSocket and a fresh migrated Postgres container. The model, desktop, sandbox and object
+store are fakes; no cloud clients are booted. API keys are refused in this preview. The Browser
+tab serves a small local notes app; Computer images are synthetic fixture pixels. Live desktop
+input and recording remain unavailable.
+
+Ports are 3037 (web), 3038 (API), and 3039 (synthetic app). Stop any other Next dev process for
+this checkout first, because Next holds a lock on its dev output. Ctrl-C stops these services
+and removes the disposable database; local changes and accounts from that run are lost.
+
+The optional desktop is injected through `composeNap` and is absent from production boot. A
+composition test was seen failing without that wire. The preview provider has a collected unit
+suite and all scripts belong to the API TypeScript program. No dependency or CI glob changed.
+
 ## Free reproduction
 
 ```sh

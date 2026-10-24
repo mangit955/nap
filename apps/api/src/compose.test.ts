@@ -13,6 +13,7 @@ import { InMemoryTurnQueue } from "@nap/db/testing/in-memory-turn-queue";
 import { InMemoryTurnRateLimiter } from "@nap/db/testing/in-memory-turn-rate-limiter";
 import { InMemoryUserKeyStore } from "@nap/db/testing/in-memory-user-key-store";
 import { TEMPLATE_DEV_PORT } from "@nap/sandbox/template";
+import { FakeSandboxDesktop } from "@nap/sandbox/testing/fake-sandbox-desktop";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
 import type { TurnQueue } from "@nap/shared/ports/turn-queue";
@@ -688,4 +689,48 @@ describe("the GitHub sweep", () => {
     );
     expect(lines.join("")).toContain("inbox unreachable");
   });
+});
+
+it("wires an optional desktop into real computer turns and private screenshot storage", async () => {
+  const sessions = new InMemorySessionStore([
+    { sessionId: "00000000-0000-4000-8000-000000000009", projectId: PROJECT },
+  ]);
+  const objects = new InMemoryObjectStore();
+  const desktop = new FakeSandboxDesktop({
+    bytes: new Uint8Array([255, 216, 255, 217]),
+    width: 1024,
+    height: 768,
+  });
+  const sandbox = new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0, stdout: "" }) });
+  const events = new InMemoryEventStore();
+  const nap = compose({
+    sessions,
+    sandbox,
+    objects,
+    events,
+    desktop,
+    provider: new ScriptedLLMProvider([
+      [
+        {
+          toolCalls: [
+            { id: "screen", name: "computer", input: { actions: [{ action: "screenshot" }] } },
+          ],
+        },
+        { text: "" },
+      ],
+    ]),
+  });
+  await nap.runtime.runTurn({
+    sessionId: "00000000-0000-4000-8000-000000000009",
+    turnId: crypto.randomUUID(),
+    message: "Look at the app",
+    model: "anthropic/claude-sonnet-5",
+  });
+  expect(desktop.screenshots).toHaveLength(1);
+  const screenshot = (await events.readFrom("00000000-0000-4000-8000-000000000009", 0)).find(
+    (event) => event.type === "computer.screenshot",
+  );
+  expect(screenshot).toBeDefined();
+  if (screenshot?.type === "computer.screenshot")
+    expect((await objects.get(screenshot.payload.key)).ok).toBe(true);
 });
