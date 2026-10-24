@@ -1,0 +1,12 @@
+[
+  {
+    "mode": "repository",
+    "status": 200,
+    "cssError": false
+  },
+  {
+    "mode": "app",
+    "status": 200,
+    "cssError": false
+  }
+]

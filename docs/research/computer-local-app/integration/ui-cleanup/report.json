@@ -1,0 +1,17 @@
+{
+  "paid": false,
+  "mode": "scripted-local-docker",
+  "authenticatedLiveDesktop": true,
+  "anonymousDenied": true,
+  "leasedInputDenied": true,
+  "recording": {
+    "bytes": 326435,
+    "sha256": "1373f645c81ea020d93c634f9ea1c10665a0abff286d6d67351e3bb013dd291b",
+    "range": true,
+    "identicalDownload": true
+  },
+  "staleGrantDenied": true,
+  "realOwnerMouseAndTyping": true,
+  "actualSourceFixAndRetest": true,
+  "ok": true
+}

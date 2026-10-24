@@ -221,12 +221,14 @@ try {
       join(repositoryRoot, "apps/web/node_modules/next/dist/bin/next"),
       "dev",
       copied.value.directory,
+      "--webpack",
       "--port",
       "3047",
       "--hostname",
       "127.0.0.1",
     ],
     {
+      cwd: copied.value.directory,
       env: {
         ...process.env,
         NEXT_PUBLIC_API_URL: API,

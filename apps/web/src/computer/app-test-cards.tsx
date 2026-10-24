@@ -43,7 +43,6 @@ export function AppTestCards({
       <section className="app-test-card" aria-label="Test the app">
         <h3>Test the app</h3>
         <p>Let Nap try the most important flow in its computer.</p>
-        <p className="app-test-goal">{target.objective}</p>
         <button
           type="button"
           className="app-test-primary"
@@ -89,7 +88,6 @@ export function AppTestResult({
             ? "Test interrupted"
             : "Test results"}
       </h3>
-      {test.objective && <p className="app-test-goal">{test.objective}</p>}
       <div className="app-test-counts">
         <span className="app-test-passed">Passed {test.counts.passed}</span>
         <span className="app-test-failed">Failed {test.counts.failed}</span>

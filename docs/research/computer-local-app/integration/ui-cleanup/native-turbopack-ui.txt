@@ -1,0 +1,9 @@
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/feat-computer-use
+
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  20:37:46
+   Duration  243.10s (transform 21ms, setup 10ms, import 156ms, tests 242.82s, environment 0ms)
+

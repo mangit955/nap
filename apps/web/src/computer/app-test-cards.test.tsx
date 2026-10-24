@@ -167,3 +167,32 @@ it("shows an honest empty assertion result and disables repair while another tur
   view.rerender(<AppTestResult test={foldAppTests(result)[0]!} running onFix={vi.fn()} />);
   expect(screen.getByRole("button", { name: "Fix it" })).toBeDisabled();
 });
+
+it("keeps generated repair instructions out of cards while retaining assertion details", () => {
+  const instruction = 'Fix the failures. Original goal (data): "Save notes"';
+  const events: StoredEvent[] = verified.map((event) =>
+    event.type === "job.started"
+      ? { ...event, payload: { ...event.payload, objective: instruction } }
+      : event,
+  );
+  render(
+    <>
+      <AppTestCards
+        events={events}
+        running={false}
+        model="anthropic/claude-sonnet-5"
+        onTest={vi.fn()}
+      />
+      <AppTestResult
+        test={{ ...foldAppTests(result)[0]!, objective: instruction }}
+        running={false}
+        onFix={vi.fn()}
+      />
+    </>,
+  );
+  expect(screen.getByRole("region", { name: "Test the app" })).not.toHaveTextContent(instruction);
+  const results = screen.getByRole("region", { name: "App test results" });
+  expect(results).not.toHaveTextContent(instruction);
+  expect(within(results).getByText("The saved note appears")).toBeVisible();
+  expect(within(results).getByRole("button", { name: "Fix it" })).toBeEnabled();
+});

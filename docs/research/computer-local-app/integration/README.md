@@ -27,8 +27,8 @@ Actual cloud proxy behavior, E2B SDK cancellation/output sizes, production memor
 
 ## Repository result
 
-The final [full free suite](full-test.txt) passed 5,647 tests in 429 files. [Typecheck](typecheck.txt) and [lint](lint.txt) passed; lint retained its existing warning/info. Normal commit hooks remain enabled. The new HTTP and stream cancellation checks, same-position mouse regression, web-copy guards and occupied-port refusal were observed failing under their corresponding faults. No test timeout, glob, production invariant or CI exclusion was weakened.
+The first [full free suite](full-test.txt) passed 5,647 tests in 429 files. The [final cleanup gate](ui-cleanup/full-test.txt) passed all 5,648 tests. [Typecheck](typecheck.txt) and [lint](lint.txt) passed; lint retained its existing warning/info. Normal commit hooks remain enabled. The new HTTP and stream cancellation checks, same-position mouse regression, web-copy guards and occupied-port refusal were observed failing under their corresponding faults. No test timeout, glob, production invariant or CI exclusion was weakened.
 
 Earlier owned local runs shut down with cleanup.ok true and their exact containers were absent afterward. The accepted app instance remains running for interactive use; shared image caches and pre-existing databases are retained. The old demo listeners were already absent at the final local-manager handoff, so this report does not claim their current availability.
 
-One visible UI follow-up remains: after Fix it, result/approval cards display the generated repair instruction as the next job objective. This is recorded under the test-card ticket rather than hidden by parsing prose. Matching passive reference states and paid cloud acceptance also remain open.
+The generated repair objective repeated in both cards was removed in the [UI cleanup](ui-cleanup/README.md). Assertions remain visible and backend test/repair data remains intact. Matching passive reference states and paid cloud acceptance remain open.

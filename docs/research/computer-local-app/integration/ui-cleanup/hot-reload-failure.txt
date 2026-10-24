@@ -1,0 +1,33 @@
+Error: Parsing CSS source code failed
+  [90m3905 |[0m   }
+  [90m3906 |[0m   .text-\[[36mvar[0m\(--s-\[35m7[0mf ��\)\] {
+[31m[1m>[0m [90m3907 |[0m     color: [36mvar[0m(--s-\0�);
+  [90m     |[0m                    [31m[1m^[0m
+  [90m3908 |[0m   }
+  [90m3909 |[0m   .text-accent {
+  [90m3910 |[0m     color: [36mvar[0m(--color-accent);
+
+Unexpected token Delim('\u{7f}')
+
+Generated code of PostCSS transform of file content of .scratch/computer-local-S0VUSv/web/src/app/globals.css:
+./.scratch/computer-local-S0VUSv/web/src/app/globals.css:3907:20
+  [90m3905 |[0m   }
+  [90m3906 |[0m   .text-\[[36mvar[0m\(--s-\[35m7[0mf ��\)\] {
+[31m[1m>[0m [90m3907 |[0m     color: [36mvar[0m(--s-\0�);
+  [90m     |[0m                    [31m[1m^[0m
+  [90m3908 |[0m   }
+  [90m3909 |[0m   .text-accent {
+  [90m3910 |[0m     color: [36mvar[0m(--color-accent);
+
+Import trace:
+  Client Component Browser:
+    ./.scratch/computer-local-S0VUSv/web/src/app/globals.css [Client Component Browser]
+    ./.scratch/computer-local-S0VUSv/web/src/app/layout.tsx [Server Component]
+
+
+
+./.scratch/computer-local-S0VUSv/web/src/app/globals.css:3904:20
+Error: Parsing CSS source code failed
+  [90m3902 |[0m   }
+  [90m3903 |[0m   .text-\[[36mvar[0m\(--s-\|��\)\] {
+[31m[1m>

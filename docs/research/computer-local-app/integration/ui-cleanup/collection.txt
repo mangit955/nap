@@ -1,0 +1,6 @@
+[web] apps/web/src/computer/app-test-cards.test.tsx > opens the live computer when app testing is requested
+[web] apps/web/src/computer/app-test-cards.test.tsx > opens only a completed available recording by turn identity
+[web] apps/web/src/computer/app-test-cards.test.tsx > offers app testing only after the latest completed job and respects busy/model states
+[web] apps/web/src/computer/app-test-cards.test.tsx > keeps a failed assertion as data until Fix it is clicked and labels unavailable recordings
+[web] apps/web/src/computer/app-test-cards.test.tsx > shows an honest empty assertion result and disables repair while another turn runs
+[web] apps/web/src/computer/app-test-cards.test.tsx > keeps generated repair instructions out of cards while retaining assertion details

@@ -1,0 +1,16 @@
+[
+  {
+    "mode": "turbopack",
+    "status": 200,
+    "hotStatus": 200,
+    "restoredStatus": 200,
+    "cssError": false
+  },
+  {
+    "mode": "webpack",
+    "status": 200,
+    "hotStatus": 200,
+    "restoredStatus": 200,
+    "cssError": false
+  }
+]

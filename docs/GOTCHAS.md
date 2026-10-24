@@ -5,6 +5,8 @@ read the section covering whatever you are about to touch, not the whole file.
 
 ## Workspace, build and tooling
 
+- **A cold dev compile does not prove a long-lived Tailwind process can refresh.** The local computer launcher exposed corrupt CSS-variable candidate bytes after a globals.css hot reload under Turbopack. Correcting its working directory did not eliminate the failure. The launcher uses the supported webpack dev path, without changing normal web scripts or dependencies. See [actual failures, upstream references and bounded checks](research/computer-local-app/integration/ui-cleanup/README.md).
+
 - **Packages resolve to TypeScript source**, via `"exports": { "./*": "./src/*.ts" }` in each `package.json`. Import as `@nap/shared/version`, not `@nap/shared`. There is no build step for tests or typecheck, and no root barrel to import from — which is what enforces the no-barrel-files rule.
 
 - **Relative imports need an explicit `.ts` extension** (`allowImportingTsExtensions` is on in `tsconfig.base.json`). Safe because `tsc` never emits — Vite and Bun do the transpiling.

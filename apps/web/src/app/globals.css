@@ -2905,9 +2905,6 @@ details[open] > .nap-float {
   color: var(--color-muted);
   margin-block: 6px;
 }
-.app-test-card .app-test-goal {
-  color: var(--color-ink);
-}
 .app-test-card button {
   padding: 8px 14px;
   margin-top: 10px;
