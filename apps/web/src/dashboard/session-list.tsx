@@ -6,6 +6,7 @@ import {
   type SessionSummary,
   sessionSection,
 } from "@nap/shared/session-navigation";
+import { ChevronDown } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { SessionActions } from "./session-actions.tsx";
 import { SessionRow } from "./session-row.tsx";
@@ -321,7 +322,14 @@ export function SessionList({
                 aria-expanded={expanded[shelf]}
                 onClick={() => toggle(shelf)}
               >
-                <span aria-hidden>{expanded[shelf] ? "⌄" : "›"}</span> {label} ({group.length})
+                <span className="shrink-0">
+                  {label} ({group.length})
+                </span>
+                <span aria-hidden className="session-section-rule" />
+                <ChevronDown
+                  aria-hidden
+                  className={`size-3 shrink-0 transition-transform ${expanded[shelf] ? "" : "rotate-180"}`}
+                />
               </button>
               {expanded[shelf] && (
                 <ul aria-label={`${label} sessions`}>
@@ -333,7 +341,7 @@ export function SessionList({
               {shelf === "settled" && expanded.settled && group.length > settledCount && (
                 <button
                   type="button"
-                  className="px-2.5 py-2 text-xs text-muted hover:text-ink"
+                  className="px-2 py-2 text-xs text-sidebar-label hover:text-ink"
                   onClick={() => setSettledCount((count) => count + SETTLED_PAGE)}
                 >
                   Show 25 more

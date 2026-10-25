@@ -60,6 +60,17 @@
   /* The accent, legible as text. `accent` is a fill colour and fails contrast on a dark ground at 13px. */
   --color-accent-ink: #8cacff;
   --color-accent-tint: #346bf126;
+  /*
+   * The sidebar's quieter greys and its status blue, measured off T3 Code's dark sidebar: a row's
+   * source and time sit a step below `muted`, the header icons below that, and *Working* is a
+   * saturated blue rather than `accent-ink`, which washes out at 12px beside grey text.
+   * Both greys sit below the 12px legibility floor `gutter` states above, and below AA, on
+   * purpose: they reproduce T3 Code's rendered sidebar, which this one was asked to match. Raise
+   * them and it stops matching; do not take them as having been checked for contrast.
+   */
+  --color-sidebar-label: #6b6b6b;
+  --color-sidebar-icon: #505050;
+  --color-info: #4b82f7;
 
   --radius-chip: 7px;
 
@@ -1852,6 +1863,9 @@ body {
   --color-accent: #346bf1;
   --color-accent-ink: #8cacff;
   --color-accent-tint: #346bf126;
+  --color-sidebar-label: #6b6b6b;
+  --color-sidebar-icon: #505050;
+  --color-info: #4b82f7;
 }
 .dashboard-frame {
   grid-template-columns: 260px minmax(0, 1fr);
@@ -2645,18 +2659,32 @@ details[open] > .nap-float {
   z-index: 45;
   touch-action: none;
 }
+/* T3's shelf header: the label, a hairline to the edge, and a chevron that points where it opens. */
 .session-section-label {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   width: 100%;
-  padding: 7px 10px;
-  color: var(--color-muted);
-  font-size: 11px;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: 6px;
+  color: color-mix(in srgb, var(--color-muted) 60%, transparent);
+  font-size: 12px;
+  font-weight: 500;
   text-align: left;
 }
-.session-section-label span {
-  font-variant-numeric: tabular-nums;
+.session-section-label:hover {
+  color: var(--color-muted);
+}
+.session-section-label:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+.session-section-label .session-section-rule {
+  flex: 1;
+  min-width: 8px;
+  height: 1px;
+  background: color-mix(in srgb, var(--color-edge) 60%, transparent);
 }
 [data-drop="true"]::before {
   content: "";

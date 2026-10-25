@@ -1,10 +1,10 @@
 "use client";
 
-import { Info, PanelRight } from "lucide-react";
-import type { ReactNode } from "react";
+import { PanelRight } from "lucide-react";
 import { PhaseDot } from "../chat/job-marks.tsx";
 import type { JobSummary } from "../chat/job-summary.ts";
 import { EditableTitle } from "../ui/editable-title.tsx";
+import { type DetailsPresentation, ThreadDetailsToggle } from "./thread-details.tsx";
 
 export function WorkspaceHeader({
   projectName,
@@ -12,14 +12,20 @@ export function WorkspaceHeader({
   job,
   panelOpen,
   onTogglePanel,
-  details,
+  detailsOpen,
+  detailsId,
+  detailsPresentation,
+  onToggleDetails,
 }: {
   projectName: string;
   onRename?: ((name: string) => Promise<string | undefined>) | undefined;
   job: JobSummary | null;
   panelOpen: boolean;
   onTogglePanel: () => void;
-  details?: ReactNode;
+  detailsOpen: boolean;
+  detailsId?: string;
+  detailsPresentation?: DetailsPresentation;
+  onToggleDetails: () => void;
 }) {
   return (
     <header className="workspace-header t3-chat-header">
@@ -45,15 +51,12 @@ export function WorkspaceHeader({
           </>
         )}
       </p>
-      <details className="t3-details">
-        <summary aria-label="Thread details" title="Thread details" className="t3-icon-button">
-          <Info />
-        </summary>
-        <div className="t3-details-card">
-          <h2>{projectName}</h2>
-          {details}
-        </div>
-      </details>
+      <ThreadDetailsToggle
+        open={detailsOpen}
+        controls={detailsId}
+        presentation={detailsPresentation}
+        onToggle={onToggleDetails}
+      />
       <button
         type="button"
         className="t3-icon-button"

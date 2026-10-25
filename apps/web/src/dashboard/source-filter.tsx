@@ -50,7 +50,7 @@ export function SourceFilter({
           setOpen(!open);
           setQuery("");
         }}
-        className={`grid size-8 place-items-center rounded-md hover:bg-hover ${value ? "text-accent-ink" : "text-muted"}`}
+        className={`grid size-7 place-items-center rounded-md hover:bg-hover hover:text-ink ${value ? "text-info" : "text-sidebar-icon"}`}
       >
         <ListFilter aria-hidden className="size-4" />
       </button>
