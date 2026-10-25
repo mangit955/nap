@@ -2,7 +2,7 @@
 
 The base is `13f7fa7f478982ed9316f2348f2ee5f61214bd00`. The verified code commit is `aeb8fe4cf43aba880e2bb91673ff81eb537d3cbe`, tree `e34dd62a070da565c8aa05b6006fa001a35edd56`, identical to local audit snapshot `3eb603f1ca099b27db9508699ae0767f2d0b1ea1`. Local audit snapshots named in the reports are provenance identifiers, not published branch commits.
 
-Before images and the before recording show the actual base. After images and recording show the verified code tree. Desktop captures are 1440x900; mobile captures are 390x844. Recordings are H.264/yuv420p, 1280x800 at 12fps. The before recording lasts 10.33 seconds; after lasts 7.75 seconds. The local development indicator is present in both. Demo data is synthetic.
+Before images and the before recording show the actual base. After images and recording show the verified code tree. Desktop captures are 1440x900; mobile captures are 390x844. Both recordings are H.264, 1280x800 at 12fps. The published before recording uses full-range yuvj420p; the after recording uses limited-range yuv420p. Both passed a decode check. The before recording lasts 10.33 seconds; after lasts 7.75 seconds. The local development indicator is present in both. Demo data is synthetic.
 
 - [Before desktop](before-desktop-hero.png), [after desktop](after-desktop-hero.png)
 - [Before mobile](before-mobile-hero.png), [after mobile](after-mobile-hero.png)
