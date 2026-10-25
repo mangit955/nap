@@ -4,7 +4,15 @@ import type { MediaAttachment } from "@nap/shared/media";
 
 import type { ModelChoice } from "@nap/shared/models-protocol";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
-import { useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useEffect,
+  useEffectEvent,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { ApiKeyPanel } from "../account/api-key-panel.tsx";
 import { useApiKey } from "../account/use-api-key.ts";
 import { NapMark } from "../brand/nap-mark.tsx";
@@ -26,6 +34,7 @@ import {
 import { WorkingRow } from "../chat/work-log-rows.tsx";
 import { inFlightTurn } from "../chat/working-state.ts";
 import { AppTestCards } from "../computer/app-test-cards.tsx";
+import { ComputerRecoveryNotice } from "../computer/computer-recovery-notice.tsx";
 import type { FetchJson } from "../files/use-project-files.ts";
 import type { SessionLog } from "../hooks/use-session-log.ts";
 import { Pane } from "./pane.tsx";
@@ -65,6 +74,7 @@ export function ChatPane({
   model,
   onModelChange,
   onAddKey,
+  computerNotice,
 }: {
   draftIdentity?: { ownerId: string; projectId: string } | undefined;
   active?: boolean;
@@ -98,6 +108,8 @@ export function ChatPane({
   files?: readonly string[] | undefined;
   /** What this deployment will run a turn on, and which of them is chosen. */
   models?: readonly ModelChoice[] | undefined;
+  /** Shown after the transcript, where a paused project explains itself. */
+  computerNotice?: ReactNode;
   model?: string | undefined;
   onModelChange?: ((model: string) => void) | undefined;
   /** Opening the key form, for a model this caller cannot reach. */
@@ -194,6 +206,7 @@ export function ChatPane({
                   model={model}
                   onTest={onTestApp}
                 />
+                {computerNotice}
               </>
             )}
 
@@ -434,6 +447,12 @@ export function LiveChatPane({
         model={model ?? models?.fallback}
         onModelChange={setModel}
         onAddKey={() => setKeyPanelOpen(true)}
+        computerNotice={
+          <ComputerRecoveryNotice
+            sessionId={sessionId}
+            {...(fetchJson === undefined ? {} : { fetch: fetchJson })}
+          />
+        }
       />
     </>
   );

@@ -1,5 +1,7 @@
 import { ScopeDrainProofSchema } from "@nap/shared/ports/desktop-input-transport";
 import {
+  ABANDON_AFTER_MS,
+  type ComputerAbandonError,
   type ComputerAdmissionError,
   type ComputerReservation,
   type ComputerReservationRequest,
@@ -200,10 +202,82 @@ export class PostgresProjectComputerAccess implements ProjectComputerAccess {
     return rows.map(reservation);
   }
 
+  async held(request: {
+    projectId: string;
+    userId: string;
+  }): ReturnType<ProjectComputerAccess["held"]> {
+    const [project] = await this.db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(and(eq(projects.id, request.projectId), eq(projects.userId, request.userId)));
+    if (!project) return { ok: false, error: { code: "not_found" } };
+    const [row] = await this.db
+      .select()
+      .from(projectComputerOperations)
+      .where(eq(projectComputerOperations.projectId, request.projectId));
+    return {
+      ok: true,
+      value: {
+        reservation: row ? reservation(row) : null,
+        busy: await leasedIn(this.db, request.projectId),
+      },
+    };
+  }
+
+  async abandon(
+    request: Parameters<ProjectComputerAccess["abandon"]>[0],
+  ): ReturnType<ProjectComputerAccess["abandon"]> {
+    const refuse = (code: ComputerAbandonError["code"]) => ({
+      ok: false as const,
+      error: { code },
+    });
+    return this.db.transaction<Awaited<ReturnType<ProjectComputerAccess["abandon"]>>>(
+      async (tx) => {
+        // The project lock first, as reserve, clear and markRecovering take it.
+        const [project] = await tx
+          .select()
+          .from(projects)
+          .where(and(eq(projects.id, request.projectId), eq(projects.userId, request.userId)))
+          .for("update");
+        if (!project) return refuse("not_found");
+        const [row] = await tx.execute<{ old: boolean }>(sql`
+          select ${projectComputerOperations.createdAt}
+            <= now() - (${ABANDON_AFTER_MS} * interval '1 millisecond') as old
+          from ${projectComputerOperations} where ${matches(request)}
+        `);
+        if (!row) return refuse("stale_grant");
+        if (!row.old) return refuse("too_early");
+        if (await leasedIn(tx, request.projectId)) return refuse("busy");
+        await tx.delete(projectComputerOperations).where(matches(request));
+        // As closing does: the next turn restores rather than resuming the machine. A new
+        // revision voids every control grant that named it.
+        await tx
+          .update(projects)
+          .set({
+            ...(project.sandboxId === request.sandboxId ? { sandboxId: null, status: "idle" } : {}),
+            computerRevision: sql`gen_random_uuid()`,
+            updatedAt: new Date(),
+          })
+          .where(eq(projects.id, request.projectId));
+        return { ok: true, value: undefined };
+      },
+    );
+  }
+
   async defer(scope: ComputerScopeIdentity): Promise<void> {
     await this.db
       .update(projectComputerOperations)
       .set({ nextRecoveryAt: sql`now() + interval '60 seconds'` })
       .where(matches(scope));
   }
+}
+
+async function leasedIn(db: PostgresJsDatabase, projectId: string): Promise<boolean> {
+  const leased = await db
+    .select({ id: turnRequests.id })
+    .from(turnRequests)
+    .innerJoin(sessions, eq(sessions.id, turnRequests.sessionId))
+    .where(and(eq(sessions.projectId, projectId), eq(turnRequests.state, "leased")))
+    .limit(1);
+  return leased.length > 0;
 }

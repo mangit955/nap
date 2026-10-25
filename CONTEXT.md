@@ -598,6 +598,8 @@ See [ADR-0018](docs/adr/0018-the-agent-gets-a-computer.md).
 
 **Input scope** — one single-use ownership of a project's Computer input, reserved durably before physical dispatch. A model attempt reserves lazily and an owner batch reserves once. Unknown completion retains the project's admission fence until a matching remote drain proof clears it. Closing a scope permanently revokes delayed input for that identity. Recovery never replays input or destroys source.
 
+**Abandoning a Computer** — the owner's way out when a held input scope's machine never proves its drain. After one more drain attempt fails, the reservation is deleted and the project forgets that machine. The next turn restores the last snapshot onto a fresh one. This is not *closing* a project, which snapshots first: abandoning is for a machine that can no longer be snapshotted. Changes since the last snapshot are lost.
+
 **App test** — a user-approved, system-prompted Turn that exercises the latest completed Job in
 its Computer. Its goal and source commit are recorded in `test.started`; its input prompt is
 built from that goal and the Job's diff. Assertions are declared before input and receive a

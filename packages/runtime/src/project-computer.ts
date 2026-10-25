@@ -3,13 +3,15 @@ import {
   type DesktopInputTransport,
   ScopeDrainProofSchema,
 } from "@nap/shared/ports/desktop-input-transport";
-import type {
-  ComputerAdmissionError,
-  ComputerGrantBinding,
-  ComputerReservationRequest,
-  ComputerScopeIdentity,
-  ProjectComputerAccess,
-  QueueLeaseIdentity,
+import {
+  ABANDON_AFTER_MS,
+  type ComputerAbandonError,
+  type ComputerAdmissionError,
+  type ComputerGrantBinding,
+  type ComputerReservationRequest,
+  type ComputerScopeIdentity,
+  type ProjectComputerAccess,
+  type QueueLeaseIdentity,
 } from "@nap/shared/ports/project-computer-access";
 import type { DesktopError, SandboxDesktop } from "@nap/shared/ports/sandbox-desktop";
 import type { Result } from "@nap/shared/result";
@@ -22,6 +24,12 @@ const outdated: DesktopError = {
   code: "unavailable",
   message: "This computer predates safe input. Close and reopen the project to update it.",
 };
+const unanswered: DesktopError = {
+  code: "unavailable",
+  message: "Computer input is unavailable right now. No action was sent.",
+};
+// A reservation this old without a lease behind it is a stall, not input still in flight.
+const STUCK_AFTER_MS = 60_000;
 const noInput = new Set(["screenshot", "cursor_position", "read_dom", "console", "wait", "zoom"]);
 
 async function bounded<T>(
@@ -123,10 +131,12 @@ export class ProjectComputer {
         }
         // An older driver rejects the scoped act and can never drain, so a reservation against
         // it would block the project for good. Nothing was sent, so the attempt carries on.
-        if (!(await this.#supportsScopedInput(sandboxId, signal))) {
+        const supported = await this.#supportsScopedInput(sandboxId, signal);
+        if (supported !== "yes") {
           admission = { code: "unavailable" };
-          return { ok: false, error: outdated };
+          return { ok: false, error: supported === "no" ? outdated : unanswered };
         }
+        if (stopped || closed) return { ok: false, error: pending };
         try {
           const result = await bounded(
             () => this.#access.reserve({ ...scope, actor }),
@@ -236,14 +246,17 @@ export class ProjectComputer {
       : { ok: true, value: { applied } };
   }
 
-  async #supportsScopedInput(sandboxId: string, signal?: AbortSignal): Promise<boolean> {
-    if (this.#scoped.has(sandboxId)) return true;
+  async #supportsScopedInput(
+    sandboxId: string,
+    signal?: AbortSignal,
+  ): ReturnType<DesktopInputTransport["supportsScopedInput"]> {
+    if (this.#scoped.has(sandboxId)) return "yes";
     const supported = await bounded(
       (signal) => this.#transport.supportsScopedInput({ sandboxId, signal }),
       15_000,
       signal,
-    ).catch(() => false);
-    if (supported) {
+    ).catch(() => "unknown" as const);
+    if (supported === "yes") {
       if (this.#scoped.size >= 1000) this.#scoped.clear();
       this.#scoped.add(sandboxId);
     }
@@ -265,6 +278,68 @@ export class ProjectComputer {
       await bounded(() => this.#access.markRecovering(scope), 1000).catch(() => undefined);
       return false;
     }
+  }
+
+  /**
+   * Whether this project is paused behind a reservation nobody is working on: no session holds a
+   * lease, and the reservation is already being recovered or has stood for a minute.
+   */
+  async recovery(request: {
+    projectId: string;
+    userId: string;
+  }): Promise<
+    Result<{ stuck: false } | { stuck: true; abandonableAt: number }, { code: "not_found" }>
+  > {
+    const held = await bounded(() => this.#access.held(request), 5000);
+    if (!held.ok) return held;
+    const { reservation, busy } = held.value;
+    if (!reservation || busy) return { ok: true, value: { stuck: false } };
+    const createdAt = Date.parse(reservation.createdAt);
+    if (reservation.state !== "recovering" && this.#now() - createdAt < STUCK_AFTER_MS)
+      return { ok: true, value: { stuck: false } };
+    return { ok: true, value: { stuck: true, abandonableAt: createdAt + ABANDON_AFTER_MS } };
+  }
+
+  /**
+   * The owner's way out when a machine never proves its input drained: one more drain first,
+   * which costs nothing if the machine has come back, and only then giving the machine up so the
+   * next turn restores the last snapshot onto a fresh one. Never touches a scope a turn still
+   * holds, since closing it would cut that turn's input mid-action.
+   */
+  async abandon(request: {
+    projectId: string;
+    userId: string;
+  }): Promise<
+    Result<
+      { outcome: "clear" | "recovered" | "abandoned" },
+      { code: ComputerAbandonError["code"]; abandonableAt?: number }
+    >
+  > {
+    const held = await bounded(() => this.#access.held(request), 5000);
+    if (!held.ok) return held;
+    const { reservation, busy } = held.value;
+    if (!reservation) return { ok: true, value: { outcome: "clear" } };
+    if (busy) return { ok: false, error: { code: "busy" } };
+    const scope: ComputerScopeIdentity = {
+      projectId: reservation.projectId,
+      sandboxId: reservation.sandboxId,
+      scopeId: reservation.scopeId,
+    };
+    if (await this.#drain(scope)) return { ok: true, value: { outcome: "recovered" } };
+    const abandoned = await bounded(
+      () => this.#access.abandon({ ...scope, userId: request.userId }),
+      5000,
+    );
+    if (abandoned.ok) return { ok: true, value: { outcome: "abandoned" } };
+    return abandoned.error.code === "too_early"
+      ? {
+          ok: false,
+          error: {
+            code: "too_early",
+            abandonableAt: Date.parse(reservation.createdAt) + ABANDON_AFTER_MS,
+          },
+        }
+      : abandoned;
   }
 
   async recover(limit = 1): Promise<{ recovered: number; pending: number }> {

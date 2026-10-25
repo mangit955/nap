@@ -11,10 +11,13 @@ import { DesktopRequestSchema } from "@nap/sandbox/desktop-protocol";
 import { E2BSandboxDesktop } from "@nap/sandbox/e2b-sandbox-desktop";
 import { FakeSandboxDesktop } from "@nap/sandbox/testing/fake-sandbox-desktop";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
-import { ComputerControlGrantSchema } from "@nap/shared/computer-access";
+import {
+  ComputerControlGrantSchema,
+  ComputerRecoveryStatusSchema,
+} from "@nap/shared/computer-access";
 import type { DesktopInputTransport } from "@nap/shared/ports/desktop-input-transport";
 import { TURN_REQUEST_KINDS } from "@nap/shared/ports/turn-queue";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { afterAll, beforeAll, beforeEach, expect, inject, it, vi } from "vitest";
@@ -357,6 +360,89 @@ it("refuses owner input to a machine whose driver predates scoped input, leaving
       .where(eq(projectComputerOperations.projectId, f.projectId)),
   ).toEqual([]);
   expect((await f.app.request(`${f.base}/control`)).status).toBe(200);
+});
+
+it("lets the owner abandon a machine that never proves its drain, once the window has passed", async () => {
+  const transport = lostOutputDesktop();
+  const f = await fixture(transport.desktop);
+  expect(await (await f.app.request(`${f.base}/recovery`)).json()).toEqual({ stuck: false });
+  const grant = await f.grant();
+  const body = { grant, actions: [{ action: "left_click", coordinate: [10, 20] }] };
+  expect((await f.post("input", body)).status).toBe(503);
+
+  const stuck = await f.app.request(`${f.base}/recovery`);
+  expect(stuck.status).toBe(200);
+  const status = ComputerRecoveryStatusSchema.parse(await stuck.json());
+  if (!status.stuck) throw new Error("Expected a stuck project.");
+
+  const early = await f.post("abandon");
+  expect(early.status).toBe(409);
+  expect(await early.json()).toMatchObject({
+    code: "too_early",
+    abandonableAt: status.abandonableAt,
+  });
+  expect(await f.post("abandon", { extra: true })).toHaveProperty("status", 400);
+
+  await db
+    .update(projectComputerOperations)
+    .set({ createdAt: sql`now() - interval '6 minutes'` })
+    .where(eq(projectComputerOperations.projectId, f.projectId));
+  const abandoned = await f.post("abandon");
+  expect(abandoned.status).toBe(200);
+  expect(await abandoned.json()).toEqual({ outcome: "abandoned" });
+  const [project] = await db.select().from(projects).where(eq(projects.id, f.projectId));
+  expect(project?.sandboxId).toBeNull();
+  expect(
+    await db
+      .select()
+      .from(projectComputerOperations)
+      .where(eq(projectComputerOperations.projectId, f.projectId)),
+  ).toEqual([]);
+  expect(await (await f.app.request(`${f.base}/recovery`)).json()).toEqual({ stuck: false });
+  expect(await (await f.post("abandon")).json()).toEqual({ outcome: "clear" });
+});
+
+it("refuses abandonment to a stranger and from another site", async () => {
+  const f = await fixture();
+  const stranger = createApp({
+    logger: createLogger({ level: "silent" }, { write: () => {} }),
+    authenticate: async () => ({ userId: randomUUID(), isAnonymous: false }),
+    stream: {
+      store: new InMemoryEventStore(),
+      bus: new InMemoryEventBus(),
+      upgradeWebSocket: async () => new Response(),
+    },
+    computerAccess: {
+      sessions: new PostgresSessionStore(db),
+      desktop: f.desktop,
+      access: new PostgresProjectComputerAccess(drizzle(inputClient)),
+      computer: new ProjectComputer({
+        access: new PostgresProjectComputerAccess(drizzle(inputClient)),
+        transport: f.desktop.transport,
+      }),
+      secret: "integration-secret",
+    },
+  });
+  for (const [method, route] of [
+    ["GET", "recovery"],
+    ["POST", "abandon"],
+  ] as const)
+    expect(
+      (
+        await stranger.request(`${f.base}/${route}`, {
+          method,
+          ...(method === "POST"
+            ? { headers: { "content-type": "application/json" }, body: "{}" }
+            : {}),
+        })
+      ).status,
+    ).toBe(404);
+  const crossSite = await f.app.request(`${f.base}/abandon`, {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: "https://evil.example" },
+    body: "{}",
+  });
+  expect(crossSite.status).toBe(403);
 });
 
 it("keeps admission fenced after the dispatching database session is terminated", async () => {

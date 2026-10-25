@@ -74,7 +74,8 @@ async function fixture(
       },
     })
     .mockImplementation(async (_id, command) => {
-      // The no-argument capability query, answered as that driver version prints it.
+      // The no-argument capability query. Version 1 answers exactly as that driver printed it;
+      // version 2 lists only the operations the check looks for.
       if (command.endsWith("driver.mjs"))
         return {
           ok: true,
@@ -82,7 +83,20 @@ async function fixture(
             exitCode: 0,
             stdout: JSON.stringify({
               protocol,
-              operations: protocol === 1 ? ["start", "act"] : ["start", "act", "close_scope"],
+              operations:
+                protocol === 1
+                  ? [
+                      "start",
+                      "act",
+                      "screenshot",
+                      "credentials",
+                      "cancel",
+                      "recording_begin",
+                      "recording_timestamp",
+                      "recording_finish",
+                      "recording_discard",
+                    ]
+                  : ["start", "act", "close_scope"],
             }),
             stderr: "",
           },

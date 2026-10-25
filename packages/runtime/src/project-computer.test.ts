@@ -1,15 +1,17 @@
 import type { DesktopInputTransport } from "@nap/shared/ports/desktop-input-transport";
-import type {
-  ComputerReservation,
-  ProjectComputerAccess,
+import {
+  ABANDON_AFTER_MS,
+  type ComputerReservation,
+  type ProjectComputerAccess,
 } from "@nap/shared/ports/project-computer-access";
 import { expect, it, vi } from "vitest";
 import { ProjectComputer } from "./project-computer.ts";
 
 const projectId = "00000000-0000-4000-8000-000000000001";
 const requestId = "00000000-0000-4000-8000-000000000002";
-function fixture() {
+function fixture(options: { now?: () => number } = {}) {
   let row: ComputerReservation | undefined;
+  let busy = false;
   const reserve = vi.fn<ProjectComputerAccess["reserve"]>(async (request) => {
     row = {
       ...request,
@@ -34,7 +36,16 @@ function fixture() {
     },
     recoverable: async () => (row ? [row] : []),
     defer: async () => {},
+    held: async ({ userId }) =>
+      userId === "owner"
+        ? { ok: true, value: { reservation: row ? structuredClone(row) : null, busy } }
+        : { ok: false, error: { code: "not_found" } },
+    abandon: async () => {
+      row = undefined;
+      return { ok: true, value: undefined };
+    },
   };
+  const abandon = vi.spyOn(store, "abandon");
   const act = vi.fn<DesktopInputTransport["act"]>(async () => ({
     ok: true,
     value: { kind: "none" },
@@ -43,7 +54,7 @@ function fixture() {
     ok: true,
     value: { protocol: 2, kind: "scope_drained", scopeId, sandboxId },
   }));
-  const supports = vi.fn<DesktopInputTransport["supportsScopedInput"]>(async () => true);
+  const supports = vi.fn<DesktopInputTransport["supportsScopedInput"]>(async () => "yes");
   const transport: DesktopInputTransport = {
     act,
     closeAndDrain: close,
@@ -59,10 +70,28 @@ function fixture() {
       value: { url: "wss://example.invalid", password: "private" },
     }),
   };
-  const computer = new ProjectComputer({ access: store, transport });
+  const computer = new ProjectComputer({
+    access: store,
+    transport,
+    ...(options.now ? { now: options.now } : {}),
+  });
   const attempt = () =>
     computer.forTurn({ projectId, sandboxId: "box", lease: { requestId, owner: "worker" } });
-  return { computer, attempt, store, reserve, clear, act, close, supports, row: () => row };
+  return {
+    computer,
+    attempt,
+    store,
+    reserve,
+    clear,
+    abandon,
+    act,
+    close,
+    supports,
+    row: () => row,
+    setBusy: (value: boolean) => {
+      busy = value;
+    },
+  };
 }
 const binding = {
   projectId,
@@ -76,29 +105,39 @@ const binding = {
 // A machine created before scoped input rejects the scoped act and cannot drain, so a
 // reservation committed against it could never clear. Its project must stay usable.
 it.each([
-  ["reports an older protocol", async () => false],
+  ["reports an older protocol", async () => "no" as const, /Close and reopen the project/],
+  ["could not say", async () => "unknown" as const, /unavailable right now/],
   [
     "cannot be asked",
-    async (): Promise<boolean> => {
+    async (): Promise<"yes"> => {
       throw new Error("exec lost");
     },
+    /unavailable right now/,
   ],
-])("a driver that %s gets no reservation, input or close from the model", async (_name, answer) => {
-  const f = fixture();
-  f.supports.mockImplementation(answer);
-  const scope = f.attempt();
-  const result = await scope.desktop.act("box", { action: "left_click", coordinate: [1, 1] });
-  expect(result).toMatchObject({ ok: false, error: { code: "unavailable" } });
-  expect(f.reserve).not.toHaveBeenCalled();
-  expect(f.act).not.toHaveBeenCalled();
-  expect(scope.stopped()).toBe(false);
-  expect((await scope.close()).ok).toBe(true);
-  expect(f.close).not.toHaveBeenCalled();
-  expect(f.row()).toBeUndefined();
-});
+])(
+  "a driver that %s gets no reservation, input or close from the model",
+  async (_name, answer, message) => {
+    const f = fixture();
+    f.supports.mockImplementation(answer);
+    const scope = f.attempt();
+    const result = await scope.desktop.act("box", { action: "left_click", coordinate: [1, 1] });
+    // Only a definite older answer may tell the model to reopen; a hiccup on a current machine is
+    // not a reason to throw its workspace away.
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "unavailable", message: expect.stringMatching(message) },
+    });
+    expect(f.reserve).not.toHaveBeenCalled();
+    expect(f.act).not.toHaveBeenCalled();
+    expect(scope.stopped()).toBe(false);
+    expect((await scope.close()).ok).toBe(true);
+    expect(f.close).not.toHaveBeenCalled();
+    expect(f.row()).toBeUndefined();
+  },
+);
 it("a driver without scoped input gets no reservation, input or close from its owner", async () => {
   const f = fixture();
-  f.supports.mockResolvedValue(false);
+  f.supports.mockResolvedValue("no");
   const result = await f.computer.ownerInput({
     binding,
     actions: [{ action: "left_click", coordinate: [1, 1] }],
@@ -196,4 +235,98 @@ it("a failed database clear retains the row even after physical drain", async ()
   f.clear.mockRejectedValue(new Error("database disconnected"));
   expect((await f.computer.recover(1)).pending).toBe(1);
   expect(f.row()).toBeDefined();
+});
+
+it("never reserves for an attempt that closed while it was asking the driver", async () => {
+  const f = fixture();
+  let answer = (_value: "yes") => {};
+  f.supports.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+  );
+  const scope = f.attempt();
+  const acting = scope.desktop.act("box", { action: "left_mouse_down" });
+  await Promise.resolve();
+  expect((await scope.close()).ok).toBe(true);
+  answer("yes");
+  expect((await acting).ok).toBe(false);
+  expect(f.reserve).not.toHaveBeenCalled();
+  expect(f.act).not.toHaveBeenCalled();
+});
+
+const owned = { projectId, userId: "owner" };
+async function strand(f: ReturnType<typeof fixture>) {
+  f.act.mockRejectedValueOnce(new Error("output lost"));
+  const scope = f.attempt();
+  await scope.desktop.act("box", { action: "left_mouse_down" });
+  f.close.mockResolvedValue({ ok: false, error: { code: "unavailable", message: "gone" } });
+  await scope.close();
+  expect(f.row()).toMatchObject({ state: "recovering" });
+}
+it("reports a stranded project as stuck, and when its owner may abandon the machine", async () => {
+  const f = fixture();
+  expect(await f.computer.recovery(owned)).toEqual({ ok: true, value: { stuck: false } });
+  await strand(f);
+  const createdAt = Date.parse(f.row()?.createdAt ?? "");
+  expect(await f.computer.recovery(owned)).toEqual({
+    ok: true,
+    value: { stuck: true, abandonableAt: createdAt + ABANDON_AFTER_MS },
+  });
+  expect(await f.computer.recovery({ ...owned, userId: "stranger" })).toEqual({
+    ok: false,
+    error: { code: "not_found" },
+  });
+});
+it("a turn still holding its lease is working, not stuck", async () => {
+  const f = fixture();
+  await strand(f);
+  f.setBusy(true);
+  expect(await f.computer.recovery(owned)).toEqual({ ok: true, value: { stuck: false } });
+});
+it("tries one more drain before abandoning, and a proof keeps the machine", async () => {
+  const f = fixture();
+  await strand(f);
+  f.close.mockImplementation(async ({ scopeId, sandboxId }) => ({
+    ok: true,
+    value: { protocol: 2, kind: "scope_drained", scopeId, sandboxId },
+  }));
+  expect(await f.computer.abandon(owned)).toEqual({ ok: true, value: { outcome: "recovered" } });
+  expect(f.abandon).not.toHaveBeenCalled();
+  expect(f.row()).toBeUndefined();
+});
+it("abandons exactly the held scope once the drain fails again", async () => {
+  const f = fixture();
+  await strand(f);
+  const held = f.row();
+  expect(await f.computer.abandon(owned)).toEqual({ ok: true, value: { outcome: "abandoned" } });
+  expect(f.abandon).toHaveBeenCalledWith({
+    projectId,
+    sandboxId: "box",
+    scopeId: held?.scopeId,
+    userId: "owner",
+  });
+});
+it("never drains or abandons a scope a live turn still holds", async () => {
+  const f = fixture();
+  await strand(f);
+  f.setBusy(true);
+  f.close.mockClear();
+  expect(await f.computer.abandon(owned)).toEqual({ ok: false, error: { code: "busy" } });
+  expect(f.close).not.toHaveBeenCalled();
+  expect(f.abandon).not.toHaveBeenCalled();
+});
+it("has nothing to abandon when nothing is held, and says when an early abandon becomes possible", async () => {
+  const f = fixture();
+  expect(await f.computer.abandon(owned)).toEqual({ ok: true, value: { outcome: "clear" } });
+  await strand(f);
+  f.abandon.mockResolvedValueOnce({ ok: false, error: { code: "too_early" } });
+  expect(await f.computer.abandon(owned)).toEqual({
+    ok: false,
+    error: {
+      code: "too_early",
+      abandonableAt: Date.parse(f.row()?.createdAt ?? "") + ABANDON_AFTER_MS,
+    },
+  });
 });

@@ -1,9 +1,10 @@
-import type {
-  ComputerAdmissionError,
-  ComputerReservation,
-  ComputerReservationRequest,
-  ComputerScopeIdentity,
-  ProjectComputerAccess,
+import {
+  ABANDON_AFTER_MS,
+  type ComputerAdmissionError,
+  type ComputerReservation,
+  type ComputerReservationRequest,
+  type ComputerScopeIdentity,
+  type ProjectComputerAccess,
 } from "@nap/shared/ports/project-computer-access";
 import type { Result } from "@nap/shared/result";
 import type { InMemoryTurnQueue } from "./in-memory-turn-queue.ts";
@@ -119,6 +120,42 @@ export class InMemoryProjectComputerAccess implements ProjectComputerAccess {
     const row = this.reservations.get(scope.projectId);
     if (row?.scopeId === scope.scopeId)
       row.nextRecoveryAt = new Date(this.now() + 60_000).toISOString();
+  }
+  async held(request: {
+    projectId: string;
+    userId: string;
+  }): ReturnType<ProjectComputerAccess["held"]> {
+    const project = this.projects.get(request.projectId);
+    if (!project || project.userId !== request.userId)
+      return { ok: false, error: { code: "not_found" } };
+    const row = this.reservations.get(project.projectId);
+    return {
+      ok: true,
+      value: { reservation: row ? structuredClone(row) : null, busy: this.#leased(project) },
+    };
+  }
+  async abandon(
+    request: Parameters<ProjectComputerAccess["abandon"]>[0],
+  ): ReturnType<ProjectComputerAccess["abandon"]> {
+    const project = this.projects.get(request.projectId);
+    if (!project || project.userId !== request.userId)
+      return { ok: false, error: { code: "not_found" } };
+    const row = this.reservations.get(project.projectId);
+    if (row?.scopeId !== request.scopeId || row.sandboxId !== request.sandboxId)
+      return { ok: false, error: { code: "stale_grant" } };
+    if (Date.parse(row.createdAt) > this.now() - ABANDON_AFTER_MS)
+      return { ok: false, error: { code: "too_early" } };
+    if (this.#leased(project)) return { ok: false, error: { code: "busy" } };
+    this.reservations.delete(project.projectId);
+    if (project.sandboxId === request.sandboxId) project.sandboxId = null;
+    project.revision = crypto.randomUUID();
+    return { ok: true, value: undefined };
+  }
+  #leased(project: Project): boolean {
+    return (
+      this.queue?.computerLeases().some((row) => project.sessionIds.includes(row.sessionId)) ??
+      false
+    );
   }
   async recoverable(limit: number): Promise<ComputerReservation[]> {
     const leases = this.queue?.computerLeases() ?? [];

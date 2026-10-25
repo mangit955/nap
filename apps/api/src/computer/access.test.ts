@@ -26,7 +26,7 @@ class GuardStub extends InMemoryProjectComputerAccess {
     if (!project) throw new Error("Missing fixture project.");
     return project;
   }
-  get held(): boolean {
+  get fenced(): boolean {
     return this.reservations.has(PROJECT);
   }
   override async read(request: {
@@ -289,7 +289,7 @@ describe("idle control grants and guarded input", () => {
     const { grant } = await f.grant();
     const act = vi.spyOn(f.desktop, "act");
     act.mockImplementation(async () => {
-      expect(f.access.held).toBe(true);
+      expect(f.access.fenced).toBe(true);
       return { ok: true, value: { kind: "none" } };
     });
     const actions = [
@@ -302,7 +302,7 @@ describe("idle control grants and guarded input", () => {
     expect(act.mock.calls.map((call) => call.slice(0, 2))).toEqual(
       actions.map((action) => ["box", action]),
     );
-    expect(f.access.held).toBe(false);
+    expect(f.access.fenced).toBe(false);
     expect(await f.events.readFrom(SESSION, 0)).toEqual([]);
     for (const secret of ["private-input", grant])
       expect(JSON.stringify(f.logs)).not.toContain(secret);
@@ -407,7 +407,7 @@ describe("idle control grants and guarded input", () => {
         release = resolve;
       });
       expect(signal?.aborted).toBe(true);
-      expect(f.access.held).toBe(true);
+      expect(f.access.fenced).toBe(true);
       return { ok: true, value: { kind: "none" } };
     });
     try {
@@ -422,13 +422,13 @@ describe("idle control grants and guarded input", () => {
       expect(timeout).toHaveBeenCalledWith(5000);
       deadline.abort();
       await new Promise<void>((resolve) => setImmediate(resolve));
-      expect(f.access.held).toBe(true);
+      expect(f.access.fenced).toBe(true);
       expect((await pending).status).toBe(503);
       expect(settled).toBe(true);
       release();
       expect((await pending).status).toBe(503);
       expect(act).toHaveBeenCalledTimes(1);
-      expect(f.access.held).toBe(true);
+      expect(f.access.fenced).toBe(true);
     } finally {
       release();
       timeout.mockRestore();
@@ -533,7 +533,7 @@ it("sanitizes ambiguous physical failures and stops the batch without replay", a
   });
   expect(response.status).toBe(503);
   expect(act).toHaveBeenCalledTimes(1);
-  expect(f.access.held).toBe(false);
+  expect(f.access.fenced).toBe(false);
   expect(await response.text()).not.toContain("private-typed-text");
   expect(JSON.stringify(f.logs)).not.toContain("private-typed-text");
 });

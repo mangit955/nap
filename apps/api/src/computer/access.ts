@@ -141,6 +141,48 @@ export function registerComputerAccessRoutes(
       return c.json({ ...unavailable, applied: 0 }, 503);
     }
   });
+  app.get("/sessions/:sessionId/computer/recovery", async (c) => {
+    setPrivateHeaders(c);
+    const owned = await findOwnedSession(deps.sessions, c.req.param("sessionId"), c.get("userId"));
+    if (!owned.ok) return c.json({ error: owned.error.message }, owned.error.status);
+    try {
+      const result = await deps.computer.recovery({
+        projectId: owned.value.projectId,
+        userId: c.get("userId"),
+      });
+      return result.ok ? c.json(result.value) : c.json({ error: "no such session" }, 404);
+    } catch {
+      return c.json(unavailable, 503);
+    }
+  });
+  app.post("/sessions/:sessionId/computer/abandon", async (c) => {
+    setPrivateHeaders(c);
+    const owned = await findOwnedSession(deps.sessions, c.req.param("sessionId"), c.get("userId"));
+    if (!owned.ok) return c.json({ error: owned.error.message }, owned.error.status);
+    const rejected = rejectCrossSiteWrite(c, webOrigin);
+    if (rejected) return rejected;
+    if (!z.strictObject({}).safeParse(await readJson(c.req.raw)).success)
+      return c.json({ error: "Invalid abandon request." }, 400);
+    try {
+      const result = await deps.computer.abandon({
+        projectId: owned.value.projectId,
+        userId: c.get("userId"),
+      });
+      if (result.ok) return c.json(result.value);
+      const { code, abandonableAt } = result.error;
+      if (code === "not_found") return c.json({ error: "no such session" }, 404);
+      if (code === "busy")
+        return c.json({ error: "A turn is running in this project.", code }, 409);
+      if (code === "too_early")
+        return c.json(
+          { error: "Nap is still trying to reach this computer.", code, abandonableAt },
+          409,
+        );
+      return c.json({ error: "The computer changed. Check again.", code }, 409);
+    } catch {
+      return c.json(unavailable, 503);
+    }
+  });
   app.get("/sessions/:sessionId/computer/stream", async (c) => {
     setPrivateHeaders(c);
     const owned = await findOwnedSession(deps.sessions, c.req.param("sessionId"), c.get("userId"));

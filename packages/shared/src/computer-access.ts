@@ -53,4 +53,17 @@ export const ComputerControlGrantSchema = z.strictObject({
 export type ComputerControlGrant = z.infer<typeof ComputerControlGrantSchema>;
 
 export const ComputerInputResultSchema = z.strictObject({ applied: z.int().min(0).max(16) });
+/**
+ * Whether the project is paused behind input whose completion its machine never proved, and
+ * from when its owner may abandon that machine. See `ProjectComputer.recovery`.
+ */
+export const ComputerRecoveryStatusSchema = z.discriminatedUnion("stuck", [
+  z.strictObject({ stuck: z.literal(false) }),
+  z.strictObject({ stuck: z.literal(true), abandonableAt: z.int().nonnegative() }),
+]);
+export type ComputerRecoveryStatus = z.infer<typeof ComputerRecoveryStatusSchema>;
+export const ComputerAbandonResultSchema = z.strictObject({
+  outcome: z.enum(["clear", "recovered", "abandoned"]),
+});
+export type ComputerAbandonResult = z.infer<typeof ComputerAbandonResultSchema>;
 export type ComputerInputResult = z.infer<typeof ComputerInputResultSchema>;

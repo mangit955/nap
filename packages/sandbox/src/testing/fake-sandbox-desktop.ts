@@ -28,7 +28,7 @@ export class FakeSandboxDesktop implements SandboxDesktop {
     screenshot: (id, signal) => this.screenshot(id, signal),
     streamCredentials: (id) => this.streamCredentials(id),
     observe: ({ sandboxId, action, signal }) => this.act(sandboxId, action, signal),
-    supportsScopedInput: async () => !this.#legacy,
+    supportsScopedInput: async () => (this.#legacy ? "no" : "yes"),
     act: async ({ sandboxId, scopeId, action, signal }) => {
       // A protocol-1 driver's strict schema rejects a scoped act before any input runs.
       if (this.#legacy)

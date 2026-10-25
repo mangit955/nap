@@ -268,3 +268,92 @@ it("never recovers a live claimed scope merely on age and fairly defers eligible
   expect(await access.recoverable(1)).toEqual([]);
   expect(await access.occupied(f.projectId)).toBe(true);
 });
+
+// A reservation whose drain never arrives, as old as the abandon window demands.
+async function stranded(f: Awaited<ReturnType<typeof seed>>, age = "6 minutes") {
+  const request = await owner(f);
+  expect((await access.reserve(request)).ok).toBe(true);
+  await access.markRecovering(request);
+  await db
+    .update(projectComputerOperations)
+    .set({ createdAt: sql`now() - ${age}::interval` })
+    .where(eq(projectComputerOperations.projectId, f.projectId));
+  return request;
+}
+const scope = (r: ComputerReservationRequest) => ({
+  projectId: r.projectId,
+  sandboxId: r.sandboxId,
+  scopeId: r.scopeId,
+});
+it("reports the owner's held reservation and any lease, and hides it from everybody else", async () => {
+  const f = await seed();
+  expect(await access.held(f)).toEqual({ ok: true, value: { reservation: null, busy: false } });
+  const request = await stranded(f);
+  expect(await access.held(f)).toMatchObject({
+    ok: true,
+    value: { reservation: { scopeId: request.scopeId, state: "recovering" }, busy: false },
+  });
+  expect(await access.held({ ...f, userId: randomUUID() })).toEqual({
+    ok: false,
+    error: { code: "not_found" },
+  });
+});
+it("abandons exactly the stranded scope, forgets its machine, and lets the project's claims run", async () => {
+  const f = await seed();
+  const request = await stranded(f);
+  const queued = await enqueue(f);
+  expect(await queue.claim("blocked")).toBeNull();
+  const [before] = await db.select().from(projects).where(eq(projects.id, f.projectId));
+  expect(await access.abandon({ ...scope(request), userId: f.userId })).toEqual({
+    ok: true,
+    value: undefined,
+  });
+  const [after] = await db.select().from(projects).where(eq(projects.id, f.projectId));
+  expect(after).toMatchObject({ sandboxId: null, status: "idle" });
+  expect(after!.computerRevision).not.toBe(before!.computerRevision);
+  expect(await access.occupied(f.projectId)).toBe(false);
+  expect((await queue.claim("after-abandon"))?.id).toBe(queued.id);
+});
+it("refuses to abandon early, under a lease, for a stranger, or for a scope that is not the held one", async () => {
+  const f = await seed();
+  const young = await stranded(f, "4 minutes");
+  expect(await access.abandon({ ...scope(young), userId: f.userId })).toEqual({
+    ok: false,
+    error: { code: "too_early" },
+  });
+  await db
+    .update(projectComputerOperations)
+    .set({ createdAt: sql`now() - interval '6 minutes'` })
+    .where(eq(projectComputerOperations.projectId, f.projectId));
+  expect(await access.abandon({ ...scope(young), userId: randomUUID() })).toEqual({
+    ok: false,
+    error: { code: "not_found" },
+  });
+  expect(
+    await access.abandon({ ...scope(young), scopeId: randomUUID(), userId: f.userId }),
+  ).toEqual({ ok: false, error: { code: "stale_grant" } });
+  expect(await access.occupied(f.projectId)).toBe(true);
+
+  // A turn that still holds its lease owns its reservation; abandoning would pull its machine away.
+  const g = await seed();
+  const queued = await enqueue(g);
+  await queue.claim("worker");
+  const turn: ComputerReservationRequest = {
+    projectId: g.projectId,
+    sandboxId: "current",
+    scopeId: randomUUID(),
+    actor: { kind: "turn", lease: { requestId: queued.id, owner: "worker" } },
+  };
+  expect((await access.reserve(turn)).ok).toBe(true);
+  await db
+    .update(projectComputerOperations)
+    .set({ createdAt: sql`now() - interval '6 minutes'` })
+    .where(eq(projectComputerOperations.projectId, g.projectId));
+  expect(await access.held(g)).toMatchObject({ ok: true, value: { busy: true } });
+  expect(await access.abandon({ ...scope(turn), userId: g.userId })).toEqual({
+    ok: false,
+    error: { code: "busy" },
+  });
+  const [kept] = await db.select().from(projects).where(eq(projects.id, g.projectId));
+  expect(kept?.sandboxId).toBe("current");
+});

@@ -40,6 +40,9 @@ export function isolatedProjectComputer(transport: DesktopInputTransport): Proje
     },
     recoverable: async (limit) => [...reservations.values()].slice(0, limit),
     defer: async () => {},
+    // A standalone sandbox has no owner to abandon it; its test or CLI destroys it outright.
+    held: async () => ({ ok: false, error: { code: "not_found" } }),
+    abandon: async () => ({ ok: false, error: { code: "not_found" } }),
   };
   class IsolatedProjectComputer extends ProjectComputer {
     override forTurn(request: Parameters<ProjectComputer["forTurn"]>[0]) {

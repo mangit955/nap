@@ -106,6 +106,17 @@ export const GUARDED_ROUTES: GuardedRoute[] = [
   },
   {
     method: "GET",
+    path: "/sessions/:sessionId/computer/recovery",
+    examplePath: `/sessions/${SESSION}/computer/recovery`,
+  },
+  {
+    method: "POST",
+    path: "/sessions/:sessionId/computer/abandon",
+    examplePath: `/sessions/${SESSION}/computer/abandon`,
+    body: {},
+  },
+  {
+    method: "GET",
     path: "/sessions/:sessionId/computer/screenshots/:seq",
     examplePath: `/sessions/${SESSION}/computer/screenshots/1`,
   },

@@ -110,7 +110,7 @@ export class E2BSandboxDesktop implements DesktopInputTransport, SandboxRecordin
 
   async supportsScopedInput(
     request: Parameters<DesktopInputTransport["supportsScopedInput"]>[0],
-  ): Promise<boolean> {
+  ): ReturnType<DesktopInputTransport["supportsScopedInput"]> {
     try {
       const result = await this.#sandbox.exec(
         request.sandboxId,
@@ -119,15 +119,15 @@ export class E2BSandboxDesktop implements DesktopInputTransport, SandboxRecordin
         request.signal ? { signal: request.signal } : undefined,
       );
       if (!result.ok || result.value.exitCode !== 0 || result.value.stdout.length > 4096)
-        return false;
+        return "unknown";
       const capabilities = DesktopCapabilitiesSchema.safeParse(JSON.parse(result.value.stdout));
-      return (
-        capabilities.success &&
-        capabilities.data.protocol >= 2 &&
+      if (!capabilities.success) return "unknown";
+      return capabilities.data.protocol >= 2 &&
         ["act", "close_scope"].every((op) => capabilities.data.operations.includes(op))
-      );
+        ? "yes"
+        : "no";
     } catch {
-      return false;
+      return "unknown";
     }
   }
 
