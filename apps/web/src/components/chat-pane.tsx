@@ -454,6 +454,7 @@ export function LiveChatPane({
         onAddKey={() => setKeyPanelOpen(true)}
         computerNotice={(onChange) => (
           <ComputerRecoveryNotice
+            key={sessionId}
             sessionId={sessionId}
             onChange={onChange}
             {...(fetchJson === undefined ? {} : { fetch: fetchJson })}

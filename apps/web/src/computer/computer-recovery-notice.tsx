@@ -19,7 +19,7 @@ const WARNING =
 const OUTCOMES = {
   recovered: "The computer responded after all, so nothing was lost. Nap can carry on.",
   abandoned:
-    "Nap stopped using that computer. Your next message starts a fresh computer from your last saved version.",
+    "Nap stopped using that computer. Nap starts a fresh computer from your last saved version.",
   // Usually the reaper reached the computer first. This request gave nothing up either way.
   clear: "Nothing was holding this computer any more, so nothing was abandoned or lost.",
 } as const;
@@ -74,23 +74,29 @@ export function ComputerRecoveryNotice({
   useEffect(() => {
     if (!base) return;
     let alive = true;
+    let latestRequest = 0;
+    const controller = new AbortController();
     let timer: ReturnType<typeof setInterval> | undefined;
     const check = async () => {
-      if (document.visibilityState === "hidden") return;
+      if (!alive || document.visibilityState === "hidden") return;
+      const request = ++latestRequest;
       const asked = generation.current;
       try {
         const response = await fetchJson(`${base}/recovery`, {
           credentials: "include",
           cache: "no-store",
+          signal: controller.signal,
         });
+        if (!alive || request !== latestRequest || asked !== generation.current) return;
         // Not composed on this deployment, or not this caller's session: asking again won't help.
         if (response.status === 404) {
-          clearInterval(timer);
+          stop();
           return;
         }
         if (!response.ok) return;
         const status = ComputerRecoveryStatusSchema.safeParse(await response.json());
-        if (!alive || !status.success || asked !== generation.current) return;
+        if (!alive || request !== latestRequest || !status.success || asked !== generation.current)
+          return;
         if (status.data.stuck !== stuck.current) {
           stuck.current = status.data.stuck;
           setOutcome(!status.data.stuck && uncertain.current ? UNCERTAIN_CLEARED : null);
@@ -103,20 +109,22 @@ export function ComputerRecoveryNotice({
         // A failed check changes nothing: the next one will say whether the pause is real.
       }
     };
-    checkNow.current = () => void check();
-    void check();
-    timer = setInterval(() => void check(), POLL_MS);
     // Coming back to the tab is when the owner looks, so it should not wait for the next tick.
     const visible = () => {
       if (document.visibilityState === "visible") void check();
     };
-    document.addEventListener("visibilitychange", visible);
-    return () => {
+    const stop = () => {
       alive = false;
       checkNow.current = () => {};
       clearInterval(timer);
       document.removeEventListener("visibilitychange", visible);
+      controller.abort();
     };
+    checkNow.current = () => void check();
+    timer = setInterval(() => void check(), POLL_MS);
+    document.addEventListener("visibilitychange", visible);
+    void check();
+    return stop;
   }, [base, fetchJson]);
 
   // Re-render when the wait is over, so the button enables without another poll.

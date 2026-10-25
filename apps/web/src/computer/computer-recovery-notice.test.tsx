@@ -4,6 +4,13 @@ import { ComputerRecoveryNotice } from "./computer-recovery-notice.tsx";
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 const NOW = 1_000_000;
+function deferredResponse() {
+  let resolve: (response: Response) => void = () => {};
+  const promise = new Promise<Response>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
 function setup(replies: Record<string, Response[]>, confirm = vi.fn(() => true)) {
   const calls: { url: string; init?: RequestInit | undefined }[] = [];
   const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
@@ -81,7 +88,9 @@ it("abandons through a private JSON write and says what happens next", async () 
     body: "{}",
   });
   expect(screen.queryByRole("button", { name: "Abandon this computer" })).toBeNull();
-  expect(screen.getByRole("status").textContent).toMatch(/fresh computer from your last saved/);
+  const status = screen.getByRole("status");
+  expect(status.textContent).toMatch(/fresh computer from your last saved/);
+  expect(status.textContent).not.toMatch(/your next message/i);
 });
 
 it("reports a machine that came back on the last try, with nothing lost", async () => {
@@ -259,6 +268,8 @@ it("stops asking a deployment that has no such route", async () => {
   const f = setup({ recovery: [json({ error: "not found" }, 404)] });
   await flush();
   await act(async () => {
+    document.dispatchEvent(new Event("visibilitychange"));
+    document.dispatchEvent(new Event("visibilitychange"));
     await vi.advanceTimersByTimeAsync(90_000);
   });
   expect(f.calls).toHaveLength(1);
@@ -304,4 +315,83 @@ it("says it is abandoning while the request is in flight, and why the button wai
   await act(async () => answer(json({ outcome: "abandoned" })));
   await flush();
   expect(screen.getByRole("status").textContent).toMatch(/fresh computer/);
+});
+
+it("keeps a newer pause when an older idle check answers last", async () => {
+  const older = deferredResponse();
+  const fetcher = vi
+    .fn(async (_url: string) => json({ stuck: true, abandonableAt: NOW }))
+    .mockReturnValueOnce(older.promise);
+  render(<ComputerRecoveryNotice sessionId="s" fetch={fetcher} />);
+  await act(async () => {
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await flush();
+  expect(screen.getByRole("region", { name: "Computer paused" })).toBeDefined();
+  await act(async () => older.resolve(json({ stuck: false })));
+  await flush();
+  expect(screen.getByRole("region", { name: "Computer paused" })).toBeDefined();
+  expect(fetcher).toHaveBeenCalledTimes(2);
+});
+
+it("keeps polling when an older 404 follows a newer valid check", async () => {
+  const older = deferredResponse();
+  const fetcher = vi
+    .fn(async (_url: string) => json({ stuck: false }))
+    .mockReturnValueOnce(older.promise)
+    .mockResolvedValueOnce(json({ stuck: false }))
+    .mockResolvedValueOnce(json({ stuck: true, abandonableAt: NOW }));
+  render(<ComputerRecoveryNotice sessionId="s" fetch={fetcher} />);
+  await act(async () => {
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await flush();
+  expect(fetcher).toHaveBeenCalledTimes(2);
+  await act(async () => older.resolve(json({ error: "not found" }, 404)));
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(30_000);
+  });
+  expect(fetcher).toHaveBeenCalledTimes(3);
+  expect(screen.getByRole("region", { name: "Computer paused" })).toBeDefined();
+});
+
+it("keeps polling when a pre-abandon check answers 404 afterward", async () => {
+  const older = deferredResponse();
+  let checks = 0;
+  const fetcher = vi.fn(async (url: string) => {
+    if (url.endsWith("/abandon")) return json({ outcome: "abandoned" });
+    checks += 1;
+    if (checks === 2) return older.promise;
+    return json({ stuck: true, abandonableAt: NOW });
+  });
+  render(<ComputerRecoveryNotice sessionId="s" fetch={fetcher} confirm={() => true} />);
+  await flush();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(30_000);
+  });
+  await act(async () => screen.getByRole("button", { name: "Abandon this computer" }).click());
+  await flush();
+  expect(screen.getByRole("status").textContent).toMatch(/fresh computer/);
+  await act(async () => older.resolve(json({ error: "not found" }, 404)));
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(30_000);
+  });
+  expect(checks).toBe(3);
+  expect(screen.getByRole("region", { name: "Computer paused" })).toBeDefined();
+});
+
+it("cancels a pending recovery read and stops all checks after unmount", async () => {
+  const pending = deferredResponse();
+  const fetcher = vi.fn((_url: string, _init?: RequestInit) => pending.promise);
+  const view = render(<ComputerRecoveryNotice sessionId="s" fetch={fetcher} />);
+  await flush();
+  const signal = fetcher.mock.calls[0]?.[1]?.signal;
+  view.unmount();
+  await act(async () => {
+    pending.resolve(json({ error: "not found" }, 404));
+    document.dispatchEvent(new Event("visibilitychange"));
+    await vi.advanceTimersByTimeAsync(90_000);
+  });
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  expect(signal?.aborted).toBe(true);
 });

@@ -18,14 +18,14 @@ import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import type { MediaAttachment } from "@nap/shared/media";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { StrictMode } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../../../api/src/app.ts";
 import { createLogger } from "../../../api/src/logger.ts";
 import { resolveTurnAccess } from "../../../api/src/turns/model-access.ts";
 import { stashFirstPrompt } from "../chat/first-prompt.ts";
 import { jobView } from "../chat/job-summary.ts";
 import type { SessionLog } from "../hooks/use-session-log.ts";
-import { ev, PROJECT_ID, SESSION_ID } from "../testing/events.ts";
+import { ev, OTHER_SESSION_ID, PROJECT_ID, SESSION_ID } from "../testing/events.ts";
 import { JOB_ID, jobLog } from "../testing/job-events.ts";
 import { mediaBrowser } from "../testing/media-browser.ts";
 import { LiveChatPane } from "./chat-pane.tsx";
@@ -786,3 +786,108 @@ it.each(["openai/gpt-5.6-luna", "openai/gpt-oss-20b:free"])(
     expect(admitted).toEqual([{ ok: true, model: "anthropic/claude-sonnet-5", credentials: key }]);
   },
 );
+
+describe("LiveChatPane computer recovery", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("clears the previous session's pause before the new recovery read answers", async () => {
+    const http = async (url: string, init?: RequestInit) => {
+      if (url.endsWith(`/sessions/${SESSION_ID}/computer/recovery`))
+        return Response.json({ stuck: true, abandonableAt: 0 });
+      if (url.endsWith(`/sessions/${OTHER_SESSION_ID}/computer/recovery`))
+        return new Promise<Response>(() => {});
+      return fetchJson(url, init);
+    };
+    const log = failedTurn();
+    const view = render(<LiveChatPane sessionId={SESSION_ID} log={log} fetchJson={http} />);
+    await screen.findByRole("region", { name: "Computer paused" });
+    const nextLog = {
+      ...log,
+      events: log.events.map((event) => ({ ...event, sessionId: OTHER_SESSION_ID })),
+    };
+    view.rerender(<LiveChatPane sessionId={OTHER_SESSION_ID} log={nextLog} fetchJson={http} />);
+    expect(screen.queryByRole("region", { name: "Computer paused" })).toBeNull();
+  });
+
+  it("keeps a late abandon result out of the newly selected idle session", async () => {
+    let finish: (response: Response) => void = () => {};
+    const abandoning = new Promise<Response>((resolve) => {
+      finish = resolve;
+    });
+    const http = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith(`/sessions/${SESSION_ID}/computer/recovery`))
+        return Response.json({ stuck: true, abandonableAt: 0 });
+      if (url.endsWith(`/sessions/${OTHER_SESSION_ID}/computer/recovery`))
+        return Response.json({ stuck: false });
+      if (url.endsWith(`/sessions/${SESSION_ID}/computer/abandon`)) return abandoning;
+      return fetchJson(url, init);
+    });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const log = failedTurn();
+    const view = render(<LiveChatPane sessionId={SESSION_ID} log={log} fetchJson={http} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Abandon this computer" }));
+    expect(screen.getByRole("button", { name: "Abandoning…" })).toBeDisabled();
+    expect(
+      http.mock.calls.some(([url, init]) => url.endsWith("/abandon") && init?.method === "POST"),
+    ).toBe(true);
+    const nextLog = {
+      ...log,
+      events: log.events.map((event) => ({ ...event, sessionId: OTHER_SESSION_ID })),
+    };
+    view.rerender(<LiveChatPane sessionId={OTHER_SESSION_ID} log={nextLog} fetchJson={http} />);
+    await act(async () => {});
+    expect(screen.queryByRole("region", { name: "Computer paused" })).toBeNull();
+    await act(async () => finish(Response.json({ outcome: "abandoned" })));
+    expect(screen.queryByRole("region", { name: "Computer paused" })).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  async function latePause(readerAt: (bottom: number) => number) {
+    let answer: (response: Response) => void = () => {};
+    const recovery = new Promise<Response>((resolve) => {
+      answer = resolve;
+    });
+    const http = async (url: string, init?: RequestInit) =>
+      url.endsWith("/computer/recovery") ? recovery : fetchJson(url, init);
+    const log = failedTurn();
+    const view = render(<LiveChatPane sessionId={SESSION_ID} log={log} fetchJson={http} />);
+    await screen.findByRole("button", { name: "Model" });
+    const timeline = screen.getByRole("region", { name: "Conversation" });
+    let top = 0;
+    Object.defineProperties(timeline, {
+      scrollHeight: {
+        configurable: true,
+        get: () =>
+          1800 + (screen.queryByRole("region", { name: "Computer paused" }) === null ? 0 : 200),
+      },
+      clientHeight: { configurable: true, value: 600 },
+      scrollTop: {
+        configurable: true,
+        get: () => top,
+        set: (next: number) => {
+          top = next;
+        },
+      },
+    });
+    const events = [
+      ...log.events,
+      ev("system.notice", { level: "info", text: "Connection restored." }, 4),
+    ];
+    const settled = { ...log, events, lastSeq: 4, jobs: jobView(events) };
+    view.rerender(<LiveChatPane sessionId={SESSION_ID} log={settled} fetchJson={http} />);
+    expect(top).toBe(1200);
+    top = readerAt(1200);
+    await act(async () => answer(Response.json({ stuck: true, abandonableAt: 0 })));
+    expect(screen.getByRole("region", { name: "Computer paused" })).toBeDefined();
+    return top;
+  }
+
+  it("keeps the reader at the bottom when recovery appears after the transcript settles", async () => {
+    expect(await latePause((bottom) => bottom)).toBe(1400);
+  });
+
+  it("keeps a reader's scrolled-up position when recovery appears after the transcript settles", async () => {
+    expect(await latePause(() => 400)).toBe(400);
+  });
+});
