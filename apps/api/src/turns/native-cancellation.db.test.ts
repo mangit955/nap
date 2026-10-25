@@ -4,7 +4,7 @@ import { NativeAgentService } from "@nap/agent/native-agent-service";
 import { PostgresNativeRunStore } from "@nap/db/postgres-native-run-store";
 import { PostgresProviderAccountStore } from "@nap/db/postgres-provider-account-store";
 import { PostgresTurnQueue } from "@nap/db/postgres-turn-queue";
-import { nativeRuns, projects, sessions, users } from "@nap/db/schema";
+import { nativeRuns, projects, sessions, turnRequests, users } from "@nap/db/schema";
 import { ClaudeNativeExecutor } from "@nap/runtime/claude-native-executor";
 import { E2BProcessHost } from "@nap/sandbox/e2b-process-host";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
@@ -68,15 +68,18 @@ it.each([true, false])(
     const queue = new PostgresTurnQueue(db);
     const requestId = randomUUID();
     const workerId = randomUUID();
-    await queue.enqueue({
+    // Claim selects globally from the shared database; seed only this fixture's lease.
+    await db.insert(turnRequests).values({
       id: requestId,
       sessionId: session.id,
       userId: user.id,
       kind: "turn",
+      state: "leased",
       message: "Fixture",
       target,
+      leaseOwner: workerId,
+      leaseExpiresAt: new Date(Date.now() + 120_000),
     });
-    expect((await queue.claim(workerId))?.id).toBe(requestId);
     const store = new PostgresNativeRunStore(db);
     const append = vi.spyOn(store, "append");
     const stopped = vi.spyOn(store, "stopped");
