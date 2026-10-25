@@ -1,0 +1,256 @@
+{
+  "schemaVersion": 1,
+  "recordedOn": "2026-10-25",
+  "scope": "Local subscription decisions and Docker computer behavior; partial model-test acceptance",
+  "provenance": {
+    "codeSnapshot": "39447320dddb122038346c5f26bae81da4bf0e25",
+    "codeTree": "44289b07172cdff207b3b9345468089f8d892de9",
+    "branchParent": "c485c0d7516ee27d64ad49c79d1b2b14158bdfcb",
+    "adapterSnapshot": "ce32310c35a87bb149008fb13d15bc65f2d11ce1",
+    "adapterTree": "db366d31e46c8490e302f4c2aa6f565a73ba6144",
+    "snapshotIdentifiersAreLocalObjects": true,
+    "sourceSha256": {
+      "apps/api/scripts/computer-local-codex.ts": "05e5f9591c6fb13b75adbfdb93a888a12ed83c80bd6a1fb2f60cfb7be557bc34",
+      "apps/api/scripts/computer-local-codex.test.ts": "44a3428c2b48cfa34977a4b84a5fa5671cd1cf85198e65a44924678b59c04527",
+      "apps/api/scripts/computer-local-config.ts": "eca1233c56f5197b8815460885853ec5b2a9e0f2261f7e198f168dc0b65096e1",
+      "apps/api/scripts/computer-local-config.test.ts": "1cc7c3b570ab5585a61307c74e9ac66848a38b0446927f504ca43f21cfa7e3d1",
+      "apps/api/scripts/computer-local.ts": "204adac9bb7221d7dac8b9455aaa8bb39a18ec4b553c20bc0524e4d8939b37b4",
+      "apps/web/src/computer/use-computer-control.ts": "f619c6d22988e8d9a7e44cf55ac398ed098b803fb691b46f8ce9371381b8984a",
+      "apps/web/src/computer/use-computer-control.test.tsx": "ea1ce6a72f44c3e0594f867431e53e65a473989fa13f4962152b74be73ecfe35"
+    },
+    "sourceReports": [
+      {
+        "name": "adapter-repaired-green.md",
+        "sha256": "9d33aeda42065de6c3472c0c2709731d0a4460fbd337e63a09fd520233d65ef8"
+      },
+      {
+        "name": "adapter-review-r2.md",
+        "sha256": "caaff4282c213f536e0e977eb4f3fec8ba48c260fc108ed28703c331180a0334"
+      },
+      {
+        "name": "subscription-vision.md",
+        "sha256": "59b99e04e1c776d8497a48018a28609031fbf1aee6064e6eb4aa4034f19fabb7"
+      },
+      {
+        "name": "subscription-local-app-complete.md",
+        "sha256": "56c92391f5b8b6fa7b861fc5f1ddc4e1f096948c3ce86cf9701b107f217871f1"
+      },
+      {
+        "name": "owner-poll-green.md",
+        "sha256": "cad61bf2d3409d87d13e2a018e91e178ff711ebe8d156c5f63fa2d07b099269e"
+      },
+      {
+        "name": "owner-poll-review.md",
+        "sha256": "13dbfa52657d1bcbf75981347091ac739081084746a39aa7b1deee6ae321d07e"
+      },
+      {
+        "name": "owner-input-functional-final.md",
+        "sha256": "cfbfccf942407c9e55fd838dcd83ff4f138c6cef91eab2d201532e53d1b70a1a"
+      }
+    ]
+  },
+  "deterministicVerification": {
+    "snapshot": "39447320dddb122038346c5f26bae81da4bf0e25",
+    "focusedCases": 83,
+    "files": 4,
+    "caseGroups": {
+      "ownerControlHook": 33,
+      "adapterAndConfig": 19,
+      "scriptedLocalProvider": 31
+    },
+    "typecheck": "passed; affected web task and root fresh, other workspace tasks may be cached",
+    "lint": "passed; zero errors, two carried warnings and two infos",
+    "guardMutations": {
+      "adapter": 6,
+      "ownerPoll": 2,
+      "allCaught": true,
+      "positiveControlsPassed": true,
+      "exactRestoration": true
+    },
+    "sourceReview": "Adapter repair and owner-poll repair accepted by separate bounded reviews",
+    "newTreeFullSuiteAndBuild": "not run for this evidence checkpoint"
+  },
+  "subscriptionVision": {
+    "snapshot": "ce32310c35a87bb149008fb13d15bc65f2d11ce1",
+    "nativeModel": "gpt-5.6-sol",
+    "napModel": "openai/gpt-5.6-sol",
+    "passed": true,
+    "execAttempts": 1,
+    "markerOnlyInPixels": true,
+    "structuredSelectionMatched": true,
+    "selectedTool": "computer",
+    "selectedAction": "type",
+    "actionsExecuted": false,
+    "usage": {
+      "inputTokens": 16299,
+      "outputTokens": 48
+    },
+    "usageScope": "This probe only; cache input already included",
+    "image": "vision.jpg",
+    "ownedCleanupConfirmed": true
+  },
+  "subscriptionAppCycle": {
+    "snapshot": "ce32310c35a87bb149008fb13d15bc65f2d11ce1",
+    "tree": "db366d31e46c8490e302f4c2aa6f565a73ba6144",
+    "realSubscribedTurns": 3,
+    "scriptedSeed": true,
+    "nativeModel": "gpt-5.6-sol",
+    "napModel": "openai/gpt-5.6-sol",
+    "initialTest": {
+      "counts": {
+        "passed": 0,
+        "failed": 1,
+        "untested": 0
+      },
+      "observed": "Save left the saved list empty; planted bug correctly reported"
+    },
+    "explicitFixIt": {
+      "completed": true,
+      "sandboxCommit": "b81a7185efe79d7af28b695979d501838c0bf02f",
+      "sourceChangedFrom": "setNotes((saved) => saved)",
+      "sourceChangedTo": "setNotes((saved) => [...saved, note])",
+      "sourceSha256": "889910cf6773af7241695dddd8c6b8ddcccc6d1a873c7ba47a71681e1fbf51ee",
+      "observedSavedNotes": 1,
+      "checks": {
+        "typecheck": "passed",
+        "build": "passed",
+        "preview": "passed",
+        "lint": "absent",
+        "tests": "absent"
+      },
+      "rejectedAnnotationBatchRetained": true
+    },
+    "retest": {
+      "counts": {
+        "passed": 0,
+        "failed": 1,
+        "untested": 0
+      },
+      "expectedSavedNotes": 1,
+      "observedSavedNotes": 2,
+      "result": "failed as observed; second note saved successfully but exact-one expectation was false",
+      "fixtureResetOrForcedVerdict": false
+    },
+    "usageByTurn": {
+      "initialTest": {
+        "inputTokens": 114346,
+        "outputTokens": 902
+      },
+      "explicitFixIt": {
+        "inputTokens": 106140,
+        "outputTokens": 600
+      },
+      "retest": {
+        "inputTokens": 93090,
+        "outputTokens": 849
+      }
+    },
+    "usageTotal": {
+      "inputTokens": 313576,
+      "outputTokens": 2351
+    },
+    "usageScope": "This completed cycle only; excludes the separate vision probe and earlier retained attempts",
+    "boundedCompactionWarningsRetained": 2,
+    "completionCountCapClaimed": false,
+    "historicalIndependentOwnerCheck": "timed out; no owner marker; not retrospectively attributed",
+    "ownedCleanupConfirmed": true
+  },
+  "realRecordings": {
+    "initial": {
+      "bytes": 266045,
+      "sha256": "d17f6cbe14faff7659542275d63a78e618e80e37627df9d80f1b55c2670ae294",
+      "durationSeconds": 84.25,
+      "decodedSeekSeconds": 42.125
+    },
+    "retest": {
+      "bytes": 238871,
+      "sha256": "26604bf03f4b3eeb8ae8a26657d6e1e9b54dc7bc89def702a321b4aafd5d0a43",
+      "durationSeconds": 67.5,
+      "decodedSeekSeconds": 33.75
+    },
+    "playback": "passed for both",
+    "decodedSeek": "passed for both at 1024x768",
+    "fullResponse": "HTTP 200 for both",
+    "range": "HTTP 206 and exact prefix for both",
+    "attachmentDownload": "byte-identical for both",
+    "publishedArtifact": "initial-recording-seek.png",
+    "videoFilesPublished": false
+  },
+  "functionalOwnerInput": {
+    "snapshot": "39447320dddb122038346c5f26bae81da4bf0e25",
+    "tree": "44289b07172cdff207b3b9345468089f8d892de9",
+    "mode": "scripted-local-docker",
+    "passed": true,
+    "externalModelCalls": 0,
+    "scriptedPreparationUsage": {
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "caseDurationSeconds": 17.056,
+    "noteCharacters": 48,
+    "typedAndSavedSha256": "66f47866fb59ba4262aa290531c6b3cd5e20f42ada601a9552cb9b715e601d95",
+    "savedRows": 1,
+    "savedListBefore": 0,
+    "savedListAfter": 1,
+    "inputCleared": true,
+    "ownerPackets": 5,
+    "allPacketAcknowledgements": "HTTP 200 / applied 1",
+    "packetDurationsMs": [3656, 2517, 2590, 2306, 2511],
+    "naturalOverlappingRecoveryPending503s": 3,
+    "heldOrFabricatedPoll": false,
+    "controlGrantPosts": 1,
+    "controlSurvivedSave": true,
+    "controlReleased": true,
+    "independentPhysicalDomCheck": true,
+    "longPasteCapacityClaimed": false,
+    "nativeOldHookRun": false,
+    "image": "owner-saved.png",
+    "ownedCleanupConfirmed": true
+  },
+  "costAndSafetyScope": {
+    "subscription": "Existing managed ChatGPT plan allowance; no API-dollar or zero-cost model claim",
+    "defaultMode": "Scripted with no external model inference",
+    "openRouterOrE2BCallsInTheseRuns": false,
+    "apiKeyFallback": false,
+    "residualHostReadAccess": true,
+    "boundedCompactionSupported": false,
+    "cliCloseProof": "Owned local process closure only; Nap physical input drain remains separate",
+    "productionSubscriptionProviderAdded": false
+  },
+  "remainingAcceptance": {
+    "issueScope": "#181",
+    "openIssues": ["#149", "#155"],
+    "unwaived": [
+      "GH-B-04 matching reference acceptance",
+      "GH-R-01 matching-template and integrated cloud acceptance"
+    ],
+    "cleanStatePassingSubscribedRetest": false,
+    "cloudReadinessClaimed": false
+  },
+  "assets": [
+    {
+      "file": "vision.jpg",
+      "bytes": 16788,
+      "sha256": "deed994856c9df9726c8f62800e3ad12fb89f27a6b80a2e7dfa6c307ce2925eb",
+      "description": "JPEG-only subscription vision fixture; no actions executed",
+      "sourceSnapshot": "ce32310c35a87bb149008fb13d15bc65f2d11ce1",
+      "privacy": "Owned synthetic fixture, visually inspected; copied without alteration"
+    },
+    {
+      "file": "initial-recording-seek.png",
+      "bytes": 157678,
+      "sha256": "89374d09a7baf92144185c91076243f456a0570c0f73b82e749027a666060546",
+      "description": "Decoded frame at 42.125 seconds in the real initial subscribed-test recording",
+      "sourceSnapshot": "ce32310c35a87bb149008fb13d15bc65f2d11ce1",
+      "privacy": "Owned synthetic fixture, visually inspected; copied without alteration"
+    },
+    {
+      "file": "owner-saved.png",
+      "bytes": 117624,
+      "sha256": "c1dbd0288280b77f7b2258c6152118009e14e19f9dd641f8680b7c2d9f18aac0",
+      "description": "Actual owner UI after one complete note was saved in the free scripted run",
+      "sourceSnapshot": "39447320dddb122038346c5f26bae81da4bf0e25",
+      "privacy": "Owned synthetic fixture, visually inspected; copied without alteration"
+    }
+  ]
+}

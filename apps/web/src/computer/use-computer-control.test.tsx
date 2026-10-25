@@ -134,6 +134,122 @@ describe("useComputerControl", () => {
     expect(h.result.current.disabledReason).toMatch(/turn.*running/i);
   });
 
+  it.each(["poll during input", "old poll after input acknowledgement"])(
+    "keeps owner input and control through its own reservation: %s",
+    async (timing) => {
+      const h = setup();
+      await h.drive();
+      let reservationHeld = false;
+      let delayNextPoll = timing === "old poll after input acknowledgement";
+      const delayedPolls: { gate: ReturnType<typeof deferred>; response?: Response }[] = [];
+      const polls = () =>
+        h.requests.filter(
+          (request) => request.init?.method === "GET" && request.url.endsWith("/control"),
+        ).length;
+      h.fetcher.mockImplementation((url, init) => {
+        const gate = deferred();
+        h.requests.push({ url, init, gate });
+        if (init?.method === "GET" && url.endsWith("/control")) {
+          if (delayNextPoll) {
+            delayNextPoll = false;
+            delayedPolls.push({ gate });
+          } else {
+            gate.resolve(
+              json(
+                reservationHeld ? { code: "recovery_pending", applied: 0 } : { available: true },
+                reservationHeld ? 503 : 200,
+              ),
+            );
+          }
+        }
+        if (init?.method === "POST" && url.endsWith("/input")) {
+          reservationHeld = true;
+          const oldPoll = delayedPolls[0];
+          if (oldPoll) oldPoll.response = json({ code: "recovery_pending", applied: 0 }, 503);
+          return gate.promise.then((response) => {
+            reservationHeld = false;
+            return response;
+          });
+        }
+        return gate.promise;
+      });
+      try {
+        await act(async () => {
+          vi.advanceTimersByTime(4900);
+        });
+        if (timing === "old poll after input acknowledgement") {
+          await act(async () => {
+            vi.advanceTimersByTime(100);
+          });
+          expect(delayedPolls).toHaveLength(1);
+        }
+        const inputIndex = h.requests.length;
+        const inputStarted = Date.now();
+        let sent = Promise.resolve(false);
+        act(() => {
+          sent = h.result.current.sendActions([{ action: "type", text: "owner-note" }]);
+        });
+        const input = h.requests[inputIndex];
+        if (!input) throw new Error("No owner input request.");
+        expect(input.url).toMatch(/\/computer\/input$/);
+        expect(reservationHeld).toBe(true);
+        await act(async () => {
+          vi.advanceTimersByTime(200);
+        });
+        expect(Date.now() - inputStarted).toBeLessThan(5000);
+        expect(input.init?.signal?.aborted).toBe(false);
+        expect(h.result.current).toMatchObject({
+          driving: true,
+          available: true,
+          disabledReason: null,
+          error: null,
+        });
+        await h.reply(inputIndex, { applied: 1 });
+        expect(await sent).toBe(true);
+        expect(reservationHeld).toBe(false);
+        if (timing === "old poll after input acknowledgement") {
+          const oldPoll = delayedPolls[0];
+          const response = oldPoll?.response;
+          if (!oldPoll || !response) throw new Error("No delayed reservation refusal.");
+          expect(response.status).toBe(503);
+          await act(async () => {
+            oldPoll.gate.resolve(response);
+          });
+        }
+        expect(input.init?.signal?.aborted).toBe(false);
+        expect(h.result.current).toMatchObject({
+          driving: true,
+          available: true,
+          disabledReason: null,
+          error: null,
+        });
+        const continuationIndex = h.requests.length;
+        let continued = Promise.resolve(false);
+        act(() => {
+          continued = h.result.current.sendActions([{ action: "key", text: "Return" }]);
+        });
+        await h.reply(continuationIndex, { applied: 1 });
+        expect(await continued).toBe(true);
+        const beforeNextPoll = polls();
+        await act(async () => {
+          vi.advanceTimersByTime(5000);
+        });
+        expect(polls()).toBeGreaterThan(beforeNextPoll);
+        expect(h.result.current).toMatchObject({
+          driving: true,
+          available: true,
+          disabledReason: null,
+          error: null,
+        });
+      } finally {
+        await act(async () => {
+          h.unmount();
+          for (const request of h.requests) request.gate.resolve(json({ applied: 1 }));
+        });
+      }
+    },
+  );
+
   it("serializes requests and coalesces only adjacent queued mouse moves", async () => {
     const h = setup();
     await h.drive();

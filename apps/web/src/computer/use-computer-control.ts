@@ -21,6 +21,7 @@ const INPUT_FAILED = "Input may have been partly applied. Take control again bef
 // it, so this is the one refusal that names what to do rather than saying to try again.
 const OUTDATED = "This computer predates safe input. Close and reopen the project to update it.";
 const RefusalCodeSchema = z.object({ code: z.literal("desktop_outdated") });
+const RecoveryPendingCodeSchema = z.object({ code: z.literal("recovery_pending") });
 type View = {
   available: boolean;
   disabledReason: string | null;
@@ -78,6 +79,7 @@ export function useComputerControl({
     let taking = false;
     let queue: Pending[] = [];
     let inflight: Pending | null = null;
+    let inputSequence = 0;
     let pollTimer: ReturnType<typeof setTimeout> | undefined;
     let expiryTimer: ReturnType<typeof setTimeout> | undefined;
     const controllers = new Set<AbortController>();
@@ -129,10 +131,26 @@ export function useComputerControl({
     };
     const poll = async () => {
       const version = generation;
+      const sequence = inputSequence;
+      const inputPending = inflight !== null;
       try {
         const response = await request("control");
         if (!current(version)) return;
         if (!response.ok) {
+          if (response.status === 503) {
+            const recoveryPending = RecoveryPendingCodeSchema.safeParse(
+              await response.json().catch(() => null),
+            ).success;
+            if (!current(version)) return;
+            // A delayed status can describe our own reservation after input completes.
+            if (
+              recoveryPending &&
+              grant &&
+              grant.expiresAt > Date.now() &&
+              (inputPending || sequence !== inputSequence)
+            )
+              return;
+          }
           fail(response.status === 409 ? BUSY : UNAVAILABLE);
           return;
         }
@@ -164,6 +182,7 @@ export function useComputerControl({
       inflight = item;
       const version = generation;
       try {
+        inputSequence++;
         const response = await request("input", { grant: grant.grant, actions: item.actions });
         if (!current(version)) return;
         if (!response.ok) {

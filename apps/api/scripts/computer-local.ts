@@ -1,4 +1,4 @@
-/** Free local Nap with real Docker files, Chrome, input and video; scripted model and RAM storage. */
+/** Local Nap with Docker files, Chrome and RAM recordings. Codex subscription is opt-in. */
 import { randomBytes } from "node:crypto";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
@@ -30,6 +30,8 @@ import { createAuth } from "../src/auth/auth.ts";
 import { composeNap } from "../src/compose.ts";
 import { HTTP_SERVER_OPTIONS } from "../src/http-options.ts";
 import { createLogger } from "../src/logger.ts";
+import { openComputerLocalCodex } from "./computer-local-codex.ts";
+import { computerLocalSeedProvider, parseComputerLocalOptions } from "./computer-local-config.ts";
 import { computerLocalProvider } from "./computer-local-model.ts";
 import { LocalDockerSandboxManager } from "./computer-local-sandbox.ts";
 import { prepareComputerLocalWeb } from "./computer-local-web.ts";
@@ -94,6 +96,26 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 }
 
 try {
+  const selected = parseComputerLocalOptions(process.argv.slice(2));
+  if (!selected.ok) throw new Error(selected.error.message);
+  const mode = selected.value;
+  const scripted = computerLocalProvider();
+  let provider = scripted;
+  let finishSeed = () => {};
+  if (mode.kind === "codex") {
+    const codex = await openComputerLocalCodex({
+      nativeModel: mode.nativeModel,
+      napModel: mode.napModel,
+      signal: abort.signal,
+    });
+    if (!codex.ok) throw new Error(codex.error.message);
+    // Registered first so worker shutdown precedes provider disposal during reverse cleanup.
+    await own("Codex subscription provider", codex.value.close);
+    const seeded = computerLocalSeedProvider({ seed: scripted, interactive: codex.value.provider });
+    provider = seeded.provider;
+    finishSeed = seeded.finishSeed;
+  }
+  const model = mode.kind === "codex" ? mode.napModel : "anthropic/claude-sonnet-5";
   // Fail before Docker allocation; never replace another service on either new port.
   for (const port of [3047, 3048]) {
     await new Promise<void>((ready, fail) => {
@@ -140,15 +162,18 @@ try {
   if (!owner) throw new Error("Local owner missing.");
   const created = await createProjectSession(db, {
     userId: owner.id,
-    name: "Real Docker computer · scripted model · RAM recordings",
+    name:
+      mode.kind === "codex"
+        ? "Real Docker computer · Codex subscription · scripted fixture seed"
+        : "Real Docker computer · scripted model · RAM recordings",
   });
   const desktop = new E2BSandboxDesktop({ sandbox });
   const config = {
     ...loadgenConfig(2),
     NAP_WEB_ORIGIN: WEB,
-    NAP_MODEL: "anthropic/claude-sonnet-5",
-    NAP_FREE_MODEL: "anthropic/claude-sonnet-5",
-    NAP_ALLOWED_MODELS: ["anthropic/claude-sonnet-5"],
+    NAP_MODEL: model,
+    NAP_FREE_MODEL: model,
+    NAP_ALLOWED_MODELS: [model],
     NAP_WORKER_CONCURRENCY: 1,
     NAP_MAX_STEPS: 40,
     NAP_CONTEXT_BUDGET_TOKENS: 80_000,
@@ -180,7 +205,7 @@ try {
     recordings: desktop,
     computerAccess: { access: new PostgresProjectComputerAccess(db), secret },
     objects: new InMemoryObjectStore(),
-    provider: computerLocalProvider(),
+    provider,
     encryptionKey: encryptionKeyFrom(randomBytes(32).toString("base64")),
     verifyKey: async () => ({
       ok: false,
@@ -205,6 +230,7 @@ try {
   });
   if (!seeded.ok) throw new Error("The local source/build turn did not finish successfully.");
   await db.update(projects).set({ status: "ready" }).where(eq(projects.id, created.projectId));
+  finishSeed();
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: 3048,
@@ -270,14 +296,27 @@ try {
   await writeFile(
     join(runDirectory, "run.json"),
     JSON.stringify(
-      { mode: "scripted-local-docker", pid: process.pid, workspace, api: API, ...created },
+      {
+        mode: mode.kind === "codex" ? "codex-subscription-local-docker" : "scripted-local-docker",
+        model,
+        nativeModel: mode.kind === "codex" ? mode.nativeModel : null,
+        seed: "scripted",
+        pid: process.pid,
+        workspace,
+        api: API,
+        ...created,
+      },
       null,
       2,
     ),
   );
   starting = false;
   console.log(
-    `\nLocal real computer: ${workspace}\nLogin: ${EMAIL} / ${PASSWORD}\nScripted model, real Docker files/Git/build/Chrome/input/video. Recordings are RAM-only until exit.\nNo E2B, OpenRouter or other model calls. Stop with Ctrl-C.\nRun evidence: ${runDirectory}\n`,
+    `\nLocal real computer: ${workspace}\nLogin: ${EMAIL} / ${PASSWORD}\n${
+      mode.kind === "codex"
+        ? `Scripted Notes fixture seed; subsequent turns use the existing ChatGPT Codex subscription with ${mode.nativeModel}.\nNap owns tools and the real Docker files/Git/build/Chrome/input/video. Codex runs read-only in a private host directory with known tools disabled; residual host read access is not fully isolated.\nNo E2B, OpenRouter or API-key model calls.`
+        : "Scripted model, real Docker files/Git/build/Chrome/input/video. No E2B, OpenRouter or other model calls."
+    }\nRecordings are RAM-only until exit. Stop with Ctrl-C.\nRun evidence: ${runDirectory}\n`,
   );
 } catch (error) {
   const cancelled = abort.signal.aborted;
