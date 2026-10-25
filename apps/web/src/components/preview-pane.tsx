@@ -53,6 +53,7 @@ const WAITING_WORDS = [
 const WORD_MS = 2800;
 
 export type PreviewPaneProps = {
+  paneId?: string;
   /**
    * What the project is doing, decided in one place. See `projects/project-phase.ts` — this pane
    * used to fold the log itself and then apply two overrides of its own on top, which is how it
@@ -69,6 +70,7 @@ export type PreviewPaneProps = {
 };
 
 export function PreviewPane({
+  paneId = "preview",
   phase,
   onResume,
   resumeError,
@@ -80,7 +82,7 @@ export function PreviewPane({
     // No title bar: the workbench's tabs say which half this is, and the controls that used to
     // sit here — the host, Reload, Open — are in the one bar across the top, where they stay
     // reachable while somebody is looking at the code.
-    <Pane id="preview" title="Preview" chrome="none">
+    <Pane id={paneId} title="Preview" chrome="none">
       {/* Narrowed on the phase itself rather than on a flag, so the waiting half is typed. */}
       {phase.kind !== "running" ? (
         <Waiting

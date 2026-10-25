@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { Dashboard } from "./dashboard.tsx";
 import { SessionActions } from "./session-actions.tsx";
 import { Sidebar } from "./sidebar.tsx";
@@ -290,4 +290,33 @@ it("hides thread controls under the mobile sessions drawer and restores them on 
   fireEvent.click(screen.getByRole("button", { name: "Close sessions" }));
   expect(screen.getByRole("button", { name: "Toggle thread details panel" })).toBeVisible();
   expect(toggle.closest("[inert]")).toBeNull();
+});
+
+describe("native sidebar persistence defaults", () => {
+  beforeEach(() => localStorage.clear());
+  afterEach(() => localStorage.clear());
+
+  it("restores and updates the real app's existing width and collapse keys", () => {
+    localStorage.setItem("nap.sidebar.width", "320");
+    localStorage.setItem("nap.sidebar.collapsed", "true");
+    const view = render(<Dashboard sidebar={<p>Sessions</p>} hero={<p>Composer</p>} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Expand sidebar" }));
+    const handle = screen.getByRole("separator", { name: "Sidebar width" });
+    expect(handle).toHaveAttribute("aria-valuenow", "320");
+    expect(localStorage.getItem("nap.sidebar.collapsed")).toBe("false");
+    fireEvent.keyDown(handle, { key: "ArrowLeft" });
+    expect(localStorage.getItem("nap.sidebar.width")).toBe("304");
+    fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+    expect(localStorage.getItem("nap.sidebar.collapsed")).toBe("true");
+
+    view.unmount();
+    render(<Dashboard sidebar={<p>Sessions</p>} hero={<p>Composer</p>} />);
+    expect(screen.getByRole("button", { name: "Expand sidebar" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Expand sidebar" }));
+    expect(screen.getByRole("separator", { name: "Sidebar width" })).toHaveAttribute(
+      "aria-valuenow",
+      "304",
+    );
+  });
 });

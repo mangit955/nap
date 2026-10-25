@@ -4,7 +4,7 @@ import { DEFAULT_PANEL_LAYOUT } from "./tabs.ts";
 import { usePanelLayout } from "./use-panel-layout.ts";
 import { Workbench } from "./workbench.tsx";
 
-function Workspace({ scope = "test" }: { scope?: string }) {
+function Workspace({ scope = "test", narrow = false }: { scope?: string; narrow?: boolean }) {
   const controller = usePanelLayout(scope);
   return (
     <>
@@ -16,6 +16,7 @@ function Workspace({ scope = "test" }: { scope?: string }) {
       </button>
       <Workbench
         controller={controller}
+        narrow={narrow}
         maximized={false}
         onMaximize={() => {}}
         preview={<input aria-label="App state" defaultValue="kept" />}
@@ -215,5 +216,49 @@ describe("the right panel", () => {
     expect(screen.getByText("the files")).not.toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Toggle panel" }));
     expect(screen.getByRole("tabpanel", { name: "Files" })).toBeVisible();
+  });
+
+  it("moves focus into the native narrow panel, contains it, and restores its opener on close", () => {
+    localStorage.setItem(
+      "nap.right-panel.v1:test",
+      JSON.stringify({ ...DEFAULT_PANEL_LAYOUT, open: false }),
+    );
+    render(<Workspace narrow />);
+    const opener = screen.getByRole("button", { name: "Toggle panel" });
+    opener.focus();
+    fireEvent.click(opener);
+
+    expect(screen.getByRole("dialog", { name: "Right panel" })).toHaveAttribute(
+      "aria-modal",
+      "true",
+    );
+    const browser = screen.getByRole("tab", { name: "Browser" });
+    expect(browser).toHaveFocus();
+    screen.getByRole("button", { name: "Close Files externally" }).focus();
+    expect(browser).toHaveFocus();
+
+    fireEvent.click(screen.getByRole("button", { name: "Close right panel" }));
+    expect(screen.queryByRole("dialog", { name: "Right panel" })).not.toBeInTheDocument();
+    expect(opener).toHaveFocus();
+  });
+
+  it("wraps Tab at both ends of the native narrow panel", () => {
+    const rects = vi.spyOn(HTMLElement.prototype, "getClientRects").mockReturnValue(
+      Object.assign([new DOMRect(0, 0, 100, 30)], {
+        item: () => new DOMRect(0, 0, 100, 30),
+      }),
+    );
+    try {
+      render(<Workspace narrow />);
+      const first = screen.getByRole("tab", { name: "Browser" });
+      const last = screen.getByRole("textbox", { name: "App state" });
+      first.focus();
+      fireEvent.keyDown(first, { key: "Tab", shiftKey: true });
+      expect(last).toHaveFocus();
+      fireEvent.keyDown(last, { key: "Tab" });
+      expect(first).toHaveFocus();
+    } finally {
+      rects.mockRestore();
+    }
   });
 });

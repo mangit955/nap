@@ -32,6 +32,7 @@ export function SessionList({
   onRename,
   onDelete,
   onClose,
+  onSelectProject,
   onLayout,
 }: {
   onLayout?: ((selected: HTMLAnchorElement | null) => void) | undefined;
@@ -47,6 +48,7 @@ export function SessionList({
   onRename?: ((id: string, name: string) => void) | undefined;
   onDelete?: ((id: string) => void) | undefined;
   onClose?: ((id: string) => void) | undefined;
+  onSelectProject?: ((projectId: string) => void) | undefined;
 }) {
   const [now, setNow] = useState(Date.now);
   const [expanded, setExpanded] = useState({ snoozed: false, settled: false });
@@ -204,6 +206,7 @@ export function SessionList({
         hasDraft={draftIds?.has(row.projectId) ?? false}
         now={now}
         busy={busyProjectId === row.projectId}
+        onSelectProject={onSelectProject}
         onOpen={() => {
           if (unread)
             onChange?.(row.projectId, { kind: "read", at: row.activityAt, unread: false });
