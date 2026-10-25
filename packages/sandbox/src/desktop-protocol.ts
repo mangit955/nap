@@ -68,6 +68,11 @@ export const DesktopObservationSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 export const DesktopPasswordSchema = z.strictObject({ password: z.string().min(8).max(32) });
+/** What the driver prints with no argument. Loose, so every version ever shipped parses. */
+export const DesktopCapabilitiesSchema = z.object({
+  protocol: z.int(),
+  operations: z.array(z.string()),
+});
 export const DESKTOP_STATE = "/home/user/.nap-desktop";
 export const DESKTOP_DRIVER = "/usr/local/lib/nap-desktop/driver.mjs";
 export const DESKTOP_STREAM_PORT = 6080;

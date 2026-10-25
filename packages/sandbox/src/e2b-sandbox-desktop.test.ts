@@ -200,3 +200,30 @@ it.each(["scope", "sandbox", "protocol", "ordinary-ack"])(
     expect(f.calls[0]?.input).toMatchObject({ op: "close_scope", scopeId, sandboxId: "s" });
   },
 );
+// Exactly what the bundled driver prints with no argument, before and after scoped input.
+const protocol1 = {
+  protocol: 1,
+  operations: ["start", "act", "screenshot", "credentials", "cancel"],
+};
+const protocol2 = { protocol: 2, operations: ["start", "act", "close_scope", "observe"] };
+it.each([
+  ["a scoped driver", protocol2, true],
+  ["a driver from before scoped input", protocol1, false],
+  ["a newer protocol without the drain", { protocol: 3, operations: ["act"] }, false],
+  ["an unrecognised answer", { ok: true, value: { kind: "none" } }, false],
+])("asks the driver's capabilities without input: %s", async (_name, reply, expected) => {
+  const f = fixture([reply]);
+  expect(await f.transport.supportsScopedInput({ sandboxId: "s" })).toBe(expected);
+  expect(f.calls).toHaveLength(1);
+  expect(f.calls[0]?.sandboxId).toBe("s");
+  expect(f.calls[0]?.input).toBeNull();
+  expect(f.calls[0]?.command).toMatch(/node \/usr\/local\/lib\/nap-desktop\/driver\.mjs$/);
+});
+it("reports no scoped input when the machine cannot be asked", async () => {
+  const f = fixture([]);
+  f.sandbox.exec = async () => ({
+    ok: false,
+    error: { code: "unavailable", message: "gone" },
+  });
+  expect(await f.transport.supportsScopedInput({ sandboxId: "s" })).toBe(false);
+});

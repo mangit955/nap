@@ -226,10 +226,17 @@ function lostOutputDesktop() {
   const sandbox = new InMemorySandboxManager();
   // The command reached the transport, but its output is not a completion certificate.
   // Exercise the real adapter's output parser; no fake activity flag can grant drain.
-  const exec = vi.spyOn(sandbox, "exec").mockResolvedValue({
+  const exec = vi.spyOn(sandbox, "exec").mockImplementation(async (_id, command) => ({
     ok: true,
-    value: { exitCode: 0, stdout: "{truncated", stderr: "" },
-  });
+    value: {
+      exitCode: 0,
+      // A current driver answers its no-argument capability query in full.
+      stdout: command.endsWith("driver.mjs")
+        ? JSON.stringify({ protocol: 2, operations: ["act", "close_scope"] })
+        : "{truncated",
+      stderr: "",
+    },
+  }));
   return {
     desktop: new E2BSandboxDesktop({ sandbox }),
     exec,
@@ -330,6 +337,26 @@ it("reports recovery pending and refuses owner replay after output loss", async 
   expect(await status.json()).toMatchObject({ code: "recovery_pending" });
   expect(retry.status).toBe(503);
   expect(await retry.json()).toMatchObject({ code: "recovery_pending", applied: 0 });
+});
+
+it("refuses owner input to a machine whose driver predates scoped input, leaving no fence", async () => {
+  const f = await fixture();
+  f.desktop.legacyDriver();
+  const grant = await f.grant();
+  const body = { grant, actions: [{ action: "left_click", coordinate: [10, 20] }] };
+  for (let i = 0; i < 2; i++) {
+    const response = await f.post("input", body);
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ code: "desktop_unavailable", applied: 0 });
+  }
+  expect(f.desktop.actions).toEqual([]);
+  expect(
+    await db
+      .select()
+      .from(projectComputerOperations)
+      .where(eq(projectComputerOperations.projectId, f.projectId)),
+  ).toEqual([]);
+  expect((await f.app.request(`${f.base}/control`)).status).toBe(200);
 });
 
 it("keeps admission fenced after the dispatching database session is terminated", async () => {

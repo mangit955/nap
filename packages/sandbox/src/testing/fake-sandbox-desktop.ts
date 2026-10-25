@@ -22,12 +22,20 @@ export class FakeSandboxDesktop implements SandboxDesktop {
   #failure: DesktopError | undefined;
   readonly #closedScopes = new Set<string>();
   readonly #pendingScopes = new Map<string, number>();
+  #legacy = false;
   readonly transport: DesktopInputTransport = {
     start: (request) => this.start(request),
     screenshot: (id, signal) => this.screenshot(id, signal),
     streamCredentials: (id) => this.streamCredentials(id),
     observe: ({ sandboxId, action, signal }) => this.act(sandboxId, action, signal),
+    supportsScopedInput: async () => !this.#legacy,
     act: async ({ sandboxId, scopeId, action, signal }) => {
+      // A protocol-1 driver's strict schema rejects a scoped act before any input runs.
+      if (this.#legacy)
+        return {
+          ok: false,
+          error: { code: "completion_unknown", message: "Input completion is unknown." },
+        };
       if (this.#closedScopes.has(scopeId))
         return { ok: false, error: { code: "completion_unknown", message: "Scope closed." } };
       this.#pendingScopes.set(scopeId, (this.#pendingScopes.get(scopeId) ?? 0) + 1);
@@ -38,6 +46,11 @@ export class FakeSandboxDesktop implements SandboxDesktop {
       }
     },
     closeAndDrain: async ({ sandboxId, scopeId }) => {
+      if (this.#legacy)
+        return {
+          ok: false,
+          error: { code: "unavailable", message: "Nap's computer is unavailable." },
+        };
       this.#closedScopes.add(scopeId);
       if (this.#failure) return { ok: false, error: this.#failure };
       if ((this.#pendingScopes.get(scopeId) ?? 0) > 0)
@@ -50,6 +63,11 @@ export class FakeSandboxDesktop implements SandboxDesktop {
     this.#frame = structuredClone(frame);
   }
 
+  /** Behaves as a machine created before scoped input: it can never accept or drain a scope. */
+  legacyDriver(): this {
+    this.#legacy = true;
+    return this;
+  }
   failWith(error: DesktopError | undefined): this {
     this.#failure = error;
     return this;

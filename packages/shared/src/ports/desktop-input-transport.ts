@@ -23,6 +23,11 @@ export type ScopedDesktopAction = {
 
 /** Raw input requires a single-use scope. Only the coordinator binds the public act method. */
 export interface DesktopInputTransport extends Omit<SandboxDesktop, "act"> {
+  /** Whether this machine's driver takes scoped input and can drain it. Sends no input. */
+  supportsScopedInput(request: {
+    sandboxId: string;
+    signal?: AbortSignal | undefined;
+  }): Promise<boolean>;
   observe(request: {
     sandboxId: string;
     action: DesktopAction;

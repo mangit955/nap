@@ -18,6 +18,10 @@ const pending: DesktopError = {
   code: "completion_unknown",
   message: "Computer input recovery is pending. No action was replayed.",
 };
+const outdated: DesktopError = {
+  code: "unavailable",
+  message: "This computer predates safe input. Close and reopen the project to update it.",
+};
 const noInput = new Set(["screenshot", "cursor_position", "read_dom", "console", "wait", "zoom"]);
 
 async function bounded<T>(
@@ -54,6 +58,8 @@ export class ProjectComputer {
   readonly #access: ProjectComputerAccess;
   readonly #transport: DesktopInputTransport;
   readonly #now: () => number;
+  // A machine's driver is fixed for its life, so a yes never needs asking twice.
+  readonly #scoped = new Set<string>();
   constructor(options: {
     access: ProjectComputerAccess;
     transport: DesktopInputTransport;
@@ -114,6 +120,12 @@ export class ProjectComputer {
         if (!actor) {
           stopped = true;
           return { ok: false, error: pending };
+        }
+        // An older driver rejects the scoped act and can never drain, so a reservation against
+        // it would block the project for good. Nothing was sent, so the attempt carries on.
+        if (!(await this.#supportsScopedInput(sandboxId, signal))) {
+          admission = { code: "unavailable" };
+          return { ok: false, error: outdated };
         }
         try {
           const result = await bounded(
@@ -222,6 +234,20 @@ export class ProjectComputer {
     return attempt.stopped()
       ? { ok: false, error: { code: "recovery_pending", applied } }
       : { ok: true, value: { applied } };
+  }
+
+  async #supportsScopedInput(sandboxId: string, signal?: AbortSignal): Promise<boolean> {
+    if (this.#scoped.has(sandboxId)) return true;
+    const supported = await bounded(
+      (signal) => this.#transport.supportsScopedInput({ sandboxId, signal }),
+      15_000,
+      signal,
+    ).catch(() => false);
+    if (supported) {
+      if (this.#scoped.size >= 1000) this.#scoped.clear();
+      this.#scoped.add(sandboxId);
+    }
+    return supported;
   }
 
   async #drain(scope: ComputerScopeIdentity): Promise<boolean> {

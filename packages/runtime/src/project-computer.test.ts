@@ -43,9 +43,11 @@ function fixture() {
     ok: true,
     value: { protocol: 2, kind: "scope_drained", scopeId, sandboxId },
   }));
+  const supports = vi.fn<DesktopInputTransport["supportsScopedInput"]>(async () => true);
   const transport: DesktopInputTransport = {
     act,
     closeAndDrain: close,
+    supportsScopedInput: supports,
     observe: async () => ({ ok: true, value: { kind: "none" } }),
     start: async () => ({ ok: true, value: { width: 1024, height: 768 } }),
     screenshot: async () => ({
@@ -60,8 +62,69 @@ function fixture() {
   const computer = new ProjectComputer({ access: store, transport });
   const attempt = () =>
     computer.forTurn({ projectId, sandboxId: "box", lease: { requestId, owner: "worker" } });
-  return { computer, attempt, store, reserve, clear, act, close, row: () => row };
+  return { computer, attempt, store, reserve, clear, act, close, supports, row: () => row };
 }
+const binding = {
+  projectId,
+  sessionId: "00000000-0000-4000-8000-000000000003",
+  userId: "owner",
+  sandboxId: "box",
+  revision: requestId,
+  expiresAt: Number.MAX_SAFE_INTEGER,
+};
+
+// A machine created before scoped input rejects the scoped act and cannot drain, so a
+// reservation committed against it could never clear. Its project must stay usable.
+it.each([
+  ["reports an older protocol", async () => false],
+  [
+    "cannot be asked",
+    async (): Promise<boolean> => {
+      throw new Error("exec lost");
+    },
+  ],
+])("a driver that %s gets no reservation, input or close from the model", async (_name, answer) => {
+  const f = fixture();
+  f.supports.mockImplementation(answer);
+  const scope = f.attempt();
+  const result = await scope.desktop.act("box", { action: "left_click", coordinate: [1, 1] });
+  expect(result).toMatchObject({ ok: false, error: { code: "unavailable" } });
+  expect(f.reserve).not.toHaveBeenCalled();
+  expect(f.act).not.toHaveBeenCalled();
+  expect(scope.stopped()).toBe(false);
+  expect((await scope.close()).ok).toBe(true);
+  expect(f.close).not.toHaveBeenCalled();
+  expect(f.row()).toBeUndefined();
+});
+it("a driver without scoped input gets no reservation, input or close from its owner", async () => {
+  const f = fixture();
+  f.supports.mockResolvedValue(false);
+  const result = await f.computer.ownerInput({
+    binding,
+    actions: [{ action: "left_click", coordinate: [1, 1] }],
+  });
+  expect(result).toEqual({ ok: false, error: { code: "unavailable", applied: 0 } });
+  expect(f.reserve).not.toHaveBeenCalled();
+  expect(f.act).not.toHaveBeenCalled();
+  expect(f.close).not.toHaveBeenCalled();
+});
+it("asks the exact machine before its first reservation, and remembers a yes", async () => {
+  const f = fixture();
+  f.reserve.mockImplementation(async (request) => {
+    expect(f.supports).toHaveBeenCalledWith(expect.objectContaining({ sandboxId: "box" }));
+    return {
+      ok: true,
+      value: { ...request, state: "active", createdAt: "", nextRecoveryAt: "" },
+    };
+  });
+  for (let i = 0; i < 2; i++) {
+    const scope = f.attempt();
+    expect((await scope.desktop.act("box", { action: "left_mouse_down" })).ok).toBe(true);
+    await scope.close();
+  }
+  expect(f.reserve).toHaveBeenCalledTimes(2);
+  expect(f.supports).toHaveBeenCalledOnce();
+});
 
 it("reserves lazily once before dispatch, retains a held gesture across calls, and clears only after drain", async () => {
   const f = fixture();

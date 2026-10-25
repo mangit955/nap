@@ -20,8 +20,8 @@ import type { Result } from "@nap/shared/result";
 import { z } from "zod";
 import {
   DESKTOP_DRIVER,
-  DESKTOP_STATE,
   DESKTOP_STREAM_PORT,
+  DesktopCapabilitiesSchema,
   DesktopImageSchema,
   DesktopObservationSchema,
   DesktopPasswordSchema,
@@ -106,6 +106,29 @@ export class E2BSandboxDesktop implements DesktopInputTransport, SandboxRecordin
         height: result.value.height,
       },
     };
+  }
+
+  async supportsScopedInput(
+    request: Parameters<DesktopInputTransport["supportsScopedInput"]>[0],
+  ): Promise<boolean> {
+    try {
+      const result = await this.#sandbox.exec(
+        request.sandboxId,
+        `timeout --signal=TERM --kill-after=2 10s node ${DESKTOP_DRIVER}`,
+        undefined,
+        request.signal ? { signal: request.signal } : undefined,
+      );
+      if (!result.ok || result.value.exitCode !== 0 || result.value.stdout.length > 4096)
+        return false;
+      const capabilities = DesktopCapabilitiesSchema.safeParse(JSON.parse(result.value.stdout));
+      return (
+        capabilities.success &&
+        capabilities.data.protocol >= 2 &&
+        ["act", "close_scope"].every((op) => capabilities.data.operations.includes(op))
+      );
+    } catch {
+      return false;
+    }
   }
 
   async act(request: ScopedDesktopAction): Promise<Result<DesktopObservation, DesktopError>> {

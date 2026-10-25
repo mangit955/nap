@@ -178,14 +178,8 @@ function guardFailure(c: AccessContext, code: ComputerAdmissionError["code"], ap
   if (code === "busy") return c.json({ error: "A turn is running in this project.", code }, 409);
   if (code === "stale_grant")
     return c.json({ error: "Control grant is stale. Take control again.", code }, 409);
-  return c.json(
-    {
-      error: "Computer input recovery is pending.",
-      code: code === "unavailable" ? "desktop_unavailable" : code,
-      applied,
-    },
-    503,
-  );
+  if (code === "unavailable") return c.json({ ...unavailable, applied }, 503);
+  return c.json({ error: "Computer input recovery is pending.", code, applied }, 503);
 }
 function rejectCrossSiteWrite(c: AccessContext, webOrigin?: string) {
   const origin = c.req.header("origin");

@@ -21,7 +21,12 @@ import { isolatedProjectComputer } from "./testing/isolated-project-computer.ts"
 const sessionId = "2a3f8a24-6c1b-4e0e-9b6f-3a5c0a1d9e77";
 const projectId = "4d5e6f70-1a2b-4c3d-8e9f-0a1b2c3d4e5f";
 
-async function fixture(phase: "ordinary" | "repair", refusalAfterInput = false, closeOnly = false) {
+async function fixture(
+  phase: "ordinary" | "repair",
+  refusalAfterInput = false,
+  closeOnly = false,
+  protocol = 2,
+) {
   const sandbox = scriptGit(
     new InMemorySandboxManager({
       seed: {
@@ -69,6 +74,19 @@ async function fixture(phase: "ordinary" | "repair", refusalAfterInput = false, 
       },
     })
     .mockImplementation(async (_id, command) => {
+      // The no-argument capability query, answered as that driver version prints it.
+      if (command.endsWith("driver.mjs"))
+        return {
+          ok: true,
+          value: {
+            exitCode: 0,
+            stdout: JSON.stringify({
+              protocol,
+              operations: protocol === 1 ? ["start", "act"] : ["start", "act", "close_scope"],
+            }),
+            stderr: "",
+          },
+        };
       if (closeOnly) {
         const encoded = command.match(/'([A-Za-z0-9+/=]+)'$/)?.[1];
         if (!encoded) throw new Error("Missing encoded driver request.");
@@ -166,6 +184,7 @@ async function fixture(phase: "ordinary" | "repair", refusalAfterInput = false, 
   });
   return {
     runtime,
+    transport,
     events,
     snapshots,
     capture,
@@ -244,4 +263,34 @@ it("retains a durable completed turn but skips all later sandbox work when healt
   expect(events.filter((event) => event.type === "turn.completed")).toHaveLength(1);
   expect(events.filter((event) => event.type === "turn.failed")).toEqual([]);
   expect(events.some((event) => event.type === "verification.started")).toBe(false);
+});
+
+it("keeps working on source when a machine predates scoped input, sending it no input", async () => {
+  const f = await fixture("ordinary", false, false, 1);
+  await f.runtime.runTurn({
+    sessionId,
+    turnId: crypto.randomUUID(),
+    message: "Update the app",
+    model: "anthropic/claude-sonnet-5",
+  });
+  const sent = vi
+    .mocked(f.transport.exec)
+    .mock.calls.map(([, command]) => command.match(/'([A-Za-z0-9+/=]+)'$/)?.[1])
+    .flatMap((encoded) =>
+      encoded
+        ? [DesktopRequestSchema.parse(JSON.parse(Buffer.from(encoded, "base64").toString())).op]
+        : [],
+    );
+  expect(sent).not.toContain("act");
+  expect(sent).not.toContain("close_scope");
+  expect(f.observed().completionUnknown).toBe(false);
+  const events = await f.events.readFrom(sessionId, 0);
+  expect(
+    events.find(
+      (event) => event.type === "tool.result" && event.payload.toolCallId === "uncertain-input",
+    ),
+  ).toMatchObject({ payload: { ok: false } });
+  expect(f.finishJob).toHaveBeenCalled();
+  expect(events.map((event) => event.type)).toContain("turn.completed");
+  expect(events.at(-1)?.type).toBe("job.completed");
 });
