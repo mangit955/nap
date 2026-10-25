@@ -256,8 +256,9 @@ class Turn {
 
       if (result.toolCalls.length === 0) return await this.#complete();
 
-      const cancelled = await this.#runTools(result.text, result.toolCalls);
-      if (cancelled) return this.#fail("cancelled", "The turn was cancelled.");
+      const disposition = await this.#runTools(result.text, result.toolCalls);
+      if (disposition === "fatal") return;
+      if (disposition === "cancelled") return this.#fail("cancelled", "The turn was cancelled.");
     }
   }
 
@@ -438,17 +439,27 @@ class Turn {
   /**
    * Executes a batch of tool calls and appends both halves of the exchange.
    *
-   * Returns whether the turn was cancelled part-way. The results collected so far are
-   * deliberately *not* sent: the conversation is being abandoned, and a user message
+   * Returns why an incomplete batch stopped. The results collected so far are
+   * deliberately not sent: the conversation is being abandoned, and a user message
    * answering only some of an assistant message's tool calls is a request the API rejects.
    */
-  async #runTools(text: string, calls: readonly LLMToolCall[]): Promise<boolean> {
+  async #runTools(
+    text: string,
+    calls: readonly LLMToolCall[],
+  ): Promise<"continue" | "cancelled" | "fatal"> {
     const results: LLMContentBlock[] = [];
 
     for (const call of calls) {
-      if (this.#cancelled()) return true;
+      if (this.#cancelled()) return "cancelled";
 
       const outcome = await executeTool(call, this.#toolContext());
+      if (outcome.stop === "computer_unsettled") {
+        this.#fail(
+          this.#cancelled() ? "cancelled" : "sandbox_unavailable",
+          "Computer input recovery is pending.",
+        );
+        return "fatal";
+      }
       results.push({
         type: "tool_result",
         toolCallId: call.id,
@@ -471,7 +482,7 @@ class Turn {
     this.#messages.push({ role: "user", content: results });
     this.#messages.splice(0, this.#messages.length, ...pruneComputerImages(this.#messages));
 
-    return false;
+    return "continue";
   }
 
   async #complete(): Promise<void> {

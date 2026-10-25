@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { E2BSandboxDesktop } from "@nap/sandbox/e2b-sandbox-desktop";
+import { isolatedDesktop } from "@nap/sandbox/testing/isolated-desktop";
 import type { Result } from "@nap/shared/result";
 import { describe, expect, it } from "vitest";
 import { LocalDockerSandboxManager } from "./computer-local-sandbox.ts";
@@ -82,7 +83,8 @@ describe.skipIf(!enabled)("LocalDockerSandboxManager real Docker", () => {
       expect(new URL(previewUrl).hostname).toBe("127.0.0.1");
       expect((await fetch(previewUrl)).ok).toBe(true);
 
-      const desktop = new E2BSandboxDesktop({ sandbox: manager });
+      const transport = new E2BSandboxDesktop({ sandbox: manager });
+      const desktop = isolatedDesktop(transport);
       expect(
         unwrap(
           await desktop.start({
@@ -115,10 +117,10 @@ describe.skipIf(!enabled)("LocalDockerSandboxManager real Docker", () => {
       });
 
       const recordingId = crypto.randomUUID();
-      unwrap(await desktop.begin({ sandboxId, recordingId }));
+      unwrap(await transport.begin({ sandboxId, recordingId }));
       unwrap(await desktop.act(sandboxId, { action: "wait", duration: 0.5 }));
-      expect(unwrap(await desktop.timestamp({ sandboxId, recordingId }))).toBeGreaterThan(0);
-      const video = unwrap(await desktop.finish({ sandboxId, recordingId }));
+      expect(unwrap(await transport.timestamp({ sandboxId, recordingId }))).toBeGreaterThan(0);
+      const video = unwrap(await transport.finish({ sandboxId, recordingId }));
       expect(video.bytes.byteLength).toBeGreaterThan(1_000);
       expect(Buffer.from(video.bytes).toString("ascii", 4, 8)).toBe("ftyp");
     } finally {

@@ -1,4 +1,5 @@
 import { MediaAttachmentsSchema } from "@nap/shared/media";
+import { projectComputerOperations } from "./schema.ts";
 /**
  * The turn queue in Postgres — one in-flight request per session, cluster-wide.
  *
@@ -213,6 +214,15 @@ export class PostgresTurnQueue implements TurnQueue {
           if (project === undefined) {
             // Skip all sessions of this project, without spending the session-race retry budget.
             // These request locks last only until this short claim transaction ends.
+            skippedProjects.push(candidate.projectId);
+            continue;
+          }
+          const [input] = await tx
+            .select({ id: projectComputerOperations.projectId })
+            .from(projectComputerOperations)
+            .where(eq(projectComputerOperations.projectId, candidate.projectId))
+            .limit(1);
+          if (input !== undefined) {
             skippedProjects.push(candidate.projectId);
             continue;
           }

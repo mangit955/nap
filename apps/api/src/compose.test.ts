@@ -3,6 +3,7 @@ import { InMemoryCapacityReconciler } from "@nap/db/testing/in-memory-capacity-r
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { InMemoryGitHubStore } from "@nap/db/testing/in-memory-github-store";
+import { InMemoryProjectComputerAccess } from "@nap/db/testing/in-memory-project-computer-access";
 import { InMemoryProjectSandboxStore } from "@nap/db/testing/in-memory-project-sandbox-store";
 import { FAKE_OWNER, InMemoryProjectStore } from "@nap/db/testing/in-memory-project-store";
 import { InMemorySandboxCapacity } from "@nap/db/testing/in-memory-sandbox-capacity";
@@ -115,13 +116,29 @@ afterEach(async () => {
   while (stopping.length > 0) await stopping.pop()?.stop();
 });
 
+function computerStore(sandboxId: string | null) {
+  const access = new InMemoryProjectComputerAccess();
+  access.setProject({
+    projectId: PROJECT,
+    userId: FAKE_OWNER,
+    sessionIds: [SESSION],
+    sandboxId,
+    revision: "72a3e710-65bf-420e-8cea-d4aa8e0b2f7d",
+  });
+  return access;
+}
 function compose(overrides: Partial<NapDeps> = {}) {
+  const queue = overrides.queue ?? new InMemoryTurnQueue();
+  const access = overrides.computerAccess?.access ?? computerStore(null);
+  if (queue instanceof InMemoryTurnQueue && access instanceof InMemoryProjectComputerAccess)
+    queue.attachComputerAccess(access);
   const composed = composeNap({
     config: CONFIG,
     logger: createLogger({ level: "silent" }, { write: () => {} }),
     sessions: new InMemorySessionStore(),
     projects: new InMemoryProjectStore(),
-    queue: new InMemoryTurnQueue(),
+    queue,
+    ...(overrides.desktop ? { computerAccess: { access, secret: "test-control-secret" } } : {}),
     projectSandboxes: new InMemoryProjectSandboxStore(),
     capacity: new InMemorySandboxCapacity(),
     // Per-process limiters, which is exactly what a test wants and exactly what a deployment
@@ -709,7 +726,7 @@ it("wires an optional desktop into real computer turns and private screenshot st
     sandbox,
     objects,
     events,
-    desktop,
+    desktop: desktop.transport,
     provider: new ScriptedLLMProvider([
       [
         {
@@ -744,21 +761,13 @@ it("composes private desktop transport and guarded owner input", async () => {
   const nap = compose({
     role: "api",
     sandbox,
-    desktop,
+    desktop: desktop.transport,
     sessions: new InMemorySessionStore([
       { sessionId: SESSION, projectId: PROJECT, userId: FAKE_OWNER, sandboxId: created.value.id },
     ]),
     computerAccess: {
       secret: "test-control-secret",
-      access: {
-        withIdleProject: async (_request, operation) => ({
-          ok: true,
-          value: await operation({
-            sandboxId: created.value.id,
-            revision: "72a3e710-65bf-420e-8cea-d4aa8e0b2f7d",
-          }),
-        }),
-      },
+      access: computerStore(created.value.id),
     },
   });
   const stream = await nap.app.request(`/sessions/${SESSION}/computer/stream`);
@@ -865,18 +874,18 @@ it.each([
     const nap = compose({
       role: "api",
       sandbox,
-      desktop,
+      desktop: desktop.transport,
       github: { store, app: null },
       sessions: new InMemorySessionStore([
         { sessionId: SESSION, projectId: PROJECT, userId: FAKE_OWNER, sandboxId: created.value.id },
       ]),
       computerAccess: {
         secret: "test-control-secret",
-        access: {
-          withIdleProject: async () => {
+        access: new (class extends InMemoryProjectComputerAccess {
+          override async read(): Promise<never> {
             throw new Error("Stream must not request writable control");
-          },
-        },
+          }
+        })(),
       },
     });
     const response = await nap.app.request(`/sessions/${SESSION}/computer/stream`);

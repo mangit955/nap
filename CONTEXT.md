@@ -596,6 +596,8 @@ Screenshot events name stored objects; the model receives images only within its
 Desktop lifecycle and stream credentials stay separate from sandbox lifecycle and event storage.
 See [ADR-0018](docs/adr/0018-the-agent-gets-a-computer.md).
 
+**Input scope** — one single-use ownership of a project's Computer input, reserved durably before physical dispatch. A model attempt reserves lazily and an owner batch reserves once. Unknown completion retains the project's admission fence until a matching remote drain proof clears it. Closing a scope permanently revokes delayed input for that identity. Recovery never replays input or destroys source.
+
 **App test** — a user-approved, system-prompted Turn that exercises the latest completed Job in
 its Computer. Its goal and source commit are recorded in `test.started`; its input prompt is
 built from that goal and the Job's diff. Assertions are declared before input and receive a

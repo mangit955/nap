@@ -46,10 +46,21 @@ export async function runComputer(
       result = await access.desktop.act(ctx.sandboxId, action, ctx.signal);
     } catch {
       access.afterAction?.(action, false);
-      return { ok: false, output: "Computer input completion is unknown. No action was replayed." };
+      return {
+        ok: false,
+        stop: "computer_unsettled",
+        output: "Computer input completion is unknown. No action was replayed.",
+      };
     }
     access.afterAction?.(action, result.ok);
-    if (!result.ok) return { ok: false, output: result.error.message };
+    if (!result.ok)
+      return {
+        ok: false,
+        output: result.error.message,
+        ...(result.error.code === "completion_unknown" || access.stopped?.()
+          ? { stop: "computer_unsettled" as const }
+          : {}),
+      };
     if (result.value.kind === "text") observations.push(result.value.text.slice(0, 30000));
     if (result.value.kind === "cursor")
       observations.push(`Cursor at (${result.value.coordinate.join(", ")}).`);

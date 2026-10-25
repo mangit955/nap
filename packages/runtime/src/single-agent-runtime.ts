@@ -1,3 +1,5 @@
+import type { QueueLeaseIdentity } from "@nap/shared/ports/project-computer-access";
+import type { ProjectComputer } from "./project-computer.ts";
 /**
  * One turn, end to end: get a sandbox, build the context, run the agent, write down
  * everything that happened, commit the result, and ask the project whether it holds up.
@@ -42,7 +44,7 @@ import type { JobOutcome, NapEvent, NapEventOf, PromptSource } from "@nap/shared
 import { foldJobs, MAX_REPAIR_ATTEMPTS, openJob } from "@nap/shared/job-state";
 import { addLogContext, getLogger, withLogContext } from "@nap/shared/logging";
 import { modelSupportsImages } from "@nap/shared/model-capabilities";
-import type { AgentService, AgentTurnRequest } from "@nap/shared/ports/agent-service";
+import type { AgentService } from "@nap/shared/ports/agent-service";
 import type { ContextEngine, FailedAttempt, JobContext } from "@nap/shared/ports/context-engine";
 import type { EventBus } from "@nap/shared/ports/event-bus";
 import type { EventStore, PendingEvent, StoredEvent } from "@nap/shared/ports/event-store";
@@ -65,7 +67,6 @@ import type { SessionRecord, SessionStore } from "@nap/shared/ports/session-stor
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
 import type { Result } from "@nap/shared/result";
 import { shellQuote } from "@nap/shared/shell";
-import { TurnAbortError } from "@nap/shared/turn-abort";
 import type { VerificationResult } from "@nap/verify/run-checks";
 import {
   type AcquiredSandbox,
@@ -95,6 +96,7 @@ type Payload<T extends NapEvent["type"]> = NapEventOf<T>["payload"];
  * `turnId` is on the scope rather than on the sink, and each repair gets a scope of its own.
  */
 type TurnScope = {
+  sandboxStopped?: boolean;
   session: SessionRecord;
   sink: EventSink;
   turnId: string;
@@ -108,6 +110,8 @@ type TurnScope = {
  * whoever opened the project is the signal, the model and whose account pays, and nothing else.
  */
 type TurnSettings = {
+  lease?: QueueLeaseIdentity | undefined;
+  work?: { stopped: boolean };
   sessionId: string;
   signal?: AbortSignal | undefined;
   model?: string | undefined;
@@ -199,7 +203,9 @@ export type SingleAgentRuntimeOptions = {
   sandbox: SandboxManager;
   context: ContextEngine;
   agent: AgentService;
-  computer?: Pick<NonNullable<AgentTurnRequest["computer"]>, "desktop" | "objects"> & {
+  computer?: {
+    coordinator: ProjectComputer;
+    objects: ObjectStore;
     recordings?: SandboxRecordings;
   };
   events: EventStore;
@@ -650,7 +656,7 @@ export class SingleAgentRuntime implements Runtime {
             commitSha: target.commitSha,
             objective: target.objective,
           },
-          desktop: this.#options.computer.desktop,
+          desktop: this.#options.computer.coordinator.desktop,
           recordings: this.#options.computer.recordings,
           objects: this.#options.computer.objects,
           ...(request.signal ? { signal: request.signal } : {}),
@@ -939,18 +945,27 @@ export class SingleAgentRuntime implements Runtime {
       emit("job.completed", { jobId, outcome });
       run.open = false;
       await sink.drain();
-      await this.#finishRepositoryJob({
-        scope: run.turn,
-        sandboxId,
-        jobId,
-        requestId: run.requestId,
-        signal: settings.signal,
-      });
+      if (!settings.work?.stopped)
+        await this.#finishRepositoryJob({
+          scope: run.turn,
+          sandboxId,
+          jobId,
+          requestId: run.requestId,
+          signal: settings.signal,
+        });
     };
 
     let { outcome, failed, announce, fresh } = entry;
 
     for (;;) {
+      if (settings.work?.stopped) {
+        if (run.open) {
+          emit("job.completed", { jobId, outcome: "abandoned" });
+          run.open = false;
+          await sink.drain();
+        }
+        return outcome;
+      }
       if (failed === null) {
         if (!outcome.ok) {
           // The turn the job was riding on refused, was cancelled, or fell over. Nothing will
@@ -1110,7 +1125,13 @@ export class SingleAgentRuntime implements Runtime {
 
     settings.signal?.throwIfAborted();
 
-    let usedComputer = false;
+    const computerAttempt = this.#options.computer?.coordinator.forTurn({
+      projectId: scope.session.projectId,
+      sandboxId,
+      lease: settings.lease,
+    });
+    settings.work ??= { stopped: false };
+    const work = settings.work;
     try {
       await this.#options.agent.runTurn({
         sessionId: settings.sessionId,
@@ -1118,11 +1139,14 @@ export class SingleAgentRuntime implements Runtime {
         sandboxId,
         context,
         sandbox: this.#options.sandbox,
-        ...(this.#options.computer === undefined || options.previewPort === null
+        ...(this.#options.computer === undefined ||
+        computerAttempt === undefined ||
+        options.previewPort === null
           ? {}
           : {
               computer: {
-                desktop: this.#options.computer.desktop,
+                desktop: computerAttempt.desktop,
+                stopped: () => computerAttempt?.stopped() ?? true,
                 objects: this.#options.computer.objects,
                 projectId: scope.session.projectId,
                 devServerUrl: `http://localhost:${options.previewPort}`,
@@ -1141,8 +1165,6 @@ export class SingleAgentRuntime implements Runtime {
               },
             }),
         onEvent: (event) => {
-          if (event.type === "computer.status" && event.payload.state === "ready")
-            usedComputer = true;
           sink.emit(event);
         },
         ...(options.manualCompaction === undefined ? {} : { operation: "compact" }),
@@ -1189,7 +1211,13 @@ export class SingleAgentRuntime implements Runtime {
         promptSource,
         ...(options.manualCompaction !== undefined || options.appTest !== undefined
           ? {}
-          : { finalize: () => this.#commit(sandboxId, commitSubject) }),
+          : {
+              finalize: async () => {
+                if (computerAttempt?.stopped())
+                  throw new Error("Computer input recovery is pending.");
+                return this.#commit(sandboxId, commitSubject);
+              },
+            }),
         ...(settings.signal === undefined ? {} : { signal: settings.signal }),
         ...(settings.model === undefined ? {} : { model: settings.model }),
         // Passed straight through and read nowhere here: the runtime decides *when* a turn
@@ -1197,14 +1225,18 @@ export class SingleAgentRuntime implements Runtime {
         ...(settings.credentials === undefined ? {} : { credentials: settings.credentials }),
       });
     } finally {
-      // Whole turns must not leave a pointer held down. A worker that lost its lease
-      // must leave input alone, since another turn may already own the computer.
-      const lostLease =
-        settings.signal?.reason instanceof TurnAbortError && settings.signal.reason.leaseLost;
-      if (usedComputer && !lostLease && this.#options.computer)
-        await this.#options.computer.desktop
-          .act(sandboxId, { action: "left_mouse_up" }, AbortSignal.timeout(2000))
-          .catch(() => undefined);
+      if (computerAttempt) {
+        const closed = await computerAttempt.close();
+        if (!closed.ok || computerAttempt.stopped()) {
+          work.stopped = true;
+          scope.sandboxStopped = true;
+          if (!closed.ok)
+            emit("system.notice", {
+              level: "warning",
+              text: "Computer input recovery is pending. New work is blocked until input has drained.",
+            });
+        }
+      }
     }
 
     await sink.drain();
@@ -1538,7 +1570,7 @@ export class SingleAgentRuntime implements Runtime {
     requestId: string;
     signal?: AbortSignal | undefined;
   }): Promise<void> {
-    if (this.#options.repository === undefined) return;
+    if (this.#options.repository === undefined || options.scope.sandboxStopped) return;
     const { scope, sandboxId, jobId, requestId, signal } = options;
     try {
       const history = await this.#options.events.readFrom(scope.session.sessionId, 0);

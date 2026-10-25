@@ -1,22 +1,57 @@
+import { z } from "zod";
 import type { Result } from "../result.ts";
+import type { ScopeDrainProof } from "./desktop-input-transport.ts";
 
-/**
- * Owner input and lease grants share a project guard across processes. Queued requests alone
- * allow input; any leased request in any project session denies it, including expired leases
- * awaiting the janitor. Missing projects and another owner's projects both return not_found.
- */
+export const QueueLeaseIdentitySchema = z.strictObject({
+  requestId: z.uuid(),
+  owner: z.string().min(1).max(256),
+});
+export type QueueLeaseIdentity = z.infer<typeof QueueLeaseIdentitySchema>;
+export const ComputerGrantBindingSchema = z.strictObject({
+  projectId: z.uuid(),
+  sessionId: z.uuid(),
+  userId: z.string().min(1).max(256),
+  sandboxId: z.string().min(1).max(256),
+  revision: z.uuid(),
+  expiresAt: z.int().nonnegative(),
+});
+export type ComputerGrantBinding = z.infer<typeof ComputerGrantBindingSchema>;
+export const ComputerActorSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("owner"), binding: ComputerGrantBindingSchema }),
+  z.strictObject({ kind: z.literal("turn"), lease: QueueLeaseIdentitySchema }),
+]);
+export const ComputerScopeIdentitySchema = z.strictObject({
+  projectId: z.uuid(),
+  sandboxId: z.string().min(1).max(256),
+  scopeId: z.uuid(),
+});
+export type ComputerScopeIdentity = z.infer<typeof ComputerScopeIdentitySchema>;
+export const ComputerReservationRequestSchema = ComputerScopeIdentitySchema.extend({
+  actor: ComputerActorSchema,
+});
+export type ComputerReservationRequest = z.infer<typeof ComputerReservationRequestSchema>;
+export const ComputerReservationSchema = ComputerReservationRequestSchema.extend({
+  state: z.enum(["active", "recovering"]),
+  createdAt: z.iso.datetime(),
+  nextRecoveryAt: z.iso.datetime(),
+});
+export type ComputerReservation = z.infer<typeof ComputerReservationSchema>;
+export type ComputerAdmissionError = {
+  code: "busy" | "not_found" | "stale_grant" | "recovery_pending" | "unavailable";
+};
+
+/** Short committed operations. Physical work never runs inside a database transaction. */
 export interface ProjectComputerAccess {
-  /**
-   * Hold the owned project row lock until the callback settles. The sandbox and revision come
-   * from that locked row. Every successful claim changes the revision, even if its turn finishes
-   * before the next input, so callers must compare prior grants inside this callback.
-   *
-   * Await bounded physical actions here. Detached work is outside the guard; calling back into
-   * stores that lock this project can deadlock. Callback failures propagate after rollback and
-   * release. The guard is never held for an entire turn or takeover connection.
-   */
-  withIdleProject<T>(
-    request: { projectId: string; userId: string },
-    operation: (computer: { sandboxId: string | null; revision: string }) => Promise<T>,
-  ): Promise<Result<T, { code: "busy" | "not_found" }>>;
+  read(request: {
+    projectId: string;
+    userId: string;
+  }): Promise<Result<{ sandboxId: string | null; revision: string }, ComputerAdmissionError>>;
+  reserve(
+    request: ComputerReservationRequest,
+  ): Promise<Result<ComputerReservation, ComputerAdmissionError>>;
+  occupied(projectId: string): Promise<boolean>;
+  markRecovering(scope: ComputerScopeIdentity): Promise<void>;
+  clear(request: ComputerScopeIdentity & { proof: ScopeDrainProof }): Promise<boolean>;
+  recoverable(limit: number): Promise<ComputerReservation[]>;
+  defer(scope: ComputerScopeIdentity): Promise<void>;
 }

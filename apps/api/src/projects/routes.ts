@@ -103,7 +103,7 @@ export type ProjectRouteDeps = {
    * authoritative answer is a leased row in the queue, which every replica can see. Injected all
    * the same — a route module has no business knowing where that is kept.
    */
-  isBusy: (sessionIds: string[]) => Promise<boolean>;
+  isBusy: (sessionIds: string[], projectId: string) => Promise<boolean>;
 };
 
 const CreateProjectSchema = z.object({ name: z.string().optional() });
@@ -297,7 +297,7 @@ export function registerProjectRoutes(
     const project = await found(c.req.param("projectId"), c.get("userId"), deps);
     if (!project.ok) return c.json({ error: project.error.message }, project.error.status);
 
-    if (await deps.isBusy(project.value.sessionIds)) {
+    if (await deps.isBusy(project.value.sessionIds, project.value.projectId)) {
       return c.json({ error: "a turn is running in this project" }, 409);
     }
 
@@ -311,12 +311,15 @@ export function registerProjectRoutes(
       snapshots: deps.snapshots,
       projectId: project.value.projectId,
       sandboxId: project.value.sandboxId,
+      occupied: () => deps.isBusy(project.value.sessionIds, project.value.projectId),
       // So every tab open on this project learns its preview has stopped, rather than keeping
       // an iframe pointed at a sandbox that no longer exists.
       announce: { ...deps.events, sessionIds: project.value.sessionIds },
       ...(deps.capacity === undefined ? {} : { capacity: deps.capacity }),
     });
 
+    if (closed.outcome === "failed" && closed.reason === "occupied")
+      return c.json({ error: closed.message, code: "busy" }, 409);
     if (closed.outcome === "failed") {
       getLogger().error({ failure: closed }, "could not close a project");
       return c.json({ error: `could not close the project: ${closed.message}` }, 503);
@@ -332,7 +335,7 @@ export function registerProjectRoutes(
     const project = await deps.projects.get(projectId.value, c.get("userId"));
     if (project === null) return c.json({ error: "no such project" }, 404);
 
-    if (await deps.isBusy(project.sessionIds)) {
+    if (await deps.isBusy(project.sessionIds, project.projectId)) {
       return c.json({ error: "a turn is running in this project" }, 409);
     }
 

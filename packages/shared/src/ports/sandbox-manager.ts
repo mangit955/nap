@@ -64,10 +64,12 @@ export interface SandboxManager {
   readFile(sandboxId: string, path: string): Promise<Result<string, SandboxError>>;
   listFiles(sandboxId: string, path: string): Promise<Result<FileNode[], SandboxError>>;
 
+  /** A transport signal bounds waiting; it never certifies remote process completion. */
   exec(
     sandboxId: string,
     command: string,
     onOutput?: ExecOutputHandler,
+    options?: { signal?: AbortSignal | undefined },
   ): Promise<Result<ExecResult, SandboxError>>;
 
   getPreviewUrl(sandboxId: string, port: number): Promise<Result<string, SandboxError>>;

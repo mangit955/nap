@@ -2,12 +2,18 @@ import { randomUUID } from "node:crypto";
 import { PostgresProjectComputerAccess } from "@nap/db/postgres-project-computer-access";
 import { PostgresSessionStore } from "@nap/db/postgres-session-store";
 import { PostgresTurnQueue } from "@nap/db/postgres-turn-queue";
-import { projects, sessions, turnRequests, users } from "@nap/db/schema";
+import { projectComputerOperations, projects, sessions, turnRequests, users } from "@nap/db/schema";
 import { enqueueRequest } from "@nap/db/testing/enqueue-request";
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
+import { ProjectComputer } from "@nap/runtime/project-computer";
+import { DesktopRequestSchema } from "@nap/sandbox/desktop-protocol";
+import { E2BSandboxDesktop } from "@nap/sandbox/e2b-sandbox-desktop";
 import { FakeSandboxDesktop } from "@nap/sandbox/testing/fake-sandbox-desktop";
+import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { ComputerControlGrantSchema } from "@nap/shared/computer-access";
+import type { DesktopInputTransport } from "@nap/shared/ports/desktop-input-transport";
+import { TURN_REQUEST_KINDS } from "@nap/shared/ports/turn-queue";
 import { eq } from "drizzle-orm";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
@@ -20,20 +26,39 @@ let client: postgres.Sql;
 let inputClient: postgres.Sql;
 let db: PostgresJsDatabase;
 let queue: PostgresTurnQueue;
+const inputApplication = `owner-input-${randomUUID()}`;
 beforeAll(() => {
   client = postgres(inject("postgresUrl"), { max: 4, connection: { lock_timeout: 2000 } });
-  inputClient = postgres(inject("postgresUrl"), { max: 2, connection: { lock_timeout: 2000 } });
+  inputClient = postgres(inject("postgresUrl"), {
+    max: 2,
+    connection: { application_name: inputApplication, lock_timeout: 2000 },
+  });
   db = drizzle(client);
   queue = new PostgresTurnQueue(db);
 });
 beforeEach(async () => {
+  await db.delete(projectComputerOperations);
   await db.delete(turnRequests);
 });
 afterAll(async () => {
-  await Promise.all([client.end(), inputClient.end()]);
+  try {
+    // A deliberately terminated backend can leave postgres.js waiting for ReadyForQuery.
+    await inputClient.end({ timeout: 1 });
+    await vi.waitFor(
+      async () => {
+        const remaining = await client`
+        select pid from pg_stat_activity where application_name = ${inputApplication}
+      `;
+        expect(remaining).toHaveLength(0);
+      },
+      { timeout: 2000 },
+    );
+  } finally {
+    await client.end();
+  }
 });
 
-async function fixture() {
+async function fixture(transport?: DesktopInputTransport) {
   const [user] = await db
     .insert(users)
     .values({ email: `${randomUUID()}@test.invalid`, name: "Owner" })
@@ -51,7 +76,6 @@ async function fixture() {
     .returning();
   const desktop = new FakeSandboxDesktop({ bytes: new Uint8Array(), width: 1024, height: 768 });
   const guard = new PostgresProjectComputerAccess(drizzle(inputClient));
-  const guardOperation = { settled: false };
   const app = createApp({
     logger: createLogger({ level: "silent" }, { write: () => {} }),
     authenticate: async () => ({ userId: user!.id, isAnonymous: false }),
@@ -63,17 +87,8 @@ async function fixture() {
     computerAccess: {
       sessions: new PostgresSessionStore(db),
       desktop,
-      access: {
-        withIdleProject: (request, operation) =>
-          guard.withIdleProject(request, async (computer) => {
-            guardOperation.settled = false;
-            try {
-              return await operation(computer);
-            } finally {
-              guardOperation.settled = true;
-            }
-          }),
-      },
+      access: guard,
+      computer: new ProjectComputer({ access: guard, transport: transport ?? desktop.transport }),
       secret: "integration-secret",
     },
   });
@@ -91,7 +106,6 @@ async function fixture() {
   };
   return {
     app,
-    guardOperation,
     desktop,
     base,
     post,
@@ -150,7 +164,7 @@ it("rejects a sandbox replacement using the locked row without relying on the re
   expect(f.desktop.actions).toEqual([]);
 });
 
-it("holds the real row lock through abort until the adapter's physical input settles", async () => {
+it("retains the committed fence after abort and ignores a late successful input reply", async () => {
   const f = await fixture();
   const grant = await f.grant();
   const abort = new AbortController();
@@ -160,43 +174,206 @@ it("holds the real row lock through abort until the adapter's physical input set
   const entered = new Promise<void>((resolve) => {
     enter = resolve;
   });
-  const act = vi.spyOn(f.desktop, "act").mockImplementation(async () => {
+  vi.spyOn(f.desktop.transport, "act").mockImplementation(async () => {
     enter();
     await new Promise<void>((resolve) => {
       release = resolve;
     });
     return { ok: true, value: { kind: "none" } };
   });
-  let pending: Promise<Response> | undefined;
+  vi.spyOn(f.desktop.transport, "closeAndDrain").mockResolvedValue({
+    ok: false,
+    error: { code: "timeout", message: "No drain proof." },
+  });
+  const input = f.post("input", {
+    grant,
+    actions: [{ action: "left_click", coordinate: [10, 20] }],
+  });
   try {
-    pending = f.post("input", { grant, actions: Array(2).fill({ action: "key", text: "Return" }) });
     await entered;
+    const visible = await db
+      .select()
+      .from(projectComputerOperations)
+      .where(eq(projectComputerOperations.projectId, f.projectId));
+    expect(visible).toHaveLength(1);
     abort.abort();
+    expect((await input).status).toBe(503);
+    release();
     await new Promise<void>((resolve) => setImmediate(resolve));
-    expect(f.guardOperation.settled).toBe(false);
-    // NOWAIT observes the resource directly, even though the HTTP deadline has expired.
-    await expect(
-      db.transaction(async (tx) => {
+    expect(
+      await db
+        .select()
+        .from(projectComputerOperations)
+        .where(eq(projectComputerOperations.projectId, f.projectId)),
+    ).toHaveLength(1);
+    await enqueueRequest(queue, {
+      sessionId: f.siblingId,
+      userId: f.userId,
+      kind: "turn",
+      message: "build",
+      model: "anthropic/claude-sonnet-5",
+      billsToUser: false,
+    });
+    expect(await queue.claim("after-late-reply")).toBeNull();
+  } finally {
+    release();
+    await input;
+    timeout.mockRestore();
+  }
+});
+
+function lostOutputDesktop() {
+  const sandbox = new InMemorySandboxManager();
+  // The command reached the transport, but its output is not a completion certificate.
+  // Exercise the real adapter's output parser; no fake activity flag can grant drain.
+  const exec = vi.spyOn(sandbox, "exec").mockResolvedValue({
+    ok: true,
+    value: { exitCode: 0, stdout: "{truncated", stderr: "" },
+  });
+  return {
+    desktop: new E2BSandboxDesktop({ sandbox }),
+    exec,
+    actDispatches: () =>
+      exec.mock.calls.filter((call) => {
+        const encoded = call[1].match(/'([A-Za-z0-9+/=]+)'$/)?.[1];
+        return (
+          encoded &&
+          DesktopRequestSchema.parse(JSON.parse(Buffer.from(encoded, "base64").toString())).op ===
+            "act"
+        );
+      }).length,
+  };
+}
+
+it("commits input admission before dispatch instead of holding a transaction across the RPC", async () => {
+  const transport = lostOutputDesktop();
+  const f = await fixture(transport.desktop);
+  const grant = await f.grant();
+  let transactionsAtDispatch = -1;
+  let projectUnlockedAtDispatch = false;
+  const act = transport.desktop.act.bind(transport.desktop);
+  vi.spyOn(transport.desktop, "act").mockImplementation(async (...args) => {
+    const open = await client`
+      select pid from pg_stat_activity
+      where application_name = ${inputApplication} and xact_start is not null
+    `;
+    transactionsAtDispatch = open.length;
+    projectUnlockedAtDispatch = await db
+      .transaction(async (tx) => {
         await tx
           .select()
           .from(projects)
           .where(eq(projects.id, f.projectId))
           .for("update", { noWait: true });
-      }),
-    ).rejects.toThrow();
-    release();
-    expect((await pending).status).toBe(503);
-    expect(act).toHaveBeenCalledTimes(1);
-    await db.transaction(async (tx) => {
-      await tx
-        .select()
-        .from(projects)
-        .where(eq(projects.id, f.projectId))
-        .for("update", { noWait: true });
+      })
+      .then(
+        () => true,
+        () => false,
+      );
+    return act(...args);
+  });
+
+  const response = await f.post("input", {
+    grant,
+    actions: [{ action: "left_click", coordinate: [10, 20] }],
+  });
+  expect(response.status).toBe(503);
+  expect(transport.actDispatches()).toBe(1);
+  expect(transactionsAtDispatch).toBe(0);
+  expect(projectUnlockedAtDispatch).toBe(true);
+});
+
+it.each(TURN_REQUEST_KINDS)(
+  "retains project exclusion for a sibling %s claim after physical input output is lost",
+  async (kind) => {
+    const transport = lostOutputDesktop();
+    const f = await fixture(transport.desktop);
+    const grant = await f.grant();
+    const response = await f.post("input", {
+      grant,
+      actions: [{ action: "left_click", coordinate: [10, 20] }],
     });
-  } finally {
-    release();
-    await pending;
-    timeout.mockRestore();
-  }
+    expect(response.status).toBe(503);
+    expect(transport.actDispatches()).toBe(1);
+    const queued = await enqueueRequest(queue, {
+      sessionId: f.siblingId,
+      userId: f.userId,
+      kind,
+      message: kind === "resume" ? null : kind === "test" ? randomUUID() : "build",
+      model: "anthropic/claude-sonnet-5",
+      billsToUser: false,
+    });
+    // A different pool/store represents the next process. A returned HTTP failure and
+    // a released transaction are not permission for any project session to execute.
+    const nextProcess = new PostgresTurnQueue(drizzle(client));
+    expect(await nextProcess.claim("successor")).toBeNull();
+    expect(
+      await nextProcess.getStatus({
+        id: queued.id,
+        sessionId: f.siblingId,
+        userId: f.userId,
+      }),
+    ).toMatchObject({ state: "queued" });
+  },
+);
+
+it("reports recovery pending and refuses owner replay after output loss", async () => {
+  const transport = lostOutputDesktop();
+  const f = await fixture(transport.desktop);
+  const grant = await f.grant();
+  const body = { grant, actions: [{ action: "left_click", coordinate: [10, 20] }] };
+  expect((await f.post("input", body)).status).toBe(503);
+  const status = await f.app.request(`${f.base}/control`);
+  const retry = await f.post("input", body);
+  expect(transport.actDispatches()).toBe(1);
+  expect(status.status).toBe(503);
+  expect(await status.json()).toMatchObject({ code: "recovery_pending" });
+  expect(retry.status).toBe(503);
+  expect(await retry.json()).toMatchObject({ code: "recovery_pending", applied: 0 });
+});
+
+it("keeps admission fenced after the dispatching database session is terminated", async () => {
+  const transport = lostOutputDesktop();
+  const f = await fixture(transport.desktop);
+  let dispatched = () => {};
+  const terminatedBackends: boolean[] = [];
+  const dispatchFinished = new Promise<void>((resolve) => {
+    dispatched = resolve;
+  });
+  const act = transport.desktop.act.bind(transport.desktop);
+  vi.spyOn(transport.desktop, "act").mockImplementation(async (...args) => {
+    // Terminate only this suite's input pool. This models loss of the DB session while
+    // remote input has an uncertain outcome, without killing any shared test backend.
+    try {
+      const terminated = await client<{ terminated: boolean }[]>`
+        select pg_terminate_backend(pid) as terminated from pg_stat_activity
+        where application_name = ${inputApplication} and pid <> pg_backend_pid()
+      `;
+      terminatedBackends.push(...terminated.map((row) => row.terminated));
+      return await act(...args);
+    } finally {
+      dispatched();
+    }
+  });
+  expect(
+    (
+      await f.post("input", {
+        grant: await f.grant(),
+        actions: [{ action: "left_click", coordinate: [10, 20] }],
+      })
+    ).status,
+  ).toBe(503);
+  await dispatchFinished;
+  expect(terminatedBackends.length).toBeGreaterThan(0);
+  expect(terminatedBackends.every((terminated) => terminated)).toBe(true);
+  expect(transport.actDispatches()).toBe(1);
+  await enqueueRequest(queue, {
+    sessionId: f.siblingId,
+    userId: f.userId,
+    kind: "turn",
+    message: "build",
+    model: "anthropic/claude-sonnet-5",
+    billsToUser: false,
+  });
+  expect(await new PostgresTurnQueue(drizzle(client)).claim("after-api-db-loss")).toBeNull();
 });

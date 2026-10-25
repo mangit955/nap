@@ -1,3 +1,4 @@
+import type { DesktopInputTransport } from "@nap/shared/ports/desktop-input-transport";
 import {
   DESKTOP_HEIGHT,
   DESKTOP_WIDTH,
@@ -19,6 +20,31 @@ export class FakeSandboxDesktop implements SandboxDesktop {
   readonly #observations: DesktopObservation[] = [];
   #frame: DesktopFrame;
   #failure: DesktopError | undefined;
+  readonly #closedScopes = new Set<string>();
+  readonly #pendingScopes = new Map<string, number>();
+  readonly transport: DesktopInputTransport = {
+    start: (request) => this.start(request),
+    screenshot: (id, signal) => this.screenshot(id, signal),
+    streamCredentials: (id) => this.streamCredentials(id),
+    observe: ({ sandboxId, action, signal }) => this.act(sandboxId, action, signal),
+    act: async ({ sandboxId, scopeId, action, signal }) => {
+      if (this.#closedScopes.has(scopeId))
+        return { ok: false, error: { code: "completion_unknown", message: "Scope closed." } };
+      this.#pendingScopes.set(scopeId, (this.#pendingScopes.get(scopeId) ?? 0) + 1);
+      try {
+        return await this.act(sandboxId, action, signal);
+      } finally {
+        this.#pendingScopes.set(scopeId, (this.#pendingScopes.get(scopeId) ?? 1) - 1);
+      }
+    },
+    closeAndDrain: async ({ sandboxId, scopeId }) => {
+      this.#closedScopes.add(scopeId);
+      if (this.#failure) return { ok: false, error: this.#failure };
+      if ((this.#pendingScopes.get(scopeId) ?? 0) > 0)
+        return { ok: false, error: { code: "timeout", message: "Input remains pending." } };
+      return { ok: true, value: { protocol: 2, kind: "scope_drained", sandboxId, scopeId } };
+    },
+  };
 
   constructor(frame: DesktopFrame) {
     this.#frame = structuredClone(frame);

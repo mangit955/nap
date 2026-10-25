@@ -1,3 +1,5 @@
+import { InMemoryProjectComputerAccess } from "@nap/db/testing/in-memory-project-computer-access";
+import { ProjectComputer } from "@nap/runtime/project-computer";
 /**
  * The table `route-coverage.test.ts` and `authorization.test.ts` share.
  *
@@ -307,6 +309,19 @@ export function fullyWiredDeps(seeded?: SeededSandbox): Omit<AppDeps, "logger"> 
     },
   ]);
 
+  const computerDesktop = new FakeSandboxDesktop({
+    bytes: new Uint8Array(),
+    width: 1024,
+    height: 768,
+  });
+  const computerAccess = new InMemoryProjectComputerAccess();
+  computerAccess.setProject({
+    projectId: PROJECT,
+    userId: OWNER,
+    sessionIds: [SESSION],
+    sandboxId: seeded?.sandboxId ?? null,
+    revision: "00000000-0000-4000-8000-000000000001",
+  });
   return {
     stream: {
       store: new InMemoryEventStore(),
@@ -316,17 +331,13 @@ export function fullyWiredDeps(seeded?: SeededSandbox): Omit<AppDeps, "logger"> 
     },
     computerAccess: {
       sessions,
-      desktop: new FakeSandboxDesktop({ bytes: new Uint8Array(), width: 1024, height: 768 }),
+      desktop: computerDesktop,
+      computer: new ProjectComputer({
+        access: computerAccess,
+        transport: computerDesktop.transport,
+      }),
       secret: "route-table-secret",
-      access: {
-        withIdleProject: async (_request, operation) => ({
-          ok: true,
-          value: await operation({
-            sandboxId: seeded?.sandboxId ?? null,
-            revision: "00000000-0000-4000-8000-000000000001",
-          }),
-        }),
-      },
+      access: computerAccess,
     },
     testRecordings: {
       sessions,

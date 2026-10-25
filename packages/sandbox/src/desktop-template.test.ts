@@ -44,7 +44,7 @@ it("prepares a real standalone driver and starter app without publishing or copy
   expect(existsSync(join(directory, "app/node_modules"))).toBe(false);
   const driver = spawnSync("node", [join(directory, "desktop/driver.mjs")], { encoding: "utf8" });
   expect(driver.status).toBe(0);
-  expect(JSON.parse(driver.stdout)).toMatchObject({ protocol: 1 });
+  expect(JSON.parse(driver.stdout)).toMatchObject({ protocol: 2 });
   expect(validateDesktopTemplate(directory)).toEqual(result);
 });
 it.each(["tampered", "extra", "missing"])(

@@ -18,6 +18,7 @@ import type { DesktopAction } from "@nap/shared/ports/sandbox-desktop";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import { expect, it, vi } from "vitest";
 import { SingleAgentRuntime } from "./single-agent-runtime.ts";
+import { isolatedProjectComputer } from "./testing/isolated-project-computer.ts";
 
 const sessionId = "2a3f8a24-6c1b-4e0e-9b6f-3a5c0a1d9e77";
 const jobId = "7c9b1a52-8d3e-4f21-a0c4-1b2d3e4f5a6b";
@@ -125,7 +126,11 @@ async function fixture(
     context: assembly,
     agent,
     memory: new NoopMemoryProvider(),
-    computer: { desktop, objects, ...(record ? { recordings } : {}) },
+    computer: {
+      coordinator: isolatedProjectComputer(desktop.transport),
+      objects,
+      ...(record ? { recordings } : {}),
+    },
     ...(repositoryPreview === undefined
       ? {}
       : {
@@ -331,10 +336,13 @@ it("finalizes an interrupted recording after cancellation without an aborted cle
   expect(f.recordings.calls.filter((call) => call.operation === "finish")).toHaveLength(1);
 });
 
-it("releases held pointer input after a computer turn with a fresh cleanup signal", async () => {
+it("closes its held-pointer scope after a computer turn with a fresh cleanup signal", async () => {
   const f = await fixture("passed", false, false, { action: "left_mouse_down" });
+  const close = vi.spyOn(f.desktop.transport, "closeAndDrain");
   await f.runtime.runTurn(f.request);
-  expect(f.desktop.actions.at(-1)?.action).toEqual({ action: "left_mouse_up" });
+  expect(close).toHaveBeenCalledOnce();
+  expect(close.mock.calls[0]?.[0].signal?.aborted).toBe(false);
+  expect(f.desktop.actions.at(-1)?.action).toEqual({ action: "left_mouse_down" });
 });
 it("does not send cleanup input after losing the session lease", async () => {
   const { TurnAbortError } = await import("@nap/shared/turn-abort");
@@ -433,7 +441,7 @@ it.each(["passed", "failed"] as const)(
 );
 
 it.each(["unavailable", "timeout", "throw"] as const)(
-  "keeps an assertion untested after %s input and a later screenshot without replaying input",
+  "keeps an assertion untested and stops later screenshots after %s input without replay",
   async (code) => {
     const f = await fixture("passed", false, false, undefined, false, [
       { toolCalls: [inputCall("act")] },
@@ -448,25 +456,22 @@ it.each(["unavailable", "timeout", "throw"] as const)(
         ok: false,
         error: { code, message: "Input was not confirmed." },
       });
-    expect((await f.runtime.runTurn(f.request)).ok).toBe(true);
+    expect((await f.runtime.runTurn(f.request)).ok).toBe(false);
     const log = await f.events.readFrom(sessionId, 4);
     expect(log.find((event) => event.type === "test.completed")?.payload.counts).toEqual({
       passed: 0,
       failed: 0,
       untested: 1,
     });
-    expect(resultsOf(log)).toEqual([
-      ["act", false],
-      ["observe", true],
-      ["result", false],
-    ]);
-    expect(f.desktop.screenshots).toHaveLength(1);
+    expect(resultsOf(log)).toEqual([["act", false]]);
+    expect(f.provider.requests).toHaveLength(1);
+    expect(f.desktop.screenshots).toHaveLength(0);
     expect(f.desktop.actions.filter((entry) => entry.action.action === "left_click")).toEqual([]);
     expect(input.mock.calls.filter((call) => call[1].action === "left_click")).toHaveLength(1);
   },
 );
 
-it("requires fresh successful input after an ambiguous attempt before accepting a verdict", async () => {
+it("refuses same-turn retry after ambiguous input so a fresh test must be requested", async () => {
   const f = await fixture("passed", false, false, undefined, false, [
     { toolCalls: [inputCall("act")] },
     { toolCalls: [screenshotCall("observe")] },
@@ -479,20 +484,15 @@ it("requires fresh successful input after an ambiguous attempt before accepting 
     ok: false,
     error: { code: "timeout", message: "Input completion is unknown." },
   });
-  expect((await f.runtime.runTurn(f.request)).ok).toBe(true);
+  expect((await f.runtime.runTurn(f.request)).ok).toBe(false);
   const log = await f.events.readFrom(sessionId, 4);
-  expect(resultsOf(log)).toEqual([
-    ["act", false],
-    ["observe", true],
-    ["premature", false],
-    ["retry", true],
-    ["confirmed", true],
-  ]);
-  expect(f.desktop.actions.filter((entry) => entry.action.action === "left_click")).toHaveLength(1);
+  expect(resultsOf(log)).toEqual([["act", false]]);
+  expect(f.provider.requests).toHaveLength(1);
+  expect(f.desktop.actions.filter((entry) => entry.action.action === "left_click")).toHaveLength(0);
   expect(log.find((event) => event.type === "test.completed")?.payload.counts).toEqual({
-    passed: 1,
+    passed: 0,
     failed: 0,
-    untested: 0,
+    untested: 1,
   });
 });
 
@@ -520,21 +520,18 @@ it("invalidates earlier input evidence when a later physical action is ambiguous
       ? { ok: false, error: { code: "timeout", message: "Input completion is unknown." } }
       : act(...args),
   );
-  expect((await f.runtime.runTurn(f.request)).ok).toBe(true);
+  expect((await f.runtime.runTurn(f.request)).ok).toBe(false);
   const log = await f.events.readFrom(sessionId, 4);
   expect(resultsOf(log)).toEqual([
     ["first", true],
     ["uncertain", false],
-    ["observe", true],
-    ["premature", false],
-    ["fresh", true],
-    ["confirmed", true],
   ]);
-  expect(f.desktop.actions.filter((entry) => entry.action.action === "left_click")).toHaveLength(2);
+  expect(f.provider.requests).toHaveLength(2);
+  expect(f.desktop.actions.filter((entry) => entry.action.action === "left_click")).toHaveLength(1);
   expect(log.find((event) => event.type === "test.completed")?.payload.counts).toEqual({
-    passed: 1,
+    passed: 0,
     failed: 0,
-    untested: 0,
+    untested: 1,
   });
 });
 

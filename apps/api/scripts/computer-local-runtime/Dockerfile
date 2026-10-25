@@ -9,7 +9,7 @@ RUN useradd --create-home --shell /bin/bash user \
   && apt-get update \
   && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     ca-certificates curl dbus-x11 ffmpeg fonts-liberation git openbox openssl unzip util-linux \
-    websockify novnc wget x11-utils x11vnc xdotool xvfb \
+    python3 libx11-6 libxtst6 websockify novnc wget x11-utils x11vnc xdotool xvfb \
   && rm -rf /var/lib/apt/lists/*
 RUN curl --fail --location --silent --show-error \
     "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-linux-x64.zip" \

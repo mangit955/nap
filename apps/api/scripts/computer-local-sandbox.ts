@@ -33,7 +33,6 @@ const DEFAULT_TTL_MS = 15 * 60_000;
 const BUILD_TIMEOUT_MS = 20 * 60_000;
 const ADMIN_TIMEOUT_MS = 30_000;
 const EXEC_TIMEOUT_MS = 130_000;
-const EXEC_INNER_BOUND_MS = 123_000;
 const PROCESS_DRAIN_MS = 3_000;
 const MAX_EXEC_STDOUT_BYTES = 24_000_000;
 const MAX_EXEC_STDERR_BYTES = 4_000_000;
@@ -755,6 +754,7 @@ export class LocalDockerSandboxManager implements SandboxManager {
     sandboxId: string,
     command: string,
     onOutput?: ExecOutputHandler,
+    options?: { signal?: AbortSignal | undefined },
   ): Promise<Result<ExecResult, SandboxError>> {
     if (Buffer.byteLength(command) > MAX_COMMAND_BYTES)
       return failure("exec_failed", "Sandbox command exceeds the 256 KB limit.");
@@ -763,7 +763,6 @@ export class LocalDockerSandboxManager implements SandboxManager {
     const resource = found.value;
     if (resource.state !== "live") return failure("destroyed", "Sandbox is being destroyed.");
     const operationId = randomUUID();
-    const physicalDeadline = Date.now() + EXEC_INNER_BOUND_MS;
     const executed = await this.#containerProcess(
       resource,
       [
@@ -782,6 +781,7 @@ export class LocalDockerSandboxManager implements SandboxManager {
       ],
       {
         timeoutMs: EXEC_TIMEOUT_MS,
+        ...(options?.signal ? { signal: options.signal } : {}),
         maxStdoutBytes: MAX_EXEC_STDOUT_BYTES,
         maxStderrBytes: MAX_EXEC_STDERR_BYTES,
         ...(onOutput === undefined
@@ -793,7 +793,6 @@ export class LocalDockerSandboxManager implements SandboxManager {
       },
     );
     if (executed.status !== "completed" || executed.exitCode !== 0) {
-      await this.#failClosed(resource, physicalDeadline);
       return failure(
         "unavailable",
         `Local Docker command transport failed: ${processMessage(executed)}`,
@@ -803,7 +802,6 @@ export class LocalDockerSandboxManager implements SandboxManager {
     if (!statusReply.ok) return statusReply;
     const status = ExecStatusSchema.safeParse(statusReply.value);
     if (!status.success) {
-      await this.#failClosed(resource, physicalDeadline);
       return failure("unavailable", "Local Docker command status was unavailable.");
     }
     return success({
@@ -962,7 +960,6 @@ export class LocalDockerSandboxManager implements SandboxManager {
       },
     );
     if (outcome.status !== "completed" || outcome.exitCode !== 0) {
-      await this.#failClosed(resource, Date.now());
       return failure(
         "unavailable",
         `Local Docker file transport failed: ${processMessage(outcome)}`,
@@ -992,12 +989,6 @@ export class LocalDockerSandboxManager implements SandboxManager {
     } finally {
       if (child !== undefined) resource.children.delete(child);
     }
-  }
-
-  async #failClosed(resource: ContainerResource, physicalDeadline: number): Promise<void> {
-    if (await this.#remove(resource.id)) return;
-    const remaining = physicalDeadline - Date.now();
-    if (remaining > 0) await delay(remaining);
   }
 
   async #openBridge(

@@ -15,14 +15,15 @@ import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { SingleAgentRuntime } from "@nap/runtime/single-agent-runtime";
+import { isolatedProjectComputer } from "@nap/runtime/testing/isolated-project-computer";
 import { NAP_TEMPLATE, TEMPLATE_DEV_PORT } from "@nap/sandbox/template";
 import type { VerifiedCheck } from "@nap/shared/events";
 import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
 import type { ContextEngine } from "@nap/shared/ports/context-engine";
+import type { DesktopInputTransport } from "@nap/shared/ports/desktop-input-transport";
 import type { PendingEvent, StoredEvent } from "@nap/shared/ports/event-store";
 import type { LLMProvider } from "@nap/shared/ports/llm-provider";
 import type { ObjectStore } from "@nap/shared/ports/object-store";
-import type { SandboxDesktop } from "@nap/shared/ports/sandbox-desktop";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import { shellQuote } from "@nap/shared/shell";
 import { z } from "zod";
@@ -31,7 +32,7 @@ import { prepareAppTestFixture } from "../src/app-test-fixture.ts";
 type RealOptions = Extract<ReturnType<typeof parseAppTestArgs>, { real: true }>;
 export type AppTestFactories = {
   sandbox(options: { template: string; timeoutMs: number }): SandboxManager;
-  desktop(sandbox: SandboxManager): SandboxDesktop;
+  desktop(sandbox: SandboxManager): DesktopInputTransport;
   provider(options: {
     apiKey: string;
     model: string;
@@ -253,7 +254,7 @@ async function realFixture(input: {
       devServerUrl: `http://localhost:${TEMPLATE_DEV_PORT}`,
     });
     if (!start.ok) throw new Error(start.error.message);
-    const dom = await desktop.act(sandboxId, { action: "read_dom" });
+    const dom = await desktop.observe({ sandboxId, action: { action: "read_dom" } });
     if (!dom.ok || dom.value.kind !== "text" || !dom.value.text.includes(`<h1>${heading}</h1>`))
       throw new Error("The desktop is not showing the fixture.");
     const frame = await desktop.screenshot(sandboxId);
@@ -295,7 +296,7 @@ async function realFixture(input: {
         testBudget: { maxSteps: options.maxSteps, maxTokens: options.maxTokens },
       }),
       memory: new NoopMemoryProvider(),
-      computer: { desktop, objects },
+      computer: { coordinator: isolatedProjectComputer(desktop), objects },
     });
     const result = await runAppTest({
       task,

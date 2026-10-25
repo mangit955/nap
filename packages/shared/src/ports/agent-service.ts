@@ -40,6 +40,7 @@ export type AgentTurnRequest = {
         afterAction?: (action: DesktopAction, succeeded: boolean) => void;
         screenshotStored?: (toolCallId: string) => void;
         /** Only images included in a model request can qualify a verdict. */
+        stopped?: () => boolean;
         delivered?: (toolCallIds: readonly string[]) => void;
       }
     | undefined;

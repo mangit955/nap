@@ -120,6 +120,8 @@ read the section covering whatever you are about to touch, not the whole file.
 
 ## Sandbox and storage
 
+- **A transport failure is not physical completion.** Computer input commits a project reservation before dispatch and retains it until a matched scope-drain proof permits conditional clear. Permanent remote closure rejects delayed originals. The input driver and input children share an inherited lock description; abort/error callbacks never replace child close. Cleanup checks all keyboard keys and pointer buttons. Duplicate terminal cleanup performs no input against a successor. Local Docker exec/result/helper failures preserve source and the VM. See ADR-0018 for recovery and the separate pre-existing lifecycle race.
+
 - **A synchronous mousemove can stall when the pointer is already there.** The installed xdotool timed out moving to its current position in the real local app, so an owner mouse-move followed by a click never reached the click. Chain ordinary mousemove and click in one xdotool invocation; X11 preserves that command order. The same-position regression and the native local-app run cover this path. See [local app evidence](research/computer-local-app/README.md).
 
 - **A DOM prefix can contain only head scripts and styles.** The actual Chrome 156 policy page exceeded the DOM allowance before its visible blocked message appeared. Observe the body through fixed read-only CDP calls, fall back to the root when there is no body, and mark output truncation. The bounded result then prioritizes page content rather than head metadata. [Regression and native diagnostic](research/computer-cdp-body/README.md).

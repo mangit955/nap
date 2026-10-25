@@ -1,3 +1,4 @@
+import { isolatedProjectComputer } from "../src/testing/isolated-project-computer.ts";
 /**
  * Runs one turn from the command line and prints the event stream.
  *
@@ -193,11 +194,13 @@ const runtime = new SingleAgentRuntime({
     ? {}
     : {
         computer: {
-          desktop: new FakeSandboxDesktop({
-            bytes: new Uint8Array([255, 216, 255, 217]),
-            width: 1024,
-            height: 768,
-          }),
+          coordinator: isolatedProjectComputer(
+            new FakeSandboxDesktop({
+              bytes: new Uint8Array([255, 216, 255, 217]),
+              width: 1024,
+              height: 768,
+            }).transport,
+          ),
           objects: new InMemoryObjectStore(),
         },
       }),

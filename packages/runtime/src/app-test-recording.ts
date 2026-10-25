@@ -17,7 +17,7 @@ export async function withAppTestRecording<T extends { ok: boolean }>(
     sandboxId: string;
     devServerUrl: string;
     started: NapEventOf<"test.started">["payload"];
-    desktop: SandboxDesktop;
+    desktop: Pick<SandboxDesktop, "start">;
     recordings?: SandboxRecordings | undefined;
     objects: ObjectStore;
     signal?: AbortSignal | undefined;

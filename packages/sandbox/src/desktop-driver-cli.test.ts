@@ -7,10 +7,12 @@ it("describes the sandbox driver without starting any processes", () => {
   const run = spawnSync("bun", [script], { encoding: "utf8" });
   expect(run.status).toBe(0);
   expect(JSON.parse(run.stdout)).toEqual({
-    protocol: 1,
+    protocol: 2,
     operations: [
       "start",
       "act",
+      "close_scope",
+      "observe",
       "screenshot",
       "credentials",
       "cancel",

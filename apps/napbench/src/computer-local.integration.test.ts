@@ -61,7 +61,7 @@ it.skipIf(!manifestPath || !chromePath)(
       expect(project.name).toContain("scripted model");
       const dom = async () => {
         const request = Buffer.from(
-          JSON.stringify({ id: randomUUID(), op: "act", action: { action: "read_dom" } }),
+          JSON.stringify({ id: randomUUID(), op: "observe", action: { action: "read_dom" } }),
         ).toString("base64");
         const result = await run(
           "docker",

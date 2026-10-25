@@ -1,10 +1,22 @@
 /** A dry-run-first, bounded throwaway desktop measurement. Never used by application boot. */
 
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
+import { ScopeDrainProofSchema } from "@nap/shared/ports/desktop-input-transport";
+import type { DesktopAction } from "@nap/shared/ports/sandbox-desktop";
 import { Sandbox, Template, waitForPort } from "e2b";
 import { z } from "zod";
+import { DesktopReplySchema, DesktopRequestSchema } from "../src/desktop-protocol.ts";
 import { NAP_TEMPLATE } from "../src/template.ts";
 
 const args = process.argv.slice(2);
@@ -49,17 +61,49 @@ const report: Record<string, unknown> = {
 };
 const save = () => writeFileSync(reportPath, JSON.stringify(report, null, 2));
 save();
-const assets = resolve(import.meta.dirname, "../desktop");
+const driverAsset = args.find((arg) => arg.startsWith("--driver="))?.slice(9);
+if (!driverAsset || !existsSync(driverAsset))
+  throw new Error("Real input requires --driver=<reviewed scoped driver bundle>.");
+const assets = mkdtempSync(resolve(tmpdir(), "nap-spike-assets-"));
+cpSync(
+  resolve(import.meta.dirname, "../desktop/start-desktop.sh"),
+  resolve(assets, "start-desktop.sh"),
+);
+cpSync(driverAsset, resolve(assets, "driver.mjs"));
+report.driverSha256 = createHash("sha256").update(readFileSync(driverAsset)).digest("hex");
+const scopeId = crypto.randomUUID();
 const install =
-  "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y xvfb x11-utils openbox xdotool ffmpeg x11vnc websockify novnc dbus-x11 fonts-liberation ca-certificates wget openssl util-linux && wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/nap-chrome.deb && apt-get install -y /tmp/nap-chrome.deb && rm /tmp/nap-chrome.deb && mkdir -p /etc/opt/chrome/policies/managed && chown user:user /etc/opt/chrome/policies/managed";
+  "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y python3 libx11-6 libxtst6 xvfb x11-utils openbox xdotool ffmpeg x11vnc websockify novnc dbus-x11 fonts-liberation ca-certificates wget openssl util-linux && wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/nap-chrome.deb && apt-get install -y /tmp/nap-chrome.deb && rm /tmp/nap-chrome.deb && mkdir -p /etc/opt/chrome/policies/managed && chown user:user /etc/opt/chrome/policies/managed";
 const template = Template({ fileContextPath: assets })
   .fromTemplate(NAP_TEMPLATE)
   .runCmd(install, { user: "root" })
+  .makeDir("/usr/local/lib/nap-desktop", { user: "root" })
+  .copy("driver.mjs", "/usr/local/lib/nap-desktop/driver.mjs", { user: "root" })
   .copy("start-desktop.sh", "/usr/local/bin/nap-desktop-start", { user: "root" })
   .runCmd("chmod 755 /usr/local/bin/nap-desktop-start", { user: "root" })
   .setStartCmd("cd /home/user/app && bun run dev", waitForPort(5173));
 let built: Awaited<ReturnType<typeof Template.buildInBackground>> | undefined;
 let sandbox: Sandbox | undefined;
+async function scopedRequest(machine: Sandbox, action?: DesktopAction) {
+  const request = DesktopRequestSchema.parse({
+    id: crypto.randomUUID(),
+    scopeId,
+    sandboxId: machine.sandboxId,
+    ...(action ? { op: "act", action } : { op: "close_scope" }),
+  });
+  const encoded = Buffer.from(JSON.stringify(request)).toString("base64");
+  const result = await machine.commands.run(
+    `timeout --signal=TERM --kill-after=2 55s node /usr/local/lib/nap-desktop/driver.mjs '${encoded}'`,
+    { timeoutMs: 60_000 },
+  );
+  const reply = DesktopReplySchema.parse(JSON.parse(result.stdout));
+  if (!reply.ok) throw new Error("Scoped desktop operation failed.");
+  if (!action) {
+    const proof = ScopeDrainProofSchema.parse(reply.value);
+    if (proof.scopeId !== scopeId || proof.sandboxId !== machine.sandboxId)
+      throw new Error("Drain proof identity mismatch.");
+  }
+}
 async function inspect(machine: Sandbox) {
   const command = `node --input-type=module <<'NAP_INSPECT'
 const pages = await (await fetch('http://127.0.0.1:9222/json/list')).json();
@@ -148,9 +192,7 @@ try {
   const shots: { durationMs: number; bytes: number }[] = [];
   for (let index = 0; index < 5; index++) {
     if (index === 4) {
-      await sandbox.commands.run(
-        `DISPLAY=:99 xdotool mousemove ${before.click[0]} ${before.click[1]} click 1`,
-      );
+      await scopedRequest(sandbox, { action: "left_click", coordinate: before.click });
       report.inputVerified = (await inspect(sandbox)).clicked;
       if (!report.inputVerified)
         throw new Error("The physical click did not change the app button.");
@@ -168,9 +210,13 @@ try {
     shots.push({ durationMs: Date.now() - at, bytes: bytes.length });
   }
   report.screenshots = shots;
-  await sandbox.commands.run(
-    "DISPLAY=:99 xdotool key ctrl+l type --clearmodifiers 'https://example.com'; DISPLAY=:99 xdotool key Return; sleep 1",
-  );
+  for (const action of [
+    { action: "key", text: "ctrl+l" },
+    { action: "type", text: "https://example.com" },
+    { action: "key", text: "Return" },
+  ] satisfies DesktopAction[])
+    await scopedRequest(sandbox, action);
+  await new Promise((resolve) => setTimeout(resolve, 1000));
   report.externalNavigationBlocked = (await inspect(sandbox)).blocked;
   report.streamReachable =
     (
@@ -185,6 +231,12 @@ try {
   process.exitCode = 1;
 } finally {
   if (sandbox) {
+    try {
+      await scopedRequest(sandbox);
+      report.scopeDrained = true;
+    } catch {
+      report.scopeDrained = false;
+    }
     try {
       await sandbox.kill();
       report.sandboxKilled = true;
@@ -205,6 +257,7 @@ try {
     }
     if (!report.templateDeleted) process.exitCode = 1;
   }
+  rmSync(assets, { recursive: true, force: true });
   report.totalMs = Date.now() - startedAt;
   save();
   console.log(

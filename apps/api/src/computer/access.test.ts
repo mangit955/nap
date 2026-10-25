@@ -1,7 +1,9 @@
 import { createHmac } from "node:crypto";
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
+import { InMemoryProjectComputerAccess } from "@nap/db/testing/in-memory-project-computer-access";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
+import { ProjectComputer } from "@nap/runtime/project-computer";
 import { FakeSandboxDesktop } from "@nap/sandbox/testing/fake-sandbox-desktop";
 import { ComputerControlGrantSchema } from "@nap/shared/computer-access";
 import type { ProjectComputerAccess } from "@nap/shared/ports/project-computer-access";
@@ -14,27 +16,32 @@ import { createLogger } from "../logger.ts";
 const revision = "00000000-0000-4000-8000-000000000001";
 const base = `/sessions/${SESSION}/computer`;
 
-// This stub tests callback placement only. Cross-process exclusion is proved by the DB suites.
-type LockedComputer = Parameters<Parameters<ProjectComputerAccess["withIdleProject"]>[1]>[0];
-class GuardStub implements ProjectComputerAccess {
-  computer: LockedComputer = { sandboxId: "box", revision };
+// HTTP policy uses a real in-memory reservation; cross-process admission belongs to DB tests.
+class GuardStub extends InMemoryProjectComputerAccess {
   failure: "busy" | "not_found" | undefined;
-  held = false;
   requests: { projectId: string; userId: string }[] = [];
   before: (() => void) | undefined;
-  async withIdleProject<T>(
-    request: { projectId: string; userId: string },
-    operation: (computer: LockedComputer) => Promise<T>,
-  ) {
-    this.requests.push(request);
-    if (this.failure) return { ok: false as const, error: { code: this.failure } };
+  get computer() {
+    const project = this.projects.get(PROJECT);
+    if (!project) throw new Error("Missing fixture project.");
+    return project;
+  }
+  get held(): boolean {
+    return this.reservations.has(PROJECT);
+  }
+  override async read(request: {
+    projectId: string;
+    userId: string;
+  }): ReturnType<ProjectComputerAccess["read"]> {
+    this.requests.push({ projectId: request.projectId, userId: request.userId });
+    if (this.failure) return { ok: false, error: { code: this.failure } };
+    return super.read(request);
+  }
+  override async reserve(
+    request: Parameters<ProjectComputerAccess["reserve"]>[0],
+  ): ReturnType<ProjectComputerAccess["reserve"]> {
     this.before?.();
-    this.held = true;
-    try {
-      return { ok: true as const, value: await operation(this.computer) };
-    } finally {
-      this.held = false;
-    }
+    return super.reserve(request);
   }
 }
 
@@ -47,14 +54,23 @@ function fixture(
     { sessionId: SESSION, projectId: PROJECT, userId: OWNER, sandboxId: "box" },
   ]);
   const desktop = new FakeSandboxDesktop({ bytes: new Uint8Array(), width: 1024, height: 768 });
-  const access = new GuardStub();
-  const events = new InMemoryEventStore();
   let time = 100_000;
+  const access = new GuardStub(undefined, () => time);
+  access.setProject({
+    projectId: PROJECT,
+    userId: OWNER,
+    sessionIds: [SESSION],
+    sandboxId: "box",
+    revision,
+  });
+  const computer = new ProjectComputer({ access, transport: desktop.transport, now: () => time });
+  const events = new InMemoryEventStore();
   const logs: string[] = [];
   const computerAccess = {
     sessions,
     desktop,
     access,
+    computer,
     secret,
     now: () => time,
     ...(previewPort ? { previewPort } : {}),
@@ -267,7 +283,7 @@ describe("idle control grants and guarded input", () => {
     f.access.failure = "not_found";
     expect((await f.post("control")).status).toBe(404);
   });
-  it("applies ordered physical input inside the same project guard without events or typed values in logs", async () => {
+  it("applies ordered physical input under a committed reservation without events or typed values in logs", async () => {
     const f = fixture();
     await f.app.request(`${base}/stream`);
     const { grant } = await f.grant();
@@ -330,7 +346,7 @@ describe("idle control grants and guarded input", () => {
     expect(response.status).toBe(change === "user" ? 404 : 409);
     expect(f.desktop.actions).toEqual([]);
   });
-  it("checks revision and expiry after entering the authoritative callback", async () => {
+  it("checks revision and expiry after entering the reservation transaction", async () => {
     for (const change of ["revision", "expiry"] as const) {
       const f = fixture();
       const { grant } = await f.grant();
@@ -371,9 +387,13 @@ describe("idle control grants and guarded input", () => {
     expect(act).toHaveBeenCalledTimes(2);
     expect(JSON.stringify(f.logs)).not.toContain("private-input");
   });
-  it("keeps the project guard until aborted physical input has actually drained", async () => {
+  it("retains the durable fence when aborted input has no drain proof", async () => {
     const f = fixture();
     const { grant } = await f.grant();
+    vi.spyOn(f.desktop.transport, "closeAndDrain").mockResolvedValue({
+      ok: false,
+      error: { code: "timeout", message: "No drain proof." },
+    });
     const deadline = new AbortController();
     const timeout = vi.spyOn(AbortSignal, "timeout").mockReturnValue(deadline.signal);
     let release = () => {};
@@ -403,11 +423,12 @@ describe("idle control grants and guarded input", () => {
       deadline.abort();
       await new Promise<void>((resolve) => setImmediate(resolve));
       expect(f.access.held).toBe(true);
-      expect(settled).toBe(false);
+      expect((await pending).status).toBe(503);
+      expect(settled).toBe(true);
       release();
       expect((await pending).status).toBe(503);
       expect(act).toHaveBeenCalledTimes(1);
-      expect(f.access.held).toBe(false);
+      expect(f.access.held).toBe(true);
     } finally {
       release();
       timeout.mockRestore();

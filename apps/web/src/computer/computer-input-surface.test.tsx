@@ -1,10 +1,11 @@
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
+import { InMemoryProjectComputerAccess } from "@nap/db/testing/in-memory-project-computer-access";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
+import { ProjectComputer } from "@nap/runtime/project-computer";
 import { performDesktopAction } from "@nap/sandbox/desktop-input";
 import { FakeSandboxDesktop } from "@nap/sandbox/testing/fake-sandbox-desktop";
 import { ComputerInputSchema, type HumanComputerAction } from "@nap/shared/computer-access";
-import type { ProjectComputerAccess } from "@nap/shared/ports/project-computer-access";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createApp } from "../../../api/src/app.ts";
@@ -302,21 +303,20 @@ it("Shift Insert delegates only to explicit paste, and typing flushes an earlier
 });
 
 // Real client queue, API ownership/grant/schema/deadline path and adapter argv. Only
-// the project lock and physical X11 host are fakes; no cookies or cloud are used.
+// reservation store and physical X11 host are fakes; no cookies or cloud are used.
 async function queuedPaste() {
   const sessionId = "00000000-0000-4000-8000-000000000001";
+  const projectId = "00000000-0000-4000-8000-000000000002";
   const desktop = new FakeSandboxDesktop({ bytes: new Uint8Array(), width: 1024, height: 768 });
-  const access: ProjectComputerAccess = {
-    async withIdleProject(_request, operation) {
-      return {
-        ok: true,
-        value: await operation({
-          sandboxId: "box",
-          revision: "00000000-0000-4000-8000-000000000003",
-        }),
-      };
-    },
-  };
+  const access = new InMemoryProjectComputerAccess();
+  access.setProject({
+    projectId,
+    userId: "owner",
+    sessionIds: [sessionId],
+    sandboxId: "box",
+    revision: "00000000-0000-4000-8000-000000000003",
+  });
+  const computer = new ProjectComputer({ access, transport: desktop.transport });
   const app = createApp({
     logger: createLogger({ level: "silent" }, { write: () => {} }),
     authenticate: async () => ({ userId: "owner", isAnonymous: false }),
@@ -329,12 +329,13 @@ async function queuedPaste() {
       sessions: new InMemorySessionStore([
         {
           sessionId,
-          projectId: "00000000-0000-4000-8000-000000000002",
+          projectId,
           userId: "owner",
           sandboxId: "box",
         },
       ]),
       desktop,
+      computer,
       access,
       secret: "local-test-only",
     },

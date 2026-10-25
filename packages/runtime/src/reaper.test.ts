@@ -147,7 +147,7 @@ describe("a project with a turn in flight", () => {
       },
     });
 
-    expect(asked).toEqual([[SESSION]]);
+    expect(asked).toEqual([[SESSION], [SESSION]]);
   });
 
   it("takes no snapshot at all, rather than one it then keeps", async () => {
@@ -296,4 +296,14 @@ describe("reconciling capacity", () => {
     expect(swept.reaped).toEqual([PROJECT]);
     expect(swept.reconciled?.destroyed).toEqual([]);
   });
+});
+
+it("rechecks occupancy and skips a newly reserved project before teardown", async () => {
+  let reads = 0;
+  const result = await sweep({ isBusy: async () => ++reads > 1 });
+  expect(reads).toBe(2);
+  expect(result.skipped).toEqual([PROJECT]);
+  expect(result.reaped).toEqual([]);
+  expect(sandbox.commands(sandboxId)).toEqual([]);
+  expect((await sandbox.resume(sandboxId)).ok).toBe(true);
 });

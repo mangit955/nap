@@ -263,6 +263,7 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
         // Resume lifecycle events use this id. Any repair it starts records this request as
         // its owner while retaining its own turn id.
         turnId: request.id,
+        lease: { requestId: request.id, owner },
         model: request.model,
         // A resume that continues a job runs turns, so it answers to the lease exactly as a turn
         // does. Without the signal the `AbortController` above would be wired to nothing on this
@@ -284,6 +285,7 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
     const outcome = await runtime.runTurn({
       sessionId: request.sessionId,
       turnId: request.id,
+      lease: { requestId: request.id, owner },
       ...(request.kind === "test"
         ? { kind: "test", jobId: request.message }
         : {

@@ -6,9 +6,18 @@ import {
 import { z } from "zod";
 
 const identity = { id: z.uuid() };
+const scoped = { scopeId: z.uuid(), sandboxId: z.string().min(1).max(256) };
 export const DesktopRequestSchema = z.discriminatedUnion("op", [
   z.strictObject({ ...identity, op: z.literal("start"), port: z.int().min(1).max(65535) }),
-  z.strictObject({ ...identity, op: z.literal("act"), action: DesktopActionSchema }),
+  z.strictObject({ ...identity, ...scoped, op: z.literal("act"), action: DesktopActionSchema }),
+  z.strictObject({ ...identity, ...scoped, op: z.literal("close_scope") }),
+  z.strictObject({
+    ...identity,
+    op: z.literal("observe"),
+    action: DesktopActionSchema.refine((action) =>
+      ["read_dom", "console", "cursor_position", "zoom", "wait"].includes(action.action),
+    ),
+  }),
   z.strictObject({ ...identity, op: z.literal("screenshot") }),
   z.strictObject({ ...identity, op: z.literal("credentials") }),
   z.strictObject({ ...identity, op: z.literal("cancel") }),
@@ -18,7 +27,7 @@ export const DesktopRequestSchema = z.discriminatedUnion("op", [
 ]);
 export type DesktopRequest = z.infer<typeof DesktopRequestSchema>;
 export const DesktopFailureSchema = z.strictObject({
-  code: z.enum(["not_started", "unavailable", "cancelled", "timeout"]),
+  code: z.enum(["not_started", "unavailable", "cancelled", "timeout", "completion_unknown"]),
   message: z.string().max(300),
 });
 export const DesktopReplySchema = z.discriminatedUnion("ok", [

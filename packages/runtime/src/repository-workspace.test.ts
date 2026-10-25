@@ -15,6 +15,7 @@ import { expect, it, vi } from "vitest";
 import { acquireSandbox } from "./acquire-sandbox.ts";
 import { openProject } from "./restore.ts";
 import { SingleAgentRuntime } from "./single-agent-runtime.ts";
+import { isolatedProjectComputer } from "./testing/isolated-project-computer.ts";
 
 const sessionId = "2a3f8a24-6c1b-4e0e-9b6f-3a5c0a1d9e77";
 const projectId = "4d5e6f70-1a2b-4c3d-8e9f-0a1b2c3d4e5f";
@@ -69,11 +70,13 @@ async function fixture() {
     bus: new InMemoryEventBus(),
     memory: new NoopMemoryProvider(),
     computer: {
-      desktop: new FakeSandboxDesktop({
-        bytes: new Uint8Array([255, 216, 255, 217]),
-        width: 1024,
-        height: 768,
-      }),
+      coordinator: isolatedProjectComputer(
+        new FakeSandboxDesktop({
+          bytes: new Uint8Array([255, 216, 255, 217]),
+          width: 1024,
+          height: 768,
+        }).transport,
+      ),
       objects,
     },
   });

@@ -56,10 +56,9 @@ export type ToolContext = {
 
 /** What the model is told. `ok: false` becomes `is_error` on the tool result block. */
 export type ToolOutcome = {
-  ok: boolean;
   output: string;
   content?: LLMObservationBlock[];
-};
+} & ({ ok: true; stop?: never } | { ok: false; stop?: "computer_unsettled" });
 
 type Payload<T extends NapEvent["type"]> = NapEventOf<T>["payload"];
 

@@ -1,6 +1,11 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import type { ProjectComputer } from "@nap/runtime/project-computer";
 import { ComputerInputSchema, ComputerStreamSchema } from "@nap/shared/computer-access";
 import type { ProjectComputerAccess } from "@nap/shared/ports/project-computer-access";
+import {
+  type ComputerAdmissionError,
+  ComputerGrantBindingSchema,
+} from "@nap/shared/ports/project-computer-access";
 import type { SandboxDesktop } from "@nap/shared/ports/sandbox-desktop";
 import type { SessionRecord, SessionStore } from "@nap/shared/ports/session-store";
 import type { Context, Hono } from "hono";
@@ -10,7 +15,8 @@ import type { AuthVariables } from "../auth/require-user.ts";
 
 export type ComputerAccessDeps = {
   sessions: SessionStore;
-  desktop: SandboxDesktop;
+  desktop: Omit<SandboxDesktop, "act">;
+  computer: ProjectComputer;
   access: ProjectComputerAccess;
   /** The already-required BETTER_AUTH_SECRET, injected by composition. */
   secret: string;
@@ -78,25 +84,25 @@ export function registerComputerAccessRoutes(
         return c.json({ error: "Invalid control request." }, 400);
     }
     try {
-      const result = await deps.access.withIdleProject(
-        { projectId: owned.value.projectId, userId: c.get("userId") },
-        async (computer) => {
-          if (!computer.sandboxId || !z.uuid().safeParse(computer.revision).success)
-            return c.json(unavailable, 503);
-          if (!issueGrant) return c.json({ available: true });
-          const expiresAt = now() + 60_000;
-          return c.json({
-            grant: sign({
-              ...owned.value,
-              sandboxId: computer.sandboxId,
-              revision: computer.revision,
-              expiresAt,
-            }),
-            expiresAt,
-          });
-        },
-      );
-      return result.ok ? result.value : guardFailure(c, result.error.code);
+      const result = await deps.access.read({
+        projectId: owned.value.projectId,
+        userId: c.get("userId"),
+      });
+      if (!result.ok) return guardFailure(c, result.error.code);
+      const computer = result.value;
+      if (!computer.sandboxId || !z.uuid().safeParse(computer.revision).success)
+        return c.json(unavailable, 503);
+      if (!issueGrant) return c.json({ available: true });
+      const expiresAt = now() + 60_000;
+      return c.json({
+        grant: sign({
+          ...owned.value,
+          sandboxId: computer.sandboxId,
+          revision: computer.revision,
+          expiresAt,
+        }),
+        expiresAt,
+      });
     } catch {
       return c.json(unavailable, 503);
     }
@@ -112,43 +118,27 @@ export function registerComputerAccessRoutes(
     if (rejected) return rejected;
     const body = ComputerInputSchema.safeParse(await readJson(c.req.raw));
     if (!body.success) return c.json({ error: "Invalid computer input." }, 400);
-    let applied = 0;
+    const claims = verify(body.data.grant);
+    if (
+      !claims ||
+      claims.expiresAt <= now() ||
+      claims.userId !== c.get("userId") ||
+      claims.projectId !== owned.value.projectId ||
+      claims.sessionId !== owned.value.sessionId ||
+      claims.sandboxId !== owned.value.sandboxId
+    )
+      return guardFailure(c, "stale_grant");
     try {
-      const result = await deps.access.withIdleProject(
-        { projectId: owned.value.projectId, userId: c.get("userId") },
-        async (computer) => {
-          // Both the MAC and every binding are checked under the authoritative project lock.
-          const claims = verify(body.data.grant);
-          if (
-            !claims ||
-            claims.expiresAt <= now() ||
-            claims.revision !== computer.revision ||
-            claims.userId !== c.get("userId") ||
-            claims.projectId !== owned.value.projectId ||
-            claims.sessionId !== owned.value.sessionId ||
-            claims.sandboxId !== computer.sandboxId ||
-            claims.sandboxId !== owned.value.sandboxId
-          )
-            return c.json(
-              { error: "Control grant is stale. Take control again.", code: "stale_grant" },
-              409,
-            );
-          const signal = AbortSignal.any([AbortSignal.timeout(5000), c.req.raw.signal]);
-          for (const action of body.data.actions) {
-            if (signal.aborted || claims.expiresAt <= now())
-              return c.json({ ...unavailable, applied }, 503);
-            // Await the adapter even after abort. A race would unlock while physical input runs.
-            const acted = await deps.desktop.act(claims.sandboxId, action, signal);
-            if (!acted.ok) return c.json({ ...unavailable, applied }, 503);
-            applied++;
-            if (signal.aborted) return c.json({ ...unavailable, applied }, 503);
-          }
-          return c.json({ applied });
-        },
-      );
-      return result.ok ? result.value : guardFailure(c, result.error.code);
+      const result = await deps.computer.ownerInput({
+        binding: claims,
+        actions: body.data.actions,
+        signal: AbortSignal.any([AbortSignal.timeout(5000), c.req.raw.signal]),
+      });
+      return result.ok
+        ? c.json(result.value)
+        : guardFailure(c, result.error.code, result.error.applied);
     } catch {
-      return c.json({ ...unavailable, applied }, 503);
+      return c.json({ ...unavailable, applied: 0 }, 503);
     }
   });
   app.get("/sessions/:sessionId/computer/stream", async (c) => {
@@ -177,23 +167,25 @@ export function registerComputerAccessRoutes(
   });
 }
 
-const ClaimsSchema = z.strictObject({
-  userId: z.string().min(1).max(256),
-  projectId: z.uuid(),
-  sessionId: z.uuid(),
-  sandboxId: z.string().min(1).max(256),
-  revision: z.uuid(),
-  expiresAt: z.int().nonnegative(),
-});
+const ClaimsSchema = ComputerGrantBindingSchema;
 
 type AccessContext = Context<{ Variables: AuthVariables }>;
 function setPrivateHeaders(c: AccessContext): void {
   for (const [name, value] of Object.entries(privateHeaders)) c.header(name, value);
 }
-function guardFailure(c: AccessContext, code: "busy" | "not_found") {
-  return code === "not_found"
-    ? c.json({ error: "no such session" }, 404)
-    : c.json({ error: "A turn is running in this project.", code: "busy" }, 409);
+function guardFailure(c: AccessContext, code: ComputerAdmissionError["code"], applied = 0) {
+  if (code === "not_found") return c.json({ error: "no such session" }, 404);
+  if (code === "busy") return c.json({ error: "A turn is running in this project.", code }, 409);
+  if (code === "stale_grant")
+    return c.json({ error: "Control grant is stale. Take control again.", code }, 409);
+  return c.json(
+    {
+      error: "Computer input recovery is pending.",
+      code: code === "unavailable" ? "desktop_unavailable" : code,
+      applied,
+    },
+    503,
+  );
 }
 function rejectCrossSiteWrite(c: AccessContext, webOrigin?: string) {
   const origin = c.req.header("origin");

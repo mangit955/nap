@@ -73,7 +73,7 @@ export type DesktopObservation =
   | { kind: "text"; text: string }
   | { kind: "cursor"; coordinate: [number, number] };
 export type DesktopError = {
-  code: "not_started" | "unavailable" | "cancelled" | "timeout";
+  code: "not_started" | "unavailable" | "cancelled" | "timeout" | "completion_unknown";
   message: string;
 };
 export type DesktopStart = {

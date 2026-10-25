@@ -1,6 +1,7 @@
 import { ScriptedAgent } from "@nap/agent/testing/scripted-agent";
 import { StubContextEngine } from "@nap/context/testing/stub-context-engine";
 import type { AgentService } from "@nap/shared/ports/agent-service";
+import { isolatedProjectComputer } from "./testing/isolated-project-computer.ts";
 /**
  * What a turn did to the world, asserted through the log it left and the commands it ran.
  *
@@ -1088,7 +1089,10 @@ it("binds computer access to the project's sandbox dev port rather than the publ
     bus,
     memory: new NoopMemoryProvider(),
     previewPort: 4444,
-    computer: { desktop, objects: new InMemoryObjectStore() },
+    computer: {
+      coordinator: isolatedProjectComputer(desktop.transport),
+      objects: new InMemoryObjectStore(),
+    },
   }).runTurn({
     sessionId: SESSION_ID,
     turnId: crypto.randomUUID(),
@@ -1133,7 +1137,7 @@ it("makes the computer call durable before creating its screenshot object", asyn
     bus,
     agent: new NapAgentService({ provider }),
     memory: new NoopMemoryProvider(),
-    computer: { desktop, objects },
+    computer: { coordinator: isolatedProjectComputer(desktop.transport), objects },
   }).runTurn({
     sessionId: SESSION_ID,
     turnId: crypto.randomUUID(),

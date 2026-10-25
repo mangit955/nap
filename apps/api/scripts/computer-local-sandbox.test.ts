@@ -135,6 +135,12 @@ async function main() {
   if (script === "/usr/local/lib/nap-local/file-helper.mjs") {
     const encodedPath = args[idIndex + 4];
     if (operation === "exec-result") {
+      if (process.env.NAP_LOCAL_DOCKER_FAKE_FAULT === "exec_result_transport_loss") {
+        return fail("daemon connection lost reading exec result");
+      }
+      if (process.env.NAP_LOCAL_DOCKER_FAKE_FAULT === "exec_result_malformed") {
+        return helperReply({ ok: true, value: { exitCode: "unknown" } });
+      }
       const resultPath = path.join(operations, id, encodedPath + ".json");
       if (!fs.existsSync(resultPath)) return helperReply({ ok: false, code: "unavailable" });
       return helperReply({ ok: true, value: JSON.parse(fs.readFileSync(resultPath, "utf8")) });
@@ -503,7 +509,7 @@ describe.sequential("LocalDockerSandboxManager boundaries", () => {
     await expect(manager.close()).resolves.toEqual({ ok: true, value: undefined });
   });
 
-  it("fails closed by removing the container before returning a Docker exec loss", async () => {
+  it("keeps explicit destruction available after reporting a Docker exec loss", async () => {
     const manager = await openManager();
     const created = await manager.create("project-loss");
     if (!created.ok) throw new Error(created.error.message);
@@ -511,6 +517,8 @@ describe.sequential("LocalDockerSandboxManager boundaries", () => {
     const result = await manager.exec(created.value.id, "FAKE_DOCKER_LOSS");
 
     expect(result).toMatchObject({ ok: false, error: { code: "unavailable" } });
+    expect(await manager.resume(created.value.id)).toMatchObject({ ok: true });
+    expect(await manager.destroy(created.value.id)).toEqual({ ok: true, value: undefined });
     expect(await manager.resume(created.value.id)).toMatchObject({
       ok: false,
       error: { code: "destroyed" },
@@ -522,6 +530,42 @@ describe.sequential("LocalDockerSandboxManager boundaries", () => {
     const removal = records.findIndex((args) => args[0] === "container" && args[1] === "rm");
     expect(removal).toBeGreaterThan(failedExec);
     await manager.close();
+  });
+
+  it.each([
+    { fault: "command_transport_loss", command: "FAKE_DOCKER_LOSS" },
+    { fault: "exec_result_transport_loss", command: "printf completed" },
+    { fault: "exec_result_malformed", command: "printf completed" },
+  ])("preserves source and the VM after $fault", async ({ fault, command }) => {
+    const manager = await openManager();
+    try {
+      const created = await manager.create("project-input-recovery");
+      if (!created.ok) throw new Error(created.error.message);
+      const sandboxId = created.value.id;
+      const sentinels = [
+        { path: "/home/user/app/src/App.tsx", bytes: "export const dirty = 'unsaved';\n" },
+        { path: "/home/user/app/untracked-recovery.txt", bytes: "untracked source\n\u0000tail" },
+      ];
+      for (const { path, bytes } of sentinels)
+        expect(await manager.writeFile(sandboxId, path, bytes)).toEqual({
+          ok: true,
+          value: undefined,
+        });
+
+      process.env.NAP_LOCAL_DOCKER_FAKE_FAULT = fault;
+      const result = await manager.exec(sandboxId, command);
+      delete process.env.NAP_LOCAL_DOCKER_FAKE_FAULT;
+
+      expect(result).toMatchObject({ ok: false, error: { code: "unavailable" } });
+      // Inspect before launcher-owned close, which is intentionally destructive.
+      expect(calls().filter((args) => args[0] === "container" && args[1] === "rm")).toEqual([]);
+      expect(await manager.resume(sandboxId)).toMatchObject({ ok: true, value: { id: sandboxId } });
+      for (const { path, bytes } of sentinels)
+        expect(await manager.readFile(sandboxId, path)).toEqual({ ok: true, value: bytes });
+    } finally {
+      delete process.env.NAP_LOCAL_DOCKER_FAKE_FAULT;
+      await manager.close();
+    }
   });
 
   it("aborts a pending image build and removes its registered context before returning", async () => {

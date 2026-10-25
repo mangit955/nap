@@ -249,3 +249,30 @@ describe("closing a project that a turn has already snapshotted", () => {
     });
   });
 });
+
+it.each(["occupied", "unavailable"])(
+  "preserves live source when the operation-boundary occupancy read is %s",
+  async (state) => {
+    await sandbox.writeFile(sandboxId, "/home/user/app/dirty.txt", "unsaved source");
+    const result = await putProjectAway({
+      projects,
+      sandbox,
+      objects,
+      snapshots,
+      projectId: PROJECT,
+      sandboxId,
+      occupied: async () => {
+        if (state === "unavailable") throw new Error("Store unavailable");
+        return true;
+      },
+    });
+    expect(result).toMatchObject({ outcome: "failed", reason: "occupied" });
+    expect(sandbox.commands(sandboxId)).toEqual([]);
+    expect(await sandbox.readFile(sandboxId, "/home/user/app/dirty.txt")).toEqual({
+      ok: true,
+      value: "unsaved source",
+    });
+    expect((await sandbox.resume(sandboxId)).ok).toBe(true);
+    expect(snapshots.all()).toEqual([]);
+  },
+);

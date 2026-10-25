@@ -1,4 +1,5 @@
 import type { MediaAttachment } from "../media.ts";
+import type { QueueLeaseIdentity } from "./project-computer-access.ts";
 /**
  * Turn orchestration: acquire a sandbox, build context, run the agent, persist each
  * event and then publish it, commit on success, snapshot. Budgets, cancellation and
@@ -17,6 +18,7 @@ import type { TurnFailureReason } from "../events.ts";
 import type { ModelCredentials } from "./llm-provider.ts";
 
 type TurnRequestBase = {
+  lease?: QueueLeaseIdentity | undefined;
   sessionId: string;
   /**
    * The id this turn's events are written under, allocated by the caller.
@@ -89,6 +91,7 @@ export type ResumeOutcome =
  * quietly pay for the repair loop of a user who brought their own key.
  */
 export type ContinueOptions = {
+  lease?: QueueLeaseIdentity | undefined;
   /**
    * The id the resume's own events are written under — the same rule a turn's `turnId` follows,
    * and for the same reason: a resume is a queued request too, and its row's id is this.

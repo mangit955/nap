@@ -7,6 +7,7 @@ import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { SingleAgentRuntime } from "@nap/runtime/single-agent-runtime";
+import { isolatedProjectComputer } from "@nap/runtime/testing/isolated-project-computer";
 import { FakeSandboxDesktop } from "@nap/sandbox/testing/fake-sandbox-desktop";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import type { ComputerAction } from "@nap/shared/computer";
@@ -155,7 +156,7 @@ export async function runScriptedAppTest(
       context,
       agent: new NapAgentService({ provider }),
       memory: new NoopMemoryProvider(),
-      computer: { desktop, objects },
+      computer: { coordinator: isolatedProjectComputer(desktop.transport), objects },
     });
     const result = await runAppTest({
       task,

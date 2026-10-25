@@ -1,3 +1,5 @@
+import { ProjectComputer } from "@nap/runtime/project-computer";
+import type { DesktopInputTransport } from "@nap/shared/ports/desktop-input-transport";
 import type { SessionNavigationStore } from "@nap/shared/ports/session-navigation-store";
 import type { SessionStartStore } from "@nap/shared/ports/session-start-store";
 
@@ -49,7 +51,6 @@ import type { ProjectSandboxStore } from "@nap/shared/ports/project-sandbox-stor
 import type { ProjectStore } from "@nap/shared/ports/project-store";
 import type { ProviderAccountStore } from "@nap/shared/ports/provider-account-store";
 import type { SandboxCapacity } from "@nap/shared/ports/sandbox-capacity";
-import type { SandboxDesktop } from "@nap/shared/ports/sandbox-desktop";
 import type { SandboxInventory } from "@nap/shared/ports/sandbox-inventory";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SandboxRecordings } from "@nap/shared/ports/sandbox-recordings";
@@ -210,7 +211,7 @@ export type NapDeps = {
   objects: ObjectStore;
   /** Model policy is the provider's; which provider it is, is the caller's. */
   provider: LLMProvider;
-  desktop?: SandboxDesktop;
+  desktop?: DesktopInputTransport;
   recordings?: SandboxRecordings;
   computerAccess?: Pick<ComputerAccessDeps, "access" | "secret">;
   /**
@@ -326,15 +327,31 @@ export function composeNap(deps: NapDeps): ComposedNap {
           events: deps.events,
           bus: deps.bus,
         });
+  if (deps.desktop && !deps.computerAccess)
+    throw new Error("Desktop input requires a durable reservation store.");
+  const computer =
+    deps.desktop && deps.computerAccess
+      ? new ProjectComputer({ access: deps.computerAccess.access, transport: deps.desktop })
+      : undefined;
+  const occupied = async (projectId: string, sessionIds: string[]): Promise<boolean> => {
+    try {
+      return (
+        (await deps.queue.anyLeased(sessionIds)) ||
+        (await deps.computerAccess?.access.occupied(projectId)) === true
+      );
+    } catch {
+      return true;
+    }
+  };
   const runtime = new SingleAgentRuntime({
     ...(github === undefined ? {} : { repository: github }),
     sessions: deps.sessions,
     sandbox: deps.sandbox,
-    ...(deps.desktop === undefined
+    ...(computer === undefined
       ? {}
       : {
           computer: {
-            desktop: deps.desktop,
+            coordinator: computer,
             objects: deps.objects,
             ...(deps.recordings ? { recordings: deps.recordings } : {}),
           },
@@ -411,10 +428,11 @@ export function composeNap(deps: NapDeps): ComposedNap {
         });
   const app = createApp({
     testRecordings: { sessions: deps.sessions, events: deps.events, objects: deps.objects },
-    ...(deps.computerAccess && deps.desktop
+    ...(deps.computerAccess && deps.desktop && computer
       ? {
           computerAccess: {
             ...deps.computerAccess,
+            computer,
             desktop: deps.desktop,
             sessions: deps.sessions,
             previewPort: async (session) => {
@@ -607,7 +625,7 @@ export function composeNap(deps: NapDeps): ComposedNap {
       // in-memory registry this replaced knew only about turns claimed in *this* process, so an
       // API pod composed apart from its workers read every busy session as idle and would happily
       // close a project mid-turn.
-      isBusy: (sessionIds) => deps.queue.anyLeased(sessionIds),
+      isBusy: (sessionIds, projectId) => occupied(projectId, sessionIds),
     },
   });
 
@@ -670,7 +688,7 @@ export function composeNap(deps: NapDeps): ComposedNap {
             idleMs: config.NAP_REAP_IDLE_MINUTES * 60 * 1000,
             // The same question the close and delete routes ask, of the same rows: a project is
             // busy while any of its sessions holds a lease, wherever the worker holding it is.
-            isBusy: (project) => deps.queue.anyLeased(project.sessionIds),
+            isBusy: (project) => occupied(project.projectId, project.sessionIds),
             // A swept project's tabs are still open on it, showing an address that is about to stop
             // answering. Same store and bus as everything else, for the same reason.
             announce: { events: deps.events, bus: deps.bus },
@@ -796,5 +814,28 @@ export function composeNap(deps: NapDeps): ComposedNap {
         onError: (error) => logger.error({ err: error }, "janitor sweep threw"),
       });
 
-  return { github: githubSchedule, app, runtime, registry, worker, reaper, janitor, metrics };
+  const inputRecovery =
+    !sweeps || !computer
+      ? NOT_STARTED
+      : startSweeping({
+          intervalMs: 10_000,
+          holdProcessOpen: role === "reaper",
+          sweep: () => computer.recover(1),
+          onError: () => logger.warn({}, "Computer input recovery remains pending."),
+        });
+  return {
+    github: githubSchedule,
+    app,
+    runtime,
+    registry,
+    worker,
+    reaper,
+    janitor: {
+      stop: () => {
+        janitor.stop();
+        inputRecovery.stop();
+      },
+    },
+    metrics,
+  };
 }

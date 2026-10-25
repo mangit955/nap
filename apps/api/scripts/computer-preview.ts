@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { createDatabase } from "@nap/db/client";
 import { InProcessEventBus } from "@nap/db/in-process-event-bus";
 import { PostgresEventStore } from "@nap/db/postgres-event-store";
+import { PostgresProjectComputerAccess } from "@nap/db/postgres-project-computer-access";
 import { PostgresProjectSandboxStore } from "@nap/db/postgres-project-sandbox-store";
 import { PostgresProjectStore } from "@nap/db/postgres-project-store";
 import { PostgresSandboxCapacity } from "@nap/db/postgres-sandbox-capacity";
@@ -36,10 +37,11 @@ const WEB = "http://localhost:3037";
 const API = "http://localhost:3038";
 const EMAIL = "reader@computer.test";
 const PASSWORD = "Computer-preview-42";
+const secret = "computer-preview-local-secret-32";
 const postgres = await startDockerPostgres();
 const { db, close } = createDatabase(postgres.url);
 const auth = createAuth(db, {
-  secret: "computer-preview-local-secret-32",
+  secret,
   baseUrl: API,
   webOrigin: WEB,
   allowAnonymous: true,
@@ -95,6 +97,7 @@ const config = {
   NAP_CONTEXT_BUDGET_TOKENS: 80_000,
 };
 const events = new PostgresEventStore(db);
+const queue = new PostgresTurnQueue(db);
 const composed = composeNap({
   config,
   auth,
@@ -109,13 +112,14 @@ const composed = composeNap({
     rate: new PostgresTurnRateLimiter(db, { limit: 1000, windowMs: 3600000, tier: "paid" }),
     freeRate: new PostgresTurnRateLimiter(db, { limit: 1000, windowMs: 3600000, tier: "free" }),
   },
-  queue: new PostgresTurnQueue(db),
+  queue,
   snapshots: new PostgresSnapshotStore(db),
   userKeys: new PostgresUserKeyStore(db),
   events,
   bus: new InProcessEventBus(),
   sandbox,
-  desktop,
+  desktop: desktop.transport,
+  computerAccess: { access: new PostgresProjectComputerAccess(db), secret },
   objects: new InMemoryObjectStore(),
   provider: computerPreviewProvider(350),
   encryptionKey: encryptionKeyFrom(Buffer.alloc(32, 7).toString("base64")),
@@ -132,12 +136,29 @@ const server = Bun.serve({
   fetch: composed.app.fetch,
   websocket,
 });
-await composed.runtime.runTurn({
+const seedId = crypto.randomUUID();
+await queue.enqueue({
+  id: seedId,
   sessionId: created.sessionId,
-  turnId: crypto.randomUUID(),
+  userId: owner.id,
+  kind: "turn",
   message: "Save notes and find them in the list",
   model: config.NAP_MODEL,
+  billsToUser: false,
 });
+const seedDeadline = Date.now() + 60_000;
+for (;;) {
+  const status = await queue.getStatus({
+    id: seedId,
+    sessionId: created.sessionId,
+    userId: owner.id,
+  });
+  if (status?.state === "done") break;
+  if (!status || status.state === "failed" || status.state === "orphaned")
+    throw new Error("The local preview seed turn did not finish successfully.");
+  if (Date.now() >= seedDeadline) throw new Error("The local preview seed turn is still pending.");
+  await new Promise<void>((resolve) => setTimeout(resolve, 100));
+}
 await db.update(projects).set({ status: "ready" }).where(eq(projects.id, created.projectId));
 const web = Bun.spawn(["bun", "run", "dev", "--port", "3037"], {
   cwd: fileURLToPath(new URL("../../web", import.meta.url)),

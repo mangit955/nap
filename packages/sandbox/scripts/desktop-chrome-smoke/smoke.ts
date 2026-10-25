@@ -23,6 +23,7 @@ const steps: { name: string; elapsedMs: number }[] = [];
 const timings: { op: string; ms: number }[] = [];
 const fixture = spawn("node", ["/smoke/fixture.mjs"], { stdio: "inherit" });
 const recordingId = randomUUID();
+const inputScope = randomUUID();
 let lastDom = "";
 function save(name: string, value: unknown) {
   writeFileSync(`${output}/${name}.json`, JSON.stringify(value, null, 2));
@@ -33,7 +34,14 @@ function step(name: string) {
   console.log(name);
 }
 function invoke(op: string, fields: Record<string, unknown> = {}) {
-  const request = DesktopRequestSchema.parse({ id: randomUUID(), op, ...fields });
+  const request = DesktopRequestSchema.parse({
+    id: randomUUID(),
+    op,
+    ...(op === "act" || op === "close_scope"
+      ? { scopeId: inputScope, sandboxId: "standalone-smoke" }
+      : {}),
+    ...fields,
+  });
   const start = Date.now();
   const result = spawnSync(
     "node",
@@ -57,7 +65,13 @@ function driver(op: string, fields: Record<string, unknown> = {}) {
   if (!reply.ok) throw new Error("Driver refused operation.");
   return reply.value;
 }
-const act = (action: DesktopAction) => driver("act", { action });
+const act = (action: DesktopAction) =>
+  driver(
+    ["read_dom", "console", "cursor_position", "wait", "zoom"].includes(action.action)
+      ? "observe"
+      : "act",
+    { action },
+  );
 function dom() {
   const observation = DesktopObservationSchema.parse(act({ action: "read_dom" }));
   assert.equal(observation.kind, "text");
@@ -528,5 +542,9 @@ try {
   }
   throw error;
 } finally {
-  fixture.kill();
+  try {
+    driver("close_scope");
+  } finally {
+    fixture.kill();
+  }
 }

@@ -1,6 +1,13 @@
 /** Bundled into the sandbox image. All input arrives through the private typed command schema. */
-import { execFile } from "node:child_process";
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
 import {
   DESKTOP_HEIGHT,
@@ -12,6 +19,7 @@ import {
 import { observeDesktopPage } from "../src/desktop-cdp.ts";
 import { type DesktopActionHost, performDesktopAction } from "../src/desktop-input.ts";
 import { DesktopOperations } from "../src/desktop-operations.ts";
+import { runDesktopProcess } from "../src/desktop-process.ts";
 import {
   DESKTOP_REQUEST_MAX_BASE64_CHARS,
   DESKTOP_STATE,
@@ -19,15 +27,19 @@ import {
   DesktopSizeSchema,
 } from "../src/desktop-protocol.ts";
 import { DesktopRecorder } from "../src/desktop-recorder.ts";
+import { RELEASE_PRESSED_INPUT } from "../src/desktop-release.ts";
+import { DesktopScopes } from "../src/desktop-scopes.ts";
 
 const encoded = process.argv[2];
 if (!encoded) {
   console.log(
     JSON.stringify({
-      protocol: 1,
+      protocol: 2,
       operations: [
         "start",
         "act",
+        "close_scope",
+        "observe",
         "screenshot",
         "credentials",
         "cancel",
@@ -45,27 +57,26 @@ let errorCode: DesktopError["code"] = "unavailable";
 let operationId: string | undefined;
 const operations = new DesktopOperations(`${DESKTOP_STATE}/ops`);
 const signal = () => controller.abort();
+let inputLock: number | undefined;
 function run(
   program: string,
   args: readonly string[],
-  options: { input?: string; signal?: AbortSignal; maxBytes?: number } = {},
+  options: { input?: string; signal?: AbortSignal; maxBytes?: number; inheritInput?: boolean } = {},
 ): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const child = execFile(
-      program,
-      [...args],
-      {
-        env: { ...process.env, DISPLAY: ":99" },
-        encoding: "buffer",
-        maxBuffer: options.maxBytes ?? 1_000_000,
-        timeout: 45000,
-        ...(options.signal ? { signal: options.signal } : {}),
-      },
-      (error, stdout) => (error ? reject(new Error("Desktop process failed.")) : resolve(stdout)),
-    );
-    child.stdin?.end(options.input ?? "");
+  const { inheritInput, ...processOptions } = options;
+  return runDesktopProcess(program, args, {
+    ...processOptions,
+    inputFd: inheritInput ? inputLock : undefined,
   });
 }
+async function acquireInputLock(): Promise<void> {
+  mkdirSync(DESKTOP_STATE, { recursive: true, mode: 0o700 });
+  inputLock = openSync(`${DESKTOP_STATE}/action.lock`, "a", 0o600);
+  // flock's descriptor 3 and this process refer to the same open file description.
+  // Closing the driver cannot unlock an input descendant that still retains it.
+  await run("flock", ["-x", "-w", "6", "3"], { inheritInput: true });
+}
+const scopes = new DesktopScopes(`${DESKTOP_STATE}/scopes`);
 function startTicks(pid: number): string | undefined {
   try {
     return readFileSync(`/proc/${pid}/stat`, "utf8").split(") ")[1]?.split(" ")[19];
@@ -78,7 +89,19 @@ try {
   if (encoded.length > DESKTOP_REQUEST_MAX_BASE64_CHARS || !/^[A-Za-z0-9+/=]+$/.test(encoded))
     throw new Error("Invalid command.");
   const request = DesktopRequestSchema.parse(JSON.parse(Buffer.from(encoded, "base64").toString()));
-  if (request.op === "cancel") {
+  process.on("SIGTERM", signal);
+  process.on("SIGINT", signal);
+  if (request.op === "close_scope") {
+    // Revocation must precede lock acquisition, including a delayed original action.
+    scopes.close(request.scopeId);
+    await acquireInputLock();
+    const prior = scopes.proof(request.scopeId, request.sandboxId);
+    if (prior) reply = { ok: true, value: prior };
+    else {
+      await run("python3", ["-c", RELEASE_PRESSED_INPUT], { inheritInput: true });
+      reply = { ok: true, value: scopes.drained(request.scopeId, request.sandboxId) };
+    }
+  } else if (request.op === "cancel") {
     const identity = operations.cancel(request.id);
     if (identity && startTicks(identity.pid) === identity.startTicks) {
       try {
@@ -89,6 +112,10 @@ try {
     }
     reply = { ok: true, value: { kind: "none" } };
   } else {
+    if (request.op === "act") {
+      await acquireInputLock();
+      if (scopes.closed(request.scopeId)) throw new Error("Input scope is closed.");
+    }
     operationId = request.id;
     const ticks = startTicks(process.pid);
     if (!ticks) throw new Error("Cannot identify the desktop process.");
@@ -96,10 +123,14 @@ try {
       controller.abort();
       controller.signal.throwIfAborted();
     }
-    process.on("SIGTERM", signal);
-    process.on("SIGINT", signal);
     const host: DesktopActionHost = {
-      xdotool: async (args, options) => (await run("xdotool", args, options)).toString(),
+      xdotool: async (args, options) => {
+        if (request.op === "act" && args[0] === "keydown")
+          scopes.hold(request.scopeId, args.slice(1).join("+"));
+        return (
+          await run("xdotool", args, { ...options, inheritInput: request.op === "act" })
+        ).toString();
+      },
       sleep: async (ms, abort) => {
         await delay(ms, undefined, abort ? { signal: abort } : undefined);
       },
@@ -138,8 +169,19 @@ try {
           ),
         );
         break;
+      case "observe":
       case "act":
         value = await performDesktopAction(request.action, host, controller.signal);
+        if (request.op === "act") {
+          // A child can close its pipes before a descriptor-holding descendant exits.
+          // Drop only our reference, then acquire a fresh description before success.
+          // Never explicitly unlock the old description while descendants may use it.
+          if (inputLock === undefined) throw new Error("Input lock was not acquired.");
+          closeSync(inputLock);
+          inputLock = undefined;
+          await acquireInputLock();
+          if (scopes.closed(request.scopeId)) throw new Error("Input scope was revoked.");
+        }
         break;
       case "credentials":
         if (!existsSync(`${DESKTOP_STATE}/password`)) {
@@ -211,25 +253,8 @@ try {
   };
   process.exitCode = 1;
 } finally {
-  if (controller.signal.aborted)
-    await run("xdotool", [
-      "mouseup",
-      "1",
-      "mouseup",
-      "2",
-      "mouseup",
-      "3",
-      "keyup",
-      "Shift_L",
-      "Shift_R",
-      "Control_L",
-      "Control_R",
-      "Alt_L",
-      "Alt_R",
-      "Super_L",
-      "Super_R",
-    ]).catch(() => undefined);
   if (operationId) operations.complete(operationId);
+  if (inputLock !== undefined) closeSync(inputLock);
   process.removeListener("SIGTERM", signal);
   process.removeListener("SIGINT", signal);
 }

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { DesktopRequestSchema } from "./desktop-protocol.ts";
 import { E2BSandboxDesktop } from "./e2b-sandbox-desktop.ts";
 import { InMemorySandboxManager } from "./testing/in-memory-sandbox-manager.ts";
+import { isolatedDesktop } from "./testing/isolated-desktop.ts";
 
 const jpeg = readFileSync(
   new URL("../../../docs/assets/computer-use/panel-review/fixture-desktop.jpg", import.meta.url),
@@ -28,7 +29,8 @@ function fixture(replies: unknown[]) {
     ok: true,
     value: `https://${port}-sandbox.e2b.test`,
   });
-  return { sandbox, calls, desktop: new E2BSandboxDesktop({ sandbox }) };
+  const transport = new E2BSandboxDesktop({ sandbox });
+  return { sandbox, calls, transport, desktop: isolatedDesktop(transport) };
 }
 const answer = (value: unknown) => ({ ok: true, value });
 
@@ -106,7 +108,7 @@ describe("E2B desktop through the existing exec port", () => {
     });
     expect(await f.desktop.act("s", { action: "left_click", coordinate: [1, 2] })).toMatchObject({
       ok: false,
-      error: { code: "unavailable" },
+      error: { code: "completion_unknown" },
     });
     expect(JSON.stringify(await f.desktop.screenshot("s"))).not.toContain("private password");
   });
@@ -172,9 +174,29 @@ it("cancels dispatched work by its own identity and discards a late success", as
   controller.abort();
   expect(await result).toMatchObject({ ok: false, error: { code: "cancelled" } });
   expect(calls).toEqual([
-    expect.objectContaining({ op: "act", id: expect.any(String) }),
+    expect.objectContaining({ op: "observe", id: expect.any(String) }),
     expect.objectContaining({ op: "cancel", id: expect.any(String) }),
   ]);
   const pair = DesktopRequestSchema.array().parse(calls);
   expect(pair[0]?.id).toBe(pair[1]?.id);
 });
+
+it.each(["scope", "sandbox", "protocol", "ordinary-ack"])(
+  "rejects %s as a drain certificate",
+  async (mismatch) => {
+    const scopeId = crypto.randomUUID();
+    const value = { protocol: 2, kind: "scope_drained", scopeId, sandboxId: "s" };
+    const reply =
+      mismatch === "ordinary-ack"
+        ? { kind: "none" }
+        : {
+            ...value,
+            ...(mismatch === "scope" ? { scopeId: crypto.randomUUID() } : {}),
+            ...(mismatch === "sandbox" ? { sandboxId: "other" } : {}),
+            ...(mismatch === "protocol" ? { protocol: 1 } : {}),
+          };
+    const f = fixture([answer(reply)]);
+    expect((await f.transport.closeAndDrain({ sandboxId: "s", scopeId })).ok).toBe(false);
+    expect(f.calls[0]?.input).toMatchObject({ op: "close_scope", scopeId, sandboxId: "s" });
+  },
+);

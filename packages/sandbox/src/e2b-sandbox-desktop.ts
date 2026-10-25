@@ -1,10 +1,14 @@
+import {
+  type DesktopInputTransport,
+  type ScopeDrainProof,
+  ScopeDrainProofSchema,
+  type ScopedDesktopAction,
+} from "@nap/shared/ports/desktop-input-transport";
 import type {
-  DesktopAction,
   DesktopError,
   DesktopFrame,
   DesktopObservation,
   DesktopStart,
-  SandboxDesktop,
 } from "@nap/shared/ports/sandbox-desktop";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type {
@@ -23,6 +27,7 @@ import {
   DesktopPasswordSchema,
   DesktopReplySchema,
   type DesktopRequest,
+  DesktopRequestSchema,
   DesktopSizeSchema,
   RecordingEmptySchema,
   RecordingTimestampSchema,
@@ -36,7 +41,7 @@ const unavailable: DesktopError = {
 const cancelled: DesktopError = { code: "cancelled", message: "Desktop operation cancelled." };
 
 /** Keeps process commands and private transport data behind the existing sandbox exec port. */
-export class E2BSandboxDesktop implements SandboxDesktop, SandboxRecordings {
+export class E2BSandboxDesktop implements DesktopInputTransport, SandboxRecordings {
   readonly #sandbox: SandboxManager;
   constructor(options: { sandbox: SandboxManager }) {
     this.#sandbox = options.sandbox;
@@ -103,17 +108,60 @@ export class E2BSandboxDesktop implements SandboxDesktop, SandboxRecordings {
     };
   }
 
-  async act(
-    sandboxId: string,
-    action: DesktopAction,
-    signal?: AbortSignal,
+  async act(request: ScopedDesktopAction): Promise<Result<DesktopObservation, DesktopError>> {
+    const result = await this.#request(
+      request.sandboxId,
+      DesktopRequestSchema.parse({
+        id: crypto.randomUUID(),
+        op: "act",
+        scopeId: request.scopeId,
+        sandboxId: request.sandboxId,
+        action: request.action,
+      }),
+      DesktopObservationSchema,
+      request.signal,
+    );
+    return result.ok
+      ? result
+      : {
+          ok: false,
+          error: { code: "completion_unknown", message: "Input completion is unknown." },
+        };
+  }
+
+  async observe(
+    request: Parameters<DesktopInputTransport["observe"]>[0],
   ): Promise<Result<DesktopObservation, DesktopError>> {
     return this.#request(
-      sandboxId,
-      { id: crypto.randomUUID(), op: "act", action },
+      request.sandboxId,
+      DesktopRequestSchema.parse({
+        id: crypto.randomUUID(),
+        op: "observe",
+        action: request.action,
+      }),
       DesktopObservationSchema,
-      signal,
+      request.signal,
     );
+  }
+
+  async closeAndDrain(
+    request: Parameters<DesktopInputTransport["closeAndDrain"]>[0],
+  ): Promise<Result<ScopeDrainProof, DesktopError>> {
+    const result = await this.#request(
+      request.sandboxId,
+      {
+        id: crypto.randomUUID(),
+        op: "close_scope",
+        scopeId: request.scopeId,
+        sandboxId: request.sandboxId,
+      },
+      ScopeDrainProofSchema,
+      request.signal,
+    );
+    if (!result.ok) return result;
+    return result.value.scopeId === request.scopeId && result.value.sandboxId === request.sandboxId
+      ? result
+      : { ok: false, error: unavailable };
   }
 
   async streamCredentials(
@@ -192,9 +240,7 @@ export class E2BSandboxDesktop implements SandboxDesktop, SandboxRecordings {
   #command(request: DesktopRequest): string {
     const data = Buffer.from(JSON.stringify(request)).toString("base64");
     const invoke = `node ${DESKTOP_DRIVER} '${data}'`;
-    return request.op === "cancel"
-      ? `timeout 5s ${invoke}`
-      : `install -d -m700 ${DESKTOP_STATE} && timeout --signal=TERM --kill-after=2 55s flock --close --wait ${request.op === "start" ? 50 : 5} ${DESKTOP_STATE}/action.lock ${invoke}`;
+    return `timeout --signal=TERM --kill-after=2 55s ${invoke}`;
   }
 
   async #request<T>(
@@ -207,12 +253,19 @@ export class E2BSandboxDesktop implements SandboxDesktop, SandboxRecordings {
     let cleanup: Promise<unknown> | undefined;
     const abort = () => {
       cleanup = this.#sandbox
-        .exec(sandboxId, this.#command({ op: "cancel", id: request.id }))
+        .exec(sandboxId, this.#command({ op: "cancel", id: request.id }), undefined, {
+          signal: AbortSignal.timeout(5000),
+        })
         .catch(() => undefined);
     };
     signal?.addEventListener("abort", abort, { once: true });
     try {
-      const result = await this.#sandbox.exec(sandboxId, this.#command(request));
+      const result = await this.#sandbox.exec(
+        sandboxId,
+        this.#command(request),
+        undefined,
+        signal ? { signal } : undefined,
+      );
       if (signal?.aborted) {
         await cleanup;
         return { ok: false, error: cancelled };
@@ -243,6 +296,14 @@ export class E2BSandboxDesktop implements SandboxDesktop, SandboxRecordings {
       if (result.value.exitCode !== 0) return { ok: false, error: failure };
       const value = schema.safeParse(reply.data.value);
       return value.success ? { ok: true, value: value.data } : { ok: false, error: unavailable };
+    } catch {
+      return {
+        ok: false,
+        error:
+          request.op === "act"
+            ? { code: "completion_unknown", message: "Input completion is unknown." }
+            : unavailable,
+      };
     } finally {
       signal?.removeEventListener("abort", abort);
     }

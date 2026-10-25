@@ -53,7 +53,11 @@ export type E2BSandboxHandle = {
   commands: {
     run(
       cmd: string,
-      opts?: { onStdout?: (data: string) => void; onStderr?: (data: string) => void },
+      opts?: {
+        onStdout?: (data: string) => void;
+        onStderr?: (data: string) => void;
+        signal?: AbortSignal;
+      },
     ): Promise<E2BCommandResult>;
   };
   getHost(port: number): string;
@@ -349,10 +353,12 @@ export class E2BSandboxManager implements SandboxManager, SandboxInventory {
     sandboxId: string,
     command: string,
     onOutput?: ExecOutputHandler,
+    options?: { signal?: AbortSignal | undefined },
   ): Promise<Result<ExecResult, SandboxError>> {
     return this.#withSandbox(sandboxId, async (handle) => {
       try {
         const result = await handle.commands.run(command, {
+          ...(options?.signal ? { signal: options.signal } : {}),
           onStdout: (data) => onOutput?.({ stream: "stdout", data }),
           onStderr: (data) => onOutput?.({ stream: "stderr", data }),
         });

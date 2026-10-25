@@ -16,7 +16,7 @@ import { z } from "zod";
 import { NAP_TEMPLATE } from "./template.ts";
 
 export const DESKTOP_INSTALL_COMMAND =
-  "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y xvfb x11-utils openbox xdotool ffmpeg x11vnc websockify novnc dbus-x11 fonts-liberation ca-certificates wget openssl util-linux && wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/nap-chrome.deb && apt-get install -y /tmp/nap-chrome.deb && rm /tmp/nap-chrome.deb && mkdir -p /etc/opt/chrome/policies/managed && chown user:user /etc/opt/chrome/policies/managed";
+  "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y python3 libx11-6 libxtst6 xvfb x11-utils openbox xdotool ffmpeg x11vnc websockify novnc dbus-x11 fonts-liberation ca-certificates wget openssl util-linux && wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/nap-chrome.deb && apt-get install -y /tmp/nap-chrome.deb && rm /tmp/nap-chrome.deb && mkdir -p /etc/opt/chrome/policies/managed && chown user:user /etc/opt/chrome/policies/managed";
 const ManifestSchema = z.strictObject({
   version: z.literal(1),
   template: z.literal(NAP_TEMPLATE),

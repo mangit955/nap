@@ -61,6 +61,7 @@ export type CloseProjectOptions = {
   projectId: string;
   sandboxId: string;
   announce?: CloseAnnouncement;
+  occupied?: () => Promise<boolean>;
   /**
    * Where the capacity this project's sandbox was occupying goes back to.
    *
@@ -81,6 +82,20 @@ export type CloseProjectOptions = {
 export async function putProjectAway(options: CloseProjectOptions): Promise<CloseOutcome> {
   const { projects, projectId, sandboxId } = options;
 
+  // This recheck narrows the pre-existing teardown/admission race; it is not a remote
+  // lifecycle lock. Input recovery never enters this independently authorized path.
+  if (options.occupied) {
+    try {
+      if (await options.occupied())
+        return {
+          outcome: "failed",
+          reason: "occupied",
+          message: "Project input recovery or a turn is active.",
+        };
+    } catch {
+      return { outcome: "failed", reason: "occupied", message: "Project activity is unavailable." };
+    }
+  }
   const torn = await tearDownProject({
     sandbox: options.sandbox,
     objects: options.objects,

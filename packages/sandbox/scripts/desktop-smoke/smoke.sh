@@ -18,14 +18,16 @@ invoke() {
 invoke recording_begin >/tmp/begin.json
 sleep .5
 invoke recording_timestamp >/tmp/time.json
-payload=$(node -e 'process.stdout.write(Buffer.from(JSON.stringify({id:require("crypto").randomUUID(),op:"act",action:{action:"left_click",coordinate:[120,120]}})).toString("base64"))')
+payload=$(node -e 'process.stdout.write(Buffer.from(JSON.stringify({id:require("crypto").randomUUID(),op:"act",scopeId:"b794eab7-a529-4210-b37a-dcf016357cf5",sandboxId:"standalone-smoke",action:{action:"left_click",coordinate:[120,120]}})).toString("base64"))')
 node /usr/local/lib/nap-desktop/driver.mjs "$payload" >/tmp/input.json
-payload=$(node -e 'process.stdout.write(Buffer.from(JSON.stringify({id:require("crypto").randomUUID(),op:"act",action:{action:"key",text:"Return"}})).toString("base64"))')
+payload=$(node -e 'process.stdout.write(Buffer.from(JSON.stringify({id:require("crypto").randomUUID(),op:"act",scopeId:"b794eab7-a529-4210-b37a-dcf016357cf5",sandboxId:"standalone-smoke",action:{action:"key",text:"Return"}})).toString("base64"))')
 node /usr/local/lib/nap-desktop/driver.mjs "$payload" >/tmp/key.json
 for attempt in {1..40}; do kill -0 "$app_pid" 2>/dev/null || break; sleep .05; done
 if kill -0 "$app_pid" 2>/dev/null; then exit 1; fi
 wait "$app_pid"
 sleep .5
+payload=$(node -e 'process.stdout.write(Buffer.from(JSON.stringify({id:require("crypto").randomUUID(),op:"close_scope",scopeId:"b794eab7-a529-4210-b37a-dcf016357cf5",sandboxId:"standalone-smoke"})).toString("base64"))')
+node /usr/local/lib/nap-desktop/driver.mjs "$payload" >/tmp/drain.json
 invoke recording_finish >/tmp/clip.json
 node <<'JS'
 const fs = require('fs');

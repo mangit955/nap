@@ -181,7 +181,7 @@ function apparatus(failure = "") {
           ok: false,
           error: { code: "unavailable", message: "capture failed" },
         });
-      return desktop;
+      return desktop.transport;
     }),
     provider: vi.fn(() => {
       trace.push("provider");
