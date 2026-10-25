@@ -1,0 +1,41 @@
+file: apps/web/src/computer/computer-recovery-notice.tsx
+pairs: ['clear: "Nothing was holding this computer any more, so nothing was abandoned or lost.",', 'clear: "Nap stopped using that computer. Your next message starts a fresh computer from your last saved version.",']
+argv: ['python3', '/Users/manasraghuwanshi/.claude/skills/gods-hand/scripts/run_check.py', '--timeout', '300', '--', 'bunx', 'vitest', 'run', '--project', 'web', 'apps/web/src/computer/computer-recovery-notice.test.tsx']
+start 2026-10-25T10:13:50.274154Z end 2026-10-25T10:13:51.347203Z
+exit: 1
+after-restore unstaged diff: ''
+write-tree: 9d20cea4052ac0ab05d8ef0420a83e93113784c8
+
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/feat-computer-use
+
+ ❯ |web| apps/web/src/computer/computer-recovery-notice.test.tsx (16 tests | 1 failed) 109ms
+   × tells the owner nothing was abandoned when nothing was holding the computer any more 4ms
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 15 passed (16)
+   Start at  15:43:50
+   Duration  771ms (transform 29ms, setup 107ms, import 40ms, tests 109ms, environment 386ms)
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |web| apps/web/src/computer/computer-recovery-notice.test.tsx > tells the owner nothing was abandoned when nothing was holding the computer any more
+AssertionError: expected 'Nap stopped using that computer. Your…' to match /nothing was abandoned or lost/
+
+- Expected:
+/nothing was abandoned or lost/
+
++ Received:
+"Nap stopped using that computer. Your next message starts a fresh computer from your last saved version."
+
+ ❯ apps/web/src/computer/computer-recovery-notice.test.tsx:139:18
+    137|   await flush();
+    138|   const status = screen.getByRole("status").textContent;
+    139|   expect(status).toMatch(/nothing was abandoned or lost/);
+       |                  ^
+    140|   expect(status).not.toMatch(/stopped using that computer|fresh comput…
+    141| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+

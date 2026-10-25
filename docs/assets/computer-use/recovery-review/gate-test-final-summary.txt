@@ -1,0 +1,7 @@
+
+ Test Files  446 passed (446)
+      Tests  6044 passed (6044)
+Type Errors  no errors
+   Start at  15:49:11
+   Duration  94.73s (transform 13.69s, setup 21.08s, import 63.85s, tests 325.68s, environment 86.68s, typecheck 272ms)
+
