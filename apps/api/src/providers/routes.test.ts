@@ -522,3 +522,61 @@ it("rejects forged origins and multiline terminal input before handing anything 
   ).toBe(400);
   expect(submit).not.toHaveBeenCalled();
 });
+
+it.each(["poll", "start"])("reads identity after side-effecting %s status", async (mode) => {
+  const accounts = new InMemoryProviderAccountStore();
+  const account = await accounts.create({ userId: USER, driver: "claude", label: null });
+  const succeeded = {
+    flowId: AUTH_SESSION,
+    phase: "succeeded",
+    interaction: null,
+    message: null,
+  } as const;
+  const complete = async () => {
+    expect(
+      (
+        await accounts.completeSignIn(USER, account.id, {
+          generation: 0,
+          credentials: { ciphertext: "fixture", iv: "fixture" },
+          identity: { email: "new@example.com", plan: "Work" },
+        })
+      ).kind,
+    ).toBe("updated");
+    return succeeded;
+  };
+  const f = app({
+    accounts,
+    signIn: {
+      ...UNAVAILABLE_SIGN_IN,
+      drivers: ["claude"],
+      current: mode === "poll" ? complete : async () => succeeded,
+      start: async () => ({ ok: true, value: await complete() }),
+    },
+  });
+  const response =
+    mode === "poll"
+      ? await f.app.request("/providers")
+      : await send(f.app, "POST", `/providers/accounts/${account.id}/sign-in`);
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject(
+    mode === "poll"
+      ? { accounts: [{ auth: { email: "new@example.com", status: "authenticated" } }] }
+      : { auth: { email: "new@example.com", status: "authenticated" } },
+  );
+});
+
+it("omits an account deleted during a status operation", async () => {
+  const accounts = new InMemoryProviderAccountStore();
+  const account = await accounts.create({ userId: USER, driver: "claude", label: null });
+  const f = app({
+    accounts,
+    signIn: {
+      ...UNAVAILABLE_SIGN_IN,
+      current: async () => {
+        await accounts.remove(USER, account.id);
+        return null;
+      },
+    },
+  });
+  expect(await (await f.app.request("/providers")).json()).toMatchObject({ accounts: [] });
+});

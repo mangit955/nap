@@ -1,5 +1,6 @@
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
+import { NativeWorkspaceReplySchema } from "@nap/shared/ports/native-workspace-tools";
 import type { SandboxProcessHost } from "@nap/shared/ports/sandbox-process";
 import { expect, it, vi } from "vitest";
 import { NativeWorkspaceGateway } from "./native-workspace-gateway.ts";
@@ -246,4 +247,19 @@ it("waits for the durable tool intent acknowledgement before any file effect", a
   release();
   expect(await running).toMatchObject({ ok: true });
   expect(prematureWrites).toBe(0);
+});
+
+it("fits oversized producer output including its truncation suffix in the native reply contract", async () => {
+  const f = await fixture();
+  await f.sandbox.writeFile(f.sandboxId, "/home/user/app/large.txt", "x".repeat(60_000));
+  const reply = await f.gateway.execute(
+    { id: "f".repeat(64), tool: "read_file", input: { path: "/home/user/app/large.txt" } },
+    new AbortController().signal,
+  );
+  expect(reply).toMatchObject({ ok: true, value: { ok: true } });
+  if (!reply.ok) throw new Error("Fixture read failed");
+  expect(reply.value.output).toContain("truncated");
+  expect(reply.value.output.length).toBeLessThanOrEqual(30_000);
+  expect(NativeWorkspaceReplySchema.safeParse(reply).success).toBe(true);
+  expect(await f.gateway.stop()).toEqual([]);
 });

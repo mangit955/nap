@@ -61,5 +61,61 @@ it("shows configured accounts without pretending they have a runnable model", ()
       onChange={vi.fn()}
     />,
   );
-  expect(screen.getByRole("option", { name: "Work · unavailable" })).toBeDisabled();
+  expect(screen.getByRole("option", { name: /Work.*unavailable/ })).toBeDisabled();
 });
+
+it.each([null, "Work"])(
+  "names verified paying identities and stably distinguishes duplicate identities: %s",
+  (label) => {
+    const first = { ...accounts[0]!, account: { ...accounts[0]!.account, label } };
+    const second = {
+      ...first,
+      account: {
+        ...first.account,
+        id: "d939aa6e-dc6d-4770-aab6-aa5249cb98ef",
+        auth: { ...first.account.auth, email: "grace@example.com" },
+      },
+    };
+    const { rerender } = render(
+      <ExecutionPicker
+        models={[]}
+        fallback={undefined}
+        accounts={[first, second]}
+        selection={null}
+        onChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("option", { name: /ada@example.com/ })).toBeEnabled();
+    expect(screen.getByRole("option", { name: /grace@example.com/ })).toBeEnabled();
+    const duplicate = { ...second, account: { ...second.account, auth: first.account.auth } };
+    rerender(
+      <ExecutionPicker
+        models={[]}
+        fallback={undefined}
+        accounts={[first, duplicate]}
+        selection={null}
+        onChange={vi.fn()}
+      />,
+    );
+    const names = screen
+      .getAllByRole("option")
+      .filter((option) => !option.hasAttribute("disabled"))
+      .map((option) => option.textContent);
+    expect(new Set(names).size).toBe(2);
+    rerender(
+      <ExecutionPicker
+        models={[]}
+        fallback={undefined}
+        accounts={[duplicate, first]}
+        selection={null}
+        onChange={vi.fn()}
+      />,
+    );
+    expect(
+      screen
+        .getAllByRole("option")
+        .filter((option) => !option.hasAttribute("disabled"))
+        .map((option) => option.textContent),
+    ).toEqual([...names].reverse());
+  },
+);

@@ -142,7 +142,9 @@ describe("LiveChatPane", () => {
       />,
     );
     await screen.findByRole("combobox", { name: "Account and model" });
-    expect(screen.getByRole("combobox")).toHaveDisplayValue("Work · Native Claude");
+    expect(screen.getByRole("combobox")).toHaveDisplayValue(
+      `Work · ${selection.accountId} · Native Claude`,
+    );
     fireEvent.change(screen.getByRole("textbox", { name: "Message" }), {
       target: { value: "Add a footer" },
     });

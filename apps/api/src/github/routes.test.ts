@@ -9,7 +9,7 @@ import { InMemoryTurnQueue } from "@nap/db/testing/in-memory-turn-queue";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { SignInRequiredSchema } from "@nap/shared/api-error";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { createApp } from "../app.ts";
 import { createLogger } from "../logger.ts";
@@ -118,6 +118,16 @@ function fixture() {
     if (path === "/repos/owner/repo/pulls/10/comments") return Response.json([]);
     throw new Error(`Unexpected transport ${options?.method ?? "GET"} ${path}`);
   });
+  const sessionStore = new InMemorySessionStore();
+  vi.spyOn(sessionStore, "get").mockImplementation(async (sessionId) => {
+    const project = (await projects.list(FAKE_OWNER)).find((project) =>
+      project.sessionIds.includes(sessionId),
+    );
+    return project === undefined
+      ? null
+      : { sessionId, projectId: project.projectId, userId: FAKE_OWNER, sandboxId: null };
+  });
+  const keys = vi.fn(async () => null);
   const integration = new GitHubIntegration({
     store,
     app: github,
@@ -126,7 +136,7 @@ function fixture() {
       push: async () => ({ ok: true, value: undefined }),
     },
     sandbox: new InMemorySandboxManager(),
-    sessions: new InMemorySessionStore(),
+    sessions: sessionStore,
     objects: new InMemoryObjectStore(),
     snapshots: new InMemorySnapshotStore(),
     events,
@@ -143,7 +153,13 @@ function fixture() {
       projects,
       queue,
       webOrigin: config.webOrigin,
-      admission: { allowedModels: ["free"], freeModel: "free", defaultModel: "free" },
+      admission: {
+        sessions: sessionStore,
+        keys,
+        allowedModels: ["free"],
+        freeModel: "free",
+        defaultModel: "free",
+      },
     },
   });
   const request = (path: string, body: unknown = {}, method = "POST", origin = config.webOrigin) =>
@@ -171,6 +187,8 @@ function fixture() {
     sandbox: integration.deps.sandbox,
     integration,
     feedbackState,
+    sessionStore,
+    keys,
     requests,
     request,
     bind,
@@ -563,4 +581,34 @@ describe("linked pull request inspection authorization", () => {
       (await f.app.request(`/projects/${f.binding.projectId}/github/pull-requests/10`)).status,
     ).toBe(403);
   });
+});
+
+it("refuses subscription feedback before API key lookup while preserving admitted replay", async () => {
+  const f = await feedbackFixture();
+  const admitted = await f.request(f.path);
+  expect(admitted.status).toBe(202);
+  const receipt = await admitted.json();
+  vi.spyOn(f.sessionStore, "get").mockResolvedValue({
+    sessionId: f.binding.sessionId,
+    projectId: f.binding.projectId,
+    userId: FAKE_OWNER,
+    sandboxId: null,
+    executionSelection: { kind: "subscription", accountId: randomUUID(), model: "native" },
+  });
+  f.keys.mockClear();
+  expect(await (await f.request(f.path)).json()).toEqual(receipt);
+  expect(f.keys).not.toHaveBeenCalled();
+  const fresh = await feedbackFixture();
+  vi.spyOn(fresh.sessionStore, "get").mockResolvedValue({
+    sessionId: fresh.binding.sessionId,
+    projectId: fresh.binding.projectId,
+    userId: FAKE_OWNER,
+    sandboxId: null,
+    executionSelection: { kind: "subscription", accountId: randomUUID(), model: "native" },
+  });
+  const response = await fresh.request(fresh.path);
+  expect(response.status).toBe(409);
+  expect(await response.json()).toMatchObject({ code: "execution_selection_required" });
+  expect(fresh.keys).not.toHaveBeenCalled();
+  expect(fresh.queue.enqueued).toHaveLength(0);
 });

@@ -144,6 +144,45 @@ export class ClaudeNativeExecutor implements NativeTurnExecutor {
     signal.addEventListener("abort", cancel, { once: true });
     const deadline = setTimeout(cancel, 600_000);
     let failed = false;
+    let tools = Promise.resolve();
+    let pendingTools = 0;
+    let toolUncertain = false;
+    const authorize = async () => {
+      signal.throwIfAborted();
+      if ((await this.options.store.read(handle))?.phase !== "started")
+        throw new Error("Native tool authorization expired.");
+      signal.throwIfAborted();
+    };
+    const admit = (control: ReturnType<ClaudeNativeOutput["takeControl"]>[number]) => {
+      signal.throwIfAborted();
+      if (pendingTools >= 8) throw new Error("Too many admitted native operations.");
+      pendingTools++;
+      tools = tools
+        .then(async () => {
+          const work = (async () => {
+            await authorize();
+            const reply = NativeWorkspaceReplySchema.parse(
+              await environment.workspace.execute(control.call, signal),
+            );
+            await authorize();
+            if (process === undefined) throw new Error("Native process unavailable.");
+            await write(process, { type: "tool_reply", id: control.call.id, reply });
+            if (!reply.ok) throw new Error("Native workspace execution stopped.");
+            return true;
+          })();
+          if (!(await bounded(work, 140_000, false))) {
+            toolUncertain = true;
+            throw new Error("Native tool deadline expired.");
+          }
+        })
+        .catch(() => {
+          failed = true;
+          cancel();
+        })
+        .finally(() => {
+          pendingTools--;
+        });
+    };
     let exit: Awaited<SandboxProcess["closed"]> | null = null;
     try {
       signal.throwIfAborted();
@@ -162,22 +201,13 @@ export class ClaudeNativeExecutor implements NativeTurnExecutor {
           await attached;
           if (receive === undefined || decoder === undefined)
             throw new Error("Native journal did not attach.");
-          await receive.accept(event);
-          for (const control of decoder.takeControl()) {
-            signal.throwIfAborted();
-            if (
-              process === undefined ||
-              (await this.options.store.read(handle))?.phase !== "started"
-            )
-              throw new Error("Native tool authorization expired.");
-            const reply = NativeWorkspaceReplySchema.parse(
-              await environment.workspace.execute(control.call, signal),
-            );
-            await write(process, { type: "tool_reply", id: control.call.id, reply });
-            if (!reply.ok) {
-              cancel();
-              throw new Error("Native workspace execution stopped.");
-            }
+          try {
+            await receive.accept(event);
+            for (const control of decoder.takeControl()) admit(control);
+          } catch (error) {
+            failed = true;
+            cancel();
+            throw error;
           }
         },
       );
@@ -239,6 +269,7 @@ export class ClaudeNativeExecutor implements NativeTurnExecutor {
         610_000,
         null,
       );
+      if (exit === null || !exit.ok) failed = true;
     } catch {
       failed = true;
       await this.options.store.uncertain(handle).catch(() => false);
@@ -256,7 +287,7 @@ export class ClaudeNativeExecutor implements NativeTurnExecutor {
       );
       if (process !== undefined)
         exit = await bounded(
-          process.closed.catch(() => null),
+          (process.termination ?? process.closed).catch(() => null),
           10_000,
           null,
         );
@@ -266,7 +297,14 @@ export class ClaudeNativeExecutor implements NativeTurnExecutor {
       10_000,
       null,
     );
+    const toolsJoined = await bounded(
+      tools.then(() => true),
+      10_000,
+      false,
+    );
     if (
+      !toolsJoined ||
+      toolUncertain ||
       exit === null ||
       !exit.ok ||
       exit.value.containment !== "cgroup" ||

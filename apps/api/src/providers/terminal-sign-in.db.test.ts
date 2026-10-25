@@ -169,3 +169,63 @@ it("rejects concurrent replay and a late verified result after logout", async ()
     kind: "disconnected",
   });
 });
+
+it.each(["passive", "immediate"])(
+  "returns verified identity from a %s terminal coordinator before polling ends",
+  async (mode) => {
+    const { Hono } = await import("hono");
+    const { registerProviderRoutes } = await import("./routes.ts");
+    const f = await fixture();
+    let ready = mode === "immediate";
+    f.driver.status = () =>
+      ready
+        ? { kind: "ready" }
+        : { kind: "waiting", interaction: { type: "terminal", output: "Fixture waiting" } };
+    f.driver.verify = async () => ({
+      ok: true,
+      value: {
+        credentials: "fixture-grant",
+        identity: { email: "passive@example.com", plan: "Work" },
+        proofs: [{ kind: "exit", sequence: 1, code: 0, reason: "exited", containment: "cgroup" }],
+      },
+    });
+    const app = new Hono<{ Variables: import("../auth/require-user.ts").AuthVariables }>();
+    app.use("*", async (c, next) => {
+      c.set("userId", f.owner.userId);
+      c.set("authSessionId", f.owner.authSessionId);
+      c.set("isAnonymous", false);
+      await next();
+    });
+    registerProviderRoutes(app, {
+      accounts: store,
+      signIn: f.build(),
+      webOrigin: "https://web.example",
+    });
+    const started = await app.request(`/providers/accounts/${f.account.id}/sign-in`, {
+      method: "POST",
+      headers: { origin: "https://web.example" },
+    });
+    expect(started.status).toBe(200);
+    if (mode === "immediate")
+      expect(await started.json()).toMatchObject({
+        auth: { status: "authenticated", email: "passive@example.com" },
+        signIn: { phase: "succeeded" },
+      });
+    else {
+      expect(await started.json()).toMatchObject({
+        auth: { status: "unauthenticated" },
+        signIn: { phase: "waiting" },
+      });
+      ready = true;
+      const polled = await app.request("/providers");
+      expect(await polled.json()).toMatchObject({
+        accounts: [
+          {
+            auth: { status: "authenticated", email: "passive@example.com" },
+            signIn: { phase: "succeeded" },
+          },
+        ],
+      });
+    }
+  },
+);

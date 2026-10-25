@@ -395,3 +395,41 @@ it("uses only the attached sandbox commands without reconnecting or changing its
   expect(commands.run).toHaveBeenCalledOnce();
   expect(commands.connect).toHaveBeenCalledOnce();
 });
+
+it("preserves a late physical receipt after persistence fails, without acknowledging failed output", async () => {
+  const f = fixture();
+  const accept = vi.fn(async () => {
+    throw new Error("private persistence failure");
+  });
+  const started = await f.host.start(request, accept);
+  if (!started.ok) throw new Error("No fixture start");
+  await f.emit({ type: "output", seq: 1, stream: "stdout", data: "eA==" });
+  expect(await started.value.closed).toMatchObject({
+    ok: false,
+    error: { code: "persistence_failed" },
+  });
+  expect((await started.value.write("refused")).ok).toBe(false);
+  await f.emit({ type: "exit", seq: 2, code: null, reason: "stopped", containment: "cgroup" });
+  expect(await started.value.termination).toMatchObject({
+    ok: true,
+    value: { containment: "cgroup" },
+  });
+  expect(accept).toHaveBeenCalledOnce();
+  expect(f.sent.some((frame) => NativeHostCommandSchema.parse(frame).type === "ack")).toBe(false);
+});
+
+it("bounds missing physical proof after persistence failure", async () => {
+  const f = fixture();
+  const host = new E2BProcessHost({
+    client: f.client,
+    executablePath: "/fixture/host",
+    readyTimeoutMs: 20,
+  });
+  const started = await host.start(request, async () => {
+    throw new Error("fixture");
+  });
+  if (!started.ok) throw new Error("No fixture start");
+  await f.emit({ type: "output", seq: 1, stream: "stdout", data: "eA==" });
+  expect(await started.value.termination).toMatchObject({ ok: false });
+  expect(f.disconnects()).toBe(1);
+});

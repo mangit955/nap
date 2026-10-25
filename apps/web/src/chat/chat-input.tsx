@@ -54,12 +54,14 @@ export function ChatInput({
   dropZone,
   executionControl,
   executionBlocked = false,
+  executionPending = false,
   supportsImages,
   restoreDraftModel = true,
 }: {
   draftIdentity?: { ownerId: string; projectId: string } | undefined;
   executionControl?: ReactNode;
   executionBlocked?: boolean | undefined;
+  executionPending?: boolean | undefined;
   supportsImages?: boolean | undefined;
   /** A server-owned execution preference takes precedence over an old local API draft. */
   restoreDraftModel?: boolean;
@@ -567,7 +569,7 @@ export function ChatInput({
               <ModelPicker
                 models={models}
                 model={model}
-                disabled={!draftReady || (running && !queueing)}
+                disabled={executionPending || !draftReady || (running && !queueing)}
                 onChange={(choice) => onModelChange?.(choice)}
                 onAddKey={onAddKey}
                 onPick={() => box.current?.focus()}

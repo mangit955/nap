@@ -120,6 +120,8 @@ function channel(options: {
   let handle: Handle | null = null;
   let cursor = options.afterSequence;
   let ended = false;
+  let physicallyEnded = false;
+  let failureReceiptTimer: ReturnType<typeof setTimeout> | undefined;
   let controlUncertain = false;
   let receiptTimer: ReturnType<typeof setTimeout> | undefined;
   let queuedBytes = 0;
@@ -132,6 +134,10 @@ function channel(options: {
   });
   const closed = new Promise<Result<ProcessExit, ProcessError>>((resolve) => {
     resolveClosed = resolve;
+  });
+  let resolveTermination: (value: Result<ProcessExit, ProcessError>) => void = () => {};
+  const termination = new Promise<Result<ProcessExit, ProcessError>>((resolve) => {
+    resolveTermination = resolve;
   });
   const decoder = new NativeFrameDecoder(NativeHostEventSchema, 1024 * 1024);
   let containment: ProcessReference["containment"] = "cgroup";
@@ -185,9 +191,30 @@ function channel(options: {
       void handle
         .sendStdin(encodeNativeFrame({ type: "stop", token: options.token }))
         .catch(() => {});
-    if (handle) void handle.disconnect().catch(() => {});
+    // Delivery failure stops input immediately. Keep one bounded window for the supervisor's
+    // independent physical receipt; failed conversation output is never ACKed or replayed here.
+    if (!physicallyEnded)
+      failureReceiptTimer = setTimeout(() => {
+        physicallyEnded = true;
+        resolveTermination(failure(code, message));
+        if (handle) void handle.disconnect().catch(() => {});
+      }, options.commandTimeoutMs);
   }
   async function accept(event: NativeHostEvent) {
+    if (event.type === "exit" && !physicallyEnded) {
+      physicallyEnded = true;
+      clearTimeout(failureReceiptTimer);
+      resolveTermination({
+        ok: true,
+        value: {
+          kind: "exit",
+          sequence: event.seq,
+          code: event.code,
+          reason: event.reason,
+          containment: event.containment,
+        },
+      });
+    }
     if (ended) return;
     if (event.type === "ready") {
       if (event.containment !== containment) {
@@ -261,7 +288,7 @@ function channel(options: {
     return pending;
   }
   function output(text: string): Promise<void> {
-    if (ended) return Promise.resolve();
+    if (ended && physicallyEnded) return Promise.resolve();
     queuedBytes += Buffer.byteLength(text);
     if (queuedBytes > options.maxBufferedBytes) {
       fail("delivery_uncertain", "Native process output exceeded its buffer limit.");
@@ -308,6 +335,7 @@ function channel(options: {
       return {
         reference,
         closed,
+        termination,
         write: (data) => {
           const parsed = NativeHostCommandSchema.safeParse({
             type: "input",
@@ -336,6 +364,11 @@ function channel(options: {
           try {
             await handle.disconnect();
             fail("disconnected", "The native process stream was disconnected.", false);
+            physicallyEnded = true;
+            clearTimeout(failureReceiptTimer);
+            resolveTermination(
+              failure("disconnected", "The native process stream was disconnected."),
+            );
             return { ok: true, value: undefined };
           } catch {
             return failure(

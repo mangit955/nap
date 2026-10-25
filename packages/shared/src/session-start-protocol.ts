@@ -9,7 +9,7 @@ export const InitialPromptSchema = z.strictObject({
 });
 
 export const SessionStartSchema = z
-  .object({
+  .strictObject({
     operationId: z.uuid(),
     source: z.discriminatedUnion("kind", [
       z.object({ kind: z.literal("template") }),

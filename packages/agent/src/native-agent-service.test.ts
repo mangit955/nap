@@ -117,3 +117,19 @@ it("refuses a native request without its worker authority or executor and never 
     payload: { reason: "model_unavailable" },
   });
 });
+
+it("does not finalize a failed turn even when all physical termination proofs are confirmed", async () => {
+  const f = fixture();
+  const executor: NativeTurnExecutor = {
+    run: async () => ({
+      kind: "failed",
+      reason: "cancelled",
+      message: "Cancelled",
+      quiescence: { kind: "confirmed", agent: proof, writers: [] },
+    }),
+  };
+  await new NativeAgentService({ api: f.api, executor }).runTurn(f.request);
+  expect(f.finalize).not.toHaveBeenCalled();
+  expect(f.events.at(-1)).toMatchObject({ type: "turn.failed", payload: { reason: "cancelled" } });
+  expect(f.events.some((event) => event.type === "turn.completed")).toBe(false);
+});

@@ -62,13 +62,22 @@ export function registerProviderRoutes(
   const view = async (
     c: Context<{ Variables: AuthVariables }>,
     account: ProviderAccount,
-  ): Promise<ProviderAccountView> => {
+  ): Promise<ProviderAccountView | null> => {
     const binding = session(c);
     c.header("cache-control", "no-store");
-    return {
-      ...account,
-      signIn: binding === null ? null : await deps.signIn.current(binding, account),
-    };
+    const signIn = binding === null ? null : await deps.signIn.current(binding, account);
+    const after = await deps.accounts.get(c.get("userId"), account.id);
+    return after === null ? null : { ...after, signIn };
+  };
+  const respond = async (
+    c: Context<{ Variables: AuthVariables }>,
+    account: ProviderAccount,
+    status: 200 | 201 = 200,
+  ) => {
+    const value = await view(c, account);
+    return value === null
+      ? c.json({ error: "No such provider account." }, 404)
+      : c.json(value, status);
   };
   const sessionRequired = (c: Context<{ Variables: AuthVariables }>) =>
     c.json(
@@ -147,7 +156,9 @@ export function registerProviderRoutes(
     return c.json({
       signInDrivers: [...deps.signIn.drivers],
       checkedAt: now().toISOString(),
-      accounts: await Promise.all(accounts.map((account) => view(c, account))),
+      accounts: (await Promise.all(accounts.map((account) => view(c, account)))).filter(
+        (account) => account !== null,
+      ),
     } satisfies ProviderAccounts);
   });
 
@@ -176,7 +187,7 @@ export function registerProviderRoutes(
       driver: body.data.driver,
       label: body.data.label ?? null,
     });
-    return c.json(await view(c, account), 201);
+    return respond(c, account, 201);
   });
 
   app.patch("/providers/accounts/:accountId", async (c) => {
@@ -189,7 +200,7 @@ export function registerProviderRoutes(
     const userId = c.get("userId");
     const account = await deps.accounts.update(userId, found.account.id, body.data);
     if (account === null) return c.json({ error: "No such provider account." }, 404);
-    return c.json(await view(c, account));
+    return respond(c, account);
   });
 
   app.delete("/providers/accounts/:accountId", async (c) => {
@@ -223,7 +234,7 @@ export function registerProviderRoutes(
     if (binding === null) return sessionRequired(c);
     const result = await deps.signIn.start(binding, found.account);
     if (!result.ok) return signInRefusal(c, result.error);
-    return c.json(await view(c, found.account));
+    return respond(c, found.account);
   });
 
   app.post("/providers/accounts/:accountId/sign-in/complete", async (c) => {
@@ -237,7 +248,7 @@ export function registerProviderRoutes(
     if (!result.ok) return signInRefusal(c, result.error);
     const account = await deps.accounts.get(binding.userId, found.account.id);
     if (account === null) return c.json({ error: "No such provider account." }, 404);
-    return c.json(await view(c, account));
+    return respond(c, account);
   });
 
   app.post("/providers/accounts/:accountId/sign-in/input", async (c) => {
@@ -255,7 +266,7 @@ export function registerProviderRoutes(
     if (!result.ok) return signInRefusal(c, result.error);
     const account = await deps.accounts.get(binding.userId, found.account.id);
     if (account === null) return c.json({ error: "No such provider account." }, 404);
-    return c.json(await view(c, account));
+    return respond(c, account);
   });
 
   app.delete("/providers/accounts/:accountId/sign-in", async (c) => {
@@ -265,7 +276,7 @@ export function registerProviderRoutes(
     const binding = session(c);
     if (binding === null) return sessionRequired(c);
     await deps.signIn.cancel(binding, found.account);
-    return c.json(await view(c, found.account));
+    return respond(c, found.account);
   });
 
   app.post("/providers/accounts/:accountId/sign-out", async (c) => {
@@ -279,7 +290,7 @@ export function registerProviderRoutes(
     // answer it is sent rather than guessing.
     const after = await deps.accounts.get(userId, found.account.id);
     if (after === null) return c.json({ error: "No such provider account." }, 404);
-    return c.json(await view(c, after));
+    return respond(c, after);
   });
 }
 

@@ -550,3 +550,246 @@ it("runs a native MCP edit, commits it, repairs the failed check and commits the
     sandbox.commands(created.value.id).filter((command) => command.includes("commit -m")),
   ).toHaveLength(2);
 });
+
+// Compose the real persistence deadline with the executor. Only the remote peer is scripted.
+async function transportFixture(
+  mode: "tool" | "cancel" | "denied" | "partial" | "idle" | "no_finish",
+) {
+  const { E2BProcessHost } = await import("@nap/sandbox/e2b-process-host");
+  const { NativeHostCommandSchema } = await import("@nap/shared/native-process-protocol");
+  const f = fixture();
+  let output: (text: string) => Promise<void> = async () => {};
+  let sequence = 0;
+  let ended = false;
+  let begin = () => {};
+  const started = new Promise<void>((resolve) => {
+    begin = resolve;
+  });
+  const pending: Promise<void>[] = [];
+  const emit = (frame: unknown) => output(encodeNativeFrame(frame));
+  const message = (frame: unknown) =>
+    emit({
+      type: "output",
+      seq: ++sequence,
+      stream: "stdout",
+      data: Buffer.from(encodeNativeFrame(frame)).toString("base64"),
+    });
+  const terminate = (success = false) => {
+    if (ended) return;
+    ended = true;
+    pending.push(
+      emit({
+        type: "exit",
+        seq: ++sequence,
+        code: success ? 0 : null,
+        reason: success ? "exited" : "stopped",
+        containment: "cgroup",
+      }),
+    );
+  };
+  const commands = new NativeFrameDecoder(ClaudeNativeCommandSchema, 4 * 1024 * 1024);
+  const replies: unknown[] = [];
+  const handle = {
+    pid: 42,
+    async sendStdin(line: string) {
+      const frame = NativeHostCommandSchema.parse(JSON.parse(line));
+      if (frame.type === "start") await emit({ type: "ready", pid: 100, containment: "cgroup" });
+      if (frame.type === "stop") terminate();
+      if (frame.type === "input")
+        for (const command of commands.push(Buffer.from(frame.data))) {
+          if (command.type === "start") begin();
+          if (command.type === "tool_reply") {
+            replies.push(command.reply);
+            pending.push(
+              message({
+                type: "finished",
+                result: {
+                  ok: true,
+                  value: { usage: { inputTokens: 1, outputTokens: 1 }, usageIncomplete: true },
+                },
+              }).then(() => terminate(true)),
+            );
+          }
+        }
+    },
+    wait: () => new Promise<{ exitCode: number }>(() => {}),
+    disconnect: async () => {},
+  };
+  f.environment.host = new E2BProcessHost({
+    executablePath: "/fixture/host",
+    readyTimeoutMs: 100,
+    client: {
+      start: async (_id, _path, accept) => {
+        output = accept;
+        return handle;
+      },
+      connect: async () => {
+        throw new Error("No reconnect expected");
+      },
+    },
+  });
+  const controller = new AbortController();
+  let toolFinished = false;
+  f.environment.workspace.execute = vi.fn<ClaudeExecutionEnvironment["workspace"]["execute"]>(
+    async () => {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      toolFinished = true;
+      return { ok: true, value: { ok: true, output: "Done" } };
+    },
+  );
+  const running = f.executor.run(input, { signal: controller.signal, publish: async () => {} });
+  await started;
+  if (mode === "tool")
+    await message({
+      type: "tool_call",
+      call: { id: "c".repeat(64), tool: "run_command", input: { command: "fixture" } },
+    });
+  else if (mode === "no_finish") terminate(true);
+  else if (mode !== "idle") {
+    if (mode === "denied") f.store.append.mockResolvedValue({ kind: "denied" });
+    if (mode === "partial")
+      await emit({
+        type: "output",
+        seq: ++sequence,
+        stream: "stdout",
+        data: Buffer.from('{"type":').toString("base64"),
+      });
+    else await message({ type: "message", message: { type: "system", session_id: sessionId } });
+    controller.abort();
+  }
+  return {
+    ...f,
+    running,
+    replies,
+    controller,
+    call: (id = "d".repeat(64)) =>
+      message({
+        type: "tool_call",
+        call: {
+          id,
+          tool: "write_file",
+          input: { path: "/home/user/app/a.txt", contents: "fixture" },
+        },
+      }),
+    toolFinished: () => toolFinished,
+    drain: async () => {
+      await Promise.allSettled(pending);
+    },
+  };
+}
+
+it("ACKs durable tool admission before slow work finishes, then joins work and delivers its reply", async () => {
+  const f = await transportFixture("tool");
+  expect(f.toolFinished()).toBe(false);
+  expect(await f.running).toMatchObject({ kind: "completed", quiescence: { kind: "confirmed" } });
+  expect(f.toolFinished()).toBe(true);
+  expect(f.replies).toHaveLength(1);
+  expect(f.store.stopped).toHaveBeenCalledOnce();
+  await f.drain();
+});
+
+it.each(["cancel", "partial", "denied"] as const)(
+  "keeps physical proof independent of %s semantic delivery",
+  async (mode) => {
+    const f = await transportFixture(mode);
+    expect(await f.running).toMatchObject({ kind: "failed", quiescence: { kind: "confirmed" } });
+    expect(f.store.stopped).toHaveBeenCalledOnce();
+    expect(f.replies).toEqual([]);
+    await f.drain();
+  },
+);
+
+it("joins admitted tool work on cancellation and refuses a late reply", async () => {
+  const f = await transportFixture("idle");
+  let release = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  f.environment.workspace.execute = vi.fn<ClaudeExecutionEnvironment["workspace"]["execute"]>(
+    async () => {
+      await gate;
+      return { ok: true, value: { ok: true, output: "Done" } };
+    },
+  );
+  await f.call();
+  f.controller.abort();
+  let settled = false;
+  const result = f.running.then((value) => {
+    settled = true;
+    return value;
+  });
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(settled).toBe(false);
+    release();
+    expect(await result).toMatchObject({
+      kind: "failed",
+      reason: "cancelled",
+      quiescence: { kind: "confirmed" },
+    });
+    expect(f.replies).toEqual([]);
+  } finally {
+    release();
+    await f.running;
+    await f.drain();
+  }
+});
+
+it("bounds a stuck tool and retains its fence even with an agent receipt", async () => {
+  vi.useFakeTimers();
+  let release = () => {};
+  try {
+    const f = await transportFixture("idle");
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    f.environment.workspace.execute = vi.fn<ClaudeExecutionEnvironment["workspace"]["execute"]>(
+      async () => {
+        await gate;
+        return { ok: true, value: { ok: true, output: "Late" } };
+      },
+    );
+    await f.call();
+    await vi.advanceTimersByTimeAsync(140_001);
+    expect(await f.running).toMatchObject({ kind: "failed", quiescence: { kind: "unconfirmed" } });
+    expect(f.store.stopped).not.toHaveBeenCalled();
+    release();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.replies).toEqual([]);
+    await f.drain();
+  } finally {
+    release();
+    vi.useRealTimers();
+  }
+});
+
+it("never promotes a successful physical exit without semantic completion", async () => {
+  const f = await transportFixture("no_finish");
+  expect(await f.running).toMatchObject({ kind: "failed", quiescence: { kind: "confirmed" } });
+  expect(f.store.stopped).toHaveBeenCalledOnce();
+  await f.drain();
+});
+
+it("bounds admitted operations while a prior tool is still running", async () => {
+  const f = await transportFixture("idle");
+  let release = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  f.environment.workspace.execute = vi.fn<ClaudeExecutionEnvironment["workspace"]["execute"]>(
+    async () => {
+      await gate;
+      return { ok: true, value: { ok: true, output: "Done" } };
+    },
+  );
+  try {
+    for (let i = 0; i < 9; i++) await f.call(i.toString(16).repeat(64));
+    await vi.waitFor(() => expect(f.environment.workspace.stop).toHaveBeenCalled());
+    expect(f.environment.workspace.execute).toHaveBeenCalledOnce();
+    expect(f.replies).toEqual([]);
+  } finally {
+    release();
+    await f.running;
+    await f.drain();
+  }
+});

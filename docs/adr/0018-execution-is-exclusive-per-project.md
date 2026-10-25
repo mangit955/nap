@@ -25,7 +25,11 @@ execution. This remains an observation rather than a teardown lock. The stronger
 filesystem barrier required by native execution is a separate release gate.
 
 Migration `0020_project_turn_exclusion` requires draining old API, workers and reaper before
-application. Old workers do not recognize the project constraint or native fence. The upgrade
+application. Stop old processes first, then reconcile stale durable leases through the existing
+janitor after their grace window. Before applying the migration, confirm
+`SELECT count(*) FROM turn_requests WHERE state = 'leased';` returns zero. Expiry alone does
+not change a leased row's state. Do not delete or requeue started work to satisfy this preflight;
+the migration deliberately refuses incompatible old leased siblings. Old workers do not recognize the project constraint or native fence. The upgrade
 test applies earlier migrations to an isolated database, inserts old-format work, applies the
 current migration, and verifies that the existing work retains its project and can run while
 its sibling waits. No production migration has run.

@@ -53,6 +53,8 @@ export type ProcessStart = {
 export interface SandboxProcess {
   readonly reference: ProcessReference;
   readonly closed: Promise<Result<ProcessExit, ProcessError>>;
+  /** Authenticated physical proof, independent of output decoding/persistence success. */
+  readonly termination?: Promise<Result<ProcessExit, ProcessError>>;
   write(data: string): Promise<VoidResult<ProcessError>>;
   resize(size: TerminalSize): Promise<VoidResult<ProcessError>>;
   renew(): Promise<VoidResult<ProcessError>>;

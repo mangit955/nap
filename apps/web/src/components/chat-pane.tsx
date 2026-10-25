@@ -62,6 +62,7 @@ export function ChatPane({
   onAddKey,
   executionControl,
   executionBlocked,
+  executionPending,
   supportsImages,
   restoreDraftModel,
   executionNotice,
@@ -102,6 +103,7 @@ export function ChatPane({
   onAddKey?: (() => void) | undefined;
   executionControl?: ReactNode;
   executionBlocked?: boolean | undefined;
+  executionPending?: boolean | undefined;
   supportsImages?: boolean | undefined;
   restoreDraftModel?: boolean;
   executionNotice?: ReactNode;
@@ -228,6 +230,7 @@ export function ChatPane({
               error={error}
               executionControl={executionControl}
               executionBlocked={executionBlocked}
+              executionPending={executionPending}
               supportsImages={supportsImages}
               {...(restoreDraftModel === undefined ? {} : { restoreDraftModel })}
               firstPrompt={firstPrompt}
@@ -432,6 +435,7 @@ export function LiveChatPane({
           )
         }
         executionBlocked={execution.blocked}
+        executionPending={execution.status === "saving" || execution.status === "loading"}
         restoreDraftModel={false}
         supportsImages={execution.supportsImages}
         executionControl={
@@ -442,6 +446,7 @@ export function LiveChatPane({
               accounts={execution.accounts}
               selection={execution.selection}
               disabled={running || execution.status === "saving" || execution.status === "loading"}
+              onAddKey={() => setKeyPanelOpen(true)}
               onChange={(selection) => {
                 void execution.choose(selection);
               }}

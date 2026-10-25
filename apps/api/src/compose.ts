@@ -470,6 +470,7 @@ export function composeNap(deps: NapDeps): ComposedNap {
             queue: deps.queue,
             webOrigin: config.NAP_WEB_ORIGIN,
             admission: {
+              sessions: deps.sessions,
               keys: openCallerKey,
               allowedModels: config.NAP_ALLOWED_MODELS,
               freeModel: config.NAP_FREE_MODEL,
