@@ -500,3 +500,19 @@ async function signInWithGithub(): Promise<string> {
   expect(callback.status).toBeLessThan(400);
   return cookieFrom(callback);
 }
+
+it("exposes the verified cookie-session ID for provider flow ownership without exposing its token", async () => {
+  const response = await post("/api/auth/sign-up/email", {
+    email: anEmail(),
+    password: "the secret password",
+    name: "Flow owner",
+  });
+  const caller = await auth.getUser(new Headers({ cookie: cookieFrom(response) }));
+  expect(caller?.authSessionId).toBeDefined();
+  const [session] = await db.db
+    .select()
+    .from(authSessions)
+    .where(eq(authSessions.id, caller?.authSessionId ?? crypto.randomUUID()));
+  expect(session?.userId).toBe(caller?.userId);
+  expect(JSON.stringify(caller)).not.toContain(session?.token ?? "missing-token");
+});

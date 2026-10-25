@@ -15,6 +15,7 @@ describe("parseStreamQuery", () => {
       sessionId: "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f",
       afterSeq: 12,
       repairOwnership: false,
+      executionTargets: false,
     });
   });
 
@@ -65,4 +66,13 @@ it("opts in to repair ownership only when the client explicitly names version 1"
     value: { repairOwnership: true },
   });
   expect(query("?sessionId=0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f&repairOwnership=2").ok).toBe(false);
+});
+
+it("accepts only the explicit job-target wire capability", () => {
+  expect(query("?sessionId=0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f&executionTargets=1")).toMatchObject(
+    { ok: true, value: { executionTargets: true } },
+  );
+  expect(query("?sessionId=0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f&executionTargets=2").ok).toBe(
+    false,
+  );
 });

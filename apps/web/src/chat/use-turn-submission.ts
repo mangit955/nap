@@ -1,5 +1,6 @@
 "use client";
 
+import type { ExecutionSelection } from "@nap/shared/execution-target";
 import type { MediaAttachment } from "@nap/shared/media";
 
 /**
@@ -50,7 +51,11 @@ import type { FetchJson } from "../files/use-project-files.ts";
 
 export type TurnSubmission = {
   /** True means admission succeeded; the turn itself runs on past this response. */
-  submit: (message: string, model?: string, attachments?: MediaAttachment[]) => Promise<boolean>;
+  submit: (
+    message: string,
+    choice?: string | ExecutionSelection,
+    attachments?: MediaAttachment[],
+  ) => Promise<boolean>;
   cancel: () => Promise<void>;
   /** The message the user sent that the log has not caught up with yet. */
   pending: string | undefined;
@@ -270,7 +275,7 @@ export function useTurnSubmission(options: {
 
   const submit = async (
     message: string,
-    model?: string,
+    choice?: string | ExecutionSelection,
     attachments?: MediaAttachment[],
   ): Promise<boolean> => {
     const text = message.trim();
@@ -299,11 +304,11 @@ export function useTurnSubmission(options: {
         {
           method: "POST",
           headers: { "content-type": "application/json" },
-          // An unchosen model leaves the key out rather than sending null, which the route
-          // would refuse: `JSON.stringify` drops undefined properties, so this one expression
-          // produces both bodies. An explicit branch here reads as though it were doing
-          // something, and no test could tell the two apart.
-          body: JSON.stringify({ message: text, model, attachments }),
+          body: JSON.stringify({
+            message: text,
+            ...(typeof choice === "object" ? { selection: choice } : { model: choice }),
+            attachments,
+          }),
         },
       );
 

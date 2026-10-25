@@ -12,7 +12,11 @@
  * Adapted from T3 Code (MIT); see `THIRD_PARTY_NOTICES.md`.
  */
 
-import type { ProviderAccountView } from "@nap/shared/provider-accounts-protocol";
+import type {
+  CompleteProviderSignIn,
+  ProviderAccountView,
+} from "@nap/shared/provider-accounts-protocol";
+import type { SubmitProviderCode } from "@nap/shared/provider-auth-input-protocol";
 import { useEffect, useState } from "react";
 import { CopyIcon } from "../ui/icons.tsx";
 import { isSigningIn } from "./account-status.ts";
@@ -31,6 +35,8 @@ export function AccountSignIn({
   signInAvailable,
   onStart,
   onCancel,
+  onComplete,
+  onSubmitCode,
   onSignOut,
   startError = null,
   confirm = (message) => window.confirm(message),
@@ -39,6 +45,8 @@ export function AccountSignIn({
   signInAvailable: boolean;
   onStart: () => Promise<Outcome<unknown>>;
   onCancel: () => Promise<Outcome<unknown>>;
+  onComplete: (input: CompleteProviderSignIn) => Promise<Outcome<unknown>>;
+  onSubmitCode: (input: SubmitProviderCode) => Promise<Outcome<unknown>>;
   onSignOut: () => Promise<Outcome<unknown>>;
   startError?: string | null;
   /** Injected so a test can answer the sign-out question without a browser dialog. */
@@ -176,6 +184,14 @@ export function AccountSignIn({
         </>
       }
     >
+      {interaction?.type === "browser" && flow?.phase === "waiting" ? (
+        <BrowserCallbackForm
+          key={flow.flowId}
+          flowId={flow.flowId}
+          pending={pending}
+          onComplete={(input) => run(() => onComplete(input))}
+        />
+      ) : null}
       {interaction?.type === "deviceCode" || interaction?.type === "terminal" || error ? (
         <div className="pb-2">
           {interaction?.type === "deviceCode" ? (
@@ -186,14 +202,24 @@ export function AccountSignIn({
             </p>
           ) : null}
           {interaction?.type === "terminal" ? (
-            <pre
-              role="log"
-              aria-label={`${driver.runtime} sign-in`}
-              aria-live="polite"
-              className="my-2 max-h-56 overflow-auto whitespace-pre-wrap rounded-lg border border-edge bg-surface px-3 py-2.5 font-mono text-xs leading-relaxed text-ink-2 [overflow-wrap:anywhere]"
-            >
-              {interaction.output}
-            </pre>
+            <>
+              <pre
+                role="log"
+                aria-label={`${driver.runtime} sign-in`}
+                aria-live="polite"
+                className="my-2 max-h-56 overflow-auto whitespace-pre-wrap rounded-lg border border-edge bg-surface px-3 py-2.5 font-mono text-xs leading-relaxed text-ink-2 [overflow-wrap:anywhere]"
+              >
+                {interaction.output}
+              </pre>
+              {interaction.input === "code" && flow?.phase === "waiting" ? (
+                <TerminalCodeForm
+                  key={flow.flowId}
+                  flowId={flow.flowId}
+                  pending={pending}
+                  onSubmit={(input) => run(() => onSubmitCode(input))}
+                />
+              ) : null}
+            </>
           ) : null}
           {error ? (
             <p role="alert" className="py-1 text-xs text-danger">
@@ -203,5 +229,98 @@ export function AccountSignIn({
         </div>
       ) : null}
     </ProviderRow>
+  );
+}
+
+function BrowserCallbackForm({
+  flowId,
+  pending,
+  onComplete,
+}: {
+  flowId: string;
+  pending: boolean;
+  onComplete: (input: CompleteProviderSignIn) => Promise<void>;
+}) {
+  const [callback, setCallback] = useState("");
+  return (
+    <form
+      className="space-y-2 py-3"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const redirect = callback.trim();
+        if (!redirect || pending) return;
+        setCallback("");
+        void onComplete({ flowId, redirect });
+      }}
+    >
+      <p className="text-sm text-muted">
+        After signing in, paste the callback URL from your browser to finish connecting this
+        account.
+      </p>
+      <label className="block text-xs text-muted" htmlFor={`${flowId}-callback`}>
+        Sign-in callback URL
+      </label>
+      <input
+        id={`${flowId}-callback`}
+        type="url"
+        autoComplete="off"
+        spellCheck={false}
+        maxLength={16_384}
+        required
+        disabled={pending}
+        value={callback}
+        onChange={(event) => setCallback(event.target.value)}
+        className="w-full rounded-lg border border-edge bg-surface px-3 py-2 text-sm text-ink outline-none focus:border-ink-2"
+      />
+      <button type="submit" disabled={pending || !callback.trim()} className={ACCENT_BUTTON}>
+        Complete sign-in
+      </button>
+    </form>
+  );
+}
+
+function TerminalCodeForm({
+  flowId,
+  pending,
+  onSubmit,
+}: {
+  flowId: string;
+  pending: boolean;
+  onSubmit(input: SubmitProviderCode): Promise<void>;
+}) {
+  const [code, setCode] = useState("");
+  return (
+    <form
+      className="space-y-2 py-3"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const value = code.trim();
+        if (pending || !value || /[\r\n\0]/.test(value)) return;
+        setCode("");
+        void onSubmit({ flowId, code: value });
+      }}
+    >
+      <p className="text-sm text-muted">
+        Open the provider's link shown in the terminal output, then enter its sign-in code here.
+      </p>
+      <label className="block text-xs text-muted" htmlFor={`${flowId}-code`}>
+        Sign-in code
+      </label>
+      <input
+        id={`${flowId}-code`}
+        type="password"
+        autoComplete="off"
+        spellCheck={false}
+        maxLength={16_384}
+        required
+        disabled={pending}
+        value={code}
+        onChange={(event) => setCode(event.target.value)}
+        className="w-full rounded-lg border border-edge bg-surface px-3 py-2 text-sm text-ink outline-none focus:border-ink-2"
+      />
+      <button type="submit" disabled={pending || !code.trim()} className={OUTLINE_BUTTON}>
+        Submit sign-in code
+      </button>
+    </form>
   );
 }

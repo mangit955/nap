@@ -70,6 +70,7 @@ beforeEach(() => {
 const run = (
   script: AgentScript = () => completedTurn(COMMIT_SHA),
   verification: "arbitrate" | "trust" = "arbitrate",
+  target?: import("@nap/shared/execution-target").ExecutionTarget,
 ) =>
   new SingleAgentRuntime({
     sessions,
@@ -86,6 +87,7 @@ const run = (
     turnId: crypto.randomUUID(),
     sessionId: SESSION_ID,
     message: "add a delete button",
+    ...(target === undefined ? {} : { target }),
   });
 
 async function loggedTypes(): Promise<NapEventType[]> {
@@ -313,4 +315,21 @@ describe("the job log", () => {
       expect(() => NapEventSchema.parse(event)).not.toThrow();
     }
   });
+});
+
+it("records a new job's target in the durable start event for a later reopen", async () => {
+  passingChecks();
+  const target = {
+    kind: "subscription",
+    driver: "claude",
+    accountId: "00000000-0000-4000-8000-000000000099",
+    model: "claude-offline-fixture",
+    generation: 4,
+  } as const;
+  await run(undefined, "arbitrate", target);
+  const started = (await events.readFrom(SESSION_ID, 0)).find(
+    (event) => event.type === "job.started",
+  );
+  expect(started).toMatchObject({ payload: { target } });
+  expect((await jobs()).jobs[0]?.target).toEqual(target);
 });

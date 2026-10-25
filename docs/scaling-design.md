@@ -179,6 +179,8 @@ of, and where the per-session lock lives.
 
 ## 5. Queue semantics
 
+[ADR-0018](adr/0018-execution-is-exclusive-per-project.md) extends execution exclusion to the shared project and records the current busy query.
+
 ```sql
 create type turn_request_state as enum ('queued','leased','done','failed','orphaned');
 create type turn_request_kind  as enum ('turn','resume');

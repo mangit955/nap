@@ -31,14 +31,14 @@ const STEPS = ["Provider", "Identity", "Config"] as const;
 export function AddProviderDialog({
   open,
   onClose,
-  signInAvailable,
+  signInDrivers,
   onCreate,
   onStartSignIn,
   onCreated,
 }: {
   open: boolean;
   onClose: () => void;
-  signInAvailable: boolean;
+  signInDrivers: readonly ProviderDriver[];
   onCreate: (input: {
     driver: ProviderDriver;
     label?: string;
@@ -50,6 +50,7 @@ export function AddProviderDialog({
   const dialog = useRef<HTMLDialogElement>(null);
   const [step, setStep] = useState(0);
   const [driver, setDriver] = useState<ProviderDriver>("codex");
+  const signInAvailable = signInDrivers.includes(driver);
   const [label, setLabel] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);

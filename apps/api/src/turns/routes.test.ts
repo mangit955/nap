@@ -126,6 +126,16 @@ describe("accepted request status", () => {
 });
 
 describe("POST /sessions/:sessionId/turns", () => {
+  it("refuses an unsupported explicit target before it can become an API request", async () => {
+    const { app: hono, queue } = app(new InMemoryTurnQueue());
+    const response = await post(hono, `/sessions/${SESSION}/turns`, {
+      message: "edit",
+      target: { kind: "subscription", accountId: crypto.randomUUID() },
+    });
+    expect(response.status).toBe(400);
+    expect(queue.enqueued).toEqual([]);
+  });
+
   it("accepts the message and answers before the turn is done", async () => {
     // A turn is a minute of model calls and sandbox commands. The client already has the
     // whole story over the socket, so holding the request open buys nothing and loses to the
@@ -187,7 +197,10 @@ describe("POST /sessions/:sessionId/turns", () => {
 
     await post(hono, `/sessions/${SESSION}/turns`, { message: "hello" });
 
-    expect(queue.enqueued[0]).toMatchObject({ userId: FAKE_OWNER, billsToUser: true });
+    expect(queue.enqueued[0]).toMatchObject({
+      userId: FAKE_OWNER,
+      target: { kind: "api", billsToUser: true },
+    });
     expect(JSON.stringify(queue.enqueued)).not.toContain(OPENROUTER_KEY.apiKey);
   });
 
@@ -421,7 +434,10 @@ describe("limits", () => {
         model,
       });
       expect(accepted.status).toBe(202);
-      expect(queue.enqueued[0]).toMatchObject({ message: "Build a text-only page", model });
+      expect(queue.enqueued[0]).toMatchObject({
+        message: "Build a text-only page",
+        target: { model },
+      });
       expect(rate.size).toBe(1);
     },
   );
@@ -436,7 +452,7 @@ describe("limits", () => {
     });
 
     expect(accepted.status).toBe(202);
-    expect(queue.enqueued[0]).toMatchObject({ model: "anthropic/claude-opus-5" });
+    expect(queue.enqueued[0]).toMatchObject({ target: { model: "anthropic/claude-opus-5" } });
   });
 
   it("resolves the default itself rather than leaving the worker to apply one", async () => {
@@ -450,7 +466,7 @@ describe("limits", () => {
 
     await post(hono, `/sessions/${SESSION}/turns`, { message: "hello" });
 
-    expect(queue.enqueued[0]).toMatchObject({ model: ALLOWED[0] });
+    expect(queue.enqueued[0]).toMatchObject({ target: { model: ALLOWED[0] } });
   });
 
   it("marks a turn as billed to the caller when they brought a key", async () => {
@@ -462,7 +478,7 @@ describe("limits", () => {
 
     await post(hono, `/sessions/${SESSION}/turns`, { message: "hello" });
 
-    expect(queue.enqueued[0]).toMatchObject({ billsToUser: true });
+    expect(queue.enqueued[0]).toMatchObject({ target: { kind: "api", billsToUser: true } });
   });
 
   it("marks a turn from somebody with no key as the deployment's to pay for", async () => {
@@ -474,7 +490,9 @@ describe("limits", () => {
 
     await post(hono, `/sessions/${SESSION}/turns`, { message: "hello" });
 
-    expect(queue.enqueued[0]).toMatchObject({ billsToUser: false, model: FREE_MODEL });
+    expect(queue.enqueued[0]).toMatchObject({
+      target: { kind: "api", billsToUser: false, model: FREE_MODEL },
+    });
   });
 
   it("refuses a paid model to somebody with no key, and says a key is what is missing", async () => {
@@ -769,4 +787,94 @@ it("reads a real covered prefix before checking queue activity and never caches 
     throw new Error("database unavailable");
   };
   expect((await hono.request(`/sessions/${SESSION}/activity`)).status).toBe(500);
+});
+
+describe("explicit subscription admission", () => {
+  it("pins an owned subscription generation without reading or billing an API key", async () => {
+    const { InMemoryProviderAccountStore } = await import(
+      "@nap/db/testing/in-memory-provider-account-store"
+    );
+    const { SubscriptionAccess } = await import("../providers/subscription-access.ts");
+    const accounts = new InMemoryProviderAccountStore();
+    const account = await accounts.create({ userId: FAKE_OWNER, driver: "claude", label: "Work" });
+    await accounts.completeSignIn(FAKE_OWNER, account.id, {
+      generation: 0,
+      credentials: { ciphertext: "sealed-native-grant", iv: "grant-iv" },
+      identity: { email: "verified@example.com", plan: null },
+    });
+    const subscriptions = new SubscriptionAccess({
+      accounts,
+      providers: new Map([
+        ["claude", [{ id: "native-fixture", label: "Native fixture", supportsImages: false }]],
+      ]),
+    });
+    const queue = new InMemoryTurnQueue();
+    const sessions = new InMemorySessionStore([{ sessionId: SESSION, projectId: "project-1" }]);
+    let keyReads = 0;
+    const hono = createApp({
+      logger: silent(),
+      authenticate: async () => ({ userId: FAKE_OWNER, isAnonymous: false }),
+      stream: {
+        store: new InMemoryEventStore(),
+        bus: new InMemoryEventBus(),
+        upgradeWebSocket: async () => new Response(null),
+      },
+      turns: {
+        queue,
+        registry: new TurnRegistry(),
+        projects: unnamedProject(),
+        sessions,
+        subscriptions,
+        selections: sessions,
+        webOrigin: "http://web.test",
+        keys: async () => {
+          keyReads++;
+          return OPENROUTER_KEY;
+        },
+        allowedModels: ALLOWED,
+        freeModel: FREE_MODEL,
+        defaultModel: ALLOWED[0] ?? "",
+      },
+    });
+    const selection = { kind: "subscription", accountId: account.id, model: "native-fixture" };
+    const result = await hono.request(`/sessions/${SESSION}/turns`, {
+      method: "POST",
+      headers: { origin: "http://web.test", "content-type": "application/json" },
+      body: JSON.stringify({ message: "Build the form", selection }),
+    });
+    expect(result.status).toBe(202);
+    expect(keyReads).toBe(0);
+    expect(queue.enqueued[0]?.target).toEqual({ ...selection, driver: "claude", generation: 1 });
+    expect(await sessions.selection(FAKE_OWNER, SESSION)).toEqual({ selection });
+    expect(JSON.stringify(queue.enqueued)).not.toContain("sealed-native-grant");
+    const legacy = await post(hono, `/sessions/${SESSION}/turns`, {
+      message: "Continue",
+      model: ALLOWED[0],
+    });
+    expect(legacy.status).toBe(409);
+    expect(await legacy.json()).toMatchObject({ code: "execution_selection_required" });
+    expect(keyReads).toBe(0);
+    expect(queue.enqueued).toHaveLength(1);
+    const forged = await hono.request(`/sessions/${SESSION}/turns`, {
+      method: "POST",
+      headers: { origin: "https://evil.example", "content-type": "application/json" },
+      body: JSON.stringify({
+        message: "Switch payer",
+        selection: { kind: "api", model: ALLOWED[0] },
+      }),
+    });
+    expect(forged.status).toBe(403);
+    expect(keyReads).toBe(0);
+    expect(queue.enqueued).toHaveLength(1);
+    await accounts.revokeAuthorization(FAKE_OWNER, account.id);
+    const disconnected = await hono.request(`/sessions/${SESSION}/turns`, {
+      method: "POST",
+      headers: { origin: "http://web.test", "content-type": "application/json" },
+      body: JSON.stringify({ message: "Continue", selection }),
+    });
+    expect(disconnected.status).toBe(403);
+    expect(await disconnected.json()).toMatchObject({ code: "provider_sign_in_required" });
+    expect(keyReads).toBe(0);
+    expect(queue.enqueued).toHaveLength(1);
+  });
 });

@@ -43,6 +43,7 @@ import { LEASE_RENEWAL_INTERVAL_MS } from "@nap/shared/lease-windows";
 import { getLogger } from "@nap/shared/logging";
 import type { ModelCredentials } from "@nap/shared/ports/llm-provider";
 import type { Runtime } from "@nap/shared/ports/runtime";
+import type { SubscriptionAuthorizer } from "@nap/shared/ports/subscription-access";
 import type { LeasedTurnRequest, TurnQueue } from "@nap/shared/ports/turn-queue";
 
 /**
@@ -106,6 +107,7 @@ export type TurnWorkerOptions = {
    */
   drainTimeoutMs?: number;
   credentialsFor?: CredentialsFor;
+  authorizeSubscription?: SubscriptionAuthorizer;
   running?: RunningTurns;
   /**
    * Called every time round the claim loop, whether or not there was anything to claim.
@@ -242,7 +244,9 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
     // Read here rather than carried on the row: the queue stores *whether* the asker pays, never
     // their key, so plaintext credentials never touch the table, a query log, or a backup.
     let credentials: ModelCredentials | undefined;
-    if (request.billsToUser) {
+    if (request.target.kind === "subscription") {
+      if (!(await subscriptionAllowed(request, "start")) || signal.aborted) return false;
+    } else if (request.target.billsToUser) {
       const opened = (await credentialsFor?.(request.userId)) ?? null;
       if (opened === null) {
         // The key was deleted or its secret rotated between admission and here. Failing is the
@@ -262,7 +266,11 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
         // Resume lifecycle events use this id. Any repair it starts records this request as
         // its owner while retaining its own turn id.
         turnId: request.id,
-        model: request.model,
+        model: request.target.model,
+        target: request.target,
+        ...(request.target.kind === "subscription"
+          ? { nativeLease: { requestId: request.id, workerId: owner } }
+          : {}),
         // A resume that continues a job runs turns, so it answers to the lease exactly as a turn
         // does. Without the signal the `AbortController` above would be wired to nothing on this
         // branch, and a worker that lost its lease mid-continuation would keep writing.
@@ -286,11 +294,38 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
       message: request.message,
       ...(request.attachments === undefined ? {} : { attachments: request.attachments }),
       signal,
-      model: request.model,
+      model: request.target.model,
+      target: request.target,
+      ...(request.target.kind === "subscription"
+        ? { nativeLease: { requestId: request.id, workerId: owner } }
+        : {}),
       ...(credentials === undefined ? {} : { credentials }),
     });
     logger.info({ requestId: request.id, turnId: outcome.turnId, outcome }, "turn settled");
     return outcome.ok;
+  }
+
+  async function subscriptionAllowed(
+    request: LeasedTurnRequest,
+    phase: "start" | "continue",
+  ): Promise<boolean> {
+    if (request.target.kind !== "subscription") return true;
+    try {
+      const access = await options.authorizeSubscription?.({
+        userId: request.userId,
+        target: request.target,
+        hasImages: (request.attachments?.length ?? 0) > 0,
+        phase,
+      });
+      if (access?.ok) return true;
+      logger.warn(
+        { requestId: request.id, code: access?.error.code ?? "subscription_unavailable" },
+        "subscription authorization refused",
+      );
+    } catch {
+      logger.warn({ requestId: request.id }, "subscription authorization could not be verified");
+    }
+    return false;
   }
 
   /**
@@ -313,6 +348,12 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
       }
 
       if (result.cancelRequested) controller.abort(new Error("the turn was cancelled"));
+      if (
+        !controller.signal.aborted &&
+        request.target.kind === "subscription" &&
+        !(await subscriptionAllowed(request, "continue"))
+      )
+        controller.abort(new Error("subscription authorization was lost"));
     } catch (error) {
       // A renewal that could not be *asked* is not a lease that was lost: the database is briefly
       // unreachable, and the lease has three of these to spare before it expires. Aborting on the

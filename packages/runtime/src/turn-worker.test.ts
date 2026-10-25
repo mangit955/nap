@@ -116,6 +116,7 @@ function start(
   runtime: Runtime,
   overrides: {
     concurrency?: number;
+    authorizeSubscription?: import("@nap/shared/ports/subscription-access").SubscriptionAuthorizer;
     credentialsFor?: (userId: string) => Promise<ModelCredentials | null>;
     running?: RunningTurns;
     drainTimeoutMs?: number;
@@ -132,6 +133,9 @@ function start(
     pollIntervalMs: POLL_MS,
     renewIntervalMs: RENEW_MS,
     ...(overrides.credentialsFor === undefined ? {} : { credentialsFor: overrides.credentialsFor }),
+    ...(overrides.authorizeSubscription === undefined
+      ? {}
+      : { authorizeSubscription: overrides.authorizeSubscription }),
     ...(overrides.running === undefined ? {} : { running: overrides.running }),
     ...(overrides.drainTimeoutMs === undefined ? {} : { drainTimeoutMs: overrides.drainTimeoutMs }),
     ...(overrides.abortGraceMs === undefined ? {} : { abortGraceMs: overrides.abortGraceMs }),
@@ -151,8 +155,11 @@ function enqueueTurn(
     userId: "user-1",
     kind: "turn",
     message: overrides.message ?? "build me a thing",
-    model: "openai/gpt-5-mini",
-    billsToUser: overrides.billsToUser ?? false,
+    target: {
+      kind: "api",
+      model: "openai/gpt-5-mini",
+      billsToUser: overrides.billsToUser ?? false,
+    },
   });
 }
 
@@ -167,8 +174,7 @@ describe("running a claimed request", () => {
       userId: "user-1",
       kind: "publish",
       message: null,
-      model: "unused",
-      billsToUser: true,
+      target: { kind: "api", model: "unused", billsToUser: true },
     });
     start(queue, runtime, { credentialsFor, publish });
     await vi.waitFor(() => expect(publish).toHaveBeenCalledOnce());
@@ -221,8 +227,7 @@ describe("running a claimed request", () => {
       userId: "user-1",
       kind: "resume",
       message: null,
-      model: "openai/gpt-5-mini",
-      billsToUser: false,
+      target: { kind: "api", model: "openai/gpt-5-mini", billsToUser: false },
     });
 
     await vi.waitFor(() => expect(runtime.resumes).toHaveLength(1));
@@ -286,8 +291,7 @@ describe("running a claimed request", () => {
       userId: "user-1",
       kind: "resume",
       message: null,
-      model: "openai/gpt-5-mini",
-      billsToUser: false,
+      target: { kind: "api", model: "openai/gpt-5-mini", billsToUser: false },
     });
 
     await vi.waitFor(() => expect(runtime.resumes).toHaveLength(1));
@@ -308,8 +312,7 @@ describe("running a claimed request", () => {
       userId: "user-1",
       kind: "resume",
       message: null,
-      model: "openai/gpt-5-mini",
-      billsToUser: false,
+      target: { kind: "api", model: "openai/gpt-5-mini", billsToUser: false },
     });
 
     await vi.waitFor(() => expect(runtime.resumes).toHaveLength(1));
@@ -333,8 +336,7 @@ describe("running a claimed request", () => {
       userId: "user-1",
       kind: "resume",
       message: null,
-      model: "openai/gpt-5-mini",
-      billsToUser: false,
+      target: { kind: "api", model: "openai/gpt-5-mini", billsToUser: false },
     });
 
     await vi.waitFor(() => expect(runtime.turns).toHaveLength(1));
@@ -435,7 +437,7 @@ describe("the lease", () => {
       },
       settle: (requestId, owner, state) => queue.settle(requestId, owner, state),
       requestCancel: (sessionId) => queue.requestCancel(sessionId),
-      anyLeased: (sessionIds) => queue.anyLeased(sessionIds),
+      isBusy: (sessionIds) => queue.isBusy(sessionIds),
       orphanExpired: (limit) => queue.orphanExpired(limit),
       unannouncedOrphans: (limit) => queue.unannouncedOrphans(limit),
       markOrphanAnnounced: (requestId) => queue.markOrphanAnnounced(requestId),
@@ -603,7 +605,7 @@ describe("stopping", () => {
       },
       settle: (requestId, owner, state) => queue.settle(requestId, owner, state),
       requestCancel: (sessionId) => queue.requestCancel(sessionId),
-      anyLeased: (sessionIds) => queue.anyLeased(sessionIds),
+      isBusy: (sessionIds) => queue.isBusy(sessionIds),
       orphanExpired: (limit) => queue.orphanExpired(limit),
       unannouncedOrphans: (limit) => queue.unannouncedOrphans(limit),
       markOrphanAnnounced: (requestId) => queue.markOrphanAnnounced(requestId),
@@ -671,4 +673,140 @@ describe("stopping", () => {
     expect(runtime.signal?.aborted).toBe(false);
     expect(queue.stateOf(id)).toBe("done");
   });
+});
+
+it("refuses a subscription target without calling the API runtime or opening an API key", async () => {
+  const queue = new InMemoryTurnQueue();
+  const runtime = new RecordingRuntime();
+  const credentialsFor = vi.fn(async () => null);
+  const { id } = await enqueueRequest(queue, {
+    userId: "user-1",
+    sessionId: "native",
+    kind: "turn",
+    message: "edit",
+    target: {
+      kind: "subscription",
+      driver: "claude",
+      model: "claude",
+      accountId: crypto.randomUUID(),
+      generation: 1,
+    },
+  });
+  start(queue, runtime, { credentialsFor });
+  await vi.waitFor(() => expect(queue.stateOf(id)).toBe("failed"));
+  expect(runtime.turns).toEqual([]);
+  expect(runtime.resumes).toEqual([]);
+  expect(credentialsFor).not.toHaveBeenCalled();
+});
+
+it("rechecks a subscription target before execution without opening an API key", async () => {
+  const queue = new InMemoryTurnQueue();
+  const runtime = new RecordingRuntime();
+  const credentialsFor = vi.fn(async () => null);
+  const target = {
+    kind: "subscription",
+    driver: "claude",
+    accountId: crypto.randomUUID(),
+    model: "native-fixture",
+    generation: 4,
+  } as const;
+  const { id } = await enqueueRequest(queue, {
+    userId: "user-1",
+    sessionId: "native",
+    kind: "turn",
+    message: "edit",
+    target,
+  });
+  const authorizeSubscription = vi.fn<
+    import("@nap/shared/ports/subscription-access").SubscriptionAuthorizer
+  >(async () => ({ ok: true, value: undefined }));
+  start(queue, runtime, { credentialsFor, authorizeSubscription });
+  await vi.waitFor(() => expect(runtime.turns).toHaveLength(1));
+  runtime.complete();
+  await vi.waitFor(() => expect(queue.stateOf(id)).toBe("done"));
+  expect(runtime.turns[0]?.target).toEqual(target);
+  expect(runtime.turns[0]?.credentials).toBeUndefined();
+  expect(credentialsFor).not.toHaveBeenCalled();
+  expect(authorizeSubscription).toHaveBeenCalledWith({
+    userId: "user-1",
+    target,
+    hasImages: false,
+    phase: "start",
+  });
+});
+
+it.each(["changed", "unavailable"])(
+  "aborts an active native turn when account authority becomes %s",
+  async (mode) => {
+    const queue = new InMemoryTurnQueue();
+    const runtime = new RecordingRuntime();
+    const credentialsFor = vi.fn(async () => null);
+    const target = {
+      kind: "subscription",
+      driver: "claude",
+      accountId: crypto.randomUUID(),
+      model: "native-fixture",
+      generation: 4,
+    } as const;
+    const { id } = await enqueueRequest(queue, {
+      userId: "user-1",
+      sessionId: "native",
+      kind: "turn",
+      message: "edit",
+      target,
+    });
+    let revoked = false;
+    const authorizeSubscription = vi.fn<
+      import("@nap/shared/ports/subscription-access").SubscriptionAuthorizer
+    >(async () => {
+      if (!revoked) return { ok: true, value: undefined };
+      if (mode === "unavailable") throw new Error("private authority details must not be logged");
+      return {
+        ok: false,
+        error: { code: "provider_authentication_changed", message: "Account changed." },
+      };
+    });
+    start(queue, runtime, { credentialsFor, authorizeSubscription });
+    await vi.waitFor(() => expect(runtime.turns).toHaveLength(1));
+    revoked = true;
+    await vi.waitFor(() => expect(runtime.signal?.aborted).toBe(true));
+    await vi.waitFor(() => expect(queue.stateOf(id)).toBe("failed"));
+    expect(credentialsFor).not.toHaveBeenCalled();
+    expect(authorizeSubscription).toHaveBeenCalledWith({
+      userId: "user-1",
+      target,
+      hasImages: false,
+      phase: "continue",
+    });
+  },
+);
+
+it("refuses a stale queued account generation before starting any runtime", async () => {
+  const queue = new InMemoryTurnQueue();
+  const runtime = new RecordingRuntime();
+  const target = {
+    kind: "subscription",
+    driver: "claude",
+    accountId: crypto.randomUUID(),
+    model: "native-fixture",
+    generation: 4,
+  } as const;
+  const { id } = await enqueueRequest(queue, {
+    userId: "user-1",
+    sessionId: "native",
+    kind: "turn",
+    message: "edit",
+    target,
+  });
+  const authorizeSubscription = vi.fn<
+    import("@nap/shared/ports/subscription-access").SubscriptionAuthorizer
+  >(async () => ({
+    ok: false,
+    error: { code: "provider_authentication_changed", message: "Account changed." },
+  }));
+  start(queue, runtime, { authorizeSubscription });
+  await vi.waitFor(() => expect(queue.stateOf(id)).toBe("failed"));
+  expect(runtime.turns).toHaveLength(0);
+  expect(runtime.resumes).toHaveLength(0);
+  expect(authorizeSubscription).toHaveBeenCalled();
 });

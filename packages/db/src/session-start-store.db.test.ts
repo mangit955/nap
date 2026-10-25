@@ -42,8 +42,7 @@ it("atomically creates and admits once across concurrent retries, even after the
     request: {
       kind: "turn" as const,
       message: "Build a page",
-      model: "free-model",
-      billsToUser: false,
+      target: { kind: "api" as const, model: "free-model", billsToUser: false },
       attachments: [],
     },
   };
@@ -104,8 +103,7 @@ it("commits imported media with its source, survives revoked-access retries, and
     request: {
       kind: "turn",
       message: "Refine the calendar",
-      model: "openai/gpt-5.6-luna",
-      billsToUser: false,
+      target: { kind: "api" as const, model: "openai/gpt-5.6-luna", billsToUser: false },
       attachments: [
         {
           kind: "image",
@@ -130,7 +128,7 @@ it("commits imported media with its source, survives revoked-access retries, and
   expect(requests[0]).toMatchObject({
     kind: "turn",
     message: input.request.message,
-    model: input.request.model,
+    target: input.request.target,
     attachments: input.request.attachments,
   });
   await db

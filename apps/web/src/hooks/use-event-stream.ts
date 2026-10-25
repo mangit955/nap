@@ -102,7 +102,7 @@ export function useEventStream(options: EventStreamOptions): EventStream {
     const connect = (): void => {
       if (abandoned) return;
 
-      const url = `${baseUrl}/ws?sessionId=${encodeURIComponent(sessionId)}&seq=${lastSeqRef.current}&repairOwnership=1`;
+      const url = `${baseUrl}/ws?sessionId=${encodeURIComponent(sessionId)}&seq=${lastSeqRef.current}&repairOwnership=1&executionTargets=1`;
       const current = createSocketRef.current(url);
       socket = current;
 

@@ -56,6 +56,7 @@ describe("connecting", () => {
     expect(url.searchParams.get("sessionId")).toBe(SESSION);
     expect(url.searchParams.get("seq")).toBe("0");
     expect(url.searchParams.get("repairOwnership")).toBe("1");
+    expect(url.searchParams.get("executionTargets")).toBe("1");
     expect(result.current.status).toBe("connecting");
   });
 
@@ -115,6 +116,7 @@ describe("reconnecting", () => {
     expect(net.opened).toHaveLength(2);
     expect(net.seqOf(1)).toBe("3");
     expect(new URL(net.latest.url).searchParams.get("repairOwnership")).toBe("1");
+    expect(new URL(net.latest.url).searchParams.get("executionTargets")).toBe("1");
   });
 
   it("keeps the transcript across a reconnect and absorbs the replay overlap", () => {

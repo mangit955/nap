@@ -55,4 +55,48 @@ describe("PostgresProviderAccountStore", () => {
 
     await expect(store.get(owner, "not-a-uuid")).resolves.toBeNull();
   });
+  it("cascades private credentials with their account and enforces sealed pairs", async () => {
+    const store = new PostgresProviderAccountStore(db);
+    const owner = await seedUser();
+    const account = await store.create({ userId: owner, driver: "claude", label: null });
+    await expect(
+      sql`insert into provider_credentials (account_id, ciphertext) values (${account.id}, 'orphan')`,
+    ).rejects.toMatchObject({ code: "23514" });
+    await expect(
+      sql`insert into provider_credentials (account_id, generation) values (${account.id}, -1)`,
+    ).rejects.toMatchObject({ code: "23514" });
+    await store.completeSignIn(owner, account.id, {
+      generation: 0,
+      credentials: { ciphertext: "sealed", iv: "iv" },
+      identity: { email: null, plan: null },
+    });
+    expect(
+      await sql`select account_id from provider_credentials where account_id = ${account.id}`,
+    ).toHaveLength(1);
+    await store.remove(owner, account.id);
+    expect(
+      await sql`select account_id from provider_credentials where account_id = ${account.id}`,
+    ).toHaveLength(0);
+  });
+
+  it("serializes disable against a concurrent login and leaves the account disconnected", async () => {
+    const store = new PostgresProviderAccountStore(db);
+    const owner = await seedUser();
+    const account = await store.create({ userId: owner, driver: "claude", label: null });
+    await Promise.all([
+      store.completeSignIn(owner, account.id, {
+        generation: 0,
+        credentials: { ciphertext: "sealed", iv: "iv" },
+        identity: { email: null, plan: null },
+      }),
+      store.update(owner, account.id, { enabled: false }),
+    ]);
+    await expect(store.authorization(owner, account.id)).resolves.toMatchObject({
+      kind: "disconnected",
+    });
+    await expect(store.get(owner, account.id)).resolves.toMatchObject({
+      enabled: false,
+      auth: { status: "unauthenticated" },
+    });
+  });
 });

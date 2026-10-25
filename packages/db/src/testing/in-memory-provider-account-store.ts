@@ -10,6 +10,10 @@ import { randomUUID } from "node:crypto";
 import type {
   NewProviderAccount,
   ProviderAccountStore,
+  ProviderAuthorization,
+  ProviderAuthorizationWrite,
+  ProviderCredentialRefresh,
+  ProviderSignInCommit,
 } from "@nap/shared/ports/provider-account-store";
 import type {
   ProviderAccount,
@@ -20,6 +24,7 @@ type Row = ProviderAccount & { userId: string };
 
 export class InMemoryProviderAccountStore implements ProviderAccountStore {
   readonly #rows: Row[] = [];
+  readonly #authorizations = new Map<string, ProviderAuthorization>();
   #sequence = 0;
 
   /** Seeds accounts as given, ids included, for fixtures that must name one. */
@@ -62,6 +67,10 @@ export class InMemoryProviderAccountStore implements ProviderAccountStore {
     const row = this.#find(userId, id);
     if (row === undefined) return null;
     if (update.label !== undefined) row.label = update.label;
+    if (update.enabled === false && row.enabled) {
+      row.enabled = false;
+      await this.revokeAuthorization(userId, id);
+    }
     if (update.enabled !== undefined) row.enabled = update.enabled;
     return toAccount(row);
   }
@@ -70,7 +79,78 @@ export class InMemoryProviderAccountStore implements ProviderAccountStore {
     const index = this.#rows.findIndex((row) => row.userId === userId && row.id === id);
     if (index === -1) return false;
     this.#rows.splice(index, 1);
+    this.#authorizations.delete(id);
     return true;
+  }
+
+  async authorization(userId: string, id: string): Promise<ProviderAuthorization | null> {
+    if (!this.#find(userId, id)) return null;
+    return structuredClone(
+      this.#authorizations.get(id) ?? { kind: "disconnected", generation: 0, version: 0 },
+    );
+  }
+
+  async completeSignIn(
+    userId: string,
+    id: string,
+    commit: ProviderSignInCommit,
+  ): Promise<ProviderAuthorizationWrite> {
+    const row = this.#find(userId, id);
+    if (!row) return { kind: "missing" };
+    if (!row.enabled) return { kind: "disabled" };
+    const current = this.#authorizations.get(id) ?? {
+      kind: "disconnected",
+      generation: 0,
+      version: 0,
+    };
+    if (current.generation !== commit.generation) return { kind: "stale" };
+    const authorization: ProviderAuthorization = {
+      kind: "connected",
+      generation: current.generation + 1,
+      version: current.version + 1,
+      credentials: structuredClone(commit.credentials),
+    };
+    this.#authorizations.set(id, authorization);
+    row.auth = { status: "authenticated", ...commit.identity };
+    return { kind: "updated", authorization: structuredClone(authorization) };
+  }
+
+  async replaceCredentials(
+    userId: string,
+    id: string,
+    refresh: ProviderCredentialRefresh,
+  ): Promise<ProviderAuthorizationWrite> {
+    const row = this.#find(userId, id);
+    if (!row) return { kind: "missing" };
+    if (!row.enabled) return { kind: "disabled" };
+    const current = this.#authorizations.get(id);
+    if (
+      current?.kind !== "connected" ||
+      current.generation !== refresh.generation ||
+      current.version !== refresh.version
+    )
+      return { kind: "stale" };
+    const authorization: ProviderAuthorization = {
+      ...current,
+      version: current.version + 1,
+      credentials: structuredClone(refresh.credentials),
+    };
+    this.#authorizations.set(id, authorization);
+    return { kind: "updated", authorization: structuredClone(authorization) };
+  }
+
+  async revokeAuthorization(userId: string, id: string): Promise<ProviderAuthorization | null> {
+    const row = this.#find(userId, id);
+    if (!row) return null;
+    const current = this.#authorizations.get(id) ?? { generation: 0, version: 0 };
+    const authorization: ProviderAuthorization = {
+      kind: "disconnected",
+      generation: current.generation + 1,
+      version: current.version + 1,
+    };
+    this.#authorizations.set(id, authorization);
+    row.auth = { status: "unauthenticated", email: null, plan: null };
+    return structuredClone(authorization);
   }
 
   #find(userId: string, id: string): Row | undefined {

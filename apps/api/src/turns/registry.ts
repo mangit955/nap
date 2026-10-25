@@ -7,7 +7,7 @@
  * controller for it. So this is now written to by the worker and read by exactly one thing: the
  * cancel route. It used to answer "is this session busy?" for the project routes and the reaper as
  * well, and that was wrong the moment turns moved to another process — the cluster-wide answer is
- * `TurnQueue.anyLeased`.
+ * `TurnQueue.isBusy`.
  *
  * **It is a fast path, not the mechanism.** The durable answer to "stop this turn" is
  * `cancel_requested` on the turn request, which any pod can set and the worker holding the lease

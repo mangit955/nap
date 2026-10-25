@@ -35,6 +35,7 @@ let created: { projectId: string; sessionId: string };
 let queue: InMemoryTurnQueue;
 /** The model settings the routes are built with. */
 let models: ProjectRouteDeps["models"];
+let subscriptions: import("../providers/subscription-access.ts").SubscriptionAccess | undefined;
 let limits: SandboxLimits | undefined;
 /** The log the app writes to, so a close's announcement can be read back. */
 let events: InMemoryEventStore;
@@ -80,6 +81,7 @@ beforeEach(async () => {
   };
   limits = undefined;
   events = new InMemoryEventStore();
+  subscriptions = undefined;
 });
 
 function app() {
@@ -103,6 +105,7 @@ function app() {
       events: { events, bus: new InMemoryEventBus() },
       queue,
       models,
+      ...(subscriptions === undefined ? {} : { subscriptions }),
       ...(limits === undefined ? {} : { limits: { projects, sandboxes: limits } }),
     },
   });
@@ -329,7 +332,7 @@ describe("POST /projects/:projectId/open", () => {
     // `billsToUser` rather than the key itself: the worker re-opens it by user id, so plaintext
     // credentials never reach the queue, a query log or a backup.
     expect(queue.enqueued).toEqual([
-      expect.objectContaining({ model: PAID_MODEL, billsToUser: true }),
+      expect.objectContaining({ target: { kind: "api", model: PAID_MODEL, billsToUser: true } }),
     ]);
   });
 
@@ -337,7 +340,7 @@ describe("POST /projects/:projectId/open", () => {
     await app().request(`/projects/${PROJECT}/open`, { method: "POST" });
 
     expect(queue.enqueued).toEqual([
-      expect.objectContaining({ model: FREE_MODEL, billsToUser: false }),
+      expect.objectContaining({ target: { kind: "api", model: FREE_MODEL, billsToUser: false } }),
     ]);
   });
 
@@ -513,4 +516,133 @@ describe("PATCH /projects/:projectId", () => {
 
     expect(res.status).toBe(200);
   });
+});
+
+describe("durable job target admission", () => {
+  const jobId = "00000000-0000-4000-8000-000000000099";
+  beforeEach(() => {
+    projects = new InMemoryProjectStore([summary({ sandboxId: null, status: "idle" })]);
+  });
+  async function pin(target: import("@nap/shared/execution-target").ExecutionTarget) {
+    await events.append({
+      type: "job.started",
+      sessionId: SESSION,
+      turnId: "00000000-0000-4000-8000-000000000098",
+      createdAt: "2026-10-24T10:00:00Z",
+      payload: { jobId, objective: "Finish the form", target },
+    });
+  }
+  it("reopens an API job on its original model and payer instead of today's default", async () => {
+    const target = { kind: "api", model: PAID_MODEL, billsToUser: true } as const;
+    await pin(target);
+    models = {
+      ...models,
+      defaultModel: FREE_MODEL,
+      keys: async () => ({ platform: "openrouter", apiKey: "fixture-key" }),
+    };
+    const result = await app().request(`/projects/${PROJECT}/open`, { method: "POST" });
+    expect(result.status).toBe(202);
+    expect(queue.enqueued[0]?.target).toEqual(target);
+  });
+  it("does not turn a job on the caller's API key into a deployment-paid request", async () => {
+    await pin({ kind: "api", model: FREE_MODEL, billsToUser: true });
+    models = { ...models, keys: async () => null };
+    const result = await app().request(`/projects/${PROJECT}/open`, { method: "POST" });
+    expect(result.status).toBe(403);
+    expect(await result.json()).toMatchObject({ code: "byok_required" });
+    expect(queue.enqueued).toHaveLength(0);
+  });
+  it("does not replace an unavailable subscription job with an API request", async () => {
+    await pin({
+      kind: "subscription",
+      driver: "claude",
+      accountId: jobId,
+      model: "offline-native-fixture",
+      generation: 4,
+    });
+    let keyReads = 0;
+    models = {
+      ...models,
+      keys: async () => {
+        keyReads++;
+        return { platform: "openrouter", apiKey: "fixture-key" };
+      },
+    };
+    const result = await app().request(`/projects/${PROJECT}/open`, { method: "POST" });
+    expect(result.status).toBe(503);
+    expect(await result.json()).toMatchObject({ code: "subscription_unavailable" });
+    expect(keyReads).toBe(0);
+    expect(queue.enqueued).toHaveLength(0);
+  });
+});
+
+it("rejects an unrecognized execution target on project open before reading a payer", async () => {
+  projects = new InMemoryProjectStore([summary({ sandboxId: null, status: "idle" })]);
+  models = {
+    ...models,
+    keys: async () => {
+      throw new Error("Payer must not be read");
+    },
+  };
+  const result = await app().request(`/projects/${PROJECT}/open`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      target: {
+        kind: "subscription",
+        accountId: "00000000-0000-4000-8000-000000000099",
+        model: "offline-native-fixture",
+      },
+    }),
+  });
+  expect(result.status).toBe(400);
+  expect(queue.enqueued).toHaveLength(0);
+});
+
+it("reopens a subscription job on its pinned account without reading an API key", async () => {
+  const { InMemoryProviderAccountStore } = await import(
+    "@nap/db/testing/in-memory-provider-account-store"
+  );
+  const { SubscriptionAccess } = await import("../providers/subscription-access.ts");
+  projects = new InMemoryProjectStore([summary({ sandboxId: null, status: "idle" })]);
+  const accounts = new InMemoryProviderAccountStore();
+  const account = await accounts.create({ userId: FAKE_OWNER, driver: "claude", label: "Work" });
+  await accounts.completeSignIn(FAKE_OWNER, account.id, {
+    generation: 0,
+    credentials: { ciphertext: "sealed-native-grant", iv: "grant-iv" },
+    identity: { email: "verified@example.com", plan: null },
+  });
+  subscriptions = new SubscriptionAccess({
+    accounts,
+    providers: new Map([
+      ["claude", [{ id: "native-fixture", label: "Native fixture", supportsImages: false }]],
+    ]),
+  });
+  const target = {
+    kind: "subscription",
+    driver: "claude",
+    accountId: account.id,
+    model: "native-fixture",
+    generation: 1,
+  } as const;
+  await events.append({
+    type: "job.started",
+    sessionId: SESSION,
+    turnId: account.id,
+    createdAt: "2026-10-24T10:00:00Z",
+    payload: { jobId: account.id, objective: "Finish the form", target },
+  });
+  let keyReads = 0;
+  models = {
+    ...models,
+    keys: async () => {
+      keyReads++;
+      return { platform: "openrouter", apiKey: "private-api-key" };
+    },
+  };
+  const result = await app().request(`/projects/${PROJECT}/open`, { method: "POST" });
+  expect(result.status).toBe(202);
+  expect(queue.enqueued[0]?.target).toEqual(target);
+  expect(keyReads).toBe(0);
+  expect(JSON.stringify(queue.enqueued)).not.toContain("sealed-native-grant");
 });

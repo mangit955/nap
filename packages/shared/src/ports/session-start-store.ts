@@ -9,7 +9,7 @@ export type AdmittedSessionStart = {
   fingerprint: string;
   name: string;
   source: { kind: "template" } | { kind: "github"; import: ImportRepository };
-  request: Pick<EnqueueTurnRequest, "kind" | "message" | "model" | "billsToUser" | "attachments">;
+  request: Pick<EnqueueTurnRequest, "kind" | "message" | "target" | "attachments">;
 };
 export type StartResult =
   | ({ kind: "created" } & SessionStarted)

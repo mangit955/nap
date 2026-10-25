@@ -71,8 +71,7 @@ describe("InMemoryGitHubStore", () => {
       sessionId: repository.sessionId,
       kind: "turn",
       message: "Fix test",
-      model: "test-model",
-      billsToUser: false,
+      target: { kind: "api" as const, model: "test-model", billsToUser: false },
     });
     const keep = { ...feedback, id: "comment:keep" };
     await store.addFeedback(keep);
@@ -183,8 +182,7 @@ describe("InMemoryGitHubStore", () => {
       sessionId: repository.sessionId,
       kind: "turn" as const,
       message: "Fix the test",
-      model: "test-model",
-      billsToUser: false,
+      target: { kind: "api" as const, model: "test-model", billsToUser: false },
     };
     await expect(
       store.approveFeedback(repository.projectId, repository.userId, feedback.id, request),

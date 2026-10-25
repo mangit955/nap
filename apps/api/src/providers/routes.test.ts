@@ -18,13 +18,26 @@ const USER = "00000000-0000-4000-8000-000000000001";
 const WEB = "http://localhost:3000";
 const NOW = new Date("2026-10-23T09:00:00.000Z");
 
-function app(options: { signIn?: ProviderSignInRunner; anonymous?: boolean } = {}) {
-  const accounts = new InMemoryProviderAccountStore();
+const AUTH_SESSION = "00000000-0000-4000-8000-000000000011";
+const OTHER_SESSION = "00000000-0000-4000-8000-000000000012";
+function app(
+  options: {
+    signIn?: ProviderSignInRunner;
+    anonymous?: boolean;
+    authSessionId?: string | null;
+    accounts?: InMemoryProviderAccountStore;
+  } = {},
+) {
+  const accounts = options.accounts ?? new InMemoryProviderAccountStore();
   const signIn = options.signIn ?? new ScriptedProviderSignIn();
   const instance = new Hono<{ Variables: AuthVariables }>();
   instance.use("*", async (c, next) => {
     c.set("userId", USER);
     c.set("isAnonymous", options.anonymous ?? false);
+    c.set(
+      "authSessionId",
+      options.authSessionId === undefined ? AUTH_SESSION : options.authSessionId,
+    );
     await next();
   });
   registerProviderRoutes(instance, { accounts, signIn, webOrigin: WEB, now: () => NOW });
@@ -58,7 +71,7 @@ describe("GET /providers", () => {
 
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toEqual({
-      signInAvailable: false,
+      signInDrivers: [],
       checkedAt: NOW.toISOString(),
       accounts: [],
     });
@@ -181,7 +194,9 @@ describe("DELETE /providers/accounts/:accountId", () => {
     const cancel = vi.spyOn(signIn, "cancel");
     const originalSignOut = signIn.signOut.bind(signIn);
     const signOut = vi.spyOn(signIn, "signOut").mockImplementation(async (userId, found) => {
-      await expect(signIn.current(userId, found)).resolves.toMatchObject({ phase: "cancelled" });
+      await expect(
+        signIn.current({ userId, authSessionId: AUTH_SESSION }, found),
+      ).resolves.toMatchObject({ phase: "cancelled" });
       await expect(accounts.get(userId, found.id)).resolves.not.toBeNull();
       await originalSignOut(userId, found);
     });
@@ -193,7 +208,9 @@ describe("DELETE /providers/accounts/:accountId", () => {
     expect(signOut).toHaveBeenCalledBefore(remove);
     expect(res.status).toBe(204);
     await expect(accounts.list(USER)).resolves.toEqual([]);
-    await expect(signIn.current(USER, account)).resolves.toMatchObject({ phase: "cancelled" });
+    await expect(
+      signIn.current({ userId: USER, authSessionId: AUTH_SESSION }, account),
+    ).resolves.toMatchObject({ phase: "cancelled" });
   });
 });
 
@@ -259,10 +276,19 @@ describe("POST /providers/accounts/:accountId/sign-out", () => {
 
 const ACCOUNT_ROUTES = [
   { method: "GET", path: "/providers" },
+  { method: "GET", path: "/providers/targets" },
   { method: "POST", path: "/providers/accounts", body: { driver: "claude" } },
   { method: "PATCH", path: "/providers/accounts/:id", body: { label: "Changed", enabled: false } },
   { method: "DELETE", path: "/providers/accounts/:id" },
   { method: "POST", path: "/providers/accounts/:id/sign-in" },
+  {
+    method: "POST",
+    path: "/providers/accounts/:id/sign-in/complete",
+    body: {
+      flowId: "00000000-0000-4000-8000-000000000099",
+      redirect: "https://nap.example/callback?code=fixture",
+    },
+  },
   { method: "DELETE", path: "/providers/accounts/:id/sign-in" },
   { method: "POST", path: "/providers/accounts/:id/sign-out" },
 ];
@@ -285,7 +311,9 @@ describe("provider route guards", () => {
       await expect(res.json()).resolves.toMatchObject({ code: SIGN_IN_REQUIRED });
       await expect(accounts.list(USER)).resolves.toEqual(before);
       expect(signIn.signedOut).toEqual([]);
-      await expect(signIn.current(USER, account)).resolves.toBeNull();
+      await expect(
+        signIn.current({ userId: USER, authSessionId: AUTH_SESSION }, account),
+      ).resolves.toBeNull();
     },
   );
 
@@ -296,7 +324,7 @@ describe("provider route guards", () => {
       const { app: instance, accounts } = app({ signIn });
       const account = await accounts.create({ userId: USER, driver: "claude", label: "Work" });
       const before = await accounts.list(USER);
-      const flow = await signIn.start(USER, account);
+      const flow = await signIn.start({ userId: USER, authSessionId: AUTH_SESSION }, account);
       const res = await send(
         instance,
         method,
@@ -307,7 +335,248 @@ describe("provider route guards", () => {
       expect(res.status).toBe(403);
       await expect(accounts.list(USER)).resolves.toEqual(before);
       expect(signIn.signedOut).toEqual([]);
-      await expect(signIn.current(USER, account)).resolves.toEqual(flow);
+      await expect(
+        signIn.current({ userId: USER, authSessionId: AUTH_SESSION }, account),
+      ).resolves.toEqual(flow.ok ? flow.value : null);
     },
   );
+});
+
+it("revokes private authorization and pending login generations even when native sign-out is unavailable", async () => {
+  const { app: instance, accounts } = app({ signIn: UNAVAILABLE_SIGN_IN });
+  const account = await create(instance, "claude");
+  await accounts.completeSignIn(USER, account.id, {
+    generation: 0,
+    credentials: { ciphertext: "sealed", iv: "iv" },
+    identity: { email: "verified@example.com", plan: null },
+  });
+  const response = await send(instance, "POST", `/providers/accounts/${account.id}/sign-out`);
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({ auth: { status: "unauthenticated", email: null } });
+  await expect(accounts.authorization(USER, account.id)).resolves.toEqual({
+    kind: "disconnected",
+    generation: 2,
+    version: 2,
+  });
+});
+
+it("keeps a provider interaction private to its originating Nap session", async () => {
+  const runner = new ScriptedProviderSignIn();
+  const a = app({ signIn: runner });
+  const b = app({ signIn: runner, accounts: a.accounts, authSessionId: OTHER_SESSION });
+  const account = await create(a.app, "claude");
+  await send(a.app, "POST", `/providers/accounts/${account.id}/sign-in`);
+  const other = ProviderAccountsSchema.parse(await (await b.app.request("/providers")).json());
+  expect(other.accounts[0]?.signIn).toBeNull();
+  const own = ProviderAccountsSchema.parse(await (await a.app.request("/providers")).json());
+  expect(own.accounts[0]?.signIn).toMatchObject({ phase: "waiting" });
+});
+
+it("requires a cookie-session binding before starting an available provider runner", async () => {
+  const runner = new ScriptedProviderSignIn();
+  const start = vi.spyOn(runner, "start");
+  const instance = app({ signIn: runner, authSessionId: null });
+  const account = await create(instance.app, "claude");
+  const response = await send(instance.app, "POST", `/providers/accounts/${account.id}/sign-in`);
+  expect(response.status).toBe(403);
+  expect(start).not.toHaveBeenCalled();
+});
+
+it("enables sign-in only for the configured provider driver", async () => {
+  const signIn = new ScriptedProviderSignIn(["claude"]);
+  const { app: instance } = app({ signIn });
+  const claude = await create(instance, "claude");
+  const codex = await create(instance, "codex");
+  const denied = await send(instance, "POST", `/providers/accounts/${codex.id}/sign-in`);
+  expect(denied.status).toBe(503);
+  expect(await denied.json()).toMatchObject({ code: SIGN_IN_UNAVAILABLE });
+  expect(await signIn.current({ userId: USER, authSessionId: AUTH_SESSION }, codex)).toBeNull();
+  expect((await send(instance, "POST", `/providers/accounts/${claude.id}/sign-in`)).status).toBe(
+    200,
+  );
+  expect(await (await instance.request("/providers")).json()).toMatchObject({
+    signInDrivers: ["claude"],
+  });
+});
+
+it("requires browser callbacks to use the owning Nap cookie session and trusted web origin", async () => {
+  const signIn = new ScriptedProviderSignIn();
+  const complete = vi.spyOn(signIn, "complete").mockResolvedValue({
+    ok: true,
+    value: {
+      flowId: "00000000-0000-4000-8000-000000000099",
+      phase: "succeeded",
+      interaction: null,
+      message: null,
+    },
+  });
+  const { app: instance, accounts } = app({ signIn });
+  const account = await create(instance, "codex");
+  const path = `/providers/accounts/${account.id}/sign-in/complete`;
+  const body = {
+    flowId: "00000000-0000-4000-8000-000000000099",
+    redirect: "https://nap.example/callback?code=private&state=bound",
+  };
+  const wrongOrigin = await send(instance, "POST", path, body, "https://evil.example");
+  expect(wrongOrigin.status).toBe(403);
+  const noSession = app({ signIn, accounts, authSessionId: null });
+  expect((await send(noSession.app, "POST", path, body)).status).toBe(403);
+  expect(complete).not.toHaveBeenCalled();
+  expect(
+    (await send(instance, "POST", path, { ...body, authSessionId: OTHER_SESSION })).status,
+  ).toBe(400);
+  const result = await send(instance, "POST", path, body);
+  expect(result.status).toBe(200);
+  expect(complete).toHaveBeenCalledWith(
+    { userId: USER, authSessionId: AUTH_SESSION },
+    expect.objectContaining({ id: account.id }),
+    body,
+  );
+});
+
+it("returns a refused sign-in as an error instead of a successful empty account view", async () => {
+  const signIn = new ScriptedProviderSignIn();
+  vi.spyOn(signIn, "start").mockResolvedValue({ ok: false, error: { code: "stale" } });
+  const { app: instance } = app({ signIn });
+  const account = await create(instance, "codex");
+  const result = await send(instance, "POST", `/providers/accounts/${account.id}/sign-in`);
+  expect(result.status).toBe(409);
+  expect(await result.json()).toEqual({
+    error: "This sign-in was replaced or disconnected. Start again.",
+    code: "stale",
+  });
+});
+
+it("publishes owned subscription choices without treating account metadata as an installed runtime", async () => {
+  const { app: instance, accounts } = app();
+  const account = await create(instance, "claude");
+  await accounts.completeSignIn(USER, account.id, {
+    generation: 0,
+    credentials: { ciphertext: "private-sealed-grant", iv: "grant-iv" },
+    identity: { email: "verified@example.com", plan: null },
+  });
+  const result = await instance.request("/providers/targets");
+  expect(result.status).toBe(200);
+  expect(result.headers.get("cache-control")).toBe("no-store");
+  const body = await result.json();
+  expect(body).toMatchObject({
+    accounts: [
+      {
+        account: { id: account.id, auth: { status: "authenticated" } },
+        models: [],
+        availability: "unavailable",
+      },
+    ],
+  });
+  expect(JSON.stringify(body)).not.toContain("private-sealed-grant");
+});
+
+it("accepts one code only for the initiating Nap session and does not infer a connected account", async () => {
+  const runner = new ScriptedProviderSignIn();
+  const first = app({ signIn: runner });
+  const account = await create(first.app, "claude");
+  const flow = await runner.start({ userId: USER, authSessionId: AUTH_SESSION }, account);
+  if (!flow.ok) throw new Error("No fixture sign-in");
+  const send = (instance: typeof first.app) =>
+    instance.request(`/providers/accounts/${account.id}/sign-in/input`, {
+      method: "POST",
+      headers: { origin: WEB, "content-type": "application/json" },
+      body: JSON.stringify({ flowId: flow.value.flowId, code: "private-fixture-code" }),
+    });
+  const other = app({ accounts: first.accounts, signIn: runner, authSessionId: OTHER_SESSION });
+  expect((await send(other.app)).status).toBe(409);
+  const accepted = await send(first.app);
+  expect(accepted.status).toBe(200);
+  expect(accepted.headers.get("cache-control")).toBe("no-store");
+  const body = await accepted.json();
+  expect(body).toMatchObject({
+    auth: { status: "unauthenticated" },
+    signIn: { phase: "verifying", interaction: null },
+  });
+  expect(JSON.stringify(body)).not.toContain("private-fixture-code");
+  expect((await send(first.app)).status).toBe(409);
+});
+it("rejects forged origins and multiline terminal input before handing anything to a driver", async () => {
+  const runner = new ScriptedProviderSignIn();
+  const submit = vi.spyOn(runner, "submitCode");
+  const f = app({ signIn: runner });
+  const account = await create(f.app, "claude");
+  const path = `/providers/accounts/${account.id}/sign-in/input`;
+  expect(
+    (
+      await f.app.request(path, {
+        method: "POST",
+        headers: { origin: "https://untrusted.test", "content-type": "application/json" },
+        body: JSON.stringify({ flowId: crypto.randomUUID(), code: "private-code" }),
+      })
+    ).status,
+  ).toBe(403);
+  expect(
+    (
+      await f.app.request(path, {
+        method: "POST",
+        headers: { origin: WEB, "content-type": "application/json" },
+        body: JSON.stringify({ flowId: crypto.randomUUID(), code: "code\ncommand" }),
+      })
+    ).status,
+  ).toBe(400);
+  expect(submit).not.toHaveBeenCalled();
+});
+
+it.each(["poll", "start"])("reads identity after side-effecting %s status", async (mode) => {
+  const accounts = new InMemoryProviderAccountStore();
+  const account = await accounts.create({ userId: USER, driver: "claude", label: null });
+  const succeeded = {
+    flowId: AUTH_SESSION,
+    phase: "succeeded",
+    interaction: null,
+    message: null,
+  } as const;
+  const complete = async () => {
+    expect(
+      (
+        await accounts.completeSignIn(USER, account.id, {
+          generation: 0,
+          credentials: { ciphertext: "fixture", iv: "fixture" },
+          identity: { email: "new@example.com", plan: "Work" },
+        })
+      ).kind,
+    ).toBe("updated");
+    return succeeded;
+  };
+  const f = app({
+    accounts,
+    signIn: {
+      ...UNAVAILABLE_SIGN_IN,
+      drivers: ["claude"],
+      current: mode === "poll" ? complete : async () => succeeded,
+      start: async () => ({ ok: true, value: await complete() }),
+    },
+  });
+  const response =
+    mode === "poll"
+      ? await f.app.request("/providers")
+      : await send(f.app, "POST", `/providers/accounts/${account.id}/sign-in`);
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject(
+    mode === "poll"
+      ? { accounts: [{ auth: { email: "new@example.com", status: "authenticated" } }] }
+      : { auth: { email: "new@example.com", status: "authenticated" } },
+  );
+});
+
+it("omits an account deleted during a status operation", async () => {
+  const accounts = new InMemoryProviderAccountStore();
+  const account = await accounts.create({ userId: USER, driver: "claude", label: null });
+  const f = app({
+    accounts,
+    signIn: {
+      ...UNAVAILABLE_SIGN_IN,
+      current: async () => {
+        await accounts.remove(USER, account.id);
+        return null;
+      },
+    },
+  });
+  expect(await (await f.app.request("/providers")).json()).toMatchObject({ accounts: [] });
 });

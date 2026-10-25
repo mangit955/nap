@@ -49,8 +49,7 @@ async function appAs(userId: string | undefined): Promise<ReturnType<typeof crea
     userId: OWNER,
     kind: "turn",
     message: "/compact",
-    model: "poolside/laguna-s-2.1:free",
-    billsToUser: false,
+    target: { kind: "api", model: "poolside/laguna-s-2.1:free", billsToUser: false },
   });
   return createApp({
     logger: silent(),

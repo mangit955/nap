@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { ExecutionTarget } from "../execution-target.ts";
 import type { MediaAttachment } from "../media.ts";
 /**
  * The durable queue of turn requests, and the per-session leases that make one of them exclusive.
@@ -15,9 +16,9 @@ import type { MediaAttachment } from "../media.ts";
  * Three properties are the whole point, and each of them is a database rule rather than something
  * every caller has to remember:
  *
- *   - **One in-flight request per session, cluster-wide**, enforced by a partial unique index over
- *     `state = 'leased'`. Application logic cannot enforce it, because the two callers are in
- *     different processes.
+ *   - **One in-flight request per project, cluster-wide**, including sibling sessions, enforced
+ *     by partial unique indexes over `state = 'leased'`. Project identity comes from the owned
+ *     session. Unresolved native execution fences also keep later work queued.
  *   - **Queue delivery may be at-least-once; logical Turn execution is at-most-once.** This is the
  *     one people get backwards, so it is worth stating in both halves. Delivery is best-effort in
  *     the ordinary way — a claim can be lost, a worker can die holding one, a renewal can fail on a
@@ -83,15 +84,8 @@ export type EnqueueTurnRequest = {
   /** The prompt. Null for `resume`, which asks for no new work. */
   message: string | null;
   attachments?: MediaAttachment[] | undefined;
-  /** Resolved at admission, because which models somebody may name is the route's fact. */
-  model: string;
-  /**
-   * Whether the asker's own account pays.
-   *
-   * **Never a key.** The worker re-opens the caller's stored credential by `userId`, so plaintext
-   * never touches this queue, a query log or a backup.
-   */
-  billsToUser: boolean;
+  /** Resolved at admission. The worker must execute this target or fail. */
+  target: ExecutionTarget;
 };
 
 /**
@@ -185,8 +179,8 @@ export interface TurnQueue {
    * Whether any of these sessions has a turn executing right now.
    *
    * The cluster-wide answer to "is this project busy?", which closing a project, deleting one and
-   * the idle sweep all ask before they take a sandbox away. It reads the same `state = 'leased'`
-   * rows the partial unique index is over, so there is exactly one notion of busy in the deployment
+   * the idle sweep all ask before they take a sandbox away. It reads the `state = 'leased'`
+   * rows and unresolved native process fences, so there is one notion of busy in the deployment
    * — the in-memory registry it replaces knew only about turns claimed in its own process, and an
    * API pod composed apart from its workers read every busy session as idle.
    *
@@ -194,12 +188,12 @@ export interface TurnQueue {
    * the moment after still finds its sandbox gone. Holding a lock across a teardown instead would
    * mean a wedged sweep blocks turns; losing this race costs a restore. See `sweepIdleProjects`.
    *
-   * **A queued request is not busy**, only a leased one, and that follows from the same reasoning:
+   * **A queued request alone is not busy**, and that follows from the same reasoning:
    * nothing is running yet, nothing has a sandbox, and a project closed a moment before its request
    * is claimed simply restores when the worker picks it up. The state a caller may not interrupt is
    * a turn that is executing.
    */
-  anyLeased(sessionIds: readonly string[]): Promise<boolean>;
+  isBusy(sessionIds: readonly string[]): Promise<boolean>;
 
   /** Queued or leased work, including preparation and resumes without a prompt yet.
    * This observation is not a lock. Expiry alone does not release a lease.

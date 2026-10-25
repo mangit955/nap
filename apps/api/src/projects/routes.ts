@@ -22,6 +22,7 @@
 import { putProjectAway } from "@nap/runtime/close-project";
 import { deleteProject } from "@nap/runtime/delete-project";
 import { thumbnailKey } from "@nap/runtime/turn-thumbnail";
+import { foldJobs, openJob } from "@nap/shared/job-state";
 import { getLogger } from "@nap/shared/logging";
 import type { EventBus } from "@nap/shared/ports/event-bus";
 import type { EventStore } from "@nap/shared/ports/event-store";
@@ -37,13 +38,16 @@ import type { Hono } from "hono";
 import { z } from "zod";
 import type { AuthVariables } from "../auth/require-user.ts";
 import { parseProjectId } from "../files/params.ts";
-import { refusalStatus, resolveTurnAccess } from "../turns/model-access.ts";
+import type { SubscriptionAccess } from "../providers/subscription-access.ts";
+import { EXECUTION_REFUSAL_STATUS, type ExecutionAccessError } from "../turns/execution-access.ts";
+import { resolveTurnAccess } from "../turns/model-access.ts";
 import type { CallerKeys } from "../turns/routes.ts";
 import { checkSandboxQuota, type SandboxLimits } from "../turns/sandbox-quota.ts";
 
 export type CreatedProject = { projectId: string; sessionId: string };
 
 export type ProjectRouteDeps = {
+  subscriptions?: SubscriptionAccess;
   projects: ProjectStore;
   /** The reaper's slice of the same tables — `putProjectAway` records the release through it. */
   projectSandboxes: ProjectSandboxStore;
@@ -202,6 +206,9 @@ export function registerProjectRoutes(
     const project = await found(c.req.param("projectId"), c.get("userId"), deps);
     if (!project.ok) return c.json({ error: project.error.message }, project.error.status);
 
+    if (c.req.raw.body !== null && !z.strictObject({}).safeParse(await readJson(c.req.raw)).success)
+      return c.json({ error: "Project open does not accept an execution target override." }, 400);
+
     // Already up. Saying so is not an error, the same way closing a closed project is not —
     // and starting a second sandbox for a project that has one is how a preview URL that
     // somebody is looking at stops being the one the project is served from.
@@ -233,9 +240,12 @@ export function registerProjectRoutes(
     // What a continued job would run on, and whose account pays. Resolved here even though most
     // opens continue nothing: the queued row carries a concrete model, and the alternative is
     // deciding whose money to spend after the answer is already 202.
-    const access = await continueAccess(deps, c.get("userId"));
+    const access = await continueAccess(deps, c.get("userId"), sessionId);
     if (!access.ok) {
-      return c.json({ error: access.message, code: access.code }, refusalStatus(access.code));
+      return c.json(
+        { error: access.message, code: access.code },
+        EXECUTION_REFUSAL_STATUS[access.code],
+      );
     }
 
     // The same rule a turn follows: the request's id is the turn id its events go under, allocated
@@ -251,10 +261,7 @@ export function registerProjectRoutes(
       // A resume asks for no new work: what it does is decided by folding the log, not by a
       // prompt somebody typed.
       message: null,
-      model: access.model,
-      // Whether, never which — the worker re-opens the key by user id, so plaintext credentials
-      // never reach the queue, a query log or a backup.
-      billsToUser: access.billsToUser,
+      target: access.target,
     });
 
     getLogger().info({ requestId: id, sessionId }, "resume request queued");
@@ -360,7 +367,8 @@ export function registerProjectRoutes(
  * What a job continued by this open runs on, and whose account pays for it.
  *
  * The same resolver a turn goes through, asked with no model named: opening a project is not a
- * place to choose one, and the caller's key is the only input.
+ * place to choose one for a legacy job. New jobs retain their original target in the log;
+ * continuing them must validate that target instead of replacing it with a current default.
  *
  * **It can still refuse**, which is easy to miss because nobody asked for a model: an Anthropic
  * key against an allowlist holding no Claude model has nothing it can reach. That used to fall
@@ -370,22 +378,45 @@ export function registerProjectRoutes(
 async function continueAccess(
   deps: ProjectRouteDeps,
   userId: string,
+  sessionId: string,
 ): Promise<
-  | { ok: true; model: string; billsToUser: boolean }
-  | { ok: false; code: "byok_required" | "model_not_allowed"; message: string }
+  | { ok: true; target: import("@nap/shared/execution-target").ExecutionTarget }
+  | ({ ok: false } & ExecutionAccessError)
 > {
   const { models } = deps;
-
+  const history = await deps.events.events.readFrom(sessionId, 0);
+  const target = openJob(foldJobs(history))?.target;
+  if (target?.kind === "subscription") {
+    if (deps.subscriptions === undefined)
+      return {
+        ok: false,
+        code: "subscription_unavailable",
+        message: "This job requires its subscription runtime. No API request was queued.",
+      };
+    const allowed = await deps.subscriptions.authorize({ userId, target, phase: "start" });
+    return allowed.ok ? { ok: true, target } : { ok: false, ...allowed.error };
+  }
+  const key = target?.billsToUser === false ? null : ((await models.keys?.(userId)) ?? null);
+  if (target?.billsToUser === true && key === null)
+    return {
+      ok: false,
+      code: "byok_required",
+      message:
+        "This job requires your original API billing target. Add a usable API key before continuing.",
+    };
   const access = resolveTurnAccess({
-    requested: undefined,
-    key: (await models.keys?.(userId)) ?? null,
+    requested: target?.model,
+    key,
     allowed: models.allowedModels,
     freeModel: models.freeModel,
     defaultModel: models.defaultModel,
   });
   if (!access.ok) return access;
 
-  return { ok: true, model: access.model, billsToUser: access.credentials !== undefined };
+  return {
+    ok: true,
+    target: { kind: "api", model: access.model, billsToUser: access.credentials !== undefined },
+  };
 }
 
 type RouteError = { status: 400 | 404; message: string };

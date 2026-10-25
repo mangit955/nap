@@ -49,6 +49,8 @@ export type EventStreamOptions = {
   afterSeq: number;
   /** Old open tabs use strict prompt schemas. Full ownership is explicit opt-in. */
   repairOwnership?: boolean;
+  /** Older strict job payloads omit routing metadata on the wire, never in storage. */
+  executionTargets?: boolean;
   socket: StreamSocket;
   heartbeat?: HeartbeatOptions;
 };
@@ -95,6 +97,13 @@ export function openEventStream(options: EventStreamOptions): EventStream {
       event.payload.repair !== undefined
     ) {
       const { repair: _repair, ...payload } = event.payload;
+      send({ type: "event", event: { ...event, payload } });
+    } else if (
+      !options.executionTargets &&
+      event.type === "job.started" &&
+      event.payload.target !== undefined
+    ) {
+      const { target: _target, ...payload } = event.payload;
       send({ type: "event", event: { ...event, payload } });
     } else send({ type: "event", event });
   };

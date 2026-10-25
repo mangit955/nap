@@ -14,11 +14,12 @@
     "@nap/shared": "workspace:*",
     "@nap/storage": "workspace:*",
     "@nap/verify": "workspace:*",
-    "@nap/context": "workspace:*"
+    "@nap/context": "workspace:*",
+    "@nap/agent": "workspace:*"
   },
   "devDependencies": {
-    "@nap/agent": "workspace:*",
     "@nap/capture": "workspace:*",
-    "@nap/db": "workspace:*"
+    "@nap/db": "workspace:*",
+    "@modelcontextprotocol/sdk": "1.29.0"
   }
 }

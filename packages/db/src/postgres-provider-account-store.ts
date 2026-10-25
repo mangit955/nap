@@ -1,3 +1,5 @@
+import { createHash, randomBytes } from "node:crypto";
+
 /**
  * The `provider_accounts` table, behind the `ProviderAccountStore` port.
  *
@@ -11,15 +13,104 @@
 import type {
   NewProviderAccount,
   ProviderAccountStore,
+  ProviderAuthorization,
+  ProviderAuthorizationWrite,
+  ProviderCredentialRefresh,
+  ProviderSignInCommit,
 } from "@nap/shared/ports/provider-account-store";
+import {
+  ProviderAuthorizationSchema,
+  SealedProviderCredentialsSchema,
+} from "@nap/shared/ports/provider-account-store";
+import {
+  PROVIDER_REFRESH_TTL_MS,
+  type ProviderRefreshClaim,
+  ProviderRefreshClaimTokenSchema,
+  type ProviderRefreshStore,
+} from "@nap/shared/ports/provider-refresh-store";
+import {
+  ProviderSignInProcessStateSchema,
+  type ProviderSignInProcessStore,
+} from "@nap/shared/ports/provider-sign-in-process-store";
+import type {
+  ProviderSignInAttempt,
+  ProviderSignInAttemptWrite,
+  ProviderSignInClaim,
+  ProviderSignInOwner,
+  ProviderSignInRefusal,
+  ProviderSignInStore,
+} from "@nap/shared/ports/provider-sign-in-store";
+import {
+  PROVIDER_SIGN_IN_TTL_MS,
+  ProviderSignInAttemptSchema,
+  ProviderSignInClaimTokenSchema,
+} from "@nap/shared/ports/provider-sign-in-store";
 import type {
   ProviderAccount,
   UpdateProviderAccount,
 } from "@nap/shared/provider-accounts-protocol";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { z } from "zod";
-import { providerAccounts } from "./schema.ts";
+import {
+  authSessions,
+  providerAccounts,
+  providerCredentialRefreshes,
+  providerCredentials,
+  providerSignInAttempts,
+  users,
+} from "./schema.ts";
+
+type Transaction = Parameters<Parameters<PostgresJsDatabase["transaction"]>[0]>[0];
+type CredentialRow = typeof providerCredentials.$inferSelect;
+
+type RefreshRow = typeof providerCredentialRefreshes.$inferSelect;
+type StoredAuthorization = Extract<ProviderAuthorization, { kind: "connected" | "disconnected" }>;
+
+function toAuthorization(
+  row: CredentialRow | undefined,
+  refresh?: RefreshRow,
+): ProviderAuthorization {
+  const revision = { generation: row?.generation ?? 0, version: row?.version ?? 0 };
+  if (refresh?.phase === "claimed")
+    return ProviderAuthorizationSchema.parse({
+      kind: "refreshing",
+      ...revision,
+      expiresAt: refresh.expiresAt?.toISOString(),
+    });
+  if (refresh?.phase === "uncertain")
+    return { kind: "reconnect_required", ...revision, reason: "refresh_uncertain" };
+  return ProviderAuthorizationSchema.parse(
+    row?.ciphertext == null
+      ? { kind: "disconnected", ...revision }
+      : { kind: "connected", ...revision, credentials: { ciphertext: row.ciphertext, iv: row.iv } },
+  );
+}
+
+type SignInRow = typeof providerSignInAttempts.$inferSelect;
+const ACTIVE_SIGN_INS = ["starting", "waiting", "verifying"] as const;
+const isActiveSignIn = (row: SignInRow) => ACTIVE_SIGN_INS.some((phase) => phase === row.phase);
+const signInHash = (value: string) => createHash("sha256").update(value).digest("hex");
+const erasedSignIn = {
+  stateCiphertext: null,
+  stateIv: null,
+  challengeHash: null,
+  claimTokenHash: null,
+  interaction: null,
+  message: null,
+};
+function signInView(row: SignInRow): ProviderSignInAttempt {
+  return ProviderSignInAttemptSchema.parse({
+    flowId: row.id,
+    phase: row.phase,
+    interaction: row.interaction,
+    message: row.message,
+    expiresAt: row.expiresAt.toISOString(),
+  });
+}
+type CheckedSignIn =
+  | { kind: "usable"; row: SignInRow }
+  | { kind: "expired" | "stale"; attempt: ProviderSignInAttempt };
 
 type AccountRow = typeof providerAccounts.$inferSelect;
 
@@ -36,7 +127,13 @@ function toAccount(row: AccountRow): ProviderAccount {
 
 const isUuid = (id: string) => z.uuid().safeParse(id).success;
 
-export class PostgresProviderAccountStore implements ProviderAccountStore {
+export class PostgresProviderAccountStore
+  implements
+    ProviderAccountStore,
+    ProviderSignInStore,
+    ProviderRefreshStore,
+    ProviderSignInProcessStore
+{
   readonly #db: PostgresJsDatabase;
 
   constructor(db: PostgresJsDatabase) {
@@ -74,17 +171,20 @@ export class PostgresProviderAccountStore implements ProviderAccountStore {
     id: string,
     update: UpdateProviderAccount,
   ): Promise<ProviderAccount | null> {
-    if (!isUuid(id)) return null;
-    const [row] = await this.#db
-      .update(providerAccounts)
-      .set({
-        ...(update.label === undefined ? {} : { label: update.label }),
-        ...(update.enabled === undefined ? {} : { enabled: update.enabled }),
-        updatedAt: sql`now()`,
-      })
-      .where(and(eq(providerAccounts.userId, userId), eq(providerAccounts.id, id)))
-      .returning();
-    return row === undefined ? null : toAccount(row);
+    return this.#owned(userId, id, async (tx, account) => {
+      if (update.enabled === false && account.enabled) await this.#revoke(tx, id);
+      const [row] = await tx
+        .update(providerAccounts)
+        .set({
+          ...(update.label === undefined ? {} : { label: update.label }),
+          ...(update.enabled === undefined ? {} : { enabled: update.enabled }),
+          updatedAt: sql`now()`,
+        })
+        .where(eq(providerAccounts.id, id))
+        .returning();
+      if (row === undefined) throw new Error("locked provider account disappeared");
+      return toAccount(row);
+    });
   }
 
   async remove(userId: string, id: string): Promise<boolean> {
@@ -94,5 +194,563 @@ export class PostgresProviderAccountStore implements ProviderAccountStore {
       .where(and(eq(providerAccounts.userId, userId), eq(providerAccounts.id, id)))
       .returning({ id: providerAccounts.id });
     return removed.length > 0;
+  }
+
+  async authorization(userId: string, id: string): Promise<ProviderAuthorization | null> {
+    return this.#owned(userId, id, (tx) => this.#current(tx, id));
+  }
+
+  async completeSignIn(
+    userId: string,
+    id: string,
+    commit: ProviderSignInCommit,
+  ): Promise<ProviderAuthorizationWrite> {
+    return (
+      (await this.#owned<ProviderAuthorizationWrite>(userId, id, async (tx, account) => {
+        if (!account.enabled) return { kind: "disabled" };
+        const current = await this.#current(tx, id);
+        if (current.generation !== commit.generation) return { kind: "stale" };
+        const authorization = await this.#connect(tx, id, current, commit);
+        await this.#invalidateSignIns(tx, id);
+        return { kind: "updated", authorization };
+      })) ?? { kind: "missing" }
+    );
+  }
+
+  async replaceCredentials(
+    userId: string,
+    id: string,
+    refresh: ProviderCredentialRefresh,
+  ): Promise<ProviderAuthorizationWrite> {
+    return (
+      (await this.#owned<ProviderAuthorizationWrite>(userId, id, async (tx, account) => {
+        if (!account.enabled) return { kind: "disabled" };
+        const current = await this.#current(tx, id);
+        if (
+          current.kind !== "connected" ||
+          current.generation !== refresh.generation ||
+          current.version !== refresh.version
+        )
+          return { kind: "stale" };
+        const authorization: ProviderAuthorization = {
+          ...current,
+          version: current.version + 1,
+          credentials: refresh.credentials,
+        };
+        await this.#save(tx, id, authorization);
+        return { kind: "updated", authorization };
+      })) ?? { kind: "missing" }
+    );
+  }
+
+  async revokeAuthorization(userId: string, id: string): Promise<ProviderAuthorization | null> {
+    return this.#owned(userId, id, (tx) => this.#revoke(tx, id));
+  }
+
+  async claimManagedRefresh(
+    input: Parameters<ProviderRefreshStore["claimManagedRefresh"]>[0],
+  ): Promise<ProviderRefreshClaim> {
+    return (
+      (await this.#owned<ProviderRefreshClaim>(
+        input.userId,
+        input.accountId,
+        async (tx, account) => {
+          if (!account.enabled) return { kind: "disabled" };
+          const current = await this.#current(tx, account.id);
+          if (current.kind === "reconnect_required") return { kind: "reconnect_required" };
+          if (current.kind === "disconnected") return { kind: "disconnected" };
+          if (current.generation !== input.generation || current.version !== input.version)
+            return { kind: "stale" };
+          if (current.kind === "refreshing") return { kind: "busy" };
+          const token = ProviderRefreshClaimTokenSchema.parse(randomBytes(32).toString("hex"));
+          const [claim] = await tx
+            .insert(providerCredentialRefreshes)
+            .values({
+              accountId: account.id,
+              phase: "claimed",
+              claimTokenHash: signInHash(token),
+              createdAt: sql`clock_timestamp()`,
+              expiresAt: sql`clock_timestamp() + ${PROVIDER_REFRESH_TTL_MS} * interval '1 millisecond'`,
+            })
+            .returning();
+          if (!claim?.expiresAt) throw new Error("Managed refresh insert returned no deadline");
+          return {
+            kind: "claimed",
+            claimToken: token,
+            expiresAt: claim.expiresAt.toISOString(),
+            credentials: current.credentials,
+          };
+        },
+        true,
+      )) ?? { kind: "missing" }
+    );
+  }
+
+  async finishManagedRefresh(
+    input: Parameters<ProviderRefreshStore["finishManagedRefresh"]>[0],
+  ): Promise<ProviderAuthorizationWrite> {
+    return (
+      (await this.#owned<ProviderAuthorizationWrite>(
+        input.userId,
+        input.accountId,
+        async (tx, account) => {
+          if (!account.enabled) return { kind: "disabled" };
+          const current = await this.#current(tx, account.id);
+          if (
+            current.kind !== "refreshing" ||
+            current.generation !== input.generation ||
+            current.version !== input.version
+          )
+            return { kind: "stale" };
+          const [claim] = await tx
+            .select()
+            .from(providerCredentialRefreshes)
+            .where(eq(providerCredentialRefreshes.accountId, account.id));
+          if (claim?.phase !== "claimed" || claim.claimTokenHash !== signInHash(input.claimToken))
+            return { kind: "stale" };
+          if (input.outcome.kind === "uncertain")
+            return {
+              kind: "updated",
+              authorization: await this.#uncertainRefresh(tx, account.id, current),
+            };
+          const authorization: StoredAuthorization = {
+            kind: "connected",
+            generation: current.generation,
+            version: current.version + 1,
+            credentials: SealedProviderCredentialsSchema.parse(input.outcome.credentials),
+          };
+          await this.#save(tx, account.id, authorization);
+          return { kind: "updated", authorization };
+        },
+        true,
+      )) ?? { kind: "missing" }
+    );
+  }
+
+  async beginSignIn(
+    input: Parameters<ProviderSignInStore["beginSignIn"]>[0],
+  ): Promise<ProviderSignInAttemptWrite> {
+    return (
+      (await this.#signInOwner<ProviderSignInAttemptWrite>(input.owner, async (tx, account) => {
+        if (!account.enabled) return { kind: "disabled" };
+        const state = SealedProviderCredentialsSchema.parse(input.state);
+        const authorization = await this.#current(tx, account.id);
+        await this.#invalidateSignIns(tx, account.id);
+        const [row] = await tx
+          .insert(providerSignInAttempts)
+          .values({
+            accountId: account.id,
+            authSessionId: input.owner.authSessionId,
+            generation: authorization.generation,
+            phase: "starting",
+            challengeHash: input.challengeHash,
+            stateCiphertext: state.ciphertext,
+            stateIv: state.iv,
+            createdAt: sql`clock_timestamp()`,
+            expiresAt: sql`clock_timestamp() + ${PROVIDER_SIGN_IN_TTL_MS} * interval '1 millisecond'`,
+          })
+          .returning();
+        if (!row) throw new Error("provider sign-in insert returned no row");
+        return { kind: "updated", attempt: signInView(row) };
+      })) ?? { kind: "missing" }
+    );
+  }
+
+  async inspectSignInProcess(
+    input: Parameters<ProviderSignInProcessStore["inspectSignInProcess"]>[0],
+  ): ReturnType<ProviderSignInProcessStore["inspectSignInProcess"]> {
+    return this.#signInAction(input, async (_tx, row) => {
+      if (!isActiveSignIn(row)) return { kind: "stale" };
+      return {
+        kind: "ready",
+        ...ProviderSignInProcessStateSchema.parse({
+          phase: row.phase,
+          version: row.stateVersion,
+          generation: row.generation,
+          challengeHash: row.challengeHash,
+          state: { ciphertext: row.stateCiphertext, iv: row.stateIv },
+        }),
+      };
+    });
+  }
+
+  async checkpointSignInProcess(
+    input: Parameters<ProviderSignInProcessStore["checkpointSignInProcess"]>[0],
+  ): ReturnType<ProviderSignInProcessStore["checkpointSignInProcess"]> {
+    if (!Number.isSafeInteger(input.version) || input.version < 0 || input.version >= 2_147_483_647)
+      return { kind: "conflict" };
+    const state = SealedProviderCredentialsSchema.safeParse(input.state);
+    if (!state.success || state.data.ciphertext.length > 1_048_576 || state.data.iv.length > 256)
+      return { kind: "stale" };
+    return this.#signInAction(input, async (tx, row) => {
+      if (!isActiveSignIn(row)) return { kind: "stale" };
+      if (row.stateVersion !== input.version) return { kind: "conflict" };
+      const version = row.stateVersion + 1;
+      await tx
+        .update(providerSignInAttempts)
+        .set({
+          stateVersion: version,
+          stateCiphertext: state.data.ciphertext,
+          stateIv: state.data.iv,
+        })
+        .where(eq(providerSignInAttempts.id, row.id));
+      return { kind: "updated", version };
+    });
+  }
+
+  async presentSignIn(
+    input: Parameters<ProviderSignInStore["presentSignIn"]>[0],
+  ): Promise<ProviderSignInAttemptWrite> {
+    return this.#signInAction(input, async (tx, row) => {
+      if (
+        row.phase !== "starting" ||
+        (input.version !== undefined && row.stateVersion !== input.version)
+      )
+        return { kind: "stale" };
+      const state = SealedProviderCredentialsSchema.parse(input.state);
+      const [waiting] = await tx
+        .update(providerSignInAttempts)
+        .set({
+          phase: "waiting",
+          stateVersion: row.stateVersion + 1,
+          interaction: input.interaction,
+          stateCiphertext: state.ciphertext,
+          stateIv: state.iv,
+        })
+        .where(eq(providerSignInAttempts.id, row.id))
+        .returning();
+      if (!waiting) throw new Error("locked provider sign-in disappeared");
+      return { kind: "updated", attempt: signInView(waiting) };
+    });
+  }
+
+  async claimSignIn(
+    input: Parameters<ProviderSignInStore["claimSignIn"]>[0],
+  ): Promise<ProviderSignInClaim> {
+    return this.#signInAction(input, async (tx, row) => {
+      if (row.phase !== "waiting" || row.challengeHash !== input.challengeHash)
+        return { kind: "stale" };
+      const token = ProviderSignInClaimTokenSchema.parse(randomBytes(32).toString("hex"));
+      const state = SealedProviderCredentialsSchema.parse({
+        ciphertext: row.stateCiphertext,
+        iv: row.stateIv,
+      });
+      await tx
+        .update(providerSignInAttempts)
+        .set({ phase: "verifying", interaction: null, claimTokenHash: signInHash(token) })
+        .where(eq(providerSignInAttempts.id, row.id));
+      return {
+        kind: "claimed",
+        flowId: row.id,
+        accountId: row.accountId,
+        generation: row.generation,
+        claimToken: token,
+        state,
+      };
+    });
+  }
+
+  async finishSignIn(
+    input: Parameters<ProviderSignInStore["finishSignIn"]>[0],
+  ): Promise<ProviderSignInAttemptWrite> {
+    return this.#signInAction(input, async (tx, row) => {
+      if (!isActiveSignIn(row)) return { kind: "stale" };
+      if (input.outcome.kind === "failed") {
+        const messages = {
+          provider_unavailable: "The provider could not be reached. Start again.",
+          verification_failed: "The provider could not verify this sign-in. Start again.",
+        };
+        return {
+          kind: "updated",
+          attempt: await this.#settleSignIn(tx, row.id, {
+            phase: "failed",
+            message: messages[input.outcome.reason],
+          }),
+        };
+      }
+      if (row.phase !== "verifying" || row.claimTokenHash !== signInHash(input.outcome.claimToken))
+        return { kind: "stale" };
+      const current = await this.#current(tx, row.accountId);
+      await this.#connect(tx, row.accountId, current, {
+        generation: row.generation,
+        credentials: SealedProviderCredentialsSchema.parse(input.outcome.credentials),
+        identity: input.outcome.identity,
+      });
+      return {
+        kind: "updated",
+        attempt: await this.#settleSignIn(tx, row.id, { phase: "succeeded", message: null }),
+      };
+    });
+  }
+
+  async cancelSignIn(
+    input: Parameters<ProviderSignInStore["cancelSignIn"]>[0],
+  ): Promise<ProviderSignInAttemptWrite> {
+    return this.#signInAction(input, async (tx, row) => {
+      if (row.phase === "cancelled") return { kind: "updated", attempt: signInView(row) };
+      if (!isActiveSignIn(row)) return { kind: "stale" };
+      return {
+        kind: "updated",
+        attempt: await this.#settleSignIn(tx, row.id, { phase: "cancelled", message: null }),
+      };
+    });
+  }
+
+  async currentSignIn(owner: ProviderSignInOwner): Promise<ProviderSignInAttempt | null> {
+    return this.#signInOwner(owner, async (tx) => {
+      const [found] = await tx
+        .select({
+          row: providerSignInAttempts,
+          expired: sql<boolean>`${providerSignInAttempts.expiresAt} <= clock_timestamp()`,
+        })
+        .from(providerSignInAttempts)
+        .where(
+          and(
+            eq(providerSignInAttempts.accountId, owner.accountId),
+            eq(providerSignInAttempts.authSessionId, owner.authSessionId),
+          ),
+        )
+        .orderBy(desc(providerSignInAttempts.createdAt), desc(providerSignInAttempts.id))
+        .limit(1)
+        .for("update");
+      if (!found) return null;
+      const checked = await this.#checkSignIn(tx, found.row, found.expired);
+      return checked.kind === "usable" ? signInView(checked.row) : checked.attempt;
+    });
+  }
+
+  async #signInAction<T>(
+    input: { owner: ProviderSignInOwner; flowId: string },
+    action: (tx: Transaction, row: SignInRow) => Promise<T>,
+  ): Promise<T | ProviderSignInRefusal> {
+    if (!isUuid(input.flowId)) return { kind: "missing" };
+    return (
+      (await this.#signInOwner<T | ProviderSignInRefusal>(input.owner, async (tx, account) => {
+        if (!account.enabled) return { kind: "disabled" };
+        const [found] = await tx
+          .select({
+            row: providerSignInAttempts,
+            expired: sql<boolean>`${providerSignInAttempts.expiresAt} <= clock_timestamp()`,
+          })
+          .from(providerSignInAttempts)
+          .where(
+            and(
+              eq(providerSignInAttempts.id, input.flowId),
+              eq(providerSignInAttempts.accountId, account.id),
+              eq(providerSignInAttempts.authSessionId, input.owner.authSessionId),
+            ),
+          )
+          .for("update");
+        if (!found) return { kind: "missing" };
+        const checked = await this.#checkSignIn(tx, found.row, found.expired);
+        if (checked.kind !== "usable") return { kind: checked.kind };
+        return action(tx, checked.row);
+      })) ?? { kind: "missing" }
+    );
+  }
+
+  async #checkSignIn(tx: Transaction, row: SignInRow, expired: boolean): Promise<CheckedSignIn> {
+    if (!isActiveSignIn(row)) return { kind: "usable", row };
+    const authorization = await this.#current(tx, row.accountId);
+    if (authorization.generation !== row.generation)
+      return {
+        kind: "stale",
+        attempt: await this.#settleSignIn(tx, row.id, { phase: "cancelled", message: null }),
+      };
+    if (expired)
+      return {
+        kind: "expired",
+        attempt: await this.#settleSignIn(tx, row.id, {
+          phase: "failed",
+          message: "Sign-in expired. Start again.",
+        }),
+      };
+    return { kind: "usable", row };
+  }
+
+  async #settleSignIn(
+    tx: Transaction,
+    id: string,
+    ending:
+      | { phase: "failed"; message: string }
+      | { phase: "cancelled" | "succeeded"; message: null },
+  ): Promise<ProviderSignInAttempt> {
+    const [row] = await tx
+      .update(providerSignInAttempts)
+      .set({ ...erasedSignIn, ...ending })
+      .where(eq(providerSignInAttempts.id, id))
+      .returning();
+    if (!row) throw new Error("locked provider sign-in disappeared");
+    return signInView(row);
+  }
+
+  async #invalidateSignIns(tx: Transaction, accountId: string): Promise<void> {
+    await tx
+      .update(providerSignInAttempts)
+      .set({ ...erasedSignIn, phase: "cancelled" })
+      .where(
+        and(
+          eq(providerSignInAttempts.accountId, accountId),
+          inArray(providerSignInAttempts.phase, ACTIVE_SIGN_INS),
+        ),
+      );
+  }
+
+  async #signInOwner<T>(
+    owner: ProviderSignInOwner,
+    action: (tx: Transaction, account: AccountRow) => Promise<T>,
+  ): Promise<T | null> {
+    if (!isUuid(owner.userId) || !isUuid(owner.authSessionId) || !isUuid(owner.accountId))
+      return null;
+    return this.#db.transaction(async (tx) => {
+      // Lock ancestors before descendants, matching user/session deletion cascades. Acquiring
+      // the account first can deadlock a callback against deletion holding the Nap session.
+      const [user] = await tx
+        .select({ id: users.id })
+        .from(users)
+        .where(and(eq(users.id, owner.userId), eq(users.isAnonymous, false)))
+        .for("share");
+      if (user === undefined) return null;
+      const [session] = await tx
+        .select({ id: authSessions.id })
+        .from(authSessions)
+        .where(
+          and(
+            eq(authSessions.id, owner.authSessionId),
+            eq(authSessions.userId, owner.userId),
+            gt(authSessions.expiresAt, sql`clock_timestamp()`),
+          ),
+        )
+        .for("share");
+      if (session === undefined) return null;
+      const account = await this.#lockAccount(tx, owner.userId, owner.accountId);
+      return account === undefined ? null : action(tx, account);
+    });
+  }
+
+  async #connect(
+    tx: Transaction,
+    id: string,
+    current: ProviderAuthorization,
+    commit: ProviderSignInCommit,
+  ): Promise<ProviderAuthorization> {
+    const authorization: ProviderAuthorization = {
+      kind: "connected",
+      generation: current.generation + 1,
+      version: current.version + 1,
+      credentials: commit.credentials,
+    };
+    await this.#save(tx, id, authorization);
+    await tx
+      .update(providerAccounts)
+      .set({
+        authStatus: "authenticated",
+        accountEmail: commit.identity.email,
+        accountPlan: commit.identity.plan,
+        updatedAt: sql`now()`,
+      })
+      .where(eq(providerAccounts.id, id));
+    return authorization;
+  }
+
+  async #current(tx: Transaction, id: string): Promise<ProviderAuthorization> {
+    const [row] = await tx
+      .select()
+      .from(providerCredentials)
+      .where(eq(providerCredentials.accountId, id));
+    const [refresh] = await tx
+      .select({
+        row: providerCredentialRefreshes,
+        expired: sql<boolean>`${providerCredentialRefreshes.expiresAt} <= clock_timestamp()`,
+      })
+      .from(providerCredentialRefreshes)
+      .where(eq(providerCredentialRefreshes.accountId, id));
+    const authorization = toAuthorization(row, refresh?.row);
+    if (refresh?.row.phase === "claimed" && refresh.expired)
+      return this.#uncertainRefresh(tx, id, authorization);
+    return authorization;
+  }
+
+  async #save(tx: Transaction, id: string, authorization: StoredAuthorization): Promise<void> {
+    await tx
+      .delete(providerCredentialRefreshes)
+      .where(eq(providerCredentialRefreshes.accountId, id));
+    const value = {
+      accountId: id,
+      generation: authorization.generation,
+      version: authorization.version,
+      ciphertext: authorization.kind === "connected" ? authorization.credentials.ciphertext : null,
+      iv: authorization.kind === "connected" ? authorization.credentials.iv : null,
+    };
+    await tx
+      .insert(providerCredentials)
+      .values(value)
+      .onConflictDoUpdate({ target: providerCredentials.accountId, set: value });
+  }
+
+  async #uncertainRefresh(
+    tx: Transaction,
+    id: string,
+    current: ProviderAuthorization,
+  ): Promise<ProviderAuthorization> {
+    const revision = { generation: current.generation + 1, version: current.version + 1 };
+    await this.#save(tx, id, { kind: "disconnected", ...revision });
+    await tx.insert(providerCredentialRefreshes).values({ accountId: id, phase: "uncertain" });
+    await tx
+      .update(providerAccounts)
+      .set({ authStatus: "expired", updatedAt: sql`clock_timestamp()` })
+      .where(eq(providerAccounts.id, id));
+    await this.#invalidateSignIns(tx, id);
+    return { kind: "reconnect_required", ...revision, reason: "refresh_uncertain" };
+  }
+
+  async #revoke(tx: Transaction, id: string): Promise<ProviderAuthorization> {
+    const current = await this.#current(tx, id);
+    const authorization: ProviderAuthorization = {
+      kind: "disconnected",
+      generation: current.generation + 1,
+      version: current.version + 1,
+    };
+    await this.#save(tx, id, authorization);
+    await tx
+      .update(providerAccounts)
+      .set({
+        authStatus: "unauthenticated",
+        accountEmail: null,
+        accountPlan: null,
+        updatedAt: sql`now()`,
+      })
+      .where(eq(providerAccounts.id, id));
+    await this.#invalidateSignIns(tx, id);
+    return authorization;
+  }
+
+  // All authorization mutations lock the parent, including the first write with no credential row.
+  // This serializes login, refresh and disable across workers without locking another owner's row.
+  async #owned<T>(
+    userId: string,
+    id: string,
+    change: (tx: Transaction, account: AccountRow) => Promise<T>,
+    permanent = false,
+  ): Promise<T | null> {
+    if (!isUuid(userId) || !isUuid(id)) return null;
+    return this.#db.transaction(async (tx) => {
+      const [user] = await tx
+        .select({ id: users.id })
+        .from(users)
+        .where(and(eq(users.id, userId), permanent ? eq(users.isAnonymous, false) : undefined))
+        .for("share");
+      if (user === undefined) return null;
+      const account = await this.#lockAccount(tx, userId, id);
+      return account === undefined ? null : change(tx, account);
+    });
+  }
+  async #lockAccount(tx: Transaction, userId: string, id: string): Promise<AccountRow | undefined> {
+    const [account] = await tx
+      .select()
+      .from(providerAccounts)
+      .where(and(eq(providerAccounts.userId, userId), eq(providerAccounts.id, id)))
+      .for("update");
+    return account;
   }
 }

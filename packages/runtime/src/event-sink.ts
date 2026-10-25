@@ -99,6 +99,23 @@ export class EventSink {
     });
   };
 
+  /** Publishes a native journal delivery that is already durable. */
+  readonly publishStored = (event: StoredEvent): void => {
+    this.#chain = this.#chain.then(() => {
+      if (this.#failure !== null) return;
+      try {
+        this.bus.publish(event);
+        this.#appended.set(
+          event.sessionId,
+          Math.max(event.seq, this.#appended.get(event.sessionId) ?? 0),
+        );
+        this.#record(event);
+      } catch (error) {
+        this.#failure = error;
+      }
+    });
+  };
+
   /** Resolves once every event emitted so far is persisted and published. */
   async drain(): Promise<void> {
     await this.#chain;

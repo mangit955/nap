@@ -20,6 +20,7 @@
  */
 
 import type { JobOutcome, NapEvent, VerifiedCheck } from "./events.ts";
+import type { ExecutionTarget } from "./execution-target.ts";
 import type { StoredEvent } from "./ports/event-store.ts";
 
 /**
@@ -43,6 +44,8 @@ const OPEN_PHASES = new Set<JobPhase>(["working", "verifying", "repairing"]);
 
 export type JobState = {
   jobId: string;
+  /** Absent only for jobs created before execution targets were recorded. */
+  target?: ExecutionTarget;
   /** What was asked, as the prompt that opened the job put it. */
   objective: string;
   phase: JobPhase;
@@ -120,6 +123,7 @@ export function openJob(state: SessionJobs): JobState | undefined {
 /** What the fold accumulates per job, before a phase is decided from it. */
 type Tally = {
   jobId: string;
+  target?: ExecutionTarget;
   objective: string;
   startedAt: string;
   checkpointSha: string | null;
@@ -200,6 +204,7 @@ export function foldJobs(events: readonly StoredEvent[]): SessionJobs {
       const tally: Tally = {
         jobId: event.payload.jobId,
         objective: event.payload.objective,
+        ...(event.payload.target === undefined ? {} : { target: event.payload.target }),
         startedAt: event.createdAt,
         checkpointSha: null,
         paths: new Set(),
@@ -251,6 +256,7 @@ function toJobState(tally: Tally): JobState {
   return {
     jobId: tally.jobId,
     objective: tally.objective,
+    ...(tally.target === undefined ? {} : { target: tally.target }),
     phase: phaseOf(tally, attemptsUsed),
     checks: tally.checks,
     attemptsUsed,

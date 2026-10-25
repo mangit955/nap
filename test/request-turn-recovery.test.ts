@@ -55,8 +55,7 @@ function request(kind: "turn" | "resume") {
     kind,
     message: kind === "turn" ? TEXT : null,
     ...(kind === "turn" ? { attachments } : {}),
-    model: "fixture/free",
-    billsToUser: false,
+    target: { kind: "api" as const, model: "fixture/free", billsToUser: false },
   };
 }
 

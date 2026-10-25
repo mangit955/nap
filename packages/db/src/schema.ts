@@ -1,10 +1,18 @@
+import type { ExecutionSelection, ExecutionTarget } from "@nap/shared/execution-target";
 import type {
   GitHubInstallation,
   RepositoryFeedback,
   RepositoryJob,
 } from "@nap/shared/github-protocol";
 import type { MediaAttachment } from "@nap/shared/media";
+import type { NativeRunBinding } from "@nap/shared/ports/native-run-store";
+import type { SealedProviderCredentials } from "@nap/shared/ports/provider-account-store";
+import type { ProcessExit } from "@nap/shared/ports/sandbox-process";
 import type { ProviderAuthStatus, ProviderDriver } from "@nap/shared/provider-accounts-protocol";
+import {
+  type ProviderSignInInteraction,
+  ProviderSignInPhaseSchema,
+} from "@nap/shared/provider-accounts-protocol";
 import type { SessionNavigation } from "@nap/shared/session-navigation";
 /**
  * The Postgres schema, per docs/PLAN.md §5.
@@ -35,6 +43,7 @@ import { sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
+  check,
   foreignKey,
   index,
   integer,
@@ -207,8 +216,8 @@ export const userApiKeys = pgTable("user_api_keys", {
 
 /**
  * The Claude and ChatGPT accounts a person connected, one row each — several per provider is
- * allowed, as "Personal" and "Work". No credential is stored here: the provider's own agent keeps
- * its login, and these columns only say what it last reported.
+ * allowed, as "Personal" and "Work". These public columns hold only reported identity.
+ * Sealed authorization and its fencing revisions live in a separate private table.
  */
 export const providerAccounts = pgTable(
   "provider_accounts",
@@ -231,6 +240,108 @@ export const providerAccounts = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("provider_accounts_user_created").on(t.userId, t.createdAt)],
+);
+
+export const providerCredentials = pgTable(
+  "provider_credentials",
+  {
+    accountId: uuid("account_id")
+      .primaryKey()
+      .references(() => providerAccounts.id, { onDelete: "cascade" }),
+    generation: integer("generation").notNull().default(0),
+    version: integer("version").notNull().default(0),
+    ciphertext: text("ciphertext"),
+    iv: text("iv"),
+  },
+  (t) => [
+    check("provider_credentials_revision", sql`${t.generation} >= 0 and ${t.version} >= 0`),
+    check(
+      "provider_credentials_pair",
+      sql`(${t.ciphertext} is null and ${t.iv} is null) or (${t.ciphertext} is not null and ${t.iv} is not null and length(${t.ciphertext}) > 0 and length(${t.iv}) > 0)`,
+    ),
+  ],
+);
+
+/** The absence of a row means no managed refresh owns this account. */
+export const providerCredentialRefreshes = pgTable(
+  "provider_credential_refreshes",
+  {
+    accountId: uuid("account_id").primaryKey(),
+    phase: text("phase").$type<"claimed" | "uncertain">().notNull(),
+    claimTokenHash: text("claim_token_hash"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    createdAt,
+  },
+  (t) => [
+    foreignKey({
+      name: "provider_refresh_account_fk",
+      columns: [t.accountId],
+      foreignColumns: [providerAccounts.id],
+    }).onDelete("cascade"),
+    check("provider_refresh_phase", sql`${t.phase} in ('claimed', 'uncertain')`),
+    check(
+      "provider_refresh_claim",
+      sql`(
+    ${t.phase} = 'claimed' and ${t.claimTokenHash} is not null and ${t.claimTokenHash} ~ '^[a-f0-9]{64}$' and ${t.expiresAt} is not null and ${t.expiresAt} > ${t.createdAt}
+  ) or (
+    ${t.phase} = 'uncertain' and ${t.claimTokenHash} is null and ${t.expiresAt} is null
+  )`,
+    ),
+  ],
+);
+
+export const providerSignInPhase = pgEnum("provider_sign_in_phase", ProviderSignInPhaseSchema.enum);
+export const providerSignInAttempts = pgTable(
+  "provider_sign_in_attempts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => providerAccounts.id, { onDelete: "cascade" }),
+    authSessionId: uuid("auth_session_id")
+      .notNull()
+      .references(() => authSessions.id, { onDelete: "cascade" }),
+    generation: integer("generation").notNull(),
+    phase: providerSignInPhase("phase").notNull(),
+    challengeHash: text("challenge_hash"),
+    claimTokenHash: text("claim_token_hash"),
+    stateVersion: integer("state_version").notNull().default(0),
+    stateCiphertext: text("state_ciphertext"),
+    stateIv: text("state_iv"),
+    interaction: jsonb("interaction").$type<ProviderSignInInteraction>(),
+    message: text("message"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt,
+  },
+  (t) => [
+    check("provider_sign_in_state_version_nonnegative", sql`${t.stateVersion} >= 0`),
+    index("provider_sign_ins_session_created").on(t.accountId, t.authSessionId, t.createdAt),
+    uniqueIndex("provider_sign_ins_one_active")
+      .on(t.accountId)
+      .where(sql`${t.phase} in ('starting', 'waiting', 'verifying')`),
+    check("provider_sign_ins_generation", sql`${t.generation} >= 0`),
+    check("provider_sign_ins_expiry", sql`${t.expiresAt} > ${t.createdAt}`),
+    check(
+      "provider_sign_ins_state",
+      sql`(
+    ${t.phase} in ('starting', 'waiting', 'verifying') and ${t.stateCiphertext} is not null and length(${t.stateCiphertext}) > 0 and ${t.stateIv} is not null and length(${t.stateIv}) > 0 and ${t.challengeHash} is not null and ${t.challengeHash} ~ '^[a-f0-9]{64}$'
+  ) or (
+    ${t.phase} in ('succeeded', 'failed', 'cancelled') and ${t.stateCiphertext} is null and ${t.stateIv} is null and ${t.challengeHash} is null
+  )`,
+    ),
+    check(
+      "provider_sign_ins_claim",
+      sql`(${t.phase} = 'verifying' and ${t.claimTokenHash} is not null and ${t.claimTokenHash} ~ '^[a-f0-9]{64}$') or (${t.phase} <> 'verifying' and ${t.claimTokenHash} is null)`,
+    ),
+    check(
+      "provider_sign_ins_interaction",
+      sql`(${t.phase} = 'waiting') = (${t.interaction} is not null)`,
+    ),
+    check(
+      "provider_sign_ins_message",
+      sql`(${t.phase} = 'failed' and ${t.message} is not null and length(${t.message}) > 0) or (${t.phase} <> 'failed' and ${t.message} is null)`,
+    ),
+  ],
 );
 
 export const projects = pgTable(
@@ -263,6 +374,7 @@ export const projects = pgTable(
 );
 
 export const sessions = pgTable("sessions", {
+  executionSelection: jsonb("execution_selection").$type<ExecutionSelection>(),
   id: uuid("id").primaryKey().defaultRandom(),
   projectId: uuid("project_id")
     .notNull()
@@ -423,6 +535,8 @@ export const turnRequests = pgTable(
     sessionId: uuid("session_id")
       .notNull()
       .references(() => sessions.id, { onDelete: "cascade" }),
+    /** The database derives this from session_id before checking the non-null constraint. */
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -431,15 +545,7 @@ export const turnRequests = pgTable(
     /** The prompt. Null for `resume`, which asks for no new work. */
     message: text("message"),
     attachments: jsonb("attachments").$type<MediaAttachment[]>(),
-    /** Resolved at admission: which models somebody may name is a fact about who is asking. */
-    model: text("model").notNull(),
-    /**
-     * Whether the asker's own account pays.
-     *
-     * **Never a key.** The worker re-opens the caller's stored credential by `user_id`, so
-     * plaintext credentials never touch this table, a query log, or a backup.
-     */
-    billsToUser: boolean("bills_to_user").notNull().default(false),
+    target: jsonb("target").$type<ExecutionTarget>().notNull(),
     cancelRequested: boolean("cancel_requested").notNull().default(false),
     /** Which worker process holds the lease. Every renewal is conditional on it. */
     leaseOwner: text("lease_owner"),
@@ -454,6 +560,10 @@ export const turnRequests = pgTable(
     uniqueIndex("turn_requests_one_leased_per_session")
       .on(t.sessionId)
       .where(sql`${t.state} = 'leased'`),
+    check("turn_requests_project_required", sql`${t.projectId} is not null`),
+    uniqueIndex("turn_requests_one_leased_per_project")
+      .on(t.projectId)
+      .where(sql`${t.state} = 'leased'`),
     // The claim's exact shape: oldest queued row first. Partial, so the index stays the size of
     // the backlog rather than of every turn this deployment has ever run.
     index("turn_requests_queued").on(t.createdAt).where(sql`${t.state} = 'queued'`),
@@ -467,6 +577,69 @@ export const turnRequests = pgTable(
     index("turn_requests_unannounced_orphans")
       .on(t.leaseExpiresAt)
       .where(sql`${t.state} = 'orphaned' and ${t.finishedAt} is null`),
+  ],
+);
+
+/** No ownership FK: deleting an account must not erase an unresolved physical-process fence. */
+export const nativeRuns = pgTable(
+  "native_runs",
+  {
+    id: uuid("id").primaryKey(),
+    requestId: uuid("request_id").notNull(),
+    turnId: uuid("turn_id").notNull(),
+    projectId: uuid("project_id").notNull(),
+    accountId: uuid("account_id").notNull(),
+    workerId: text("worker_id").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    binding: jsonb("binding").$type<NativeRunBinding>().notNull(),
+    phase: text("phase").$type<"intent" | "start_uncertain" | "started" | "stopped">().notNull(),
+    cursor: integer("cursor").notNull().default(0),
+    deliveryBytes: integer("delivery_bytes").notNull().default(0),
+    nativeSessionId: text("native_session_id"),
+    receipt: jsonb("receipt").$type<SealedProviderCredentials>(),
+    proof: jsonb("proof").$type<ProcessExit>(),
+    createdAt,
+  },
+  (t) => [
+    uniqueIndex("native_runs_one_active_project")
+      .on(t.projectId)
+      .where(sql`${t.phase} <> 'stopped'`),
+    uniqueIndex("native_runs_one_active_account")
+      .on(t.accountId)
+      .where(sql`${t.phase} <> 'stopped'`),
+    unique("native_runs_one_intent_per_turn").on(t.turnId),
+    check("native_runs_cursor", sql`${t.cursor} >= 0`),
+    check(
+      "native_runs_delivery_bytes",
+      sql`${t.deliveryBytes} >= 0 and ${t.deliveryBytes} <= 67108864`,
+    ),
+    check(
+      "native_runs_phase",
+      sql`${t.phase} in ('intent', 'start_uncertain', 'started', 'stopped')`,
+    ),
+    check(
+      "native_runs_state",
+      sql`(${t.phase} in ('intent', 'start_uncertain') and ${t.receipt} is null and ${t.nativeSessionId} is null and ${t.proof} is null) or (${t.phase} = 'started' and ${t.receipt} is not null and ${t.nativeSessionId} is not null and ${t.proof} is null) or (${t.phase} = 'stopped' and ${t.proof} is not null)`,
+    ),
+  ],
+);
+
+export const nativeDeliveries = pgTable(
+  "native_deliveries",
+  {
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => nativeRuns.id, { onDelete: "cascade" }),
+    sequence: integer("sequence").notNull(),
+    rawHash: text("raw_hash").notNull(),
+    raw: jsonb("raw").$type<SealedProviderCredentials>().notNull(),
+    eventHash: text("event_hash").notNull(),
+    eventSequences: jsonb("event_sequences").$type<number[]>().notNull(),
+    createdAt,
+  },
+  (t) => [
+    primaryKey({ columns: [t.runId, t.sequence] }),
+    check("native_deliveries_sequence", sql`${t.sequence} > 0`),
   ],
 );
 

@@ -26,6 +26,15 @@ const COMPLETED = {
   commitSha: null,
 };
 
+it("publishes a native event already committed with its delivery cursor without appending it twice", async () => {
+  const f = recording();
+  const event = await f.store.append(pending("agent.message", { text: "Native output" }));
+  f.sink.publishStored(event);
+  await f.sink.drain();
+  expect(f.calls).toEqual(["publish:agent.message"]);
+  expect(await f.store.readFrom(SESSION_ID, 0)).toEqual([event]);
+});
+
 function pending(type: PendingEvent["type"], payload: object = {}): PendingEvent {
   return {
     type,

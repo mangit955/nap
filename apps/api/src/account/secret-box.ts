@@ -2,10 +2,11 @@
  * Sealing somebody else's API key so this deployment can spend it without ever storing it.
  *
  * AES-256-GCM, which is authenticated: opening a value that has been altered — a byte flipped
- * in a backup, a row edited by hand, a ciphertext moved from one user to another — *fails*
+ * in a backup, a row edited by hand — *fails*
  * rather than returning plausible garbage that would then be sent to a vendor as a key. That
  * property is the whole reason for GCM over a bare cipher, and it is what the wrong-key test
- * pins.
+ * pins. This opaque envelope alone does not bind a value to its owner; provider state adds
+ * and verifies its scope inside the authenticated plaintext.
  *
  * **A fresh IV per seal, never reused.** Reusing one under the same key is the failure mode
  * GCM has no tolerance for: two messages under one nonce leak their xor and, worse, let an

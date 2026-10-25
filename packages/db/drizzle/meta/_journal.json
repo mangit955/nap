@@ -99,6 +99,62 @@
       "when": 1792746161746,
       "tag": "0013_provider_accounts",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1792821027611,
+      "tag": "0014_provider_credentials",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1792821202848,
+      "tag": "0015_execution_targets",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1792828513907,
+      "tag": "0016_provider_sign_in_attempts",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1792834173891,
+      "tag": "0017_managed_provider_refresh",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1792837207314,
+      "tag": "0018_session_execution_selection",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1792843409441,
+      "tag": "0019_native_execution_journal",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1792844025853,
+      "tag": "0020_project_turn_exclusion",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1792858492477,
+      "tag": "0021_provider_sign_in_process_state",
+      "breakpoints": true
     }
   ]
 }

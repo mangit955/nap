@@ -81,7 +81,19 @@ export const GUARDED_ROUTES: GuardedRoute[] = [
     body: { apiKey: "sk-or-v1-0123456789abcdef0123" },
   },
   { method: "DELETE", path: "/account/api-key", examplePath: "/account/api-key" },
+  {
+    method: "GET",
+    path: "/sessions/:sessionId/execution",
+    examplePath: `/sessions/${SESSION}/execution`,
+  },
+  {
+    method: "PATCH",
+    path: "/sessions/:sessionId/execution",
+    examplePath: `/sessions/${SESSION}/execution`,
+    body: { kind: "api", model: "free" },
+  },
   { method: "GET", path: "/providers", examplePath: "/providers" },
+  { method: "GET", path: "/providers/targets", examplePath: "/providers/targets" },
   {
     method: "POST",
     path: "/providers/accounts",
@@ -103,6 +115,21 @@ export const GUARDED_ROUTES: GuardedRoute[] = [
     method: "POST",
     path: "/providers/accounts/:accountId/sign-in",
     examplePath: `/providers/accounts/${PROVIDER_ACCOUNT}/sign-in`,
+  },
+  {
+    method: "POST",
+    path: "/providers/accounts/:accountId/sign-in/complete",
+    examplePath: `/providers/accounts/${PROVIDER_ACCOUNT}/sign-in/complete`,
+    body: {
+      flowId: "00000000-0000-4000-8000-000000000099",
+      redirect: "https://nap.example/callback?code=fixture",
+    },
+  },
+  {
+    method: "POST",
+    path: "/providers/accounts/:accountId/sign-in/input",
+    examplePath: `/providers/accounts/${PROVIDER_ACCOUNT}/sign-in/input`,
+    body: { flowId: "00000000-0000-4000-8000-000000000099", code: "fixture-only" },
   },
   {
     method: "DELETE",
@@ -228,6 +255,11 @@ export function fullyWiredDeps(seeded?: SeededSandbox): Omit<AppDeps, "logger"> 
   ]);
 
   return {
+    execution: {
+      selections: sessions,
+      allowedModels: ["free"],
+      webOrigin: "http://localhost:3000",
+    },
     stream: {
       store: new InMemoryEventStore(),
       bus: new InMemoryEventBus(),

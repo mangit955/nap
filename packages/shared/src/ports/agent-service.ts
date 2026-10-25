@@ -1,3 +1,4 @@
+import type { ExecutionTarget, SubscriptionTarget } from "../execution-target.ts";
 /**
  * Drives the model loop for exactly one turn.
  *
@@ -10,12 +11,18 @@
  */
 
 import type { PromptSource } from "../events.ts";
+import type { MediaAttachment } from "../media.ts";
 import type { BuiltContext } from "./context-engine.ts";
-import type { PendingEvent } from "./event-store.ts";
+import type { PendingEvent, StoredEvent } from "./event-store.ts";
 import type { ModelCredentials } from "./llm-provider.ts";
 import type { SandboxManager } from "./sandbox-manager.ts";
 
-export type AgentTurnRequest = {
+export type ApiAgentTurnRequest = {
+  kind?: "api";
+  /** A subscription target is handled only by a native AgentService. */
+  target?: Extract<ExecutionTarget, { kind: "api" }> | undefined;
+  /** Ownership resolved from the session, never from provider output. */
+  userId?: string | undefined;
   compactContext?: import("../compaction.ts").CompactContext;
   operation?: "compact";
   sessionId: string;
@@ -65,6 +72,29 @@ export type AgentTurnRequest = {
   finalize?: () => Promise<{ commitSha: string | null }>;
 };
 
+export type NativePromptInput = {
+  trustedInstructions: string;
+  prompt: string;
+  attachments?: readonly MediaAttachment[] | undefined;
+};
+export type NativeExecutionLease = { requestId: string; workerId: string };
+export type NativeAgentTurnRequest = Omit<
+  ApiAgentTurnRequest,
+  "kind" | "target" | "context" | "credentials" | "compactContext" | "userId"
+> & {
+  kind: "native";
+  target: SubscriptionTarget;
+  userId: string;
+  projectId: string;
+  input: NativePromptInput;
+  lease: NativeExecutionLease | null;
+  /** Native delivery has already appended atomically with its cursor. Publish without re-append. */
+  onStoredEvent: (event: StoredEvent) => void;
+  drain: () => Promise<void>;
+};
+export type AgentTurnRequest = ApiAgentTurnRequest | NativeAgentTurnRequest;
+export type AgentRunResult = void | { kind: "workspace_fenced" };
+
 export interface AgentService {
-  runTurn(request: AgentTurnRequest): Promise<void>;
+  runTurn(request: AgentTurnRequest): Promise<AgentRunResult>;
 }

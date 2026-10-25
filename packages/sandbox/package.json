@@ -8,7 +8,10 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "template:build": "bun run scripts/build-template.ts"
+    "template:build": "bun run scripts/build-template.ts",
+    "native-host:build": "bun build src/native-process-host.ts --target=node --outfile=dist/native-process-host.mjs",
+    "native-host:smoke": "bun run native-host:build && bun run scripts/native-process-smoke.ts",
+    "native-host:probe": "bun run native-host:build && bun run scripts/native-process-e2b-probe.ts"
   },
   "dependencies": {
     "@nap/shared": "workspace:*",

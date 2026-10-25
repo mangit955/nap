@@ -113,11 +113,11 @@ It shares that request's lease, not its identity. See `docs/adr/0009` and `docs/
 activity; it does not grant permission to execute. A historical turn can remain unended in the
 log while its request is no longer active. See `docs/adr/0017`.
 
-**Lease** — a worker's time-bounded, exclusive claim on a session, and what took over from the
+**Lease** — a worker's time-bounded, exclusive claim on a project through a session, and what took over from the
 in-process `SessionQueue` as the thing that makes a session's turns serial. The `SessionQueue` is
 still there and is now a *second, in-process line* rather than the only rope: it serialises two
 turns that happen to land in one process, and it could never have serialised two processes. Held by
-at most one worker per session cluster-wide, enforced by the partial unique index `unique (session_id) where state = 'leased'` rather than by application logic — two callers in
+at most one worker per project cluster-wide, including sibling sessions, enforced by partial unique indexes over leased session and project IDs rather than by application logic — two callers in
 two processes cannot agree about anything a database is not adjudicating. Renewed on a timer, and
 **renewal is conditional on the request id, the owner and the state**: renewing is how a worker asks
 whether it is still allowed to run, and zero rows back means the lease is gone and the turn must be
@@ -144,8 +144,8 @@ connection of its own; a process that does not hold it does nothing that tick. I
 seconds of a rolling update when two reapers are running, and it guards those two sweeps alone —
 the **janitor** beside them is safe to run twice over and deliberately unguarded.
 
-**Busy** — whether any of a project's sessions holds a *lease* right now. One question with one
-answer for the whole cluster (`TurnQueue.anyLeased`), asked by closing a project, deleting one, and
+**Busy** — whether a project has a leased request or an unresolved native execution fence. One
+answer for the whole cluster (`TurnQueue.isBusy`), asked by closing a project, deleting one, and
 the idle sweep. It is a **filter, not a lock**: it describes the instant it was asked, and a turn
 starting immediately afterwards loses its sandbox and is restored from the snapshot the sweep just
 took. Holding a lock across a teardown instead would let a wedged sweep block turns.
@@ -232,11 +232,31 @@ one Nap owner who connected it; what the UI calls a **GitHub connection**. It st
 owner across a disconnect. Only GitHub answering 404 for it marks it *removed*; a rate limit or an
 outage changes nothing stored. See `docs/github-integration.md` and `docs/adr/0016`.
 
+**Execution selection** — the API model or subscription account/model a user chooses for a
+conversation. It is a preference, not authorization. It may remain stored while the account is
+disabled, disconnected or deleted, so the app cannot silently switch that conversation to API
+billing. Actual admission resolves the selection against current ownership and authorization.
+
+**Execution target** — the immutable routing decision admitted for a request. API targets pin
+model and payer; subscription targets pin provider, account, model and authorization generation.
+The queue and the job's durable start retain it, including across verification repairs and reopen.
+
 **Provider account** — one Claude or ChatGPT subscription a Nap owner connected, so turns can run
 on the plan they already pay for; what the Providers settings page lists. A person may hold several
-of one provider ("Personal", "Work"). The provider's own agent keeps its login — Nap stores no
-credential for it, only what the provider last reported about who is signed in. Not the
+of one provider ("Personal", "Work"). Public account metadata reports the identity verified by
+the provider. Private authorization stores sealed credentials separately, with a generation that
+changes at login, logout and disable, and a version that changes at refresh. Those revisions fence
+stale writes. A managed refresh claim has one owner, blocks other credential readers, and requires
+reconnection after an ambiguous or expired exchange. It cannot recover a lost provider-side token
+rotation, and does not fence native CLI credential mutation. Not the
 `LLMProvider`, which is model policy, and not an API key, which pays per token.
+
+**Provider sign-in attempt** — one interactive authentication exchange for a **Provider account**,
+bound to the authenticated Nap browser session that started it. Its callback can be claimed once;
+the winning worker receives a private completion capability. Expiry, cancellation or a changed
+account generation prevents a late completion. This temporary exchange is separate from the
+account's stored authorization and from a conversation **Session**. See
+[subscription execution](docs/subscription-runtime.md).
 
 **Repository job** — the GitHub side of a **Job** in an imported project: its `nap/<job-id>` branch,
 base and head commits, the commit it pushed, and its pull request. A row in `repository_jobs`, keyed

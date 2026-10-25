@@ -382,7 +382,7 @@ describe("adding a provider", () => {
 
 describe("a deployment that cannot sign in yet", () => {
   it("still adds the account, and says why it cannot sign in rather than failing", async () => {
-    const api = fakeProvidersApi({ signInAvailable: false });
+    const api = fakeProvidersApi({ signInDrivers: [] });
     renderPage(api);
 
     fireEvent.click(
@@ -425,7 +425,7 @@ describe("provider runtime copy", () => {
       const runtime = driver === "claude" ? "Claude Code" : "Codex";
       renderPage(
         fakeProvidersApi({
-          signInAvailable: false,
+          signInDrivers: [],
           accounts: [
             {
               ...CLAUDE,
@@ -469,7 +469,7 @@ describe("provider runtime copy", () => {
   it.each([false, true])(
     "describes the wizard runtime without claiming execution when sign-in availability is %s",
     async (signInAvailable) => {
-      renderPage(fakeProvidersApi({ signInAvailable }));
+      renderPage(fakeProvidersApi({ signInDrivers: signInAvailable ? ["claude", "codex"] : [] }));
       fireEvent.click(
         within(await screen.findByRole("navigation", { name: "Providers" })).getByRole("button", {
           name: "Add provider",
@@ -491,4 +491,51 @@ describe("provider runtime copy", () => {
       ).toBeInTheDocument();
     },
   );
+});
+
+it("keeps an unavailable provider disabled while another provider can sign in", async () => {
+  renderPage(
+    fakeProvidersApi({
+      signInDrivers: ["claude"],
+      accounts: [
+        {
+          ...CLAUDE,
+          driver: "codex",
+          auth: { status: "unauthenticated", email: null, plan: null },
+        },
+      ],
+    }),
+  );
+  expect(await screen.findByRole("button", { name: "Continue with ChatGPT" })).toBeDisabled();
+});
+
+it("hands a browser callback back to its account without placing it in a navigation URL", async () => {
+  const account: ProviderAccountView = {
+    ...CLAUDE,
+    driver: "codex",
+    auth: { status: "unauthenticated", email: null, plan: null },
+    signIn: {
+      flowId: "00000000-0000-4000-8000-000000000099",
+      phase: "waiting",
+      interaction: { type: "browser", url: "https://provider.example/authorize?state=bound" },
+      message: null,
+    },
+  };
+  const api = fakeProvidersApi({ accounts: [account] });
+  renderPage(api);
+  const field = await screen.findByLabelText("Sign-in callback URL");
+  const redirect = "https://nap.example/callback?code=private-one-use&state=bound";
+  fireEvent.change(field, { target: { value: redirect } });
+  fireEvent.click(screen.getByRole("button", { name: "Complete sign-in" }));
+  await waitFor(() =>
+    expect(api.requests).toContainEqual({
+      method: "POST",
+      path: `/providers/accounts/${account.id}/sign-in/complete`,
+      body: { flowId: account.signIn?.flowId, redirect },
+    }),
+  );
+  await waitFor(() =>
+    expect(screen.queryByLabelText("Sign-in callback URL")).not.toBeInTheDocument(),
+  );
+  expect(window.location.href).not.toContain("private-one-use");
 });

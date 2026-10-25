@@ -1,7 +1,7 @@
 "use client";
 import { Check, Copy, FileCode2, WrapText } from "lucide-react";
 import dynamic from "next/dynamic";
-import { useEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { type FetchJson, useFileContent } from "../files/use-project-files.ts";
 import type { SessionLog } from "../hooks/use-session-log.ts";
 
@@ -29,7 +29,8 @@ export function FilePanel({
   const [wrap, setWrap] = useState(false);
   const [copy, setCopy] = useState<"idle" | "copied" | "failed">("idle");
   const copyGeneration = useRef(0);
-  useEffect(() => {
+  // Reset before the enabled Copy button can receive an event for these contents.
+  useLayoutEffect(() => {
     void sessionId;
     void path;
     void file?.contents;

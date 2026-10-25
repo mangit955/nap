@@ -49,8 +49,7 @@ async function enqueue(sessionId = SESSION, kind: "turn" | "resume" | "publish" 
     userId: "user-1",
     kind,
     message: kind === "turn" ? "build me a thing" : null,
-    model: "openai/gpt-5-mini",
-    billsToUser: false,
+    target: { kind: "api", model: "openai/gpt-5-mini", billsToUser: false },
   });
 }
 
@@ -281,7 +280,7 @@ describe("when the announcement does not get through", () => {
       renew: (requestId, owner) => queue.renew(requestId, owner),
       settle: (requestId, owner, state) => queue.settle(requestId, owner, state),
       requestCancel: (sessionId) => queue.requestCancel(sessionId),
-      anyLeased: (sessionIds) => queue.anyLeased(sessionIds),
+      isBusy: (sessionIds) => queue.isBusy(sessionIds),
     };
 
     const result = await sweepOrphanedRequests({
@@ -307,7 +306,7 @@ describe("when the announcement does not get through", () => {
       renew: (requestId, owner) => queue.renew(requestId, owner),
       settle: (requestId, owner, state) => queue.settle(requestId, owner, state),
       requestCancel: (sessionId) => queue.requestCancel(sessionId),
-      anyLeased: (sessionIds) => queue.anyLeased(sessionIds),
+      isBusy: (sessionIds) => queue.isBusy(sessionIds),
       markOrphanAnnounced: (requestId) => queue.markOrphanAnnounced(requestId),
     };
 

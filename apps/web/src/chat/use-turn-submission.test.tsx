@@ -61,6 +61,19 @@ function submission(fetchJson = poster().fetchJson) {
 }
 
 describe("the optimistic message", () => {
+  it("sends an explicit subscription choice without a legacy model or billing claim", async () => {
+    const endpoint = poster();
+    const { result } = submission(endpoint.fetchJson);
+    const choice = {
+      kind: "subscription" as const,
+      accountId: "d939aa6e-dc6d-4770-aab6-aa5249cb98ee",
+      model: "native-model",
+    };
+    await act(async () => {
+      expect(await result.current.submit("Update the page", choice)).toBe(true);
+    });
+    expect(endpoint.bodies[0]).toEqual({ message: "Update the page", selection: choice });
+  });
   it("keeps a repeated attachment-only turn pending until its own durable message arrives", async () => {
     const text = "Use these references for the app.";
     const first: MediaAttachment = {

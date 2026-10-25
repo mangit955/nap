@@ -12,6 +12,7 @@
 
 import { ApiErrorSchema } from "@nap/shared/api-error";
 import {
+  type CompleteProviderSignIn,
   type CreateProviderAccount,
   type ProviderAccounts,
   ProviderAccountsSchema,
@@ -19,6 +20,7 @@ import {
   ProviderAccountViewSchema,
   type UpdateProviderAccount,
 } from "@nap/shared/provider-accounts-protocol";
+import type { SubmitProviderCode } from "@nap/shared/provider-auth-input-protocol";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import { credentialedFetch } from "../api/credentialed-fetch.ts";
@@ -180,6 +182,16 @@ export function useProviderAccounts({
       [fetchJson, baseUrl],
     ),
     startSignIn: useCallback((id: string) => change(`/${id}/sign-in`, json("POST")), [change]),
+    completeSignIn: useCallback(
+      (id: string, input: CompleteProviderSignIn) =>
+        change(`/${id}/sign-in/complete`, json("POST", input)),
+      [change],
+    ),
+    submitSignInCode: useCallback(
+      (id: string, input: SubmitProviderCode) =>
+        change(`/${id}/sign-in/input`, json("POST", input)),
+      [change],
+    ),
     cancelSignIn: useCallback((id: string) => change(`/${id}/sign-in`, json("DELETE")), [change]),
     signOut: useCallback((id: string) => change(`/${id}/sign-out`, json("POST")), [change]),
   };

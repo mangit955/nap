@@ -65,6 +65,9 @@ const fetchJson = async (url: string, init?: RequestInit): Promise<Response> => 
     new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
   if (url.endsWith("/models")) return json(MODELS);
+  if (url.endsWith("/execution"))
+    return json({ selection: init?.method === "PATCH" ? JSON.parse(String(init.body)) : null });
+  if (url.endsWith("/providers/targets")) return json({ accounts: [] });
   if (url.includes("/account/api-key")) return json({ present: false });
   if (url.includes("/turns")) {
     if (init?.method !== "POST") return json({ id: url.split("/").at(-1), state: "queued" });
@@ -102,6 +105,52 @@ beforeEach(() => {
 });
 
 describe("LiveChatPane", () => {
+  it("restores and sends the selected subscription, while keeping API credentials out of the request", async () => {
+    const selection = {
+      kind: "subscription",
+      accountId: "d939aa6e-dc6d-4770-aab6-aa5249cb98ee",
+      model: "native-model",
+    };
+    let posted: unknown;
+    render(
+      <LiveChatPane
+        sessionId={SESSION_ID}
+        log={failedTurn()}
+        fetchJson={async (url, init) => {
+          if (url.endsWith("/execution")) return Response.json({ selection });
+          if (url.endsWith("/providers/targets"))
+            return Response.json({
+              accounts: [
+                {
+                  account: {
+                    id: selection.accountId,
+                    driver: "claude",
+                    label: "Work",
+                    enabled: true,
+                    auth: { status: "authenticated", email: null, plan: null },
+                    createdAt: "2026-10-24T00:00:00.000Z",
+                  },
+                  models: [{ id: selection.model, label: "Native Claude", supportsImages: true }],
+                  availability: "ready",
+                },
+              ],
+            });
+          if (url.endsWith("/turns") && init?.method === "POST")
+            posted = JSON.parse(String(init.body));
+          return fetchJson(url, init);
+        }}
+      />,
+    );
+    await screen.findByRole("combobox", { name: "Account and model" });
+    expect(screen.getByRole("combobox")).toHaveDisplayValue(
+      `Work · ${selection.accountId} · Native Claude`,
+    );
+    fireEvent.change(screen.getByRole("textbox", { name: "Message" }), {
+      target: { value: "Add a footer" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(posted).toEqual({ message: "Add a footer", selection }));
+  });
   it("enables the composer and Context after reloading a recovered verification child", async () => {
     const request = "00000000-0000-4000-8000-000000000002";
     const repair = "00000000-0000-4000-8000-000000000003";
@@ -472,6 +521,9 @@ describe("LiveChatPane", () => {
       />,
     );
 
+    await waitFor(() =>
+      expect(screen.queryByRole("status", { name: "Execution selection" })).not.toBeInTheDocument(),
+    );
     fireEvent.click(screen.getByRole("button", { name: /try again/i }));
     await act(async () => {});
     expect(posted).toEqual([{ message: "Match this flow", attachments }]);
@@ -481,6 +533,9 @@ describe("LiveChatPane", () => {
   it("sends a failed turn's message again when the retry is pressed", async () => {
     render(<LiveChatPane sessionId={SESSION_ID} log={failedTurn()} fetchJson={fetchJson} />);
 
+    await waitFor(() =>
+      expect(screen.queryByRole("status", { name: "Execution selection" })).not.toBeInTheDocument(),
+    );
     fireEvent.click(screen.getByRole("button", { name: /try again/i }));
 
     // Through the submission hook, not some second path: a retry is an ordinary turn and has to

@@ -24,7 +24,11 @@ import { estimateContextTokens } from "@nap/shared/compaction";
  */
 
 import type { NapEvent, NapEventOf, TurnFailureReason } from "@nap/shared/events";
-import type { AgentService, AgentTurnRequest } from "@nap/shared/ports/agent-service";
+import type {
+  AgentService,
+  AgentTurnRequest,
+  ApiAgentTurnRequest,
+} from "@nap/shared/ports/agent-service";
 import type { PendingEvent } from "@nap/shared/ports/event-store";
 import type {
   LLMContentBlock,
@@ -67,6 +71,28 @@ export class NapAgentService implements AgentService {
   }
 
   async runTurn(request: AgentTurnRequest): Promise<void> {
+    if (request.kind === "native") {
+      const envelope = {
+        sessionId: request.sessionId,
+        turnId: request.turnId,
+        createdAt: this.#now(),
+      };
+      request.onEvent({
+        ...envelope,
+        type: "turn.started",
+        payload: { source: request.promptSource ?? "user" },
+      });
+      request.onEvent({
+        ...envelope,
+        type: "turn.failed",
+        payload: {
+          reason: "model_unavailable",
+          message: "This subscription requires a native agent runtime. No API request was made.",
+        },
+      });
+      return;
+    }
+    if (request.target !== undefined) request = { ...request, model: request.target.model };
     await new Turn(request, this.#provider, this.#budget, this.#now, this.#clock).run();
   }
 }
@@ -79,7 +105,7 @@ export class NapAgentService implements AgentService {
  * service would let them corrupt each other silently.
  */
 class Turn {
-  readonly #request: AgentTurnRequest;
+  readonly #request: ApiAgentTurnRequest;
   readonly #turn: LLMTurn;
   readonly #budget: TurnBudget;
   readonly #now: () => string;
@@ -94,7 +120,7 @@ class Turn {
   #usageIncomplete = false;
 
   constructor(
-    request: AgentTurnRequest,
+    request: ApiAgentTurnRequest,
     provider: LLMProvider,
     budget: TurnBudgetOptions,
     now: () => string,

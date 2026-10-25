@@ -285,6 +285,7 @@ export async function bootNap(role: NapRole): Promise<NapProcess> {
   });
 
   const githubConfig = githubConfigFromEnv(env);
+  const sessionStore = new PostgresSessionStore(db);
   const composed = composeNap({
     github: {
       store: new PostgresGitHubStore(db),
@@ -293,7 +294,8 @@ export async function bootNap(role: NapRole): Promise<NapProcess> {
     config: env,
     role,
     logger,
-    sessions: new PostgresSessionStore(db),
+    sessions: sessionStore,
+    executionSelections: sessionStore,
     projects: new PostgresProjectStore(db),
     projectSandboxes: new PostgresProjectSandboxStore(db),
     // The ceiling that bounds this deployment's E2B bill, held in rows rather than in this

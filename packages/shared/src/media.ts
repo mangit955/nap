@@ -43,7 +43,9 @@ export const MediaAttachmentsSchema = z
 
 export type MediaAttachment = z.infer<typeof MediaAttachmentSchema>;
 
-export function mediaBlocks(attachments: readonly MediaAttachment[]): LLMContentBlock[] {
+export function mediaBlocks(
+  attachments: readonly MediaAttachment[],
+): Extract<LLMContentBlock, { type: "text" | "image" }>[] {
   return attachments.flatMap((attachment) => [
     {
       type: "text",
@@ -52,11 +54,13 @@ export function mediaBlocks(attachments: readonly MediaAttachment[]): LLMContent
           ? `Video reference: ${attachment.name}, ${attachment.duration.toFixed(1)} seconds. Sampled frames follow; audio is not included.`
           : `Image reference: ${attachment.name}`,
     },
-    ...attachment.frames.flatMap((frame): LLMContentBlock[] => [
-      ...(attachment.kind === "video"
-        ? [{ type: "text" as const, text: `Frame at ${frame.timestamp.toFixed(1)}s` }]
-        : []),
-      { type: "image", mediaType: frame.mediaType, data: frame.data },
-    ]),
+    ...attachment.frames.flatMap(
+      (frame): Extract<LLMContentBlock, { type: "text" | "image" }>[] => [
+        ...(attachment.kind === "video"
+          ? [{ type: "text" as const, text: `Frame at ${frame.timestamp.toFixed(1)}s` }]
+          : []),
+        { type: "image", mediaType: frame.mediaType, data: frame.data },
+      ],
+    ),
   ]);
 }

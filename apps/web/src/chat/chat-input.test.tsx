@@ -20,6 +20,16 @@ function show(props: Partial<Parameters<typeof ChatInput>[0]> = {}) {
 
 const box = () => screen.getByRole("textbox", { name: /message/i });
 
+it("keeps the draft when account selection blocks sending by button or Enter", () => {
+  const onSubmit = vi.fn();
+  show({ executionBlocked: true, onSubmit });
+  fireEvent.change(box(), { target: { value: "Keep this draft" } });
+  expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+  fireEvent.keyDown(box(), { key: "Enter" });
+  expect(onSubmit).not.toHaveBeenCalled();
+  expect(box()).toHaveValue("Keep this draft");
+});
+
 function type(text: string) {
   fireEvent.change(box(), { target: { value: text } });
 }

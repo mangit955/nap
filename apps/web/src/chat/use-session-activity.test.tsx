@@ -81,8 +81,7 @@ it.each(cases)("reconciles already-announced legacy repair activity: %s", async 
     userId: "owner",
     kind: "turn",
     message: "Build the dashboard",
-    model: "fixture/free",
-    billsToUser: false,
+    target: { kind: "api", model: "fixture/free", billsToUser: false },
   });
   expect((await queue.claim("old-worker"))?.id).toBe(REQUEST);
   const prefix: PendingEvent[] = [
@@ -128,8 +127,7 @@ it.each(cases)("reconciles already-announced legacy repair activity: %s", async 
       userId: "owner",
       kind: isUser ? "turn" : "resume",
       message: isUser ? "Add a footer" : null,
-      model: "fixture/free",
-      billsToUser: false,
+      target: { kind: "api", model: "fixture/free", billsToUser: false },
     });
     expect((await queue.claim("new-worker"))?.id).toBe(NEXT);
     const current = {
@@ -185,7 +183,7 @@ it.each(cases)("reconciles already-announced legacy repair activity: %s", async 
   expect(await events.readFrom(SESSION, 0)).toEqual(before);
   expect(await queue.unannouncedOrphans()).toEqual([]);
   const active = scenario === "later-resume-active";
-  expect(await queue.anyLeased([SESSION])).toBe(active);
+  expect(await queue.isBusy([SESSION])).toBe(active);
   const app = api(queue, events);
   const hook = renderHook(() =>
     useTurnSubmission({
@@ -270,8 +268,7 @@ it.each(newerWorkCases)(
       userId: FAKE_OWNER,
       kind: kind.includes("resume") ? "resume" : "turn",
       message: kind.includes("resume") ? null : kind === "manual" ? "/compact" : "New work",
-      model: "fixture/free",
-      billsToUser: false,
+      target: { kind: "api", model: "fixture/free", billsToUser: false },
     });
     await refresh();
     expect(hook.result.current.running).toBe(true);
@@ -383,8 +380,7 @@ it("does not apply an old idle response to newer observed work beyond its covere
     userId: FAKE_OWNER,
     kind: "resume",
     message: null,
-    model: "fixture/free",
-    billsToUser: false,
+    target: { kind: "api", model: "fixture/free", billsToUser: false },
   });
   await queue.claim("new-worker");
   const current = { sessionId: SESSION, turnId: CHILD, createdAt: "2026-10-19T00:02:00.000Z" };
@@ -485,8 +481,7 @@ it("keeps an active unannotated legacy repair visible on fresh mount", async () 
     userId: FAKE_OWNER,
     kind: "resume",
     message: null,
-    model: "fixture/free",
-    billsToUser: false,
+    target: { kind: "api", model: "fixture/free", billsToUser: false },
   });
   await queue.claim("legacy-worker");
   const app = api(queue, store);
@@ -545,8 +540,7 @@ it("refreshes eventless queue activity on reconnect and discards the interrupted
     userId: FAKE_OWNER,
     kind: "resume",
     message: null,
-    model: "fixture/free",
-    billsToUser: false,
+    target: { kind: "api", model: "fixture/free", billsToUser: false },
   });
   hook.rerender("open");
   await refresh();

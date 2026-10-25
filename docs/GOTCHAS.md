@@ -148,6 +148,8 @@ read the section covering whatever you are about to touch, not the whole file.
 
 ## API, auth and logging
 
+- **Provider callback locks must follow deletion ancestry.** Locking a provider account before its Nap session deadlocks against a user deletion that holds the session and then cascades to that account. The real Postgres wait-graph test in `provider-sign-in-store.db.test.ts` reproduces it. Sign-in operations lock user, auth session, provider account, then attempt. See [subscription execution](subscription-runtime.md) for the callback and credential boundaries.
+
 - **An unowned legacy repair can remain open in the log after its request ended.** Do not guess ownership from text, time, job or proximity, and do not reset all activity when an unrelated terminal arrives. The ownership-checked activity endpoint reads an event prefix before queue state; its idle result retires only that covered prefix for controls and the clock. A stale response must not settle a newer local request or suppress later events. Old browser sockets receive prompts without the optional repair metadata unless they opt in. See [ADR-0017](adr/0017-repair-prompts-record-request-ownership.md).
 
 - **A queued cancellation can have no transcript event.** Correlate a pending prompt with the admitted request ID and its ownership-scoped queue status. Another turn's failure, identical prompt text and a late cancel response cannot identify that request. See [compaction integration](compaction.md) for receipt and rollout details.

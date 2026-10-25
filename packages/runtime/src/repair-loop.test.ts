@@ -13,6 +13,7 @@
  * this package writes, and that is `repair-prompt.test.ts`'s.
  */
 
+import { NativeAgentService } from "@nap/agent/native-agent-service";
 import { type AgentScript, completedTurn, ScriptedAgent } from "@nap/agent/testing/scripted-agent";
 import { NoopMemoryProvider } from "@nap/context/noop-memory-provider";
 import { StubContextEngine } from "@nap/context/testing/stub-context-engine";
@@ -26,7 +27,7 @@ import type { NapEventType, PromptSource } from "@nap/shared/events";
 import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
 import { foldJobs, MAX_REPAIR_ATTEMPTS } from "@nap/shared/job-state";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SingleAgentRuntime } from "./single-agent-runtime.ts";
 
 const SESSION_ID = "2a3f8a24-6c1b-4e0e-9b6f-3a5c0a1d9e77";
@@ -84,7 +85,12 @@ function redUntil(attempt: number): void {
  */
 const REQUEST_TURN_ID = "c0ffee00-1111-4222-8333-444455556666";
 
-function run(options: { signal?: AbortSignal } = {}) {
+function run(
+  options: {
+    signal?: AbortSignal;
+    target?: import("@nap/shared/execution-target").ExecutionTarget;
+  } = {},
+) {
   return new SingleAgentRuntime({
     sessions,
     sandbox,
@@ -97,6 +103,7 @@ function run(options: { signal?: AbortSignal } = {}) {
     turnId: REQUEST_TURN_ID,
     sessionId: SESSION_ID,
     message: "add a delete button",
+    ...(options.target === undefined ? {} : { target: options.target }),
     ...(options.signal === undefined ? {} : { signal: options.signal }),
   });
 }
@@ -352,4 +359,83 @@ describe("cancelling a job mid-repair", () => {
     expect(outcome).toMatchObject({ ok: false, reason: "cancelled" });
     expect((await jobs()).jobs.at(-1)?.phase).toBe("abandoned");
   });
+});
+
+it("pins a subscription account and generation across every verifier repair", async () => {
+  redUntil(3);
+  const target = {
+    kind: "subscription",
+    driver: "claude",
+    accountId: crypto.randomUUID(),
+    generation: 4,
+    model: "claude-sonnet",
+  } as const;
+  await run({ target });
+  expect(agent.requests).toHaveLength(3);
+  expect(context.requests).toHaveLength(0);
+  for (const request of agent.requests) {
+    expect(request).toMatchObject({ target, model: target.model });
+    expect(request.kind).toBe("native");
+    expect(request).not.toHaveProperty("context");
+    expect(request).not.toHaveProperty("credentials");
+  }
+});
+
+it("never verifies, repairs or finalizes a subscription workspace after losing its termination proof", async () => {
+  const finishJob = vi.fn<
+    import("@nap/shared/ports/repository-workspace").RepositoryWorkspace["finishJob"]
+  >(async () => ({ ok: true, value: undefined }));
+  let atFence = 0;
+  let sandboxId = "";
+  const native = new NativeAgentService({
+    api: agent,
+    executor: {
+      run: async (input) => {
+        sandboxId = input.sandboxId;
+        atFence = sandbox.commands(sandboxId).length;
+        return {
+          kind: "failed",
+          reason: "internal",
+          message: "Unconfirmed stop",
+          quiescence: { kind: "unconfirmed" },
+        };
+      },
+    },
+  });
+  const outcome = await new SingleAgentRuntime({
+    sessions,
+    sandbox,
+    context,
+    agent: native,
+    events,
+    bus: new InMemoryEventBus(),
+    memory: new NoopMemoryProvider(),
+    repository: {
+      source: async () => ({ ok: true, value: null }),
+      prepareJob: async () => ({ ok: true, value: undefined }),
+      finishJob,
+    },
+  }).runTurn({
+    sessionId: SESSION_ID,
+    turnId: REQUEST_TURN_ID,
+    message: "Build the app",
+    nativeLease: { requestId: crypto.randomUUID(), workerId: "worker" },
+    target: {
+      kind: "subscription",
+      driver: "claude",
+      accountId: crypto.randomUUID(),
+      generation: 1,
+      model: "native",
+    },
+  });
+  expect(outcome).toMatchObject({ ok: false, reason: "internal" });
+  expect(sandboxId).not.toBe("");
+  expect(sandbox.commands(sandboxId).slice(atFence)).toEqual([]);
+  expect(context.requests).toHaveLength(0);
+  expect(agent.calls).toBe(0);
+  expect(finishJob).not.toHaveBeenCalled();
+  const types = await loggedTypes();
+  expect(types).not.toContain("turn.completed");
+  expect(types).not.toContain("verification.started");
+  expect((await jobs()).jobs.at(-1)?.phase).toBe("abandoned");
 });

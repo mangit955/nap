@@ -293,8 +293,17 @@ function failed(error: SandboxError): ToolOutcome {
 
 function truncate(output: string): string {
   if (output.length <= MAX_TOOL_OUTPUT) return output;
-  const omitted = output.length - MAX_TOOL_OUTPUT;
-  // Keeping the head rather than the tail: the first error in a build log is the one that
-  // caused the rest.
-  return `${output.slice(0, MAX_TOOL_OUTPUT)}\n… truncated, ${omitted} characters omitted`;
+  // Reserve the suffix inside the total output budget. Recompute its count after reserving
+  // space so the number describes every omitted character, including the suffix's space.
+  let kept = MAX_TOOL_OUTPUT;
+  let suffix = "";
+  do {
+    suffix = `\n… truncated, ${output.length - kept} characters omitted`;
+    kept = Math.min(kept, MAX_TOOL_OUTPUT - suffix.length);
+  } while (
+    kept + `\n… truncated, ${output.length - kept} characters omitted`.length >
+    MAX_TOOL_OUTPUT
+  );
+  suffix = `\n… truncated, ${output.length - kept} characters omitted`;
+  return output.slice(0, kept) + suffix;
 }

@@ -43,6 +43,40 @@ const changed: StoredEvent = {
 };
 
 describe("file clipboard", () => {
+  it("keeps the manual fallback when Copy is clicked as soon as the first file arrives", async () => {
+    clipboard(undefined);
+    let finishRead: (value: Response) => void = () => {};
+    const pendingRead = new Promise<Response>((resolve) => {
+      finishRead = resolve;
+    });
+    render(
+      <FilePanel sessionId={sessionId} path="app.ts" log={log} fetchJson={() => pendingRead} />,
+    );
+    const button = screen.getByRole<HTMLButtonElement>("button", { name: "Copy file" });
+    expect(button).toBeDisabled();
+
+    // Let the file commit outside act, which would flush passive effects and hide this window.
+    // Observe the real commit that enables Copy, then dispatch a native click immediately.
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", false);
+    let observer: MutationObserver | undefined;
+    try {
+      await new Promise<void>((resolve) => {
+        observer = new MutationObserver(() => {
+          if (button.disabled) return;
+          observer?.disconnect();
+          button.click();
+          resolve();
+        });
+        observer.observe(button, { attributes: true, attributeFilter: ["disabled"] });
+        finishRead(response());
+      });
+    } finally {
+      observer?.disconnect();
+      vi.unstubAllGlobals();
+    }
+    await act(async () => {});
+    expect(screen.getByRole("alert")).toHaveTextContent("Select its contents to copy manually");
+  });
   it.each(["unavailable", "throws", "rejects"])(
     "shows the manual fallback when clipboard %s",
     async (mode) => {

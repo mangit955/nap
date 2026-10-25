@@ -1,6 +1,7 @@
+import { ExecutionTargetSchema } from "@nap/shared/execution-target";
 import { MediaAttachmentsSchema } from "@nap/shared/media";
 /**
- * The turn queue in Postgres — one in-flight request per session, cluster-wide.
+ * The turn queue in Postgres — one in-flight request per project, cluster-wide.
  *
  * `SessionQueue` was a `Map` of promises in one process. It stopped a turn and a project-open both
  * creating a sandbox for the same project, and it stopped nothing at all once a second process
@@ -17,11 +18,11 @@ import { MediaAttachmentsSchema } from "@nap/shared/media";
  * update that may violate the index, and a retry can skip past it. The lock and the index behave
  * exactly as the one-statement form's do.
  *
- * A `not exists (… leased on this session …)` filter sits in the candidate query as well. It is
+ * A `not exists (… leased on this project …)` filter sits in the candidate query as well. It is
  * *not* what enforces the rule — it reads committed rows, so two workers racing still both see a
  * free session and one of them still gets `23505`. What it buys is that the ordinary case never
  * reaches the violation at all, so the retry path is for the race rather than for a full queue of
- * requests on one busy session.
+ * requests on one busy project.
  *
  * Everything else here is a single statement, and each is conditional on `lease_owner`. That is
  * the fencing: a worker can outlive its lease through a GC pause or a network blip, and without
@@ -41,7 +42,7 @@ import type {
 } from "@nap/shared/ports/turn-queue";
 import { and, asc, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { turnRequests } from "./schema.ts";
+import { nativeRuns, sessions, turnRequests } from "./schema.ts";
 
 /**
  * How long a claim is good for, as a Postgres interval.
@@ -76,6 +77,7 @@ const UNIQUE_VIOLATION = "23505";
 
 /** The partial unique index that *is* the one-in-flight-per-session rule. */
 const ONE_LEASED_PER_SESSION = "turn_requests_one_leased_per_session";
+const ONE_LEASED_PER_PROJECT = "turn_requests_one_leased_per_project";
 
 /** What a lease occupies. Terminal states hold nothing and are excluded from every predicate. */
 const IN_FLIGHT = ["queued", "leased"] as const;
@@ -98,8 +100,7 @@ export class PostgresTurnQueue implements TurnQueue {
       kind: request.kind,
       message: request.message,
       attachments: request.attachments ?? null,
-      model: request.model,
-      billsToUser: request.billsToUser,
+      target: structuredClone(request.target),
     });
   }
 
@@ -154,7 +155,7 @@ export class PostgresTurnQueue implements TurnQueue {
    * One attempt: hold the oldest claimable row, then lease it.
    *
    * Answers the leased request when it worked, and otherwise the id of a candidate that must be
-   * skipped next time — either because another worker leased its session in the moment between the
+   * skipped next time — either because another worker leased its project in the moment between the
    * two statements (the unique index firing, which is the mechanism working), or because the row
    * left `queued` while this transaction waited on its lock, which is a cancellation arriving in
    * the same instant.
@@ -179,12 +180,17 @@ export class PostgresTurnQueue implements TurnQueue {
               eq(turnRequests.cancelRequested, false),
               exclude.length === 0 ? undefined : notInArray(turnRequests.id, [...exclude]),
               // Reads committed rows, so it does not enforce anything — two workers racing both
-              // see a free session and the index settles it. What it buys is that the ordinary
+              // see a free project and the index settles it. What it buys is that the ordinary
               // case never reaches the violation, so the retry above is for the race rather than
-              // for a queue of requests piled up on one busy session.
+              // for a queue of requests piled up on one busy project.
               sql`not exists (
                 select 1 from ${turnRequests} held
-                where held.session_id = ${turnRequests.sessionId} and held.state = 'leased'
+                where held.project_id = ${turnRequests.projectId} and held.state = 'leased'
+              )`,
+              sql`not exists (
+                select 1 from ${nativeRuns}
+                where ${nativeRuns.projectId} = ${turnRequests.projectId}
+                  and ${nativeRuns.phase} <> 'stopped'
               )`,
             ),
           )
@@ -226,16 +232,15 @@ export class PostgresTurnQueue implements TurnQueue {
           ...(leased.attachments === null
             ? {}
             : { attachments: MediaAttachmentsSchema.parse(leased.attachments) }),
-          model: leased.model,
-          billsToUser: leased.billsToUser,
+          target: ExecutionTargetSchema.parse(leased.target),
         },
         skip: null,
       };
     } catch (error) {
-      // Somebody else leased this session between the candidate query and the update. Any other
+      // Somebody else leased this project between the candidate query and the update. Any other
       // failure is a real one and is rethrown — a unique violation from a different index would be
       // a bug, and swallowing it as "somebody beat me to it" would bury it.
-      if (candidateId === null || !isSessionAlreadyLeased(error)) throw error;
+      if (candidateId === null || !isLeaseConflict(error)) throw error;
       return { leased: null, skip: candidateId };
     }
   }
@@ -284,7 +289,7 @@ export class PostgresTurnQueue implements TurnQueue {
     return rows.length > 0;
   }
 
-  async anyLeased(sessionIds: readonly string[]): Promise<boolean> {
+  async isBusy(sessionIds: readonly string[]): Promise<boolean> {
     // No sessions is not busy, and asking anyway would send an empty array into a `= any` for no
     // reason. A project with nothing under it cannot have a turn running in it.
     if (sessionIds.length === 0) return false;
@@ -296,11 +301,25 @@ export class PostgresTurnQueue implements TurnQueue {
       // lease past its expiry still occupies its session until the janitor closes it out, and a
       // worker that has not yet learned it is a zombie may still be writing.
       .where(
-        and(inArray(turnRequests.sessionId, [...sessionIds]), eq(turnRequests.state, "leased")),
+        and(
+          sql`${turnRequests.projectId} in (select ${sessions.projectId} from ${sessions} where ${inArray(sessions.id, [...sessionIds])})`,
+          eq(turnRequests.state, "leased"),
+        ),
       )
       .limit(1);
 
-    return row !== undefined;
+    if (row !== undefined) return true;
+    const [fence] = await this.#db
+      .select({ id: nativeRuns.id })
+      .from(nativeRuns)
+      .where(
+        and(
+          sql`${nativeRuns.projectId} in (select ${sessions.projectId} from ${sessions} where ${inArray(sessions.id, [...sessionIds])})`,
+          sql`${nativeRuns.phase} <> 'stopped'`,
+        ),
+      )
+      .limit(1);
+    return fence !== undefined;
   }
 
   async requestCancel(sessionId: string): Promise<CancelOutcome> {
@@ -388,7 +407,7 @@ export class PostgresTurnQueue implements TurnQueue {
 }
 
 /**
- * Whether this failure is the partial unique index saying another worker holds the session.
+ * Whether a known lease constraint says another worker holds the project or session.
  *
  * Drizzle wraps whatever the driver raised in a `Failed query: …` error and puts the original on
  * `.cause`, so the chain is walked rather than the top-level error read — the same shape
@@ -396,7 +415,7 @@ export class PostgresTurnQueue implements TurnQueue {
  * SQLSTATE**, so a unique violation from any other index stays an error rather than being
  * mistaken for a lost race and quietly retried.
  */
-function isSessionAlreadyLeased(error: unknown): boolean {
+function isLeaseConflict(error: unknown): boolean {
   let current: unknown = error;
   for (let depth = 0; depth < 8 && current !== null && current !== undefined; depth += 1) {
     if (typeof current !== "object") return false;
@@ -405,7 +424,11 @@ function isSessionAlreadyLeased(error: unknown): boolean {
       code?: unknown;
       constraint_name?: unknown;
     };
-    if (code === UNIQUE_VIOLATION && constraint === ONE_LEASED_PER_SESSION) return true;
+    if (
+      code === UNIQUE_VIOLATION &&
+      (constraint === ONE_LEASED_PER_SESSION || constraint === ONE_LEASED_PER_PROJECT)
+    )
+      return true;
 
     current = (current as { cause?: unknown }).cause;
   }

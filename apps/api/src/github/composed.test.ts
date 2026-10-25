@@ -266,7 +266,7 @@ it("imports through the queue, publishes a verified dedicated branch, and retrie
       expect((await store.jobs(repository.projectId, FAKE_OWNER))[0]?.publishState).toBe(
         "published",
       );
-      expect(await queue.anyLeased([repository.sessionId])).toBe(false);
+      expect(await queue.isBusy([repository.sessionId])).toBe(false);
     });
     const job = (await store.jobs(repository.projectId, FAKE_OWNER))[0];
     if (job === undefined) throw new Error("Repository job missing");
@@ -309,8 +309,7 @@ it("imports through the queue, publishes a verified dedicated branch, and retrie
       sessionId: repository.sessionId,
       kind: "publish",
       message: job.jobId,
-      model: MODEL,
-      billsToUser: true,
+      target: { kind: "api", model: MODEL, billsToUser: true },
     });
     await vi.waitFor(() => expect(queue.stateOf(publishId)).toBe("done"));
     expect(keyReads).not.toHaveBeenCalled();

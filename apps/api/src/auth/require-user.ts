@@ -36,7 +36,7 @@ import type { Authenticate } from "./auth.ts";
  * exactly as anybody else does — it exists so the parts of the app that talk about accounts
  * can tell a throwaway identity from a real one.
  */
-export type AuthVariables = { userId: string; isAnonymous: boolean };
+export type AuthVariables = { userId: string; isAnonymous: boolean; authSessionId: string | null };
 
 /** Matched exactly, not by prefix: `/healthz` is a different route from `/health`. */
 const PUBLIC_PATHS = new Set([
@@ -81,6 +81,7 @@ export function requireUser(authenticate: Authenticate | undefined): MiddlewareH
 
     c.set("userId", caller.userId);
     c.set("isAnonymous", caller.isAnonymous);
+    c.set("authSessionId", caller.authSessionId ?? null);
     // Who is asking is only knowable here, and everything below this point — including the
     // request's own summary line, which is written after the handler returns — should say so.
     // Enriching the open context rather than nesting a new one is what makes that summary

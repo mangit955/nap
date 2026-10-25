@@ -29,6 +29,7 @@ import { type ModelRouteDeps, registerModelRoutes } from "./models/routes.ts";
 import { type ProjectRouteDeps, registerProjectRoutes } from "./projects/routes.ts";
 import { registerSessionStartRoutes, type SessionStartRouteDeps } from "./projects/start-routes.ts";
 import { type ProviderRouteDeps, registerProviderRoutes } from "./providers/routes.ts";
+import { type ExecutionRouteDeps, registerExecutionRoutes } from "./turns/execution-routes.ts";
 import { registerTurnRoutes, type TurnRouteDeps } from "./turns/routes.ts";
 import { type HeartbeatOptions, openEventStream } from "./ws/event-stream.ts";
 import { parseStreamQuery } from "./ws/query.ts";
@@ -41,6 +42,7 @@ import { parseStreamQuery } from "./ws/query.ts";
 export type UpgradeWebSocket = (c: Context, events: WSEvents) => Promise<Response>;
 
 export type AppDeps = {
+  execution?: ExecutionRouteDeps;
   sessionNavigation?: { store: SessionNavigationStore; webOrigin: string };
   sessionStarts?: SessionStartRouteDeps;
   github?: GitHubRouteDeps;
@@ -214,6 +216,7 @@ export function createApp(deps: AppDeps): Hono<{ Variables: AuthVariables }> {
   app.use("*", requireUser(deps.authenticate));
   if (deps.github !== undefined) registerGitHubRoutes(app, deps.github);
   if (deps.sessionStarts !== undefined) registerSessionStartRoutes(app, deps.sessionStarts);
+  if (deps.execution !== undefined) registerExecutionRoutes(app, deps.execution);
   if (deps.sessionNavigation !== undefined) registerNavigationRoutes(app, deps.sessionNavigation);
 
   /**
@@ -292,7 +295,7 @@ export function createApp(deps: AppDeps): Hono<{ Variables: AuthVariables }> {
     );
     if (!owned.ok) return c.json({ error: owned.error.message }, owned.error.status);
 
-    const { sessionId, afterSeq, repairOwnership } = query.value;
+    const { sessionId, afterSeq, repairOwnership, executionTargets } = query.value;
     let stream: ReturnType<typeof openEventStream> | undefined;
     // Counted here rather than inside `openEventStream`, because the gauge is about the socket
     // rather than about the replay: a stream that fails to start still holds a connection, and
@@ -312,6 +315,7 @@ export function createApp(deps: AppDeps): Hono<{ Variables: AuthVariables }> {
           sessionId,
           afterSeq,
           repairOwnership,
+          executionTargets,
           socket: ws,
           ...(deps.stream.heartbeat === undefined ? {} : { heartbeat: deps.stream.heartbeat }),
         });

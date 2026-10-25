@@ -49,3 +49,28 @@ describe("InMemorySessionStore", () => {
     expect((await store.get(SESSION))?.sandboxId).toBeNull();
   });
 });
+
+it("keeps owned execution preferences coherent with session reads and isolated from callers", async () => {
+  const store = new InMemorySessionStore([{ sessionId: SESSION, projectId: PROJECT }]);
+  expect(await store.selection(FAKE_OWNER, SESSION)).toEqual({ selection: null });
+  const selection = {
+    kind: "subscription",
+    accountId: "00000000-0000-4000-8000-000000000099",
+    model: "offline-native-fixture",
+  } as const;
+  expect(await store.select(FAKE_OWNER, SESSION, selection)).toBe(true);
+  const record = await store.get(SESSION);
+  expect(record?.executionSelection).toEqual(selection);
+  if (!record?.executionSelection) throw new Error("No fixture selection");
+  record.executionSelection.model = "injected-model";
+  expect(await store.selection(FAKE_OWNER, SESSION)).toEqual({ selection });
+  expect(await store.select("another-owner", SESSION, { kind: "api", model: "api-fixture" })).toBe(
+    false,
+  );
+  expect(await store.selection("another-owner", SESSION)).toBeNull();
+  await store.select(FAKE_OWNER, SESSION, { kind: "api", model: "api-fixture" });
+  expect((await store.get(SESSION))?.executionSelection).toEqual({
+    kind: "api",
+    model: "api-fixture",
+  });
+});

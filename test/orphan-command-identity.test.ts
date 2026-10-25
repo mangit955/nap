@@ -46,8 +46,7 @@ async function fixture(markerDurable = false, message = "/compact") {
     userId: "owner",
     kind: "turn",
     message,
-    model: "fixture/free",
-    billsToUser: false,
+    target: { kind: "api", model: "fixture/free", billsToUser: false },
   });
   expect((await queue.claim("worker-that-exits"))?.id).toBe(REQUEST);
   if (markerDurable) {
@@ -171,8 +170,7 @@ it("keeps the original command retry when later ordinary work precedes orphan an
     kind: "turn",
     message: "Add a footer",
     attachments,
-    model: "fixture/free",
-    billsToUser: false,
+    target: { kind: "api", model: "fixture/free", billsToUser: false },
   });
   expect((await f.queue.claim("later-worker"))?.id).toBe(LATER);
   await f.events.append({

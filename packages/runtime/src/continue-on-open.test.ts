@@ -132,7 +132,10 @@ function headUnreadable(): void {
  */
 const RESUME_TURN = "b1e5c0de-2222-4333-8444-555566667777";
 
-function open(turnId = RESUME_TURN) {
+function open(
+  turnId = RESUME_TURN,
+  target?: import("@nap/shared/execution-target").ExecutionTarget,
+) {
   return new SingleAgentRuntime({
     sessions,
     sandbox,
@@ -141,7 +144,7 @@ function open(turnId = RESUME_TURN) {
     events,
     bus: new InMemoryEventBus(),
     memory: new NoopMemoryProvider(),
-  }).resumeSession(SESSION_ID, { turnId });
+  }).resumeSession(SESSION_ID, { turnId, target });
 }
 
 async function log(): Promise<StoredEvent[]> {
@@ -405,4 +408,63 @@ describe("continuing on a sandbox that had to be restored", () => {
     expect(outcome).toMatchObject({ ok: true, created: true });
     expect(agent.calls).toBe(1);
   });
+});
+
+it("keeps the selected subscription target when an open continues a failed verification", async () => {
+  await seedLog(started(), committed(COMMIT_SHA), ...redRound());
+  green();
+  const target = {
+    kind: "subscription",
+    driver: "claude",
+    accountId: crypto.randomUUID(),
+    generation: 5,
+    model: "claude-sonnet",
+  } as const;
+  await open(RESUME_TURN, target);
+  expect(agent.requests).toHaveLength(1);
+  expect(agent.requests[0]).toMatchObject({ target, model: target.model });
+});
+
+it("does not continue a subscription job through a different account or API billing target", async () => {
+  const target = {
+    kind: "subscription",
+    driver: "claude",
+    accountId: "00000000-0000-4000-8000-000000000099",
+    model: "claude-offline-fixture",
+    generation: 4,
+  } as const;
+  await seedLog(
+    { type: "job.started", payload: { jobId: JOB_ID, objective: "Finish the form", target } },
+    committed(COMMIT_SHA),
+    ...redRound(),
+  );
+  green();
+  await open(RESUME_TURN, { kind: "api", model: "api-model", billsToUser: true });
+  expect(agent.requests).toHaveLength(0);
+  expect((await log()).filter((event) => event.type === "system.notice")).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ payload: expect.objectContaining({ level: "warning" }) }),
+    ]),
+  );
+  expect(foldJobs(await log()).jobs.at(-1)?.phase).toBe("repairing");
+});
+
+it("continues a durable subscription job using the same pinned account and generation", async () => {
+  const target = {
+    kind: "subscription",
+    driver: "claude",
+    accountId: "00000000-0000-4000-8000-000000000099",
+    model: "claude-offline-fixture",
+    generation: 4,
+  } as const;
+  await seedLog(
+    { type: "job.started", payload: { jobId: JOB_ID, objective: "Finish the form", target } },
+    committed(COMMIT_SHA),
+    ...redRound(),
+  );
+  green();
+  await open(RESUME_TURN, target);
+  expect(agent.requests).toHaveLength(1);
+  expect(agent.requests[0]?.target).toEqual(target);
+  expect(agent.requests[0]).not.toHaveProperty("credentials");
 });

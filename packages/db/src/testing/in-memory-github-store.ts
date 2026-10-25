@@ -122,8 +122,7 @@ export class InMemoryGitHubStore implements GitHubStore {
         userId: input.userId,
         kind: "resume",
         message: null,
-        model: open.model,
-        billsToUser: false,
+        target: { kind: "api", model: open.model, billsToUser: false },
       };
       if (this.enqueued.some((item) => item.id === request.id))
         throw new Error("Turn request already exists.");
