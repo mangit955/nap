@@ -4,19 +4,20 @@ These are unsent drafts for the owner's review. On 2026-10-24, the owner chose i
 chat and provider approval before production login drivers. Neither provider approval is
 confirmed. A terminal-only release is not the selected product.
 
-## Applicant details awaiting confirmation
+## Applicant details confirmed on 2026-10-25
 
 | Field | Value |
 | --- | --- |
-| Applicant first and last name | Awaiting owner |
-| Work email | Awaiting owner |
-| Company or individual applicant name | Awaiting owner |
-| Website | `https://nap-tawny.vercel.app`, awaiting confirmation |
+| Applicant first and last name | Confirmed, included in the local review copy |
+| Work email | Confirmed, included in the local review copy |
+| Company or individual applicant name | NAP, independent open-source project, applying as an individual |
+| Website | https://nap-tawny.vercel.app |
 | Public repository | https://github.com/mangit955/nap |
-| Job title | Optional, awaiting owner |
+| Job title | Optional, leave blank |
 
 Do not invent a legal entity, privacy-policy URL, user count, or commercial terms. No provider
-form has been submitted and no provider has been contacted for these requests.
+form has been submitted and no provider has been contacted for these requests. The owner
+requested review before submission. Filled contact details remain outside the public repository.
 
 ## Anthropic request
 
@@ -27,36 +28,49 @@ escalate requests. It does not identify a dedicated SDK subscription approval fo
 routing to the team that can grant this specific approval. Buying API credits or seats would
 not establish that permission.
 
-Subject: Request for Claude Agent SDK subscription integration approval for Nap
+Subject: Permitted Claude Pro/Max integration for NAP, an open-source cloud coding agent
 
-> I develop Nap, a remotely hosted app builder. Users describe an application in chat, and an
-> agent edits their project in an E2B workspace. Nap streams progress, shows a live preview,
-> runs verification, and manages repair turns and project commits.
+> I maintain NAP, an independent open-source cloud coding agent, and am applying as an
+> individual. Users describe an application in chat, and an agent edits their project in an
+> E2B cloud sandbox. NAP streams progress, shows a live preview, runs verification, and manages
+> repair turns and project commits.
 >
-> We request approval for users to authenticate their own eligible Claude subscriptions and
-> use those subscriptions through the Claude Agent SDK inside Nap's integrated chat. This is
-> a third-party hosted product. We are not treating local Claude Code authentication or the
-> stock CLI hosting conditions as approval for this SDK integration.
+> We want users to use their existing Claude Pro or Max subscriptions in NAP, subject to
+> their plan's eligibility and limits, instead of requiring separate API billing. We are
+> seeking guidance and any required approval before enabling this in our hosted product.
 >
-> Our offline prototype keeps subscription execution separate from API-key execution. A turn
-> selects an owned provider account and model explicitly, with no automatic fallback to API
-> billing. The proposed deployment separates the native authenticated agent from arbitrary
-> project code and gives it access to Nap's workspace tools through a scoped channel. Private
-> credential state would remain outside project files and public chat events. Revocation,
-> process containment, and durable recovery are release requirements still being completed.
+> Which authentication and integration approaches do you officially permit for this use case?
+>
+> 1. May NAP preinstall and run the unmodified Claude Code CLI inside user-specific E2B
+>    sandboxes, preserving its built-in authentication methods, with each user signing in to
+>    their own account? We would not pay for or resell Claude usage on a user's behalf.
+> 2. Under that approach, may NAP's chat send prompts to the CLI, display streamed output,
+>    and manage conversation continuation, cancellation, and workspace tools? Does this
+>    require separate approval from offering a direct CLI terminal?
+> 3. If the Claude Agent SDK is the appropriate route, can we obtain approval for third-party
+>    Pro/Max subscription login and plan use? What is the application process?
+> 4. What browser or code-entry flow, credential storage, refresh, and logout behavior do you
+>    support for remote sandboxes? Our planned isolation keeps long-lived credentials away
+>    from arbitrary project code and public chat events.
+> 5. Which plans are eligible, and what commercial terms, security review, branding rules, or
+>    other conditions must NAP satisfy before a pilot?
 >
 > Production subscription login remains disabled. We have not authenticated a subscription or
 > made subscription-backed model requests for this prototype. Its current checks use scripted
 > protocol fixtures, with separate limited E2B process-containment probes.
 >
-> Could you route this request to the team responsible for third-party Agent SDK subscription
-> approvals? We would like written confirmation of whether this hosted integration is eligible,
-> the supported authentication and credential-storage approach, and any required security,
-> commercial, or branding review before a pilot.
+> Our prototype keeps subscription execution separate from API-key execution, with no automatic
+> fallback to API billing. Native runtime isolation, credential lifecycle, and recovery remain
+> release work. We would appreciate written guidance on the permitted route and referral to
+> the team responsible for any required approval.
+>
+> Website: https://nap-tawny.vercel.app
 >
 > Repository: https://github.com/mangit955/nap
->
-> Website and applicant contact: to be confirmed before sending.
+
+The questions distinguish the [unmodified CLI hosting conditions](https://code.claude.com/docs/en/legal-and-compliance)
+from SDK subscription approval. They ask whether those conditions cover NAP's integrated chat
+rather than assuming that either route is approved. These source pages were checked on 2026-10-25.
 
 ## OpenAI request
 
@@ -68,13 +82,16 @@ work email, first and last name, company name, and website URL. Job title is opt
 
 Product-description field:
 
-> Nap is a remotely hosted app builder. Users describe an application in chat, and a coding
-> agent edits their project in an isolated E2B workspace. Nap streams progress, shows a live
-> preview, runs verification and repair turns, and manages project commits.
+> NAP is an independent open-source cloud coding agent, maintained by an individual. Users
+> describe an application in chat, and a coding agent edits their project in an E2B cloud
+> sandbox. NAP streams progress, shows a live preview, runs verification and repair turns,
+> and manages project commits.
 >
 > We request partner access to Sign in with ChatGPT and eligible ChatGPT plan use for AI
-> requests inside Nap's integrated chat. We intend to integrate Codex native execution through
-> the supported hosted partner authentication and token-handoff route. Please confirm whether
+> requests inside NAP's integrated chat. Users should be able to use their existing eligible
+> ChatGPT plans for Codex work instead of requiring separate API billing. We intend to
+> integrate Codex native execution through the supported hosted partner authentication and
+> token-handoff route. Please confirm whether
 > this also permits our proposed Codex app-server integration, and which client registration,
 > scopes, refresh, and account-revocation requirements apply.
 >
@@ -88,6 +105,8 @@ Product-description field:
 > credential storage, recovery, and provider-specific acceptance checks remain release work.
 >
 > Repository: https://github.com/mangit955/nap
+>
+> Website: https://nap-tawny.vercel.app
 
 ## Record the response before enabling a driver
 
