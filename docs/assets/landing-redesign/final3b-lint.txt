@@ -1,0 +1,48 @@
+$ biome check .
+packages/sandbox/src/git-comparison-limits.test.ts:20:17 lint/style/useTemplate  FIXABLE  ━━━━━━━━━━
+
+  i Template literals are preferred over string concatenation.
+  
+    18 │   const calls: { args: string[]; timeout: number; startedAt: number }[] = [];
+    19 │   const patches: string[] = [];
+  > 20 │   const patch = "@@ -1 +1,25000 @@\n-old\n" + "+new\n".repeat(25_000);
+       │                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    21 │   const childProcess = {
+    22 │     execFileSync(_command: string, args: string[], options: { timeout: number }) {
+  
+  i Unsafe fix: Use a template literal.
+  
+     18  18 │     const calls: { args: string[]; timeout: number; startedAt: number }[] = [];
+     19  19 │     const patches: string[] = [];
+     20     │ - ··const·patch·=·"@@·-1·+1,25000·@@\n-old\n"·+·"+new\n".repeat(25_000);
+         20 │ + ··const·patch·=·`@@·-1·+1,25000·@@\n-old\n${"+new\n".repeat(25_000)}`;
+     21  21 │     const childProcess = {
+     22  22 │       execFileSync(_command: string, args: string[], options: { timeout: number }) {
+  
+
+apps/web/src/app/globals.css:2351:3 lint/style/noDescendingSpecificity ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ! Descending specificity selector found. This selector specificity is (0, 2, 0)
+  
+    2349 │     margin-top: -32px;
+    2350 │   }
+  > 2351 │   .dashboard-frame .workspace-header {
+         │   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2352 │     padding-left: 48px;
+    2353 │   }
+  
+  i This selector specificity is (0, 3, 0)
+  
+    1902 │   left: 14px;
+    1903 │ }
+  > 1904 │ .dashboard-frame[data-sidebar-collapsed="true"] .workspace-header {
+         │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    1905 │   padding-left: 52px;
+    1906 │ }
+  
+  i Descending specificity selector may not be applied. Consider rearranging the order of the selectors. See MDN web docs for more details.
+  
+
+Checked 997 files in 400ms. No fixes applied.
+Found 1 warning.
+Found 1 info.

@@ -1,0 +1,39 @@
+Independent addendum on the headline checker
+
+The checker correction holds on static review. It replaces an invalid reduced-motion proxy with a rendered-headline check and retains the ordinary-motion entry requirement. I found no acceptance weakening or new product defect in this delta. Runtime validation of the corrected guard remains pending with the sole verifier. This is neither a cold audit nor a final head/base readiness assessment.
+
+Reviewed comparison: `3b64508784ed6da28bbad3630b053c56ba1cef2f`, tree `381246f307f8768e14c48c24da417fb47ec9a459`, to `3eb603f1ca099b27db9508699ae0767f2d0b1ea1`, tree `e34dd62a070da565c8aa05b6006fa001a35edd56`. Read-only Git confirms exactly one changed path, `apps/web/scripts/check-landing.js`, with one hunk, 35 insertions and one deletion. Every other tracked blob, including app source, CSS, configuration, dependencies and collected tests, is identical. Index-to-new-snapshot and tracked working diffs were empty when inspected. HEAD/base remain `13f7fa7f478982ed9316f2348f2ee5f61214bd00`.
+
+I read headline-reduced-diagnosis.md, headline-check-correction.md, the current final-code-verification.md, the entire pinned checker delta, and the directly affected heading markup, observer and reduced-motion CSS. The previous independent repair assessment carries forward. No tests, lint, build, browser, resource probe, source/index/GitHub write, child or worktree operation occurred. This report is my only write for the addendum.
+
+The diagnosis supports a checker precondition/proxy error
+
+The old assertion required `story.dataset.entered === "true"` after earlier checks had scrolled into the preview. ProductStory observes the separate heading wrapper at threshold 0.15. A direct jump below that wrapper need not produce an intersecting observation. More importantly, reduced-motion CSS at `product-story.css:838` explicitly sets the title spans to opacity 1 and transform none independently of the entry flag. The flag is therefore not the reduced-motion visibility contract.
+
+The sole worker's fresh 390x844 reduced-motion diagnosis on `3b645087` reproduced the old assertion failure, then observed two populated title spans with opacity 1, no transform, visible styling and layout rectangles. Their bounds were above the viewport after the script's jump. This proves neither an on-screen heading at that final scroll position nor a product visibility failure. The diagnosis command's exit 0 means it completed its observation; the old checker still failed. The reports maintain that distinction correctly.
+
+Corrected guard strength
+
+At `check-landing.js:244` onward, the checker now requires the actual heading and exactly two nonempty span children, then scrolls the heading into view. It does not write entry metadata, replace text, modify styles or change production behavior to manufacture the result.
+
+Ordinary motion still waits for and asserts the existing entry flag. Both modes then require each span to pass checkVisibility with opacity, visibility and content-visibility observation, have computed opacity exactly 1 and transform none, have positive dimensions, and intersect both its clipping mask and viewport on both axes. The 40-attempt, 50ms wait bounds the rendered-state wait to approximately two seconds. The ordinary transition and its final-line delay in the unchanged CSS fit within that budget. Missing heading/text, hidden or zero-sized lines, an unfinished translated reveal, and wholly off-mask/off-viewport lines cannot satisfy this predicate.
+
+This is stronger evidence of the intended rendered result than the old flag alone. Skipping the flag assertion only under reduced motion is justified by the unchanged CSS contract, not a waiver of headline visibility. Ordinary motion retains both the mechanism assertion and the rendered result. Existing reduced-motion animation, hero rewind, typography, horizontal-fit, preview-state and other assertions remain unchanged. The added scroll establishes the headline's actual observation position instead of treating a prior direct jump past it as entry evidence.
+
+The predicate proves positive geometric intersection, not that every pixel is unobstructed or that the full line is vertically visible. It does not by itself establish contrast or exclude every possible overlap/clip-path defect. Those are limits of this guard, not a new reachable product finding in the unchanged heading styles. Existing fit checks and visual evidence remain relevant; the correction does not replace them.
+
+Guard effectiveness is still unverified at runtime on `3eb603f1`. The already assigned hidden-headline mutation is appropriate: keep both text lines and ordinary entry metadata, suppress at least one line, and require the corrected rendered-state check to fail within its deadline. A driver/API/import failure elsewhere would not establish that protection. The sole verifier should retain the hidden-line state and failure location so the generic waitFor timeout can be attributed to this predicate. No extra experiment or duplicate worker is requested.
+
+Which earlier green evidence carries
+
+The current final-code-verification.md records actual results on `3b645087`: full lint exit 0, standalone typecheck exit 0, 375 files and 5,168 unit/types/web/DB tests passed, and web production build exit 0. The one-path Git delta supports carrying the typecheck, collected-suite and build conclusions for the unchanged product/configuration/test inputs. The changed browser-console JS expression is outside the web TypeScript include and the app build entry points; pinned searches found no collected test/package-script consumer of this checker. Repeating those broad jobs solely because this manual checker changed would not address a changed input to their covered behavior.
+
+Keep every execution attached to `3b645087`, its recorded environment and command. The valid statement is that `3eb603f1` has identical covered app/config/test inputs, with prior results carried by an explicit delta assessment. It is not valid to claim those commands were executed on `3eb603f1`.
+
+Lint needs a narrower distinction. The unchanged files' clean result carries, but the edited checker itself is a Biome input. Prior full lint does not prove the new hunk is formatted/lint-clean. Applicable lint of the changed checker, already in the sole verifier's handoff, must pass on the new blob. A full lint run is also acceptable if that is the queued command; no duplicate is requested.
+
+Recorded real-browser preference, focus, drawer, cache/source and actual preview-state successes remain evidence for unchanged production. In particular, the worker observed native preferences retained, outer chapter focus retained, navigation/inertness cleared, real Finance/Cabins/Launch source changes, iframe identity retained, and actual app interactions preserved. These were not product repairs invalidated by the checker edit. Their execution revision remains `3b645087`.
+
+Previously successful whole-page runs likewise retain their recorded revision, viewport and motion scopes. They do not become executions of the corrected expression. The corrected guard's own positive/negative behavior, reduced 390 case and remaining smoke combinations need the assigned worker's new evidence. The prior reduced-390 failure should remain in the record with this proxy diagnosis, rather than be erased or represented as a past pass.
+
+Pending work stays with the existing sole verifier: corrected browser scenarios and bounded hidden-headline/other approved mutations, applicable checker lint, remaining consolidated asset/network assertions, and AFTER screenshots/recording. No new substantive repair or allowance is implied by this addendum. Publication and the separately commissioned assessment of the actual proposed PR head/base remain outside this task, and no readiness verdict is given.

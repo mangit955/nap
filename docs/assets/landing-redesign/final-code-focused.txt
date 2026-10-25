@@ -1,0 +1,13 @@
+$ vitest run --project unit --project types --project web --project web apps/web/src/landing/landing-desktop-demo.test.tsx apps/web/src/dashboard/dashboard.test.tsx apps/web/src/dashboard/sidebar.test.tsx apps/web/src/dashboard/sidebar-interactions.test.tsx apps/web/src/landing/session-preview.test.tsx apps/web/src/workspace/workbench.test.tsx
+Testing types with tsc and vue-tsc is an experimental feature.
+Breaking changes might not follow SemVer, please pin Vitest's version when using it.
+
+ RUN  v4.1.10 <repo>
+
+
+ Test Files  6 passed (6)
+      Tests  97 passed (97)
+Type Errors  no errors
+   Start at  01:45:22
+   Duration  3.21s (transform 1.07s, setup 1.14s, import 2.32s, tests 4.32s, environment 3.54s)
+
