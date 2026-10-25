@@ -9,6 +9,7 @@ import {
   type HumanComputerAction,
 } from "@nap/shared/computer-access";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { z } from "zod";
 import { credentialedFetch } from "../api/credentialed-fetch.ts";
 import type { FetchJson } from "../files/use-project-files.ts";
 
@@ -16,6 +17,10 @@ const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
 const BUSY = "A turn is running in this project. Wait for it to finish.";
 const UNAVAILABLE = "Nap's computer is unavailable. Reconnect to take control.";
 const INPUT_FAILED = "Input may have been partly applied. Take control again before continuing.";
+// Nothing was sent: the machine's input driver is too old to take any. Only a fresh machine fixes
+// it, so this is the one refusal that names what to do rather than saying to try again.
+const OUTDATED = "This computer predates safe input. Close and reopen the project to update it.";
+const RefusalCodeSchema = z.object({ code: z.literal("desktop_outdated") });
 type View = {
   available: boolean;
   disabledReason: string | null;
@@ -162,12 +167,18 @@ export function useComputerControl({
         const response = await request("input", { grant: grant.grant, actions: item.actions });
         if (!current(version)) return;
         if (!response.ok) {
-          fail(
-            response.status === 409
-              ? "Control is no longer available. Take control again when Nap is idle."
-              : UNAVAILABLE,
-            INPUT_FAILED,
-          );
+          const outdated = RefusalCodeSchema.safeParse(
+            await response.json().catch(() => null),
+          ).success;
+          if (!current(version)) return;
+          if (outdated) fail(OUTDATED);
+          else
+            fail(
+              response.status === 409
+                ? "Control is no longer available. Take control again when Nap is idle."
+                : UNAVAILABLE,
+              INPUT_FAILED,
+            );
           return;
         }
         const parsed = ComputerInputResultSchema.safeParse(await response.json());

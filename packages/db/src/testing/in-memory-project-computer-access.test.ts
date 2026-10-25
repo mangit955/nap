@@ -95,7 +95,14 @@ it("abandons a stranded scope only after the window, without a lease, for its ow
     ok: false,
     error: { code: "stale_grant" },
   });
-  expect(await access.abandon({ ...scope, userId })).toEqual({ ok: true, value: undefined });
+  expect(await access.abandon({ ...scope, sandboxId: "other", userId })).toEqual({
+    ok: false,
+    error: { code: "stale_grant" },
+  });
+  expect(await access.abandon({ ...scope, userId })).toEqual({
+    ok: true,
+    value: { released: true },
+  });
   expect(access.projects.get(projectId)).toMatchObject({ sandboxId: null });
   expect(access.projects.get(projectId)?.revision).not.toBe(state.value.revision);
   expect(await access.held({ projectId, userId })).toEqual({

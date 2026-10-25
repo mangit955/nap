@@ -166,6 +166,23 @@ describe("when the sandbox has already gone", () => {
   });
 });
 
+describe("when the project recorded another machine meanwhile", () => {
+  it("drops neither the fresh machine nor its slot, and announces nothing", async () => {
+    // The machine being put away had already gone, and a turn has since recorded a fresh one.
+    const capacity = await holding();
+    await sandbox.destroy(sandboxId);
+    const fresh = await capacity.reserve({ projectId: PROJECT, userId: USER });
+    if (fresh.ok) await capacity.activate(fresh.value.id, "fresh");
+    projects.recordSandbox(PROJECT, "fresh");
+
+    expect(await close(sandboxId, capacity)).toEqual({ outcome: "abandoned" });
+
+    expect(projects.get(PROJECT)?.sandboxId).toBe("fresh");
+    expect(capacity.held()).toMatchObject([{ sandboxId: "fresh", state: "active" }]);
+    for (const sessionId of SESSIONS) expect(await appended(sessionId)).toEqual([]);
+  });
+});
+
 describe("when the bookkeeping fails", () => {
   it("reports it, even though the snapshot is safe", async () => {
     projects.failWith(new Error("connection terminated"));

@@ -106,9 +106,11 @@ export async function putProjectAway(options: CloseProjectOptions): Promise<Clos
 
   if (!torn.ok && torn.error.reason === "sandbox_gone") {
     await releaseCapacity(options);
-    const outcome = await release(projects, projectId, null, () => ({ outcome: "abandoned" }));
-    await announceStopped(options);
-    return outcome;
+    const released = await release(projects, projectId, sandboxId, null, () => ({
+      outcome: "abandoned",
+    }));
+    if (released.current) await announceStopped(options);
+    return released.outcome;
   }
 
   // The one path that leaves the sandbox serving. Announcing here would empty every open
@@ -118,12 +120,14 @@ export async function putProjectAway(options: CloseProjectOptions): Promise<Clos
   }
 
   await releaseCapacity(options);
-  const outcome = await release(projects, projectId, torn.value.key, () => ({
+  const released = await release(projects, projectId, sandboxId, torn.value.key, () => ({
     outcome: "put_away",
     key: torn.value.key,
   }));
-  await announceStopped(options);
-  return outcome;
+  // A project that recorded another machine while this one was being put away is serving from
+  // it: telling its tabs the preview stopped would blank a pane that is about to show it.
+  if (released.current) await announceStopped(options);
+  return released.outcome;
 }
 
 /**
@@ -139,7 +143,7 @@ async function releaseCapacity(options: CloseProjectOptions): Promise<void> {
   if (options.capacity === undefined) return;
 
   try {
-    await options.capacity.releaseForProject(options.projectId);
+    await options.capacity.releaseForProject(options.projectId, options.sandboxId);
   } catch (error) {
     getLogger().warn(
       { projectId: options.projectId, err: error },
@@ -202,13 +206,18 @@ async function announceStopped(options: CloseProjectOptions): Promise<void> {
 async function release(
   projects: ProjectSandboxStore,
   projectId: string,
+  sandboxId: string,
   key: string | null,
   onSuccess: () => CloseOutcome,
-): Promise<CloseOutcome> {
+): Promise<{ outcome: CloseOutcome; current: boolean }> {
   try {
-    await projects.releaseSandbox(projectId, key);
-    return onSuccess();
+    const current = await projects.releaseSandbox(projectId, sandboxId, key);
+    return { outcome: onSuccess(), current };
   } catch (error) {
-    return { outcome: "failed", reason: "release_failed", message: String(error) };
+    // Unknown, so announced as before: the sandbox is gone either way.
+    return {
+      outcome: { outcome: "failed", reason: "release_failed", message: String(error) },
+      current: true,
+    };
   }
 }

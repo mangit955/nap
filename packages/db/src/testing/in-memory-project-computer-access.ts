@@ -147,9 +147,10 @@ export class InMemoryProjectComputerAccess implements ProjectComputerAccess {
       return { ok: false, error: { code: "too_early" } };
     if (this.#leased(project)) return { ok: false, error: { code: "busy" } };
     this.reservations.delete(project.projectId);
-    if (project.sandboxId === request.sandboxId) project.sandboxId = null;
+    const released = project.sandboxId === request.sandboxId;
+    if (released) project.sandboxId = null;
     project.revision = crypto.randomUUID();
-    return { ok: true, value: undefined };
+    return { ok: true, value: { released } };
   }
   #leased(project: Project): boolean {
     return (

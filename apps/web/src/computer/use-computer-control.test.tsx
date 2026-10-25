@@ -267,6 +267,17 @@ describe("useComputerControl", () => {
   });
 });
 
+it("tells the owner of a machine too old for input to close and reopen the project", async () => {
+  const h = setup();
+  await h.drive();
+  act(() => {
+    void h.result.current.sendActions([{ action: "left_click", coordinate: [1, 1] }]);
+  });
+  await h.reply(2, { error: "ignored", code: "desktop_outdated", applied: 0 }, 503);
+  expect(h.result.current.driving).toBe(false);
+  expect(h.result.current.error).toMatch(/Close and reopen the project/);
+  expect(h.result.current.disabledReason).toMatch(/Close and reopen the project/);
+});
 it("a rejected input ends control without leaking error text or resending queued text", async () => {
   const h = setup();
   await h.drive();

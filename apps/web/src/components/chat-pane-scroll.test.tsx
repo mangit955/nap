@@ -1,6 +1,7 @@
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ComputerRecoveryNotice } from "../computer/computer-recovery-notice.tsx";
 import { ComposerDraftStore } from "../projects/composer-draft.ts";
 import { ChatPane } from "./chat-pane.tsx";
 
@@ -244,5 +245,64 @@ describe("the resting composer", () => {
     fireEvent.wheel(timeline, { deltaY: -80 });
     expect(composer).not.toHaveAttribute("data-resting", "true");
     expect(alert).toBeVisible();
+  });
+});
+
+/**
+ * The pause notice updates on its own schedule, after the transcript has stopped moving: a paused
+ * project writes no events. Laid out in jsdom by hand, with the notice adding 200px to the end.
+ */
+describe("a computer notice appearing at the end of the transcript", () => {
+  async function paused(readerAt: (bottom: number) => number) {
+    let answer: (response: Response) => void = () => {};
+    const fetcher = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          answer = resolve;
+        }),
+    );
+    const pane = (events: StoredEvent[]) => (
+      <ChatPane
+        events={events}
+        computerNotice={(onChange) => (
+          <ComputerRecoveryNotice sessionId="s" fetch={fetcher} onChange={onChange} />
+        )}
+      />
+    );
+    const view = render(pane([message]));
+    const timeline = screen.getByRole("region", { name: "Conversation" });
+    let top = 0;
+    Object.defineProperties(timeline, {
+      scrollHeight: {
+        configurable: true,
+        get: () =>
+          1800 + (timeline.querySelector('[aria-label="Computer paused"]') === null ? 0 : 200),
+      },
+      clientHeight: { configurable: true, value: 600 },
+      scrollTop: {
+        configurable: true,
+        get: () => top,
+        set: (next: number) => {
+          top = next;
+        },
+      },
+    });
+    // One more event, so the box has been measured once at its real size before the pause.
+    view.rerender(pane([message, { ...message, seq: 2 }]));
+    expect(top).toBe(1200);
+    top = readerAt(1200);
+    await act(async () => answer(new Response(JSON.stringify({ stuck: true, abandonableAt: 0 }))));
+    await screen.findByRole("region", { name: "Computer paused" });
+    return () => top;
+  }
+
+  it("keeps a reader who was at the bottom there, so the notice is not left under the composer", async () => {
+    const top = await paused((bottom) => bottom);
+    expect(top()).toBe(1400);
+  });
+
+  it("leaves a reader who had scrolled up where they were", async () => {
+    const top = await paused(() => 400);
+    expect(top()).toBe(400);
   });
 });

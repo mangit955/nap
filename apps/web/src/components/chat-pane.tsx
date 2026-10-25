@@ -108,8 +108,12 @@ export function ChatPane({
   files?: readonly string[] | undefined;
   /** What this deployment will run a turn on, and which of them is chosen. */
   models?: readonly ModelChoice[] | undefined;
-  /** Shown after the transcript, where a paused project explains itself. */
-  computerNotice?: ReactNode;
+  /**
+   * Shown after the transcript, where a paused project explains itself. Handed a callback to
+   * call whenever what it shows changes: it updates on its own schedule, and a reader at the
+   * bottom has to be kept there when it appears, or it can land under the composer unseen.
+   */
+  computerNotice?: ((onChange: (shown: string) => void) => ReactNode) | undefined;
   model?: string | undefined;
   onModelChange?: ((model: string) => void) | undefined;
   /** Opening the key form, for a model this caller cannot reach. */
@@ -160,8 +164,9 @@ export function ChatPane({
   }, []);
   // What "there is something new to see" means here. The event count alone would miss a turn
   // ending, and the running flag alone would miss every event inside it.
+  const [noticeShown, setNoticeShown] = useState("");
   const scroller = useStickToBottom<HTMLElement>(
-    `${events.length}:${pending}:${running}:${composerHeight}`,
+    `${events.length}:${pending}:${running}:${composerHeight}:${noticeShown}`,
   );
 
   return (
@@ -206,7 +211,7 @@ export function ChatPane({
                   model={model}
                   onTest={onTestApp}
                 />
-                {computerNotice}
+                {computerNotice?.(setNoticeShown)}
               </>
             )}
 
@@ -447,12 +452,13 @@ export function LiveChatPane({
         model={model ?? models?.fallback}
         onModelChange={setModel}
         onAddKey={() => setKeyPanelOpen(true)}
-        computerNotice={
+        computerNotice={(onChange) => (
           <ComputerRecoveryNotice
             sessionId={sessionId}
+            onChange={onChange}
             {...(fetchJson === undefined ? {} : { fetch: fetchJson })}
           />
-        }
+        )}
       />
     </>
   );

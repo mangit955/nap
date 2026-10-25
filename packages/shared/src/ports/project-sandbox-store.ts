@@ -44,6 +44,17 @@ export interface ProjectSandboxStore {
    * before anything could — so the reference is dropped while whatever snapshot the project
    * already had is left in place. Overwriting it with nothing would throw away the last
    * copy of the project that still exists.
+   *
+   * **Compare-and-clear on `sandboxId`.** The caller read which machine to put away some seconds
+   * earlier, and a turn may have recorded a fresh one since — after an owner abandoned the old
+   * one, say. Clearing unconditionally would forget that fresh machine mid-turn, leaving it
+   * running and named by nothing until the reconciler destroyed it. So nothing is written unless
+   * the project still names `sandboxId`, and the answer says which happened: `false` means the
+   * project has moved on and owes nobody an announcement about the machine just put away.
    */
-  releaseSandbox(projectId: string, snapshotKey: string | null): Promise<void>;
+  releaseSandbox(
+    projectId: string,
+    sandboxId: string,
+    snapshotKey: string | null,
+  ): Promise<boolean>;
 }

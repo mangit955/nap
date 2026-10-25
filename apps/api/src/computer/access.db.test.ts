@@ -350,7 +350,12 @@ it("refuses owner input to a machine whose driver predates scoped input, leaving
   for (let i = 0; i < 2; i++) {
     const response = await f.post("input", body);
     expect(response.status).toBe(503);
-    expect(await response.json()).toMatchObject({ code: "desktop_unavailable", applied: 0 });
+    // Waiting never fixes an old driver, so the owner is told what does.
+    expect(await response.json()).toEqual({
+      error: "This computer predates safe input. Close and reopen the project to update it.",
+      code: "desktop_outdated",
+      applied: 0,
+    });
   }
   expect(f.desktop.actions).toEqual([]);
   expect(

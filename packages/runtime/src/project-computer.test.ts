@@ -1,3 +1,5 @@
+import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
+import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import type { DesktopInputTransport } from "@nap/shared/ports/desktop-input-transport";
 import {
   ABANDON_AFTER_MS,
@@ -5,11 +7,15 @@ import {
   type ProjectComputerAccess,
 } from "@nap/shared/ports/project-computer-access";
 import { expect, it, vi } from "vitest";
-import { ProjectComputer } from "./project-computer.ts";
+import {
+  ABANDONED_COMPUTER_NOTICE,
+  type AbandonAnnouncement,
+  ProjectComputer,
+} from "./project-computer.ts";
 
 const projectId = "00000000-0000-4000-8000-000000000001";
 const requestId = "00000000-0000-4000-8000-000000000002";
-function fixture(options: { now?: () => number } = {}) {
+function fixture(options: { now?: () => number; announce?: AbandonAnnouncement } = {}) {
   let row: ComputerReservation | undefined;
   let busy = false;
   const reserve = vi.fn<ProjectComputerAccess["reserve"]>(async (request) => {
@@ -42,7 +48,7 @@ function fixture(options: { now?: () => number } = {}) {
         : { ok: false, error: { code: "not_found" } },
     abandon: async () => {
       row = undefined;
-      return { ok: true, value: undefined };
+      return { ok: true, value: { released: true } };
     },
   };
   const abandon = vi.spyOn(store, "abandon");
@@ -74,6 +80,7 @@ function fixture(options: { now?: () => number } = {}) {
     access: store,
     transport,
     ...(options.now ? { now: options.now } : {}),
+    ...(options.announce ? { announce: options.announce } : {}),
   });
   const attempt = () =>
     computer.forTurn({ projectId, sandboxId: "box", lease: { requestId, owner: "worker" } });
@@ -88,6 +95,10 @@ function fixture(options: { now?: () => number } = {}) {
     close,
     supports,
     row: () => row,
+    /** What the reaper's own successful drain leaves behind. */
+    drop: () => {
+      row = undefined;
+    },
     setBusy: (value: boolean) => {
       busy = value;
     },
@@ -135,18 +146,25 @@ it.each([
     expect(f.row()).toBeUndefined();
   },
 );
-it("a driver without scoped input gets no reservation, input or close from its owner", async () => {
-  const f = fixture();
-  f.supports.mockResolvedValue("no");
-  const result = await f.computer.ownerInput({
-    binding,
-    actions: [{ action: "left_click", coordinate: [1, 1] }],
-  });
-  expect(result).toEqual({ ok: false, error: { code: "unavailable", applied: 0 } });
-  expect(f.reserve).not.toHaveBeenCalled();
-  expect(f.act).not.toHaveBeenCalled();
-  expect(f.close).not.toHaveBeenCalled();
-});
+it.each([
+  // Only a definite older driver is something its owner can fix, by closing and reopening.
+  ["no", "outdated"],
+  ["unknown", "unavailable"],
+] as const)(
+  "a driver that answers %s gets no reservation, input or close from its owner",
+  async (answer, code) => {
+    const f = fixture();
+    f.supports.mockResolvedValue(answer);
+    const result = await f.computer.ownerInput({
+      binding,
+      actions: [{ action: "left_click", coordinate: [1, 1] }],
+    });
+    expect(result).toEqual({ ok: false, error: { code, applied: 0 } });
+    expect(f.reserve).not.toHaveBeenCalled();
+    expect(f.act).not.toHaveBeenCalled();
+    expect(f.close).not.toHaveBeenCalled();
+  },
+);
 it("asks the exact machine before its first reservation, and remembers a yes", async () => {
   const f = fixture();
   f.reserve.mockImplementation(async (request) => {
@@ -257,6 +275,8 @@ it("never reserves for an attempt that closed while it was asking the driver", a
 });
 
 const owned = { projectId, userId: "owner" };
+/** A server clock past every abandon window, for tests about what happens once it has passed. */
+const later = () => Date.now() + ABANDON_AFTER_MS;
 async function strand(f: ReturnType<typeof fixture>) {
   f.act.mockRejectedValueOnce(new Error("output lost"));
   const scope = f.attempt();
@@ -286,7 +306,7 @@ it("a turn still holding its lease is working, not stuck", async () => {
   expect(await f.computer.recovery(owned)).toEqual({ ok: true, value: { stuck: false } });
 });
 it("tries one more drain before abandoning, and a proof keeps the machine", async () => {
-  const f = fixture();
+  const f = fixture({ now: later });
   await strand(f);
   f.close.mockImplementation(async ({ scopeId, sandboxId }) => ({
     ok: true,
@@ -297,7 +317,7 @@ it("tries one more drain before abandoning, and a proof keeps the machine", asyn
   expect(f.row()).toBeUndefined();
 });
 it("abandons exactly the held scope once the drain fails again", async () => {
-  const f = fixture();
+  const f = fixture({ now: later });
   await strand(f);
   const held = f.row();
   expect(await f.computer.abandon(owned)).toEqual({ ok: true, value: { outcome: "abandoned" } });
@@ -309,7 +329,7 @@ it("abandons exactly the held scope once the drain fails again", async () => {
   });
 });
 it("never drains or abandons a scope a live turn still holds", async () => {
-  const f = fixture();
+  const f = fixture({ now: later });
   await strand(f);
   f.setBusy(true);
   f.close.mockClear();
@@ -317,8 +337,8 @@ it("never drains or abandons a scope a live turn still holds", async () => {
   expect(f.close).not.toHaveBeenCalled();
   expect(f.abandon).not.toHaveBeenCalled();
 });
-it("has nothing to abandon when nothing is held, and says when an early abandon becomes possible", async () => {
-  const f = fixture();
+it("has nothing to abandon when nothing is held, and the database's clock has the last word", async () => {
+  const f = fixture({ now: later });
   expect(await f.computer.abandon(owned)).toEqual({ ok: true, value: { outcome: "clear" } });
   await strand(f);
   f.abandon.mockResolvedValueOnce({ ok: false, error: { code: "too_early" } });
@@ -329,4 +349,97 @@ it("has nothing to abandon when nothing is held, and says when an early abandon 
       abandonableAt: Date.parse(f.row()?.createdAt ?? "") + ABANDON_AFTER_MS,
     },
   });
+});
+it("refuses an early abandon before draining anything", async () => {
+  // A young owner reservation may be a batch still running in another tab; draining it would
+  // revoke that batch's scope mid-action.
+  const f = fixture();
+  await f.attempt().desktop.act("box", { action: "left_mouse_down" });
+  const held = f.row();
+  expect(await f.computer.abandon(owned)).toEqual({
+    ok: false,
+    error: {
+      code: "too_early",
+      abandonableAt: Date.parse(held?.createdAt ?? "") + ABANDON_AFTER_MS,
+    },
+  });
+  expect(f.close).not.toHaveBeenCalled();
+  expect(f.abandon).not.toHaveBeenCalled();
+  expect(f.row()).toEqual(held);
+});
+it("answers clear, not a conflict, when the reaper drained the scope while abandon was trying", async () => {
+  const f = fixture({ now: later });
+  await strand(f);
+  f.close.mockImplementation(async ({ scopeId, sandboxId }) => {
+    f.drop();
+    return { ok: true, value: { protocol: 2, kind: "scope_drained", scopeId, sandboxId } };
+  });
+  f.abandon.mockResolvedValueOnce({ ok: false, error: { code: "stale_grant" } });
+  expect(await f.computer.abandon(owned)).toEqual({ ok: true, value: { outcome: "clear" } });
+});
+it("still reports a conflict when a different reservation has replaced the one it saw", async () => {
+  const f = fixture({ now: later });
+  await strand(f);
+  f.abandon.mockResolvedValueOnce({ ok: false, error: { code: "stale_grant" } });
+  expect(await f.computer.abandon(owned)).toEqual({
+    ok: false,
+    error: { code: "stale_grant" },
+  });
+});
+it("counts a reservation with no lease as stuck only once it has stood for a minute", async () => {
+  let clock = Date.now();
+  const f = fixture({ now: () => clock });
+  // Reserved and still active: no lost reply, so only its age can say nobody is working on it.
+  await f.attempt().desktop.act("box", { action: "left_mouse_down" });
+  const createdAt = Date.parse(f.row()?.createdAt ?? "");
+  expect(f.row()?.state).toBe("active");
+  clock = createdAt + 30_000;
+  expect(await f.computer.recovery(owned)).toEqual({ ok: true, value: { stuck: false } });
+  clock = createdAt + 61_000;
+  expect(await f.computer.recovery(owned)).toEqual({
+    ok: true,
+    value: { stuck: true, abandonableAt: createdAt + ABANDON_AFTER_MS },
+  });
+});
+
+function announcing(sessionIds = ["session-a", "session-b"]) {
+  const events = new InMemoryEventStore();
+  const sessions = vi.fn(async () => sessionIds);
+  return {
+    events,
+    sessions,
+    announce: {
+      events,
+      bus: new InMemoryEventBus(),
+      sessionIds: sessions,
+      now: () => "2026-10-25T00:00:00.000Z",
+    },
+  };
+}
+it("writes the abandon into every session of the project, so history matches the workspace", async () => {
+  const a = announcing();
+  const f = fixture({ now: later, announce: a.announce });
+  await strand(f);
+  expect(await f.computer.abandon(owned)).toEqual({ ok: true, value: { outcome: "abandoned" } });
+  expect(a.sessions).toHaveBeenCalledWith(owned);
+  for (const sessionId of ["session-a", "session-b"]) {
+    const written = await a.events.readFrom(sessionId, 0);
+    expect(written.map((event) => event.type)).toEqual(["system.notice", "preview.stopped"]);
+    expect(written[0]?.payload).toEqual({ level: "warning", text: ABANDONED_COMPUTER_NOTICE });
+  }
+});
+it("writes nothing when the project had already moved to another machine", async () => {
+  const a = announcing();
+  const f = fixture({ now: later, announce: a.announce });
+  await strand(f);
+  f.abandon.mockResolvedValueOnce({ ok: true, value: { released: false } });
+  expect(await f.computer.abandon(owned)).toEqual({ ok: true, value: { outcome: "abandoned" } });
+  expect(await a.events.readFrom("session-a", 0)).toEqual([]);
+});
+it("still abandons when the notice cannot be written", async () => {
+  const a = announcing();
+  a.sessions.mockRejectedValue(new Error("database disconnected"));
+  const f = fixture({ now: later, announce: a.announce });
+  await strand(f);
+  expect(await f.computer.abandon(owned)).toEqual({ ok: true, value: { outcome: "abandoned" } });
 });

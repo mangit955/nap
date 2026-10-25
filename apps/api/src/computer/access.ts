@@ -1,11 +1,8 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import type { ProjectComputer } from "@nap/runtime/project-computer";
+import type { ComputerInputRefusal, ProjectComputer } from "@nap/runtime/project-computer";
 import { ComputerInputSchema, ComputerStreamSchema } from "@nap/shared/computer-access";
 import type { ProjectComputerAccess } from "@nap/shared/ports/project-computer-access";
-import {
-  type ComputerAdmissionError,
-  ComputerGrantBindingSchema,
-} from "@nap/shared/ports/project-computer-access";
+import { ComputerGrantBindingSchema } from "@nap/shared/ports/project-computer-access";
 import type { SandboxDesktop } from "@nap/shared/ports/sandbox-desktop";
 import type { SessionRecord, SessionStore } from "@nap/shared/ports/session-store";
 import type { Context, Hono } from "hono";
@@ -215,12 +212,22 @@ type AccessContext = Context<{ Variables: AuthVariables }>;
 function setPrivateHeaders(c: AccessContext): void {
   for (const [name, value] of Object.entries(privateHeaders)) c.header(name, value);
 }
-function guardFailure(c: AccessContext, code: ComputerAdmissionError["code"], applied = 0) {
+function guardFailure(c: AccessContext, code: ComputerInputRefusal["code"], applied = 0) {
   if (code === "not_found") return c.json({ error: "no such session" }, 404);
   if (code === "busy") return c.json({ error: "A turn is running in this project.", code }, 409);
   if (code === "stale_grant")
     return c.json({ error: "Control grant is stale. Take control again.", code }, 409);
   if (code === "unavailable") return c.json({ ...unavailable, applied }, 503);
+  // Waiting never fixes this one, so the owner is told the one thing that does.
+  if (code === "outdated")
+    return c.json(
+      {
+        error: "This computer predates safe input. Close and reopen the project to update it.",
+        code: "desktop_outdated",
+        applied,
+      },
+      503,
+    );
   return c.json({ error: "Computer input recovery is pending.", code, applied }, 503);
 }
 function rejectCrossSiteWrite(c: AccessContext, webOrigin?: string) {

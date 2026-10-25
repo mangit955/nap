@@ -331,7 +331,18 @@ export function composeNap(deps: NapDeps): ComposedNap {
     throw new Error("Desktop input requires a durable reservation store.");
   const computer =
     deps.desktop && deps.computerAccess
-      ? new ProjectComputer({ access: deps.computerAccess.access, transport: deps.desktop })
+      ? new ProjectComputer({
+          access: deps.computerAccess.access,
+          transport: deps.desktop,
+          // An abandoned computer is written into every session's log, so history and the
+          // restored workspace do not silently disagree.
+          announce: {
+            events: deps.events,
+            bus: deps.bus,
+            sessionIds: async ({ projectId, userId }) =>
+              (await deps.projects.get(projectId, userId))?.sessionIds ?? [],
+          },
+        })
       : undefined;
   const occupied = async (projectId: string, sessionIds: string[]): Promise<boolean> => {
     try {

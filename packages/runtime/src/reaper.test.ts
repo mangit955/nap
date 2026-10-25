@@ -240,6 +240,53 @@ describe("a sandbox that is already gone", () => {
   });
 });
 
+describe("a project that moved on to a fresh machine while it was being swept", () => {
+  // The sweep reads its candidates once, then puts them away one by one, each taking seconds.
+  // An owner abandoning a stuck machine in that window lets the project's queued turn run at
+  // once: it restores onto a fresh machine, counts it and records it, while the sweep is still
+  // tearing the old one down. The sweep's release must leave the fresh machine alone.
+  async function sweepRacingAFreshMachine() {
+    const capacity = new InMemorySandboxCapacity();
+    const opened = await capacity.reserve({ projectId: PROJECT, userId: USER });
+    if (!opened.ok) throw new Error("no capacity");
+    await capacity.activate(opened.value.id, sandboxId);
+    let fresh: string | undefined;
+    const destroy = sandbox.destroy.bind(sandbox);
+    sandbox.destroy = async (id: string) => {
+      const result = await destroy(id);
+      if (id === sandboxId) {
+        const created = await sandbox.create(PROJECT);
+        if (!created.ok) throw new Error("no fresh sandbox");
+        fresh = created.value.id;
+        const reserved = await capacity.reserve({ projectId: PROJECT, userId: USER });
+        if (!reserved.ok) throw new Error("no capacity for the fresh sandbox");
+        await capacity.activate(reserved.value.id, fresh);
+        projects.recordSandbox(PROJECT, fresh);
+      }
+      return result;
+    };
+    const result = await sweep({ capacity });
+    return { result, capacity, fresh };
+  }
+
+  it("keeps the project pointing at the fresh machine, and counting it", async () => {
+    const { result, capacity, fresh } = await sweepRacingAFreshMachine();
+
+    expect(result.reaped).toEqual([PROJECT]);
+    expect(fresh).toBeDefined();
+    expect(projects.get(PROJECT)?.sandboxId).toBe(fresh);
+    expect(capacity.held()).toMatchObject([{ projectId: PROJECT, sandboxId: fresh }]);
+  });
+
+  it("does not tell the project's tabs that the fresh machine's preview stopped", async () => {
+    await sweepRacingAFreshMachine();
+
+    expect((await events.readFrom(SESSION, 0)).map((event) => event.type)).not.toContain(
+      "preview.stopped",
+    );
+  });
+});
+
 describe("reconciling capacity", () => {
   it("does not reconcile at all unless the composition asked for it", async () => {
     // "Nothing was stranded" and "nothing looked" are different answers, and a deployment

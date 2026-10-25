@@ -154,10 +154,10 @@ describe("idleSince", () => {
 
 describe("releaseSandbox", () => {
   it("clears the sandbox and records the snapshot", async () => {
-    const projectId = await seedProject();
+    const projectId = await seedProject({ sandboxId: "sb-put-away" });
     const key = `projects/${projectId}/1-abc.bundle`;
 
-    await store.releaseSandbox(projectId, key);
+    await expect(store.releaseSandbox(projectId, "sb-put-away", key)).resolves.toBe(true);
 
     const [row] = await db.select().from(projects).where(eq(projects.id, projectId));
     expect(row?.sandboxId).toBeNull();
@@ -169,15 +169,27 @@ describe("releaseSandbox", () => {
   it("takes the project out of the candidate list", async () => {
     // Otherwise the next sweep tries to tear down a sandbox that is already gone, every
     // minute, forever.
-    const projectId = await seedProject();
+    const projectId = await seedProject({ sandboxId: "sb-idle" });
     await seedEvent(await seedSession(projectId), HOUR_AGO);
 
-    await store.releaseSandbox(projectId, "k");
+    await store.releaseSandbox(projectId, "sb-idle", "k");
 
     await expect(idleIds()).resolves.not.toContain(projectId);
   });
 
+  it("leaves a machine the project recorded after the caller read it", async () => {
+    // A sweep read the project naming its old machine, and a turn recorded a fresh one while
+    // the old one was being put away. Forgetting the fresh one would strand it mid-turn.
+    const projectId = await seedProject({ sandboxId: "sb-new" });
+    await db.update(projects).set({ snapshotKey: "earlier" }).where(eq(projects.id, projectId));
+
+    await expect(store.releaseSandbox(projectId, "sb-old", "later")).resolves.toBe(false);
+
+    const [row] = await db.select().from(projects).where(eq(projects.id, projectId));
+    expect(row).toMatchObject({ sandboxId: "sb-new", snapshotKey: "earlier" });
+  });
+
   it("throws for a project that does not exist", async () => {
-    await expect(store.releaseSandbox(randomUUID(), "k")).rejects.toThrow(/unknown project/);
+    await expect(store.releaseSandbox(randomUUID(), "sb", "k")).rejects.toThrow(/unknown project/);
   });
 });

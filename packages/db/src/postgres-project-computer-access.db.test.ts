@@ -306,13 +306,31 @@ it("abandons exactly the stranded scope, forgets its machine, and lets the proje
   const [before] = await db.select().from(projects).where(eq(projects.id, f.projectId));
   expect(await access.abandon({ ...scope(request), userId: f.userId })).toEqual({
     ok: true,
-    value: undefined,
+    value: { released: true },
   });
   const [after] = await db.select().from(projects).where(eq(projects.id, f.projectId));
   expect(after).toMatchObject({ sandboxId: null, status: "idle" });
   expect(after!.computerRevision).not.toBe(before!.computerRevision);
   expect(await access.occupied(f.projectId)).toBe(false);
   expect((await queue.claim("after-abandon"))?.id).toBe(queued.id);
+});
+it("abandons the scope but keeps a machine the project recorded since, and says it kept it", async () => {
+  const f = await seed();
+  const request = await stranded(f);
+  await db.update(projects).set({ sandboxId: "replacement" }).where(eq(projects.id, f.projectId));
+  const [before] = await db.select().from(projects).where(eq(projects.id, f.projectId));
+  // The scope alone is not the identity: the same scope on another machine is not this one.
+  expect(
+    await access.abandon({ ...scope(request), sandboxId: "replacement", userId: f.userId }),
+  ).toEqual({ ok: false, error: { code: "stale_grant" } });
+  expect(await access.abandon({ ...scope(request), userId: f.userId })).toEqual({
+    ok: true,
+    value: { released: false },
+  });
+  const [after] = await db.select().from(projects).where(eq(projects.id, f.projectId));
+  expect(after).toMatchObject({ sandboxId: "replacement" });
+  expect(after!.computerRevision).not.toBe(before!.computerRevision);
+  expect(await access.occupied(f.projectId)).toBe(false);
 });
 it("refuses to abandon early, under a lease, for a stranger, or for a scope that is not the held one", async () => {
   const f = await seed();

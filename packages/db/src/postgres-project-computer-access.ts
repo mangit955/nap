@@ -251,15 +251,16 @@ export class PostgresProjectComputerAccess implements ProjectComputerAccess {
         await tx.delete(projectComputerOperations).where(matches(request));
         // As closing does: the next turn restores rather than resuming the machine. A new
         // revision voids every control grant that named it.
+        const released = project.sandboxId === request.sandboxId;
         await tx
           .update(projects)
           .set({
-            ...(project.sandboxId === request.sandboxId ? { sandboxId: null, status: "idle" } : {}),
+            ...(released ? { sandboxId: null, status: "idle" } : {}),
             computerRevision: sql`gen_random_uuid()`,
             updatedAt: new Date(),
           })
           .where(eq(projects.id, request.projectId));
-        return { ok: true, value: undefined };
+        return { ok: true, value: { released } };
       },
     );
   }

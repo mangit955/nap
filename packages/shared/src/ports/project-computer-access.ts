@@ -72,8 +72,11 @@ export interface ProjectComputerAccess {
    * forgets the machine, so the next turn restores the last snapshot onto a fresh one and the
    * stuck machine is never given input again. Refused while any session holds a lease, or before
    * the reservation is `ABANDON_AFTER_MS` old by the database's clock.
+   *
+   * `released` says whether the project still named that machine and now names none. When it
+   * had already moved on to another, that other machine is kept, and nothing restores.
    */
   abandon(
     request: ComputerScopeIdentity & { userId: string },
-  ): Promise<Result<void, ComputerAbandonError>>;
+  ): Promise<Result<{ released: boolean }, ComputerAbandonError>>;
 }

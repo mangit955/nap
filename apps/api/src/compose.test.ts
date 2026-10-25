@@ -13,11 +13,13 @@ import { InMemorySweepLock } from "@nap/db/testing/in-memory-sweep-lock";
 import { InMemoryTurnQueue } from "@nap/db/testing/in-memory-turn-queue";
 import { InMemoryTurnRateLimiter } from "@nap/db/testing/in-memory-turn-rate-limiter";
 import { InMemoryUserKeyStore } from "@nap/db/testing/in-memory-user-key-store";
+import { ABANDONED_COMPUTER_NOTICE } from "@nap/runtime/project-computer";
 import { TEMPLATE_DEV_PORT } from "@nap/sandbox/template";
 import { FakeSandboxDesktop } from "@nap/sandbox/testing/fake-sandbox-desktop";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { ComputerControlGrantSchema } from "@nap/shared/computer-access";
 import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
+import { ABANDON_AFTER_MS } from "@nap/shared/ports/project-computer-access";
 import type { TurnQueue } from "@nap/shared/ports/turn-queue";
 import type { TurnRateLimiter } from "@nap/shared/ports/turn-rate-limit";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
@@ -790,6 +792,57 @@ it("composes private desktop transport and guarded owner input", async () => {
   expect(input.status).toBe(200);
   expect(desktop.actions).toEqual([
     { sandboxId: created.value.id, action: { action: "left_click", coordinate: [3, 4] } },
+  ]);
+});
+it("composes abandoning so the abandon is written into the project's sessions", async () => {
+  let clock = Date.now() - ABANDON_AFTER_MS - 60_000;
+  const access = new InMemoryProjectComputerAccess(undefined, () => clock);
+  access.setProject({
+    projectId: PROJECT,
+    userId: FAKE_OWNER,
+    sessionIds: [SESSION],
+    sandboxId: "box",
+  });
+  const state = await access.read({ projectId: PROJECT, userId: FAKE_OWNER });
+  if (!state.ok) throw new Error("project");
+  const scope = { projectId: PROJECT, sandboxId: "box", scopeId: crypto.randomUUID() };
+  await access.reserve({
+    ...scope,
+    actor: {
+      kind: "owner",
+      binding: {
+        ...scope,
+        sessionId: SESSION,
+        userId: FAKE_OWNER,
+        revision: state.value.revision,
+        expiresAt: clock + 60_000,
+      },
+    },
+  });
+  await access.markRecovering(scope);
+  clock = Date.now();
+  const desktop = new FakeSandboxDesktop({ bytes: new Uint8Array([1]), width: 1024, height: 768 });
+  desktop.failWith({ code: "unavailable", message: "gone" });
+  const events = new InMemoryEventStore();
+  const nap = compose({
+    role: "api",
+    desktop: desktop.transport,
+    events,
+    projects: projectHolding(SESSION),
+    sessions: new InMemorySessionStore([
+      { sessionId: SESSION, projectId: PROJECT, userId: FAKE_OWNER, sandboxId: "box" },
+    ]),
+    computerAccess: { secret: "test-control-secret", access },
+  });
+  const abandoned = await nap.app.request(`/sessions/${SESSION}/computer/abandon`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{}",
+  });
+  expect(await abandoned.json()).toEqual({ outcome: "abandoned" });
+  expect(await events.readFrom(SESSION, 0)).toMatchObject([
+    { type: "system.notice", payload: { level: "warning", text: ABANDONED_COMPUTER_NOTICE } },
+    { type: "preview.stopped" },
   ]);
 });
 it("composes the owner recording media route with the same durable event store", async () => {

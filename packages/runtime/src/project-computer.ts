@@ -1,8 +1,11 @@
 import type { HumanComputerAction } from "@nap/shared/computer-access";
+import { getLogger } from "@nap/shared/logging";
 import {
   type DesktopInputTransport,
   ScopeDrainProofSchema,
 } from "@nap/shared/ports/desktop-input-transport";
+import type { EventBus } from "@nap/shared/ports/event-bus";
+import type { EventStore } from "@nap/shared/ports/event-store";
 import {
   ABANDON_AFTER_MS,
   type ComputerAbandonError,
@@ -15,6 +18,7 @@ import {
 } from "@nap/shared/ports/project-computer-access";
 import type { DesktopError, SandboxDesktop } from "@nap/shared/ports/sandbox-desktop";
 import type { Result } from "@nap/shared/result";
+import { EventSink } from "./event-sink.ts";
 
 const pending: DesktopError = {
   code: "completion_unknown",
@@ -28,8 +32,30 @@ const unanswered: DesktopError = {
   code: "unavailable",
   message: "Computer input is unavailable right now. No action was sent.",
 };
+/**
+ * Written into every session of a project whose owner abandoned its computer. Without it the log
+ * would still show a finished turn's commit that the restored workspace no longer has, and the
+ * next turn's context would be built from a history the files disagree with.
+ */
+export const ABANDONED_COMPUTER_NOTICE =
+  "This project's computer was abandoned because it never confirmed that an action finished. " +
+  "The next turn starts a fresh computer from the last snapshot. Anything changed after that " +
+  "snapshot is not in it, including the work of a turn that finished without one.";
 // A reservation this old without a lease behind it is a stall, not input still in flight.
 const STUCK_AFTER_MS = 60_000;
+/**
+ * Why input was refused before anything was reserved or sent. `outdated` is a machine whose
+ * driver predates scoped input: unlike the store's refusals it never clears by waiting, and its
+ * owner can fix it only by closing and reopening the project.
+ */
+export type ComputerInputRefusal = { code: ComputerAdmissionError["code"] | "outdated" };
+/** Where an abandoned computer is recorded, so every session's history says what happened. */
+export type AbandonAnnouncement = {
+  events: EventStore;
+  bus: EventBus;
+  sessionIds(request: { projectId: string; userId: string }): Promise<string[]>;
+  now?: () => string;
+};
 const noInput = new Set(["screenshot", "cursor_position", "read_dom", "console", "wait", "zoom"]);
 
 async function bounded<T>(
@@ -66,15 +92,18 @@ export class ProjectComputer {
   readonly #access: ProjectComputerAccess;
   readonly #transport: DesktopInputTransport;
   readonly #now: () => number;
+  readonly #announce: AbandonAnnouncement | undefined;
   // A machine's driver is fixed for its life, so a yes never needs asking twice.
   readonly #scoped = new Set<string>();
   constructor(options: {
     access: ProjectComputerAccess;
     transport: DesktopInputTransport;
     now?: () => number;
+    announce?: AbandonAnnouncement;
   }) {
     this.#access = options.access;
     this.#now = options.now ?? Date.now;
+    this.#announce = options.announce;
     this.#transport = options.transport;
     this.desktop = {
       start: (request) => options.transport.start(request),
@@ -97,7 +126,7 @@ export class ProjectComputer {
   #attempt(
     identity: { projectId: string; sandboxId: string },
     actor: ComputerReservationRequest["actor"] | undefined,
-  ): ComputerAttempt & { admissionError(): ComputerAdmissionError | undefined } {
+  ): ComputerAttempt & { admissionError(): ComputerInputRefusal | undefined } {
     const scope: ComputerScopeIdentity = {
       projectId: identity.projectId,
       sandboxId: identity.sandboxId,
@@ -106,7 +135,7 @@ export class ProjectComputer {
     let reserved = false;
     let stopped = false;
     let closed = false;
-    let admission: ComputerAdmissionError | undefined;
+    let admission: ComputerInputRefusal | undefined;
     let closeResult: Promise<Result<void, { code: "recovery_pending" }>> | undefined;
     const act: SandboxDesktop["act"] = async (sandboxId, action, signal) => {
       if (stopped || closed || sandboxId !== scope.sandboxId) return { ok: false, error: pending };
@@ -133,7 +162,7 @@ export class ProjectComputer {
         // it would block the project for good. Nothing was sent, so the attempt carries on.
         const supported = await this.#supportsScopedInput(sandboxId, signal);
         if (supported !== "yes") {
-          admission = { code: "unavailable" };
+          admission = { code: supported === "no" ? "outdated" : "unavailable" };
           return { ok: false, error: supported === "no" ? outdated : unanswered };
         }
         if (stopped || closed) return { ok: false, error: pending };
@@ -198,7 +227,7 @@ export class ProjectComputer {
     binding: ComputerGrantBinding;
     actions: HumanComputerAction[];
     signal?: AbortSignal | undefined;
-  }): Promise<Result<{ applied: number }, ComputerAdmissionError & { applied: number }>> {
+  }): Promise<Result<{ applied: number }, ComputerInputRefusal & { applied: number }>> {
     const state = await bounded(
       () => this.#access.read(request.binding),
       5000,
@@ -214,7 +243,7 @@ export class ProjectComputer {
       return { ok: false, error: { code: "stale_grant", applied: 0 } };
     const attempt = this.#attempt(request.binding, { kind: "owner", binding: request.binding });
     let applied = 0;
-    let failure: ComputerAdmissionError | undefined;
+    let failure: ComputerInputRefusal | undefined;
     try {
       for (const action of request.actions) {
         if (request.binding.expiresAt <= this.#now() || request.signal?.aborted) {
@@ -320,6 +349,11 @@ export class ProjectComputer {
     const { reservation, busy } = held.value;
     if (!reservation) return { ok: true, value: { outcome: "clear" } };
     if (busy) return { ok: false, error: { code: "busy" } };
+    const abandonableAt = Date.parse(reservation.createdAt) + ABANDON_AFTER_MS;
+    const tooEarly = { ok: false as const, error: { code: "too_early" as const, abandonableAt } };
+    // The database decides on its own clock. Checked here as well so an early request never
+    // drains: a young owner reservation may be another tab's batch still in flight.
+    if (this.#now() < abandonableAt) return tooEarly;
     const scope: ComputerScopeIdentity = {
       projectId: reservation.projectId,
       sandboxId: reservation.sandboxId,
@@ -330,16 +364,49 @@ export class ProjectComputer {
       () => this.#access.abandon({ ...scope, userId: request.userId }),
       5000,
     );
-    if (abandoned.ok) return { ok: true, value: { outcome: "abandoned" } };
-    return abandoned.error.code === "too_early"
-      ? {
-          ok: false,
-          error: {
-            code: "too_early",
-            abandonableAt: Date.parse(reservation.createdAt) + ABANDON_AFTER_MS,
-          },
-        }
-      : abandoned;
+    if (abandoned.ok) {
+      if (abandoned.value.released) await this.#announceAbandoned(request);
+      return { ok: true, value: { outcome: "abandoned" } };
+    }
+    if (abandoned.error.code === "too_early") return tooEarly;
+    if (abandoned.error.code === "stale_grant") {
+      // Usually the reaper drained the scope first, so the drain above found no row to clear.
+      // If nothing is held now there is nothing left to abandon, which is not a conflict.
+      const now = await bounded(() => this.#access.held(request), 5000).catch(() => undefined);
+      if (now?.ok && now.value.reservation === null)
+        return { ok: true, value: { outcome: "clear" } };
+    }
+    return abandoned;
+  }
+
+  /** Never fails the abandon: the machine is already forgotten, and saying so is best effort. */
+  async #announceAbandoned(request: { projectId: string; userId: string }): Promise<void> {
+    const announce = this.#announce;
+    if (announce === undefined) return;
+    try {
+      const sessionIds = await announce.sessionIds(request);
+      const sink = new EventSink(announce.events, announce.bus);
+      const createdAt = (announce.now ?? (() => new Date().toISOString()))();
+      // No turn ran. One id per abandon keeps its events identifiable together.
+      const turnId = crypto.randomUUID();
+      for (const sessionId of sessionIds) {
+        sink.emit({
+          type: "system.notice",
+          payload: { level: "warning", text: ABANDONED_COMPUTER_NOTICE },
+          sessionId,
+          turnId,
+          createdAt,
+        });
+        // The project names no machine now, as after a close, so no preview is serving it.
+        sink.emit({ type: "preview.stopped", payload: {}, sessionId, turnId, createdAt });
+      }
+      await sink.drain();
+    } catch (error) {
+      getLogger().warn(
+        { projectId: request.projectId, err: error },
+        "could not record that the project's computer was abandoned",
+      );
+    }
   }
 
   async recover(limit = 1): Promise<{ recovered: number; pending: number }> {
