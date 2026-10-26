@@ -15,10 +15,9 @@ async function pool(turns: ScriptedTurn[], maxTokens: number) {
   const events: PendingEvent[] = [];
   const helpers = new SubagentPool({
     provider: new ScriptedLLMProvider(turns),
-    models: { explore: undefined, general: undefined },
+    modelFor: () => undefined,
     credentials: undefined,
     prompts: { explore: "search", general: "build" },
-    family: "claude",
     budget: new TurnBudget({ maxTokens }),
     request: {
       sessionId: "2a3f8a24-6c1b-4e0e-9b6f-3a5c0a1d9e77",
@@ -35,6 +34,48 @@ async function pool(turns: ScriptedTurn[], maxTokens: number) {
 const READ = { id: "r", name: "read_file", input: { path: `${PROJECT_ROOT}/a.ts` } };
 
 describe("SubagentPool", () => {
+  it.each(["foreground", "background"] as const)(
+    "stops a %s helper waiting on a file read without waiting for the transport",
+    async (mode) => {
+      const { helpers, sandbox, events } = await pool(
+        [[{ toolCalls: [READ] }, { text: "late" }]],
+        1_000,
+      );
+      let entered: () => void = () => {};
+      let release: () => void = () => {};
+      const started = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const read = sandbox.readFile.bind(sandbox);
+      sandbox.readFile = async (id, path) => {
+        entered();
+        await held;
+        return read(id, path);
+      };
+      const request = { toolCallId: "sub", profile: "explore" as const, task: "Read." };
+      const report =
+        mode === "foreground" ? helpers.run(request) : helpers.collect(helpers.start(request));
+      await started;
+
+      try {
+        await helpers.settle();
+        expect(await report).toEqual({
+          ok: false,
+          output: expect.stringMatching(/cancelled/),
+        });
+        expect(events.at(-1)).toMatchObject({
+          type: "subagent.completed",
+          payload: { outcome: "cancelled" },
+        });
+      } finally {
+        release();
+      }
+    },
+  );
+
   it("shares the turn's budget between helpers running at once, rather than promising it twice", async () => {
     // Of 1000 tokens, the first helper may spend half (500) and the second half of what is left
     // unpromised (250). Each spends 260 on its first request: enough to stop only the second.

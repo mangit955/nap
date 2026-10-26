@@ -19,6 +19,13 @@ import { PROJECT_ROOT, type ToolArgs } from "./definitions.ts";
 export const MAX_GLOB_MATCHES = 500;
 
 export async function globFiles(args: ToolArgs<"glob">, ctx: ToolContext): Promise<ToolOutcome> {
+  let matcher: (path: string) => boolean;
+  try {
+    matcher = globMatcher(args.pattern);
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+    return { ok: false, output: `Invalid glob ${args.pattern}: ${error.message}` };
+  }
   const base = (args.path ?? PROJECT_ROOT).replace(/\/+$/, "") || "/";
   const command = `cd ${shellQuote(base)} && find . \\( -name node_modules -o -name .git \\) -prune -o -type f -print`;
   const executed = await ctx.sandbox.exec(ctx.sandboxId, command, undefined, {
@@ -28,7 +35,6 @@ export async function globFiles(args: ToolArgs<"glob">, ctx: ToolContext): Promi
   if (executed.value.exitCode !== 0)
     return { ok: false, output: executed.value.stderr || `Could not list files under ${base}.` };
 
-  const matcher = globMatcher(args.pattern);
   const matches = executed.value.stdout
     .split("\n")
     .filter((line) => line.startsWith("./"))

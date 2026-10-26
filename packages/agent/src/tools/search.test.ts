@@ -74,6 +74,21 @@ describe("globMatcher", () => {
 });
 
 describe("glob", () => {
+  it("returns an error for an invalid character range and closes the tool exchange", async () => {
+    const { ctx } = await project(FILES);
+    const events: PendingEvent[] = [];
+    ctx.emit = (event) => events.push(event as PendingEvent);
+
+    const result = await executeTool(
+      { id: "g", name: "glob", input: { pattern: "[z-a].tsx" } },
+      ctx,
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.output).toMatch(/invalid glob/i);
+    expect(events.map((event) => event.type)).toEqual(["tool.call", "tool.result"]);
+  });
+
   it("lists matching files by absolute path, sorted, skipping node_modules", async () => {
     const { ctx } = await project(FILES);
 

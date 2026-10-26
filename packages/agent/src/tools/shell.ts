@@ -44,7 +44,14 @@ export async function runCommand(
   const verdict = inspectCommand(args.command);
   if (!verdict.allowed) return { ok: false, output: verdict.message };
 
-  if (args.background === true) return startShell(args.command, ctx);
+  if (args.background === true) {
+    if (ctx.backgroundShells === false)
+      return {
+        ok: false,
+        output: "Helpers must run commands in the foreground so no command outlives its helper.",
+      };
+    return startShell(args.command, ctx);
+  }
 
   const command = `cd ${PROJECT_ROOT} && ${args.command}`;
   const timeoutMs = (args.timeout_seconds ?? 60) * 1_000;
@@ -107,6 +114,8 @@ while [ ! -f "$d/exit" ] && [ "$i" -lt "$wait" ]; do sleep 0.1; i=$((i+1)); done
 if [ -f "$d/exit" ]; then status="exited $(cat "$d/exit")"; else status="running"; fi
 offset=$(cat "$d/offset" 2>/dev/null || echo 0)
 size=$(wc -c < "$d/log" | tr -d ' ')
+available=$((size-offset))
+[ "$available" -lt "$limit" ] && limit="$available"
 tail -c +$((offset+1)) "$d/log" | head -c "$limit" > "$d/chunk"
 read=$(wc -c < "$d/chunk" | tr -d ' ')
 echo $((offset+read)) > "$d/offset"

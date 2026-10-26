@@ -1,8 +1,11 @@
+import { E2BSandboxDesktop } from "@nap/sandbox/e2b-sandbox-desktop";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
+import { isolatedDesktop } from "@nap/sandbox/testing/isolated-desktop";
 import { NapEventSchema, type NapEventType } from "@nap/shared/events";
 import type { AgentTurnRequest } from "@nap/shared/ports/agent-service";
 import type { PendingEvent } from "@nap/shared/ports/event-store";
 import type { LLMContentBlock, LLMMessage, LLMToolCall } from "@nap/shared/ports/llm-provider";
+import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import { beforeEach, describe, expect, it } from "vitest";
 import { NapAgentService } from "./agent-service.ts";
 import type { TurnHook } from "./hooks/hook.ts";
@@ -192,6 +195,42 @@ describe("a batch of tool calls", () => {
 });
 
 describe("recovering", () => {
+  it.each([
+    ["openai/gpt-5.6-luna", "anthropic/claude-fable-5", false],
+    ["anthropic/claude-fable-5", "openai/gpt-5.6-luna", true],
+  ])(
+    "selects computer availability again when %s falls back to %s",
+    async (model, fallbackModel, computer) => {
+      const { agent, provider } = run([[{ refusal: true }], [{ text: "done" }]], { fallbackModel });
+
+      await agent.runTurn(
+        request({
+          model,
+          computer: {
+            desktop: isolatedDesktop(new E2BSandboxDesktop({ sandbox: manager })),
+            objects: new InMemoryObjectStore(),
+            projectId: "project",
+            devServerUrl: "http://localhost:5173",
+            beforeStore: async () => {},
+          },
+        }),
+      );
+
+      expect(provider.requests[1]?.tools.some((tool) => tool.name === "computer")).toBe(computer);
+    },
+  );
+
+  it.each([
+    ["openai/gpt-5.6-luna", "anthropic/claude-opus-5", false],
+    ["anthropic/claude-opus-5", "openai/gpt-5.6-luna", true],
+  ])("selects tools again when %s falls back to %s", async (model, fallbackModel, patch) => {
+    const { agent, provider } = run([[{ refusal: true }], [{ text: "done" }]], { fallbackModel });
+
+    await agent.runTurn(request({ model }));
+
+    expect(provider.requests[1]?.tools.some((tool) => tool.name === "apply_patch")).toBe(patch);
+  });
+
   it("asks for the rest of a reply cut off at the output limit, a bounded number of times", async () => {
     const { agent, provider } = run([
       [
@@ -489,6 +528,76 @@ describe("helpers", () => {
     });
   }
 
+  it("gives helpers directory rules in their own conversation", async () => {
+    await manager.writeFile(sandboxId, `${PROJECT_ROOT}/AGENTS.md`, "Use pnpm.");
+    await manager.writeFile(sandboxId, `${PROJECT_ROOT}/src/AGENTS.md`, "Use named exports.");
+    const { agent, provider } = run([
+      [
+        { toolCalls: [call("run_subagent", { profile: "general", task: "Read the app." }, "sub")] },
+        { text: "done" },
+      ],
+      [{ toolCalls: [call("read_file", { path: APP }, "inner")] }, { text: "report" }],
+    ]);
+    const sent = withHelpers();
+    sent.context.rootRules = true;
+
+    await agent.runTurn(sent);
+
+    const helperResult = textOfResult(provider.requests[2]?.messages.at(-1));
+    expect(helperResult).toContain("Use pnpm.");
+    expect(helperResult).toContain("Use named exports.");
+  });
+
+  it("refuses helper background commands before starting a shell", async () => {
+    const { agent, provider } = run([
+      [
+        { toolCalls: [call("run_subagent", { profile: "general", task: "Build." }, "sub")] },
+        { text: "done" },
+      ],
+      [
+        {
+          toolCalls: [
+            call(
+              "run_command",
+              { command: "sleep 1; echo late > result.txt", background: true },
+              "cmd",
+            ),
+          ],
+        },
+        { text: "report" },
+      ],
+    ]);
+
+    await agent.runTurn(withHelpers());
+
+    expect(manager.commands(sandboxId)).toEqual([]);
+    const helperResult = provider.requests[2]?.messages.at(-1)?.content;
+    expect(helperResult).toEqual([
+      expect.objectContaining({
+        type: "tool_result",
+        isError: true,
+        content: expect.stringMatching(/foreground/),
+      }),
+    ]);
+  });
+
+  it("selects a general helper's tools using the helper's own model family", async () => {
+    const { agent, provider } = run(
+      [
+        [
+          { toolCalls: [call("run_subagent", { profile: "general", task: "Build." }, "sub")] },
+          { text: "done" },
+        ],
+        [{ text: "report" }],
+      ],
+      { subagentModels: { general: "openai/gpt-5.6-luna" } },
+    );
+
+    await agent.runTurn(withHelpers({ model: "anthropic/claude-opus-5" }));
+
+    expect(provider.requests[1]?.tools.some((tool) => tool.name === "apply_patch")).toBe(true);
+  });
+
   it("runs a helper on its own conversation and hands back its report, not its traffic", async () => {
     const { agent, provider } = run(
       [
@@ -646,6 +755,138 @@ describe("helpers", () => {
     ]);
     // The helper was stopped before the turn reported itself complete.
     expect(types().indexOf("subagent.completed")).toBeLessThan(types().indexOf("turn.completed"));
+  });
+
+  it("keeps foreground helper events inside its ordered tool exchange in a parallel batch", async () => {
+    const { agent } = run([
+      [
+        {
+          toolCalls: [
+            call("read_file", { path: APP }, "read"),
+            call("run_subagent", { profile: "explore", task: "Find routes." }, "sub"),
+          ],
+        },
+        { text: "done" },
+      ],
+      [{ text: "report" }],
+    ]);
+
+    await agent.runTurn(withHelpers());
+
+    expect(types()).toEqual([
+      "turn.started",
+      "tool.call",
+      "tool.result",
+      "tool.call",
+      "subagent.started",
+      "subagent.completed",
+      "tool.result",
+      "agent.message",
+      "turn.completed",
+    ]);
+  });
+
+  it.each(["refusal", "error"] as const)(
+    "settles background helpers before a parent %s ends the turn",
+    async (failure) => {
+      const { agent, provider } = run([
+        [
+          {
+            toolCalls: [
+              call("run_subagent", { profile: "explore", task: "Wait.", background: true }, "sub"),
+            ],
+          },
+          failure === "refusal"
+            ? { refusal: true }
+            : { error: { message: "Unavailable", retryable: false } },
+        ],
+        [{ text: "never" }],
+      ]);
+      const start = provider.startTurn.bind(provider);
+      let helperSignal: AbortSignal | undefined;
+      provider.startTurn = (options) => {
+        const turn = start(options);
+        if (provider.turnOptions.length === 2)
+          turn.complete = (sent) => {
+            helperSignal = sent.signal;
+            return new Promise(() => {});
+          };
+        return turn;
+      };
+
+      await agent.runTurn(withHelpers());
+      const atReturn = [...events];
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+      expect(helperSignal?.aborted).toBe(true);
+      expect(types().at(-1)).toBe("turn.failed");
+      expect(payloads("subagent.completed")).toEqual([
+        expect.objectContaining({ outcome: "cancelled" }),
+      ]);
+      expect(events).toEqual(atReturn);
+    },
+  );
+
+  it("stops background helpers even when the parent's provider throws", async () => {
+    const { agent, provider } = run([
+      [
+        {
+          toolCalls: [
+            call("run_subagent", { profile: "explore", task: "Wait.", background: true }, "sub"),
+          ],
+        },
+      ],
+      [{ text: "never" }],
+    ]);
+    const start = provider.startTurn.bind(provider);
+    let helperSignal: AbortSignal | undefined;
+    provider.startTurn = (options) => {
+      const turn = start(options);
+      if (provider.turnOptions.length === 1) {
+        const complete = turn.complete.bind(turn);
+        let calls = 0;
+        turn.complete = (sent) => {
+          if (calls++ === 0) return complete(sent);
+          return Promise.reject(new Error("Connection lost"));
+        };
+      } else
+        turn.complete = (sent) => {
+          helperSignal = sent.signal;
+          return new Promise(() => {});
+        };
+      return turn;
+    };
+
+    await expect(agent.runTurn(withHelpers())).rejects.toThrow("Connection lost");
+
+    expect(helperSignal?.aborted).toBe(true);
+    expect(payloads("subagent.completed")).toEqual([
+      expect.objectContaining({ outcome: "cancelled" }),
+    ]);
+  });
+
+  it("reports a helper provider exception as a failed helper and lets the parent continue", async () => {
+    const { agent, provider } = run([
+      [
+        { toolCalls: [call("run_subagent", { profile: "explore", task: "Search." }, "sub")] },
+        { text: "done" },
+      ],
+      [{ text: "never" }],
+    ]);
+    const start = provider.startTurn.bind(provider);
+    provider.startTurn = (options) => {
+      const turn = start(options);
+      if (provider.turnOptions.length === 2)
+        turn.complete = () => Promise.reject(new Error("Connection lost"));
+      return turn;
+    };
+
+    await expect(agent.runTurn(withHelpers())).resolves.toBeUndefined();
+
+    expect(payloads("subagent.completed")).toEqual([
+      expect.objectContaining({ outcome: "failed", summary: "Connection lost" }),
+    ]);
+    expect(types().at(-1)).toBe("turn.completed");
   });
 
   it("is not offered without prompts to run helpers under", async () => {

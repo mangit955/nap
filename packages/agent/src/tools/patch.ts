@@ -246,6 +246,8 @@ export async function applyPatch(
     if (section.moveTo === null) planned.push({ path, before: existing, after: applied.value });
     else {
       const target = resolve(section.moveTo);
+      if (planned.some((change) => change.path === target))
+        return refuse(`${target} appears in more than one section. Put all its changes in one.`);
       const occupied = await ctx.sandbox.readFile(ctx.sandboxId, target);
       if (occupied.ok) return refuse(`${target} already exists, so ${path} cannot move there.`);
       if (occupied.error.code !== "file_not_found") return failed(occupied.error);
@@ -258,6 +260,13 @@ export async function applyPatch(
     if (change.after === null) {
       const removed = await ctx.sandbox.exec(ctx.sandboxId, `rm -f -- ${shellQuote(change.path)}`);
       if (!removed.ok) return failed(removed.error);
+      if (removed.value.exitCode !== 0)
+        return {
+          ok: false,
+          output:
+            removed.value.stderr ||
+            `Could not delete ${change.path}: exit code ${removed.value.exitCode}.`,
+        };
       ctx.ledger?.forget(change.path);
     } else {
       const written = await ctx.sandbox.writeFile(ctx.sandboxId, change.path, change.after);

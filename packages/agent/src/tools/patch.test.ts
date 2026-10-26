@@ -283,6 +283,46 @@ describe("apply_patch", () => {
   });
 
   it.each([
+    ["*** Add File: src/Main.tsx", "+new", `*** Update File: ${APP}`, "*** Move to: src/Main.tsx"],
+    [`*** Update File: ${APP}`, "*** Move to: src/Main.tsx", "*** Add File: src/Main.tsx", "+new"],
+    [
+      `*** Update File: ${APP}`,
+      "*** Move to: src/Main.tsx",
+      "*** Update File: src/old.ts",
+      "*** Move to: src/Main.tsx",
+    ],
+  ])("refuses colliding move destinations before writing", async (...lines) => {
+    const before = await manager.readFile(sandboxId, APP);
+    const result = await patch(...lines);
+
+    expect(result.ok).toBe(false);
+    expect(result.output).toMatch(/more than one section/);
+    expect(await manager.readFile(sandboxId, APP)).toEqual(before);
+    expect((await manager.readFile(sandboxId, `${PROJECT_ROOT}/src/Main.tsx`)).ok).toBe(false);
+    expect(events.filter((event) => event.type === "file.changed")).toEqual([]);
+  });
+
+  it("reports a failed deletion without forgetting or reporting the file as deleted", async () => {
+    ledger.remember(APP);
+    const exec = manager.exec.bind(manager);
+    manager.exec = (id, command, onOutput, options) =>
+      command.startsWith("rm -f")
+        ? Promise.resolve({
+            ok: true,
+            value: { exitCode: 1, stdout: "", stderr: "Permission denied" },
+          })
+        : exec(id, command, onOutput, options);
+
+    const result = await patch(`*** Delete File: ${APP}`);
+
+    expect(result.ok).toBe(false);
+    expect(result.output).toContain("Permission denied");
+    expect(ledger.knows(APP)).toBe(true);
+    expect((await manager.readFile(sandboxId, APP)).ok).toBe(true);
+    expect(events.filter((event) => event.type === "file.changed")).toEqual([]);
+  });
+
+  it.each([
     ["adding a file that exists", ["*** Add File: src/old.ts", "+x"], /already exists/],
     [
       "updating a file that does not",

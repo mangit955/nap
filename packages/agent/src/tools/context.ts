@@ -19,11 +19,14 @@ import type { FileLedger } from "./ledger.ts";
  */
 export interface SubagentRunner {
   /** Runs to the end and reports. Never throws: a helper that failed says so in its report. */
-  run(request: {
-    toolCallId: string;
-    profile: SubagentProfile;
-    task: string;
-  }): Promise<ToolOutcome>;
+  run(
+    request: {
+      toolCallId: string;
+      profile: SubagentProfile;
+      task: string;
+    },
+    emit?: ToolContext["emit"],
+  ): Promise<ToolOutcome>;
   /** Starts it and returns the id `collect` takes. */
   start(request: { toolCallId: string; profile: SubagentProfile; task: string }): string;
   /** Waits for a started helper's report, or says there is no such helper. */
@@ -46,6 +49,8 @@ export type ToolContext = {
   offered?: ReadonlySet<ToolName> | undefined;
   /** What this turn has read and written, for the rule that a file is read before it changes. */
   ledger?: FileLedger | undefined;
+  /** Helpers must finish their commands before handing control back to the parent. */
+  backgroundShells?: boolean;
   subagents?: SubagentRunner | undefined;
   /** Receives each event as it happens, without a `seq`. */
   emit: (event: DistributiveOmit<NapEvent, "seq">) => void;

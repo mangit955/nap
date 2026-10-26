@@ -30,12 +30,13 @@ import type {
   TokenUsage,
 } from "@nap/shared/ports/llm-provider";
 import { CANCELLED, stopAware } from "./cancellation.ts";
+import { DirectoryRules } from "./hooks/directory-rules.ts";
 import type { TurnBudget } from "./safety/budget.ts";
-import type { SubagentRunner, ToolOutcome } from "./tools/context.ts";
+import type { SubagentRunner, ToolContext, ToolOutcome } from "./tools/context.ts";
 import type { ToolDefinition } from "./tools/definitions.ts";
 import { executeTool } from "./tools/execute.ts";
 import { FileLedger } from "./tools/ledger.ts";
-import { type ModelFamily, toolNamesFor, toolsetFor } from "./tools/toolset.ts";
+import { modelFamily, toolNamesFor, toolsetFor } from "./tools/toolset.ts";
 
 /** Model requests one helper may make. A search that has not converged by then will not. */
 export const SUBAGENT_STEPS: Record<SubagentProfile, number> = { explore: 15, general: 30 };
@@ -52,10 +53,10 @@ type Payload<T extends NapEvent["type"]> = NapEventOf<T>["payload"];
 export type SubagentPoolOptions = {
   provider: LLMProvider;
   /** The model each profile runs on. */
-  models: Record<SubagentProfile, string | undefined>;
+  modelFor: (profile: SubagentProfile) => string | undefined;
   credentials: AgentTurnRequest["credentials"];
   prompts: Record<SubagentProfile, string>;
-  family: ModelFamily;
+  rootRules?: boolean;
   budget: TurnBudget;
   request: Pick<AgentTurnRequest, "sessionId" | "turnId" | "sandboxId" | "sandbox" | "signal">;
   /** The turn's event sink. Only what a reader of the log needs reaches it. */
@@ -77,15 +78,19 @@ export class SubagentPool implements SubagentRunner {
     this.#options = options;
   }
 
-  run(request: Request): Promise<ToolOutcome> {
-    return this.#execute(this.#nextId(), request, new AbortController());
+  run(request: Request, emit = this.#options.emit): Promise<ToolOutcome> {
+    const subagentId = this.#nextId();
+    const controller = new AbortController();
+    const report = this.#execute(subagentId, request, controller, emit);
+    this.#helpers.set(subagentId, { report, controller, collected: true });
+    return report;
   }
 
   start(request: Request): string {
     const subagentId = this.#nextId();
     const controller = new AbortController();
     this.#helpers.set(subagentId, {
-      report: this.#execute(subagentId, request, controller),
+      report: this.#execute(subagentId, request, controller, this.#options.emit),
       controller,
       collected: false,
     });
@@ -105,7 +110,7 @@ export class SubagentPool implements SubagentRunner {
     return [...this.#helpers].filter(([, helper]) => !helper.collected).map(([id]) => id);
   }
 
-  /** Stops every background helper and waits for each to say so, so none outlives the turn. */
+  /** Stops every helper and waits for each to say so, so none outlives the turn. */
   async settle(): Promise<void> {
     for (const helper of this.#helpers.values()) helper.controller.abort();
     await Promise.all([...this.#helpers.values()].map((helper) => helper.report));
@@ -125,12 +130,13 @@ export class SubagentPool implements SubagentRunner {
     subagentId: string,
     request: Request,
     controller: AbortController,
+    emit: ToolContext["emit"],
   ): Promise<ToolOutcome> {
     const options = this.#options;
     const parent = options.request.signal;
     const signal =
       parent === undefined ? controller.signal : AbortSignal.any([parent, controller.signal]);
-    this.#emit({
+    this.#emit(emit, {
       type: "subagent.started",
       payload: {
         toolCallId: request.toolCallId,
@@ -143,7 +149,7 @@ export class SubagentPool implements SubagentRunner {
     const usage = { inputTokens: 0, outputTokens: 0 };
     let toolCalls = 0;
     const finish = (outcome: SubagentOutcome, report: string): ToolOutcome => {
-      this.#emit({
+      this.#emit(emit, {
         type: "subagent.completed",
         payload: {
           subagentId,
@@ -158,9 +164,10 @@ export class SubagentPool implements SubagentRunner {
         : { ok: false, output: `${subagentId} ${outcome}: ${report}` };
     };
 
+    const model = options.modelFor(request.profile);
     const toolsetOptions = {
       promptSource: "user" as const,
-      family: options.family,
+      family: modelFamily(model),
       computer: false,
       subagents: false,
       subagent: request.profile,
@@ -177,12 +184,17 @@ export class SubagentPool implements SubagentRunner {
         request,
         signal,
         allowance,
-        { tools, offered, ledger },
+        { tools, offered, ledger, emit, model },
         finish,
         () => {
           toolCalls += 1;
         },
         usage,
+      );
+    } catch (error) {
+      return finish(
+        signal.aborted ? "cancelled" : "failed",
+        error instanceof Error ? error.message : String(error),
       );
     } finally {
       this.#reserved -= allowance;
@@ -194,19 +206,30 @@ export class SubagentPool implements SubagentRunner {
     request: Request,
     signal: AbortSignal,
     allowance: number,
-    access: { tools: ToolDefinition[]; offered: ReadonlySet<ToolName>; ledger: FileLedger },
+    access: {
+      tools: ToolDefinition[];
+      offered: ReadonlySet<ToolName>;
+      ledger: FileLedger;
+      emit: ToolContext["emit"];
+      model: string | undefined;
+    },
     finish: (outcome: SubagentOutcome, report: string) => ToolOutcome,
     counted: () => void,
     usage: TokenUsage,
   ): Promise<ToolOutcome> {
-    const { tools, offered, ledger } = access;
+    const { tools, offered, ledger, emit, model } = access;
     const options = this.#options;
     const turn = options.provider.startTurn({
-      model: options.models[request.profile],
+      model,
       credentials: options.credentials,
     });
     const messages: LLMMessage[] = [{ role: "user", content: request.task }];
     const steps = SUBAGENT_STEPS[request.profile];
+    const rules = new DirectoryRules({
+      sandbox: options.request.sandbox,
+      sandboxId: options.request.sandboxId,
+      includeRoot: options.rootRules === true,
+    });
 
     for (let step = 1; step <= steps; step += 1) {
       if (signal.aborted) return finish("cancelled", "Stopped before it finished.");
@@ -244,20 +267,26 @@ export class SubagentPool implements SubagentRunner {
       const results: LLMContentBlock[] = [];
       for (const call of result.toolCalls) {
         counted();
-        const outcome = await executeTool(call, {
-          sessionId: options.request.sessionId,
-          turnId: options.request.turnId,
-          sandboxId: options.request.sandboxId,
-          sandbox: options.request.sandbox,
+        const outcome = await stopAware(
+          executeTool(call, {
+            sessionId: options.request.sessionId,
+            turnId: options.request.turnId,
+            sandboxId: options.request.sandboxId,
+            sandbox: options.request.sandbox,
+            signal,
+            offered,
+            ledger,
+            backgroundShells: false,
+            // A helper's own calls stay out of the log; the files it changed do not.
+            emit: (event) => {
+              if (event.type === "file.changed" && !signal.aborted) emit(event);
+            },
+            now: options.now,
+          }).then((executed) => (signal.aborted ? executed : rules.afterTool(call, executed))),
           signal,
-          offered,
-          ledger,
-          // A helper's own calls stay out of the log; the files it changed do not.
-          emit: (event) => {
-            if (event.type === "file.changed") options.emit(event);
-          },
-          now: options.now,
-        });
+        );
+        if (outcome === CANCELLED || signal.aborted)
+          return finish("cancelled", "Stopped before it finished.");
         results.push({
           type: "tool_result",
           toolCallId: call.id,
@@ -277,8 +306,11 @@ export class SubagentPool implements SubagentRunner {
     return finish("failed", "Ran out of steps before reporting.");
   }
 
-  #emit<T extends NapEvent["type"]>(event: { type: T; payload: Payload<T> }): void {
-    this.#options.emit({
+  #emit<T extends NapEvent["type"]>(
+    emit: ToolContext["emit"],
+    event: { type: T; payload: Payload<T> },
+  ): void {
+    emit({
       ...event,
       sessionId: this.#options.request.sessionId,
       turnId: this.#options.request.turnId,

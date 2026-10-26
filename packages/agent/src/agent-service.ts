@@ -132,8 +132,9 @@ class Turn {
   readonly #clock: () => number;
   readonly #startedAt: number;
   readonly #messages: LLMMessage[];
-  readonly #tools: ToolDefinition[];
-  readonly #offered: ReadonlySet<ToolName>;
+  #model: string | undefined;
+  #tools: ToolDefinition[];
+  #offered: ReadonlySet<ToolName>;
   readonly #ledger = new FileLedger();
   readonly #hooks: TurnHook[];
   readonly #helpers: SubagentPool | undefined;
@@ -158,14 +159,9 @@ class Turn {
   ) {
     this.#request = request;
     this.#options = options;
-    const family = modelFamily(request.model);
+    this.#model = request.model;
     const prompts = request.context.subagentPrompts;
-    const toolset = {
-      promptSource: request.promptSource ?? "user",
-      family,
-      computer: request.computer !== undefined && modelSupportsImages(request.model),
-      subagents: prompts !== undefined,
-    };
+    const toolset = this.#toolsetOptions();
     this.#tools = toolsetFor(toolset);
     this.#offered = toolNamesFor(toolset);
     this.#turn = options.provider.startTurn({
@@ -187,15 +183,11 @@ class Turn {
         ? undefined
         : new SubagentPool({
             provider: options.provider,
-            models: {
-              explore:
-                (deploymentPays ? options.subagentModels?.explore : undefined) ?? request.model,
-              general:
-                (deploymentPays ? options.subagentModels?.general : undefined) ?? request.model,
-            },
+            modelFor: (profile) =>
+              (deploymentPays ? options.subagentModels?.[profile] : undefined) ?? this.#model,
             credentials: request.credentials,
             prompts,
-            family,
+            rootRules: request.context.rootRules === true,
             budget: this.#budget,
             request,
             emit: request.onEvent,
@@ -214,6 +206,14 @@ class Turn {
   }
 
   async run(): Promise<void> {
+    try {
+      await this.#run();
+    } finally {
+      await this.#helpers?.settle();
+    }
+  }
+
+  async #run(): Promise<void> {
     this.#emit({
       type: "turn.started",
       payload: { source: this.#request.promptSource ?? "user" },
@@ -429,8 +429,12 @@ class Turn {
     )
       return false;
     this.#fellBack = true;
+    this.#model = fallback;
     this.#turn = this.#options.provider.startTurn({ model: fallback });
     this.#turns.push(this.#turn);
+    const toolset = this.#toolsetOptions();
+    this.#tools = toolsetFor(toolset);
+    this.#offered = toolNamesFor(toolset);
     this.#notice(`The selected model declined this request, so ${fallback} is continuing it.`);
     return true;
   }
@@ -655,7 +659,7 @@ class Turn {
       }
 
       if (outcomes.some((outcome) => outcome.stop === "computer_unsettled")) {
-        this.#fail(
+        await this.#fail(
           this.#cancelled() ? "cancelled" : "sandbox_unavailable",
           "Computer input recovery is pending.",
         );
@@ -742,13 +746,12 @@ class Turn {
     return this.#request.signal?.aborted === true;
   }
 
-  #fail(reason: TurnFailureReason, message: string): void {
-    this.#failWith({ reason, message });
+  #fail(reason: TurnFailureReason, message: string): Promise<void> {
+    return this.#failWith({ reason, message });
   }
 
-  #failWith(failure: Payload<"turn.failed">): void {
-    // Not awaited: a failing turn ends now, and a helper's report has nobody left to read it.
-    void this.#helpers?.settle();
+  async #failWith(failure: Payload<"turn.failed">): Promise<void> {
+    await this.#helpers?.settle();
     this.#emit({ type: "turn.failed", payload: failure });
   }
 
@@ -762,10 +765,19 @@ class Turn {
       offered: this.#offered,
       ledger: this.#ledger,
       subagents: this.#helpers,
-      computer: modelSupportsImages(this.#request.model) ? this.#request.computer : undefined,
+      computer: modelSupportsImages(this.#model) ? this.#request.computer : undefined,
       signal: this.#request.signal,
       emit: this.#request.onEvent,
       now: this.#now,
+    };
+  }
+
+  #toolsetOptions() {
+    return {
+      promptSource: this.#request.promptSource ?? "user",
+      family: modelFamily(this.#model),
+      computer: this.#request.computer !== undefined && modelSupportsImages(this.#model),
+      subagents: this.#request.context.subagentPrompts !== undefined,
     };
   }
 

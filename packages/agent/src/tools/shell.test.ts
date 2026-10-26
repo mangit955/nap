@@ -63,6 +63,37 @@ async function start(command: string): Promise<string> {
 }
 
 describe("a background command", () => {
+  it("leaves bytes appended after the size snapshot for the next read", async () => {
+    await sandbox.dispose();
+    // Append between measuring and reading the log, without relying on process timing.
+    sandbox = await LocalShellSandbox.create({ prelude: 'export PATH="$PWD/bin:$PATH"' });
+    await sandbox.writeFile(
+      sandbox.id,
+      `${PROJECT_ROOT}/bin/wc`,
+      `#!/bin/sh
+/usr/bin/wc "$@"
+if [ "$1" = -c ]; then
+  for log in ../shells/*/log; do
+    if [ ! -f "$log.injected" ]; then
+      printf 'late\\n' >> "$log"
+      touch "$log.injected"
+    fi
+  done
+fi
+`,
+    );
+    await sandbox.exec(sandbox.id, "chmod +x bin/wc");
+
+    const started = await begin("printf 'early\\n'");
+    const later = await run("shell_output", { shell_id: started.id });
+
+    expect(started.output).toContain("early");
+    expect(started.output).not.toContain("late");
+    expect(later.ok).toBe(true);
+    expect(later.output).toContain("late");
+    expect(later.output).not.toContain("early");
+  });
+
   it("returns at once with an id, and keeps running after the call that started it", async () => {
     const before = Date.now();
     const id = await start("sleep 2; echo finished");

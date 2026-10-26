@@ -26,7 +26,7 @@ export async function runSubagent(
         "Only an explore helper can run in the background. Run a general helper without background.",
     };
   const request = { toolCallId: call.id, profile: args.profile, task: args.task };
-  if (args.background !== true) return ctx.subagents.run(request);
+  if (args.background !== true) return ctx.subagents.run(request, ctx.emit);
   const subagentId = ctx.subagents.start(request);
   return {
     ok: true,
