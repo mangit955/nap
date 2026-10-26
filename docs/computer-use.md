@@ -36,7 +36,8 @@ Ports are 3037 (web), 3038 (API), and 3039 (synthetic app). Stop any other Next 
 this checkout first, because Next holds a lock on its dev output. Ctrl-C stops these services
 and removes the disposable database; local changes and accounts from that run are lost.
 
-The optional desktop is injected through `composeNap` and is absent from production boot. A
+The desktop is injected through `composeNap`, and production boot (`apps/api/src/boot.ts`)
+composes the E2B desktop adapter unconditionally, so the next deploy turns it on. A
 composition test was seen failing without that wire. The preview provider has a collected unit
 suite and all scripts belong to the API TypeScript program. No dependency or CI glob changed.
 
@@ -57,7 +58,7 @@ Every new event has schema parsing, issue-path, discriminant and JSON round-trip
 
 ## Current limits
 
-Production boot still has no E2B desktop adapter. Desktop behavior, screenshot bytes and model responses in these checks are fakes. Real image forwarding, desktop sizing/startup, the actual browser allowlist, VNC, takeover, video capture and recording playback require later tickets and paid approval where applicable. Annotation timestamps are elapsed from the app test; recording must anchor them to capture start. The app test cards and explicit Fix it UI are separate from the backend.
+Production boot composes the E2B desktop adapter unconditionally, so do not deploy until VNC viewing, physical input and recording have passed on a real VM; what one VM has verified so far is in [ADR-0019](adr/0019-the-desktop-debugger-has-no-port.md). Desktop behavior, screenshot bytes and model responses in these checks are fakes. Annotation timestamps are elapsed from the app test; recording must anchor them to capture start. The app test cards and explicit Fix it UI are separate from the backend.
 
 Actual Computer pane and work-log browser evidence is under [panel review](assets/computer-use/panel-review/README.md) and [work-log review](assets/computer-use/work-log-review/README.md). The standalone mockup is design evidence, not proof of the live desktop or recording transport.
 
