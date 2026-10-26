@@ -23,7 +23,6 @@ const FAKE_BROWSER = `import fs from 'node:fs';
 import net from 'node:net';
 const [log, mode = ''] = process.argv.slice(2);
 const note = (value) => fs.appendFileSync(log, JSON.stringify(value) + '\\n');
-note({ launched: process.pid });
 const input = new net.Socket({ fd: 3, readable: true, writable: false });
 const output = new net.Socket({ fd: 4, readable: false, writable: true });
 const send = (value) => output.write(JSON.stringify(value) + '\\0');
@@ -58,6 +57,8 @@ process.on('SIGTERM', () => {
   if (mode !== 'stubborn') setTimeout(() => process.exit(0), 150);
 });
 if (mode === 'silent') input.pause();
+// Last, so a test that waits for this line knows the SIGTERM handler is already installed.
+note({ launched: process.pid });
 `;
 
 let root = "";

@@ -1,6 +1,6 @@
 # ADR-0019 — The desktop debugger has no port
 
-**Status:** Accepted, 2026-10-26. Verified locally against Chrome 156 in the local desktop image and in a Linux replica. A real E2B desktop has not yet been started with it; that run is what closes the question this ADR answers.
+**Status:** Accepted, 2026-10-26. Verified locally against Chrome 156 in the local desktop image and in a Linux replica. One real E2B VM on template build `3814bf7e-565e-43c2-883a-fc6898eb6657` passed desktop startup, the owner stream route, protocol 2, same-port reuse and 1024×768 screenshot capture, with no TCP debugging listener. VNC viewing, physical input and recording on a real VM remain unverified.
 
 ## Context
 
@@ -23,7 +23,7 @@ Time-bounded startup waits were tried first, on the theory that a slow cold VM w
 
 **Startup records the bridge.** The launch barrier is unchanged: the waiting child still waits for `GO` on the anonymous pipe and then execs, now into the bridge, so the recorded PID and start ticks are the bridge's. A recorded process is ours only if its start ticks match and its command line carries the exact profile, `--remote-debugging-pipe`, `--cdp-bridge` and the socket path. Every listening Unix socket bound to exactly that path, read from `/proc/net/unix`, must be a descriptor of that process; anything else fails closed with "The browser debugger socket is not owned by this desktop." Readiness is one `Browser.getVersion` round trip through the socket. Stopping the browser for a port change signals the bridge and waits for its start ticks to change, which now also means the browser has exited and the profile is free.
 
-**Observation goes through a browser-level session.** `Target.getTargets`, the same web-content filter as before, `Target.attachToTarget` with `flatten`, the same fixed read-only DOM and console calls on that session, then a detach. Replies count only from the session that was asked, events only from that session.
+**Observation goes through a browser-level session.** `Target.getTargets`, the same web-content filter as before, `Target.attachToTarget` with `flatten`, the same fixed read-only DOM and console calls on that session, then the connection closes and the bridge detaches the session. Replies count only from the session that was asked, events only from that session.
 
 ## Consequences
 

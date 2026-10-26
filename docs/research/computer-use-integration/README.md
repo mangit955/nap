@@ -4,7 +4,7 @@ This branch integrates the desktop adapter, guarded owner routes, noVNC frame, o
 
 The verified UI integration is committed as `ec4fbd6`, after backend capture and playback integration in `a72f7c3`. The bounded [UI repair review](../../assets/computer-use/live-view-review/integration-review-round2.md) found no actionable issues. Its 128 focused tests passed. The [native browser evidence](../../assets/computer-use/live-view-review/README.md) distinguishes actual noVNC rendering and local MP4 playback from fake owner identity, input replies, storage and annotations. [Linux capture evidence](../computer-recording-linux/README.md) exercises real X11/ffmpeg separately.
 
-The first combined full run passed 5,513 tests and failed the existing Git broker startup fixture. That fixture passed in isolation. The next full run with one worker passed all 5,514 tests. No Git broker timeout, assertion, or production source changed. Both outcomes remain recorded. The separately repaired [orphan sweep limit](../orphan-sweep-limit/README.md) was a reproducible database defect and is committed as `b92c324`.
+The first combined full run passed 5,513 tests and failed the existing Git broker startup fixture. That fixture passed in isolation. The next full run with one worker passed all 5,514 tests. No Git broker timeout, assertion, or production source changed. Both outcomes remain recorded.
 
 The final work-log follow-up makes Started recording and Stopped recording accessible controls that seek the Computer event cursor. An unavailable capture stays a warning. Its regression failed against the old notices before implementation. Lifecycle events alone do not create a working-turn row. Expanded recording-row reference captures remain missing, so the UI ticket stays open.
 

@@ -1,5 +1,4 @@
 import { MediaAttachmentsSchema } from "@nap/shared/media";
-import { projectComputerOperations } from "./schema.ts";
 /**
  * The turn queue in Postgres — one in-flight request per session, cluster-wide.
  *
@@ -46,7 +45,7 @@ import type {
 } from "@nap/shared/ports/turn-queue";
 import { and, asc, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { projects, sessions, turnRequests } from "./schema.ts";
+import { projectComputerOperations, projects, sessions, turnRequests } from "./schema.ts";
 
 /**
  * How long a claim is good for, as a Postgres interval.

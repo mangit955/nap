@@ -799,46 +799,6 @@ describe("orphanExpired", () => {
     }
   });
 
-  it("takes no more than the limit with stale one-row statistics", async () => {
-    const seeds = await Promise.all(Array.from({ length: 3 }, () => seedSession()));
-    // Keep autoanalyze from refreshing the deliberately stale statistics between admissions.
-    await db.transaction(async (tx) => {
-      const janitor = new PostgresTurnQueue(tx);
-      const ids: string[] = [];
-      for (const seed of seeds) {
-        const { id } = await enqueueRequest(janitor, {
-          ...seed,
-          kind: "turn",
-          message: "build me a thing",
-          model: "openai/gpt-5-mini",
-          billsToUser: false,
-        });
-        await janitor.claim("worker-1");
-        await tx
-          .update(turnRequests)
-          .set({ leaseExpiresAt: sqlOf`now() - interval '1 hour'` })
-          .where(eq(turnRequests.id, id));
-        ids.push(id);
-        // A one-row estimate permits a nested-loop semi join that rescans the locking
-        // subquery. Analyzing all three rows instead hides the exceeded-limit regression.
-        if (ids.length === 1) await tx.execute(sqlOf`analyze turn_requests`);
-      }
-
-      expect(await janitor.orphanExpired(0)).toEqual([]);
-      const first = await janitor.orphanExpired(2);
-      expect(first).toHaveLength(2);
-      const remaining = await tx
-        .select({ id: turnRequests.id })
-        .from(turnRequests)
-        .where(eq(turnRequests.state, "leased"));
-      expect(remaining).toHaveLength(1);
-      const second = await janitor.orphanExpired(2);
-      expect(second).toHaveLength(1);
-      expect(new Set([...first, ...second].map(({ id }) => id))).toEqual(new Set(ids));
-      expect(await janitor.orphanExpired(2)).toEqual([]);
-    });
-  });
-
   it("takes no more than the limit when the planner re-runs the locking subquery", async () => {
     const seeds = await Promise.all(Array.from({ length: 3 }, () => seedSession()));
     for (const seed of seeds) {

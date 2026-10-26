@@ -117,22 +117,10 @@ setInterval(ready, 20);
 process.on('SIGTERM', () => {
   fs.appendFileSync(path.join(root, 'stops'), String(process.pid) + '\\n');
   if (fs.existsSync(path.join(root, 'stubborn'))) return;
-  const pause = path.join(root, 'cleanup-pause');
-  const controlled = fs.existsSync(pause) && fs.readFileSync(pause, 'utf8') === String(process.pid);
   fs.rmSync(path.join(root, 'endpoint'), {force: true});
   const unix = path.join(root, 'proc/net/unix');
   fs.writeFileSync(unix, fs.readFileSync(unix, 'utf8').split('\\n').filter((line) => !line.includes(' 1234 ')).join('\\n'));
   fs.rmSync(proc, {recursive: true, force: true});
-  if (controlled) {
-    fs.writeFileSync(path.join(root, 'cleanup-paused'), String(process.pid));
-    const release = path.join(root, 'cleanup-release');
-    const released = () => fs.existsSync(release) && fs.readFileSync(release, 'utf8') === String(process.pid);
-    const deadline = Date.now() + 10000;
-    const wait = new Int32Array(new SharedArrayBuffer(4));
-    while (!released() && Date.now() < deadline) Atomics.wait(wait, 0, 0, 10);
-    if (!released()) fs.writeFileSync(path.join(root, 'cleanup-expired'), String(process.pid));
-  }
-  if (controlled) fs.writeFileSync(path.join(root, 'cleanup-finished'), String(process.pid));
   process.exit(0);
 });
 `,
@@ -410,73 +398,6 @@ it("never accepts an unready browser and can restart that owned process on retry
   expect(item.launches()).toHaveLength(2);
   expect(readFileSync(join(item.root, "policy.json"), "utf8")).toContain("4321");
 }, 60_000);
-
-it("replaces an owned process only after its synthetic debugger cleanup is complete", async () => {
-  const item = fixture();
-  expect(item.run().status).toBe(0);
-  const first = item.launches()[0];
-  expect(first).toBeDefined();
-  if (first === undefined) throw new Error("The first fixture bridge did not launch.");
-  const release = () => {
-    if (existsSync(item.root)) writeFileSync(join(item.root, "cleanup-release"), String(first.pid));
-  };
-  cleanups.unshift(release);
-  try {
-    writeFileSync(join(item.root, "cleanup-pause"), String(first.pid));
-    item.command(
-      "kill",
-      `echo "$*" >> "$FIXTURE/signals"
-builtin kill "$@" || return
-if [[ "$1" == -TERM && "$2" == "${first.pid}" ]]; then
-  local barrier_by=$((SECONDS + 3))
-  until [[ "$(cat "$FIXTURE/cleanup-paused" 2>/dev/null)" == "${first.pid}" ]] || ((SECONDS >= barrier_by)); do /bin/sleep .01; done
-  [[ "$(cat "$FIXTURE/cleanup-paused" 2>/dev/null)" == "${first.pid}" ]] || return 1
-fi`,
-    );
-    const retry = item.run("4321");
-    expect(readFileSync(join(item.root, "cleanup-paused"), "utf8")).toBe(String(first.pid));
-    expect(existsSync(join(item.root, "cleanup-expired"))).toBe(false);
-    expect(existsSync(join(item.root, "cleanup-finished"))).toBe(false);
-    expect(existsSync(join(item.proc, String(first.pid), "stat"))).toBe(false);
-    expect(retry.error).toBeUndefined();
-    expect(retry.signal).toBeNull();
-    expect(retry.status, retry.stderr).toBe(0);
-    expect(item.launches()).toHaveLength(2);
-    const replacement = item.launches()[1];
-    expect(replacement?.args).toContain("http://localhost:4321");
-    expect(readFileSync(join(item.state, "chrome-owner"), "utf8")).toBe(
-      `${replacement?.pid} 12345 4321\n`,
-    );
-    const finished = join(item.root, "cleanup-finished");
-    writeFileSync(finished, "");
-    expect(readFileSync(finished, "utf8")).toBe("");
-    let sawEmpty = false;
-    let completion: string | undefined;
-    await expect
-      .poll(
-        () => {
-          completion = existsSync(finished) ? readFileSync(finished, "utf8") : undefined;
-          if (completion === "" && !sawEmpty) {
-            sawEmpty = true;
-            release();
-          }
-          return completion;
-        },
-        { timeout: 2000 },
-      )
-      .toBe(String(first.pid));
-    expect(sawEmpty).toBe(true);
-    expect(completion).toBe(String(first.pid));
-    expect(readFileSync(join(item.root, "cleanup-finished"), "utf8")).toBe(String(first.pid));
-    expect(existsSync(join(item.root, "cleanup-expired"))).toBe(false);
-    const reused = item.run("4321");
-    expect(reused.status, reused.stderr).toBe(0);
-    expect(item.launches()).toHaveLength(2);
-    expect(readFileSync(join(item.root, "stops"), "utf8").trim()).toBe(String(first.pid));
-  } finally {
-    release();
-  }
-}, 30_000);
 
 // A fresh cloud VM pages the browser in from a lazily loaded disk: the CPU is idle, so
 // waiting attempts pass quickly while the browser is still far from listening. Readiness

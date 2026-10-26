@@ -192,16 +192,6 @@ export async function observeDesktopPage(
     socket.removeEventListener("error", onClose);
     socket.removeEventListener("overflow", onOverflow);
     socket.removeEventListener("message", onMessage);
-    // Ends the page session promptly. The bridge also detaches whatever a closed connection
-    // left attached, which covers an observer killed before it reaches this line.
-    if (sessionId !== undefined)
-      socket.send(
-        JSON.stringify({
-          id: ++nextId,
-          method: "Target.detachFromTarget",
-          params: { sessionId },
-        }),
-      );
     socket.close();
   }
 }

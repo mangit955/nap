@@ -16,24 +16,10 @@ The [first integration review](integration-review-round1.md) found a stale activ
 
 Visual inspection also caught a glow painted over the framebuffer. The [native guard failed](glow-red.txt) before moving the rim behind the opaque frame. The final browser check samples unchanged interior pixels during the visible pulse. A first coordinate oracle incorrectly compared the whole input box to the letterboxed canvas; the corrected check compares their effective desktop rectangles.
 
-## Reproduce the free browser check
+## Capture harness
 
-Run the web dev server on port 3037. Start these two local fixtures in separate terminals:
+The temporary review harness was removed after the captures. Its source is preserved at [pinned commit `02343767`](https://github.com/mangit955/nap/blob/02343767e06bc58e0dc0c517ca3ea53b2850652a/apps/web/src/testing/live-computer-review.tsx).
 
-```sh
-bun docs/assets/computer-use/live-view-review/rfb-fixture.mjs
-bun apps/api/scripts/computer-media-fixture.ts
-```
-
-Create a temporary Next route, then run the browser check. It launches its own headless Chrome with a temporary profile and never connects to the passive Devin browser:
-
-```sh
-mkdir -p apps/web/src/app/computer-live-review
-echo 'export { default } from "../../testing/live-computer-review.tsx";' > apps/web/src/app/computer-live-review/page.tsx
-node docs/assets/computer-use/live-view-review/check.mjs
-rm apps/web/src/app/computer-live-review/page.tsx
-```
-
-Stop the two fixture servers afterward. The route must not ship. The typed fixture is under `apps/web/src/testing/`, the media fixture under the API's scripts include, and the component suites are collected by the web project. Review tooling is linted and run explicitly. Browser-first attempts used T3 preview; two snapshots returned `Preview automation snapshot timed out after 15000ms.`, so the documented separate Chrome workflow was used.
+Browser-first attempts used T3 preview; two snapshots returned `Preview automation snapshot timed out after 15000ms.`, so a separate Chrome workflow was used.
 
 Real E2B streaming, physical owner input, cloud cancellation, recording transfer limits, and matching viewer/takeover references remain pending. See the [next paid validation scope](../../../research/computer-use-cloud-validation.md).

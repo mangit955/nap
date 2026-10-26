@@ -24,9 +24,7 @@ class Browser extends EventTarget {
         ? [{ id, result: { targetInfos: this.targets } }]
         : method === "Target.attachToTarget"
           ? [{ id, result: { sessionId: "ours" } }]
-          : method === "Target.detachFromTarget"
-            ? [{ id, result: {} }]
-            : this.page(message);
+          : this.page(message);
     for (const reply of replies)
       queueMicrotask(() =>
         this.dispatchEvent(
@@ -69,14 +67,13 @@ const DOM_READ = [
   "DOM.getDocument",
   "DOM.querySelector",
   "DOM.getOuterHTML",
-  "Target.detachFromTarget",
 ];
 
 afterEach(() => {
   vi.useRealTimers();
 });
 
-it("reads DOM through fixed operations on its own flat session, then detaches and closes", async () => {
+it("reads DOM through fixed operations on its own flat session, then closes", async () => {
   const browser = new Browser(dom("<main>App</main>"));
   expect(await observeDesktopPage("dom", { createSocket: browser.connect })).toBe(
     "<main>App</main>",
@@ -92,7 +89,6 @@ it("reads DOM through fixed operations on its own flat session, then detaches an
     "ours",
     "ours",
   ]);
-  expect(browser.sent[5]?.params).toEqual({ sessionId: "ours" });
   expect(browser.closed).toBe(1);
 });
 
@@ -131,7 +127,6 @@ it("reads console and log notifications from its own session without running pag
     "Target.attachToTarget",
     "Log.enable",
     "Runtime.enable",
-    "Target.detachFromTarget",
   ]);
   expect(browser.closed).toBe(1);
 });
@@ -248,7 +243,6 @@ it.each([{ nodeId: -1 }, { nodeId: "body" }, {}])(
       "Target.attachToTarget",
       "DOM.getDocument",
       "DOM.querySelector",
-      "Target.detachFromTarget",
     ]);
     expect(browser.closed).toBe(1);
   },
@@ -279,12 +273,12 @@ it.each([
   ["text that is not JSON", "not json", "Invalid browser response."],
   ["a frame of the wrong shape", JSON.stringify({ id: "1" }), "Invalid browser response."],
   ["an oversized frame", JSON.stringify({ pad: "x".repeat(1_000_000) }), "too large"],
-])("fails on %s and still detaches", async (_name, frame, error) => {
+])("fails on %s and still closes", async (_name, frame, error) => {
   const browser = new Browser((message) =>
     message.method === "DOM.getDocument" ? [frame] : dom("<main>App</main>")(message),
   );
   await expect(observeDesktopPage("dom", { createSocket: browser.connect })).rejects.toThrow(error);
-  expect(browser.methods.at(-1)).toBe("Target.detachFromTarget");
+  expect(browser.methods.at(-1)).toBe("DOM.getDocument");
   expect(browser.closed).toBe(1);
 });
 
@@ -328,7 +322,7 @@ it("does not connect for an aborted observation", async () => {
   expect(connected).toBe(false);
 });
 
-it("stops and detaches when cancelled mid-observation", async () => {
+it("stops and closes when cancelled mid-observation", async () => {
   const controller = new AbortController();
   const browser = new Browser((message) => {
     if (message.method === "DOM.getDocument") queueMicrotask(() => controller.abort());
@@ -337,7 +331,7 @@ it("stops and detaches when cancelled mid-observation", async () => {
   await expect(
     observeDesktopPage("dom", { createSocket: browser.connect, signal: controller.signal }),
   ).rejects.toThrow("Browser observation cancelled.");
-  expect(browser.methods.at(-1)).toBe("Target.detachFromTarget");
+  expect(browser.methods.at(-1)).toBe("DOM.getDocument");
   expect(browser.closed).toBe(1);
 });
 
