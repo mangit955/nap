@@ -22,7 +22,7 @@ const cleanups: (() => void)[] = [];
 
 // Only fixed filesystem roots change. Bash still executes the complete startup script;
 // the command fixtures model Linux /proc and services without touching the host desktop.
-function fixture() {
+function fixture(deadline = 5) {
   const root = mkdtempSync(join(tmpdir(), "nap-desktop-start-"));
   const state = join(root, "state");
   const proc = join(root, "proc");
@@ -38,7 +38,9 @@ function fixture() {
   const contents = source
     .replaceAll("/home/user/.nap-desktop", state)
     .replaceAll("/etc/opt/chrome/policies/managed/nap.json", join(root, "policy.json"))
-    .replaceAll("/proc/", `${proc}/`);
+    .replaceAll("/proc/", `${proc}/`)
+    .replaceAll("SECONDS + 35", `SECONDS + ${deadline}`);
+  expect(contents).toContain(`ready_by=$((SECONDS + ${deadline}))`);
   expect(contents).not.toContain("/home/user/");
   expect(contents).not.toContain("/etc/");
   writeFileSync(script, contents);
@@ -74,7 +76,10 @@ builtin read "$@"`,
   command(
     "curl",
     `if [[ "$*" == *9222* ]]; then
-  [[ -f "$FIXTURE/endpoint" ]]
+  echo >> "$FIXTURE/probes"
+  [[ -f "$FIXTURE/endpoint" ]] || return 1
+  [[ ! -f "$FIXTURE/ready-after-probes" ]] ||
+    (( $(wc -l < "$FIXTURE/probes") > $(cat "$FIXTURE/ready-after-probes") ))
 else
   if [[ -f "$FIXTURE/lose-browser" ]]; then
     touch "$FIXTURE/not-ready"
@@ -304,6 +309,19 @@ it("never accepts an unready browser and can restart that owned process on retry
   expect(retry.status).toBe(0);
   expect(item.launches()).toHaveLength(2);
   expect(readFileSync(join(item.root, "policy.json"), "utf8")).toContain("4321");
+}, 60_000);
+
+// A fresh cloud VM pages the browser in from a lazily loaded disk: the CPU is idle, so
+// waiting attempts pass quickly while the browser is still far from listening. Readiness
+// here takes more probes than any fixed count of attempts allowed.
+it("waits for a slow browser by elapsed time, however quickly attempts pass", () => {
+  const item = fixture(30);
+  item.command("sleep", "return 0");
+  writeFileSync(join(item.root, "ready-after-probes"), "200");
+  const result = item.run();
+  expect(result.stderr).not.toContain("Desktop startup:");
+  expect(result.status).toBe(0);
+  expect(item.launches()).toHaveLength(1);
 }, 60_000);
 
 it("refuses to replace an owned browser that does not stop", () => {

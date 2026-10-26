@@ -11,6 +11,10 @@ mkdir -p "$state"
 chmod 700 "$state"
 exec 9>"$state/start.lock"
 flock -w 45 9
+# A fresh VM pages programs in from a lazily loaded disk while its CPU is idle, so attempts
+# pass quickly there. The browser's waits share one elapsed-time bound instead, and VNC keeps
+# its own few seconds after it, all inside the driver's 45-second kill.
+ready_by=$((SECONDS + 35))
 
 fail() { echo "Desktop startup: $*" >&2; exit 1; }
 chrome_pid= chrome_ticks= chrome_port=
@@ -64,7 +68,7 @@ fi
 export DISPLAY=:99
 if ! xdpyinfo >/dev/null 2>&1; then
   Xvfb :99 -screen 0 1024x768x24 -nolisten tcp >"$state/xvfb.log" 2>&1 9>&- &
-  for attempt in {1..100}; do xdpyinfo >/dev/null 2>&1 9>&- && break; sleep .1; done
+  until xdpyinfo >/dev/null 2>&1 9>&- || ((SECONDS >= ready_by)); do sleep .1; done
 fi
 xdpyinfo >/dev/null
 if ! pgrep -u "$(id -u)" -x openbox >/dev/null; then
@@ -75,8 +79,7 @@ if [[ "$chrome_port" != "$port" ]] || ! chrome_ready; then
   if owned_chrome; then
     # Recheck identity immediately before signalling only the browser we launched.
     owned_chrome && kill -TERM "$chrome_pid"
-    for attempt in {1..100}; do
-      [[ "$(start_ticks "$chrome_pid")" != "$chrome_ticks" ]] && break
+    until [[ "$(start_ticks "$chrome_pid")" != "$chrome_ticks" ]] || ((SECONDS >= ready_by)); do
       sleep .1
     done
     [[ "$(start_ticks "$chrome_pid")" != "$chrome_ticks" ]] || fail 'Owned Chrome did not stop.'
@@ -92,8 +95,7 @@ if [[ "$chrome_port" != "$port" ]] || ! chrome_ready; then
     exec google-chrome-stable --no-sandbox --disable-dev-shm-usage --disable-gpu --no-first-run --no-default-browser-check --password-store=basic --disable-sync --disable-breakpad --window-size=1024,768 --start-maximized --user-data-dir="$state/chrome" --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 "http://localhost:$port" </dev/null
   )
   chrome_pid=$!
-  for attempt in {1..100}; do
-    chrome_ticks=$(start_ticks "$chrome_pid" 8>&-) && break
+  until chrome_ticks=$(start_ticks "$chrome_pid" 8>&-) || ((SECONDS >= ready_by)); do
     sleep .1 8>&-
   done
   [[ -n "$chrome_ticks" ]] || fail 'Cannot identify launched Chrome.'
@@ -103,11 +105,7 @@ if [[ "$chrome_port" != "$port" ]] || ! chrome_ready; then
   printf 'GO\n' >&8
   exec 8>&-
 fi
-for attempt in {1..150}; do
-  check_debug_owner
-  chrome_ready && break
-  sleep .1
-done
+until check_debug_owner; chrome_ready || ((SECONDS >= ready_by)); do sleep .1; done
 check_debug_owner
 chrome_ready || fail 'Owned Chrome is not ready.'
 if [[ ! -f "$state/password" ]]; then
@@ -121,7 +119,8 @@ fi
 if ! curl -fsS http://127.0.0.1:6080/vnc.html >/dev/null 2>&1; then
   websockify --web=/usr/share/novnc --heartbeat=30 6080 127.0.0.1:5900 >"$state/websockify.log" 2>&1 9>&- &
 fi
-for attempt in {1..50}; do curl -fsS http://127.0.0.1:6080/vnc.html >/dev/null 2>&1 9>&- && break; sleep .1; done
+vnc_by=$((SECONDS + 5))
+until curl -fsS http://127.0.0.1:6080/vnc.html >/dev/null 2>&1 9>&- || ((SECONDS >= vnc_by)); do sleep .1; done
 curl -fsS http://127.0.0.1:6080/vnc.html >/dev/null
 check_debug_owner
 chrome_ready || fail 'Owned Chrome is not ready.'
