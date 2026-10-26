@@ -1,5 +1,6 @@
 import { estimateContextTokens } from "@nap/shared/compaction";
 import { pruneComputerImages } from "@nap/shared/computer-context";
+
 /**
  * Driving the model through one turn.
  *
@@ -24,7 +25,8 @@ import { pruneComputerImages } from "@nap/shared/computer-context";
  * The caller that owns those things is the runtime — see `docs/PLAN.md` §0.
  */
 
-import type { NapEvent, NapEventOf, TurnFailureReason } from "@nap/shared/events";
+import type { SubagentProfile } from "@nap/shared/agent-plan";
+import type { NapEvent, NapEventOf, ToolName, TurnFailureReason } from "@nap/shared/events";
 import { modelSupportsImages } from "@nap/shared/model-capabilities";
 import type { AgentService, AgentTurnRequest } from "@nap/shared/ports/agent-service";
 import type { PendingEvent } from "@nap/shared/ports/event-store";
@@ -37,13 +39,29 @@ import type {
   LLMTurn,
   LLMTurnResult,
 } from "@nap/shared/ports/llm-provider";
+import { CANCELLED, pause, stopAware } from "./cancellation.ts";
 import { DeltaStream } from "./delta-stream.ts";
+import { DirectoryRules } from "./hooks/directory-rules.ts";
+import type { TurnHook } from "./hooks/hook.ts";
+import { PlanTracking } from "./hooks/plan-tracking.ts";
 import { TurnBudget, type TurnBudgetOptions } from "./safety/budget.ts";
-import { APP_TEST_TOOL_NAMES, TOOL_DEFINITIONS } from "./tools/definitions.ts";
-import { executeTool, type ToolContext } from "./tools/execute.ts";
+import { appendText, SubagentPool } from "./subagents.ts";
+import type { ToolDefinition } from "./tools/definitions.ts";
+import { runsConcurrently } from "./tools/definitions.ts";
+import { executeTool, type ToolContext, type ToolOutcome } from "./tools/execute.ts";
+import { FileLedger } from "./tools/ledger.ts";
+import { modelFamily, toolNamesFor, toolsetFor } from "./tools/toolset.ts";
 
 type Payload<T extends NapEvent["type"]> = NapEventOf<T>["payload"];
-const CANCELLED = Symbol("cancelled");
+
+/** How long to wait before asking a model the provider already gave up on once more. */
+export const DEFAULT_RETRY_DELAY_MS = 20_000;
+
+/** How many times one turn may answer a reply cut off at the output limit by asking for more. */
+export const MAX_TRUNCATION_RECOVERIES = 2;
+
+/** How many times stop hooks may keep one turn going. Two, so no hook can keep it alive. */
+export const MAX_STOP_REFUSALS = 2;
 
 export type AgentServiceOptions = {
   provider: LLMProvider;
@@ -54,17 +72,31 @@ export type AgentServiceOptions = {
   now?: () => string;
   /** Injected for the same reason, for the duration `turn.completed` reports. */
   clock?: () => number;
+  /**
+   * A model to continue on when the turn's own model refuses, already on the deployment's
+   * allowlist. Used only when the deployment is paying: a person's own key may not reach it.
+   */
+  fallbackModel?: string | undefined;
+  /**
+   * What each helper profile runs on when the deployment is paying. Absent, or on a person's own
+   * key, a helper runs on the turn's model — the only one that key is known to reach.
+   */
+  subagentModels?: Partial<Record<SubagentProfile, string>> | undefined;
+  /** How long a transient model failure waits before one more attempt. */
+  retryDelayMs?: number;
+  /** Further hooks, after the built-in ones. For a composition, and for tests. */
+  hooks?: ((request: AgentTurnRequest) => TurnHook[]) | undefined;
 };
 
 export class NapAgentService implements AgentService {
-  readonly #provider: LLMProvider;
+  readonly #options: AgentServiceOptions;
   readonly #budget: TurnBudgetOptions;
   readonly #testBudget: TurnBudgetOptions;
   readonly #now: () => string;
   readonly #clock: () => number;
 
   constructor(options: AgentServiceOptions) {
-    this.#provider = options.provider;
+    this.#options = options;
     this.#budget = options.budget ?? {};
     this.#testBudget = { maxSteps: 30, maxTokens: 160_000, ...options.testBudget };
     this.#now = options.now ?? (() => new Date().toISOString());
@@ -74,7 +106,7 @@ export class NapAgentService implements AgentService {
   async runTurn(request: AgentTurnRequest): Promise<void> {
     await new Turn(
       request,
-      this.#provider,
+      this.#options,
       request.promptSource === "test" ? this.#testBudget : this.#budget,
       this.#now,
       this.#clock,
@@ -91,13 +123,25 @@ export class NapAgentService implements AgentService {
  */
 class Turn {
   readonly #request: AgentTurnRequest;
-  readonly #turn: LLMTurn;
+  readonly #options: AgentServiceOptions;
+  /** Replaced only by a fallback after a refusal; every turn it has been is in `#turns`. */
+  #turn: LLMTurn;
+  readonly #turns: LLMTurn[] = [];
   readonly #budget: TurnBudget;
   readonly #now: () => string;
   readonly #clock: () => number;
   readonly #startedAt: number;
   readonly #messages: LLMMessage[];
-  readonly #tools: typeof TOOL_DEFINITIONS;
+  readonly #tools: ToolDefinition[];
+  readonly #offered: ReadonlySet<ToolName>;
+  readonly #ledger = new FileLedger();
+  readonly #hooks: TurnHook[];
+  readonly #helpers: SubagentPool | undefined;
+  #retried = false;
+  #fellBack = false;
+  #truncations = 0;
+  #stopRefusals = 0;
+  #helpersAsked = false;
   #lastCompactionStep = -3;
   #reportedInput: number | undefined;
   #inputEstimate = 0;
@@ -107,28 +151,66 @@ class Turn {
 
   constructor(
     request: AgentTurnRequest,
-    provider: LLMProvider,
+    options: AgentServiceOptions,
     budget: TurnBudgetOptions,
     now: () => string,
     clock: () => number,
   ) {
     this.#request = request;
-    this.#tools = TOOL_DEFINITIONS.filter(
-      (tool) =>
-        (request.promptSource !== "test" ||
-          APP_TEST_TOOL_NAMES.some((name) => name === tool.name)) &&
-        (tool.name !== "computer" ||
-          (request.computer !== undefined && modelSupportsImages(request.model))),
-    );
-    this.#turn = provider.startTurn({
+    this.#options = options;
+    const family = modelFamily(request.model);
+    const prompts = request.context.subagentPrompts;
+    const toolset = {
+      promptSource: request.promptSource ?? "user",
+      family,
+      computer: request.computer !== undefined && modelSupportsImages(request.model),
+      subagents: prompts !== undefined,
+    };
+    this.#tools = toolsetFor(toolset);
+    this.#offered = toolNamesFor(toolset);
+    this.#turn = options.provider.startTurn({
       model: request.model,
       credentials: request.credentials,
     });
+    this.#turns.push(this.#turn);
     this.#budget = new TurnBudget(budget);
     this.#now = now;
     this.#startedAt = clock();
     this.#clock = clock;
     this.#messages = pruneComputerImages(request.context.messages, 0);
+
+    // A cheaper helper model is the deployment's to choose and the deployment's to pay for;
+    // on a person's own key the turn's model is the only one known to be reachable.
+    const deploymentPays = request.credentials === undefined;
+    this.#helpers =
+      prompts === undefined || !this.#offered.has("run_subagent")
+        ? undefined
+        : new SubagentPool({
+            provider: options.provider,
+            models: {
+              explore:
+                (deploymentPays ? options.subagentModels?.explore : undefined) ?? request.model,
+              general:
+                (deploymentPays ? options.subagentModels?.general : undefined) ?? request.model,
+            },
+            credentials: request.credentials,
+            prompts,
+            family,
+            budget: this.#budget,
+            request,
+            emit: request.onEvent,
+            now,
+          });
+
+    this.#hooks = [
+      new DirectoryRules({
+        sandbox: request.sandbox,
+        sandboxId: request.sandboxId,
+        includeRoot: request.context.rootRules === true,
+      }),
+      ...(this.#offered.has("todo_write") ? [new PlanTracking()] : []),
+      ...(options.hooks?.(request) ?? []),
+    ];
   }
 
   async run(): Promise<void> {
@@ -192,6 +274,15 @@ class Turn {
         this.#emit({ type: "agent.message", payload: { text } });
       });
 
+      const reminders = this.#hooks.flatMap(
+        (hook) => hook.beforeModel?.(this.#budget.spent().steps) ?? [],
+      );
+      if (reminders.length > 0)
+        appendText(
+          this.#messages,
+          reminders.map((text) => `<reminder>${text}</reminder>`).join("\n"),
+        );
+
       // The provider receives the signal too, but a proxy or upstream stream can take a while
       // to honour it. Racing here ends our turn immediately, preventing further tool calls or
       // streamed output while the transport tears itself down in the background.
@@ -234,12 +325,24 @@ class Turn {
       prose.flush();
 
       if (result.type === "refusal") {
+        if (this.#fallBack()) continue;
         return this.#fail("refusal", "The model declined to answer this request.");
       }
       if (result.type === "error") {
         // `retryable` here means the provider *already* retried and the model was still not
         // there — a throttle or an overload, which is a different sentence to the user than
-        // something in this system going wrong.
+        // something in this system going wrong. The provider's waits are seconds, sized for a
+        // dropped connection; a throttled minute needs one longer wait, once.
+        if (result.retryable && !this.#retried) {
+          this.#retried = true;
+          this.#notice("The model is busy. Trying again shortly.");
+          const waited = await pause(
+            this.#options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS,
+            this.#request.signal,
+          );
+          if (!waited) return this.#fail("cancelled", "The turn was cancelled.");
+          continue;
+        }
         return this.#fail(result.retryable ? "model_unavailable" : "internal", result.message);
       }
 
@@ -254,12 +357,86 @@ class Turn {
         this.#emit({ type: "agent.message", payload: { text: result.text } });
       }
 
-      if (result.toolCalls.length === 0) return await this.#complete();
+      if (result.toolCalls.length === 0) {
+        // A reply cut off at the output limit is not an answer. Asking for the rest costs one
+        // step; ending the turn there leaves a half-written file or a sentence that stops.
+        if (result.truncated === true && this.#truncations < MAX_TRUNCATION_RECOVERIES) {
+          this.#truncations += 1;
+          this.#continueWith(
+            result.text,
+            "Your reply was cut off at the output limit. Continue from where it stopped. If you were writing a large file, write it in smaller pieces.",
+          );
+          continue;
+        }
+        const objection = await this.#objection();
+        if (objection !== undefined) {
+          this.#continueWith(result.text, objection);
+          continue;
+        }
+        return await this.#complete();
+      }
 
       const disposition = await this.#runTools(result.text, result.toolCalls);
       if (disposition === "fatal") return;
       if (disposition === "cancelled") return this.#fail("cancelled", "The turn was cancelled.");
+      if (disposition === "ended") return await this.#complete();
     }
+  }
+
+  /**
+   * Why the turn should not end yet, from the first stop hook that has a reason — or nothing.
+   * Bounded per turn, so a hook can delay the end but never prevent it.
+   */
+  async #objection(): Promise<string | undefined> {
+    if (this.#stopRefusals >= MAX_STOP_REFUSALS || this.#budget.remaining().steps < 2) return;
+    const pending = this.#helpersAsked ? [] : (this.#helpers?.uncollected() ?? []);
+    if (pending.length > 0) this.#helpersAsked = true;
+    const reason =
+      pending.length > 0
+        ? `Helpers ${pending.join(", ")} are still working. Collect their reports with read_subagent before you finish; anything not collected is stopped when the turn ends.`
+        : await this.#firstStopReason();
+    if (reason !== undefined) this.#stopRefusals += 1;
+    return reason;
+  }
+
+  async #firstStopReason(): Promise<string | undefined> {
+    for (const hook of this.#hooks) {
+      const reason = await hook.beforeStop?.();
+      if (reason !== undefined) return reason;
+    }
+    return undefined;
+  }
+
+  /** Puts the model's reply in the conversation and answers it, so the loop can go round again. */
+  #continueWith(reply: string, answer: string): void {
+    // An assistant message may not be empty, and one that ended without a word still happened.
+    this.#messages.push({ role: "assistant", content: reply === "" ? "(no reply)" : reply });
+    this.#messages.push({ role: "user", content: `<reminder>${answer}</reminder>` });
+  }
+
+  /**
+   * Moves the turn to the fallback model after a refusal, at most once, and only on the
+   * deployment's account. Says so in the platform's voice: the person should know which model
+   * wrote what follows.
+   */
+  #fallBack(): boolean {
+    const fallback = this.#options.fallbackModel;
+    if (
+      this.#fellBack ||
+      fallback === undefined ||
+      fallback === this.#request.model ||
+      this.#request.credentials !== undefined
+    )
+      return false;
+    this.#fellBack = true;
+    this.#turn = this.#options.provider.startTurn({ model: fallback });
+    this.#turns.push(this.#turn);
+    this.#notice(`The selected model declined this request, so ${fallback} is continuing it.`);
+    return true;
+  }
+
+  #notice(text: string): void {
+    this.#emit({ type: "system.notice", payload: { level: "info", text } });
   }
 
   #estimate(): number {
@@ -410,6 +587,7 @@ class Turn {
     this.#lastCompactionStep = this.#budget.spent().steps;
     if (result.ok) {
       this.#messages.splice(0, this.#messages.length, ...pruneComputerImages(result.messages));
+      for (const hook of this.#hooks) hook.compacted?.();
       this.#nativeContext = native !== undefined;
       this.#reportedInput = result.contextTokens;
       this.#inputEstimate =
@@ -439,6 +617,12 @@ class Turn {
   /**
    * Executes a batch of tool calls and appends both halves of the exchange.
    *
+   * Consecutive calls that change nothing run at once; anything that writes, runs a command or
+   * talks to the person runs alone, in the order the model asked. A concurrent group's events
+   * are held and written in call order once the group is done, so the log reads exactly as if
+   * the calls had run one after another — every `tool.call` directly followed by its own
+   * output and result — and nothing replaying a session has to untangle two calls at once.
+   *
    * Returns why an incomplete batch stopped. The results collected so far are
    * deliberately not sent: the conversation is being abandoned, and a user message
    * answering only some of an assistant message's tool calls is a request the API rejects.
@@ -446,28 +630,49 @@ class Turn {
   async #runTools(
     text: string,
     calls: readonly LLMToolCall[],
-  ): Promise<"continue" | "cancelled" | "fatal"> {
-    const results: LLMContentBlock[] = [];
+  ): Promise<"continue" | "cancelled" | "fatal" | "ended"> {
+    const outcomes: ToolOutcome[] = [];
 
-    for (const call of calls) {
+    for (const group of batches(calls)) {
       if (this.#cancelled()) return "cancelled";
 
-      const outcome = await executeTool(call, this.#toolContext());
-      if (outcome.stop === "computer_unsettled") {
+      if (group.length === 1) {
+        const [call] = group;
+        if (call === undefined) continue;
+        outcomes.push(await this.#runOne(call, this.#toolContext()));
+      } else {
+        const held = group.map(() => [] as PendingEvent[]);
+        const settled = await Promise.all(
+          group.map((call, index) =>
+            this.#runOne(call, {
+              ...this.#toolContext(),
+              emit: (event) => held[index]?.push(event as PendingEvent),
+            }),
+          ),
+        );
+        for (const events of held) for (const event of events) this.#request.onEvent(event);
+        outcomes.push(...settled);
+      }
+
+      if (outcomes.some((outcome) => outcome.stop === "computer_unsettled")) {
         this.#fail(
           this.#cancelled() ? "cancelled" : "sandbox_unavailable",
           "Computer input recovery is pending.",
         );
         return "fatal";
       }
-      results.push({
+    }
+
+    const results: LLMContentBlock[] = calls.map((call, index) => {
+      const outcome = outcomes[index] ?? { ok: false, output: "The call did not run." };
+      return {
         type: "tool_result",
         toolCallId: call.id,
         content: outcome.content ?? outcome.output,
         // A failed tool is a result the model reads and works around, never a dropped block.
         isError: !outcome.ok,
-      });
-    }
+      };
+    });
 
     const assistant: LLMContentBlock[] = calls.map((call) => ({
       type: "tool_use",
@@ -482,26 +687,55 @@ class Turn {
     this.#messages.push({ role: "user", content: results });
     this.#messages.splice(0, this.#messages.length, ...pruneComputerImages(this.#messages));
 
-    return "continue";
+    return outcomes.some((outcome) => outcome.endsTurn === true) ? "ended" : "continue";
+  }
+
+  /** One call, then every hook's say on what the model is told about it. */
+  async #runOne(call: LLMToolCall, ctx: ToolContext): Promise<ToolOutcome> {
+    let outcome = await executeTool(call, ctx);
+    for (const hook of this.#hooks) {
+      if (hook.afterTool === undefined) continue;
+      const amended = await hook.afterTool(call, outcome);
+      // A hook adds words. It may not turn a failure into a success or the reverse, and it may
+      // not touch the images, which earn a verdict only by reaching the model unaltered.
+      outcome = { ...outcome, output: amended.output };
+    }
+    return outcome;
   }
 
   async #complete(): Promise<void> {
+    // Helpers nobody collected stop here, before the commit, so nothing they do lands after it.
+    await this.#helpers?.settle();
     // Awaited before the event rather than after, so a turn is never reported done while
     // the work it did is still uncommitted.
     const finalized = await this.#request.finalize?.();
+    const helpers = this.#helpers?.usage() ?? { inputTokens: 0, outputTokens: 0 };
 
     this.#emit({
       type: "turn.completed",
       payload: {
         ...(this.#usageIncomplete ? { usageIncomplete: true as const } : {}),
         usage: {
-          inputTokens: this.#turn.usage().inputTokens + this.#nativeUsage.inputTokens,
-          outputTokens: this.#turn.usage().outputTokens + this.#nativeUsage.outputTokens,
+          inputTokens:
+            this.#modelUsage().inputTokens + this.#nativeUsage.inputTokens + helpers.inputTokens,
+          outputTokens:
+            this.#modelUsage().outputTokens + this.#nativeUsage.outputTokens + helpers.outputTokens,
         },
         durationMs: this.#clock() - this.#startedAt,
         commitSha: finalized?.commitSha ?? null,
       },
     });
+  }
+
+  /** Every model this turn ran on, since a fallback is billed as well as the model it replaced. */
+  #modelUsage(): { inputTokens: number; outputTokens: number } {
+    return this.#turns.reduce(
+      (sum, turn) => ({
+        inputTokens: sum.inputTokens + turn.usage().inputTokens,
+        outputTokens: sum.outputTokens + turn.usage().outputTokens,
+      }),
+      { inputTokens: 0, outputTokens: 0 },
+    );
   }
 
   #cancelled(): boolean {
@@ -513,6 +747,8 @@ class Turn {
   }
 
   #failWith(failure: Payload<"turn.failed">): void {
+    // Not awaited: a failing turn ends now, and a helper's report has nobody left to read it.
+    void this.#helpers?.settle();
     this.#emit({ type: "turn.failed", payload: failure });
   }
 
@@ -523,6 +759,9 @@ class Turn {
       sandboxId: this.#request.sandboxId,
       sandbox: this.#request.sandbox,
       testMode: this.#request.promptSource === "test",
+      offered: this.#offered,
+      ledger: this.#ledger,
+      subagents: this.#helpers,
       computer: modelSupportsImages(this.#request.model) ? this.#request.computer : undefined,
       signal: this.#request.signal,
       emit: this.#request.onEvent,
@@ -544,17 +783,22 @@ class Turn {
   }
 }
 
-/** Resolves promptly on abort even if an upstream streaming request is slow to settle. */
-function stopAware<T>(
-  work: Promise<T>,
-  signal: AbortSignal | undefined,
-): Promise<T | typeof CANCELLED> {
-  if (signal === undefined) return work;
-  if (signal.aborted) return Promise.resolve(CANCELLED);
-
-  return new Promise((resolve, reject) => {
-    const stopped = () => resolve(CANCELLED);
-    signal.addEventListener("abort", stopped, { once: true });
-    void work.then(resolve, reject).finally(() => signal.removeEventListener("abort", stopped));
-  });
+/**
+ * Splits a batch into runs that may execute together: consecutive calls that change nothing
+ * form one group, and every other call is a group of its own.
+ */
+function batches(calls: readonly LLMToolCall[]): LLMToolCall[][] {
+  const groups: LLMToolCall[][] = [];
+  for (const call of calls) {
+    const last = groups.at(-1);
+    const concurrent = runsConcurrently(call.name, call.input);
+    if (
+      concurrent &&
+      last !== undefined &&
+      runsConcurrently(last[0]?.name ?? "", last[0]?.input ?? {})
+    )
+      last.push(call);
+    else groups.push([call]);
+  }
+  return groups;
 }

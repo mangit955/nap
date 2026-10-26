@@ -23,6 +23,12 @@ import type { MediaAttachment } from "@nap/shared/media";
  * anything that survives the call.
  */
 
+import type {
+  PlanItem,
+  QuestionOption,
+  SubagentOutcome,
+  SubagentProfile,
+} from "@nap/shared/agent-plan";
 import type { NapEventOf, PromptSource, ToolName } from "@nap/shared/events";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { type AppTestState, foldAppTests } from "../computer/app-test-state.ts";
@@ -36,6 +42,15 @@ export type FileChange = {
 };
 
 export type StepStatus = "running" | "ok" | "failed";
+
+export type HelperRun = {
+  subagentId: string;
+  profile: SubagentProfile;
+  task: string;
+  outcome: "running" | SubagentOutcome;
+  summary: string | null;
+  toolCalls: number;
+};
 
 /**
  * Who a block of prose came from.
@@ -88,6 +103,25 @@ export type TranscriptItem =
       files: FileChange[];
       frame?: NapEventOf<"computer.screenshot">;
       desktop?: { state: "starting" | "ready"; at: string };
+      /** What a `run_subagent` call handed off, and how it ended — a helper's own calls are not logged. */
+      helper?: HelperRun;
+    }
+  /**
+   * The agent's checklist, one per turn, drawn where it last changed so it stays beside the work
+   * it describes. Keeps the key it was first drawn under, so the list updates rather than remounts.
+   */
+  | { kind: "plan"; key: number; turnId: string; items: PlanItem[] }
+  /**
+   * A question the agent ended its turn on. `answer` is the next thing the person said, which is
+   * what answered it whether or not they clicked an option; `null` while it is still open.
+   */
+  | {
+      kind: "question";
+      key: number;
+      question: string;
+      options: QuestionOption[];
+      multiSelect: boolean;
+      answer: string | null;
     }
   | { kind: "computer-recording"; key: number; text: "Started recording" | "Stopped recording" }
   | { kind: "computer-frame"; key: number; frame: NapEventOf<"computer.screenshot"> }
@@ -184,6 +218,10 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
    */
   let awaitingRepair = false;
   const stepsById = new Map<string, Step>();
+  // Helpers are named per turn, so the turn is part of the key.
+  const helpers = new Map<string, Step>();
+  const plans = new Map<string, Extract<TranscriptItem, { kind: "plan" }>>();
+  const openQuestions: Extract<TranscriptItem, { kind: "question" }>[] = [];
   // The step a `file.changed` belongs to: the last one opened that has not been answered yet.
   let openStep: Step | undefined;
   type RetryRequest = NapEventOf<"user.message">["payload"];
@@ -289,6 +327,9 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
       }
       case "user.message": {
         const from = repairs.has(event.turnId) || awaitingRepair ? "verifier" : "user";
+        // Whatever the person says next answers what was asked, clicked or typed.
+        if (from === "user")
+          for (const question of openQuestions.splice(0)) question.answer = event.payload.text;
         items.push({
           kind: "message",
           key,
@@ -386,6 +427,74 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
         const change = toFileChange(event.payload);
         if (openStep === undefined) items.push({ kind: "files", key, files: [change] });
         else openStep.files.push(change);
+        break;
+      }
+
+      case "plan.updated": {
+        const existing = plans.get(event.turnId);
+        if (existing !== undefined) items.splice(items.indexOf(existing), 1);
+        const plan = existing ?? {
+          kind: "plan" as const,
+          key,
+          turnId: event.turnId,
+          items: [],
+        };
+        plan.items = event.payload.items;
+        plans.set(event.turnId, plan);
+        items.push(plan);
+        break;
+      }
+
+      case "agent.question": {
+        const question = {
+          kind: "question" as const,
+          key,
+          question: event.payload.question,
+          options: event.payload.options,
+          multiSelect: event.payload.multiSelect,
+          answer: null,
+        };
+        openQuestions.push(question);
+        items.push(question);
+        break;
+      }
+
+      case "subagent.started": {
+        const step =
+          stepsById.get(event.payload.toolCallId) ??
+          openOrphan(event, "run_subagent", items, stepsById);
+        step.helper = {
+          subagentId: event.payload.subagentId,
+          profile: event.payload.profile,
+          task: event.payload.task,
+          outcome: "running",
+          summary: null,
+          toolCalls: 0,
+        };
+        helpers.set(`${event.turnId}:${event.payload.subagentId}`, step);
+        break;
+      }
+
+      case "subagent.completed": {
+        const id = `${event.turnId}:${event.payload.subagentId}`;
+        // A client that joined after the helper started still learns how it ended.
+        const step =
+          helpers.get(id) ??
+          openOrphan(
+            { ...event, payload: { toolCallId: event.payload.subagentId } },
+            "run_subagent",
+            items,
+            stepsById,
+          );
+        step.helper = {
+          subagentId: event.payload.subagentId,
+          profile: step.helper?.profile ?? "explore",
+          task: step.helper?.task ?? "",
+          outcome: event.payload.outcome,
+          summary: event.payload.summary,
+          toolCalls: event.payload.toolCalls,
+        };
+        helpers.set(id, step);
         break;
       }
 
@@ -508,7 +617,7 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
  * unknown — the alternative is inventing arguments the tool was never given.
  */
 function openOrphan(
-  event: NapEventOf<"tool.result"> | NapEventOf<"command.output"> | NapEventOf<"computer.status">,
+  event: { seq: number; createdAt: string; payload: { toolCallId: string } },
   toolName: ToolName,
   items: TranscriptItem[],
   stepsById: Map<string, Step>,

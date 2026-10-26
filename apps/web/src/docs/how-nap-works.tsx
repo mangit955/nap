@@ -19,9 +19,8 @@ Runtime             opens a job, says something, acquires a sandbox
   │
 ContextEngine       assembles and prunes the working conversation
   │
-AgentService        drives the model loop, one tool call at a time
-  │                   read_file · write_file · edit_file
-  │                   list_files · search_files · run_command
+AgentService        drives the model loop: reads side by side, changes one at a time
+  │                   read · edit · search · run · plan · ask
   │
 sandbox             files land, the dev server reloads, the preview updates
   │

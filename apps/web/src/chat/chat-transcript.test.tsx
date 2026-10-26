@@ -201,6 +201,51 @@ const TREATMENTS = [
     payload: { level: "warning", text: "Could not restore your last snapshot." },
     shows: /Could not restore your last snapshot\./,
   },
+  {
+    type: "plan.updated",
+    payload: {
+      toolCallId: "p1",
+      items: [
+        { content: "Add the list", status: "completed" },
+        { content: "Style it", status: "in_progress" },
+      ],
+    },
+    shows: /Plan · 1 of 2 done.*Add the list.*Style it/,
+  },
+  {
+    type: "agent.question",
+    payload: {
+      toolCallId: "q1",
+      question: "Grid or list?",
+      options: [
+        { label: "Grid", description: "Cards in columns" },
+        { label: "List", description: null },
+      ],
+      multiSelect: false,
+    },
+    shows: /Grid or list\?.*Grid.*Cards in columns.*List/,
+  },
+  {
+    type: "subagent.started",
+    payload: {
+      toolCallId: "s1",
+      subagentId: "helper-1",
+      profile: "explore",
+      task: "Find the routes",
+    },
+    shows: /Find the routes/,
+  },
+  {
+    type: "subagent.completed",
+    payload: {
+      subagentId: "helper-1",
+      outcome: "completed",
+      summary: "src/routes.ts:1-20",
+      toolCalls: 3,
+      usage: { inputTokens: 10, outputTokens: 1 },
+    },
+    shows: /Reported after 3 steps.*src\/routes\.ts:1-20/,
+  },
 ] as const satisfies readonly { type: NapEventType; payload: NapEvent["payload"]; shows: RegExp }[];
 
 describe("every event type has a visual treatment", () => {
@@ -756,5 +801,92 @@ describe("taking what the agent said away with you", () => {
     show(ev("user.message", { text: "build me a todo list" }));
 
     expect(screen.queryByRole("button", { name: /copy/i })).not.toBeInTheDocument();
+  });
+});
+
+describe("a question the agent asked", () => {
+  const QUESTION = {
+    toolCallId: "q",
+    question: "Grid or list?",
+    options: [
+      { label: "Grid", description: "Cards in columns" },
+      { label: "List", description: null },
+    ],
+    multiSelect: false,
+  };
+
+  it("sends the option clicked as the answer", () => {
+    const onAnswer = vi.fn();
+    nextSeq = 1;
+    render(
+      <ChatTranscript
+        items={buildTranscript([ev("agent.question", QUESTION)])}
+        onAnswer={onAnswer}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /List/ }));
+
+    expect(onAnswer).toHaveBeenCalledWith("List");
+  });
+
+  it("cannot be answered while a turn is running", () => {
+    nextSeq = 1;
+    render(
+      <ChatTranscript
+        items={buildTranscript([ev("agent.question", QUESTION)])}
+        onAnswer={vi.fn()}
+        running
+      />,
+    );
+    expect(screen.getByRole("button", { name: /Grid/ })).toBeDisabled();
+  });
+
+  it("shows the answer instead of the options once somebody has replied", () => {
+    show(ev("agent.question", QUESTION), ev("user.message", { text: "Grid" }));
+    expect(screen.queryByRole("button", { name: /List/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Grid or list?" })).toHaveTextContent(
+      "Answered: Grid",
+    );
+  });
+
+  it("sends every box ticked, in the order offered, when several answers are allowed", () => {
+    const onAnswer = vi.fn();
+    nextSeq = 1;
+    render(
+      <ChatTranscript
+        items={buildTranscript([ev("agent.question", { ...QUESTION, multiSelect: true })])}
+        onAnswer={onAnswer}
+      />,
+    );
+    const send = screen.getByRole("button", { name: "Send answer" });
+    expect(send).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /List/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /Grid/ }));
+    fireEvent.click(send);
+
+    expect(onAnswer).toHaveBeenCalledWith("Grid, List");
+  });
+});
+
+describe("the agent's plan", () => {
+  it("is a named list whose items say their status in words", () => {
+    show(
+      ev("plan.updated", {
+        toolCallId: "p",
+        items: [
+          { content: "Build", status: "completed" },
+          { content: "Style", status: "in_progress" },
+          { content: "Ship", status: "pending" },
+        ],
+      }),
+    );
+    const plan = screen.getByRole("region", { name: "Plan · 1 of 3 done" });
+    expect(
+      within(plan)
+        .getAllByRole("listitem")
+        .map((item) => item.textContent),
+    ).toEqual(["Done: Build", "In progress: Style", "To do: Ship"]);
   });
 });

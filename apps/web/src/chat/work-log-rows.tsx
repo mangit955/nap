@@ -23,8 +23,11 @@ import {
   ChevronRight,
   Eye,
   Hammer,
+  ListChecks,
+  MessageCircleQuestionMark,
   Monitor,
   Search,
+  Split,
   SquarePen,
   Terminal,
   X,
@@ -256,6 +259,12 @@ function EntryIcon({ kind, className = ICON }: { kind: ToolGroupSummaryKind; cla
       return <Terminal aria-hidden="true" className={className} />;
     case "code-search":
       return <Search aria-hidden="true" className={className} />;
+    case "plan":
+      return <ListChecks aria-hidden="true" className={className} />;
+    case "ask":
+      return <MessageCircleQuestionMark aria-hidden="true" className={className} />;
+    case "delegate":
+      return <Split aria-hidden="true" className={className} />;
     case "reasoning":
       return <Brain aria-hidden="true" className={className} />;
     case "mixed":

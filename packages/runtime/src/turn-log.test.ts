@@ -181,6 +181,46 @@ const ONE_OF_EACH: Record<NapEventType, StoredEvent> = {
     type: "job.completed",
     payload: { jobId: JOB, outcome: "exhausted" },
   }),
+  "plan.updated": stored({
+    ...base(40),
+    type: "plan.updated",
+    payload: {
+      toolCallId: "plan",
+      items: [
+        { content: "private plan step", status: "completed" },
+        { content: "another private step", status: "pending" },
+      ],
+    },
+  }),
+  "agent.question": stored({
+    ...base(41),
+    type: "agent.question",
+    payload: {
+      toolCallId: "ask",
+      question: "private question",
+      options: [
+        { label: "private option", description: null },
+        { label: "other option", description: "private description" },
+      ],
+      multiSelect: false,
+    },
+  }),
+  "subagent.started": stored({
+    ...base(42),
+    type: "subagent.started",
+    payload: { toolCallId: "sub", subagentId: "sub_1", profile: "explore", task: "private task" },
+  }),
+  "subagent.completed": stored({
+    ...base(43),
+    type: "subagent.completed",
+    payload: {
+      subagentId: "sub_1",
+      outcome: "completed",
+      summary: "private summary",
+      toolCalls: 4,
+      usage: { inputTokens: 100, outputTokens: 10 },
+    },
+  }),
 };
 
 describe("eventLogLine", () => {
@@ -298,12 +338,31 @@ describe("eventLogLine", () => {
       // A failed check's output is a diagnostic, and it is in the events table under this
       // `seq` already. The line says which check went red, which is the fact you alert on.
       "src/App.tsx(3,1): error TS2304",
+      // What the agent planned, asked and delegated is the user's project too.
+      "private plan step",
+      "private question",
+      "private option",
+      "private description",
+      "private task",
+      "private summary",
     ];
 
     for (const event of Object.values(ONE_OF_EACH)) {
       const rendered = JSON.stringify(eventLogLine(event).fields);
       for (const secret of secrets) expect(rendered).not.toContain(secret);
     }
+  });
+
+  it("says how far a plan got and how a delegated piece of work ended, without its words", () => {
+    expect(eventLogLine(ONE_OF_EACH["plan.updated"]).fields).toMatchObject({
+      items: 2,
+      completed: 1,
+    });
+    expect(eventLogLine(ONE_OF_EACH["subagent.completed"]).fields).toMatchObject({
+      subagentId: "sub_1",
+      outcome: "completed",
+      toolCalls: 4,
+    });
   });
 
   it("reports the size of what it will not quote", () => {

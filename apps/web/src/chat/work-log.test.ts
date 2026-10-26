@@ -291,3 +291,29 @@ describe("formatDuration", () => {
     expect(formatDuration(ms)).toBe(text);
   });
 });
+
+describe("the tools added with the registry", () => {
+  it("groups them by what they are for, not by name", () => {
+    const entries = [
+      step({ toolName: "glob", input: { pattern: "**/*.tsx" } }),
+      step({ toolName: "search_files", input: { pattern: "useState" } }),
+      step({ toolName: "todo_write", input: { todos: [] } }),
+      step({ toolName: "shell_output", input: { shell_id: "abc" } }),
+      step({ toolName: "run_command", input: { command: "bun run dev" }, output: "exit code 0\n" }),
+    ];
+    expect(summarizeToolGroup(entries).summary).toBe(
+      "Searched code 2 times, ran 2 commands, and performed 1 other action",
+    );
+  });
+
+  it.each([
+    [{ toolName: "glob", input: { pattern: "*.tsx" } }, "Found *.tsx"],
+    [{ toolName: "shell_kill", input: { shell_id: "abc" } }, "Stopped a command"],
+    [{ toolName: "todo_write", input: { todos: [] } }, "Updated the plan"],
+    [{ toolName: "ask_user", input: { question: "Grid or list?" } }, "Grid or list?"],
+    [{ toolName: "run_subagent", input: { task: "Find the routes" } }, "Find the routes"],
+    [{ toolName: "apply_patch", input: { patch: "…" } }, "Patched files"],
+  ] as const)("labels %j as %s", (overrides, label) => {
+    expect(workEntryDisplayLabel(step(overrides))).toBe(label);
+  });
+});

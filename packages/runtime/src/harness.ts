@@ -197,6 +197,16 @@ function detail(event: NapEvent): string {
         : `${event.payload.toolName} ${oneLine(JSON.stringify(event.payload.input))}`;
     case "tool.result":
       return `${event.payload.toolName} ${event.payload.ok ? "ok" : "FAILED"} ${oneLine(event.payload.output)}`;
+    case "plan.updated":
+      return event.payload.items
+        .map((item) => `[${PLAN_MARKS[item.status]}] ${item.content}`)
+        .join(" ");
+    case "agent.question":
+      return `${oneLine(event.payload.question)} — ${event.payload.options.map((option) => option.label).join(" / ")}`;
+    case "subagent.started":
+      return `${event.payload.subagentId} ${event.payload.profile}: ${oneLine(event.payload.task)}`;
+    case "subagent.completed":
+      return `${event.payload.subagentId} ${event.payload.outcome}, ${event.payload.toolCalls} tool calls: ${oneLine(event.payload.summary)}`;
     case "file.changed":
       return `${event.payload.changeType} ${event.payload.path}`;
     case "command.output":
@@ -228,6 +238,8 @@ function detail(event: NapEvent): string {
       return event.payload.outcome;
   }
 }
+
+const PLAN_MARKS = { pending: " ", in_progress: "~", completed: "x" } as const;
 
 /** Events are for reading here, and a wall of file contents is not reading. */
 export function oneLine(text: string, limit = 100): string {

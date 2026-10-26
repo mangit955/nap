@@ -14,6 +14,7 @@ import {
   STALE_TOOL_OUTPUT,
 } from "./context-engine.ts";
 import { NoopMemoryProvider } from "./noop-memory-provider.ts";
+import { SUBAGENT_PROMPTS } from "./subagent-prompts.ts";
 import { REPOSITORY_SYSTEM_PROMPT, SYSTEM_PROMPT } from "./system-prompt.ts";
 import { type FileTree, stubSandbox } from "./testing/stub-sandbox.ts";
 import { estimateTokens } from "./tokens.ts";
@@ -29,6 +30,16 @@ it("uses repository guidance without the starter stack assumptions", async () =>
   // Compaction keeps these as the trusted half, so they must be the instructions this workspace ran under.
   expect(built.trustedInstructions).toBe(REPOSITORY_SYSTEM_PROMPT);
   expect(built.estimatedTokens).toBeLessThanOrEqual(DEFAULT_BUDGET_TOKENS);
+});
+
+it("offers an imported repository helpers and its root rules, and a Nap project neither", async () => {
+  const repository = await new NapContextEngine().build(request({ workspace: "repository" }));
+  expect(repository.subagentPrompts).toBe(SUBAGENT_PROMPTS);
+  expect(repository.rootRules).toBe(true);
+
+  const project = await new NapContextEngine().build(request());
+  expect(project.subagentPrompts).toBeUndefined();
+  expect(project.rootRules).toBeUndefined();
 });
 
 // ---------------------------------------------------------------------------

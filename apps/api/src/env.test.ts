@@ -198,6 +198,23 @@ describe("parseEnv", () => {
     );
   });
 
+  it.each(["NAP_FALLBACK_MODEL", "NAP_SUBAGENT_MODEL"] as const)(
+    "refuses a %s that is not on the allowlist, and accepts one that is",
+    (key) => {
+      expect(() => parseEnv({ ...REQUIRED, [key]: "vendor/absent-model" })).toThrow(
+        new RegExp(key),
+      );
+      expect(parseEnv({ ...REQUIRED, [key]: "openai/gpt-5.6-terra" })[key]).toBe(
+        "openai/gpt-5.6-terra",
+      );
+    },
+  );
+
+  it("leaves the fallback and helper models unset unless asked", () => {
+    const env = parseEnv(REQUIRED);
+    expect([env.NAP_FALLBACK_MODEL, env.NAP_SUBAGENT_MODEL]).toEqual([undefined, undefined]);
+  });
+
   it("defaults the free tier tighter than the paying one", () => {
     // Not a coincidence to be preserved by luck: these are the ceilings on what a stranger can
     // spend of *this* deployment's money, and they exist to be lower.
