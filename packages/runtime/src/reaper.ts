@@ -128,13 +128,16 @@ export async function sweepIdleProjects(options: SweepOptions): Promise<SweepRes
       snapshots: options.snapshots,
       projectId: project.projectId,
       sandboxId: project.sandboxId,
+      occupied: () => options.isBusy(project),
       ...(options.capacity === undefined ? {} : { capacity: options.capacity }),
       ...(options.announce === undefined
         ? {}
         : { announce: { ...options.announce, sessionIds: project.sessionIds } }),
     });
 
-    if (closed.outcome === "put_away") result.reaped.push(project.projectId);
+    if (closed.outcome === "failed" && closed.reason === "occupied")
+      result.skipped.push(project.projectId);
+    else if (closed.outcome === "put_away") result.reaped.push(project.projectId);
     else if (closed.outcome === "abandoned") result.abandoned.push(project.projectId);
     else {
       result.failed.push({

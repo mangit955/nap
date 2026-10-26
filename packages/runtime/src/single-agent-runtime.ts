@@ -1,3 +1,5 @@
+import type { QueueLeaseIdentity } from "@nap/shared/ports/project-computer-access";
+import type { ProjectComputer } from "./project-computer.ts";
 /**
  * One turn, end to end: get a sandbox, build the context, run the agent, write down
  * everything that happened, commit the result, and ask the project whether it holds up.
@@ -36,10 +38,12 @@
  */
 
 import { commitAll, currentSha } from "@nap/sandbox/git";
-import { TEMPLATE_DEV_PORT } from "@nap/sandbox/template";
+import { TEMPLATE_DEV_PORT, TEMPLATE_WORKDIR } from "@nap/sandbox/template";
+import { appTestTarget } from "@nap/shared/app-testing";
 import type { JobOutcome, NapEvent, NapEventOf, PromptSource } from "@nap/shared/events";
 import { foldJobs, MAX_REPAIR_ATTEMPTS, openJob } from "@nap/shared/job-state";
 import { addLogContext, getLogger, withLogContext } from "@nap/shared/logging";
+import { modelSupportsImages } from "@nap/shared/model-capabilities";
 import type { AgentService } from "@nap/shared/ports/agent-service";
 import type { ContextEngine, FailedAttempt, JobContext } from "@nap/shared/ports/context-engine";
 import type { EventBus } from "@nap/shared/ports/event-bus";
@@ -58,9 +62,11 @@ import type {
 } from "@nap/shared/ports/runtime";
 import type { SandboxCapacity } from "@nap/shared/ports/sandbox-capacity";
 import type { SandboxError, SandboxManager } from "@nap/shared/ports/sandbox-manager";
+import type { SandboxRecordings } from "@nap/shared/ports/sandbox-recordings";
 import type { SessionRecord, SessionStore } from "@nap/shared/ports/session-store";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
 import type { Result } from "@nap/shared/result";
+import { shellQuote } from "@nap/shared/shell";
 import type { VerificationResult } from "@nap/verify/run-checks";
 import {
   type AcquiredSandbox,
@@ -68,12 +74,15 @@ import {
   type RestoreDeps,
   restoreDepsOf,
 } from "./acquire-sandbox.ts";
+import { type AppTestRecordingClock, withAppTestRecording } from "./app-test-recording.ts";
+import { AppTestRun } from "./app-test-run.ts";
 import { contextCompactor } from "./compaction.ts";
 import { continuationFor } from "./continue-job.ts";
 import { EventSink } from "./event-sink.ts";
 import { repairCommitSubject, repairPrompt } from "./repair-prompt.ts";
 import { SessionQueue } from "./session-queue.ts";
 import { captureSnapshot } from "./teardown.ts";
+import { testPrompt } from "./test-prompt.ts";
 import { captureThumbnail } from "./turn-thumbnail.ts";
 import { type CheckFailure, failureOf, toVerifiedChecks, verifyTurn } from "./verify-turn.ts";
 
@@ -87,6 +96,7 @@ type Payload<T extends NapEvent["type"]> = NapEventOf<T>["payload"];
  * `turnId` is on the scope rather than on the sink, and each repair gets a scope of its own.
  */
 type TurnScope = {
+  sandboxStopped?: boolean;
   session: SessionRecord;
   sink: EventSink;
   turnId: string;
@@ -100,6 +110,8 @@ type TurnScope = {
  * whoever opened the project is the signal, the model and whose account pays, and nothing else.
  */
 type TurnSettings = {
+  lease?: QueueLeaseIdentity | undefined;
+  work?: { stopped: boolean };
   sessionId: string;
   signal?: AbortSignal | undefined;
   model?: string | undefined;
@@ -191,6 +203,11 @@ export type SingleAgentRuntimeOptions = {
   sandbox: SandboxManager;
   context: ContextEngine;
   agent: AgentService;
+  computer?: {
+    coordinator: ProjectComputer;
+    objects: ObjectStore;
+    recordings?: SandboxRecordings;
+  };
   events: EventStore;
   bus: EventBus;
   memory: MemoryProvider;
@@ -313,7 +330,7 @@ export class SingleAgentRuntime implements Runtime {
   async #runTurn(request: TurnRequest): Promise<TurnOutcome> {
     const { turnId } = request;
     return await withLogContext(getLogger(), { sessionId: request.sessionId, turnId }, () =>
-      this.#runTurnLogged(request, turnId),
+      request.kind === "test" ? this.#runAppTest(request) : this.#runTurnLogged(request, turnId),
     );
   }
 
@@ -577,7 +594,128 @@ export class SingleAgentRuntime implements Runtime {
     return null;
   }
 
-  async #runTurnLogged(request: TurnRequest, turnId: string): Promise<TurnOutcome> {
+  async #runAppTest(request: Extract<TurnRequest, { kind: "test" }>): Promise<TurnOutcome> {
+    const { turnId, sessionId } = request;
+    const scope = await this.#open(sessionId, turnId);
+    if (!scope) return { ok: false, turnId, reason: "internal", message: "No such session." };
+    const { emit, sink } = scope;
+    let run: AppTestRun | undefined;
+    try {
+      if (!this.#options.computer || !modelSupportsImages(request.model))
+        throw new Error("App tests need an available computer and an image-capable model.");
+      request.signal?.throwIfAborted();
+      const history = await this.#options.events.readFrom(sessionId, 0);
+      const target = appTestTarget(history);
+      if (!target || target.jobId !== request.jobId)
+        throw new Error("The approved job is no longer the latest completed checkpoint.");
+      const acquired = await this.#acquire(scope.session, request.signal);
+      if (!acquired.ok) throw new Error(acquired.error.message);
+      const sandboxId = acquired.value.id;
+      const head = await currentSha(this.#options.sandbox, sandboxId);
+      if (!head.ok || head.value !== target.commitSha)
+        throw new Error(
+          "The app changed after this job completed. Complete a new job before testing it.",
+        );
+      const clean = await this.#options.sandbox.exec(
+        sandboxId,
+        `cd ${shellQuote(TEMPLATE_WORKDIR)} && git status --porcelain`,
+      );
+      if (!clean.ok || clean.value.exitCode !== 0 || clean.value.stdout.trim())
+        throw new Error(
+          "The app has uncommitted source changes. Complete a new job before testing it.",
+        );
+      const diff = await this.#options.sandbox.exec(
+        sandboxId,
+        `cd ${shellQuote(TEMPLATE_WORKDIR)} && git diff --no-ext-diff --no-textconv ${shellQuote(target.baseRevision)} ${shellQuote(target.commitSha)} --`,
+      );
+      if (!diff.ok || diff.value.exitCode !== 0)
+        throw new Error("Could not read this job's source diff.");
+      request.signal?.throwIfAborted();
+      const prompt = testPrompt({ objective: target.objective, diff: diff.value.stdout });
+      const ledger = new AppTestRun({
+        now: () => Date.parse(this.#now()),
+        emit: (entry) => emit("test.annotation", entry),
+      });
+      run = ledger;
+      const previewPort =
+        acquired.value.repository === undefined
+          ? this.#previewPort
+          : acquired.value.repository.previewPort;
+      if (previewPort === null) throw new Error("App tests need a running project preview.");
+      // The generated diff prompt stays ephemeral; the durable goal and source commit reserve
+      // the recording identity before any capture or upload can occur.
+      const outcome = await withAppTestRecording(
+        {
+          projectId: scope.session.projectId,
+          sessionId,
+          turnId,
+          sandboxId,
+          devServerUrl: `http://localhost:${previewPort}`,
+          started: {
+            jobId: target.jobId,
+            commitSha: target.commitSha,
+            objective: target.objective,
+          },
+          desktop: this.#options.computer.coordinator.desktop,
+          recordings: this.#options.computer.recordings,
+          objects: this.#options.computer.objects,
+          ...(request.signal ? { signal: request.signal } : {}),
+          emit,
+          beforeCapture: async () => {
+            await sink.drain();
+            for (const notice of acquired.value.notices) emit("system.notice", notice);
+            if (acquired.value.created) await this.#announcePreview(sandboxId, emit, previewPort);
+            await sink.drain();
+          },
+        },
+        async (clock) => {
+          return this.#attempt({
+            settings: {
+              ...request,
+              ...(acquired.value.repository ? { workspace: "repository" as const } : {}),
+            },
+            scope,
+            sandboxId,
+            prompt,
+            promptSource: "test",
+            commitSubject: "",
+            history,
+            appTest: { run: ledger, ...(clock ? { clock } : {}) },
+            previewPort,
+          });
+        },
+      );
+      emit("test.completed", {
+        jobId: target.jobId,
+        status: outcome.ok ? "completed" : "interrupted",
+        counts: run.counts(),
+      });
+      await sink.drain();
+      return outcome;
+    } catch (error) {
+      const reason = request.signal?.aborted ? "cancelled" : "internal";
+      const message =
+        reason === "cancelled"
+          ? "The app test was cancelled."
+          : error instanceof Error
+            ? error.message
+            : "The app test could not start.";
+      if (!sink.terminal) emit("turn.failed", { reason, message });
+      if (run)
+        emit("test.completed", {
+          jobId: request.jobId,
+          status: "interrupted",
+          counts: run.counts(),
+        });
+      await sink.drain();
+      return { ok: false, turnId, reason, message };
+    }
+  }
+
+  async #runTurnLogged(
+    request: Extract<TurnRequest, { message: string }>,
+    turnId: string,
+  ): Promise<TurnOutcome> {
     const scope = await this.#open(request.sessionId, turnId);
 
     if (scope === null) {
@@ -626,13 +764,19 @@ export class SingleAgentRuntime implements Runtime {
           throw new Error("There is no complete conversation to compact yet.");
         const acquired = await this.#acquire(session);
         if (!acquired.ok) throw new Error(acquired.error.message);
+        const previewPort =
+          acquired.value.repository === undefined
+            ? this.#previewPort
+            : acquired.value.repository.previewPort;
         for (const notice of acquired.value.notices) emit("system.notice", notice);
-        if (acquired.value.created) await this.#announcePreview(acquired.value.id, emit);
+        if (acquired.value.created)
+          await this.#announcePreview(acquired.value.id, emit, previewPort);
         request.signal?.throwIfAborted();
         const outcome = await this.#attempt({
           settings: request,
           scope,
           sandboxId: acquired.value.id,
+          previewPort,
           prompt: "",
           promptSource: "user",
           commitSubject: "",
@@ -726,6 +870,7 @@ export class SingleAgentRuntime implements Runtime {
         settings: run.settings,
         scope,
         sandboxId: run.sandboxId,
+        previewPort: run.previewPort,
         prompt: request.message,
         attachments: request.attachments,
         promptSource: "user",
@@ -800,18 +945,27 @@ export class SingleAgentRuntime implements Runtime {
       emit("job.completed", { jobId, outcome });
       run.open = false;
       await sink.drain();
-      await this.#finishRepositoryJob({
-        scope: run.turn,
-        sandboxId,
-        jobId,
-        requestId: run.requestId,
-        signal: settings.signal,
-      });
+      if (!settings.work?.stopped)
+        await this.#finishRepositoryJob({
+          scope: run.turn,
+          sandboxId,
+          jobId,
+          requestId: run.requestId,
+          signal: settings.signal,
+        });
     };
 
     let { outcome, failed, announce, fresh } = entry;
 
     for (;;) {
+      if (settings.work?.stopped) {
+        if (run.open) {
+          emit("job.completed", { jobId, outcome: "abandoned" });
+          run.open = false;
+          await sink.drain();
+        }
+        return outcome;
+      }
       if (failed === null) {
         if (!outcome.ok) {
           // The turn the job was riding on refused, was cancelled, or fell over. Nothing will
@@ -903,6 +1057,7 @@ export class SingleAgentRuntime implements Runtime {
           scope: run.turn,
           sandboxId,
           failed: repaired,
+          previewPort: run.previewPort,
           attempt,
           job: { objective, attempts: [...attempts] },
         }),
@@ -944,10 +1099,13 @@ export class SingleAgentRuntime implements Runtime {
      */
     job?: JobContext;
     manualCompaction?: { id: string; onSettled: () => void };
+    appTest?: { run: AppTestRun; clock?: AppTestRecordingClock };
+    previewPort: number | null;
   }): Promise<TurnOutcome> {
     const { settings, scope, sandboxId, prompt, promptSource, commitSubject, history, job } =
       options;
     const { sink, emit, turnId } = scope;
+    const appTest = options.appTest;
 
     // Preparation belongs to this turn too, even if it fails before the agent starts.
     sink.beginTurn();
@@ -967,62 +1125,119 @@ export class SingleAgentRuntime implements Runtime {
 
     settings.signal?.throwIfAborted();
 
-    await this.#options.agent.runTurn({
-      sessionId: settings.sessionId,
-      turnId,
+    const computerAttempt = this.#options.computer?.coordinator.forTurn({
+      projectId: scope.session.projectId,
       sandboxId,
-      context,
-      sandbox: this.#options.sandbox,
-      onEvent: sink.emit,
-      ...(options.manualCompaction === undefined ? {} : { operation: "compact" }),
-      compactContext: contextCompactor({
-        ...(options.manualCompaction === undefined
-          ? {}
-          : { startedId: options.manualCompaction.id }),
-        budgetTokens: context.budgetTokens ?? 80_000,
-        read: async () => {
-          await sink.drain();
-          return this.#options.events.readFrom(settings.sessionId, 0);
-        },
-        emit: (event) => {
-          switch (event.type) {
-            case "compaction.started":
-              emit(event.type, event.payload);
-              break;
-            case "compaction.completed":
-              options.manualCompaction?.onSettled();
-              emit(event.type, event.payload);
-              break;
-            case "compaction.failed":
-              options.manualCompaction?.onSettled();
-              emit(event.type, event.payload);
-              break;
-          }
-        },
-        drain: () => sink.drain(),
-        rebuild: (history) =>
-          this.#options.context.build({
-            sessionId: settings.sessionId,
-            sandboxId,
-            userMessage: prompt,
-            model: settings.model,
-            continuation: true,
-            history,
-            ...(job === undefined ? {} : { job }),
-            sandbox: this.#options.sandbox,
-            memory: this.#options.memory,
-          }),
-      }),
-      promptSource,
-      ...(options.manualCompaction !== undefined
-        ? {}
-        : { finalize: () => this.#commit(sandboxId, commitSubject) }),
-      ...(settings.signal === undefined ? {} : { signal: settings.signal }),
-      ...(settings.model === undefined ? {} : { model: settings.model }),
-      // Passed straight through and read nowhere here: the runtime decides *when* a turn
-      // runs, never who pays for it.
-      ...(settings.credentials === undefined ? {} : { credentials: settings.credentials }),
+      lease: settings.lease,
     });
+    settings.work ??= { stopped: false };
+    const work = settings.work;
+    try {
+      await this.#options.agent.runTurn({
+        sessionId: settings.sessionId,
+        turnId,
+        sandboxId,
+        context,
+        sandbox: this.#options.sandbox,
+        ...(this.#options.computer === undefined ||
+        computerAttempt === undefined ||
+        options.previewPort === null
+          ? {}
+          : {
+              computer: {
+                desktop: computerAttempt.desktop,
+                stopped: () => computerAttempt?.stopped() ?? true,
+                objects: this.#options.computer.objects,
+                projectId: scope.session.projectId,
+                devServerUrl: `http://localhost:${options.previewPort}`,
+                beforeStore: () => sink.drain(),
+                ...(appTest
+                  ? {
+                      annotate: async (annotation) =>
+                        appTest.run.annotate(annotation, appTest.clock),
+                      beforeAction: (action) => appTest.run.beforeAction(action),
+                      afterAction: (action, succeeded) =>
+                        appTest.run.afterAction(action, succeeded),
+                      screenshotStored: (toolCallId) => appTest.run.screenshotStored(toolCallId),
+                      delivered: (toolCallIds) => appTest.run.delivered(toolCallIds),
+                    }
+                  : {}),
+              },
+            }),
+        onEvent: (event) => {
+          sink.emit(event);
+        },
+        ...(options.manualCompaction === undefined ? {} : { operation: "compact" }),
+        compactContext: contextCompactor({
+          ...(options.manualCompaction === undefined
+            ? {}
+            : { startedId: options.manualCompaction.id }),
+          budgetTokens: context.budgetTokens ?? 80_000,
+          read: async () => {
+            await sink.drain();
+            return this.#options.events.readFrom(settings.sessionId, 0);
+          },
+          emit: (event) => {
+            switch (event.type) {
+              case "compaction.started":
+                emit(event.type, event.payload);
+                break;
+              case "compaction.completed":
+                options.manualCompaction?.onSettled();
+                emit(event.type, event.payload);
+                break;
+              case "compaction.failed":
+                options.manualCompaction?.onSettled();
+                emit(event.type, event.payload);
+                break;
+            }
+          },
+          drain: () => sink.drain(),
+          rebuild: (history) =>
+            this.#options.context.build({
+              sessionId: settings.sessionId,
+              sandboxId,
+              userMessage: prompt,
+              model: settings.model,
+              // A generated test prompt is not in durable user history. Reintroduce it as
+              // the current request after compaction, without protecting it in later turns.
+              continuation: appTest === undefined,
+              history,
+              ...(job === undefined ? {} : { job }),
+              sandbox: this.#options.sandbox,
+              memory: this.#options.memory,
+            }),
+        }),
+        promptSource,
+        ...(options.manualCompaction !== undefined || options.appTest !== undefined
+          ? {}
+          : {
+              finalize: async () => {
+                if (computerAttempt?.stopped())
+                  throw new Error("Computer input recovery is pending.");
+                return this.#commit(sandboxId, commitSubject);
+              },
+            }),
+        ...(settings.signal === undefined ? {} : { signal: settings.signal }),
+        ...(settings.model === undefined ? {} : { model: settings.model }),
+        // Passed straight through and read nowhere here: the runtime decides *when* a turn
+        // runs, never who pays for it.
+        ...(settings.credentials === undefined ? {} : { credentials: settings.credentials }),
+      });
+    } finally {
+      if (computerAttempt) {
+        const closed = await computerAttempt.close();
+        if (!closed.ok || computerAttempt.stopped()) {
+          work.stopped = true;
+          scope.sandboxStopped = true;
+          if (!closed.ok)
+            emit("system.notice", {
+              level: "warning",
+              text: "Computer input recovery is pending. New work is blocked until input has drained.",
+            });
+        }
+      }
+    }
 
     await sink.drain();
 
@@ -1058,6 +1273,7 @@ export class SingleAgentRuntime implements Runtime {
     scope: TurnScope;
     sandboxId: string;
     failed: CheckFailure;
+    previewPort: number | null;
     attempt: number;
     job: JobContext;
   }): Promise<TurnOutcome> {
@@ -1079,6 +1295,7 @@ export class SingleAgentRuntime implements Runtime {
       settings,
       scope,
       sandboxId,
+      previewPort: options.previewPort,
       prompt,
       promptSource: "verification",
       commitSubject: repairCommitSubject(failed, attempt),
@@ -1353,7 +1570,7 @@ export class SingleAgentRuntime implements Runtime {
     requestId: string;
     signal?: AbortSignal | undefined;
   }): Promise<void> {
-    if (this.#options.repository === undefined) return;
+    if (this.#options.repository === undefined || options.scope.sandboxStopped) return;
     const { scope, sandboxId, jobId, requestId, signal } = options;
     try {
       const history = await this.#options.events.readFrom(scope.session.sessionId, 0);

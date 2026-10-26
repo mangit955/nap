@@ -64,6 +64,8 @@ function scriptedRuntime(outcome: TurnOutcome): Runtime & { messages: string[] }
   return {
     messages,
     async runTurn(request) {
+      if (request.kind === "test")
+        throw new Error("This fixture only accepts project-editing turns.");
       messages.push(request.message);
       return outcome;
     },
@@ -1565,6 +1567,8 @@ describe("runBenchTask — prompts in sequence", () => {
     const messages: string[] = [];
     const runtime: Runtime = {
       async runTurn(request) {
+        if (request.kind === "test")
+          throw new Error("This fixture only accepts project-editing turns.");
         messages.push(request.message);
         return messages.length === 1
           ? { ok: false, turnId: TURN_ID, reason: "model_unavailable", message: "down" }
@@ -1589,6 +1593,8 @@ describe("runBenchTask — prompts in sequence", () => {
     const seen: string[] = [];
     const runtime: Runtime = {
       async runTurn(request) {
+        if (request.kind === "test")
+          throw new Error("This fixture only accepts project-editing turns.");
         seen.push(request.message);
         return { ok: true, turnId: seen.length === 1 ? TURN_ID : secondTurn, commitSha: null };
       },

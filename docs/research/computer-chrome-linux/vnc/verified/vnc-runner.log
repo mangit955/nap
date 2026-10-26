@@ -1,0 +1,17 @@
+Building local linux/amd64 image. Build deadline: 15 minutes.
+Production driver bundle SHA256: a37b17e66de0576068bdcc44eed9b3a0b47a5f42ed7239287c9e7e3a89cd7a11. Expected bundle match: true.
+Running actual Chrome with network none, 2 CPUs, 1024 MiB. Runtime deadline: 4 minutes.
+Fixture ready on 5173
+Fixture ready on 5174
+Two container-local fixture ports ready
+Actual Chrome PID, start ticks, socket ownership and initial JPEG checked
+Physical typing, click, scroll and drag changed visible fixture outcomes
+Same-port start preserved Chrome identity, page state and private credential
+Stale start-tick guard failed closed without killing actual owned Chrome, then recovered
+External URL refused with Chrome's policy-specific organization error
+Changed port replaced the owned Chrome and loaded current-origin fixture
+Reachable previous origin refused by Chrome policy; allowed current loopback origin succeeded
+Actual ffmpeg MP4 finalized, encoder clock advanced, every frame decoded, repeat finish matched
+View-only localhost x11vnc flags, noVNC HTTP and websockify RFB banner checked
+
+Evidence: /tmp/nap-vnc-cleanup-verified. Owned cleanup verified. Total elapsed: 92320 ms.

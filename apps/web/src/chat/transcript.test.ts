@@ -109,6 +109,7 @@ function stepsOf(items: TranscriptItem[]) {
  * exhaustive across both.
  */
 const DRAWN_ELSEWHERE = [
+  "test.annotation",
   "context.usage",
   "job.started",
   "verification.started",
@@ -123,6 +124,40 @@ const DRAWN_ELSEWHERE = [
  * until it has a case or is named above, rather than quietly rendering as nothing.
  */
 const CASES = [
+  {
+    type: "test.recording",
+    payload: {
+      recording: {
+        state: "available",
+        key: "computer/p/s/t/recording.mp4",
+        durationMs: 1000,
+        width: 1024,
+        height: 768,
+        interrupted: false,
+      },
+    },
+  },
+  {
+    type: "test.started",
+    payload: {
+      jobId: "7c9b1a52-8d3e-4f21-a0c4-1b2d3e4f5a6b",
+      commitSha: "abcdef1",
+      objective: "Save notes",
+    },
+  },
+  {
+    type: "test.completed",
+    payload: {
+      jobId: "7c9b1a52-8d3e-4f21-a0c4-1b2d3e4f5a6b",
+      status: "completed",
+      counts: { passed: 0, failed: 1, untested: 1 },
+    },
+  },
+  {
+    type: "computer.screenshot",
+    payload: { toolCallId: "screen", key: "computer/p/s/t/screen.jpg", width: 1024, height: 768 },
+  },
+  { type: "computer.status", payload: { toolCallId: "screen", state: "starting" } },
   { type: "compaction.started", payload: { id: "compact1", trigger: "manual" } },
   {
     type: "compaction.completed",
@@ -189,12 +224,12 @@ describe("the treatment table covers the union", () => {
     void _exhaustive;
   });
 
-  it("lets nothing but a job event out of the treatment table", () => {
+  it("restricts omissions to status and assertion data", () => {
     // Otherwise the list above is an escape hatch: anything moved into it keeps both the count
     // and the compile check green while rendering nowhere at all, which is the exact failure
-    // this table exists to catch. Only job, verification and context events may sit there.
+    // this table exists to catch. Only status events and assertion data rendered in the result card may sit there.
     for (const type of DRAWN_ELSEWHERE) {
-      expect(type).toMatch(/^(job|verification|context)\./);
+      expect(type).toMatch(/^(job|verification|context)\.|^test\.annotation$/);
       expect(CASES.map((c) => c.type)).not.toContain(type);
     }
   });

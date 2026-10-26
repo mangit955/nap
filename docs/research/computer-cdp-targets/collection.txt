@@ -1,0 +1,15 @@
+[unit] packages/sandbox/src/desktop-cdp.test.ts > reads DOM through fixed protocol operations and closes its connection
+[unit] packages/sandbox/src/desktop-cdp.test.ts > reads existing console/log notifications without executing page JavaScript
+[unit] packages/sandbox/src/desktop-cdp.test.ts > refuses non-loopback debugger targets before connecting
+[unit] packages/sandbox/src/desktop-cdp.test.ts > rejects malformed protocol replies and closes the socket
+[unit] packages/sandbox/src/desktop-cdp.test.ts > does not connect for an aborted observation
+[unit] packages/sandbox/src/desktop-cdp.test.ts > observes the web page for dom when Chrome exposes internal page targets first
+[unit] packages/sandbox/src/desktop-cdp.test.ts > observes the web page for console when Chrome exposes internal page targets first
+[unit] packages/sandbox/src/desktop-cdp.test.ts > observes a web-content target at http://localhost:5173/
+[unit] packages/sandbox/src/desktop-cdp.test.ts > observes a web-content target at https://example.com/
+[unit] packages/sandbox/src/desktop-cdp.test.ts > observes a web-content target at about:blank
+[unit] packages/sandbox/src/desktop-cdp.test.ts > observes a web-content target at chrome-error://chromewebdata/
+[unit] packages/sandbox/src/desktop-cdp.test.ts > does not observe browser UI at chrome://omnibox-popup.top-chrome/ when no web page exists
+[unit] packages/sandbox/src/desktop-cdp.test.ts > does not observe browser UI at chrome://newtab/ when no web page exists
+[unit] packages/sandbox/src/desktop-cdp.test.ts > does not observe browser UI at chrome-extension://extension/popup.html when no web page exists
+[unit] packages/sandbox/src/desktop-cdp.test.ts > does not observe browser UI at devtools://devtools/bundled/inspector.html when no web page exists

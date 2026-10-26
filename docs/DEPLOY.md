@@ -580,3 +580,18 @@ starting the updated processes. The container includes Git for the server broker
 signed webhook processing and the PR refresh that catches missed deliveries. The exact URLs, permissions, setup steps and rollout limits are in
 [GitHub integration](github-integration.md). The existing `GITHUB_CLIENT_*` sign-in app and
 model-provider credentials have separate purposes.
+
+## Computer capability rollout
+
+The boot composition supplies the scoped exec desktop and recording adapter, the durable Postgres input reservation store, coordinator, and already-required auth secret. Migration 0016 must be applied before enabling these workers or owner input. New claims exclude every reserved project. The reaper runs bounded input recovery separately from idle teardown. VNC remains view-only; owner input uses the authenticated API and is excluded while any project session has a lease. Stream credentials never enter events. Deploy strict event readers and owner media routes before producing `test.recording` events.
+
+The desktop image is a separate manual publication. Prepare and review it with `bun run --cwd packages/sandbox template:build --prepare`; publishing requires explicit paid mode, the target alias, the prepared directory and its reviewed manifest hash. Preparation selects two vCPUs and 1,024 MB. The cloud spike measured a minimal Chrome/Vite fixture at that size; it did not establish capacity for larger applications. Production publication and integrated cloud validation remain pending approval.
+
+Existing VMs do not receive a rebuilt template. Close and reopen a project through the ordinary snapshot/restore flow when a fresh machine is needed; do not destroy an active workspace to install the desktop. Recording media survives VM teardown in object storage, behind owner authorization, and project deletion derives its possible keys from durable test starts.
+
+
+### Deploy the scoped input protocol together
+
+Prevent mixed old/new claim code while enabling scoped input. Block owner input at ingress, stop and drain all old workers, and wait for their exit. Deploy the migration and matching API, reaper, and worker code before reopening owner input. Pending queue requests may wait. Do not clear a reservation to expedite rollout, or delete one by hand: when a machine is gone for good, its owner abandons it from the chat, which also forgets the machine so it is never given input again, and loses anything not in the project's last snapshot. Before a machine's first reservation, input asks its driver which protocol it speaks. A VM created before scoped input could never drain a reservation, so it gets no reservation and no input, and the project otherwise keeps working; close and reopen it to get a machine with the new driver. Existing VMs do not receive a new driver by publishing a template. Production publication and integrated cloud validation remain separate approval gates.
+
+The desktop runtime uses Python 3 and libX11/libXtst for fixed full-keyboard and button release and state queries. These are explicit template dependencies. Verify the real installed input binary retains the inherited descriptor with the L2 production-driver probe before claiming the mechanism works. Cooperative fixed input programs, not arbitrary processes, are the containment boundary. Local time budgets do not expire admission reservations.

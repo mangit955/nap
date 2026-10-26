@@ -1,0 +1,41 @@
+file: packages/db/src/postgres-project-sandbox-store.ts
+pairs: ['.where(and(eq(projects.id, projectId), eq(projects.sandboxId, sandboxId)))', '.where(and(eq(projects.id, projectId)))']
+argv: ['python3', '/Users/manasraghuwanshi/.claude/skills/gods-hand/scripts/run_check.py', '--timeout', '300', '--', 'bunx', 'vitest', 'run', '--project', 'db', 'packages/db/src/postgres-project-sandbox-store.db.test.ts', 'packages/db/src/postgres-sandbox-capacity.db.test.ts']
+start 2026-10-25T10:13:35.471269Z end 2026-10-25T10:13:39.880518Z
+exit: 1
+after-restore unstaged diff: ''
+write-tree: 9d20cea4052ac0ab05d8ef0420a83e93113784c8
+
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/feat-computer-use
+
+ ❯ |db| packages/db/src/postgres-project-sandbox-store.db.test.ts (10 tests | 1 failed) 105ms
+     × leaves a machine the project recorded after the caller read it 8ms
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 30 passed (31)
+   Start at  15:43:35
+   Duration  3.99s (transform 31ms, setup 0ms, import 445ms, tests 697ms, environment 0ms)
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |db| packages/db/src/postgres-project-sandbox-store.db.test.ts > releaseSandbox > leaves a machine the project recorded after the caller read it
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ packages/db/src/postgres-project-sandbox-store.db.test.ts:186:69
+    184|     await db.update(projects).set({ snapshotKey: "earlier" }).where(eq…
+    185|
+    186|     await expect(store.releaseSandbox(projectId, "sb-old", "later")).r…
+       |                                                                     ^
+    187|
+    188|     const [row] = await db.select().from(projects).where(eq(projects.i…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+

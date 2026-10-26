@@ -23,8 +23,10 @@ import { MediaAttachmentsSchema } from "./media.ts";
 import { z } from "zod";
 import { CheckOutcomeSchema } from "./check-outcome.ts";
 import { CompactionResultSchema, TokenUsageSchema } from "./compaction.ts";
+import { ComputerAnnotationSchema } from "./computer.ts";
+import { TestRecordingStateSchema } from "./test-recording.ts";
 
-/** The six sandbox-proxy tools. Nothing else may appear in the log. */
+/** The sandbox tools, including the image-gated computer capability. See ADR-0018. */
 export const TOOL_NAMES = [
   "read_file",
   "write_file",
@@ -32,6 +34,7 @@ export const TOOL_NAMES = [
   "list_files",
   "search_files",
   "run_command",
+  "computer",
 ] as const;
 
 export const ToolNameSchema = z.enum(TOOL_NAMES);
@@ -77,7 +80,7 @@ export type JobOutcome = z.infer<typeof JobOutcomeSchema>;
  * on `turn.started` rather than derived from position in the log, because deriving it would mean
  * counting verifications back from a turn and getting it wrong on every truncated window.
  */
-export const PromptSourceSchema = z.enum(["user", "verification"]);
+export const PromptSourceSchema = z.enum(["user", "verification", "test"]);
 export type PromptSource = z.infer<typeof PromptSourceSchema>;
 
 /**
@@ -121,6 +124,22 @@ const toolRef = {
 };
 
 export const NapEventSchema = z.discriminatedUnion("type", [
+  event("test.started", {
+    jobId: z.uuid(),
+    commitSha: z.string().min(1),
+    objective: z.string().min(1),
+  }),
+  event("test.recording", { recording: TestRecordingStateSchema }),
+  event("test.annotation", { annotation: ComputerAnnotationSchema, timeMs: z.int().nonnegative() }),
+  event("test.completed", {
+    jobId: z.uuid(),
+    status: z.enum(["completed", "interrupted"]),
+    counts: z.strictObject({
+      passed: z.int().nonnegative(),
+      failed: z.int().nonnegative(),
+      untested: z.int().nonnegative(),
+    }),
+  }),
   event("compaction.started", { id: z.uuid(), trigger: z.enum(["manual", "automatic"]) }),
   event("compaction.completed", {
     id: z.uuid(),
@@ -155,6 +174,13 @@ export const NapEventSchema = z.discriminatedUnion("type", [
   event("tool.call", { ...toolRef, input: z.record(z.string(), z.unknown()) }),
   /** A tool failure sets `ok: false` and reports through `output`; it never throws. */
   event("tool.result", { ...toolRef, ok: z.boolean(), output: z.string() }),
+  event("computer.screenshot", {
+    toolCallId: z.string().min(1),
+    key: z.string().min(1),
+    width: z.int().positive().max(1024),
+    height: z.int().positive().max(768),
+  }),
+  event("computer.status", { toolCallId: z.string().min(1), state: z.enum(["starting", "ready"]) }),
   event("file.changed", {
     path: z.string().min(1),
     changeType: z.enum(["created", "modified", "deleted"]),

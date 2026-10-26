@@ -1,0 +1,38 @@
+$ vitest run --project unit --project types --project web --project db --project web apps/napbench/src/app-test-fixture.test.tsx "--maxWorkers=2"
+Testing types with tsc and vue-tsc is an experimental feature.
+Breaking changes might not follow SemVer, please pin Vitest's version when using it.
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/t3-024ab7b9
+
+ ❯ |web| apps/napbench/src/app-test-fixture.test.tsx (4 tests | 1 failed) 958ms
+   × executes 'cart-buggy''s actual DOM handlers and separates its planted behavior 272ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |web| apps/napbench/src/app-test-fixture.test.tsx > executes 'cart-buggy''s actual DOM handlers and separates its planted behavior
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ apps/napbench/src/app-test-fixture.test.tsx:42:24
+     40|         observed = document.querySelector("output")?.textContent === "…
+     41|       }
+     42|       expect(observed).toBe(task.expected === "passed");
+       |                        ^
+     43|     } finally {
+     44|       fixture.dispose();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 passed (4)
+Type Errors  no errors
+   Start at  14:23:02
+   Duration  1.41s (transform 20ms, setup 68ms, import 14ms, tests 958ms, environment 247ms)
+
+error: script "test" exited with code 1

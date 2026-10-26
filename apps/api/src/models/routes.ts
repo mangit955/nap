@@ -15,7 +15,7 @@ import { ModelListSchema } from "@nap/shared/models-protocol";
 import type { StoredKeyRecord } from "@nap/shared/ports/user-key-store";
 import type { Hono } from "hono";
 import type { AuthVariables } from "../auth/require-user.ts";
-import { availableModels, isFree } from "../turns/model-access.ts";
+import { availableModels, isFree, resolveTurnAccess } from "../turns/model-access.ts";
 
 export type ModelRouteDeps = {
   allowed: readonly string[];
@@ -40,6 +40,13 @@ export function registerModelRoutes(
     // nothing on this route needs to spend it.
     const key = stored === null ? null : { platform: stored.platform, apiKey: "" };
     const available = new Set(availableModels(deps.allowed, key, deps.freeModel));
+    const access = resolveTurnAccess({
+      requested: undefined,
+      key,
+      allowed: deps.allowed,
+      freeModel: deps.freeModel,
+      defaultModel: deps.fallback,
+    });
 
     return c.json(
       ModelListSchema.parse({
@@ -53,7 +60,7 @@ export function registerModelRoutes(
         })),
         // Whichever default this caller's turns would actually take, so the tick in the menu
         // is on the model a message would really run on.
-        fallback: stored === null ? deps.freeModel : deps.fallback,
+        fallback: access.ok ? access.model : deps.fallback,
         key:
           stored === null
             ? { configured: false }

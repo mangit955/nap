@@ -550,3 +550,30 @@ it("keeps queued media with its exact optimistic request through unrelated event
   rerender([compact, completed(), { ...userSaid("Match this"), turnId: nextTurn }]);
   expect(result.current).toMatchObject({ pendingAttachments: undefined });
 });
+
+it("admits an app test without an optimistic user message and follows its preparation by request ID", async () => {
+  const http = poster();
+  const view = submission(http.fetchJson);
+  let accepted = false;
+  await act(async () => {
+    accepted = await view.result.current.startTest("job", "anthropic/claude-sonnet-5");
+  });
+  expect(accepted).toBe(true);
+  expect(http.calls[0]).toBe(`/sessions/${SESSION}/tests`);
+  expect(http.bodies[0]).toEqual({ jobId: "job", model: "anthropic/claude-sonnet-5" });
+  expect(view.result.current.pending).toBeUndefined();
+  expect(view.result.current.running).toBe(true);
+  expect(view.result.current.testPhase).toBe("starting");
+  const testStarted = ev("test.started", {
+    jobId: "job",
+    commitSha: "abcdef1",
+    objective: "Save notes",
+  });
+  view.rerender([testStarted]);
+  await waitFor(() => expect(view.result.current.openedAt).toBe(testStarted.createdAt));
+  expect(view.result.current.running).toBe(true);
+  expect(view.result.current.testPhase).toBe("running");
+  view.rerender([testStarted, completed()]);
+  await waitFor(() => expect(view.result.current.running).toBe(false));
+  expect(view.result.current.testPhase).toBe("idle");
+});

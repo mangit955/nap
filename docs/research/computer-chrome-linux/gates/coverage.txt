@@ -1,0 +1,3 @@
+/Users/manasraghuwanshi/.t3/worktrees/nap/t3-0ad410c7/packages/sandbox/scripts/desktop-chrome-smoke/fixture.ts
+/Users/manasraghuwanshi/.t3/worktrees/nap/t3-0ad410c7/packages/sandbox/scripts/desktop-chrome-smoke/run.ts
+/Users/manasraghuwanshi/.t3/worktrees/nap/t3-0ad410c7/packages/sandbox/scripts/desktop-chrome-smoke/smoke.ts

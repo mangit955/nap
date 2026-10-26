@@ -1,0 +1,42 @@
+[
+  {
+    "name": "Two container-local fixture ports ready",
+    "elapsedMs": 533
+  },
+  {
+    "name": "Actual Chrome PID, start ticks, socket ownership and initial JPEG checked",
+    "elapsedMs": 13866
+  },
+  {
+    "name": "Physical typing, click, scroll and drag changed visible fixture outcomes",
+    "elapsedMs": 21430
+  },
+  {
+    "name": "Same-port start preserved Chrome identity, page state and private credential",
+    "elapsedMs": 30314
+  },
+  {
+    "name": "Stale start-tick guard failed closed without killing actual owned Chrome, then recovered",
+    "elapsedMs": 38564
+  },
+  {
+    "name": "External URL refused with Chrome's policy-specific organization error",
+    "elapsedMs": 42627
+  },
+  {
+    "name": "Changed port replaced the owned Chrome and loaded current-origin fixture",
+    "elapsedMs": 53917
+  },
+  {
+    "name": "Reachable previous origin refused by Chrome policy; allowed current loopback origin succeeded",
+    "elapsedMs": 60635
+  },
+  {
+    "name": "Actual ffmpeg MP4 finalized, encoder clock advanced, every frame decoded, repeat finish matched",
+    "elapsedMs": 63703
+  },
+  {
+    "name": "View-only localhost x11vnc flags, noVNC HTTP and websockify RFB banner checked",
+    "elapsedMs": 64047
+  }
+]

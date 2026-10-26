@@ -4,7 +4,15 @@ import type { MediaAttachment } from "@nap/shared/media";
 
 import type { ModelChoice } from "@nap/shared/models-protocol";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useEffect,
+  useEffectEvent,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { ApiKeyPanel } from "../account/api-key-panel.tsx";
 import { useApiKey } from "../account/use-api-key.ts";
 import { NapMark } from "../brand/nap-mark.tsx";
@@ -18,9 +26,15 @@ import { TranscriptSkeleton } from "../chat/transcript-skeleton.tsx";
 import { useFirstPrompt } from "../chat/use-first-prompt.ts";
 import { useModels } from "../chat/use-models.ts";
 import { useStickToBottom } from "../chat/use-stick-to-bottom.ts";
-import { useTurnSubmission } from "../chat/use-turn-submission.ts";
+import {
+  type TurnActivity,
+  type TurnSubmission,
+  useTurnSubmission,
+} from "../chat/use-turn-submission.ts";
 import { WorkingRow } from "../chat/work-log-rows.tsx";
 import { inFlightTurn } from "../chat/working-state.ts";
+import { AppTestCards } from "../computer/app-test-cards.tsx";
+import { ComputerRecoveryNotice } from "../computer/computer-recovery-notice.tsx";
 import type { FetchJson } from "../files/use-project-files.ts";
 import type { SessionLog } from "../hooks/use-session-log.ts";
 import { Pane } from "./pane.tsx";
@@ -45,6 +59,7 @@ export function ChatPane({
   pendingAttachments,
   pendingAfterCompaction = false,
   running = false,
+  testPhase = "idle",
   activity,
   error,
   firstPrompt,
@@ -53,11 +68,13 @@ export function ChatPane({
   onSubmit = () => {},
   onCancel = () => {},
   onRetry,
+  onTestApp,
   files,
   models,
   model,
   onModelChange,
   onAddKey,
+  computerNotice,
 }: {
   draftIdentity?: { ownerId: string; projectId: string } | undefined;
   active?: boolean;
@@ -74,6 +91,7 @@ export function ChatPane({
   pendingAttachments?: MediaAttachment[] | undefined;
   pendingAfterCompaction?: boolean;
   running?: boolean;
+  testPhase?: TurnSubmission["testPhase"];
   activity?: { startedAt: string | undefined; openedAt?: string | undefined };
   error?: string | undefined;
   /** The dashboard request, retained until admission so a refusal can restore the composer. */
@@ -85,10 +103,17 @@ export function ChatPane({
   onCancel?: () => void;
   /** Re-sends a failed turn's message. Optional so the many render tests need not supply one. */
   onRetry?: ((message: string, attachments?: MediaAttachment[]) => void) | undefined;
+  onTestApp?: ((jobId: string) => void) | undefined;
   /** The project's files, for the composer's `@` menu. */
   files?: readonly string[] | undefined;
   /** What this deployment will run a turn on, and which of them is chosen. */
   models?: readonly ModelChoice[] | undefined;
+  /**
+   * Shown after the transcript, where a paused project explains itself. Handed a callback to
+   * call whenever what it shows changes: it updates on its own schedule, and a reader at the
+   * bottom has to be kept there when it appears, or it can land under the composer unseen.
+   */
+  computerNotice?: ((onChange: (shown: string) => void) => ReactNode) | undefined;
   model?: string | undefined;
   onModelChange?: ((model: string) => void) | undefined;
   /** Opening the key form, for a model this caller cannot reach. */
@@ -139,8 +164,9 @@ export function ChatPane({
   }, []);
   // What "there is something new to see" means here. The event count alone would miss a turn
   // ending, and the running flag alone would miss every event inside it.
+  const [noticeShown, setNoticeShown] = useState("");
   const scroller = useStickToBottom<HTMLElement>(
-    `${events.length}:${pending}:${running}:${composerHeight}`,
+    `${events.length}:${pending}:${running}:${composerHeight}:${noticeShown}`,
   );
 
   return (
@@ -178,6 +204,14 @@ export function ChatPane({
                 {pending !== undefined && !pendingAfterCompaction && (
                   <PendingMessage text={pending} />
                 )}
+                <AppTestCards
+                  events={events}
+                  running={running}
+                  testPhase={testPhase}
+                  model={model}
+                  onTest={onTestApp}
+                />
+                {computerNotice?.(setNoticeShown)}
               </>
             )}
 
@@ -314,6 +348,7 @@ export function LiveChatPane({
   fetchJson,
   onOpenFile,
   onOpenChanges,
+  onActivity,
 }: {
   ownerId?: string | undefined;
   active?: boolean;
@@ -328,16 +363,20 @@ export function LiveChatPane({
   /** Opens a file in the Code tab. See `ChatPane`. */
   onOpenFile?: ((path: string) => void) | undefined;
   onOpenChanges?: (() => void) | undefined;
+  onActivity?: ((activity: TurnActivity) => void) | undefined;
 }) {
   const { events, replayed } = log;
   const injected = fetchJson === undefined ? {} : { fetchJson };
   const {
     submit,
+    startTest,
     cancel,
     pending,
     pendingAttachments,
     pendingAfterCompaction,
     running,
+    idleThroughSeq,
+    testPhase,
     startedAt,
     openedAt,
     error,
@@ -348,6 +387,10 @@ export function LiveChatPane({
     replayed,
     ...injected,
   });
+  const reportActivity = useEffectEvent((activity: TurnActivity) => onActivity?.(activity));
+  useEffect(() => {
+    reportActivity({ sessionId, running, idleThroughSeq });
+  }, [sessionId, running, idleThroughSeq]);
   const { models } = useModels(injected);
   // Somebody who meets a locked model, or a turn refused for want of a key, should be able to
   // fix it here rather than being sent to the dashboard and back.
@@ -389,6 +432,7 @@ export function LiveChatPane({
         pendingAttachments={pendingAttachments}
         pendingAfterCompaction={pendingAfterCompaction}
         running={running}
+        testPhase={testPhase}
         activity={{ startedAt, openedAt }}
         error={error}
         firstPrompt={firstPrompt}
@@ -402,11 +446,20 @@ export function LiveChatPane({
         // The same submission path as the input: a retry is an ordinary turn, and routing it
         // anywhere else would give it different rate-limit and optimistic-message behaviour.
         onRetry={(message, attachments) => void submit(message, model, attachments)}
+        onTestApp={(jobId) => void startTest(jobId, model ?? models?.fallback)}
         files={files ?? []}
         models={models?.models ?? []}
         model={model ?? models?.fallback}
         onModelChange={setModel}
         onAddKey={() => setKeyPanelOpen(true)}
+        computerNotice={(onChange) => (
+          <ComputerRecoveryNotice
+            key={sessionId}
+            sessionId={sessionId}
+            onChange={onChange}
+            {...(fetchJson === undefined ? {} : { fetch: fetchJson })}
+          />
+        )}
       />
     </>
   );

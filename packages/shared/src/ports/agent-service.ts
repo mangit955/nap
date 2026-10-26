@@ -9,10 +9,14 @@
  * `EventStore`, and an emitter that invented its own would break replay ordering.
  */
 
+import type { ComputerAnnotation } from "../computer.ts";
 import type { PromptSource } from "../events.ts";
+import type { Result } from "../result.ts";
 import type { BuiltContext } from "./context-engine.ts";
 import type { PendingEvent } from "./event-store.ts";
 import type { ModelCredentials } from "./llm-provider.ts";
+import type { ObjectStore } from "./object-store.ts";
+import type { DesktopAction, SandboxDesktop } from "./sandbox-desktop.ts";
 import type { SandboxManager } from "./sandbox-manager.ts";
 
 export type AgentTurnRequest = {
@@ -23,6 +27,23 @@ export type AgentTurnRequest = {
   sandboxId: string;
   context: BuiltContext;
   sandbox: SandboxManager;
+  computer?:
+    | {
+        desktop: SandboxDesktop;
+        objects: ObjectStore;
+        projectId: string;
+        devServerUrl: string;
+        /** Makes the call identity durable before its screenshot object exists. */
+        beforeStore: () => Promise<void>;
+        annotate?: (annotation: ComputerAnnotation) => Promise<Result<void, { message: string }>>;
+        beforeAction?: (action: DesktopAction) => Result<void, { message: string }>;
+        afterAction?: (action: DesktopAction, succeeded: boolean) => void;
+        screenshotStored?: (toolCallId: string) => void;
+        /** Only images included in a model request can qualify a verdict. */
+        stopped?: () => boolean;
+        delivered?: (toolCallIds: readonly string[]) => void;
+      }
+    | undefined;
   /**
    * Who prompted this turn, for the `turn.started` this component writes. Absent is the user.
    *

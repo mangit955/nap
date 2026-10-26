@@ -1,3 +1,4 @@
+import type { InMemoryProjectComputerAccess } from "./in-memory-project-computer-access.ts";
 /**
  * The turn queue in one process, for tests of everything that sits *on* it.
  *
@@ -51,6 +52,13 @@ export class InMemoryTurnQueue implements TurnQueue {
   readonly #leaseTtlMs: number;
   readonly #leaseGraceMs: number;
   #sequence = 0;
+  #computer: InMemoryProjectComputerAccess | undefined;
+  attachComputerAccess(access: InMemoryProjectComputerAccess): void {
+    this.#computer = access;
+  }
+  computerLeases(): readonly Row[] {
+    return this.#rows.filter((row) => row.state === "leased");
+  }
 
   constructor(options: InMemoryTurnQueueOptions = {}) {
     this.#now = options.now ?? (() => Date.now());
@@ -109,11 +117,20 @@ export class InMemoryTurnQueue implements TurnQueue {
     );
 
     const candidate = this.#rows
-      .filter((row) => row.state === "queued" && !row.cancelRequested && !held.has(row.sessionId))
+      .filter(
+        (row) =>
+          row.state === "queued" &&
+          !row.cancelRequested &&
+          !held.has(row.sessionId) &&
+          !this.#computer?.blocked(
+            this.#computer.projectForSession(row.sessionId)?.projectId ?? "",
+          ),
+      )
       .sort((a, b) => a.createdAt - b.createdAt)[0];
     if (candidate === undefined) return null;
 
     candidate.state = "leased";
+    this.#computer?.claimed(candidate.sessionId);
     candidate.leaseOwner = owner;
     candidate.leaseExpiresAt = this.#now() + this.#leaseTtlMs;
 

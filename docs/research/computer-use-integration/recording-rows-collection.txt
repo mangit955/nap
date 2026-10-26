@@ -1,0 +1,5 @@
+[web] apps/web/src/computer/computer-work-log.test.tsx > seeks the same frame from the computer row and each action without exposing typed values
+[web] apps/web/src/computer/computer-work-log.test.tsx > opens a transcript screenshot card even when its call was outside the replay window
+[web] apps/web/src/computer/computer-work-log.test.tsx > shows the desktop timer only while startup is pending
+[web] apps/web/src/computer/computer-work-log.test.tsx > attaches frames and startup to their own call across interleaved tools
+[web] apps/web/src/computer/computer-work-log.test.tsx > seeks recording lifecycle rows and keeps failed capture as a warning

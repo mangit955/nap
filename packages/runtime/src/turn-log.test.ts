@@ -17,6 +17,53 @@ function base(seq: number) {
 
 /** One of every event type, so the exhaustiveness assertions below have something to walk. */
 const ONE_OF_EACH: Record<NapEventType, StoredEvent> = {
+  "test.recording": stored({
+    ...base(100),
+    type: "test.recording",
+    payload: {
+      recording: {
+        state: "available",
+        key: "private recording key",
+        durationMs: 1200,
+        width: 1024,
+        height: 768,
+        interrupted: false,
+      },
+    },
+  }),
+  "test.started": stored({
+    ...base(30),
+    type: "test.started",
+    payload: { jobId: JOB, commitSha: "abcdef1", objective: "Save notes" },
+  }),
+  "test.annotation": stored({
+    ...base(31),
+    type: "test.annotation",
+    payload: {
+      annotation: {
+        type: "assertion",
+        id: "save",
+        expectation: "private expectation",
+        result: "untested",
+      },
+      timeMs: 0,
+    },
+  }),
+  "test.completed": stored({
+    ...base(32),
+    type: "test.completed",
+    payload: { jobId: JOB, status: "completed", counts: { passed: 0, failed: 1, untested: 1 } },
+  }),
+  "computer.screenshot": stored({
+    ...base(23),
+    type: "computer.screenshot",
+    payload: { toolCallId: "screen", key: "private-computer-key", width: 1024, height: 768 },
+  }),
+  "computer.status": stored({
+    ...base(24),
+    type: "computer.status",
+    payload: { toolCallId: "screen", state: "starting" },
+  }),
   "compaction.started": stored({
     ...base(19),
     type: "compaction.started",
@@ -267,5 +314,15 @@ describe("eventLogLine", () => {
       chars: "error: secret token leaked".length,
       stream: "stderr",
     });
+  });
+});
+
+it("logs screenshot dimensions and identity without copying its private storage key", () => {
+  expect(eventLogLine(ONE_OF_EACH["computer.screenshot"]).fields).toEqual({
+    eventType: "computer.screenshot",
+    seq: 23,
+    toolCallId: "screen",
+    width: 1024,
+    height: 768,
   });
 });

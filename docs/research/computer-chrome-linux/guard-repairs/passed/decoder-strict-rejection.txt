@@ -1,0 +1,8 @@
+[h264 @ 0x7c0b01ca80] Invalid NAL unit size (0 > 9667).
+[h264 @ 0x7c0b01ca80] missing picture in access unit with size 9671
+[h264 @ 0x7c0b01f100] Invalid NAL unit size (0 > 9667).
+[h264 @ 0x7c0b01f100] Error splitting the input into NAL units.
+[vist#0:0/h264 @ 0x7c0ac18300] [dec:h264 @ 0x7c0b00c280] Error submitting packet to decoder: Invalid data found when processing input
+[vist#0:0/h264 @ 0x7c0ac18300] [dec:h264 @ 0x7c0b00c280] Error processing packet in decoder: Invalid data found when processing input
+[vist#0:0/h264 @ 0x7c0ac18300] [dec:h264 @ 0x7c0b00c280] Task finished with error code: -1094995529 (Invalid data found when processing input)
+[vist#0:0/h264 @ 0x7c0ac18300] [dec:h264 @ 0x7c0b00c280] Terminating thread with return code -1094995529 (Invalid data found when processing input)

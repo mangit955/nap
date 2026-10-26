@@ -1,0 +1,11 @@
+Testing types with tsc and vue-tsc is an experimental feature.
+Breaking changes might not follow SemVer, please pin Vitest's version when using it.
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/feat-computer-use
+
+
+ Test Files  2 passed (2)
+      Tests  25 passed (25)
+Type Errors  no errors
+   Start at  15:58:40
+   Duration  762ms (transform 75ms, setup 0ms, import 171ms, tests 541ms, environment 0ms)

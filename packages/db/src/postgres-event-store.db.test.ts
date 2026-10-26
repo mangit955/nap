@@ -363,6 +363,52 @@ describe("the store and the bus together", () => {
 const JOB = "3f9a1c2d-5e6b-4f7a-8b9c-0d1e2f3a4b5c";
 
 const PAYLOADS = [
+  {
+    type: "test.recording",
+    payload: {
+      recording: {
+        state: "available",
+        key: "computer/p/s/t/recording.mp4",
+        durationMs: 1200,
+        width: 1024,
+        height: 768,
+        interrupted: false,
+      },
+    },
+  },
+  {
+    type: "test.started",
+    payload: {
+      jobId: "7c9b1a52-8d3e-4f21-a0c4-1b2d3e4f5a6b",
+      commitSha: "abcdef1",
+      objective: "Save notes",
+    },
+  },
+  {
+    type: "test.annotation",
+    payload: {
+      annotation: {
+        type: "assertion",
+        id: "save",
+        expectation: "private expectation",
+        result: "untested",
+      },
+      timeMs: 0,
+    },
+  },
+  {
+    type: "test.completed",
+    payload: {
+      jobId: "7c9b1a52-8d3e-4f21-a0c4-1b2d3e4f5a6b",
+      status: "completed",
+      counts: { passed: 0, failed: 1, untested: 1 },
+    },
+  },
+  {
+    type: "computer.screenshot",
+    payload: { toolCallId: "screen", key: "computer/p/s/t/screen.jpg", width: 1024, height: 768 },
+  },
+  { type: "computer.status", payload: { toolCallId: "screen", state: "starting" } },
   { type: "compaction.started", payload: { id: JOB, trigger: "manual" } },
   {
     type: "compaction.completed",

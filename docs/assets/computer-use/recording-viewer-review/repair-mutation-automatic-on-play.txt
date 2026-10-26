@@ -1,0 +1,51 @@
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/t3-7ca4dbea
+
+ ❯ |web| apps/web/src/computer/recording-viewer.test.tsx (14 tests | 3 failed) 648ms
+   × uses millisecond precision for automatic playback and slider selection at 1001ms 19ms
+   × reviews every chapter when two tests start together at 0ms 44ms
+   × reviews every chapter when two tests start together at 2000ms 42ms
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 11 passed (14)
+   Start at  11:47:32
+   Duration  1.46s (transform 89ms, setup 116ms, import 84ms, tests 648ms, environment 398ms)
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |web| apps/web/src/computer/recording-viewer.test.tsx > uses millisecond precision for automatic playback and slider selection at 1001ms
+Error: expect(element).toHaveAttribute("aria-current", "step") // element.getAttribute("aria-current") === "step"
+
+Expected the element to have attribute:
+  aria-current="step"
+Received:
+  null
+ ❯ apps/web/src/computer/recording-viewer.test.tsx:329:17
+    327|   fireEvent.timeUpdate(video());
+    328|   const first = screen.getByRole("button", { name: /Test 1.*Save note/…
+    329|   expect(first).toHaveAttribute("aria-current", "step");
+       |                 ^
+    330|   fireEvent.pause(video());
+    331|   fireEvent.click(screen.getByRole("button", { name: /Test 2.*Delete n…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |web| apps/web/src/computer/recording-viewer.test.tsx > reviews every chapter when two tests start together at 0ms
+ FAIL  |web| apps/web/src/computer/recording-viewer.test.tsx > reviews every chapter when two tests start together at 2000ms
+Error: expect(element).toHaveAttribute("aria-current", "step") // element.getAttribute("aria-current") === "step"
+
+Expected the element to have attribute:
+  aria-current="step"
+Received:
+  null
+ ❯ apps/web/src/computer/recording-viewer.test.tsx:439:18
+    437|   fireEvent.click(first);
+    438|   fireEvent.click(screen.getByRole("button", { name: "Play recording" …
+    439|   expect(second).toHaveAttribute("aria-current", "step");
+       |                  ^
+    440|   video().currentTime = timeMs / 1000 + 0.25;
+    441|   fireEvent.timeUpdate(video());
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+

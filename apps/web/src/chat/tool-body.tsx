@@ -12,6 +12,7 @@
  */
 
 import { useLayoutEffect, useRef } from "react";
+import { ComputerActions } from "../computer/computer-actions.tsx";
 import { ansiSpans } from "./ansi.ts";
 import { ChatMarkdown } from "./chat-markdown.tsx";
 import { HighlightedCode } from "./highlight.tsx";
@@ -34,6 +35,7 @@ function bodyClass(danger: boolean): string {
 export function WorkEntryBody({ entry }: { entry: WorkEntry }) {
   if (entry.kind === "thinking") return <ChatMarkdown text={entry.text} streaming={false} />;
   if (entry.kind === "files") return <Changes files={entry.files} />;
+  if (entry.toolName === "computer") return <ComputerActions entry={entry} />;
 
   const failed = entry.status === "failed";
   const input = entry.input as Record<string, unknown>;

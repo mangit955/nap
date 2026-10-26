@@ -1,5 +1,8 @@
+import { ProjectComputer } from "@nap/runtime/project-computer";
+import type { DesktopInputTransport } from "@nap/shared/ports/desktop-input-transport";
 import type { SessionNavigationStore } from "@nap/shared/ports/session-navigation-store";
 import type { SessionStartStore } from "@nap/shared/ports/session-start-store";
+
 /**
  * The composition: everything above the infrastructure, assembled from parts somebody else chose.
  *
@@ -31,9 +34,11 @@ import { NapContextEngine } from "@nap/context/context-engine";
 import { NoopMemoryProvider } from "@nap/context/noop-memory-provider";
 import { sweepOrphanedRequests } from "@nap/runtime/janitor";
 import { sweepIdleProjects } from "@nap/runtime/reaper";
+import { readRepositoryPreviewPort } from "@nap/runtime/repository-environment";
 import { SingleAgentRuntime } from "@nap/runtime/single-agent-runtime";
 import { startSweeping } from "@nap/runtime/sweep-schedule";
 import { startTurnWorker, type TurnWorker } from "@nap/runtime/turn-worker";
+import { TEMPLATE_DEV_PORT } from "@nap/sandbox/template";
 import type { Logger } from "@nap/shared/logging";
 import type { CapacityReconciler } from "@nap/shared/ports/capacity-reconciler";
 import type { EventBus } from "@nap/shared/ports/event-bus";
@@ -48,6 +53,7 @@ import type { ProviderAccountStore } from "@nap/shared/ports/provider-account-st
 import type { SandboxCapacity } from "@nap/shared/ports/sandbox-capacity";
 import type { SandboxInventory } from "@nap/shared/ports/sandbox-inventory";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
+import type { SandboxRecordings } from "@nap/shared/ports/sandbox-recordings";
 import type { SessionStore } from "@nap/shared/ports/session-store";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
 import type { SweepLock } from "@nap/shared/ports/sweep-lock";
@@ -60,6 +66,7 @@ import { type EncryptionKey, open } from "./account/secret-box.ts";
 import { createApp, type UpgradeWebSocket } from "./app.ts";
 import type { Authenticate, AuthInstance } from "./auth/auth.ts";
 import type { AuthVariables } from "./auth/require-user.ts";
+import type { ComputerAccessDeps } from "./computer/access.ts";
 import type { Env } from "./env.ts";
 import type { GitHubApp } from "./github/app.ts";
 import { type GitBroker, ServerGitBroker } from "./github/git-broker.ts";
@@ -204,6 +211,9 @@ export type NapDeps = {
   objects: ObjectStore;
   /** Model policy is the provider's; which provider it is, is the caller's. */
   provider: LLMProvider;
+  desktop?: DesktopInputTransport;
+  recordings?: SandboxRecordings;
+  computerAccess?: Pick<ComputerAccessDeps, "access" | "secret">;
   /**
    * A browser to photograph finished turns with, if this deployment has one.
    *
@@ -317,10 +327,46 @@ export function composeNap(deps: NapDeps): ComposedNap {
           events: deps.events,
           bus: deps.bus,
         });
+  if (deps.desktop && !deps.computerAccess)
+    throw new Error("Desktop input requires a durable reservation store.");
+  const computer =
+    deps.desktop && deps.computerAccess
+      ? new ProjectComputer({
+          access: deps.computerAccess.access,
+          transport: deps.desktop,
+          // An abandoned computer is written into every session's log, so history and the
+          // restored workspace do not silently disagree.
+          announce: {
+            events: deps.events,
+            bus: deps.bus,
+            sessionIds: async ({ projectId, userId }) =>
+              (await deps.projects.get(projectId, userId))?.sessionIds ?? [],
+          },
+        })
+      : undefined;
+  const occupied = async (projectId: string, sessionIds: string[]): Promise<boolean> => {
+    try {
+      return (
+        (await deps.queue.anyLeased(sessionIds)) ||
+        (await deps.computerAccess?.access.occupied(projectId)) === true
+      );
+    } catch {
+      return true;
+    }
+  };
   const runtime = new SingleAgentRuntime({
     ...(github === undefined ? {} : { repository: github }),
     sessions: deps.sessions,
     sandbox: deps.sandbox,
+    ...(computer === undefined
+      ? {}
+      : {
+          computer: {
+            coordinator: computer,
+            objects: deps.objects,
+            ...(deps.recordings ? { recordings: deps.recordings } : {}),
+          },
+        }),
     // With these, a project outlives its sandbox: a session whose sandbox is gone is restored
     // from its last snapshot rather than starting again from an empty template.
     objects: deps.objects,
@@ -392,6 +438,32 @@ export function composeNap(deps: NapDeps): ComposedNap {
             ),
         });
   const app = createApp({
+    testRecordings: { sessions: deps.sessions, events: deps.events, objects: deps.objects },
+    ...(deps.computerAccess && deps.desktop && computer
+      ? {
+          computerAccess: {
+            ...deps.computerAccess,
+            computer,
+            desktop: deps.desktop,
+            sessions: deps.sessions,
+            previewPort: async (session) => {
+              const repository = await deps.github?.store.repository(
+                session.projectId,
+                session.userId,
+              );
+              if (!repository) return TEMPLATE_DEV_PORT;
+              if (!session.sandboxId) return null;
+              const running = await readRepositoryPreviewPort({
+                sandbox: deps.sandbox,
+                sandboxId: session.sandboxId,
+                fallback: repository.environment.previewPort,
+              });
+              return running.ok ? running.value : null;
+            },
+          },
+        }
+      : {}),
+    computerScreenshots: { sessions: deps.sessions, events: deps.events, objects: deps.objects },
     ...(deps.sessionNavigation === undefined
       ? {}
       : { sessionNavigation: { store: deps.sessionNavigation, webOrigin: config.NAP_WEB_ORIGIN } }),
@@ -564,7 +636,7 @@ export function composeNap(deps: NapDeps): ComposedNap {
       // in-memory registry this replaced knew only about turns claimed in *this* process, so an
       // API pod composed apart from its workers read every busy session as idle and would happily
       // close a project mid-turn.
-      isBusy: (sessionIds) => deps.queue.anyLeased(sessionIds),
+      isBusy: (sessionIds, projectId) => occupied(projectId, sessionIds),
     },
   });
 
@@ -627,7 +699,7 @@ export function composeNap(deps: NapDeps): ComposedNap {
             idleMs: config.NAP_REAP_IDLE_MINUTES * 60 * 1000,
             // The same question the close and delete routes ask, of the same rows: a project is
             // busy while any of its sessions holds a lease, wherever the worker holding it is.
-            isBusy: (project) => deps.queue.anyLeased(project.sessionIds),
+            isBusy: (project) => occupied(project.projectId, project.sessionIds),
             // A swept project's tabs are still open on it, showing an address that is about to stop
             // answering. Same store and bus as everything else, for the same reason.
             announce: { events: deps.events, bus: deps.bus },
@@ -727,6 +799,9 @@ export function composeNap(deps: NapDeps): ComposedNap {
         sweep: async () => {
           const result = await sweepOrphanedRequests({
             queue: deps.queue,
+            ...(deps.recordings
+              ? { computer: { recordings: deps.recordings, sessions: deps.sessions } }
+              : {}),
             // The same store and bus as everything else: the terminal event it writes is replayed
             // from the log by whoever reconnects, exactly like the ones a turn writes.
             events: deps.events,
@@ -750,5 +825,28 @@ export function composeNap(deps: NapDeps): ComposedNap {
         onError: (error) => logger.error({ err: error }, "janitor sweep threw"),
       });
 
-  return { github: githubSchedule, app, runtime, registry, worker, reaper, janitor, metrics };
+  const inputRecovery =
+    !sweeps || !computer
+      ? NOT_STARTED
+      : startSweeping({
+          intervalMs: 10_000,
+          holdProcessOpen: role === "reaper",
+          sweep: () => computer.recover(1),
+          onError: () => logger.warn({}, "Computer input recovery remains pending."),
+        });
+  return {
+    github: githubSchedule,
+    app,
+    runtime,
+    registry,
+    worker,
+    reaper,
+    janitor: {
+      stop: () => {
+        janitor.stop();
+        inputRecovery.stop();
+      },
+    },
+    metrics,
+  };
 }

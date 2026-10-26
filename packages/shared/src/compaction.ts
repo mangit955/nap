@@ -12,13 +12,17 @@ export const TokenUsageSchema = z.strictObject({
   outputTokens: z.int().nonnegative(),
 });
 
-const ContentBlockSchema = z.discriminatedUnion("type", [
+const ObservationBlockSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("text"), text: z.string() }),
   z.strictObject({
     type: z.literal("image"),
     mediaType: z.literal("image/jpeg"),
     data: z.string(),
   }),
+]);
+
+const ContentBlockSchema = z.discriminatedUnion("type", [
+  ...ObservationBlockSchema.options,
   z.strictObject({
     type: z.literal("tool_use"),
     id: z.string(),
@@ -28,7 +32,7 @@ const ContentBlockSchema = z.discriminatedUnion("type", [
   z.strictObject({
     type: z.literal("tool_result"),
     toolCallId: z.string(),
-    content: z.string(),
+    content: z.union([z.string(), z.array(ObservationBlockSchema)]),
     isError: z.boolean(),
   }),
 ]);
@@ -94,7 +98,13 @@ export function estimateContextTokens(
     else
       for (const block of message.content) {
         if (block.type === "image") images += 2_200;
-        else chars += JSON.stringify(block).length;
+        else if (block.type === "tool_result" && Array.isArray(block.content)) {
+          chars += JSON.stringify({ ...block, content: [] }).length;
+          for (const observation of block.content) {
+            if (observation.type === "image") images += 2_200;
+            else chars += JSON.stringify(observation).length;
+          }
+        } else chars += JSON.stringify(block).length;
       }
   }
   return Math.ceil(chars / 4) + images;

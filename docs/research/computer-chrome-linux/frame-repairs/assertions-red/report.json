@@ -1,0 +1,10 @@
+{
+  "network": false,
+  "docker": false,
+  "browser": false,
+  "failures": [
+    "Frame guard: AssertionError [ERR_ASSERTION]: Frame observations must quantify the result region.",
+    "Wait guard: AssertionError [ERR_ASSERTION]: Use the bounded Playwright wait helper."
+  ],
+  "ok": false
+}

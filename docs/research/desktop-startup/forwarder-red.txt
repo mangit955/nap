@@ -1,0 +1,16 @@
+# The E2B failure, reproduced without E2B, against the script before ADR-0019.
+# Inputs: start-desktop.sh and desktop-start.test.ts at 0c19f1a, plus this one test appended:
+#
+# it("REPRO: starts beside a forwarded 9222 listener after the browser binds", () => {
+#   const item = fixture();
+#   // The forwarder appears beside the browser's own listener, as observed on E2B.
+#   item.command("sleep", `/bin/sleep .01; [[ -s "$FIXTURE/proc/net/tcp" ]] && ! grep -q 7777 "$FIXTURE/proc/net/tcp" && echo '1: 00000000:2406 00000000:0000 0A 0 0 0 0 0 7777' >> "$FIXTURE/proc/net/tcp"; return 0`);
+#   const result = item.run();
+#   console.log("REPRO stderr:", JSON.stringify(result.stderr.trim().split("\n").filter((line) => line.startsWith("Desktop startup:"))));
+#   expect(result.status).toBe(0);
+# });
+#
+# bunx --no-install vitest run --project unit packages/sandbox/src/desktop-start.test.ts -t REPRO
+REPRO stderr: ["Desktop startup: Port 9222 is not owned by this desktop."]
+AssertionError: expected 1 to be +0 // Object.is equality
+      Tests  1 failed | 24 skipped (25)

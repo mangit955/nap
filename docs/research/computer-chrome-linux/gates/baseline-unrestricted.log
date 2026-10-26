@@ -1,0 +1,50 @@
+$ vitest run --project unit --project types --project web --project db
+Testing types with tsc and vue-tsc is an experimental feature.
+Breaking changes might not follow SemVer, please pin Vitest's version when using it.
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/t3-0ad410c7
+
+(node:28477) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:32176) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+ ❯ |unit| apps/napbench/scripts/app-test-command.test.ts (26 tests | 1 failed) 78240ms
+   × never treats post-source failure as a successful result 5784ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |unit| apps/napbench/scripts/app-test-command.test.ts > never treats post-source failure as a successful result
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ apps/napbench/scripts/app-test-command.test.ts:352:100
+    350| );
+    351|
+    352| it.each(["runtime", "provider-construction", "destroy", "destroy-throw…
+       |                                                                                                    ^
+    353|   "never treats %s failure as a successful result",
+    354|   async (failure) => {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 424 passed (425)
+      Tests  1 failed | 5570 passed (5571)
+Type Errors  no errors
+   Start at  15:22:51
+   Duration  131.81s (transform 14.17s, setup 33.95s, import 77.40s, tests 329.47s, environment 146.80s, typecheck 937ms)
+
+error: script "test" exited with code 1

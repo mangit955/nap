@@ -1,0 +1,1 @@
+ALTER TABLE "projects" ADD COLUMN "computer_revision" uuid DEFAULT gen_random_uuid() NOT NULL;

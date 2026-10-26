@@ -19,13 +19,15 @@
  */
 
 import { type NapEvent, type NapEventOf, type ToolName, ToolNameSchema } from "@nap/shared/events";
+import type { AgentTurnRequest } from "@nap/shared/ports/agent-service";
 import type { DistributiveOmit } from "@nap/shared/ports/event-store";
-import type { LLMToolCall } from "@nap/shared/ports/llm-provider";
+import type { LLMObservationBlock, LLMToolCall } from "@nap/shared/ports/llm-provider";
 import type { SandboxError, SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import { shellQuote } from "@nap/shared/shell";
 import type { z } from "zod";
 import { inspectCommand } from "../safety/commands.ts";
-import { PROJECT_ROOT, TOOL_SCHEMAS } from "./definitions.ts";
+import { runComputer } from "./computer.ts";
+import { APP_TEST_TOOL_NAMES, PROJECT_ROOT, TOOL_SCHEMAS } from "./definitions.ts";
 import { fileChange } from "./diff.ts";
 
 /**
@@ -43,6 +45,9 @@ export type ToolContext = {
   turnId: string;
   sandboxId: string;
   sandbox: SandboxManager;
+  computer?: AgentTurnRequest["computer"];
+  signal?: AbortSignal | undefined;
+  testMode?: boolean;
   /** Receives each event as it happens, without a `seq`. */
   emit: (event: DistributiveOmit<NapEvent, "seq">) => void;
   /** Injected so a test can assert on whole events rather than on everything but the clock. */
@@ -51,9 +56,9 @@ export type ToolContext = {
 
 /** What the model is told. `ok: false` becomes `is_error` on the tool result block. */
 export type ToolOutcome = {
-  ok: boolean;
   output: string;
-};
+  content?: LLMObservationBlock[];
+} & ({ ok: true; stop?: never } | { ok: false; stop?: "computer_unsettled" });
 
 type Payload<T extends NapEvent["type"]> = NapEventOf<T>["payload"];
 
@@ -61,7 +66,7 @@ type Payload<T extends NapEvent["type"]> = NapEventOf<T>["payload"];
 export async function executeTool(call: LLMToolCall, ctx: ToolContext): Promise<ToolOutcome> {
   const name = ToolNameSchema.safeParse(call.name);
   if (!name.success) {
-    // There is no honest `tool.call` to write: the event log accepts only the six real
+    // There is no honest `tool.call` to write: the event log accepts only the declared real
     // names, and inventing one would put a tool in the history that does not exist.
     return {
       ok: false,
@@ -75,7 +80,7 @@ export async function executeTool(call: LLMToolCall, ctx: ToolContext): Promise<
   });
 
   const outcome = await run(name.data, call, ctx);
-  const capped = { ok: outcome.ok, output: truncate(outcome.output) };
+  const capped = { ...outcome, output: truncate(outcome.output) };
 
   emit(ctx, {
     type: "tool.result",
@@ -94,12 +99,24 @@ export async function executeTool(call: LLMToolCall, ctx: ToolContext): Promise<
  * Validates one tool's arguments and hands them to its implementation.
  *
  * Each arm parses with its own schema rather than a shared one, so the arguments reaching a
- * handler are typed rather than asserted. Six near-identical arms buy that; a single parse
+ * handler are typed rather than asserted. Separate parse arms buy that; a single parse
  * would need a cast to correlate the tool's name with the shape of its arguments, and the
  * cast is exactly the thing that would go unnoticed when a schema changes.
  */
 async function run(name: ToolName, call: LLMToolCall, ctx: ToolContext): Promise<ToolOutcome> {
+  if (ctx.testMode && !APP_TEST_TOOL_NAMES.includes(name))
+    return {
+      ok: false,
+      output:
+        "App tests can read source and use the computer. Source changes and commands require a separate repair turn.",
+    };
   switch (name) {
+    case "computer": {
+      const args = TOOL_SCHEMAS.computer.safeParse(call.input);
+      return args.success
+        ? runComputer(args.data.actions, call.id, ctx)
+        : invalid(name, args.error);
+    }
     case "read_file": {
       const args = TOOL_SCHEMAS.read_file.safeParse(call.input);
       return args.success ? readFile(args.data, ctx) : invalid(name, args.error);

@@ -1,3 +1,4 @@
+import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { FAKE_OWNER, InMemoryProjectStore } from "@nap/db/testing/in-memory-project-store";
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
@@ -7,6 +8,7 @@ import { deleteProject } from "./delete-project.ts";
 
 const PROJECT = "3e0fbc41-6f5d-4a8e-ab9c-4d5e6f708192";
 
+let screenshotEvents: InMemoryEventStore;
 let projects: InMemoryProjectStore;
 let snapshots: InMemorySnapshotStore;
 let objects: InMemoryObjectStore;
@@ -20,6 +22,7 @@ beforeEach(async () => {
   if (!created.ok) throw new Error("could not create a sandbox");
   sandboxId = created.value.id;
 
+  screenshotEvents = new InMemoryEventStore();
   objects = new InMemoryObjectStore();
   snapshots = new InMemorySnapshotStore();
 
@@ -45,6 +48,7 @@ function remove() {
     projects,
     snapshots,
     objects,
+    events: screenshotEvents,
     sandbox,
     projectId: PROJECT,
     userId: FAKE_OWNER,
@@ -94,6 +98,7 @@ describe("deleting a project", () => {
       projects,
       snapshots: empty,
       objects,
+      events: screenshotEvents,
       sandbox,
       projectId: PROJECT,
       userId: FAKE_OWNER,
@@ -111,6 +116,7 @@ describe("a project that is not there", () => {
       projects,
       snapshots,
       objects,
+      events: screenshotEvents,
       sandbox,
       projectId: "6b7c8d9e-0f1a-4b2c-8d3e-4f5a6b7c8d9e",
       userId: FAKE_OWNER,
@@ -124,6 +130,7 @@ describe("a project that is not there", () => {
       projects,
       snapshots,
       objects,
+      events: screenshotEvents,
       sandbox,
       projectId: "6b7c8d9e-0f1a-4b2c-8d3e-4f5a6b7c8d9e",
       userId: FAKE_OWNER,
@@ -169,4 +176,83 @@ describe("when the rows cannot be deleted", () => {
     expect(result).toMatchObject({ ok: false, error: { reason: "rows_failed" } });
     expect(objects.keys()).toEqual([]);
   });
+});
+
+it("cleans screenshots named by durable calls even if screenshot announcement failed", async () => {
+  const sessionId = "2a3f8a24-6c1b-4e0e-9b6f-3a5c0a1d9e77";
+  const turnId = "7c9b1a52-8d3e-4f21-a0c4-1b2d3e4f5a6b";
+  const key = `computer/${PROJECT}/${sessionId}/${turnId}/screen.jpg`;
+  await screenshotEvents.append({
+    type: "tool.call",
+    sessionId,
+    turnId,
+    createdAt: "2026-10-24T00:00:00Z",
+    payload: {
+      toolCallId: "screen",
+      toolName: "computer",
+      input: { actions: [{ action: "screenshot" }] },
+    },
+  });
+  await objects.put(key, new Uint8Array([255, 216]));
+  await remove();
+  expect(objects.keys()).toEqual([]);
+});
+it("retains rows and screenshot key identity when deleting their object fails", async () => {
+  const sessionId = "2a3f8a24-6c1b-4e0e-9b6f-3a5c0a1d9e77";
+  const turnId = "7c9b1a52-8d3e-4f21-a0c4-1b2d3e4f5a6b";
+  const key = `computer/${PROJECT}/${sessionId}/${turnId}/screen.jpg`;
+  await screenshotEvents.append({
+    type: "tool.call",
+    sessionId,
+    turnId,
+    createdAt: "2026-10-24T00:00:00Z",
+    payload: { toolCallId: "screen", toolName: "computer", input: {} },
+  });
+  await objects.put(key, new Uint8Array([255, 216]));
+  objects.failWith({ code: "unavailable", message: "offline" });
+  expect(await remove()).toMatchObject({ ok: false, error: { reason: "objects_failed" } });
+  expect(await projects.get(PROJECT, FAKE_OWNER)).not.toBeNull();
+  objects.failWith(undefined);
+  expect((await remove()).ok).toBe(true);
+  expect(objects.keys()).toEqual([]);
+});
+
+it("removes a video reserved by a test start even if the upload announcement was lost", async () => {
+  const sessionId = "2a3f8a24-6c1b-4e0e-9b6f-3a5c0a1d9e77";
+  const turnId = "72a3e710-65bf-420e-8cea-d4aa8e0b2f7d";
+  const key = `computer/${PROJECT}/${sessionId}/${turnId}/recording.mp4`;
+  await screenshotEvents.append({
+    type: "test.started",
+    sessionId,
+    turnId,
+    createdAt: "2026-10-24T00:00:00Z",
+    payload: { jobId: crypto.randomUUID(), commitSha: "abc", objective: "Save a note" },
+  });
+  await objects.put(key, new Uint8Array([1, 2, 3]));
+  expect(await remove()).toMatchObject({ ok: true, value: { objectsDeleted: 3 } });
+  expect(objects.keys()).toEqual([]);
+});
+it("retains the durable test index if deleting its video fails", async () => {
+  const sessionId = "2a3f8a24-6c1b-4e0e-9b6f-3a5c0a1d9e77";
+  const turnId = "72a3e710-65bf-420e-8cea-d4aa8e0b2f7d";
+  const key = `computer/${PROJECT}/${sessionId}/${turnId}/recording.mp4`;
+  await screenshotEvents.append({
+    type: "test.started",
+    sessionId,
+    turnId,
+    createdAt: "2026-10-24T00:00:00Z",
+    payload: { jobId: crypto.randomUUID(), commitSha: "abc", objective: "Save a note" },
+  });
+  await objects.put(key, new Uint8Array([1, 2, 3]));
+  const deleteObject = objects.delete.bind(objects);
+  objects.delete = async (candidate) =>
+    candidate === key
+      ? { ok: false, error: { code: "unavailable", message: "offline" } }
+      : deleteObject(candidate);
+  expect(await remove()).toMatchObject({ ok: false, error: { reason: "objects_failed" } });
+  expect(await projects.get(PROJECT, FAKE_OWNER)).not.toBeNull();
+  expect(await screenshotEvents.readFrom(sessionId, 0)).toHaveLength(1);
+  objects.delete = deleteObject;
+  expect((await remove()).ok).toBe(true);
+  expect(objects.keys()).toEqual([]);
 });

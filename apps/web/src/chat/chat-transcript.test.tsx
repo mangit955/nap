@@ -55,6 +55,7 @@ function expandAll() {
  * says it; a failed check shows here only as the repair turn it starts.
  */
 const DRAWN_ELSEWHERE = [
+  "test.annotation",
   "context.usage",
   "job.started",
   "verification.started",
@@ -70,6 +71,48 @@ const DRAWN_ELSEWHERE = [
  * has a row or a place above.
  */
 const TREATMENTS = [
+  {
+    type: "test.recording",
+    payload: {
+      recording: {
+        state: "available",
+        key: "computer/p/s/t/recording.mp4",
+        durationMs: 1000,
+        width: 1024,
+        height: 768,
+        interrupted: false,
+      },
+    },
+    shows: /Stopped recording/,
+  },
+  {
+    type: "test.started",
+    payload: {
+      jobId: "7c9b1a52-8d3e-4f21-a0c4-1b2d3e4f5a6b",
+      commitSha: "abcdef1",
+      objective: "Save notes",
+    },
+    shows: /App test/,
+  },
+  {
+    type: "test.completed",
+    payload: {
+      jobId: "7c9b1a52-8d3e-4f21-a0c4-1b2d3e4f5a6b",
+      status: "completed",
+      counts: { passed: 0, failed: 1, untested: 1 },
+    },
+    shows: /Test results/,
+  },
+  {
+    type: "computer.screenshot",
+    payload: { toolCallId: "screen", key: "computer/p/s/t/screen.jpg", width: 1024, height: 768 },
+    shows: /Computer screenshot available/,
+  },
+  {
+    type: "computer.status",
+    payload: { toolCallId: "screen", state: "starting" },
+    shows: /Used computer/,
+  },
   {
     type: "compaction.started",
     payload: { id: "compact1", trigger: "manual" },
@@ -173,11 +216,11 @@ describe("every event type has a visual treatment", () => {
     void _exhaustive;
   });
 
-  it("lets nothing but a job event out of the treatment table", () => {
+  it("restricts omissions to status and assertion data", () => {
     // The list is otherwise an escape hatch: a type moved into it renders nowhere while both
     // the count and the compile check stay green, which is what this table exists to catch.
     for (const type of DRAWN_ELSEWHERE) {
-      expect(type).toMatch(/^(job|verification|context)\./);
+      expect(type).toMatch(/^(job|verification|context)\.|^test\.annotation$/);
       expect(TREATMENTS.map((t) => t.type)).not.toContain(type);
     }
   });

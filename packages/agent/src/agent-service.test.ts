@@ -1,10 +1,13 @@
+import { E2BSandboxDesktop } from "@nap/sandbox/e2b-sandbox-desktop";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
+import { isolatedDesktop } from "@nap/sandbox/testing/isolated-desktop";
 import { NapEventSchema, type NapEventType } from "@nap/shared/events";
 import type { AgentTurnRequest } from "@nap/shared/ports/agent-service";
 import type { BuiltContext } from "@nap/shared/ports/context-engine";
 import type { PendingEvent } from "@nap/shared/ports/event-store";
 import type { LLMMessage, LLMToolCall } from "@nap/shared/ports/llm-provider";
-import { beforeEach, describe, expect, it } from "vitest";
+import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NapAgentService } from "./agent-service.ts";
 import { ScriptedLLMProvider, type ScriptedTurn } from "./testing/scripted-llm-provider.ts";
 import { PROJECT_ROOT, TOOL_DEFINITIONS } from "./tools/definitions.ts";
@@ -90,6 +93,163 @@ function lastMessage(messages: readonly LLMMessage[]): LLMMessage {
   if (last === undefined) throw new Error("no messages were sent");
   return last;
 }
+
+describe("unknown computer completion", () => {
+  function lostOutput(fault: "malformed" | "throw") {
+    const transport = new InMemorySandboxManager();
+    const exec = vi.spyOn(transport, "exec").mockResolvedValueOnce({
+      ok: true,
+      value: {
+        exitCode: 0,
+        stdout: JSON.stringify({ ok: true, value: { width: 1024, height: 768 } }),
+        stderr: "",
+      },
+    });
+    if (fault === "throw") exec.mockRejectedValue(new Error("output transport lost"));
+    else
+      exec.mockResolvedValue({
+        ok: true,
+        value: { exitCode: 0, stdout: "{truncated", stderr: "" },
+      });
+    return {
+      exec,
+      computer: {
+        desktop: isolatedDesktop(new E2BSandboxDesktop({ sandbox: transport })),
+        objects: new InMemoryObjectStore(),
+        projectId: "project",
+        devServerUrl: "http://localhost:5173",
+        beforeStore: async () => {},
+      },
+    };
+  }
+
+  const command = "printf input-recovery-sibling";
+  const siblings: LLMToolCall[] = [
+    call("write_file", { path: APP, contents: "changed\n" }, "write-after-input"),
+    call(
+      "edit_file",
+      { path: APP, old_string: "original", new_string: "changed" },
+      "edit-after-input",
+    ),
+    call("run_command", { command }, "command-after-input"),
+  ];
+
+  for (const fault of ["malformed", "throw"] as const) {
+    it.each(siblings)(
+      `stops sibling $name after ${fault} physical-input output`,
+      async (sibling) => {
+        await manager.writeFile(sandboxId, APP, "original\n");
+        manager.script(`cd ${PROJECT_ROOT} && ${command}`, { exitCode: 0, stdout: "ran" });
+        const f = lostOutput(fault);
+        const finalize = vi.fn(async () => ({ commitSha: null }));
+        const { agent, provider } = service([
+          [
+            {
+              toolCalls: [
+                call(
+                  "computer",
+                  { actions: [{ action: "left_click", coordinate: [10, 20] }] },
+                  "input",
+                ),
+                sibling,
+              ],
+            },
+            {},
+          ],
+        ]);
+        await agent.runTurn(
+          request({
+            computer: f.computer,
+            model: "anthropic/claude-sonnet-5",
+            finalize,
+          }),
+        );
+
+        expect(f.exec).toHaveBeenCalledTimes(2);
+        expect(recorder.payloadsOf("tool.result")[0]).toMatchObject({
+          toolCallId: "input",
+          ok: false,
+        });
+        expect(await manager.readFile(sandboxId, APP)).toEqual({ ok: true, value: "original\n" });
+        expect(manager.commands(sandboxId)).not.toContain(command);
+        expect(recorder.payloadsOf("tool.call")).toHaveLength(1);
+        expect(provider.requests).toHaveLength(1);
+        expect(finalize).not.toHaveBeenCalled();
+        expect(recorder.payloadsOf("turn.failed")).toEqual([
+          expect.objectContaining({ reason: "sandbox_unavailable" }),
+        ]);
+        expect(recorder.payloadsOf("turn.completed")).toEqual([]);
+      },
+    );
+
+    it(`stops the next model request and finalize after ${fault} output without siblings`, async () => {
+      const f = lostOutput(fault);
+      const finalize = vi.fn(async () => ({ commitSha: null }));
+      const { agent, provider } = service([
+        [
+          {
+            toolCalls: [
+              call(
+                "computer",
+                {
+                  actions: [{ action: "left_click", coordinate: [10, 20] }],
+                },
+                "input",
+              ),
+            ],
+          },
+          {},
+        ],
+      ]);
+      await agent.runTurn(
+        request({
+          computer: f.computer,
+          model: "anthropic/claude-sonnet-5",
+          finalize,
+        }),
+      );
+      expect(f.exec).toHaveBeenCalledTimes(2);
+      expect(recorder.payloadsOf("tool.result")).toEqual([
+        expect.objectContaining({ toolCallId: "input", ok: false }),
+      ]);
+      expect(provider.requests).toHaveLength(1);
+      expect(finalize).not.toHaveBeenCalled();
+      expect(recorder.types.at(-1)).toBe("turn.failed");
+    });
+  }
+
+  it("keeps invalid undispatched computer input recoverable", async () => {
+    const f = lostOutput("malformed");
+    const finalize = vi.fn(async () => ({ commitSha: null }));
+    const { agent, provider } = service([
+      [
+        {
+          toolCalls: [
+            call(
+              "computer",
+              { actions: [{ action: "left_click", coordinate: [1024, 20] }] },
+              "invalid",
+            ),
+            call("write_file", { path: APP, contents: "recovered\n" }, "valid-source"),
+          ],
+        },
+        {},
+      ],
+    ]);
+    await agent.runTurn(
+      request({
+        computer: f.computer,
+        model: "anthropic/claude-sonnet-5",
+        finalize,
+      }),
+    );
+    expect(f.exec).not.toHaveBeenCalled();
+    expect(await manager.readFile(sandboxId, APP)).toEqual({ ok: true, value: "recovered\n" });
+    expect(provider.requests).toHaveLength(2);
+    expect(finalize).toHaveBeenCalledOnce();
+    expect(recorder.types.at(-1)).toBe("turn.completed");
+  });
+});
 
 describe("the model a turn runs on", () => {
   it("starts the provider's turn on the model the request named", async () => {
@@ -201,7 +361,9 @@ describe("runTurn — talking to the model", () => {
 
     await agent.runTurn(request());
 
-    expect(provider.requests[0]?.tools).toEqual(TOOL_DEFINITIONS);
+    expect(provider.requests[0]?.tools).toEqual(
+      TOOL_DEFINITIONS.filter((tool) => tool.name !== "computer"),
+    );
     expect(provider.requests[0]?.systemPrompt).toBe(CONTEXT.systemPrompt);
   });
 
@@ -643,4 +805,35 @@ it("does not send a request past a reported model window after compaction fails"
   expect(recorder.payloadsOf("turn.failed")).toEqual([
     expect.objectContaining({ reason: "budget_exceeded" }),
   ]);
+});
+
+it("gives app tests a separate budget and refuses source changes even if the model asks", async () => {
+  const provider = new ScriptedLLMProvider([
+    [
+      { toolCalls: [call("write_file", { path: APP, content: "forced" }, "write")] },
+      { toolCalls: [call("run_command", { command: "touch forced" }, "command")] },
+      { text: "unused" },
+    ],
+  ]);
+  const agent = new NapAgentService({
+    provider,
+    budget: { maxSteps: 40 },
+    testBudget: { maxSteps: 2 },
+  });
+  await agent.runTurn(request({ promptSource: "test" }));
+  expect(provider.requests).toHaveLength(2);
+  expect(provider.requests[0]?.tools.map((tool) => tool.name)).toEqual([
+    "read_file",
+    "list_files",
+    "search_files",
+  ]);
+  expect(
+    recorder.events
+      .filter((event) => event.type === "tool.result")
+      .every((event) => event.payload.ok === false),
+  ).toBe(true);
+  expect(recorder.events.find((event) => event.type === "turn.failed")?.payload.reason).toBe(
+    "budget_exceeded",
+  );
+  expect((await manager.readFile(sandboxId, APP)).ok).toBe(false);
 });

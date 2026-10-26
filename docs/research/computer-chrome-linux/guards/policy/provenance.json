@@ -1,0 +1,83 @@
+{
+  "sourceRoot": "/Users/manasraghuwanshi/.t3/worktrees/nap/feat-computer-use",
+  "sourceCommit": "ca61a5c51ff93e53e05b44c2b57b1ccc0d269d41",
+  "sourceDirty": "",
+  "chromePackageVersion": "156.0.8078.47-1",
+  "chromeUrl": "https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_156.0.8078.47-1_amd64.deb",
+  "chromeDebSha256": "6c92cd22e90c6e3e255d782991543fa2091db8614e8536a971a7433a5c4d7ac8",
+  "fault": "policy",
+  "installCommand": "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y xvfb x11-utils openbox xdotool ffmpeg x11vnc websockify novnc dbus-x11 fonts-liberation ca-certificates wget openssl util-linux && wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/nap-chrome.deb && apt-get install -y /tmp/nap-chrome.deb && rm /tmp/nap-chrome.deb && mkdir -p /etc/opt/chrome/policies/managed && chown user:user /etc/opt/chrome/policies/managed",
+  "startupSha256": "e1742248f1663bbadf873c1102e40a1e8ab2754e92089d378a686d4f9ab30d03",
+  "driverBundleSha256": "a37b17e66de0576068bdcc44eed9b3a0b47a5f42ed7239287c9e7e3a89cd7a11",
+  "smokeBundleSha256": "a777d052b6a12a500bf8d6289a1c5ee2ae81510fa8e9ce03a780bee3a9c0852e",
+  "fixtureBundleSha256": "ac02b1123cf227d2643b766cbc645c0b7f9ff6868f67fc44f1f8a3455b59f547",
+  "runnerSourceSha256": "4b3d5270a03bcc5b246e3024177b42544570e88af659fc9f5be617399d1ac5aa",
+  "expectedDriverBundleSha256": "a37b17e66de0576068bdcc44eed9b3a0b47a5f42ed7239287c9e7e3a89cd7a11",
+  "matchesExpectedDriverBundle": true,
+  "image": [
+    {
+      "Id": "sha256:334202de33f6a6e6b26c2b50598d92d93f44a16873efcf878226858ab27ca936",
+      "RepoTags": ["nap-chrome-smoke-cea4d5c6-91eb-42ff-bd1a-730bbf1d35dc:local"],
+      "RepoDigests": [
+        "nap-chrome-smoke-cea4d5c6-91eb-42ff-bd1a-730bbf1d35dc@sha256:334202de33f6a6e6b26c2b50598d92d93f44a16873efcf878226858ab27ca936"
+      ],
+      "Comment": "buildkit.dockerfile.v0",
+      "Created": "2026-10-24T16:10:17.568146639+05:30",
+      "Config": {
+        "User": "user",
+        "Env": [
+          "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+          "NODE_VERSION=24.22.1",
+          "YARN_VERSION=1.22.22",
+          "HOME=/home/user",
+          "DISPLAY=:99"
+        ],
+        "Entrypoint": [
+          "timeout",
+          "--signal=TERM",
+          "--kill-after=5s",
+          "240s",
+          "node",
+          "/smoke/smoke.mjs"
+        ]
+      },
+      "Architecture": "amd64",
+      "Os": "linux",
+      "Size": 679648777,
+      "RootFS": {
+        "Type": "layers",
+        "Layers": [
+          "sha256:9b35de7893378218e365c34c2c735fb0032a859112fb7345ca8ea73f9aa1db70",
+          "sha256:b405c072d1d6b8d191f8fe47db6e3c37ff40836c3970c2c03e51b1adc16563fb",
+          "sha256:0ff2c5ad5da71f20291ad85c9f543eaf29984d9883c8c51a0bb117ec2abe097a",
+          "sha256:881f54f72c69e2a38c7f8a642780e61968bea9efe74300b88a2df728c24c7b0b",
+          "sha256:3e12bfea3588951aab89585809de07499eb5094dc38891bdb294e67d7a9327c0",
+          "sha256:e1c4f3bdb45d69f88e169adc2642519121f7ecfb5f3177747e97ec0decb06d6c",
+          "sha256:bbc36ce05db925422605031d6c8cc27c60517201c4bec14c87bbeba6ae02a912",
+          "sha256:2c5780b258089b94662dcb8d58d44b154e6189891188c0680b35066beb030a5c",
+          "sha256:aae10b177db2aa51a7d5747ced689b70a2e444cb8cd7dd87aa136fb381ac2b61",
+          "sha256:c3ca667bdcd0d7b50b520ae170c78a3f966d1559ea3f9a639148b23e0b614c3e",
+          "sha256:2036bdad62169afafc0f9fa35a8c21efd9dda371d606f5b2e778231bd92dda58",
+          "sha256:c0064a9bfa2455afb7a92eef97299375cc48110593c41ea3843c124e148dc8ce"
+        ]
+      },
+      "Metadata": {
+        "LastTagTime": "2026-10-24T10:40:17.744199043Z"
+      },
+      "Descriptor": {
+        "mediaType": "application/vnd.oci.image.index.v1+json",
+        "digest": "sha256:334202de33f6a6e6b26c2b50598d92d93f44a16873efcf878226858ab27ca936",
+        "size": 856
+      },
+      "Identity": {
+        "Build": [
+          {
+            "Ref": "xzljdlic9riw1262b15u51916",
+            "CreatedAt": "2026-10-24T16:10:17.748175512+05:30"
+          }
+        ]
+      }
+    }
+  ],
+  "buildMs": 921
+}

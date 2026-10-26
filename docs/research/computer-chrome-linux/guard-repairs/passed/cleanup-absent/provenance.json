@@ -1,0 +1,24 @@
+{
+  "sourceRoot": "/Users/manasraghuwanshi/.t3/worktrees/nap/t3-0ad410c7",
+  "sourceCommit": "2f85e90aa9f2f4cf30238de3403ff88e1b57dd79",
+  "sourceDirty": "M docs/research/computer-chrome-linux/README.md\n M packages/sandbox/scripts/desktop-chrome-smoke/run.ts\n M packages/sandbox/scripts/desktop-chrome-smoke/smoke.ts\n?? docs/research/computer-chrome-linux/check-harness-guards.mjs\n?? docs/research/computer-chrome-linux/check-vnc.mjs\n?? docs/research/computer-chrome-linux/guard-repairs/\n?? docs/research/computer-chrome-linux/vnc/",
+  "chromePackageVersion": "156.0.8078.47-1",
+  "chromeUrl": "https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_156.0.8078.47-1_amd64.deb",
+  "chromeDebSha256": "6c92cd22e90c6e3e255d782991543fa2091db8614e8536a971a7433a5c4d7ac8",
+  "fault": null,
+  "installCommand": "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y xvfb x11-utils openbox xdotool ffmpeg x11vnc websockify novnc dbus-x11 fonts-liberation ca-certificates wget openssl util-linux && wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/nap-chrome.deb && apt-get install -y /tmp/nap-chrome.deb && rm /tmp/nap-chrome.deb && mkdir -p /etc/opt/chrome/policies/managed && chown user:user /etc/opt/chrome/policies/managed",
+  "startupSha256": "85fb4d8c8d9d8cfdf0f2cdf248dd19c79bd5666b9228b5d1e0f5f0d0e6a2e342",
+  "driverBundleSha256": "3bd1aae5917d0c3beecbe452b6fbb70d34c2ae89289977972d9557e9b4267e3e",
+  "smokeBundleSha256": "95507b347969ff79c64ae48bacc05cfb9a03eaf92caffc51f76aaf0a7b9f45b8",
+  "fixtureBundleSha256": "ac02b1123cf227d2643b766cbc645c0b7f9ff6868f67fc44f1f8a3455b59f547",
+  "runnerSourceSha256": "1d472bab8acb17290f65bee22d15ff650391893c54eb81267ac9891a3c141837",
+  "expectedDriverBundleSha256": null,
+  "matchesExpectedDriverBundle": null,
+  "image": [
+    {
+      "Id": "stub-only",
+      "RepoTags": ["nap-chrome-smoke-bfef00e9-da6a-4234-98c8-9fd05a7a106d:local"]
+    }
+  ],
+  "buildMs": 111
+}

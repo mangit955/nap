@@ -13,14 +13,19 @@
  * into the transcript the button is drawn from.
  */
 
+import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
+import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import type { MediaAttachment } from "@nap/shared/media";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { StrictMode } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createApp } from "../../../api/src/app.ts";
+import { createLogger } from "../../../api/src/logger.ts";
+import { resolveTurnAccess } from "../../../api/src/turns/model-access.ts";
 import { stashFirstPrompt } from "../chat/first-prompt.ts";
 import { jobView } from "../chat/job-summary.ts";
 import type { SessionLog } from "../hooks/use-session-log.ts";
-import { ev, PROJECT_ID, SESSION_ID } from "../testing/events.ts";
+import { ev, OTHER_SESSION_ID, PROJECT_ID, SESSION_ID } from "../testing/events.ts";
 import { JOB_ID, jobLog } from "../testing/job-events.ts";
 import { mediaBrowser } from "../testing/media-browser.ts";
 import { LiveChatPane } from "./chat-pane.tsx";
@@ -550,6 +555,7 @@ describe("LiveChatPane", () => {
 
 it("shares reconciled legacy activity with composer, Context and the visible clock", async () => {
   vi.useFakeTimers();
+  const onActivity = vi.fn();
   const legacyTurn = "00000000-0000-4000-8000-000000000090";
   const events = [
     ev("agent.message", { text: "Original response" }, 1),
@@ -561,6 +567,7 @@ it("shares reconciled legacy activity with composer, Context and the visible clo
     <LiveChatPane
       sessionId={SESSION_ID}
       log={log}
+      onActivity={onActivity}
       fetchJson={async (url, init) => {
         if (url.includes("/activity"))
           return Response.json({ sessionId: SESSION_ID, throughSeq: 3, active: false });
@@ -577,10 +584,310 @@ it("shares reconciled legacy activity with composer, Context and the visible clo
     expect(screen.queryByRole("status", { name: "Agent is working" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Message" })).toBeEnabled();
+    expect(onActivity).toHaveBeenLastCalledWith({
+      sessionId: SESSION_ID,
+      running: false,
+      idleThroughSeq: 3,
+    });
     fireEvent.click(screen.getByLabelText("Context, usage not reported"));
     expect(screen.getByRole("button", { name: "Compact context" })).toBeEnabled();
   } finally {
     view.unmount();
     vi.useRealTimers();
   }
+});
+
+it("wires Fix it to a normal turn without repairing on a failed test event", async () => {
+  const goal = "Save notes";
+  const testTurn = "00000000-0000-4000-8000-000000000099";
+  const events = [
+    ev("test.started", { jobId: JOB_ID, objective: goal, commitSha: "abcdef1" }, 1, {
+      turnId: testTurn,
+    }),
+    ev(
+      "test.annotation",
+      {
+        annotation: {
+          type: "assertion",
+          id: "save",
+          expectation: "The saved note appears",
+          result: "failed",
+        },
+        timeMs: 1000,
+      },
+      2,
+      { turnId: testTurn },
+    ),
+    ev(
+      "turn.completed",
+      { commitSha: null, usage: { inputTokens: 0, outputTokens: 0 }, durationMs: 1 },
+      3,
+      { turnId: testTurn },
+    ),
+    ev(
+      "test.completed",
+      { jobId: JOB_ID, status: "completed", counts: { passed: 0, failed: 1, untested: 0 } },
+      4,
+      { turnId: testTurn },
+    ),
+  ];
+  const log: SessionLog = { ...failedTurn(), events, lastSeq: 4, jobs: jobView(events) };
+  render(<LiveChatPane sessionId={SESSION_ID} log={log} fetchJson={fetchJson} />);
+  expect(turns).toHaveLength(0);
+  fireEvent.click(screen.getByRole("button", { name: "Fix it" }));
+  await waitFor(() => expect(turns).toHaveLength(1));
+  expect(turns[0]?.message).toContain("The saved note appears");
+});
+
+it("shows app-test progress at the clicked card before any stream event arrives", async () => {
+  const events = [
+    ev("job.started", { jobId: JOB_ID, objective: "Save notes" }, 1),
+    ev(
+      "turn.completed",
+      { commitSha: "abc", usage: { inputTokens: 0, outputTokens: 0 }, durationMs: 1 },
+      2,
+    ),
+    ev("job.checkpointed", { jobId: JOB_ID, commitSha: "abc" }, 3),
+    ev("job.completed", { jobId: JOB_ID, outcome: "verified" }, 4),
+  ];
+  let accept: ((response: Response) => void) | undefined;
+  const http = async (url: string, init?: RequestInit) => {
+    if (url.endsWith("/models"))
+      return Response.json({ ...MODELS, fallback: "anthropic/claude-opus-5" });
+    if (url.endsWith("/tests"))
+      return new Promise<Response>((resolve) => {
+        accept = resolve;
+      });
+    return fetchJson(url, init);
+  };
+  const view = render(
+    <LiveChatPane
+      sessionId={SESSION_ID}
+      log={{ ...failedTurn(), events, lastSeq: 4, jobs: jobView(events) }}
+      fetchJson={http}
+    />,
+  );
+  const button = await screen.findByRole("button", { name: "Test the app" });
+  await waitFor(() => expect(button).toBeEnabled());
+  fireEvent.click(button);
+  expect(screen.getByRole("status", { name: "App test progress" })).toHaveTextContent(
+    "Starting app test…",
+  );
+  expect(screen.getByRole("button", { name: "Starting app test…" })).toBeDisabled();
+  await act(async () => {
+    accept?.(
+      Response.json(
+        { accepted: true, requestId: "e7a1c2d3-4b5a-4c6d-8e9f-0a1b2c3d4e5f" },
+        { status: 202 },
+      ),
+    );
+  });
+  expect(screen.getByRole("status", { name: "App test progress" })).toHaveTextContent(
+    "Starting app test…",
+  );
+  const started = ev(
+    "test.started",
+    { jobId: JOB_ID, commitSha: "abc", objective: "Save notes" },
+    5,
+    { turnId: "e7a1c2d3-4b5a-4c6d-8e9f-0a1b2c3d4e5f" },
+  );
+  view.rerender(
+    <LiveChatPane
+      sessionId={SESSION_ID}
+      log={{ ...failedTurn(), events: [...events, started], lastSeq: 5, jobs: jobView(events) }}
+      fetchJson={http}
+    />,
+  );
+  expect(screen.getByRole("status", { name: "App test progress" })).toHaveTextContent(
+    "Testing the app…",
+  );
+});
+
+it.each(["openai/gpt-5.6-luna", "openai/gpt-oss-20b:free"])(
+  "starts a default app test with the owner's Anthropic key when deployment default is %s",
+  async (defaultModel) => {
+    const allowed = [defaultModel, "anthropic/claude-sonnet-5", "anthropic/claude-opus-5"];
+    const key = { platform: "anthropic", apiKey: "owner-test-key" } as const;
+    const models = createApp({
+      logger: createLogger({ level: "silent" }, { write: () => {} }),
+      authenticate: async () => ({ userId: "owner", isAnonymous: false }),
+      stream: {
+        store: new InMemoryEventStore(),
+        bus: new InMemoryEventBus(),
+        upgradeWebSocket: async () => new Response(null),
+      },
+      models: {
+        allowed,
+        fallback: defaultModel,
+        freeModel: "openai/gpt-5.6-luna",
+        keys: async () => ({
+          userId: "owner",
+          platform: "anthropic",
+          ciphertext: "sealed",
+          iv: "iv",
+          hint: "sk-ant-test",
+          updatedAt: "2026-10-24T00:00:00Z",
+        }),
+      },
+    });
+    const submitted: unknown[] = [];
+    const admitted: ReturnType<typeof resolveTurnAccess>[] = [];
+    const http = async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/models")) return models.request("/models");
+      if (url.endsWith("/tests")) {
+        const body: unknown = JSON.parse(String(init?.body));
+        submitted.push(body);
+        const requested =
+          typeof body === "object" &&
+          body !== null &&
+          "model" in body &&
+          typeof body.model === "string"
+            ? body.model
+            : undefined;
+        const access = resolveTurnAccess({
+          requested,
+          key,
+          allowed,
+          defaultModel,
+          freeModel: "openai/gpt-5.6-luna",
+        });
+        admitted.push(access);
+        return access.ok
+          ? Response.json(
+              { accepted: true, requestId: "e7a1c2d3-4b5a-4c6d-8e9f-0a1b2c3d4e5f" },
+              { status: 202 },
+            )
+          : Response.json({ error: access.message, code: access.code }, { status: 400 });
+      }
+      return fetchJson(url, init);
+    };
+    const events = [
+      ev("job.started", { jobId: JOB_ID, objective: "Save notes" }, 1),
+      ev(
+        "turn.completed",
+        { commitSha: "abc", usage: { inputTokens: 0, outputTokens: 0 }, durationMs: 1 },
+        2,
+      ),
+      ev("job.checkpointed", { jobId: JOB_ID, commitSha: "abc" }, 3),
+      ev("job.completed", { jobId: JOB_ID, outcome: "verified" }, 4),
+    ];
+    render(
+      <LiveChatPane
+        sessionId={SESSION_ID}
+        log={{ ...failedTurn(), events, lastSeq: 4, jobs: jobView(events) }}
+        fetchJson={http}
+      />,
+    );
+    const button = await screen.findByRole("button", { name: "Test the app" });
+    await waitFor(() => expect(button).toBeEnabled());
+    fireEvent.click(button);
+    await waitFor(() => expect(submitted).toHaveLength(1));
+    expect(submitted).toEqual([{ jobId: JOB_ID, model: "anthropic/claude-sonnet-5" }]);
+    expect(admitted).toEqual([{ ok: true, model: "anthropic/claude-sonnet-5", credentials: key }]);
+  },
+);
+
+describe("LiveChatPane computer recovery", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("clears the previous session's pause before the new recovery read answers", async () => {
+    const http = async (url: string, init?: RequestInit) => {
+      if (url.endsWith(`/sessions/${SESSION_ID}/computer/recovery`))
+        return Response.json({ stuck: true, abandonableAt: 0 });
+      if (url.endsWith(`/sessions/${OTHER_SESSION_ID}/computer/recovery`))
+        return new Promise<Response>(() => {});
+      return fetchJson(url, init);
+    };
+    const log = failedTurn();
+    const view = render(<LiveChatPane sessionId={SESSION_ID} log={log} fetchJson={http} />);
+    await screen.findByRole("region", { name: "Computer paused" });
+    const nextLog = {
+      ...log,
+      events: log.events.map((event) => ({ ...event, sessionId: OTHER_SESSION_ID })),
+    };
+    view.rerender(<LiveChatPane sessionId={OTHER_SESSION_ID} log={nextLog} fetchJson={http} />);
+    expect(screen.queryByRole("region", { name: "Computer paused" })).toBeNull();
+  });
+
+  it("keeps a late abandon result out of the newly selected idle session", async () => {
+    let finish: (response: Response) => void = () => {};
+    const abandoning = new Promise<Response>((resolve) => {
+      finish = resolve;
+    });
+    const http = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith(`/sessions/${SESSION_ID}/computer/recovery`))
+        return Response.json({ stuck: true, abandonableAt: 0 });
+      if (url.endsWith(`/sessions/${OTHER_SESSION_ID}/computer/recovery`))
+        return Response.json({ stuck: false });
+      if (url.endsWith(`/sessions/${SESSION_ID}/computer/abandon`)) return abandoning;
+      return fetchJson(url, init);
+    });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const log = failedTurn();
+    const view = render(<LiveChatPane sessionId={SESSION_ID} log={log} fetchJson={http} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Abandon this computer" }));
+    expect(screen.getByRole("button", { name: "Abandoning…" })).toBeDisabled();
+    expect(
+      http.mock.calls.some(([url, init]) => url.endsWith("/abandon") && init?.method === "POST"),
+    ).toBe(true);
+    const nextLog = {
+      ...log,
+      events: log.events.map((event) => ({ ...event, sessionId: OTHER_SESSION_ID })),
+    };
+    view.rerender(<LiveChatPane sessionId={OTHER_SESSION_ID} log={nextLog} fetchJson={http} />);
+    await act(async () => {});
+    expect(screen.queryByRole("region", { name: "Computer paused" })).toBeNull();
+    await act(async () => finish(Response.json({ outcome: "abandoned" })));
+    expect(screen.queryByRole("region", { name: "Computer paused" })).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  async function latePause(readerAt: (bottom: number) => number) {
+    let answer: (response: Response) => void = () => {};
+    const recovery = new Promise<Response>((resolve) => {
+      answer = resolve;
+    });
+    const http = async (url: string, init?: RequestInit) =>
+      url.endsWith("/computer/recovery") ? recovery : fetchJson(url, init);
+    const log = failedTurn();
+    const view = render(<LiveChatPane sessionId={SESSION_ID} log={log} fetchJson={http} />);
+    await screen.findByRole("button", { name: "Model" });
+    const timeline = screen.getByRole("region", { name: "Conversation" });
+    let top = 0;
+    Object.defineProperties(timeline, {
+      scrollHeight: {
+        configurable: true,
+        get: () =>
+          1800 + (screen.queryByRole("region", { name: "Computer paused" }) === null ? 0 : 200),
+      },
+      clientHeight: { configurable: true, value: 600 },
+      scrollTop: {
+        configurable: true,
+        get: () => top,
+        set: (next: number) => {
+          top = next;
+        },
+      },
+    });
+    const events = [
+      ...log.events,
+      ev("system.notice", { level: "info", text: "Connection restored." }, 4),
+    ];
+    const settled = { ...log, events, lastSeq: 4, jobs: jobView(events) };
+    view.rerender(<LiveChatPane sessionId={SESSION_ID} log={settled} fetchJson={http} />);
+    expect(top).toBe(1200);
+    top = readerAt(1200);
+    await act(async () => answer(Response.json({ stuck: true, abandonableAt: 0 })));
+    expect(screen.getByRole("region", { name: "Computer paused" })).toBeDefined();
+    return top;
+  }
+
+  it("keeps the reader at the bottom when recovery appears after the transcript settles", async () => {
+    expect(await latePause((bottom) => bottom)).toBe(1400);
+  });
+
+  it("keeps a reader's scrolled-up position when recovery appears after the transcript settles", async () => {
+    expect(await latePause(() => 400)).toBe(400);
+  });
 });

@@ -1,6 +1,7 @@
 import { ScriptedAgent } from "@nap/agent/testing/scripted-agent";
 import { StubContextEngine } from "@nap/context/testing/stub-context-engine";
 import type { AgentService } from "@nap/shared/ports/agent-service";
+import { isolatedProjectComputer } from "./testing/isolated-project-computer.ts";
 /**
  * What a turn did to the world, asserted through the log it left and the commands it ran.
  *
@@ -23,6 +24,7 @@ import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
+import { FakeSandboxDesktop } from "@nap/sandbox/testing/fake-sandbox-desktop";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { scriptGit } from "@nap/sandbox/testing/script-git";
 import { NapEventSchema, type NapEventType } from "@nap/shared/events";
@@ -36,7 +38,7 @@ import type { ObjectStore } from "@nap/shared/ports/object-store";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { commitMessage, SingleAgentRuntime } from "./single-agent-runtime.ts";
 
 const SESSION_ID = "2a3f8a24-6c1b-4e0e-9b6f-3a5c0a1d9e77";
@@ -1069,4 +1071,79 @@ describe("keeping a resumed sandbox alive", () => {
 
     expect(sandbox.timeoutOf(created.value.id)).toBe(90_000);
   });
+});
+
+it("binds computer access to the project's sandbox dev port rather than the public proxy", async () => {
+  const agent = new ScriptedAgent(HAPPY_SCRIPT);
+  const desktop = new FakeSandboxDesktop({
+    bytes: new Uint8Array([255, 216, 255, 217]),
+    width: 1024,
+    height: 768,
+  });
+  await new SingleAgentRuntime({
+    sessions,
+    sandbox,
+    context,
+    agent,
+    events,
+    bus,
+    memory: new NoopMemoryProvider(),
+    previewPort: 4444,
+    computer: {
+      coordinator: isolatedProjectComputer(desktop.transport),
+      objects: new InMemoryObjectStore(),
+    },
+  }).runTurn({
+    sessionId: SESSION_ID,
+    turnId: crypto.randomUUID(),
+    message: "inspect app",
+    model: "anthropic/claude-sonnet-5",
+  });
+  expect(agent.requests[0]?.computer?.projectId).toBe(PROJECT_ID);
+  expect(agent.requests[0]?.computer?.devServerUrl).toBe("http://localhost:4444");
+});
+
+it("makes the computer call durable before creating its screenshot object", async () => {
+  const desktop = new FakeSandboxDesktop({
+    bytes: new Uint8Array([255, 216, 255, 217]),
+    width: 1024,
+    height: 768,
+  });
+  const objects = new InMemoryObjectStore();
+  const put = objects.put.bind(objects);
+  vi.spyOn(objects, "put").mockImplementation(async (key, bytes) => {
+    expect(
+      (await events.readFrom(SESSION_ID, 0)).some(
+        (event) => event.type === "tool.call" && event.payload.toolCallId === "screen",
+      ),
+    ).toBe(true);
+    return put(key, bytes);
+  });
+  const provider = new ScriptedLLMProvider([
+    [
+      {
+        toolCalls: [
+          { id: "screen", name: "computer", input: { actions: [{ action: "screenshot" }] } },
+        ],
+      },
+      {},
+    ],
+  ]);
+  const result = await new SingleAgentRuntime({
+    sessions,
+    sandbox,
+    context,
+    events: slowAppend(events),
+    bus,
+    agent: new NapAgentService({ provider }),
+    memory: new NoopMemoryProvider(),
+    computer: { coordinator: isolatedProjectComputer(desktop.transport), objects },
+  }).runTurn({
+    sessionId: SESSION_ID,
+    turnId: crypto.randomUUID(),
+    message: "inspect",
+    model: "anthropic/claude-sonnet-5",
+  });
+  expect(result.ok).toBe(true);
+  expect(objects.keys()).toHaveLength(1);
 });

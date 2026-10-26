@@ -89,13 +89,15 @@ describe("InMemorySandboxCapacity", () => {
     expect(capacity.held()).toEqual([]);
   });
 
-  it("releases by project, whatever state the reservation is in", async () => {
+  it("releases by project, only the row naming the machine put away", async () => {
     const capacity = new InMemorySandboxCapacity();
     const reserved = await capacity.reserve({ projectId: "p-1", userId: USER });
     if (reserved.ok) await capacity.activate(reserved.value.id, "sb-1");
     await capacity.reserve({ projectId: "p-2", userId: USER });
 
-    await capacity.releaseForProject("p-1");
+    await capacity.releaseForProject("p-1", "sb-0");
+    expect(capacity.held()).toHaveLength(2);
+    await capacity.releaseForProject("p-1", "sb-1");
 
     expect(capacity.held()).toMatchObject([{ projectId: "p-2", state: "reserved" }]);
   });

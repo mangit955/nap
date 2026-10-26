@@ -1,0 +1,30 @@
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/t3-55804d73
+
+ ❯ |web| apps/web/src/computer/recording-viewer.test.tsx (8 tests | 1 failed | 7 skipped) 76ms
+   × renders counts, ordered chapters, latest assertion verdicts and the owner download URL 75ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |web| apps/web/src/computer/recording-viewer.test.tsx > renders counts, ordered chapters, latest assertion verdicts and the owner download URL
+Error: expect(element).toHaveAttribute("crossorigin", "use-credentials") // element.getAttribute("crossorigin") === "use-credentials"
+
+Expected the element to have attribute:
+  crossorigin="use-credentials"
+Received:
+  crossorigin="anonymous"
+ ❯ apps/web/src/computer/recording-viewer.test.tsx:124:19
+    122|     recording.videoUrl,
+    123|   );
+    124|   expect(video()).toHaveAttribute("crossorigin", "use-credentials");
+       |                   ^
+    125|   expect(video().muted).toBe(true);
+    126|   expect(screen.queryByRole("button", { name: /audio|mute|DOM replay/i…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 7 skipped (8)
+   Start at  11:23:01
+   Duration  764ms (transform 52ms, setup 117ms, import 46ms, tests 76ms, environment 392ms)

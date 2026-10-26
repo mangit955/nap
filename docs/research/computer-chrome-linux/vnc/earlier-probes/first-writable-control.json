@@ -1,0 +1,26 @@
+{
+  "noVncVersion": "1.5.0",
+  "transport": "loopback ephemeral HTTP/WS to byte-preserving docker exec TCP pipe",
+  "cloud": false,
+  "wrongPasswordRejected": true,
+  "decodedFramebuffer": true,
+  "adversarialClientViewOnly": false,
+  "productionClientViewOnly": true,
+  "loopbackPort": 49632,
+  "localChromeVersion": "153.0.8010.54",
+  "decodedFrame": {
+    "width": 1024,
+    "height": 768,
+    "sampledColors": 354,
+    "bytes": 141330,
+    "sha256": "8524eb7f69703513730468b6fffae822105e3197d4fa78ede691b88cc0017840"
+  },
+  "adversarialMessages": {
+    "key": 2,
+    "pointer": 2
+  },
+  "serverDeniedPointer": false,
+  "ok": false,
+  "failure": "AssertionError [ERR_ASSERTION]: The actual server accepted adversarial RFB pointer input.\n\nfalse !== true\n",
+  "elapsedMs": 84474
+}

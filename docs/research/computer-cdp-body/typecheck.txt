@@ -1,0 +1,39 @@
+$ turbo run typecheck && tsc --noEmit
+• turbo 2.10.8
+
+   • Packages in scope: @nap/agent, @nap/api, @nap/bench, @nap/capture, @nap/context, @nap/db, @nap/loadgen, @nap/napbench, @nap/runtime, @nap/sandbox, @nap/shared, @nap/storage, @nap/verify, @nap/web
+   • Running typecheck in 14 packages
+   • Remote caching disabled, using shared worktree cache
+
+@nap/shared:typecheck: cache miss, executing b2ce6bc2b6b4ea6a
+@nap/sandbox:typecheck: cache miss, executing 3dd87d14f7d6d34c
+@nap/context:typecheck: cache miss, executing 2be5e565d8f50f7d
+@nap/capture:typecheck: cache miss, executing eba2037cfdd60074
+@nap/storage:typecheck: cache miss, executing 02affacf89b77075
+@nap/verify:typecheck: cache miss, executing fdcd6c03d13034fc
+@nap/db:typecheck: cache miss, executing 52d373b374e75aba
+@nap/agent:typecheck: cache miss, executing 7ab4313cb42ca643
+@nap/loadgen:typecheck: cache miss, executing ceb2c518cd3361b5
+@nap/bench:typecheck: cache miss, executing 5e214873ee694ec2
+@nap/capture:typecheck: $ tsc --noEmit
+@nap/sandbox:typecheck: $ tsc --noEmit
+@nap/shared:typecheck: $ tsc --noEmit
+@nap/context:typecheck: $ tsc --noEmit
+@nap/storage:typecheck: $ tsc --noEmit
+@nap/verify:typecheck: $ tsc --noEmit
+@nap/db:typecheck: $ tsc --noEmit
+@nap/agent:typecheck: $ tsc --noEmit
+@nap/loadgen:typecheck: $ tsc --noEmit
+@nap/bench:typecheck: $ tsc --noEmit
+@nap/runtime:typecheck: cache miss, executing 740b51d229d8316b
+@nap/runtime:typecheck: $ tsc --noEmit
+@nap/api:typecheck: cache miss, executing 39bc80bc4379c7ee
+@nap/api:typecheck: $ tsc --noEmit
+@nap/napbench:typecheck: cache miss, executing 2bdc1e0dca5f0ba4
+@nap/napbench:typecheck: $ tsc --noEmit
+@nap/web:typecheck: cache miss, executing 4e9bbffbcc2dd13d
+@nap/web:typecheck: $ tsc --noEmit
+
+ Tasks:    14 successful, 14 total
+Cached:    0 cached, 14 total
+  Time:    7.79s

@@ -1,0 +1,290 @@
+{
+  "ok": true,
+  "chromeVersion": "Google Chrome 156.0.8078.47",
+  "nodeVersion": "v24.22.1",
+  "architecture": "x64",
+  "cpuMax": "200000 100000",
+  "memoryMax": "1073741824",
+  "memoryPeak": "1073741824",
+  "memoryEvents": "low 0\nhigh 0\nmax 7297\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0\n",
+  "elapsedMs": 72291,
+  "initial": {
+    "pid": 101,
+    "ticks": "30299413",
+    "port": 5173,
+    "record": "101 30299413 5173"
+  },
+  "replacement": {
+    "pid": 5983,
+    "ticks": "30304458",
+    "port": 5174,
+    "record": "5983 30304458 5174"
+  },
+  "jpeg": {
+    "before": {
+      "width": 1024,
+      "height": 768,
+      "bytes": 67827
+    },
+    "after": {
+      "width": 1024,
+      "height": 768,
+      "bytes": 69806
+    },
+    "current": {
+      "width": 1024,
+      "height": 768,
+      "bytes": 67937
+    }
+  },
+  "encoderTimeBeforeMs": 875,
+  "encoderTimeAfterMs": 52625,
+  "inputFrameTimeMs": 8125,
+  "video": {
+    "bytes": 426003,
+    "durationMs": 53250,
+    "frames": 426
+  },
+  "banner": "RFB 003.008\n",
+  "vncServerViewOnly": true,
+  "steps": [
+    {
+      "name": "Two container-local fixture ports ready",
+      "elapsedMs": 734
+    },
+    {
+      "name": "Actual Chrome PID, start ticks, socket ownership and initial JPEG checked",
+      "elapsedMs": 16313
+    },
+    {
+      "name": "Physical typing, click, scroll and drag changed visible fixture outcomes",
+      "elapsedMs": 25097
+    },
+    {
+      "name": "Same-port start preserved Chrome identity, page state and private credential",
+      "elapsedMs": 34605
+    },
+    {
+      "name": "Stale start-tick guard failed closed without killing actual owned Chrome, then recovered",
+      "elapsedMs": 43274
+    },
+    {
+      "name": "External URL refused with Chrome's policy-specific organization error",
+      "elapsedMs": 47185
+    },
+    {
+      "name": "Changed port replaced the owned Chrome and loaded current-origin fixture",
+      "elapsedMs": 61368
+    },
+    {
+      "name": "Reachable previous origin refused by Chrome policy; allowed current loopback origin succeeded",
+      "elapsedMs": 68550
+    },
+    {
+      "name": "Actual ffmpeg MP4 finalized, encoder clock advanced, every frame decoded, repeat finish matched",
+      "elapsedMs": 71779
+    },
+    {
+      "name": "View-only localhost x11vnc flags, noVNC HTTP and websockify RFB banner checked",
+      "elapsedMs": 72171
+    }
+  ],
+  "timings": [
+    {
+      "op": "start",
+      "ms": 14162
+    },
+    {
+      "op": "act",
+      "ms": 577
+    },
+    {
+      "op": "screenshot",
+      "ms": 658
+    },
+    {
+      "op": "recording_begin",
+      "ms": 861
+    },
+    {
+      "op": "recording_timestamp",
+      "ms": 449
+    },
+    {
+      "op": "act",
+      "ms": 531
+    },
+    {
+      "op": "act",
+      "ms": 669
+    },
+    {
+      "op": "act",
+      "ms": 582
+    },
+    {
+      "op": "act",
+      "ms": 551
+    },
+    {
+      "op": "act",
+      "ms": 477
+    },
+    {
+      "op": "act",
+      "ms": 539
+    },
+    {
+      "op": "act",
+      "ms": 431
+    },
+    {
+      "op": "act",
+      "ms": 525
+    },
+    {
+      "op": "act",
+      "ms": 541
+    },
+    {
+      "op": "screenshot",
+      "ms": 1239
+    },
+    {
+      "op": "recording_timestamp",
+      "ms": 434
+    },
+    {
+      "op": "start",
+      "ms": 8428
+    },
+    {
+      "op": "act",
+      "ms": 531
+    },
+    {
+      "op": "act",
+      "ms": 541
+    },
+    {
+      "op": "start",
+      "ms": 455
+    },
+    {
+      "op": "start",
+      "ms": 8211
+    },
+    {
+      "op": "act",
+      "ms": 453
+    },
+    {
+      "op": "act",
+      "ms": 824
+    },
+    {
+      "op": "act",
+      "ms": 412
+    },
+    {
+      "op": "act",
+      "ms": 560
+    },
+    {
+      "op": "act",
+      "ms": 534
+    },
+    {
+      "op": "screenshot",
+      "ms": 659
+    },
+    {
+      "op": "act",
+      "ms": 460
+    },
+    {
+      "op": "act",
+      "ms": 561
+    },
+    {
+      "op": "act",
+      "ms": 429
+    },
+    {
+      "op": "act",
+      "ms": 661
+    },
+    {
+      "op": "start",
+      "ms": 11159
+    },
+    {
+      "op": "act",
+      "ms": 603
+    },
+    {
+      "op": "act",
+      "ms": 448
+    },
+    {
+      "op": "act",
+      "ms": 772
+    },
+    {
+      "op": "act",
+      "ms": 446
+    },
+    {
+      "op": "act",
+      "ms": 584
+    },
+    {
+      "op": "act",
+      "ms": 539
+    },
+    {
+      "op": "screenshot",
+      "ms": 696
+    },
+    {
+      "op": "act",
+      "ms": 428
+    },
+    {
+      "op": "act",
+      "ms": 547
+    },
+    {
+      "op": "act",
+      "ms": 431
+    },
+    {
+      "op": "act",
+      "ms": 652
+    },
+    {
+      "op": "screenshot",
+      "ms": 708
+    },
+    {
+      "op": "act",
+      "ms": 655
+    },
+    {
+      "op": "recording_timestamp",
+      "ms": 410
+    },
+    {
+      "op": "recording_finish",
+      "ms": 655
+    },
+    {
+      "op": "recording_finish",
+      "ms": 409
+    },
+    {
+      "op": "recording_discard",
+      "ms": 408
+    }
+  ]
+}

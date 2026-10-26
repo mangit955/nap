@@ -4,7 +4,15 @@ import { DEFAULT_PANEL_LAYOUT } from "./tabs.ts";
 import { usePanelLayout } from "./use-panel-layout.ts";
 import { Workbench } from "./workbench.tsx";
 
-function Workspace({ scope = "test", narrow = false }: { scope?: string; narrow?: boolean }) {
+function Workspace({
+  scope = "test",
+  narrow = false,
+  computerAvailable = true,
+}: {
+  scope?: string;
+  narrow?: boolean;
+  computerAvailable?: boolean;
+}) {
   const controller = usePanelLayout(scope);
   return (
     <>
@@ -19,6 +27,7 @@ function Workspace({ scope = "test", narrow = false }: { scope?: string; narrow?
         narrow={narrow}
         maximized={false}
         onMaximize={() => {}}
+        computer={computerAvailable ? <p>the computer</p> : undefined}
         preview={<input aria-label="App state" defaultValue="kept" />}
         code={<p>the files</p>}
         diff={<p>the changes</p>}
@@ -30,6 +39,31 @@ function Workspace({ scope = "test", narrow = false }: { scope?: string; narrow?
 }
 beforeEach(() => localStorage.clear());
 describe("the right panel", () => {
+  it.each([false, true])(
+    "omits unavailable Computer from the panel menu with narrow=%s",
+    (narrow) => {
+      render(<Workspace narrow={narrow} computerAvailable={false} />);
+      fireEvent.click(screen.getByLabelText("Add panel"));
+      expect(screen.queryByRole("menuitem", { name: "Computer" })).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole("menuitem", { name: "Files" }));
+      expect(screen.getByRole("tabpanel", { name: "Files" })).toBeVisible();
+    },
+  );
+
+  it.each([false, true])(
+    "omits unavailable Computer from the empty launcher with narrow=%s",
+    (narrow) => {
+      localStorage.setItem(
+        "nap.right-panel.v1:test",
+        JSON.stringify({ ...DEFAULT_PANEL_LAYOUT, tabs: [], active: null }),
+      );
+      render(<Workspace narrow={narrow} computerAvailable={false} />);
+      expect(screen.queryByRole("button", { name: "Computer" })).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Browser" }));
+      expect(screen.getByRole("tabpanel", { name: "Browser" })).toBeVisible();
+    },
+  );
+
   it("preserves the preview DOM across selection, tab closure, and reopening", () => {
     render(<Workspace />);
     const frame = screen.getByLabelText("App state");
@@ -261,4 +295,15 @@ describe("the right panel", () => {
       rects.mockRestore();
     }
   });
+});
+
+it("opens and persists the Computer tab from the panel menu", () => {
+  const view = render(<Workspace />);
+  fireEvent.click(screen.getByLabelText("Add panel"));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Computer" }));
+  expect(screen.getByRole("tab", { name: "Computer" })).toHaveAttribute("aria-selected", "true");
+  expect(screen.getByText("the computer")).toBeVisible();
+  view.unmount();
+  render(<Workspace />);
+  expect(screen.getByRole("tab", { name: "Computer" })).toHaveAttribute("aria-selected", "true");
 });

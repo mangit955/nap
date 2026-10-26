@@ -1,0 +1,473 @@
+Local Notes model implementation evidence
+Base: 6fce7f0
+Scope: assigned model/fixture scripts and this model evidence directory only.
+
+== Initial baseline attempt: exit 127, dependencies absent ==
+Command log: /tmp/nap-local-model-baseline.log
+$ vitest run --project unit --project types --project web --project db "--maxWorkers=2" --no-file-parallelism
+/bin/bash: vitest: command not found
+error: script "test" exited with code 127
+
+== Baseline after frozen-lockfile install: exit 0 ==
+Command log: /tmp/nap-local-model-baseline-installed.log
+Not implemented: navigation to another Document
+
+ Test Files  425 passed (425)
+      Tests  5587 passed (5587)
+Type Errors  no errors
+   Start at  18:37:06
+   Duration  195.62s (transform 2.82s, setup 4.92s, import 19.03s, tests 97.12s, environment 20.87s, typecheck 572ms)
+
+
+== Tests written before both exports: RED, exit 1 ==
+Command log: /tmp/nap-local-model-red.log
+$ vitest run --project unit --project types --project web --project db --project unit "--maxWorkers=1" apps/api/scripts/computer-local-model.test.ts apps/api/scripts/computer-local-fixture.test.ts
+Testing types with tsc and vue-tsc is an experimental feature.
+Breaking changes might not follow SemVer, please pin Vitest's version when using it.
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/t3-3955de65
+
+ ❯ |unit| apps/api/scripts/computer-local-model.test.ts (0 test)
+ ❯ |unit| apps/api/scripts/computer-local-fixture.test.ts (0 test)
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |unit| apps/api/scripts/computer-local-fixture.test.ts [ apps/api/scripts/computer-local-fixture.test.ts ]
+Error: Cannot find module './computer-local-fixture.ts' imported from /Users/manasraghuwanshi/.t3/worktrees/nap/t3-3955de65/apps/api/scripts/computer-local-fixture.test.ts
+ ❯ apps/api/scripts/computer-local-fixture.test.ts:2:1
+      1| import { expect, it } from "vitest";
+      2| import { computerLocalAppSource } from "./computer-local-fixture.ts";
+       | ^
+      3|
+      4| it("derives the buggy and fixed real App.tsx from one source with one …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |unit| apps/api/scripts/computer-local-model.test.ts [ apps/api/scripts/computer-local-model.test.ts ]
+Error: Cannot find module './computer-local-fixture.ts' imported from /Users/manasraghuwanshi/.t3/worktrees/nap/t3-3955de65/apps/api/scripts/computer-local-model.test.ts
+ ❯ apps/api/scripts/computer-local-model.test.ts:13:1
+     11| } from "@nap/shared/ports/llm-provider";
+     12| import { expect, it } from "vitest";
+     13| import { computerLocalAppSource } from "./computer-local-fixture.ts";
+       | ^
+     14| import { computerLocalProvider } from "./computer-local-model.ts";
+     15|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  no tests
+Type Errors  no errors
+   Start at  18:39:33
+   Duration  324ms (transform 41ms, setup 0ms, import 0ms, tests 0ms, environment 0ms)
+
+error: script "test" exited with code 1
+
+== Initial bounded typecheck invocation: exit 1, flag forwarded to root tsc ==
+Command log: /tmp/nap-local-model-typecheck.log
+$ turbo run typecheck && tsc --noEmit "--concurrency=2"
+• turbo 2.10.8
+
+   • Packages in scope: @nap/agent, @nap/api, @nap/bench, @nap/capture, @nap/context, @nap/db, @nap/loadgen, @nap/napbench, @nap/runtime, @nap/sandbox, @nap/shared, @nap/storage, @nap/verify, @nap/web
+   • Running typecheck in 14 packages
+   • Remote caching disabled, using shared worktree cache
+
+@nap/loadgen:typecheck: cache hit, replaying logs bf9422b0deb5481d
+@nap/loadgen:typecheck: $ tsc --noEmit
+@nap/sandbox:typecheck: cache hit, replaying logs 8271e3cb65a8b7de
+@nap/runtime:typecheck: cache hit, replaying logs bd7a1a869797cb8e
+@nap/runtime:typecheck: $ tsc --noEmit
+@nap/shared:typecheck: cache hit, replaying logs 3dba5554106af31b
+@nap/storage:typecheck: cache hit, replaying logs b904c3646f61becd
+@nap/agent:typecheck: cache hit, replaying logs 558994cc79e24b84
+@nap/agent:typecheck: $ tsc --noEmit
+@nap/shared:typecheck: $ tsc --noEmit
+@nap/db:typecheck: cache hit, replaying logs 508bd3805bbde7d3
+@nap/verify:typecheck: cache hit, replaying logs 4a8e749cd5965b61
+@nap/sandbox:typecheck: $ tsc --noEmit
+@nap/capture:typecheck: cache hit, replaying logs e3353e892df19d42
+@nap/storage:typecheck: $ tsc --noEmit
+@nap/context:typecheck: cache hit, replaying logs 6a51a94ef1c2722e
+@nap/verify:typecheck: $ tsc --noEmit
+@nap/db:typecheck: $ tsc --noEmit
+@nap/capture:typecheck: $ tsc --noEmit
+@nap/context:typecheck: $ tsc --noEmit
+@nap/bench:typecheck: cache hit, replaying logs a8458480fd43deee
+@nap/bench:typecheck: $ tsc --noEmit
+@nap/napbench:typecheck: cache hit, replaying logs c30fddfd4b82e573
+@nap/napbench:typecheck: $ tsc --noEmit
+@nap/web:typecheck: cache miss, executing c53f645b71b9713f
+@nap/api:typecheck: cache miss, executing dccfe722d52df0c6
+@nap/api:typecheck: $ tsc --noEmit
+@nap/web:typecheck: $ tsc --noEmit
+
+ Tasks:    14 successful, 14 total
+Cached:    12 cached, 14 total
+  Time:    1.551s
+
+error TS5023: Unknown compiler option '--concurrency=2'.
+error: script "typecheck" exited with code 1
+
+== Corrected normal typecheck with TURBO_CONCURRENCY=2: exit 0 ==
+Command log: /tmp/nap-local-model-typecheck-normal.log
+$ turbo run typecheck && tsc --noEmit
+• turbo 2.10.8
+
+   • Packages in scope: @nap/agent, @nap/api, @nap/bench, @nap/capture, @nap/context, @nap/db, @nap/loadgen, @nap/napbench, @nap/runtime, @nap/sandbox, @nap/shared, @nap/storage, @nap/verify, @nap/web
+   • Running typecheck in 14 packages
+   • Remote caching disabled, using shared worktree cache
+
+@nap/shared:typecheck: cache hit, replaying logs 3dba5554106af31b
+@nap/db:typecheck: cache hit, replaying logs 508bd3805bbde7d3
+@nap/db:typecheck: $ tsc --noEmit
+@nap/shared:typecheck: $ tsc --noEmit
+@nap/context:typecheck: cache hit, replaying logs 6a51a94ef1c2722e
+@nap/storage:typecheck: cache hit, replaying logs b904c3646f61becd
+@nap/context:typecheck: $ tsc --noEmit
+@nap/storage:typecheck: $ tsc --noEmit
+@nap/capture:typecheck: cache hit, replaying logs e3353e892df19d42
+@nap/capture:typecheck: $ tsc --noEmit
+@nap/sandbox:typecheck: cache hit, replaying logs 8271e3cb65a8b7de
+@nap/verify:typecheck: cache hit, replaying logs 4a8e749cd5965b61
+@nap/verify:typecheck: $ tsc --noEmit
+@nap/sandbox:typecheck: $ tsc --noEmit
+@nap/agent:typecheck: cache hit, replaying logs 558994cc79e24b84
+@nap/agent:typecheck: $ tsc --noEmit
+@nap/loadgen:typecheck: cache hit, replaying logs bf9422b0deb5481d
+@nap/loadgen:typecheck: $ tsc --noEmit
+@nap/bench:typecheck: cache hit, replaying logs a8458480fd43deee
+@nap/bench:typecheck: $ tsc --noEmit
+@nap/runtime:typecheck: cache hit, replaying logs bd7a1a869797cb8e
+@nap/napbench:typecheck: cache hit, replaying logs c30fddfd4b82e573
+@nap/runtime:typecheck: $ tsc --noEmit
+@nap/napbench:typecheck: $ tsc --noEmit
+@nap/api:typecheck: cache miss, executing bf5748f97a1c0722
+@nap/web:typecheck: cache miss, executing 7f81a872a2b288c4
+@nap/web:typecheck: $ tsc --noEmit
+@nap/api:typecheck: $ tsc --noEmit
+
+ Tasks:    14 successful, 14 total
+Cached:    12 cached, 14 total
+  Time:    2.787s
+
+
+== First mutation run: one survivor, retained ==
+provider-export	caught	exit=1	/tmp/nap-local-model-mutations/provider-export.log
+fixture-export	caught	exit=1	/tmp/nap-local-model-mutations/fixture-export.log
+tool-error	caught	exit=1	/tmp/nap-local-model-mutations/tool-error.log
+unique-use	SURVIVED	exit=0	/tmp/nap-local-model-mutations/unique-use.log
+unique-result	caught	exit=1	/tmp/nap-local-model-mutations/unique-result.log
+ordered-exchange	caught	exit=1	/tmp/nap-local-model-mutations/ordered-exchange.log
+input-frame	caught	exit=1	/tmp/nap-local-model-mutations/input-frame.log
+current-note	caught	exit=1	/tmp/nap-local-model-mutations/current-note.log
+missing-dom	caught	exit=1	/tmp/nap-local-model-mutations/missing-dom.log
+explicit-repair	caught	exit=1	/tmp/nap-local-model-mutations/explicit-repair.log
+expectation-first	caught	exit=1	/tmp/nap-local-model-mutations/expectation-first.log
+save-source	caught	exit=1	/tmp/nap-local-model-mutations/save-source.log
+declared-tool	caught	exit=1	/tmp/nap-local-model-mutations/declared-tool.log
+
+The unique-use mutation survived because the original negative case also duplicated the result. The test now supplies two tool uses and exactly one result. This isolates the use-count guard. The first raw survivor log is /tmp/nap-local-model-mutations/unique-use.log.
+
+== Final export and guard mutations: 18 caught; exit 0 ==
+provider-export	caught	exit=1	/tmp/nap-local-model-mutations-final/provider-export.log
+fixture-export	caught	exit=1	/tmp/nap-local-model-mutations-final/fixture-export.log
+tool-error	caught	exit=1	/tmp/nap-local-model-mutations-final/tool-error.log
+unique-use	caught	exit=1	/tmp/nap-local-model-mutations-final/unique-use.log
+unique-result	caught	exit=1	/tmp/nap-local-model-mutations-final/unique-result.log
+ordered-exchange	caught	exit=1	/tmp/nap-local-model-mutations-final/ordered-exchange.log
+tool-name	caught	exit=1	/tmp/nap-local-model-mutations-final/tool-name.log
+tool-input	caught	exit=1	/tmp/nap-local-model-mutations-final/tool-input.log
+app-marker	caught	exit=1	/tmp/nap-local-model-mutations-final/app-marker.log
+unique-list	caught	exit=1	/tmp/nap-local-model-mutations-final/unique-list.log
+input-frame	caught	exit=1	/tmp/nap-local-model-mutations-final/input-frame.log
+current-note	caught	exit=1	/tmp/nap-local-model-mutations-final/current-note.log
+missing-dom	caught	exit=1	/tmp/nap-local-model-mutations-final/missing-dom.log
+explicit-repair	caught	exit=1	/tmp/nap-local-model-mutations-final/explicit-repair.log
+expectation-first	caught	exit=1	/tmp/nap-local-model-mutations-final/expectation-first.log
+save-source	caught	exit=1	/tmp/nap-local-model-mutations-final/save-source.log
+bug-source	caught	exit=1	/tmp/nap-local-model-mutations-final/bug-source.log
+declared-tool	caught	exit=1	/tmp/nap-local-model-mutations-final/declared-tool.log
+
+Actual failure excerpts follow. Full logs are at the paths in the summary.
+
+-- app-marker.log --
+ FAIL  |unit| apps/api/scripts/computer-local-model.test.ts > cannot pass from a wrong-root DOM observation
+AssertionError: expected [ { …(3) } ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
+
+-- bug-source.log --
+ FAIL  |unit| apps/api/scripts/computer-local-fixture.test.ts > derives the buggy and fixed real App.tsx from one source with one save-handler difference
+AssertionError: expected 'import { useState } from "react";\n\n…' to contain 'setNotes((saved) => saved);'
+
+- Expected
++ Received
+
+- setNotes((saved) => saved);
++ import { useState } from "react";
+
+-- current-note.log --
+ FAIL  |unit| apps/api/scripts/computer-local-model.test.ts > fails only after a successful current DOM observation shows the saved list without this note
+AssertionError: expected { type: 'assertion', id: 'save', …(2) } to deeply equal { type: 'assertion', id: 'save', …(2) }
+
+- Expected
++ Received
+
+  {
+    "expectation": "The saved note appears in the list.",
+
+-- declared-tool.log --
+ FAIL  |unit| apps/api/scripts/computer-local-model.test.ts > returns typed errors for unavailable tools, failed source tools, cancellation and compaction
+AssertionError: expected { type: 'message', …(3) } to match object { type: 'error', retryable: false }
+(5 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+
+-- expectation-first.log --
+ FAIL  |unit| apps/api/scripts/computer-local-model.test.ts > declares setup and expectations before physical save input, then reads DOM in a later step
+AssertionError: expected [ { action: 'annotate', …(1) }, …(8) ] to deeply equal [ { action: 'annotate', …(1) }, …(8) ]
+
+- Expected
++ Received
+
+@@ -10,11 +10,11 @@
+    {
+
+-- explicit-repair.log --
+ FAIL  |unit| apps/api/scripts/computer-local-model.test.ts > exports a zero-cost provider whose first normal turn reads and writes the real buggy App.tsx
+AssertionError: expected { …(3) } to match object { name: 'write_file', input: { …(2) } }
+(1 matching property omitted from actual)
+
+- Expected
++ Received
+
+@@ -7,11 +7,11 @@
+
+-- fixture-export.log --
+ FAIL  |unit| apps/api/scripts/computer-local-fixture.test.ts > derives the buggy and fixed real App.tsx from one source with one save-handler difference
+TypeError: computerLocalAppSource is not a function
+ ❯ apps/api/scripts/computer-local-fixture.test.ts:5:17
+      3|
+      4| it("derives the buggy and fixed real App.tsx from one source with one …
+      5|   const buggy = computerLocalAppSource("buggy");
+       |                 ^
+      6|   const fixed = computerLocalAppSource("fixed");
+
+-- input-frame.log --
+ FAIL  |unit| apps/api/scripts/computer-local-model.test.ts > leaves input untested for a missing screenshot result
+AssertionError: expected [ { …(3) } ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
+
+-- missing-dom.log --
+ FAIL  |unit| apps/api/scripts/computer-local-model.test.ts > cannot pass from a truncated DOM observation
+AssertionError: expected [ { …(3) } ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
+
+-- ordered-exchange.log --
+ FAIL  |unit| apps/api/scripts/computer-local-model.test.ts > cannot pass from a reversed DOM observation
+AssertionError: expected [ { …(3) } ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
+
+-- provider-export.log --
+ FAIL  |unit| apps/api/scripts/computer-local-model.test.ts > exports a zero-cost provider whose first normal turn reads and writes the real buggy App.tsx
+TypeError: computerLocalProvider is not a function
+ ❯ apps/api/scripts/computer-local-model.test.ts:102:16
+    100|
+    101| it("exports a zero-cost provider whose first normal turn reads and wri…
+    102|   const turn = computerLocalProvider(0).startTurn({ model: "anthropic/…
+       |                ^
+    103|   const req = request(true);
+
+-- save-source.log --
+ FAIL  |unit| apps/api/scripts/computer-local-fixture.test.ts > derives the buggy and fixed real App.tsx from one source with one save-handler difference
+AssertionError: expected 'import { useState } from "react";\n\n…' to contain 'setNotes((saved) => [...saved, note]);'
+
+- Expected
++ Received
+
+- setNotes((saved) => [...saved, note]);
++ import { useState } from "react";
+
+-- tool-error.log --
+ FAIL  |unit| apps/api/scripts/computer-local-model.test.ts > leaves input untested for a error screenshot result
+AssertionError: expected [ { …(3) } ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
+
+-- tool-input.log --
+ FAIL  |unit| apps/api/scripts/computer-local-model.test.ts > cannot pass from a wrong-input DOM observation
+AssertionError: expected [ { …(3) } ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
+
+-- tool-name.log --
+ FAIL  |unit| apps/api/scripts/computer-local-model.test.ts > cannot pass from a wrong-name DOM observation
+AssertionError: expected [ { …(3) } ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
+
+-- unique-list.log --
+ FAIL  |unit| apps/api/scripts/computer-local-model.test.ts > cannot pass from a duplicate-list DOM observation
+AssertionError: expected [ { …(3) } ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
+
+-- unique-result.log --
+ FAIL  |unit| apps/api/scripts/computer-local-model.test.ts > cannot pass from a duplicate-result DOM observation
+AssertionError: expected [ { …(3) } ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
+
+-- unique-use.log --
+ FAIL  |unit| apps/api/scripts/computer-local-model.test.ts > cannot pass from a duplicate-use DOM observation
+AssertionError: expected [ { …(3) } ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
+
+== Restored focused suite: 32 tests passed, exit 0 ==
+Command log: /tmp/nap-local-model-mutations-final/restored.log
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/t3-3955de65
+
+
+ Test Files  2 passed (2)
+      Tests  32 passed (32)
+   Start at  18:48:28
+   Duration  323ms (transform 38ms, setup 0ms, import 74ms, tests 11ms, environment 0ms)
+
+
+== Final full suite: exit 0 ==
+Command log: /tmp/nap-local-model-full-final.log
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+
+ Test Files  427 passed (427)
+      Tests  5619 passed (5619)
+Type Errors  no errors
+   Start at  18:44:14
+   Duration  229.84s (transform 3.54s, setup 6.58s, import 22.43s, tests 113.14s, environment 27.57s, typecheck 279ms)
+
+
+== Final normal typecheck: TURBO_CONCURRENCY=2 bun run typecheck, exit 0 ==
+Command log: /tmp/nap-local-model-typecheck-final.log
+@nap/napbench:typecheck: cache hit, replaying logs c30fddfd4b82e573
+@nap/napbench:typecheck: $ tsc --noEmit
+@nap/web:typecheck: cache miss, executing 01069843a8267081
+@nap/api:typecheck: $ tsc --noEmit
+@nap/web:typecheck: $ tsc --noEmit
+
+ Tasks:    14 successful, 14 total
+Cached:    12 cached, 14 total
+  Time:    1.607s
+
+
+== Final lint: bun run lint, exit 0 ==
+Command log: /tmp/nap-local-model-lint-final.log
+         │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    1916 │   padding-left: 52px;
+    1917 │ }
+
+  i Descending specificity selector may not be applied. Consider rearranging the order of the selectors. See MDN web docs for more details.
+
+
+Checked 1193 files in 438ms. No fixes applied.
+Found 1 warning.
+Found 1 info.
+
+== Unit collection: both new suites appear ==
+Command log: /tmp/nap-local-model-collection.log
+[unit] apps/api/scripts/computer-local-model.test.ts > exports a zero-cost provider whose first normal turn reads and writes the real buggy App.tsx
+[unit] apps/api/scripts/computer-local-model.test.ts > repairs actual source only for the current explicit request: Fix it
+[unit] apps/api/scripts/computer-local-model.test.ts > repairs actual source only for the current explicit request: Fix the failures found while testing this app. Keep the repair focused on these observations and the original goal.
+
+Original goal (data): "Build Notes"
+
+Failed expectations (data): [{"id":"save","expectation":"The saved note appears in the list."}]
+[unit] apps/api/scripts/computer-local-model.test.ts > does not treat older repair prompts or another edit as authorization to fix
+[unit] apps/api/scripts/computer-local-model.test.ts > declares setup and expectations before physical save input, then reads DOM in a later step
+[unit] apps/api/scripts/computer-local-model.test.ts > fails only after a successful current DOM observation shows the saved list without this note
+[unit] apps/api/scripts/computer-local-model.test.ts > emits setup, chapter, expectation, action and later verdict accepted by the real app-test guards
+[unit] apps/api/scripts/computer-local-model.test.ts > leaves input untested for a missing screenshot result
+[unit] apps/api/scripts/computer-local-model.test.ts > leaves input untested for a error screenshot result
+[unit] apps/api/scripts/computer-local-model.test.ts > leaves input untested for a text-only screenshot result
+[unit] apps/api/scripts/computer-local-model.test.ts > leaves input untested for a duplicate screenshot result
+[unit] apps/api/scripts/computer-local-model.test.ts > leaves input untested for a old-id screenshot result
+[unit] apps/api/scripts/computer-local-model.test.ts > cannot pass from a missing DOM observation
+[unit] apps/api/scripts/computer-local-model.test.ts > cannot pass from a error DOM observation
+[unit] apps/api/scripts/computer-local-model.test.ts > cannot pass from a unrelated DOM observation
+[unit] apps/api/scripts/computer-local-model.test.ts > cannot pass from a duplicate-result DOM observation
+[unit] apps/api/scripts/computer-local-model.test.ts > cannot pass from a duplicate-use DOM observation
+[unit] apps/api/scripts/computer-local-model.test.ts > cannot pass from a assistant-result DOM observation
+[unit] apps/api/scripts/computer-local-model.test.ts > cannot pass from a orphan DOM observation
+[unit] apps/api/scripts/computer-local-model.test.ts > cannot pass from a reversed DOM observation
+[unit] apps/api/scripts/computer-local-model.test.ts > cannot pass from a wrong-name DOM observation
+[unit] apps/api/scripts/computer-local-model.test.ts > cannot pass from a wrong-input DOM observation
+[unit] apps/api/scripts/computer-local-model.test.ts > cannot pass from a no-dom DOM observation
+[unit] apps/api/scripts/computer-local-model.test.ts > cannot pass from a truncated DOM observation
+[unit] apps/api/scripts/computer-local-model.test.ts > cannot pass from a wrong-marker DOM observation
+[unit] apps/api/scripts/computer-local-model.test.ts > cannot pass from a wrong-root DOM observation
+[unit] apps/api/scripts/computer-local-model.test.ts > cannot pass from a duplicate-list DOM observation
+[unit] apps/api/scripts/computer-local-model.test.ts > requires the exact current note in an actual saved-note li, not source, input, or older notes
+[unit] apps/api/scripts/computer-local-model.test.ts > cancels the default 350ms pacing before it emits a tool call
+[unit] apps/api/scripts/computer-local-model.test.ts > interleaves isolated tests without sharing verdict or edit state
+[unit] apps/api/scripts/computer-local-model.test.ts > returns typed errors for unavailable tools, failed source tools, cancellation and compaction
+[unit] apps/api/scripts/computer-local-fixture.test.ts > derives the buggy and fixed real App.tsx from one source with one save-handler difference
+
+Commit uses the normal pre-commit hook, with no bypass. Its actual output is retained in /tmp/nap-local-model-commit.log and its result is reported in the partial issue handoff.
+
+Not performed here: generated App.tsx typecheck/build inside the real template, live coordinate calibration, integrated Docker/browser/media/auth acceptance. Parent owns those checks. No app server, paid model/sandbox call, push, PR, or old demo resource change was made by this implementation.
+
+== Normal pre-commit hooks: exit 0 ==
+biome passed; typecheck passed; changed unit/web tests passed: 2 files, 32 tests.
+Raw first commit output: /tmp/nap-local-model-commit.log
+The evidence-only amendment also runs normal hooks; its raw output is /tmp/nap-local-model-amend.log.

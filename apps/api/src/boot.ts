@@ -41,6 +41,7 @@ import { PostgresCapacityReconciler } from "@nap/db/postgres-capacity-reconciler
 import { PostgresEventStore } from "@nap/db/postgres-event-store";
 import { PostgresNotifyEventBus } from "@nap/db/postgres-notify-event-bus";
 import { PostgresNotifyTransport } from "@nap/db/postgres-notify-transport";
+import { PostgresProjectComputerAccess } from "@nap/db/postgres-project-computer-access";
 import { PostgresProjectSandboxStore } from "@nap/db/postgres-project-sandbox-store";
 import { PostgresProjectStore } from "@nap/db/postgres-project-store";
 import { PostgresProviderAccountStore } from "@nap/db/postgres-provider-account-store";
@@ -51,6 +52,7 @@ import { PostgresTurnQueue } from "@nap/db/postgres-turn-queue";
 import { PostgresTurnRateLimiter } from "@nap/db/postgres-turn-rate-limiter";
 import { PostgresUserKeyStore } from "@nap/db/postgres-user-key-store";
 import { createProjectSession } from "@nap/db/session-bootstrap";
+import { E2BSandboxDesktop } from "@nap/sandbox/e2b-sandbox-desktop";
 import { E2BSandboxManager } from "@nap/sandbox/e2b-sandbox-manager";
 import { NAP_TEMPLATE } from "@nap/sandbox/template";
 import { type Logger, setRootLogger } from "@nap/shared/logging";
@@ -189,6 +191,8 @@ export async function bootNap(role: NapRole): Promise<NapProcess> {
     // snapshot first.
     timeoutMs: env.NAP_SANDBOX_TTL_MINUTES * 60 * 1000,
   });
+
+  const desktop = new E2BSandboxDesktop({ sandbox });
 
   // A project's bytes while nothing is running, and the rows that say where they are.
   const objects = new R2ObjectStore(
@@ -345,6 +349,12 @@ export async function bootNap(role: NapRole): Promise<NapProcess> {
     events,
     bus,
     sandbox,
+    desktop,
+    recordings: desktop,
+    computerAccess: {
+      access: new PostgresProjectComputerAccess(db),
+      secret: env.BETTER_AUTH_SECRET,
+    },
     objects,
     provider: buildProvider(),
     ...(capture === undefined ? {} : { capture }),

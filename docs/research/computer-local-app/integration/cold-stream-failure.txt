@@ -1,0 +1,29 @@
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/feat-computer-use
+
+ ❯ |integration| apps/napbench/src/computer-local.integration.test.ts (1 test | 1 failed) 73018ms
+   × runs the real Nap desktop, test, fix and recording path locally 73018ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |integration| apps/napbench/src/computer-local.integration.test.ts > runs the real Nap desktop, test, fix and recording path locally
+TimeoutError: locator.waitFor: Timeout 70000ms exceeded.
+Call log:
+[2m  - waiting for getByRole('application', { name: 'Remote computer', exact: true }).locator('canvas') to be visible[22m
+
+ ❯ apps/napbench/src/computer-local.integration.test.ts:86:20
+     84|       const canvas = screen.locator("canvas");
+     85|       // The desktop start command has a 55-second bound before creden…
+     86|       await canvas.waitFor({ state: "visible", timeout: 70000 });
+       |                    ^
+     87|       await expect
+     88|         .poll(
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  20:13:35
+   Duration  73.30s (transform 22ms, setup 11ms, import 145ms, tests 73.02s, environment 0ms)
+

@@ -44,7 +44,8 @@ refused). `foldJobs` in `@nap/shared` is the one function that decides all of it
 workspace is committed and then checked: the project's own checks, cheapest first, stopping at the
 first failure. Passing makes the commit a **checkpoint**; failing opens a repair turn carrying the
 failure. Bounded by attempts rather than by a token ledger, and confined to sandbox commands and a
-preview probe — the browser stays NapBench's alone, per `docs/adr/0001`.
+preview probe. Agent computer use is a separate image-gated capability under ADR-0018;
+agent-reported assertions do not change the deterministic checkpoint.
 
 **Check** — one command, run in the sandbox, that passed, failed, or was **absent**. Absent is not
 failure and the gap is load-bearing in both directions: a project with no `test` script has not
@@ -588,3 +589,23 @@ changes only when another funded run records something different.
 **Threshold** — one condition a run is held to, as a metric, a statistic of it, a comparison and a
 number. A threshold whose metric was never recorded **fails**, rather than passing vacuously: a
 harness that quietly stopped measuring something must not report a green run.
+
+**Computer** — the desktop inside a project's sandbox, behind `SandboxDesktop`. The agent sees
+JPEG screenshots and sends batched input and observation actions through the `computer` tool.
+Screenshot events name stored objects; the model receives images only within its active turn.
+Desktop lifecycle and stream credentials stay separate from sandbox lifecycle and event storage.
+See [ADR-0018](docs/adr/0018-the-agent-gets-a-computer.md).
+
+**Input scope** — one single-use ownership of a project's Computer input, reserved durably before physical dispatch. A model attempt reserves lazily and an owner batch reserves once. Unknown completion retains the project's admission fence until a matching remote drain proof clears it. Closing a scope permanently revokes delayed input for that identity. Recovery never replays input or destroys source.
+
+**Abandoning a Computer** — the owner's way out when a held input scope's machine never proves its drain. After one more drain attempt fails, the reservation is deleted and the project forgets that machine. The next turn restores the last snapshot onto a fresh one. This is not *closing* a project, which snapshots first: abandoning takes no snapshot of the machine it gives up, since all it has established is that the drain failed. Changes since the last snapshot are lost, including the work of a turn that completed and committed but never reached its snapshot, and every session of the project gets a notice in its log saying the computer was abandoned.
+
+**App test** — a user-approved, system-prompted Turn that exercises the latest completed Job in
+its Computer. Its goal and source commit are recorded in `test.started`; its input prompt is
+built from that goal and the Job's diff. Assertions are declared before input and receive a
+verdict after a new screenshot. The result does not change the Job's checkpoint. A failed
+assertion offers a separate repair the user may request; it never starts one itself.
+
+**Test recording** — a video of one App test, with annotations on the video’s timeline. It shows
+what was attempted and what was visible; it does not independently establish an assertion’s truth.
+An interrupted or missing recording leaves the test’s assertions available for review.

@@ -1,0 +1,32 @@
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/feat-computer-use
+
+ ❯ |unit| packages/sandbox/src/desktop-input.test.ts (12 tests | 1 failed) 6ms
+     × clicks after moving to the same point without waiting for another motion event 3ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |unit| packages/sandbox/src/desktop-input.test.ts > physical desktop action driver > clicks after moving to the same point without waiting for another motion event
+AssertionError: promise rejected "Error: Stationary synchronous mousemove w…" instead of resolving
+ ❯ packages/sandbox/src/desktop-input.test.ts:40:6
+     38|     await expect(
+     39|       performDesktopAction({ action: "left_click", coordinate: [10, 20…
+     40|     ).resolves.toEqual({ kind: "none" });
+       |      ^
+     41|   });
+     42|   it.each([
+
+Caused by: Error: Stationary synchronous mousemove waits for an event that never arrives.
+ ❯ Object.f.host.xdotool packages/sandbox/src/desktop-input.test.ts:32:15
+ ❯ run packages/sandbox/src/desktop-input.ts:52:49
+ ❯ performDesktopAction packages/sandbox/src/desktop-input.ts:64:13
+ ❯ packages/sandbox/src/desktop-input.test.ts:39:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 11 passed (12)
+   Start at  20:02:57
+   Duration  159ms (transform 17ms, setup 0ms, import 23ms, tests 6ms, environment 0ms)
+

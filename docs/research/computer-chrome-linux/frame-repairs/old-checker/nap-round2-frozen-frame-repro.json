@@ -1,0 +1,7 @@
+{
+  "actualSourceAssertion": "assert.notEqual(\n    createHash(\"sha256\").update(afterImage).digest(\"hex\"),\n    report.decodedFrame.sha256,\n  );",
+  "frozenFrame": "vnc/verified/vnc-adversarial.png",
+  "frozenFrameSha256": "0ec0b851c68d28875f0bc4baf1b8884235fb4cdb8d8678d7c87f75510ec539d1",
+  "originalDecodedFrameSha256": "8524eb7f69703513730468b6fffae822105e3197d4fa78ede691b88cc0017840",
+  "passesDespiteReusingPrePhysicalFrame": true
+}

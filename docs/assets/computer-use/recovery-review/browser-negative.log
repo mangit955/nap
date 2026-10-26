@@ -1,0 +1,64 @@
+ apps/web/src/components/chat-pane.tsx | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+mutant build exit=0
+1
+[
+ {
+  "name": "desktop-1440x900-dark",
+  "before": {
+   "noticePresent": false,
+   "top": 1511,
+   "height": 2359,
+   "client": 848
+  },
+  "inViewport": false,
+  "overlapsComposer": true,
+  "atBottom": false,
+  "recoveryCalls": 1,
+  "errors": 0
+ },
+ {
+  "name": "desktop-1440x900-light",
+  "before": {
+   "noticePresent": false,
+   "top": 1511,
+   "height": 2359,
+   "client": 848
+  },
+  "inViewport": false,
+  "overlapsComposer": true,
+  "atBottom": false,
+  "recoveryCalls": 1,
+  "errors": 0
+ },
+ {
+  "name": "narrow-390x844-dark",
+  "before": {
+   "noticePresent": false,
+   "top": 2334,
+   "height": 3126,
+   "client": 792
+  },
+  "inViewport": false,
+  "overlapsComposer": true,
+  "atBottom": false,
+  "recoveryCalls": 1,
+  "errors": 0
+ },
+ {
+  "name": "narrow-390x844-light",
+  "before": {
+   "noticePresent": false,
+   "top": 2334,
+   "height": 3126,
+   "client": 792
+  },
+  "inViewport": false,
+  "overlapsComposer": true,
+  "atBottom": false,
+  "recoveryCalls": 1,
+  "errors": 0
+ }
+]
+mutant browser exit=1
+restored build exit=0

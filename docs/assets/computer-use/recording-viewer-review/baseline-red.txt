@@ -1,0 +1,48 @@
+$ vitest run --project unit --project types --project web --project db
+Testing types with tsc and vue-tsc is an experimental feature.
+Breaking changes might not follow SemVer, please pin Vitest's version when using it.
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/t3-55804d73
+
+(node:24137) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ❯ |unit| apps/api/src/github/git-broker.test.ts (8 tests | 1 failed) 9805ms
+   × waits for a stopped Git to exit before answering 1043ms
+(node:24947) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |unit| apps/api/src/github/git-broker.test.ts > waits for a stopped Git to exit before answering
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ apps/api/src/github/git-broker.test.ts:318:56
+    316|       signal: cancel.signal,
+    317|     });
+    318|     await vi.waitFor(() => expect(existsSync(started)).toBe(true));
+       |                                                        ^
+    319|     cancel.abort();
+    320|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 391 passed (392)
+      Tests  1 failed | 5133 passed (5134)
+Type Errors  no errors
+   Start at  11:15:24
+   Duration  149.78s (transform 11.36s, setup 42.24s, import 81.95s, tests 226.97s, environment 174.31s, typecheck 1.25s)
+
+error: script "test" exited with code 1

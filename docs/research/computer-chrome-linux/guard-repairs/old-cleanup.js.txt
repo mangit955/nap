@@ -1,0 +1,11 @@
+function cleanup() {
+  for (const args of [
+    ["rm", "-f", name],
+    ["image", "rm", image],
+  ]) {
+    try {
+      run("docker", args, 20000);
+    } catch {}
+  }
+  rmSync(context, { recursive: true, force: true });
+}

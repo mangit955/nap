@@ -1,0 +1,5 @@
+[h264 @ 0x761ec44a80] Invalid NAL unit size (0 > 9667).
+[h264 @ 0x761ec44a80] missing picture in access unit with size 9671
+[h264 @ 0x761ec47100] Invalid NAL unit size (0 > 9667).
+[h264 @ 0x761ec47100] Error splitting the input into NAL units.
+[vist#0:0/h264 @ 0x761ec18300] [dec:h264 @ 0x761ec1c280] Error submitting packet to decoder: Invalid data found when processing input

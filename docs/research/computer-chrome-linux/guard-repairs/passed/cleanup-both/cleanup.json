@@ -1,0 +1,37 @@
+{
+  "ok": false,
+  "attempts": [
+    {
+      "resource": "nap-chrome-smoke-9114ebf1-4f57-4ea7-a87a-84c1a5477fec",
+      "attempt": 1,
+      "absent": false,
+      "removalError": "Error: Command failed: docker rm -f nap-chrome-smoke-9114ebf1-4f57-4ea7-a87a-84c1a5477fec\nsimulated Docker removal unavailable",
+      "verificationError": "Error: Command failed: docker container ls -a --filter name=^/nap-chrome-smoke-9114ebf1-4f57-4ea7-a87a-84c1a5477fec$ --format {{.ID}}\nsimulated Docker verification unavailable"
+    },
+    {
+      "resource": "nap-chrome-smoke-9114ebf1-4f57-4ea7-a87a-84c1a5477fec",
+      "attempt": 2,
+      "absent": false,
+      "removalError": "Error: Command failed: docker rm -f nap-chrome-smoke-9114ebf1-4f57-4ea7-a87a-84c1a5477fec\nsimulated Docker removal unavailable",
+      "verificationError": "Error: Command failed: docker container ls -a --filter name=^/nap-chrome-smoke-9114ebf1-4f57-4ea7-a87a-84c1a5477fec$ --format {{.ID}}\nsimulated Docker verification unavailable"
+    },
+    {
+      "resource": "nap-chrome-smoke-9114ebf1-4f57-4ea7-a87a-84c1a5477fec:local",
+      "attempt": 1,
+      "absent": false,
+      "removalError": "Error: Command failed: docker image rm nap-chrome-smoke-9114ebf1-4f57-4ea7-a87a-84c1a5477fec:local\nsimulated Docker removal unavailable",
+      "verificationError": "Error: Command failed: docker image ls --filter reference=nap-chrome-smoke-9114ebf1-4f57-4ea7-a87a-84c1a5477fec:local --format {{.ID}}\nsimulated Docker verification unavailable"
+    },
+    {
+      "resource": "nap-chrome-smoke-9114ebf1-4f57-4ea7-a87a-84c1a5477fec:local",
+      "attempt": 2,
+      "absent": false,
+      "removalError": "Error: Command failed: docker image rm nap-chrome-smoke-9114ebf1-4f57-4ea7-a87a-84c1a5477fec:local\nsimulated Docker removal unavailable",
+      "verificationError": "Error: Command failed: docker image ls --filter reference=nap-chrome-smoke-9114ebf1-4f57-4ea7-a87a-84c1a5477fec:local --format {{.ID}}\nsimulated Docker verification unavailable"
+    }
+  ],
+  "failures": [
+    "Could not verify removal of owned Docker resource nap-chrome-smoke-9114ebf1-4f57-4ea7-a87a-84c1a5477fec.",
+    "Could not verify removal of owned Docker resource nap-chrome-smoke-9114ebf1-4f57-4ea7-a87a-84c1a5477fec:local."
+  ]
+}

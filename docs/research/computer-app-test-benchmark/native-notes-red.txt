@@ -1,0 +1,35 @@
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/feat-computer-use
+
+ ❯ |integration| apps/napbench/src/app-test-browser.integration.test.ts (4 tests | 1 failed | 3 skipped) 1615ms
+     × distinguishes 'notes-buggy' through its actual main flow 1613ms
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 skipped (4)
+   Start at  15:25:18
+   Duration  2.54s (transform 56ms, setup 41ms, import 437ms, tests 1.61s, environment 0ms)
+
+$ vitest run --project integration --passWithNoTests apps/napbench/src/app-test-browser.integration.test.ts -t notes-buggy
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |integration| apps/napbench/src/app-test-browser.integration.test.ts > app-test specimens in actual Chrome > distinguishes 'notes-buggy' through its actual main flow
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ apps/napbench/src/app-test-browser.integration.test.ts:50:24
+     48|         observed = (await page.getByRole("status").textContent()) === …
+     49|       }
+     50|       expect(observed).toBe(task.expected === "passed");
+       |                        ^
+     51|       expect(errors).toEqual([]);
+     52|     } finally {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+error: script "test:integration" exited with code 1

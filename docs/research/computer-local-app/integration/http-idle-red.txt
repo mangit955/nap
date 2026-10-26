@@ -1,0 +1,23 @@
+warn: Bun.serve() timed out a request after 10 seconds. Pass `idleTimeout` to configure.
+20 |   const [code, body, error] = await Promise.all([
+21 |     client.exited,
+22 |     new Response(client.stdout).text(),
+23 |     new Response(client.stderr).text(),
+24 |   ]);
+25 |   assert.equal(code, 0, error);
+              ^
+AssertionError: curl: (52) Empty reply from server
+
+
+52 !== 0
+
+ generatedMessage: false,
+     actual: 52,
+   expected: 0,
+   operator: "strictEqual",
+       diff: "simple",
+       code: "ERR_ASSERTION"
+
+      at /Users/manasraghuwanshi/.t3/worktrees/nap/feat-computer-use/apps/api/scripts/http-idle-smoke.ts:25:10
+
+Bun v1.4.2 (macOS arm64)

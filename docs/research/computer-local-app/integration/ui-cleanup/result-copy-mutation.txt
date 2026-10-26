@@ -1,0 +1,31 @@
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/feat-computer-use
+
+ ❯ |web| apps/web/src/computer/app-test-cards.test.tsx (6 tests | 1 failed) 74ms
+   × keeps generated repair instructions out of cards while retaining assertion details 4ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |web| apps/web/src/computer/app-test-cards.test.tsx > keeps generated repair instructions out of cards while retaining assertion details
+Error: expect(element).not.toHaveTextContent()
+
+Expected element not to have text content:
+  Fix the failures. Original goal (data): "Save notes"
+Received:
+  Test resultsFix the failures. Original goal (data): "Save notes"Passed 0Failed 1Untested 0The saved note appearsfailedWatch recordingFix it
+ ❯ apps/web/src/computer/app-test-cards.test.tsx:195:23
+    193|   expect(screen.getByRole("region", { name: "Test the app" })).not.toH…
+    194|   const results = screen.getByRole("region", { name: "App test results…
+    195|   expect(results).not.toHaveTextContent(instruction);
+       |                       ^
+    196|   expect(within(results).getByText("The saved note appears")).toBeVisi…
+    197|   expect(within(results).getByRole("button", { name: "Fix it" })).toBe…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 5 passed (6)
+   Start at  20:50:47
+   Duration  746ms (transform 33ms, setup 112ms, import 30ms, tests 74ms, environment 389ms)
+

@@ -1,0 +1,31 @@
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/t3-7ca4dbea
+
+ ❯ |web| apps/web/src/computer/recording-viewer.test.tsx (14 tests | 1 failed) 442ms
+   × uses millisecond precision for automatic playback and slider selection at 1001ms 36ms
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 13 passed (14)
+   Start at  11:47:37
+   Duration  985ms (transform 55ms, setup 76ms, import 54ms, tests 442ms, environment 269ms)
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |web| apps/web/src/computer/recording-viewer.test.tsx > uses millisecond precision for automatic playback and slider selection at 1001ms
+Error: expect(element).toHaveAttribute("aria-current", "step") // element.getAttribute("aria-current") === "step"
+
+Expected the element to have attribute:
+  aria-current="step"
+Received:
+  null
+ ❯ apps/web/src/computer/recording-viewer.test.tsx:340:71
+    338|     target: { value: "6" },
+    339|   });
+    340|   expect(screen.getByRole("button", { name: /Test 2.*Delete note/ })).…
+       |                                                                       ^
+    341|     "aria-current",
+    342|     "step",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+

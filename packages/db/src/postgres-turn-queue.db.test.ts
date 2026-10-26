@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { eq, sql as sqlOf } from "drizzle-orm";
+import { eq, inArray, sql as sqlOf } from "drizzle-orm";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, inject, it } from "vitest";
@@ -33,7 +33,8 @@ let db: PostgresJsDatabase;
 let queue: PostgresTurnQueue;
 
 beforeAll(() => {
-  sql = postgres(inject("postgresUrl"), { max: 24 });
+  // A broken SKIP LOCKED must fail and unwind the barriers rather than hang the suite.
+  sql = postgres(inject("postgresUrl"), { max: 24, connection: { lock_timeout: 2_000 } });
   db = drizzle(sql);
   queue = new PostgresTurnQueue(db);
 });
@@ -175,6 +176,67 @@ describe("enqueue", () => {
 });
 
 describe("claim", () => {
+  it("skips a locked project, including more candidates than the retry limit", async () => {
+    const blocked = await seedSession();
+    const free = await seedSession();
+    const otherBlocked = await Promise.all(Array.from({ length: 5 }, () => seedSession()));
+    for (let index = 0; index < 6; index += 1) {
+      const request = await enqueueTurn(blocked);
+      await db
+        .update(turnRequests)
+        .set({ createdAt: sqlOf`now() - interval '1 minute'` })
+        .where(eq(turnRequests.id, request.id));
+    }
+    for (const seed of otherBlocked) {
+      const request = await enqueueTurn(seed);
+      await db
+        .update(turnRequests)
+        .set({ createdAt: sqlOf`now() - interval '1 minute'` })
+        .where(eq(turnRequests.id, request.id));
+    }
+    const blockedSessions = await db
+      .select({ projectId: sessions.projectId })
+      .from(sessions)
+      .where(
+        inArray(sessions.id, [
+          blocked.sessionId,
+          ...otherBlocked.map(({ sessionId }) => sessionId),
+        ]),
+      );
+    const elsewhere = await enqueueTurn(free);
+    let release = () => {};
+    const drain = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered = () => {};
+    const locked = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const holding = db.transaction(async (tx) => {
+      await tx
+        .select()
+        .from(projects)
+        .where(
+          inArray(
+            projects.id,
+            blockedSessions.map(({ projectId }) => projectId),
+          ),
+        )
+        .for("update");
+      entered();
+      await drain;
+    });
+    try {
+      await locked;
+      expect((await queue.claim("other-project"))?.id).toBe(elsewhere.id);
+      expect(await queue.claim("locked-project")).toBeNull();
+    } finally {
+      release();
+      await holding;
+    }
+    expect((await queue.claim("after-drain"))?.sessionId).toBe(blocked.sessionId);
+  });
+
   it("answers null when nothing is queued", async () => {
     expect(await queue.claim("worker-1")).toBeNull();
   });
@@ -291,6 +353,11 @@ describe("claim", () => {
   it("moves on to the next candidate when the index refuses one", async () => {
     const busy = await seedSession();
     const free = await seedSession();
+    const [before] = await db
+      .select({ id: projects.id, revision: projects.computerRevision })
+      .from(projects)
+      .innerJoin(sessions, eq(sessions.projectId, projects.id))
+      .where(eq(sessions.id, busy.sessionId));
     const first = await enqueueTurn(busy, "first");
     await enqueueTurn(busy, "second");
     const elsewhere = await enqueueTurn(free, "elsewhere");
@@ -330,23 +397,31 @@ describe("claim", () => {
     // Not an error, and not an empty answer: the refusal costs one candidate, and the worker goes
     // on to find real work on a session nobody holds.
     expect((await claiming)?.id).toBe(elsewhere.id);
+    const [after] = await db
+      .select({ revision: projects.computerRevision })
+      .from(projects)
+      .where(eq(projects.id, before!.id));
+    expect(after?.revision).toBe(before!.revision);
   });
 
-  it("gives a hundred workers a hundred sessions with no collisions", async () => {
-    const seeds = await Promise.all(Array.from({ length: 100 }, () => seedSession()));
-    await Promise.all(seeds.map((seed) => enqueueTurn(seed)));
+  it.each([1, 2, 3, 4, 5])(
+    "gives a hundred workers a hundred sessions with no collisions, burst %i",
+    async () => {
+      const seeds = await Promise.all(Array.from({ length: 100 }, () => seedSession()));
+      await Promise.all(seeds.map((seed) => enqueueTurn(seed)));
 
-    const claims = await Promise.all(
-      Array.from({ length: 100 }, (_, index) => queue.claim(`worker-${index}`)),
-    );
+      const claims = await Promise.all(
+        Array.from({ length: 100 }, (_, index) => queue.claim(`worker-${index}`)),
+      );
 
-    const leased = claims.filter((claim) => claim !== null);
-    expect(leased).toHaveLength(100);
-    // Distinct requests and distinct sessions: the failure this guards is two workers handed the
-    // same row, which would show up as a duplicate in either set.
-    expect(new Set(leased.map((claim) => claim.id)).size).toBe(100);
-    expect(new Set(leased.map((claim) => claim.sessionId)).size).toBe(100);
-  });
+      const leased = claims.filter((claim) => claim !== null);
+      expect(leased).toHaveLength(100);
+      // Distinct requests and distinct sessions: the failure this guards is two workers handed the
+      // same row, which would show up as a duplicate in either set.
+      expect(new Set(leased.map((claim) => claim.id)).size).toBe(100);
+      expect(new Set(leased.map((claim) => claim.sessionId)).size).toBe(100);
+    },
+  );
 });
 
 describe("renew", () => {
@@ -672,6 +747,36 @@ describe("orphanExpired", () => {
     expect(new Set(taken)).toEqual(new Set(ids));
   });
 
+  it("bounds overlapping janitors and skips held rows in expiry order", async () => {
+    const seeds = await Promise.all(Array.from({ length: 5 }, () => seedSession()));
+    const ids: string[] = [];
+    for (const seed of seeds) {
+      const { id } = await enqueueTurn(seed);
+      await queue.claim("worker-1");
+      await db
+        .update(turnRequests)
+        .set({ leaseExpiresAt: sqlOf`now() - (${5 - ids.length} * interval '1 hour')` })
+        .where(eq(turnRequests.id, id));
+      ids.push(id);
+    }
+
+    await db.transaction(async (tx) => {
+      const first = await new PostgresTurnQueue(tx).orphanExpired(2);
+      expect(new Set(first.map(({ id }) => id))).toEqual(new Set(ids.slice(0, 2)));
+      // The first janitor still holds its transaction open. A second connection must take
+      // the next batch immediately, rather than wait for or return those same requests.
+      const second = await queue.orphanExpired(2);
+      expect(new Set(second.map(({ id }) => id))).toEqual(new Set(ids.slice(2, 4)));
+    });
+    expect((await queue.orphanExpired(2)).map(({ id }) => id)).toEqual(ids.slice(4));
+    expect(await queue.orphanExpired(2)).toEqual([]);
+    for (const id of ids) {
+      expect(await queue.renew(id, "worker-1")).toEqual({ held: false });
+      expect(await queue.settle(id, "worker-1", "done")).toBe(false);
+      expect((await rowOf(id))?.finishedAt).toBeNull();
+    }
+  });
+
   it("leaves a request its worker settled alone", async () => {
     const seed = await seedSession();
     const { id } = await enqueueTurn(seed);
@@ -683,16 +788,15 @@ describe("orphanExpired", () => {
     expect((await rowOf(id))?.state).toBe("done");
   });
 
-  it("takes no more than the limit in one tick", async () => {
-    const seeds = await Promise.all(Array.from({ length: 3 }, () => seedSession()));
-    for (const seed of seeds) {
-      const { id } = await enqueueTurn(seed);
-      await queue.claim("worker-1");
-      await expireLease(id);
+  it("rejects invalid limits without orphaning a lease", async () => {
+    const seed = await seedSession();
+    const { id } = await enqueueTurn(seed);
+    await queue.claim("worker-1");
+    await expireLease(id);
+    for (const limit of [-1, Number.NaN]) {
+      await expect(queue.orphanExpired(limit)).rejects.toThrow();
+      expect((await rowOf(id))?.state).toBe("leased");
     }
-
-    expect(await queue.orphanExpired(2)).toHaveLength(2);
-    expect(await queue.orphanExpired(2)).toHaveLength(1);
   });
 
   it("takes no more than the limit when the planner re-runs the locking subquery", async () => {
@@ -809,4 +913,24 @@ it("reports queued and leased activity until settlement, including cancellation 
   expect(await queue.hasPending(sessionId)).toBe(true);
   await queue.requestCancel(sessionId);
   expect(await queue.hasPending(sessionId)).toBe(false);
+});
+
+it("persists and claims an app test's job identity through a fresh adapter", async () => {
+  const owner = await seedSession();
+  const jobId = randomUUID();
+  const { id } = await enqueueRequest(queue, {
+    ...owner,
+    kind: "test",
+    message: jobId,
+    model: "anthropic/claude-sonnet-5",
+    billsToUser: true,
+  });
+  const restarted = new PostgresTurnQueue(db);
+  expect(await restarted.claim("test-worker")).toMatchObject({
+    id,
+    kind: "test",
+    message: jobId,
+    billsToUser: true,
+  });
+  expect(await restarted.anyLeased([owner.sessionId])).toBe(true);
 });

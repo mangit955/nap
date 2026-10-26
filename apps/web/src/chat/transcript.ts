@@ -25,6 +25,7 @@ import type { MediaAttachment } from "@nap/shared/media";
 
 import type { NapEventOf, PromptSource, ToolName } from "@nap/shared/events";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
+import { type AppTestState, foldAppTests } from "../computer/app-test-state.ts";
 
 export type FileChange = {
   path: string;
@@ -69,6 +70,7 @@ export type TranscriptItem =
       attachments?: MediaAttachment[] | undefined;
     }
   | CompactionItem
+  | { kind: "app-test"; key: number; test: AppTestState }
   | { kind: "thinking"; key: number; text: string }
   | {
       kind: "step";
@@ -84,7 +86,11 @@ export type TranscriptItem =
       /** Everything `run_command` printed, in the order it printed it. */
       streamed: string;
       files: FileChange[];
+      frame?: NapEventOf<"computer.screenshot">;
+      desktop?: { state: "starting" | "ready"; at: string };
     }
+  | { kind: "computer-recording"; key: number; text: "Started recording" | "Stopped recording" }
+  | { kind: "computer-frame"; key: number; frame: NapEventOf<"computer.screenshot"> }
   | { kind: "files"; key: number; files: FileChange[] }
   | { kind: "preview"; key: number; url: string; port: number }
   /**
@@ -156,6 +162,7 @@ function repairTurns(events: readonly StoredEvent[]): ReadonlySet<string> {
 }
 
 export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[] {
+  const tests = new Map(foldAppTests(events).map((test) => [test.turnId, test]));
   const repairs = repairTurns(events);
   const items: TranscriptItem[] = [];
   /**
@@ -191,6 +198,53 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
     const key = event.seq;
 
     switch (event.type) {
+      case "test.recording":
+        items.push(
+          event.payload.recording.state === "unavailable"
+            ? {
+                kind: "notice",
+                key,
+                level: "warning",
+                text: "Nap couldn't save this test recording.",
+              }
+            : {
+                kind: "computer-recording",
+                key,
+                text:
+                  event.payload.recording.state === "started"
+                    ? "Started recording"
+                    : "Stopped recording",
+              },
+        );
+        break;
+      case "test.annotation":
+        break;
+      case "test.completed": {
+        const test = tests.get(event.turnId);
+        if (test) items.push({ kind: "app-test", key, test });
+        break;
+      }
+      case "test.started":
+        items.push({
+          kind: "notice",
+          key,
+          level: "info",
+          text: `App test started: ${event.payload.objective}`,
+        });
+        break;
+      case "computer.screenshot": {
+        const step = stepsById.get(event.payload.toolCallId);
+        if (step) step.frame = event;
+        items.push({ kind: "computer-frame", key, frame: event });
+        break;
+      }
+      case "computer.status": {
+        const step =
+          stepsById.get(event.payload.toolCallId) ??
+          openOrphan(event, "computer", items, stepsById);
+        step.desktop = { state: event.payload.state, at: event.createdAt };
+        break;
+      }
       case "compaction.started":
         if (event.payload.trigger === "manual") {
           retryByTurn.set(event.turnId, { text: "/compact" });
@@ -454,7 +508,7 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
  * unknown — the alternative is inventing arguments the tool was never given.
  */
 function openOrphan(
-  event: NapEventOf<"tool.result"> | NapEventOf<"command.output">,
+  event: NapEventOf<"tool.result"> | NapEventOf<"command.output"> | NapEventOf<"computer.status">,
   toolName: ToolName,
   items: TranscriptItem[],
   stepsById: Map<string, Step>,

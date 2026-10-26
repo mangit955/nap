@@ -1,0 +1,10 @@
+{
+  "idleStatus": 200,
+  "connected": true,
+  "sampledColors": 423,
+  "takeControlEnabled": true,
+  "testEnabled": true,
+  "repairInstructionsHidden": true,
+  "assertionResultsVisible": true,
+  "paid": false
+}

@@ -16,6 +16,7 @@
  */
 
 import type { ToolName } from "@nap/shared/events";
+import { computerActions } from "../computer/action-labels.ts";
 import type { TranscriptItem } from "./transcript.ts";
 import { shorten } from "./working-state.ts";
 
@@ -30,7 +31,7 @@ export type WorkEntry =
   | Extract<TranscriptItem, { kind: "thinking" }>
   | Extract<TranscriptItem, { kind: "files" }>;
 
-export type ToolGroupAction = "read" | "edit" | "command" | "code-search";
+export type ToolGroupAction = "read" | "edit" | "command" | "code-search" | "computer";
 
 /** What a group is, for its icon: one kind of work, a thought, or several kinds. */
 export type ToolGroupSummaryKind = ToolGroupAction | "reasoning" | "mixed";
@@ -47,6 +48,7 @@ const ACTIONS: Record<ToolName, ToolGroupAction> = {
   list_files: "code-search",
   search_files: "code-search",
   run_command: "command",
+  computer: "computer",
 };
 
 export function toolGroupAction(entry: Step | Extract<WorkEntry, { kind: "files" }>) {
@@ -89,6 +91,11 @@ function actionCount(
   action: ToolGroupAction,
   entries: readonly (Step | Extract<WorkEntry, { kind: "files" }>)[],
 ) {
+  if (action === "computer")
+    return entries.reduce(
+      (sum, entry) => sum + (entry.kind === "step" ? computerActions(entry.input).length : 0),
+      0,
+    );
   if (action !== "edit") return entries.length;
   const changed = new Set<string>();
   let withoutFiles = 0;
@@ -102,6 +109,8 @@ function actionCount(
 
 function actionLabel(action: ToolGroupAction, count: number): string {
   switch (action) {
+    case "computer":
+      return `Used computer - ${count} ${count === 1 ? "action" : "actions"}`;
     case "read":
       return `Read ${count} ${count === 1 ? "file" : "files"}`;
     case "edit":
@@ -216,6 +225,10 @@ export function workEntryDisplayLabel(entry: WorkEntry): string {
   }
 
   switch (entry.toolName) {
+    case "computer": {
+      const count = computerActions(entry.input).length;
+      return `Used computer - ${count} ${count === 1 ? "action" : "actions"}`;
+    }
     case "run_command":
       return argument(entry, "command") ?? "Ran command";
     case "read_file": {

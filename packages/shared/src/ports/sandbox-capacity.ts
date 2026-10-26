@@ -99,10 +99,12 @@ export interface SandboxCapacity {
   release(reservationId: string): Promise<void>;
 
   /**
-   * Gives back whatever capacity a project holds, reserved or active.
+   * Gives back the capacity a project holds for `sandboxId`, reserved or active.
    *
    * Keyed by project because a teardown knows which project it just put away and not which
-   * reservation opened it — often a different process, hours earlier.
+   * reservation opened it — often a different process, hours earlier. And by the sandbox too,
+   * because the project's one row is reused by its next creation: a teardown that finishes after
+   * a turn has started a fresh machine must not hand back the slot that machine now occupies.
    */
-  releaseForProject(projectId: string): Promise<void>;
+  releaseForProject(projectId: string, sandboxId: string): Promise<void>;
 }

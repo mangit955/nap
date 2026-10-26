@@ -1,0 +1,40 @@
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/feat-computer-use
+
+ ❯ |unit| packages/runtime/src/app-test-runtime.test.ts (10 tests | 1 failed) 73ms
+   × waits for a newly created workspace preview before starting the desktop capture 54ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |unit| packages/runtime/src/app-test-runtime.test.ts > waits for a newly created workspace preview before starting the desktop capture
+AssertionError: expected "start" to not be called at all, but actually been called 1 times
+
+Received:
+
+  1st start call:
+
+    Array [
+      Object {
+        "devServerUrl": "http://localhost:5173",
+        "sandboxId": "62dc30af-a25e-49ef-894a-609e841c0603",
+      },
+    ]
+
+
+Number of calls: 1
+
+ ❯ packages/runtime/src/app-test-runtime.test.ts:269:21
+    267|   const running = f.runtime.runTurn(f.request);
+    268|   await vi.waitFor(() => expect(wait).toHaveBeenCalledOnce());
+    269|   expect(start).not.toHaveBeenCalled();
+       |                     ^
+    270|   release?.();
+    271|   expect((await running).ok).toBe(true);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 9 passed (10)
+   Start at  13:48:29
+   Duration  433ms (transform 150ms, setup 0ms, import 221ms, tests 73ms, environment 0ms)

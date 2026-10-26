@@ -51,21 +51,29 @@ import type { FetchJson } from "../files/use-project-files.ts";
 export type TurnSubmission = {
   /** True means admission succeeded; the turn itself runs on past this response. */
   submit: (message: string, model?: string, attachments?: MediaAttachment[]) => Promise<boolean>;
+  startTest: (jobId: string, model?: string) => Promise<boolean>;
   cancel: () => Promise<void>;
   /** The message the user sent that the log has not caught up with yet. */
   pending: string | undefined;
   pendingAttachments: MediaAttachment[] | undefined;
   pendingAfterCompaction: boolean;
   running: boolean;
+  idleThroughSeq: number;
+  testPhase: "idle" | "starting" | "running";
   startedAt: string | undefined;
   /** When the turn in flight was first written to the log; see `InFlightTurn`. */
   openedAt: string | undefined;
   error: string | undefined;
 };
 
+export type TurnActivity = Pick<TurnSubmission, "running" | "idleThroughSeq"> & {
+  sessionId: string | undefined;
+};
+
 const DEFAULT_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
 
 type PendingSubmission = {
+  purpose: "message" | "test";
   key: symbol;
   sessionId: string;
   text: string;
@@ -153,6 +161,7 @@ export function useTurnSubmission(options: {
         event.sessionId === pending.sessionId &&
         event.turnId === pending.requestId &&
         (event.type === "user.message" ||
+          event.type === "test.started" ||
           event.type === "turn.failed" ||
           event.type === "turn.completed" ||
           (pending.text === "/compact" && event.type === "compaction.started")),
@@ -268,23 +277,27 @@ export function useTurnSubmission(options: {
     };
   }, [baseUrl, sessionId, pendingKey, options.connectionStatus, options.replayed]);
 
-  const submit = async (
-    message: string,
+  const admit = async (
+    intent:
+      | { kind: "message"; message: string; attachments?: MediaAttachment[] | undefined }
+      | { kind: "test"; jobId: string },
     model?: string,
-    attachments?: MediaAttachment[],
   ): Promise<boolean> => {
-    const text = message.trim();
+    const text = intent.kind === "test" ? "Test the app" : intent.message.trim();
+    const attachments = intent.kind === "message" ? intent.attachments : undefined;
     if (sessionId === undefined || text === "") return false;
 
     const key = Symbol();
     active.current = key;
     setPending({
+      purpose: intent.kind,
       key,
       sessionId,
       text,
       attachments,
       kind: "posting",
       afterCompaction:
+        intent.kind === "message" &&
         turn !== undefined &&
         buildTranscript(events.filter((event) => event.sessionId === sessionId)).some(
           (item) =>
@@ -295,7 +308,7 @@ export function useTurnSubmission(options: {
 
     try {
       const response = await fetchRef.current(
-        `${baseUrl}/sessions/${encodeURIComponent(sessionId)}/turns`,
+        `${baseUrl}/sessions/${encodeURIComponent(sessionId)}/${intent.kind === "test" ? "tests" : "turns"}`,
         {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -303,7 +316,11 @@ export function useTurnSubmission(options: {
           // would refuse: `JSON.stringify` drops undefined properties, so this one expression
           // produces both bodies. An explicit branch here reads as though it were doing
           // something, and no test could tell the two apart.
-          body: JSON.stringify({ message: text, model, attachments }),
+          body: JSON.stringify(
+            intent.kind === "test"
+              ? { jobId: intent.jobId, model }
+              : { message: text, model, attachments },
+          ),
         },
       );
 
@@ -338,6 +355,11 @@ export function useTurnSubmission(options: {
     }
   };
 
+  const submit: TurnSubmission["submit"] = (message, model, attachments) =>
+    admit({ kind: "message", message, attachments }, model);
+  const startTest: TurnSubmission["startTest"] = (jobId, model) =>
+    admit({ kind: "test", jobId }, model);
+
   const cancel = async (): Promise<void> => {
     if (sessionId === undefined) return;
 
@@ -357,17 +379,33 @@ export function useTurnSubmission(options: {
     events.filter((event) => event.sessionId === sessionId),
     observation?.idleThroughSeq,
   );
+  const testIsRunning =
+    turn !== undefined &&
+    events.some(
+      (event) =>
+        event.sessionId === sessionId &&
+        event.turnId === turn.turnId &&
+        event.type === "test.started",
+    );
 
   return {
     submit,
+    idleThroughSeq: observation?.idleThroughSeq ?? 0,
+    startTest,
     cancel,
-    pending: pending?.sessionId === sessionId ? pending?.text : undefined,
+    pending:
+      pending?.sessionId === sessionId && pending?.purpose === "message" ? pending.text : undefined,
     pendingAttachments: pending?.sessionId === sessionId ? pending?.attachments : undefined,
     pendingAfterCompaction: pending?.sessionId === sessionId && pending?.afterCompaction === true,
     running:
       (pending !== undefined && pending.sessionId === sessionId) ||
       observation?.active === true ||
       turn !== undefined,
+    testPhase: testIsRunning
+      ? "running"
+      : pending?.sessionId === sessionId && pending?.purpose === "test"
+        ? "starting"
+        : "idle",
     startedAt: turn?.startedAt,
     openedAt: turn?.openedAt,
     error,

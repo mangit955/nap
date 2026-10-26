@@ -1,0 +1,33 @@
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/t3-7ca4dbea
+
+ ❯ |web| apps/web/src/computer/recording-viewer.test.tsx (14 tests | 2 failed) 362ms
+   × reviews every chapter when two tests start together at 0ms 16ms
+   × reviews every chapter when two tests start together at 2000ms 14ms
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 12 passed (14)
+   Start at  11:47:28
+   Duration  833ms (transform 44ms, setup 65ms, import 44ms, tests 362ms, environment 233ms)
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |web| apps/web/src/computer/recording-viewer.test.tsx > reviews every chapter when two tests start together at 0ms
+ FAIL  |web| apps/web/src/computer/recording-viewer.test.tsx > reviews every chapter when two tests start together at 2000ms
+Error: expect(element).toHaveAttribute("aria-current", "step") // element.getAttribute("aria-current") === "step"
+
+Expected the element to have attribute:
+  aria-current="step"
+Received:
+  null
+ ❯ apps/web/src/computer/recording-viewer.test.tsx:422:17
+    420|   fireEvent.click(first);
+    421|   fireEvent.timeUpdate(video());
+    422|   expect(first).toHaveAttribute("aria-current", "step");
+       |                 ^
+    423|   expect(detail).toHaveTextContent("First resultpassed");
+    424|   expect(loop).toBeDisabled();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+

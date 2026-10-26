@@ -1,0 +1,11 @@
+# Remaining computer-use execution
+
+Done means an owner can watch the real project desktop, the agent can change visible browser state, owner input is server-denied during any project lease, and a real test recording plays with correctly timed annotations. Every ticket also needs red guard evidence, full test/typecheck/lint output, collection/architecture/hooks review, paired UI evidence where required, local commit and tracker closure. A missing reference or paid validation remains explicitly open.
+
+The remaining units are the measured spike, ADR acceptance, desktop template/adapter, stream API and client, idle-only input, runtime video capture/storage/media API, recording viewer wiring, test cards/work-log completion and NapBench planted-bug tasks. These span multiple packages and cloud services, so rigor is high. New remote builds and real calls outside the approved initial US$1 spike require a concrete approval first. No pushes or PRs are authorized. No later-backlog features are included.
+
+Sequence: measured risk first; preserve approved ports; package the driver and codec tools; implement input exclusion and capture ownership before wiring UI controls; test privacy/cancellation/deletion; run real integrated validation only after reviewed template publication is approved. Reuse the single workspace event subscription. Record decision rows as units land. Do not rerun the settled architecture arena unless real implementation contradicts its assumptions.
+
+Independent worktrees: RecordingViewer presentation and LiveDesktopFrame/noVNC presentation. Their workers own disjoint files and only the stream worker may change web dependencies. The lead owns every backend/schema/queue/runtime and ComputerPane integration. Review each returned diff, run the actual component and apply a separate judge before claiming it verified. Keep partial tickets open until integrated and visually reviewed.
+
+The local .scratch/computer-use/decisions.tsv is the canonical working trail; promote it with resolving evidence before final handoff. Cross-family review completed through the configured Claude provider. Earlier rate-limited attempts are preserved; bounded pipeline and parent UI reviews found actionable issues, which were repaired and rechecked. Real cloud checks and matching recording/takeover references remain pending.

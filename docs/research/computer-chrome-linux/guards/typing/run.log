@@ -1,0 +1,13 @@
+Fixture ready on 5173
+Fixture ready on 5174
+Two container-local fixture ports ready
+Actual Chrome PID, start ticks, socket ownership and initial JPEG checked
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+Error: Smoke condition did not become true in 12 seconds.
+    at until (file:///smoke/smoke.mjs:5075:9)
+    at async file:///smoke/smoke.mjs:5200:3
+
+Node.js v24.22.1

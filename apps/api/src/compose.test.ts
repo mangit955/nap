@@ -3,6 +3,7 @@ import { InMemoryCapacityReconciler } from "@nap/db/testing/in-memory-capacity-r
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { InMemoryGitHubStore } from "@nap/db/testing/in-memory-github-store";
+import { InMemoryProjectComputerAccess } from "@nap/db/testing/in-memory-project-computer-access";
 import { InMemoryProjectSandboxStore } from "@nap/db/testing/in-memory-project-sandbox-store";
 import { FAKE_OWNER, InMemoryProjectStore } from "@nap/db/testing/in-memory-project-store";
 import { InMemorySandboxCapacity } from "@nap/db/testing/in-memory-sandbox-capacity";
@@ -12,9 +13,13 @@ import { InMemorySweepLock } from "@nap/db/testing/in-memory-sweep-lock";
 import { InMemoryTurnQueue } from "@nap/db/testing/in-memory-turn-queue";
 import { InMemoryTurnRateLimiter } from "@nap/db/testing/in-memory-turn-rate-limiter";
 import { InMemoryUserKeyStore } from "@nap/db/testing/in-memory-user-key-store";
+import { ABANDONED_COMPUTER_NOTICE } from "@nap/runtime/project-computer";
 import { TEMPLATE_DEV_PORT } from "@nap/sandbox/template";
+import { FakeSandboxDesktop } from "@nap/sandbox/testing/fake-sandbox-desktop";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
+import { ComputerControlGrantSchema } from "@nap/shared/computer-access";
 import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
+import { ABANDON_AFTER_MS } from "@nap/shared/ports/project-computer-access";
 import type { TurnQueue } from "@nap/shared/ports/turn-queue";
 import type { TurnRateLimiter } from "@nap/shared/ports/turn-rate-limit";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
@@ -113,13 +118,29 @@ afterEach(async () => {
   while (stopping.length > 0) await stopping.pop()?.stop();
 });
 
+function computerStore(sandboxId: string | null) {
+  const access = new InMemoryProjectComputerAccess();
+  access.setProject({
+    projectId: PROJECT,
+    userId: FAKE_OWNER,
+    sessionIds: [SESSION],
+    sandboxId,
+    revision: "72a3e710-65bf-420e-8cea-d4aa8e0b2f7d",
+  });
+  return access;
+}
 function compose(overrides: Partial<NapDeps> = {}) {
+  const queue = overrides.queue ?? new InMemoryTurnQueue();
+  const access = overrides.computerAccess?.access ?? computerStore(null);
+  if (queue instanceof InMemoryTurnQueue && access instanceof InMemoryProjectComputerAccess)
+    queue.attachComputerAccess(access);
   const composed = composeNap({
     config: CONFIG,
     logger: createLogger({ level: "silent" }, { write: () => {} }),
     sessions: new InMemorySessionStore(),
     projects: new InMemoryProjectStore(),
-    queue: new InMemoryTurnQueue(),
+    queue,
+    ...(overrides.desktop ? { computerAccess: { access, secret: "test-control-secret" } } : {}),
     projectSandboxes: new InMemoryProjectSandboxStore(),
     capacity: new InMemorySandboxCapacity(),
     // Per-process limiters, which is exactly what a test wants and exactly what a deployment
@@ -689,3 +710,248 @@ describe("the GitHub sweep", () => {
     expect(lines.join("")).toContain("inbox unreachable");
   });
 });
+
+it("wires an optional desktop into real computer turns and private screenshot storage", async () => {
+  const sessions = new InMemorySessionStore([
+    { sessionId: "00000000-0000-4000-8000-000000000009", projectId: PROJECT },
+  ]);
+  const objects = new InMemoryObjectStore();
+  const desktop = new FakeSandboxDesktop({
+    bytes: new Uint8Array([255, 216, 255, 217]),
+    width: 1024,
+    height: 768,
+  });
+  const sandbox = new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0, stdout: "" }) });
+  const events = new InMemoryEventStore();
+  const nap = compose({
+    sessions,
+    sandbox,
+    objects,
+    events,
+    desktop: desktop.transport,
+    provider: new ScriptedLLMProvider([
+      [
+        {
+          toolCalls: [
+            { id: "screen", name: "computer", input: { actions: [{ action: "screenshot" }] } },
+          ],
+        },
+        { text: "" },
+      ],
+    ]),
+  });
+  await nap.runtime.runTurn({
+    sessionId: "00000000-0000-4000-8000-000000000009",
+    turnId: crypto.randomUUID(),
+    message: "Look at the app",
+    model: "anthropic/claude-sonnet-5",
+  });
+  expect(desktop.screenshots).toHaveLength(1);
+  const screenshot = (await events.readFrom("00000000-0000-4000-8000-000000000009", 0)).find(
+    (event) => event.type === "computer.screenshot",
+  );
+  expect(screenshot).toBeDefined();
+  if (screenshot?.type === "computer.screenshot")
+    expect((await objects.get(screenshot.payload.key)).ok).toBe(true);
+});
+
+it("composes private desktop transport and guarded owner input", async () => {
+  const sandbox = turnableSandbox();
+  const created = await sandbox.create(PROJECT);
+  if (!created.ok) throw new Error("sandbox");
+  const desktop = new FakeSandboxDesktop({ bytes: new Uint8Array([1]), width: 1024, height: 768 });
+  const nap = compose({
+    role: "api",
+    sandbox,
+    desktop: desktop.transport,
+    sessions: new InMemorySessionStore([
+      { sessionId: SESSION, projectId: PROJECT, userId: FAKE_OWNER, sandboxId: created.value.id },
+    ]),
+    computerAccess: {
+      secret: "test-control-secret",
+      access: computerStore(created.value.id),
+    },
+  });
+  const stream = await nap.app.request(`/sessions/${SESSION}/computer/stream`);
+  expect(stream.status).toBe(200);
+  expect(stream.headers.get("cache-control")).toBe("private, no-store");
+  const grant = await nap.app.request(`/sessions/${SESSION}/computer/control`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{}",
+  });
+  const parsed = ComputerControlGrantSchema.parse(await grant.json());
+  const input = await nap.app.request(`/sessions/${SESSION}/computer/input`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      grant: parsed.grant,
+      actions: [{ action: "left_click", coordinate: [3, 4] }],
+    }),
+  });
+  expect(input.status).toBe(200);
+  expect(desktop.actions).toEqual([
+    { sandboxId: created.value.id, action: { action: "left_click", coordinate: [3, 4] } },
+  ]);
+});
+it("composes abandoning so the abandon is written into the project's sessions", async () => {
+  let clock = Date.now() - ABANDON_AFTER_MS - 60_000;
+  const access = new InMemoryProjectComputerAccess(undefined, () => clock);
+  access.setProject({
+    projectId: PROJECT,
+    userId: FAKE_OWNER,
+    sessionIds: [SESSION],
+    sandboxId: "box",
+  });
+  const state = await access.read({ projectId: PROJECT, userId: FAKE_OWNER });
+  if (!state.ok) throw new Error("project");
+  const scope = { projectId: PROJECT, sandboxId: "box", scopeId: crypto.randomUUID() };
+  await access.reserve({
+    ...scope,
+    actor: {
+      kind: "owner",
+      binding: {
+        ...scope,
+        sessionId: SESSION,
+        userId: FAKE_OWNER,
+        revision: state.value.revision,
+        expiresAt: clock + 60_000,
+      },
+    },
+  });
+  await access.markRecovering(scope);
+  clock = Date.now();
+  const desktop = new FakeSandboxDesktop({ bytes: new Uint8Array([1]), width: 1024, height: 768 });
+  desktop.failWith({ code: "unavailable", message: "gone" });
+  const events = new InMemoryEventStore();
+  const nap = compose({
+    role: "api",
+    desktop: desktop.transport,
+    events,
+    projects: projectHolding(SESSION),
+    sessions: new InMemorySessionStore([
+      { sessionId: SESSION, projectId: PROJECT, userId: FAKE_OWNER, sandboxId: "box" },
+    ]),
+    computerAccess: { secret: "test-control-secret", access },
+  });
+  const abandoned = await nap.app.request(`/sessions/${SESSION}/computer/abandon`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{}",
+  });
+  expect(await abandoned.json()).toEqual({ outcome: "abandoned" });
+  expect(await events.readFrom(SESSION, 0)).toMatchObject([
+    { type: "system.notice", payload: { level: "warning", text: ABANDONED_COMPUTER_NOTICE } },
+    { type: "preview.stopped" },
+  ]);
+});
+it("composes the owner recording media route with the same durable event store", async () => {
+  const events = new InMemoryEventStore();
+  const objects = new InMemoryObjectStore();
+  const turnId = "72a3e710-65bf-420e-8cea-d4aa8e0b2f7d";
+  const key = `computer/${PROJECT}/${SESSION}/${turnId}/recording.mp4`;
+  await objects.put(key, new Uint8Array([1, 2, 3]));
+  const base = { sessionId: SESSION, turnId, createdAt: "2026-10-24T00:00:00Z" };
+  await events.append({
+    ...base,
+    type: "test.started",
+    payload: { jobId: turnId, commitSha: "abc", objective: "Save a note" },
+  });
+  await events.append({
+    ...base,
+    type: "test.recording",
+    payload: {
+      recording: {
+        state: "available",
+        key,
+        durationMs: 1000,
+        width: 1024,
+        height: 768,
+        interrupted: false,
+      },
+    },
+  });
+  const nap = compose({
+    role: "api",
+    events,
+    objects,
+    sessions: new InMemorySessionStore([
+      { sessionId: SESSION, projectId: PROJECT, userId: FAKE_OWNER },
+    ]),
+  });
+  const response = await nap.app.request(`/sessions/${SESSION}/tests/${turnId}/recording`);
+  expect(response.status).toBe(200);
+  expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]));
+});
+
+it.each([
+  { marker: '{"previewPort":3000}', expectedStatus: 200, expectedUrl: "http://localhost:3000" },
+  { marker: '{"previewPort":null}', expectedStatus: 503, expectedUrl: undefined },
+  { marker: '{"previewPort":"3000"}', expectedStatus: 503, expectedUrl: undefined },
+  { marker: "invalid JSON", expectedStatus: 503, expectedUrl: undefined },
+  { marker: "read failure", expectedStatus: 503, expectedUrl: undefined },
+  { marker: "absent", expectedStatus: 200, expectedUrl: "http://localhost:4000" },
+])(
+  "opens the owner stream from running preview marker $marker instead of future settings",
+  async ({ marker, expectedStatus, expectedUrl }) => {
+    const sandbox = turnableSandbox();
+    const created = await sandbox.create(PROJECT);
+    if (!created.ok) throw new Error(created.error.message);
+    if (marker === "read failure") {
+      const readFile = sandbox.readFile.bind(sandbox);
+      vi.spyOn(sandbox, "readFile").mockImplementation(async (id, path) =>
+        path === "/tmp/nap-repository-preview.json"
+          ? { ok: false, error: { code: "unavailable", message: "Cannot read running preview" } }
+          : readFile(id, path),
+      );
+    } else if (marker !== "absent") {
+      await sandbox.writeFile(created.value.id, "/tmp/nap-repository-preview.json", marker);
+    }
+    const store = new InMemoryGitHubStore().putRepository({
+      projectId: PROJECT,
+      sessionId: SESSION,
+      userId: FAKE_OWNER,
+      installationId: 99,
+      repository: { id: 101, fullName: "owner/app", defaultBranch: "main", private: true },
+      baseBranch: "main",
+      autoPublish: false,
+      environment: { setupCommand: null, devCommand: "bun run dev --port 4000", previewPort: 4000 },
+    });
+    const desktop = new FakeSandboxDesktop({
+      bytes: new Uint8Array([1]),
+      width: 1024,
+      height: 768,
+    });
+    const start = vi.spyOn(desktop, "start");
+    const credentials = vi.spyOn(desktop, "streamCredentials");
+    const nap = compose({
+      role: "api",
+      sandbox,
+      desktop: desktop.transport,
+      github: { store, app: null },
+      sessions: new InMemorySessionStore([
+        { sessionId: SESSION, projectId: PROJECT, userId: FAKE_OWNER, sandboxId: created.value.id },
+      ]),
+      computerAccess: {
+        secret: "test-control-secret",
+        access: new (class extends InMemoryProjectComputerAccess {
+          override async read(): Promise<never> {
+            throw new Error("Stream must not request writable control");
+          }
+        })(),
+      },
+    });
+    const response = await nap.app.request(`/sessions/${SESSION}/computer/stream`);
+    expect(response.status).toBe(expectedStatus);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    if (expectedUrl === undefined) {
+      expect(start).not.toHaveBeenCalled();
+      expect(credentials).not.toHaveBeenCalled();
+    } else {
+      expect(start).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ sandboxId: created.value.id, devServerUrl: expectedUrl }),
+      );
+      expect(credentials).toHaveBeenCalledOnce();
+    }
+  },
+);

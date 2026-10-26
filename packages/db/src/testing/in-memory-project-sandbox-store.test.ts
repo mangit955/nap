@@ -48,7 +48,7 @@ describe("releasing a sandbox", () => {
       { projectId: "p1", sandboxId: "sb1", lastActiveAt: OLD },
     ]);
 
-    await store.releaseSandbox("p1", "projects/p1/1-abc.bundle");
+    await expect(store.releaseSandbox("p1", "sb1", "projects/p1/1-abc.bundle")).resolves.toBe(true);
 
     expect(store.get("p1")).toMatchObject({
       sandboxId: null,
@@ -70,7 +70,7 @@ describe("releasing a sandbox", () => {
       },
     ]);
 
-    await store.releaseSandbox("p1", null);
+    await store.releaseSandbox("p1", "sb1", null);
 
     expect(store.get("p1")).toMatchObject({
       sandboxId: null,
@@ -78,10 +78,20 @@ describe("releasing a sandbox", () => {
     });
   });
 
+  it("forgets nothing when the project has moved on to another machine", async () => {
+    const store = new InMemoryProjectSandboxStore([
+      { projectId: "p1", sandboxId: "sb1", snapshotKey: "earlier", lastActiveAt: OLD },
+    ]).recordSandbox("p1", "sb2");
+
+    await expect(store.releaseSandbox("p1", "sb1", "later")).resolves.toBe(false);
+
+    expect(store.get("p1")).toMatchObject({ sandboxId: "sb2", snapshotKey: "earlier" });
+  });
+
   it("throws for a project that does not exist", async () => {
     const store = new InMemoryProjectSandboxStore();
 
-    await expect(store.releaseSandbox("nope", "k")).rejects.toThrow(/unknown project/);
+    await expect(store.releaseSandbox("nope", "sb1", "k")).rejects.toThrow(/unknown project/);
   });
 
   it("fails on demand, so a caller's recovery path can be driven", async () => {
@@ -89,7 +99,7 @@ describe("releasing a sandbox", () => {
       { projectId: "p1", sandboxId: "sb1", lastActiveAt: OLD },
     ]).failWith(new Error("connection terminated"));
 
-    await expect(store.releaseSandbox("p1", "k")).rejects.toThrow(/connection terminated/);
+    await expect(store.releaseSandbox("p1", "sb1", "k")).rejects.toThrow(/connection terminated/);
     // Nothing was recorded, so the sweep can try again next time round.
     expect(store.get("p1")?.sandboxId).toBe("sb1");
   });

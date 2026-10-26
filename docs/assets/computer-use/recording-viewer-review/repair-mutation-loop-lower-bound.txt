@@ -1,0 +1,63 @@
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/t3-7ca4dbea
+
+ ❯ |web| apps/web/src/computer/recording-viewer.test.tsx (14 tests | 2 failed) 620ms
+   × loops a 1001ms chapter without rewriting a time already at its lower boundary 23ms
+   × accepts native microsecond truncation at a millisecond chapter boundary without seek churn 24ms
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 12 passed (14)
+   Start at  11:47:30
+   Duration  1.36s (transform 79ms, setup 103ms, import 76ms, tests 620ms, environment 374ms)
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |web| apps/web/src/computer/recording-viewer.test.tsx > loops a 1001ms chapter without rewriting a time already at its lower boundary
+AssertionError: expected "set currentTime" to not be called at all, but actually been called 1 times
+
+Received:
+
+  1st set currentTime call:
+
+    Array [
+      1.001,
+    ]
+
+
+Number of calls: 1
+
+ ❯ apps/web/src/computer/recording-viewer.test.tsx:312:20
+    310|   const seek = vi.spyOn(video(), "currentTime", "set");
+    311|   fireEvent.timeUpdate(video());
+    312|   expect(seek).not.toHaveBeenCalled();
+       |                    ^
+    313|   video().currentTime = 5;
+    314|   fireEvent.timeUpdate(video());
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |web| apps/web/src/computer/recording-viewer.test.tsx > accepts native microsecond truncation at a millisecond chapter boundary without seek churn
+AssertionError: expected "set" to not be called at all, but actually been called 1 times
+
+Received:
+
+  1st set call:
+
+    Array [
+      1.001,
+    ]
+
+
+Number of calls: 1
+
+ ❯ apps/web/src/computer/recording-viewer.test.tsx:374:20
+    372|   const seek = vi.spyOn(video(), "currentTime", "set");
+    373|   fireEvent.timeUpdate(video());
+    374|   expect(seek).not.toHaveBeenCalled();
+       |                    ^
+    375|   video().currentTime = 5;
+    376|   fireEvent.timeUpdate(video());
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+

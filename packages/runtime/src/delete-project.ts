@@ -22,6 +22,8 @@
  * after a partial failure finishes the job rather than reporting a new one.
  */
 
+import { computerRecordingKey, computerScreenshotKey } from "@nap/shared/computer-artifacts";
+import type { EventStore } from "@nap/shared/ports/event-store";
 import type { ObjectStore } from "@nap/shared/ports/object-store";
 import type { ProjectStore } from "@nap/shared/ports/project-store";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
@@ -40,7 +42,7 @@ export type DeleteError = { reason: DeleteFailureReason; message: string };
 export type DeleteResult = {
   /** False when there was no such project — two clicks, or two tabs. */
   deleted: boolean;
-  /** How many objects were removed, so a caller can say what it did. */
+  /** Snapshot and reserved computer artifact keys processed. A retry may find them already absent. */
   objectsDeleted: number;
   /**
    * Whether the sandbox was destroyed. False means it was already gone *or* could not be
@@ -53,6 +55,7 @@ export type DeleteProjectOptions = {
   projects: ProjectStore;
   snapshots: SnapshotStore;
   objects: ObjectStore;
+  events: EventStore;
   sandbox: SandboxManager;
   projectId: string;
   /**
@@ -82,6 +85,41 @@ export async function deleteProject(
   }
 
   const rows = await snapshots.listFor(projectId);
+  const computerKeys = new Set<string>();
+  try {
+    for (const sessionId of project.sessionIds) {
+      for (const event of await options.events.readFrom(sessionId, 0)) {
+        if (event.type === "test.started")
+          computerKeys.add(computerRecordingKey({ projectId, sessionId, turnId: event.turnId }));
+        if (
+          (event.type === "tool.call" && event.payload.toolName === "computer") ||
+          event.type === "computer.screenshot"
+        ) {
+          computerKeys.add(
+            computerScreenshotKey({
+              projectId,
+              sessionId,
+              turnId: event.turnId,
+              toolCallId: event.payload.toolCallId,
+            }),
+          );
+        }
+      }
+    }
+  } catch {
+    return {
+      ok: false,
+      error: { reason: "objects_failed", message: "Could not read the computer artifact index." },
+    };
+  }
+  for (const key of computerKeys) {
+    const removed = await objects.delete(key);
+    if (!removed.ok)
+      return {
+        ok: false,
+        error: { reason: "objects_failed", message: "Could not delete a computer artifact." },
+      };
+  }
 
   // The dashboard's picture of this project, which is the one object no listing would mention:
   // its key is derived from the project rather than recorded in a row. Removed first, while the
@@ -100,7 +138,7 @@ export async function deleteProject(
     };
   }
 
-  let objectsDeleted = 0;
+  let objectsDeleted = computerKeys.size;
   for (const row of rows) {
     const removed = await objects.delete(row.key);
     if (!removed.ok) {

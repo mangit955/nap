@@ -59,6 +59,32 @@ function levelFor(event: StoredEvent): EventLogLine["level"] {
  */
 function detail(event: NapEvent): Record<string, unknown> {
   switch (event.type) {
+    case "test.started":
+      return { jobId: event.payload.jobId, commitSha: event.payload.commitSha };
+    case "test.recording":
+      return { state: event.payload.recording.state };
+    case "test.annotation":
+      return {
+        annotationType: event.payload.annotation.type,
+        timeMs: event.payload.timeMs,
+        ...(event.payload.annotation.type === "assertion"
+          ? { result: event.payload.annotation.result }
+          : {}),
+      };
+    case "test.completed":
+      return {
+        jobId: event.payload.jobId,
+        status: event.payload.status,
+        counts: event.payload.counts,
+      };
+    case "computer.screenshot":
+      return {
+        toolCallId: event.payload.toolCallId,
+        width: event.payload.width,
+        height: event.payload.height,
+      };
+    case "computer.status":
+      return { toolCallId: event.payload.toolCallId, state: event.payload.state };
     case "compaction.started":
       return { compactionId: event.payload.id, trigger: event.payload.trigger };
     case "compaction.completed":

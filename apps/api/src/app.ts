@@ -20,6 +20,12 @@ import { type AccountRouteDeps, registerAccountRoutes } from "./account/routes.t
 import type { Authenticate, AuthInstance } from "./auth/auth.ts";
 import { findOwnedSession } from "./auth/owned-session.ts";
 import { type AuthVariables, requireUser } from "./auth/require-user.ts";
+import { type ComputerAccessDeps, registerComputerAccessRoutes } from "./computer/access.ts";
+import { registerTestRecordingRoutes, type TestRecordingDeps } from "./computer/recordings.ts";
+import {
+  type ComputerScreenshotDeps,
+  registerComputerScreenshotRoutes,
+} from "./computer/screenshots.ts";
 import { type FileRouteDeps, registerFileRoutes } from "./files/routes.ts";
 import { type GitHubRouteDeps, registerGitHubRoutes } from "./github/routes.ts";
 import type { HealthProbe, HealthReport } from "./health.ts";
@@ -41,6 +47,9 @@ import { parseStreamQuery } from "./ws/query.ts";
 export type UpgradeWebSocket = (c: Context, events: WSEvents) => Promise<Response>;
 
 export type AppDeps = {
+  testRecordings?: TestRecordingDeps;
+  computerScreenshots?: ComputerScreenshotDeps;
+  computerAccess?: ComputerAccessDeps;
   sessionNavigation?: { store: SessionNavigationStore; webOrigin: string };
   sessionStarts?: SessionStartRouteDeps;
   github?: GitHubRouteDeps;
@@ -342,6 +351,11 @@ export function createApp(deps: AppDeps): Hono<{ Variables: AuthVariables }> {
     );
   }
 
+  if (deps.testRecordings !== undefined) registerTestRecordingRoutes(app, deps.testRecordings);
+  if (deps.computerAccess !== undefined)
+    registerComputerAccessRoutes(app, deps.computerAccess, deps.webOrigin);
+  if (deps.computerScreenshots !== undefined)
+    registerComputerScreenshotRoutes(app, deps.computerScreenshots);
   if (deps.account !== undefined) registerAccountRoutes(app, deps.account);
   if (deps.providers !== undefined) registerProviderRoutes(app, deps.providers);
   if (deps.files !== undefined) registerFileRoutes(app, deps.files);

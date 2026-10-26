@@ -19,7 +19,11 @@ import type { MediaAttachment } from "@nap/shared/media";
  * unusable for the person who most needs to know the agent is still working.
  */
 
-import { useMemo, useState } from "react";
+import { Monitor } from "lucide-react";
+import { use, useMemo, useState } from "react";
+import { AppTestResult } from "../computer/app-test-cards.tsx";
+import { ComputerNavigation } from "../computer/navigation.tsx";
+import { ScreenshotCard } from "../computer/screenshot-card.tsx";
 import { turnFailureCopy } from "../errors/failure-copy.ts";
 import { AlertIcon, CopyIcon } from "../ui/icons.tsx";
 import { ChangedFilesCard } from "./changed-files-card.tsx";
@@ -34,6 +38,7 @@ import {
   WorkEntryRow,
   WorkGroupList,
   WorkingRow,
+  WorkLogRow,
   WorkToggleRow,
 } from "./work-log-rows.tsx";
 
@@ -147,6 +152,7 @@ export function ChatTranscript({
           return (
             <div key={row.id} className={spacingBefore(row, before)}>
               <Row
+                busy={running}
                 row={row}
                 live={row.kind === "item" && row.item.key === liveKey}
                 compactionFailure={
@@ -197,6 +203,7 @@ function spacingBefore(row: TimelineRow, previous: TimelineRow | undefined): str
 }
 
 function Row({
+  busy,
   row,
   live,
   compactionFailure,
@@ -204,6 +211,7 @@ function Row({
   onToggleFold,
   onToggleGroup,
 }: {
+  busy: boolean;
   row: TimelineRow;
   live: boolean;
   compactionFailure: FailedTurn | undefined;
@@ -214,7 +222,13 @@ function Row({
   switch (row.kind) {
     case "item":
       return (
-        <Item item={row.item} live={live} compactionFailure={compactionFailure} onRetry={onRetry} />
+        <Item
+          busy={busy}
+          item={row.item}
+          live={live}
+          compactionFailure={compactionFailure}
+          onRetry={onRetry}
+        />
       );
     case "work-entry":
       return <WorkEntryRow entry={row.entry} displayLabel={row.displayLabel} />;
@@ -239,11 +253,13 @@ function Row({
 }
 
 function Item({
+  busy,
   item,
   live,
   onRetry,
   compactionFailure,
 }: {
+  busy: boolean;
   item: PassThroughItem;
   compactionFailure?: FailedTurn | undefined;
   /** Whether this item can still be added to. Only ever true of the last one, mid-turn. */
@@ -251,6 +267,10 @@ function Item({
   onRetry?: ((message: string, attachments?: MediaAttachment[]) => void) | undefined;
 }) {
   switch (item.kind) {
+    case "app-test":
+      return <AppTestResult test={item.test} running={busy} onFix={onRetry} />;
+    case "computer-frame":
+      return <ScreenshotCard frame={item.frame} />;
     case "compaction":
       return (
         <CompactionRow
@@ -360,6 +380,9 @@ function Item({
       ) : (
         <Meta>Preview stopped · the project was put away</Meta>
       );
+
+    case "computer-recording":
+      return <ComputerRecordingRow item={item} />;
 
     case "notice":
       // Labelled in words rather than by colour, so it survives being read aloud and being read
@@ -539,5 +562,28 @@ function TurnFailure({
         </button>
       )}
     </div>
+  );
+}
+
+function ComputerRecordingRow({
+  item,
+}: {
+  item: Extract<TranscriptItem, { kind: "computer-recording" }>;
+}) {
+  const seek = use(ComputerNavigation);
+  return (
+    <WorkLogRow
+      label={
+        <button
+          type="button"
+          onClick={() => seek?.(item.key)}
+          disabled={!seek}
+          className="flex w-full cursor-pointer items-center gap-1.5 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
+        >
+          <Monitor aria-hidden="true" className="mx-1 size-4 shrink-0" />
+          {item.text}
+        </button>
+      }
+    />
   );
 }

@@ -1,0 +1,32 @@
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/feat-computer-use
+
+ ❯ |web| apps/web/src/computer/computer-recovery-notice.test.tsx (16 tests | 9 failed) 108ms
+   × tells the owner nothing was abandoned when nothing was holding the computer any more 4ms
+   × ignores a check that was in flight when an abandon finished 5ms
+   × retires an earlier outcome and refusal once a later check changes the picture 4ms
+   × drops a refusal once the pause it was about has ended 4ms
+   × checks at once after an abandon whose answer was lost, and says it may have happened 3ms
+   × says so when an abandon whose answer was lost left the computer paused 3ms
+   × stops asking a deployment that has no such route 1ms
+   × checks again as soon as the owner comes back to the tab 1ms
+   × says it is abandoning while the request is in flight, and why the button waits 3ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 9 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |web| apps/web/src/computer/computer-recovery-notice.test.tsx > tells the owner nothing was abandoned when nothing was holding the computer any more
+AssertionError: expected 'Nap stopped using that computer. Your…' to match /nothing was abandoned or lost/
+
+- Expected:
+/nothing was abandoned or lost/
+
++ Received:
+"Nap stopped using that computer. Your next message starts a fresh computer from your last saved version."
+
+ ❯ apps/web/src/computer/computer-recovery-notice.test.tsx:139:18
+    137|   await flush();
+    138|   const status = screen.getByRole("status").textContent;
+    139|   expect(status).toMatch(/nothing was abandoned or lost/);
+       |                  ^
+    140|   expect(status).not.toMatch(/stopped using that computer|fresh comput…
+    141| });

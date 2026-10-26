@@ -1,0 +1,92 @@
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/t3-ca9e4816
+
+ ❯ |unit| packages/sandbox/src/desktop-start.test.ts (23 tests | 4 failed | 19 skipped) 636ms
+   × does not launch a browser before ownership commits: killed before rename, then recovers on retry 176ms
+   × does not launch a browser before ownership commits: killed after rename, then recovers on retry 161ms
+   × does not launch a browser before ownership commits: rename failure, then recovers on retry 149ms
+   × does not launch a browser before ownership commits: write failure, then recovers on retry 149ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |unit| packages/sandbox/src/desktop-start.test.ts > does not launch a browser before ownership commits: killed before rename, then recovers on retry
+AssertionError: expected [ { pid: 74842, …(2) } ] to have a length of +0 but got 1
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ packages/sandbox/src/desktop-start.test.ts:229:29
+    227|     if (mode.startsWith("killed")) expect(interrupted.signal).toBe("SI…
+    228|     else expect(interrupted.status).toBe(1);
+    229|     expect(item.launches()).toHaveLength(0);
+       |                             ^
+    230|     await expect.poll(() => existsSync(join(item.root, "waiting-pid"))…
+    231|     const pid = readFileSync(join(item.root, "waiting-pid"), "utf8");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  |unit| packages/sandbox/src/desktop-start.test.ts > does not launch a browser before ownership commits: killed after rename, then recovers on retry
+AssertionError: expected [ { pid: 74885, …(2) } ] to have a length of +0 but got 1
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ packages/sandbox/src/desktop-start.test.ts:229:29
+    227|     if (mode.startsWith("killed")) expect(interrupted.signal).toBe("SI…
+    228|     else expect(interrupted.status).toBe(1);
+    229|     expect(item.launches()).toHaveLength(0);
+       |                             ^
+    230|     await expect.poll(() => existsSync(join(item.root, "waiting-pid"))…
+    231|     const pid = readFileSync(join(item.root, "waiting-pid"), "utf8");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  |unit| packages/sandbox/src/desktop-start.test.ts > does not launch a browser before ownership commits: rename failure, then recovers on retry
+AssertionError: expected [ { pid: 74926, …(2) } ] to have a length of +0 but got 1
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ packages/sandbox/src/desktop-start.test.ts:229:29
+    227|     if (mode.startsWith("killed")) expect(interrupted.signal).toBe("SI…
+    228|     else expect(interrupted.status).toBe(1);
+    229|     expect(item.launches()).toHaveLength(0);
+       |                             ^
+    230|     await expect.poll(() => existsSync(join(item.root, "waiting-pid"))…
+    231|     const pid = readFileSync(join(item.root, "waiting-pid"), "utf8");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  |unit| packages/sandbox/src/desktop-start.test.ts > does not launch a browser before ownership commits: write failure, then recovers on retry
+AssertionError: expected [ { pid: 74964, …(2) } ] to have a length of +0 but got 1
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ packages/sandbox/src/desktop-start.test.ts:229:29
+    227|     if (mode.startsWith("killed")) expect(interrupted.signal).toBe("SI…
+    228|     else expect(interrupted.status).toBe(1);
+    229|     expect(item.launches()).toHaveLength(0);
+       |                             ^
+    230|     await expect.poll(() => existsSync(join(item.root, "waiting-pid"))…
+    231|     const pid = readFileSync(join(item.root, "waiting-pid"), "utf8");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 19 skipped (23)
+   Start at  13:25:26
+   Duration  821ms (transform 16ms, setup 0ms, import 24ms, tests 636ms, environment 0ms)

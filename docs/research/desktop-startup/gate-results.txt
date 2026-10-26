@@ -1,0 +1,186 @@
+Baseline: bun run test
+$ vitest run --project unit --project types --project web --project db
+Testing types with tsc and vue-tsc is an experimental feature.
+Breaking changes might not follow SemVer, please pin Vitest's version when using it.
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/t3-ca9e4816
+
+(node:70593) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:71540) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+
+ Test Files  410 passed (410)
+      Tests  5360 passed (5360)
+Type Errors  no errors
+   Start at  13:24:35
+   Duration  59.84s (transform 8.89s, setup 13.08s, import 41.23s, tests 116.05s, environment 52.64s, typecheck 544ms)
+
+
+
+Focused: bunx --no-install vitest run --project unit packages/sandbox/src/desktop-start.test.ts --maxWorkers=1 --no-file-parallelism
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/t3-ca9e4816
+
+
+ Test Files  1 passed (1)
+      Tests  23 passed (23)
+   Start at  13:28:50
+   Duration  15.37s (transform 14ms, setup 0ms, import 20ms, tests 15.22s, environment 0ms)
+
+
+
+Final: bun run test
+$ vitest run --project unit --project types --project web --project db
+Testing types with tsc and vue-tsc is an experimental feature.
+Breaking changes might not follow SemVer, please pin Vitest's version when using it.
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/t3-ca9e4816
+
+(node:3926) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:4151) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+
+ Test Files  410 passed (410)
+      Tests  5365 passed (5365)
+Type Errors  no errors
+   Start at  13:30:15
+   Duration  62.00s (transform 10.21s, setup 14.67s, import 46.77s, tests 127.50s, environment 59.01s, typecheck 187ms)
+
+
+
+bun run typecheck
+$ turbo run typecheck && tsc --noEmit
+• turbo 2.10.8
+
+   • Packages in scope: @nap/agent, @nap/api, @nap/bench, @nap/capture, @nap/context, @nap/db, @nap/loadgen, @nap/napbench, @nap/runtime, @nap/sandbox, @nap/shared, @nap/storage, @nap/verify, @nap/web
+   • Running typecheck in 14 packages
+   • Remote caching disabled, using shared worktree cache
+
+@nap/storage:typecheck: cache miss, executing 678f4bab8d27a0f6
+@nap/db:typecheck: cache miss, executing 4637d4d99ba9f0ab
+@nap/context:typecheck: cache miss, executing 82a7b285bf2d237b
+@nap/shared:typecheck: cache miss, executing b6bc0607e2b90f4a
+@nap/sandbox:typecheck: cache miss, executing 106a53627273df63
+@nap/capture:typecheck: cache miss, executing a92624fc799baea7
+@nap/loadgen:typecheck: cache miss, executing f0c64211e341907c
+@nap/verify:typecheck: cache miss, executing 8a5453fe2ebc16cf
+@nap/agent:typecheck: cache miss, executing eb12dbc0225058e6
+@nap/bench:typecheck: cache miss, executing 1e0416e4022446ce
+@nap/sandbox:typecheck: $ tsc --noEmit
+@nap/context:typecheck: $ tsc --noEmit
+@nap/db:typecheck: $ tsc --noEmit
+@nap/storage:typecheck: $ tsc --noEmit
+@nap/verify:typecheck: $ tsc --noEmit
+@nap/capture:typecheck: $ tsc --noEmit
+@nap/loadgen:typecheck: $ tsc --noEmit
+@nap/shared:typecheck: $ tsc --noEmit
+@nap/agent:typecheck: $ tsc --noEmit
+@nap/bench:typecheck: $ tsc --noEmit
+@nap/runtime:typecheck: cache miss, executing 5b5bf941a30a4b3d
+@nap/runtime:typecheck: $ tsc --noEmit
+@nap/api:typecheck: cache miss, executing 344de6db1953c38d
+@nap/api:typecheck: $ tsc --noEmit
+@nap/napbench:typecheck: cache miss, executing 704b248ebfe5bbfe
+@nap/napbench:typecheck: $ tsc --noEmit
+@nap/web:typecheck: cache miss, executing 2b07b5ba0e416446
+@nap/web:typecheck: $ tsc --noEmit
+
+ Tasks:    14 successful, 14 total
+Cached:    0 cached, 14 total
+  Time:    3.576s
+
+
+
+bun run lint
+$ biome check .
+packages/sandbox/src/git-comparison-limits.test.ts:20:17 lint/style/useTemplate  FIXABLE  ━━━━━━━━━━
+
+  i Template literals are preferred over string concatenation.
+
+    18 │   const calls: { args: string[]; timeout: number; startedAt: number }[] = [];
+    19 │   const patches: string[] = [];
+  > 20 │   const patch = "@@ -1 +1,25000 @@\n-old\n" + "+new\n".repeat(25_000);
+       │                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    21 │   const childProcess = {
+    22 │     execFileSync(_command: string, args: string[], options: { timeout: number }) {
+
+  i Unsafe fix: Use a template literal.
+
+     18  18 │     const calls: { args: string[]; timeout: number; startedAt: number }[] = [];
+     19  19 │     const patches: string[] = [];
+     20     │ - ··const·patch·=·"@@·-1·+1,25000·@@\n-old\n"·+·"+new\n".repeat(25_000);
+         20 │ + ··const·patch·=·`@@·-1·+1,25000·@@\n-old\n${"+new\n".repeat(25_000)}`;
+     21  21 │     const childProcess = {
+     22  22 │       execFileSync(_command: string, args: string[], options: { timeout: number }) {
+
+
+apps/web/src/app/globals.css:2282:3 lint/style/noDescendingSpecificity ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ! Descending specificity selector found. This selector specificity is (0, 2, 0)
+
+    2280 │     margin-top: -32px;
+    2281 │   }
+  > 2282 │   .dashboard-frame .workspace-header {
+         │   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2283 │     padding-left: 48px;
+    2284 │   }
+
+  i This selector specificity is (0, 3, 0)
+
+    1913 │   left: 14px;
+    1914 │ }
+  > 1915 │ .dashboard-frame[data-sidebar-collapsed="true"] .workspace-header {
+         │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    1916 │   padding-left: 52px;
+    1917 │ }
+
+  i Descending specificity selector may not be applied. Consider rearranging the order of the selectors. See MDN web docs for more details.
+
+
+Checked 1050 files in 633ms. No fixes applied.
+Found 1 warning.
+Found 1 info.
+
+
+bunx --no-install vitest list --project unit packages/sandbox/src/desktop-start.test.ts
+[unit] packages/sandbox/src/desktop-start.test.ts > preserves a healthy same-port browser, then restarts it with the changed port policy
+[unit] packages/sandbox/src/desktop-start.test.ts > fails closed for no record without signalling or rewriting policy
+[unit] packages/sandbox/src/desktop-start.test.ts > fails closed for different listener without signalling or rewriting policy
+[unit] packages/sandbox/src/desktop-start.test.ts > fails closed for wrong ticks without signalling or rewriting policy
+[unit] packages/sandbox/src/desktop-start.test.ts > fails closed for wrong profile without signalling or rewriting policy
+[unit] packages/sandbox/src/desktop-start.test.ts > fails closed for invalid record without signalling or rewriting policy
+[unit] packages/sandbox/src/desktop-start.test.ts > retries a downstream failure without restarting a healthy browser
+[unit] packages/sandbox/src/desktop-start.test.ts > does not launch a browser before ownership commits: killed before rename, then recovers on retry
+[unit] packages/sandbox/src/desktop-start.test.ts > does not launch a browser before ownership commits: killed after rename, then recovers on retry
+[unit] packages/sandbox/src/desktop-start.test.ts > does not launch a browser before ownership commits: rename failure, then recovers on retry
+[unit] packages/sandbox/src/desktop-start.test.ts > does not launch a browser before ownership commits: write failure, then recovers on retry
+[unit] packages/sandbox/src/desktop-start.test.ts > recovers the owned browser after SIGKILL following ownership commit and launch
+[unit] packages/sandbox/src/desktop-start.test.ts > checks browser readiness again after waiting for VNC
+[unit] packages/sandbox/src/desktop-start.test.ts > replaces a dead ownership record when no debugging listener remains
+[unit] packages/sandbox/src/desktop-start.test.ts > refuses an unrelated listener even when its HTTP endpoint is unresponsive
+[unit] packages/sandbox/src/desktop-start.test.ts > never accepts an unready browser and can restart that owned process on retry
+[unit] packages/sandbox/src/desktop-start.test.ts > refuses to replace an owned browser that does not stop
+[unit] packages/sandbox/src/desktop-start.test.ts > does no desktop work if the startup lock is unavailable
+[unit] packages/sandbox/src/desktop-start.test.ts > rejects invalid port 0 before writing
+[unit] packages/sandbox/src/desktop-start.test.ts > rejects invalid port 65536 before writing
+[unit] packages/sandbox/src/desktop-start.test.ts > rejects invalid port not-a-port before writing
+[unit] packages/sandbox/src/desktop-start.test.ts > rejects invalid port 5173;exit 0 before writing
+[unit] packages/sandbox/src/desktop-start.test.ts > can print exact loopback policy without starting or writing desktop state
+
+
+bunx --no-install tsc --listFilesOnly -p packages/sandbox/tsconfig.json
+/Users/manasraghuwanshi/.t3/worktrees/nap/t3-ca9e4816/packages/sandbox/src/desktop-start.test.ts

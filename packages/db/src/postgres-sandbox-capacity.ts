@@ -252,15 +252,16 @@ export class PostgresSandboxCapacity implements SandboxCapacity {
     await this.#db.delete(sandboxReservations).where(eq(sandboxReservations.id, reservationId));
   }
 
-  async releaseForProject(projectId: string): Promise<void> {
-    await this.#db
-      .delete(sandboxReservations)
-      .where(
-        and(
-          eq(sandboxReservations.projectId, projectId),
-          inArray(sandboxReservations.state, [...OCCUPIED]),
-        ),
-      );
+  async releaseForProject(projectId: string, sandboxId: string): Promise<void> {
+    await this.#db.delete(sandboxReservations).where(
+      and(
+        eq(sandboxReservations.projectId, projectId),
+        // The row is reused by the project's next creation, which resets it to name nothing
+        // and then its own machine. Either way it is no longer this teardown's to give back.
+        eq(sandboxReservations.sandboxId, sandboxId),
+        inArray(sandboxReservations.state, [...OCCUPIED]),
+      ),
+    );
   }
 }
 

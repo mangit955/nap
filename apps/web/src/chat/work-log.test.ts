@@ -56,6 +56,13 @@ const search = () => step({ toolName: "search_files", input: { pattern: "useStat
 const thought = (text: string): WorkEntry => ({ kind: "thinking", key: nextKey++, text });
 
 describe("summarizeToolGroup", () => {
+  it("counts computer actions across batches", () => {
+    const batch = step({
+      toolName: "computer",
+      input: { actions: [{ action: "screenshot" }, { action: "type", text: "private" }] },
+    });
+    expect(summarizeToolGroup([batch, batch]).summary).toBe("Used computer - 4 actions");
+  });
   it("names each kind of work with its count", () => {
     expect(summarizeToolGroup([read(), read("b.ts"), read("c.ts")]).summary).toBe("Read 3 files");
     expect(summarizeToolGroup([run("bun test")]).summary).toBe("Ran 1 command");

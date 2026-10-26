@@ -1,0 +1,448 @@
+$ vitest run --project unit --project types --project web --project db
+Testing types with tsc and vue-tsc is an experimental feature.
+Breaking changes might not follow SemVer, please pin Vitest's version when using it.
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/t3-55804d73
+
+(node:61964) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:62188) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ❯ |web| apps/web/src/dashboard/sidebar-interactions.test.tsx (15 tests | 1 failed) 30339ms
+   × UI-03 reveals the final selected row after persisted shelves have loaded 17355ms
+ ❯ |web| apps/web/src/components/resume-flow.test.tsx (12 tests | 1 failed) 26763ms
+     × retains the exact preview iframe through compaction start and completion 6067ms
+ ❯ |web| apps/web/src/components/app-shell.test.tsx (15 tests | 3 failed) 28865ms
+     × keeps the existing preview iframe across ordinary-event 5462ms
+     × keeps a mobile draft, reference and chosen model while inspecting code 3664ms
+     × keeps Stop available after a mobile tab switch before the worker's first event 5128ms
+ ❯ |web| apps/web/src/components/live-chat-pane.test.tsx (16 tests | 1 failed) 30726ms
+     × enables the composer and Context after reloading a recovered verification child 6764ms
+ ❯ |web| apps/web/src/dashboard/new-session-composer.test.tsx (9 tests | 1 failed) 9889ms
+   × keeps the operation identity through a lost response and a refused overlapping retry 5126ms
+ ❯ |web| apps/web/src/dashboard/session-list.test.tsx (5 tests | 1 failed) 10151ms
+   × keeps the current session visible without opening its shelf, persists expansion, and pages settled rows 6818ms
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 8 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |web| apps/web/src/components/app-shell.test.tsx > AppShell > keeps the existing preview iframe across ordinary-event
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ apps/web/src/components/app-shell.test.tsx:60:50
+     58|   });
+     59|
+     60|   it.each(["ordinary-event", "socket-reconnect"])(
+       |                                                  ^
+     61|     "keeps the existing preview iframe across %s",
+     62|     async (scenario) => {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/8]⎯
+
+ FAIL  |web| apps/web/src/components/app-shell.test.tsx > AppShell > keeps a mobile draft, reference and chosen model while inspecting code
+TestingLibraryElementError: Unable to find role="button" and name "Model"
+
+Ignored nodes: comments, script, style
+[36m<body[39m
+  [33mstyle[39m=[32m"overflow: hidden;"[39m
+[36m>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"t3-workspace relative flex h-dvh flex-col overflow-hidden bg-surface"[39m
+    [36m>[39m
+      [36m<main[39m
+        [33mclass[39m=[32m"t3-workspace-panes relative grid min-h-0 flex-1 overflow-hidden"[39m
+        [33mdata-maximized[39m=[32m"false"[39m
+        [33mdata-panel-open[39m=[32m"true"[39m
+        [33mstyle[39m=[32m"--panel-width: 540px;"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"t3-chat-column min-h-0 min-w-0"[39m
+          [33mhidden[39m=[32m""[39m
+        [36m>[39m
+          [36m<header[39m
+            [33mclass[39m=[32m"workspace-header t3-chat-header"[39m
+          [36m>[39m
+            [36m<button[39m
+              [33maria-label[39m=[32m"Rename this project. Currently called Todo app"[39m
+              [33mclass[39m=[32m"group flex min-w-0 items-center gap-1.5 rounded-chip px-1.5 py-0.5 text-left transition-colors hover:bg-hover focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent truncate text-sm"[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"min-w-0 truncate"[39m
+              [36m>[39m
+                [0mTodo app[0m
+              [36m</span>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"size-3 shrink-0 text-muted opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"[39m
+                [33mfill[39m=[32m"none"[39m
+                [33mstroke[39m=[32m"currentColor"[39m
+                [33mstroke-linecap[39m=[32m"round"[39m
+                [33mstroke-linejoin[39m=[32m"round"[39m
+                [33mstroke-width[39m=[32m"1.4"[39m
+                [33mviewBox[39m=[32m"0 0 16 16"[39m
+              [36m>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M11.2 2.6a1.4 1.4 0 0 1 2 2L5.6 12.2 2.8 13.2l1-2.8z"[39m
+                [36m/>[39m
+              [36m</svg>[39m
+            [36m</button>[39m
+            [36m<p[39m
+              [33maria-label[39m=[32m"Job phase"[39m
+              [33mclass[39m=[32m"ml-auto flex min-w-0 items-center gap-1.5 text-[11px] text-muted"[39m
+              [33mrole[39m=[32m"status"[39m
+            [36m/>[39m
+            [36m<details[39m
+              [33mclass[39m=[32m"t3-details"[39m
+            [36m>[39m
+              [36m<summary[39m
+                [33maria-label[39m=[32m"Thread details"[39m
+                [33mclass[39m=[32m"t3-icon-button"[39m
+                [33mtitle[39m=[32m"Thread details"[39m
+              [36m>[39m
+                [36m<svg[39m
+                  [33maria-hidden[39m=[32m"true"[39m
+                  [33mclass[39m=[32m"lucide lucide-info"[39m
+                  [33mfill[39m=[32m"none"[39m
+                  [33mheight[39m=[32m"24"[39m
+                  [33mstroke[39m=[32m"currentColor"[39m
+                  [33mstroke-linecap[39m=[32m"round"[39m
+                  [33mstroke-linejoin[39m=[32m"round"[39m
+                  [33mstroke-width[39m=[32m"2"[39m
+                  [33mviewBox[39m=[32m"0 0 24 24"[39m
+                  [33mwidth[39m=[32m"24"[39m
+                  [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+                [36m>[39m
+                  [36m<circle[39m
+                    [33mcx[39m=[32m"12"[39m
+                    [33mcy[39m=[32m"12"[39m
+                    [33mr[39m=[32m"10"[39m
+                  [36m/>[39m
+                  [36m<path[39m
+                    [33md[39m=[32m"M12 16v-4"[39m
+                  [36m/>[39m
+                  [36m<path[39m
+                    [33md[39m=[32m"M12 8h.01"[39m
+                  [36m/>[39m
+                [36m</svg>[39m
+              [36m</summary>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"t3-details-card"[39m
+              [36m>[39m
+                [36m<h2>[39m
+                  [0mTodo app[0m
+                [36m</h2>[39m
+                [36m<p[39m
+                  [33mclass[39m=[32m"t3-details-label"[39m
+                [36m>[39m
+                  [0mWorkspace[0m
+                [36m</p>[39m
+                [36m<p>[39m
+                  [0mTodo app[0m
+                [36m</p>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"t3-details-actions"[39m
+                [36m>[39m
+                  [36m<button[39m
+                    [33mtype[39m=[32m"button"[39m
+                  [36m>[39m
+                    [0mView changes[0m
+                  [36m</button>[39m
+                  [36m<button[39m
+                    [33mtype[39m=[32m"button"[39m
+                  [36m>[39m
+                    [0mPull requests[0m
+                  [36m</button>[39m
+                [36m</div>[39m
+              [36m</div>[39m
+            [36m</details>[39m
+            [36m<button[39m
+              [33maria-label[39m=[32m"Hide right panel"[39m
+              [33mclass[39m=[32m"t3-icon-button"[39m
+              [33mtitle[39m=[32m"Hide right panel"[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"lucide lucide-panel-right"[39m
+                [33mfill[39m=[32m"none"[39m
+                [33mheight[39m=[32m"24"[39m
+                [33mstroke[39m=[32m"currentColor"[39m
+                [33mstroke-linecap[39m=[32m"round"[39m
+                [33mstroke-linejoin[39m=[32m"round"[39m
+                [33mstroke-width[39m=[32m"2"[39m
+                [33mviewBox[39m=[32m"0 0 24 24"[39m
+                [33mwidth[39m=[32m"24"[39m
+                [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+              [36m>[39m
+                [36m<rect[39m
+                  [33mheight[39m=[32m"18"[39m
+                  [33mrx[39m=[32m"2"[39m
+                  [33mwidth[39m=[32m"18"[39m
+                  [33mx[39m=[32m"3"[39m
+                  [33my[39m=[32m"3"[39m
+                [36m/>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M15 3v18"[39m
+                [36m/>[39m
+              [36m</svg>[39m
+            [36m</button>[39m
+          [36m</header>[39m
+          [36m<dialog[39m
+            [33maria-label[39m=[32m"Your API key"[39m
+            [33mclass[39m=[32m"nap-dialog ai-stage-dark m-auto w-full max-w-md rounded-[20px] border border-edge bg-panel p-7 text-ink shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_32px_64px_-16px_rgba(0,0,0,0.75)] backdrop:bg-black/60 backdrop:backdrop-blur-...
+
+Ignored nodes: comments, script, style
+[36m<body[39m
+  [33mstyle[39m=[32m"overflow: hidden;"[39m
+[36m>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"t3-workspace relative flex h-dvh flex-col overflow-hidden bg-surface"[39m
+    [36m>[39m
+      [36m<main[39m
+        [33mclass[39m=[32m"t3-workspace-panes relative grid min-h-0 flex-1 overflow-hidden"[39m
+        [33mdata-maximized[39m=[32m"false"[39m
+        [33mdata-panel-open[39m=[32m"true"[39m
+        [33mstyle[39m=[32m"--panel-width: 540px;"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"t3-chat-column min-h-0 min-w-0"[39m
+          [33mhidden[39m=[32m""[39m
+        [36m>[39m
+          [36m<header[39m
+            [33mclass[39m=[32m"workspace-header t3-chat-header"[39m
+          [36m>[39m
+            [36m<button[39m
+              [33maria-label[39m=[32m"Rename this project. Currently called Todo app"[39m
+              [33mclass[39m=[32m"group flex min-w-0 items-center gap-1.5 rounded-chip px-1.5 py-0.5 text-left transition-colors hover:bg-hover focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent truncate text-sm"[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"min-w-0 truncate"[39m
+              [36m>[39m
+                [0mTodo app[0m
+              [36m</span>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"size-3 shrink-0 text-muted opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"[39m
+                [33mfill[39m=[32m"none"[39m
+                [33mstroke[39m=[32m"currentColor"[39m
+                [33mstroke-linecap[39m=[32m"round"[39m
+                [33mstroke-linejoin[39m=[32m"round"[39m
+                [33mstroke-width[39m=[32m"1.4"[39m
+                [33mviewBox[39m=[32m"0 0 16 16"[39m
+              [36m>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M11.2 2.6a1.4 1.4 0 0 1 2 2L5.6 12.2 2.8 13.2l1-2.8z"[39m
+                [36m/>[39m
+              [36m</svg>[39m
+            [36m</button>[39m
+            [36m<p[39m
+              [33maria-label[39m=[32m"Job phase"[39m
+              [33mclass[39m=[32m"ml-auto flex min-w-0 items-center gap-1.5 text-[11px] text-muted"[39m
+              [33mrole[39m=[32m"status"[39m
+            [36m/>[39m
+            [36m<details[39m
+              [33mclass[39m=[32m"t3-details"[39m
+            [36m>[39m
+              [36m<summary[39m
+                [33maria-label[39m=[32m"Thread details"[39m
+                [33mclass[39m=[32m"t3-icon-button"[39m
+                [33mtitle[39m=[32m"Thread details"[39m
+              [36m>[39m
+                [36m<svg[39m
+                  [33maria-hidden[39m=[32m"true"[39m
+                  [33mclass[39m=[32m"lucide lucide-info"[39m
+                  [33mfill[39m=[32m"none"[39m
+                  [33mheight[39m=[32m"24"[39m
+                  [33mstroke[39m=[32m"currentColor"[39m
+                  [33mstroke-linecap[39m=[32m"round"[39m
+                  [33mstroke-linejoin[39m=[32m"round"[39m
+                  [33mstroke-width[39m=[32m"2"[39m
+                  [33mviewBox[39m=[32m"0 0 24 24"[39m
+                  [33mwidth[39m=[32m"24"[39m
+                  [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+                [36m>[39m
+                  [36m<circle[39m
+                    [33mcx[39m=[32m"12"[39m
+                    [33mcy[39m=[32m"12"[39m
+                    [33mr[39m=[32m"10"[39m
+                  [36m/>[39m
+                  [36m<path[39m
+                    [33md[39m=[32m"M12 16v-4"[39m
+                  [36m/>[39m
+                  [36m<path[39m
+                    [33md[39m=[32m"M12 8h.01"[39m
+                  [36m/>[39m
+                [36m</svg>[39m
+              [36m</summary>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"t3-details-card"[39m
+              [36m>[39m
+                [36m<h2>[39m
+                  [0mTodo app[0m
+                [36m</h2>[39m
+                [36m<p[39m
+                  [33mclass[39m=[32m"t3-details-label"[39m
+                [36m>[39m
+                  [0mWorkspace[0m
+                [36m</p>[39m
+                [36m<p>[39m
+                  [0mTodo app[0m
+                [36m</p>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"t3-details-actions"[39m
+                [36m>[39m
+                  [36m<button[39m
+                    [33mtype[39m=[32m"button"[39m
+                  [36m>[39m
+                    [0mView changes[0m
+                  [36m</button>[39m
+                  [36m<button[39m
+                    [33mtype[39m=[32m"button"[39m
+                  [36m>[39m
+                    [0mPull requests[0m
+                  [36m</button>[39m
+                [36m</div>[39m
+              [36m</div>[39m
+            [36m</details>[39m
+            [36m<button[39m
+              [33maria-label[39m=[32m"Hide right panel"[39m
+              [33mclass[39m=[32m"t3-icon-button"[39m
+              [33mtitle[39m=[32m"Hide right panel"[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"lucide lucide-panel-right"[39m
+                [33mfill[39m=[32m"none"[39m
+                [33mheight[39m=[32m"24"[39m
+                [33mstroke[39m=[32m"currentColor"[39m
+                [33mstroke-linecap[39m=[32m"round"[39m
+                [33mstroke-linejoin[39m=[32m"round"[39m
+                [33mstroke-width[39m=[32m"2"[39m
+                [33mviewBox[39m=[32m"0 0 24 24"[39m
+                [33mwidth[39m=[32m"24"[39m
+                [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+              [36m>[39m
+                [36m<rect[39m
+                  [33mheight[39m=[32m"18"[39m
+                  [33mrx[39m=[32m"2"[39m
+                  [33mwidth[39m=[32m"18"[39m
+                  [33mx[39m=[32m"3"[39m
+                  [33my[39m=[32m"3"[39m
+                [36m/>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M15 3v18"[39m
+                [36m/>[39m
+              [36m</svg>[39m
+            [36m</button>[39m
+          [36m</header>[39m
+          [36m<dialog[39m
+            [33maria-label[39m=[32m"Your API key"[39m
+            [33mclass[39m=[32m"nap-dialog ai-stage-dark m-auto w-full max-w-md rounded-[20px] border border-edge bg-panel p-7 text-ink shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_32px_64px_-16px_rgba(0,0,0,0.75)] backdrop:bg-black/60 backdrop:backdrop-blur-...
+ ❯ waitForWrapper node_modules/.bun/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:163:27
+ ❯ node_modules/.bun/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:86:33
+ ❯ apps/web/src/components/app-shell.test.tsx:145:20
+    143|     );
+    144|     try {
+    145|       await screen.findByRole("button", { name: "Model" });
+       |                    ^
+    146|       fireEvent.change(screen.getByRole("textbox", { name: "Message" }…
+    147|         target: { value: "Keep this draft" },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/8]⎯
+
+ FAIL  |web| apps/web/src/components/app-shell.test.tsx > AppShell > keeps Stop available after a mobile tab switch before the worker's first event
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ apps/web/src/components/app-shell.test.tsx:180:3
+    178|   });
+    179|
+    180|   it("keeps Stop available after a mobile tab switch before the worker…
+       |   ^
+    181|     vi.spyOn(window, "matchMedia").mockImplementation((query) => ({
+    182|       matches: true,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/8]⎯
+
+ FAIL  |web| apps/web/src/components/live-chat-pane.test.tsx > LiveChatPane > enables the composer and Context after reloading a recovered verification child
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ apps/web/src/components/live-chat-pane.test.tsx:105:3
+    103|
+    104| describe("LiveChatPane", () => {
+    105|   it("enables the composer and Context after reloading a recovered ver…
+       |   ^
+    106|     const request = "00000000-0000-4000-8000-000000000002";
+    107|     const repair = "00000000-0000-4000-8000-000000000003";
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/8]⎯
+
+ FAIL  |web| apps/web/src/components/resume-flow.test.tsx > opening a put-away project > retains the exact preview iframe through compaction start and completion
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ apps/web/src/components/resume-flow.test.tsx:94:3
+     92|
+     93| describe("opening a put-away project", () => {
+     94|   it("retains the exact preview iframe through compaction start and co…
+       |   ^
+     95|     open();
+     96|     await waitFor(() => expect(net.opened).toHaveLength(1));
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/8]⎯
+
+ FAIL  |web| apps/web/src/dashboard/new-session-composer.test.tsx > keeps the operation identity through a lost response and a refused overlapping retry
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ apps/web/src/dashboard/new-session-composer.test.tsx:39:1
+     37| }
+     38|
+     39| it("keeps the operation identity through a lost response and a refused…
+       | ^
+     40|   const draft = await seedDraft();
+     41|   const fetchJson = vi.fn(async (_url: string, _init?: RequestInit) =>…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/8]⎯
+
+ FAIL  |web| apps/web/src/dashboard/session-list.test.tsx > keeps the current session visible without opening its shelf, persists expansion, and pages settled rows
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ apps/web/src/dashboard/session-list.test.tsx:66:1
+     64| });
+     65|
+     66| it("keeps the current session visible without opening its shelf, persi…
+       | ^
+     67|   localStorage.clear();
+     68|   const sessions = Array.from({ length: 38 }, (_, index) => ({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/8]⎯
+
+ FAIL  |web| apps/web/src/dashboard/sidebar-interactions.test.tsx > UI-03 reveals the final selected row after persisted shelves have loaded
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ apps/web/src/dashboard/sidebar-interactions.test.tsx:70:1
+     68| );
+     69|
+     70| it("UI-03 reveals the final selected row after persisted shelves have …
+       | ^
+     71|   localStorage.setItem(
+     72|     "nap.sidebar.shelves.review-owner",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/8]⎯
+
+
+ Test Files  6 failed | 387 passed (393)
+      Tests  8 failed | 5134 passed (5142)
+Type Errors  no errors
+   Start at  11:25:29
+   Duration  211.15s (transform 36.48s, setup 58.05s, import 180.65s, tests 483.93s, environment 273.65s, typecheck 420ms)
+
+error: script "test" exited with code 1

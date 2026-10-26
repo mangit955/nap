@@ -1,4 +1,5 @@
 import { estimateContextTokens } from "@nap/shared/compaction";
+import { pruneComputerImages } from "@nap/shared/computer-context";
 /**
  * Driving the model through one turn.
  *
@@ -24,6 +25,7 @@ import { estimateContextTokens } from "@nap/shared/compaction";
  */
 
 import type { NapEvent, NapEventOf, TurnFailureReason } from "@nap/shared/events";
+import { modelSupportsImages } from "@nap/shared/model-capabilities";
 import type { AgentService, AgentTurnRequest } from "@nap/shared/ports/agent-service";
 import type { PendingEvent } from "@nap/shared/ports/event-store";
 import type {
@@ -37,7 +39,7 @@ import type {
 } from "@nap/shared/ports/llm-provider";
 import { DeltaStream } from "./delta-stream.ts";
 import { TurnBudget, type TurnBudgetOptions } from "./safety/budget.ts";
-import { TOOL_DEFINITIONS } from "./tools/definitions.ts";
+import { APP_TEST_TOOL_NAMES, TOOL_DEFINITIONS } from "./tools/definitions.ts";
 import { executeTool, type ToolContext } from "./tools/execute.ts";
 
 type Payload<T extends NapEvent["type"]> = NapEventOf<T>["payload"];
@@ -47,6 +49,7 @@ export type AgentServiceOptions = {
   provider: LLMProvider;
   /** Per-turn ceilings. Defaults come from ./safety/budget.ts. */
   budget?: TurnBudgetOptions;
+  testBudget?: TurnBudgetOptions;
   /** Injected so a test can assert on whole events rather than on everything but the clock. */
   now?: () => string;
   /** Injected for the same reason, for the duration `turn.completed` reports. */
@@ -56,18 +59,26 @@ export type AgentServiceOptions = {
 export class NapAgentService implements AgentService {
   readonly #provider: LLMProvider;
   readonly #budget: TurnBudgetOptions;
+  readonly #testBudget: TurnBudgetOptions;
   readonly #now: () => string;
   readonly #clock: () => number;
 
   constructor(options: AgentServiceOptions) {
     this.#provider = options.provider;
     this.#budget = options.budget ?? {};
+    this.#testBudget = { maxSteps: 30, maxTokens: 160_000, ...options.testBudget };
     this.#now = options.now ?? (() => new Date().toISOString());
     this.#clock = options.clock ?? (() => Date.now());
   }
 
   async runTurn(request: AgentTurnRequest): Promise<void> {
-    await new Turn(request, this.#provider, this.#budget, this.#now, this.#clock).run();
+    await new Turn(
+      request,
+      this.#provider,
+      request.promptSource === "test" ? this.#testBudget : this.#budget,
+      this.#now,
+      this.#clock,
+    ).run();
   }
 }
 
@@ -86,6 +97,7 @@ class Turn {
   readonly #clock: () => number;
   readonly #startedAt: number;
   readonly #messages: LLMMessage[];
+  readonly #tools: typeof TOOL_DEFINITIONS;
   #lastCompactionStep = -3;
   #reportedInput: number | undefined;
   #inputEstimate = 0;
@@ -101,6 +113,13 @@ class Turn {
     clock: () => number,
   ) {
     this.#request = request;
+    this.#tools = TOOL_DEFINITIONS.filter(
+      (tool) =>
+        (request.promptSource !== "test" ||
+          APP_TEST_TOOL_NAMES.some((name) => name === tool.name)) &&
+        (tool.name !== "computer" ||
+          (request.computer !== undefined && modelSupportsImages(request.model))),
+    );
     this.#turn = provider.startTurn({
       model: request.model,
       credentials: request.credentials,
@@ -109,7 +128,7 @@ class Turn {
     this.#now = now;
     this.#startedAt = clock();
     this.#clock = clock;
-    this.#messages = [...request.context.messages];
+    this.#messages = pruneComputerImages(request.context.messages, 0);
   }
 
   async run(): Promise<void> {
@@ -176,11 +195,12 @@ class Turn {
       // The provider receives the signal too, but a proxy or upstream stream can take a while
       // to honour it. Racing here ends our turn immediately, preventing further tool calls or
       // streamed output while the transport tears itself down in the background.
+      const messages = [...this.#messages];
       const completed = await stopAware(
         this.#turn.complete({
           systemPrompt: this.#request.context.systemPrompt,
-          messages: [...this.#messages],
-          tools: TOOL_DEFINITIONS,
+          messages,
+          tools: this.#tools,
           onThinkingDelta: (delta) => thinking.push(delta),
           onTextDelta: (delta) => prose.push(delta),
           ...(this.#request.signal === undefined ? {} : { signal: this.#request.signal }),
@@ -197,7 +217,7 @@ class Turn {
       this.#inputEstimate = estimateContextTokens({
         systemPrompt: this.#request.context.systemPrompt,
         messages: this.#messages,
-        tools: TOOL_DEFINITIONS,
+        tools: this.#tools,
       });
       if (this.#request.context.budgetTokens !== undefined)
         this.#emit({
@@ -223,6 +243,8 @@ class Turn {
         return this.#fail(result.retryable ? "model_unavailable" : "internal", result.message);
       }
 
+      this.#delivered(messages);
+
       const tokenBudget = this.#budget.check();
       if (!tokenBudget.ok) return this.#failWith(tokenBudget.failure);
 
@@ -234,8 +256,9 @@ class Turn {
 
       if (result.toolCalls.length === 0) return await this.#complete();
 
-      const cancelled = await this.#runTools(result.text, result.toolCalls);
-      if (cancelled) return this.#fail("cancelled", "The turn was cancelled.");
+      const disposition = await this.#runTools(result.text, result.toolCalls);
+      if (disposition === "fatal") return;
+      if (disposition === "cancelled") return this.#fail("cancelled", "The turn was cancelled.");
     }
   }
 
@@ -243,12 +266,28 @@ class Turn {
     const estimate = estimateContextTokens({
       systemPrompt: this.#request.context.systemPrompt,
       messages: this.#messages,
-      tools: TOOL_DEFINITIONS,
+      tools: this.#tools,
     });
     const calibrated = (this.#reportedInput ?? 0) + estimate - this.#inputEstimate;
     return this.#nativeContext && this.#reportedInput !== undefined
       ? Math.max(0, calibrated)
       : Math.max(estimate, calibrated);
+  }
+
+  #delivered(messages: readonly LLMMessage[]): void {
+    this.#request.computer?.delivered?.(
+      messages.flatMap((message) =>
+        typeof message.content === "string"
+          ? []
+          : message.content.flatMap((block) =>
+              block.type === "tool_result" &&
+              Array.isArray(block.content) &&
+              block.content.some((child) => child.type === "image")
+                ? [block.toolCallId]
+                : [],
+            ),
+      ),
+    );
   }
 
   #headroom(): number {
@@ -324,13 +363,14 @@ class Turn {
       this.#budget.recordStep();
       const result = await stopAware(this.#turn.complete(request), this.#request.signal);
       if (result === CANCELLED) throw new Error("Compaction cancelled.");
+      if (result.type === "message") this.#delivered(request.messages);
       this.#budget.recordUsage(result.usage);
       return result;
     };
     const native = this.#turn.compact;
     const result = await this.#request.compactContext({
       messages: this.#messages,
-      tools: TOOL_DEFINITIONS,
+      tools: this.#tools,
       systemPrompt: this.#request.context.systemPrompt,
       trigger,
       complete,
@@ -369,7 +409,7 @@ class Turn {
     });
     this.#lastCompactionStep = this.#budget.spent().steps;
     if (result.ok) {
-      this.#messages.splice(0, this.#messages.length, ...result.messages);
+      this.#messages.splice(0, this.#messages.length, ...pruneComputerImages(result.messages));
       this.#nativeContext = native !== undefined;
       this.#reportedInput = result.contextTokens;
       this.#inputEstimate =
@@ -378,7 +418,7 @@ class Turn {
           : estimateContextTokens({
               systemPrompt: this.#request.context.systemPrompt,
               messages: this.#messages,
-              tools: TOOL_DEFINITIONS,
+              tools: this.#tools,
             });
       if (this.#request.context.budgetTokens !== undefined)
         this.#emit({
@@ -399,21 +439,31 @@ class Turn {
   /**
    * Executes a batch of tool calls and appends both halves of the exchange.
    *
-   * Returns whether the turn was cancelled part-way. The results collected so far are
-   * deliberately *not* sent: the conversation is being abandoned, and a user message
+   * Returns why an incomplete batch stopped. The results collected so far are
+   * deliberately not sent: the conversation is being abandoned, and a user message
    * answering only some of an assistant message's tool calls is a request the API rejects.
    */
-  async #runTools(text: string, calls: readonly LLMToolCall[]): Promise<boolean> {
+  async #runTools(
+    text: string,
+    calls: readonly LLMToolCall[],
+  ): Promise<"continue" | "cancelled" | "fatal"> {
     const results: LLMContentBlock[] = [];
 
     for (const call of calls) {
-      if (this.#cancelled()) return true;
+      if (this.#cancelled()) return "cancelled";
 
       const outcome = await executeTool(call, this.#toolContext());
+      if (outcome.stop === "computer_unsettled") {
+        this.#fail(
+          this.#cancelled() ? "cancelled" : "sandbox_unavailable",
+          "Computer input recovery is pending.",
+        );
+        return "fatal";
+      }
       results.push({
         type: "tool_result",
         toolCallId: call.id,
-        content: outcome.output,
+        content: outcome.content ?? outcome.output,
         // A failed tool is a result the model reads and works around, never a dropped block.
         isError: !outcome.ok,
       });
@@ -430,8 +480,9 @@ class Turn {
     this.#messages.push({ role: "assistant", content: assistant });
     // Every result in one message: see the note at the top of this file.
     this.#messages.push({ role: "user", content: results });
+    this.#messages.splice(0, this.#messages.length, ...pruneComputerImages(this.#messages));
 
-    return false;
+    return "continue";
   }
 
   async #complete(): Promise<void> {
@@ -471,6 +522,9 @@ class Turn {
       turnId: this.#request.turnId,
       sandboxId: this.#request.sandboxId,
       sandbox: this.#request.sandbox,
+      testMode: this.#request.promptSource === "test",
+      computer: modelSupportsImages(this.#request.model) ? this.#request.computer : undefined,
+      signal: this.#request.signal,
       emit: this.#request.onEvent,
       now: this.#now,
     };

@@ -1,0 +1,15 @@
+<body><h1>Actual Chrome physical input</h1><p id="origin">Origin http://127.0.0.1:5174</p>
+<form><label>Name <input id="name" autocomplete="off"></label> <button>Apply</button></form>
+<p id="result">Waiting for input</p>
+<div id="scroller"><div id="tall">Scroll this blue panel</div></div><p id="scroll-result">Scroll: waiting</p>
+<div id="track"><div id="handle"></div></div><p id="drag-result">Drag: waiting</p>
+<script>
+document.querySelector('#origin').textContent='Origin '+location.origin;
+document.querySelector('form').addEventListener('submit',event=>{event.preventDefault();document.querySelector('#result').textContent='Applied: '+document.querySelector('#name').value;});
+const scroller=document.querySelector('#scroller');scroller.addEventListener('scroll',()=>{document.querySelector('#scroll-result').textContent='Scroll: '+scroller.scrollTop;});
+const handle=document.querySelector('#handle');let start;
+handle.addEventListener('pointerdown',event=>{start=event.clientX;handle.setPointerCapture(event.pointerId);});
+handle.addEventListener('pointermove',event=>{if(start!==undefined){const distance=Math.max(0,Math.min(400,event.clientX-start));handle.style.left=(10+distance)+'px';document.querySelector('#drag-result').textContent='Drag: '+distance;}});
+handle.addEventListener('pointerup',()=>{start=undefined;});
+console.log('fixture ready',location.origin);
+</script></body>

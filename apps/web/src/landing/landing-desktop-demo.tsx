@@ -298,6 +298,7 @@ function DemoSession({
         {panels.layout.open && !hidden && <div className="t3-panel-divider" />}
         <Workbench
           controller={panels}
+          computer={undefined}
           job={job}
           chatHidden={hidden}
           narrow={narrow}

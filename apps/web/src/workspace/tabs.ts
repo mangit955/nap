@@ -3,6 +3,7 @@ import { z } from "zod";
 
 export const WorkbenchTabSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("preview") }),
+  z.object({ kind: z.literal("computer") }),
   z.object({ kind: z.literal("code") }),
   z.object({ kind: z.literal("diff") }),
   z.object({ kind: z.literal("pr") }),
@@ -12,6 +13,7 @@ export type WorkbenchTab = z.infer<typeof WorkbenchTabSchema>;
 export type PanelKind = Exclude<WorkbenchTab["kind"], "file">;
 export const WORKBENCH_TABS: readonly { id: PanelKind; label: string }[] = [
   { id: "preview", label: "Browser" },
+  { id: "computer", label: "Computer" },
   { id: "code", label: "Files" },
   { id: "diff", label: "Diff" },
   { id: "pr", label: "Pull requests" },

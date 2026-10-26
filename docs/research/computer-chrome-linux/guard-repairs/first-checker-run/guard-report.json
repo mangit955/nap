@@ -1,0 +1,40 @@
+{
+  "dockerIsStubbed": true,
+  "actualDockerCalls": 0,
+  "decoder": {
+    "packetTimeSeconds": 30,
+    "offset": 175527,
+    "damagedBytes": 9671,
+    "metadataUnchanged": true,
+    "oldExit": 0,
+    "strictExit": 183,
+    "cleanStrictExit": 0
+  },
+  "oldCleanup": {
+    "returnedNormallyDespiteBothRemovalFailures": true,
+    "calls": [
+      ["docker", ["rm", "-f", "owned-fixture"], 20000],
+      ["docker", ["image", "rm", "owned-fixture:local"], 20000]
+    ]
+  },
+  "cleanupCases": [
+    {
+      "mode": "permanent",
+      "exit": 1,
+      "cleanupOk": false,
+      "attempts": 4
+    },
+    {
+      "mode": "absent",
+      "exit": 0,
+      "cleanupOk": true,
+      "attempts": 2
+    },
+    {
+      "mode": "transient",
+      "exit": 0,
+      "cleanupOk": true,
+      "attempts": 4
+    }
+  ]
+}

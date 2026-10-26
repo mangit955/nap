@@ -44,6 +44,7 @@ import { getLogger } from "@nap/shared/logging";
 import type { ModelCredentials } from "@nap/shared/ports/llm-provider";
 import type { Runtime } from "@nap/shared/ports/runtime";
 import type { LeasedTurnRequest, TurnQueue } from "@nap/shared/ports/turn-queue";
+import { TurnAbortError } from "@nap/shared/turn-abort";
 
 /**
  * Where a worker announces the turns it is running, for whatever else in this process needs to
@@ -262,6 +263,7 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
         // Resume lifecycle events use this id. Any repair it starts records this request as
         // its owner while retaining its own turn id.
         turnId: request.id,
+        lease: { requestId: request.id, owner },
         model: request.model,
         // A resume that continues a job runs turns, so it answers to the lease exactly as a turn
         // does. Without the signal the `AbortController` above would be wired to nothing on this
@@ -283,8 +285,13 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
     const outcome = await runtime.runTurn({
       sessionId: request.sessionId,
       turnId: request.id,
-      message: request.message,
-      ...(request.attachments === undefined ? {} : { attachments: request.attachments }),
+      lease: { requestId: request.id, owner },
+      ...(request.kind === "test"
+        ? { kind: "test", jobId: request.message }
+        : {
+            message: request.message,
+            ...(request.attachments === undefined ? {} : { attachments: request.attachments }),
+          }),
       signal,
       model: request.model,
       ...(credentials === undefined ? {} : { credentials }),
@@ -308,11 +315,13 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
           { requestId: request.id, sessionId: request.sessionId },
           "lease lost; aborting the turn",
         );
-        controller.abort(new Error("the lease on this session was lost"));
+        if (controller.signal.reason instanceof TurnAbortError)
+          controller.signal.reason.markLeaseLost();
+        else controller.abort(new TurnAbortError("lease_lost"));
         return;
       }
 
-      if (result.cancelRequested) controller.abort(new Error("the turn was cancelled"));
+      if (result.cancelRequested) controller.abort(new TurnAbortError("cancelled"));
     } catch (error) {
       // A renewal that could not be *asked* is not a lease that was lost: the database is briefly
       // unreachable, and the lease has three of these to spare before it expires. Aborting on the
@@ -387,7 +396,7 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
       "the drain timed out; aborting the turns still running",
     );
     for (const controller of controllers) {
-      controller.abort(new Error("the worker is shutting down"));
+      controller.abort(new TurnAbortError("shutdown"));
     }
 
     // Bounded, not `await draining`. An abort is a request, and a runtime that does not honour one

@@ -1,0 +1,1 @@
+ALTER TYPE "public"."turn_request_kind" ADD VALUE 'test';

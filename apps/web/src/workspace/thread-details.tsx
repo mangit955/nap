@@ -164,6 +164,7 @@ export function ThreadDetailsPanel({
   onDismiss,
   onOpenChanges,
   onOpenPullRequests,
+  onOpenRecordings,
   fetchJson = credentialedFetch,
   baseUrl = GITHUB_API_URL,
 }: {
@@ -180,6 +181,7 @@ export function ThreadDetailsPanel({
   onDismiss: () => void;
   onOpenChanges: () => void;
   onOpenPullRequests: () => void;
+  onOpenRecordings?: (() => void) | undefined;
   fetchJson?: FetchJson | undefined;
   baseUrl?: string;
 }) {
@@ -250,6 +252,17 @@ export function ThreadDetailsPanel({
                 : []),
             ]}
           />
+          {onOpenRecordings && (
+            <button
+              type="button"
+              className="t3-td-row"
+              disabled={!sessionId}
+              onClick={leave(onOpenRecordings)}
+            >
+              <SquareMenu aria-hidden="true" />
+              <span className="t3-td-label">Test recordings</span>
+            </button>
+          )}
           {repository && (
             <button type="button" className="t3-td-row" onClick={() => setScriptsOpen(true)}>
               {repository.environment.devCommand === null ? (

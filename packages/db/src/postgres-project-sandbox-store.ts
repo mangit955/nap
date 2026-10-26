@@ -14,7 +14,7 @@
  */
 
 import type { IdleProject, ProjectSandboxStore } from "@nap/shared/ports/project-sandbox-store";
-import { eq, isNotNull, sql } from "drizzle-orm";
+import { and, eq, isNotNull, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { events, projects, sessions } from "./schema.ts";
 
@@ -57,7 +57,11 @@ export class PostgresProjectSandboxStore implements ProjectSandboxStore {
     }));
   }
 
-  async releaseSandbox(projectId: string, snapshotKey: string | null): Promise<void> {
+  async releaseSandbox(
+    projectId: string,
+    sandboxId: string,
+    snapshotKey: string | null,
+  ): Promise<boolean> {
     const updated = await this.#db
       .update(projects)
       .set({
@@ -70,12 +74,20 @@ export class PostgresProjectSandboxStore implements ProjectSandboxStore {
         status: "idle",
         updatedAt: new Date(),
       })
-      .where(eq(projects.id, projectId))
+      // Compare-and-clear: a project that names another machine now has moved on since the
+      // caller read it, and that machine is not this caller's to forget. See the port.
+      .where(and(eq(projects.id, projectId), eq(projects.sandboxId, sandboxId)))
       .returning({ id: projects.id });
+    if (updated.length > 0) return true;
 
     // Thrown rather than returned, like `PostgresSessionStore.setSandboxId`: the caller has
     // just been handed this project by `idleSince`, so getting here means something deleted it
     // underneath us, which nothing above could act on.
-    if (updated.length === 0) throw new Error(`unknown project ${projectId}`);
+    const [exists] = await this.#db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(eq(projects.id, projectId));
+    if (exists === undefined) throw new Error(`unknown project ${projectId}`);
+    return false;
   }
 }

@@ -1,0 +1,4 @@
+[integration] apps/napbench/src/app-test-browser.integration.test.ts > app-test specimens in actual Chrome > distinguishes 'notes-correct' through its actual main flow
+[integration] apps/napbench/src/app-test-browser.integration.test.ts > app-test specimens in actual Chrome > distinguishes 'notes-buggy' through its actual main flow
+[integration] apps/napbench/src/app-test-browser.integration.test.ts > app-test specimens in actual Chrome > distinguishes 'cart-correct' through its actual main flow
+[integration] apps/napbench/src/app-test-browser.integration.test.ts > app-test specimens in actual Chrome > distinguishes 'cart-buggy' through its actual main flow

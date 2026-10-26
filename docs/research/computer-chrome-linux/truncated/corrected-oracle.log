@@ -1,0 +1,19 @@
+node:internal/modules/run_main:111
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: The retained production read_dom output omits the actual Chrome policy message.
+    at file:///Users/manasraghuwanshi/.t3/worktrees/nap/t3-0ad410c7/[eval1]:1:190
+    at ModuleJob.run (node:internal/modules/esm/module_job:574:25)
+    at async node:internal/modules/esm/loader:232:26
+    at async ModuleLoader.executeModuleJob (node:internal/modules/esm/loader:229:20)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:105:5) {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: false,
+  expected: true,
+  operator: '==',
+  diff: 'simple'
+}
+
+Node.js v26.12.0

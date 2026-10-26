@@ -1,0 +1,8 @@
+
+ Test Files  2 failed | 444 passed (446)
+      Tests  2 failed | 6042 passed (6044)
+Type Errors  no errors
+   Start at  15:45:42
+   Duration  111.74s (transform 10.70s, setup 13.76s, import 54.58s, tests 238.78s, environment 54.64s, typecheck 183ms)
+
+error: script "test" exited with code 1

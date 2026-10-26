@@ -1,0 +1,45 @@
+{
+  "checkerSha256": "19f56e91516b5d234778b9dfbd0f8d9a93baed1eb9615c52f06a820f05f17884",
+  "noVncVersion": "1.5.0",
+  "transport": "loopback ephemeral HTTP/WS to byte-preserving docker exec TCP pipe",
+  "cloud": false,
+  "wrongPasswordRejected": true,
+  "decodedFramebuffer": true,
+  "adversarialClientViewOnly": false,
+  "productionClientViewOnly": true,
+  "clientBundleSha256": "3f7afc0317aec943461aa7aa650ac733cd3af4ee45adc0ec6aa4f196b21386e5",
+  "frozenObservationControl": true,
+  "ownedResourcesVisibleToVerificationFilters": true,
+  "loopbackPort": 56528,
+  "localChromeVersion": "153.0.8010.54",
+  "decodedFrame": {
+    "width": 1024,
+    "height": 768,
+    "sampledColors": 354,
+    "bytes": 141330,
+    "sha256": "8524eb7f69703513730468b6fffae822105e3197d4fa78ede691b88cc0017840"
+  },
+  "adversarialMessages": {
+    "key": 2,
+    "pointer": 2
+  },
+  "adversarialObservedResult": "Waiting for input",
+  "serverDeniedPointer": true,
+  "serverDeniedKey": true,
+  "resultRegion": {
+    "x": 24,
+    "y": 292,
+    "width": 500,
+    "height": 36,
+    "minimumGrowth": 100,
+    "beforeGreenPixels": 443,
+    "afterGreenPixels": 443
+  },
+  "productionPhysicalInputWorks": true,
+  "ok": false,
+  "failure": "Error: Bounded VNC probe condition timed out.",
+  "httpListenerClosed": true,
+  "temporaryProfileRemoved": true,
+  "cleanupVerified": true,
+  "elapsedMs": 137826
+}

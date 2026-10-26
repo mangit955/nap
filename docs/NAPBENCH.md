@@ -90,6 +90,154 @@ Everything a run produces — reports, trajectories, screenshots and their sidec
 
 ---
 
+## Planted-bug app tests
+
+This is a separate instrument for **test mode**, with its own CLI and report. It does not add
+tasks to `all`, `hard` or `product`, change their arithmetic, or use the generation-task runner.
+Those tasks ask the agent to build something; these must preserve a specimen before the agent
+can inspect it.
+
+```bash
+bun run apps/napbench/scripts/napbench-app-test.ts
+bun run apps/napbench/scripts/napbench-app-test.ts --task=notes-buggy --out=napbench-results/notes-test.json
+```
+
+Both commands are free and offline. They require Bun, Node and git, with no credentials,
+browser, Docker or sandbox service. The default output is `napbench-results/app-test.json`.
+Unknown, empty and duplicate flags are errors. A measured wrong answer exits 0; an unmeasured
+run exits 1. The report and event trajectories are written in either case. A failure preparing
+the fixture or writing the report exits 1 without claiming an observation.
+
+There are two app flows, each with a correct and a buggy version:
+
+- `notes-correct` / `notes-buggy`: save a note and reload. The planted bug writes a different
+  storage key, so the note appears immediately but disappears on reload.
+- `cart-correct` / `cart-buggy`: change the quantity of a $12 notebook. The planted bug adds
+  quantity to price instead of multiplying them.
+
+The specimens live in `apps/napbench/fixtures/app-test/`. Each pair has the same HTML and differs
+by one expression in its JavaScript. The independent DOM tests in
+`apps/napbench/src/app-test-flows.test.tsx` execute those actual handlers and distinguish the
+versions. They simulate remounting for reload. A separate free native-Chrome suite exercises
+saving, actual page reload, and quantity changes using the same fixture bytes. Every browser
+request is fulfilled locally and each specimen gets fresh storage:
+
+```bash
+NAP_CHROME_PATH="/path/to/chrome" bun run test:integration apps/napbench/src/app-test-browser.integration.test.ts
+```
+
+Run that exact file, since other integration suites use paid services. It skips without Chrome.
+These checks establish the fixture outcomes, not the agent's ability to identify them.
+The fixtures are outside Biome, like the product corpus; their JavaScript is syntax-checked
+and executed by these tests instead of being silently treated as TypeScript.
+
+`prepareAppTestFixture` creates an isolated local git repository with fixed commit identity,
+timestamps and messages, an initial app commit, then the selected source commit. It runs
+`node --check src/app.js` and `git diff --check`, and requires unchanged HEAD and a clean tree.
+These deterministic checks establish a **syntax checkpoint**, not a finding that its user flow
+works. Both variants must clear it. No correctness oracle runs as part of that checkpoint.
+
+The free composition mirrors these files into the sandbox fake and answers the runtime's git
+reads with actual git commands against that local repository. The source diff is never a
+handwritten string. The harness writes the bootstrap job, completion, verification and checkpoint
+events itself, marked `seedOrigin: "harness"` in the report. It runs no generation agent turn.
+Then `runAppTest` calls production `Runtime.runTurn` exactly once with `kind: "test"` and the
+checkpointed job ID. The production runtime constructs the source-grounded prompt and enforces
+its read-only test tools. The harness checks both local and mirrored source after the test.
+
+The evaluator in `packages/bench/src/app-test.ts` owns the expected verdict. Each pair receives
+the same neutral objective, including stable chapter and assertion IDs so the evaluator can
+identify the requested flow without interpreting prose. Neither the task ID, variant nor
+expected verdict enters the runtime request or prompt. The code under inspection can reveal
+its own bug; the evaluator's answer cannot. The runtime imports no benchmark code, and the
+evaluator imports no runtime ledger or model judge.
+
+A result needs a completed test turn for the intended job and source commit, a stored screenshot,
+nonempty assertions with no untested entries, matching structured counts, and a completed
+assertion with the designated chapter and assertion IDs. Runtime interruption, failed tools,
+missing capture, source changes and unrelated assertions make it **unmeasured**, with a null
+score. Of the measured results, the matching failed assertion earns 1 on a buggy specimen;
+the matching passed assertion with no other failures earns 1 on a correct specimen. The opposite
+verdict earns 0. Agent messages are never read by the scorer. Detection and correct acceptance
+are reported separately, alongside the number of unmeasured runs.
+
+The default provider always reports `passed`, regardless of source. Its computer clicks fixed
+coordinates and returns synthetic JPEG marker bytes. It neither runs a browser nor exercises
+the app flow. Consequently the default run catches **0 of 2 planted bugs** and accepts **2 of 2
+correct specimens**, as apparatus checks only. Each free report says `mode: "scripted"` and
+`modelCapability: null`. These numbers establish no model capability. The in-memory screenshot
+bytes are checked against their emitted keys during the run; they are not real image artifacts.
+These reports are not inputs to the generation benchmark's comparison or Harbor reward tools.
+
+### Real composition and pending evaluation
+
+`--real` now selects `E2BSandboxManager`, `E2BSandboxDesktop`, and `ClaudeProvider` through the
+existing OpenRouter Messages client and model mapper. It uses `NapContextEngine`,
+`SingleAgentRuntime`, and isolated in-memory event, session, and object stores. It needs no host
+Chrome, database, object-storage account, or video recorder.
+
+A real invocation requires explicit approval covering **both sandbox and model calls**.
+Approval for a template build or one cloud VM does not authorize model evaluation. The following
+is an invocation example, not a record of a run. The template name must identify an approved
+desktop template that is already published:
+
+```bash
+bun run apps/napbench/scripts/napbench-app-test.ts --real \
+  --template=approved-desktop-template --model=anthropic/claude-sonnet-5 \
+  --max-steps=8 --max-tokens=40000 --budget-tokens=20000 --max-output-tokens=2000
+```
+
+There is no implicit real model or budget. All five model and limit flags above are required.
+The model must be a canonical ID accepted by `modelSupportsImages`. Step and token limits must
+be positive safe integers; the context and output ceilings cannot exceed the turn-token ceiling.
+The context engine also enforces its minimum budget before any factory runs. `--max-steps` and
+`--max-tokens` configure the production agent's separate **test** budget. `--budget-tokens`
+configures context assembly. `--max-output-tokens` configures each provider response, including
+OpenRouter's up-front reservation. `--effort` is optional and defaults to `medium`; accepted values
+are `low`, `medium`, `high`, `xhigh`, and `max`. `--template` defaults to `NAP_TEMPLATE`.
+Model, template, and budget flags require `--real`. Unknown, duplicate, and malformed flags fail.
+There is no `--keep` option.
+
+The CLI reads `E2B_API_KEY` and `OPENROUTER_API_KEY` from the process environment or `apps/api/.env`
+only after argument validation. Both keys, the image capability, every limit, and the report
+destination are checked before production factory construction or VM creation. Factories are
+lazy; no external client is created merely by importing the command module. Credentials are
+absent from the report and model input.
+
+Each selected fixture gets a fresh VM and opaque project, session, job, and turn IDs. The runner
+requires a clean template baseline, writes only `index.html` and `src/app.js`, syntax-checks the
+source, and commits those paths on that machine. Extra template files and installed dependencies
+stay in place. The remote SHA need not equal the local specimen SHA. Its parent must equal the
+actual template baseline, and its authentic diff must contain exactly the canonical specimen
+paths. HEAD, clean status, and file contents are checked before the checkpoint and after the test.
+
+Before recording the harness checkpoint, the runner waits for the dev server, checks its served
+heading, starts the sandbox desktop, confirms that heading in its DOM observation, and captures
+a preflight image. A failure at any preparation stage produces no model call. Only then does it
+bootstrap the verified job and make the single production `kind: "test"` call. No task ID,
+variant, or expected verdict enters the prompt. Both source-grounded testing and scoring use the
+same production path and independent evaluator as the free composition.
+
+Real screenshot objects, including the preflight image, are archived under
+`app-test-artifacts/<opaque-session-id>/` beside the report. Filenames hash the object key; paths
+in the report are relative to its directory. The report records the model, effort, budgets,
+template, actual source range, events, assertions, and separate detection and correct-acceptance
+counts. Missing evidence, post-test source changes, archive errors, and cleanup failures are
+unmeasured. The runner attempts to destroy its own VM in `finally` on every path after creation.
+A failed destruction records the sandbox ID for cleanup and cannot retain a successful score.
+
+The free suite tests real selection through injected factories and fake ports, with actual local
+git repositories standing in for remote execution. Those tests also use a baseline containing
+extra template files, and record `execution: "injected"` with `modelCapability: null`. Adapter
+construction tests replace every external client. They make no E2B or OpenRouter request.
+The ordinary free CLI still reports `execution: "scripted"` and cannot claim model capability.
+Only production execution can record real-model observations.
+
+The user selected free checks only on 2026-10-24, so real evaluation is deferred. The implementation is prepared for future, separately approved validation. No production composition, template build,
+VM, or model evaluation has been executed for this ticket. The issue remains open until approved
+real trials establish the measured behavior. Repeated, balanced trials and a reviewed desktop
+template are prerequisites for a capability claim beyond individual observations.
+
 ## Architecture
 
 Two units, per [ADR-0001](adr/0001-napbench-splits-into-a-pure-package-and-an-app.md), over a

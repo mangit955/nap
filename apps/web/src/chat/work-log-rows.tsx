@@ -23,6 +23,7 @@ import {
   ChevronRight,
   Eye,
   Hammer,
+  Monitor,
   Search,
   SquarePen,
   Terminal,
@@ -38,6 +39,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import { ComputerNavigation } from "../computer/navigation.tsx";
 import type { TimelineRow } from "./timeline.ts";
 import { WorkEntryBody } from "./tool-body.tsx";
 import { observeVisibleAnimation } from "./visible-animation.ts";
@@ -244,6 +246,8 @@ const ICON = "block size-4 shrink-0 stroke-2";
 /** The kind of work, as a shape: eye a read, pen a change, terminal a command, magnifier a search. */
 function EntryIcon({ kind, className = ICON }: { kind: ToolGroupSummaryKind; className?: string }) {
   switch (kind) {
+    case "computer":
+      return <Monitor aria-hidden="true" className={className} />;
     case "read":
       return <Eye aria-hidden="true" className={className} />;
     case "edit":
@@ -304,6 +308,7 @@ export function WorkEntryRow({
   displayLabel?: string | undefined;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const seekComputer = use(ComputerNavigation);
   const failed = entryFailed(entry);
   const running = entry.kind === "step" && entry.status === "running";
   const label = displayLabel ?? workEntryDisplayLabel(entry);
@@ -315,7 +320,11 @@ export function WorkEntryRow({
         type="button"
         aria-expanded={expanded}
         aria-label={name}
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => {
+          setExpanded(!expanded);
+          if (entry.kind === "step" && entry.toolName === "computer" && entry.frame)
+            seekComputer?.(entry.frame.seq);
+        }}
         className={INTERACTIVE}
       >
         <WorkLogLine

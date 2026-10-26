@@ -1,0 +1,27 @@
+{
+  "noVncVersion": "1.5.0",
+  "transport": "loopback ephemeral HTTP/WS to byte-preserving docker exec TCP pipe",
+  "cloud": false,
+  "wrongPasswordRejected": true,
+  "decodedFramebuffer": true,
+  "adversarialClientViewOnly": false,
+  "productionClientViewOnly": true,
+  "loopbackPort": 50004,
+  "localChromeVersion": "153.0.8010.54",
+  "decodedFrame": {
+    "width": 1024,
+    "height": 768,
+    "sampledColors": 354,
+    "bytes": 141334,
+    "sha256": "56d51ebba590e7232704560f88aa201f6f9b55b6c549acf93cc4ac39754de263"
+  },
+  "adversarialMessages": {
+    "key": 2,
+    "pointer": 2
+  },
+  "serverDeniedPointer": true,
+  "serverDeniedKey": true,
+  "productionPhysicalInputWorks": true,
+  "ok": true,
+  "elapsedMs": 97484
+}

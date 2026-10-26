@@ -32,6 +32,8 @@
 import { getLogger } from "@nap/shared/logging";
 import type { EventBus } from "@nap/shared/ports/event-bus";
 import type { EventStore } from "@nap/shared/ports/event-store";
+import type { SandboxRecordings } from "@nap/shared/ports/sandbox-recordings";
+import type { SessionStore } from "@nap/shared/ports/session-store";
 import type { OrphanedTurnRequest, TurnQueue } from "@nap/shared/ports/turn-queue";
 import { EventSink } from "./event-sink.ts";
 
@@ -65,6 +67,7 @@ export type JanitorResult = {
 };
 
 export type JanitorOptions = {
+  computer?: { recordings: SandboxRecordings; sessions: SessionStore };
   queue: TurnQueue;
   events: EventStore;
   bus: EventBus;
@@ -156,7 +159,9 @@ async function announce(
     // The first ordinary/manual turn uses the request id even if preparation wrote nothing.
     // Repairs name their owner on the durable prompt, before context building or turn.started.
     // Never infer legacy child ownership from position: a later resume may own the same job.
-    const ownedTurns = new Set(request.kind === "turn" ? [request.id] : []);
+    const ownedTurns = new Set(
+      request.kind === "turn" || request.kind === "test" ? [request.id] : [],
+    );
     const endedTurns = new Set<string>();
     for (const event of history) {
       if (event.type === "user.message" && event.payload.repair?.requestId === request.id)
@@ -174,7 +179,62 @@ async function announce(
         createdAt,
       });
     }
-    const notice = request.kind === "publish" ? PUBLISH_INTERRUPTED_NOTICE : RESUME_NOTICE;
+    if (request.kind === "test") {
+      if (options.computer) {
+        try {
+          const session = await options.computer.sessions.get(request.sessionId);
+          if (session?.sandboxId) {
+            const discarded = await options.computer.recordings.discard({
+              sandboxId: session.sandboxId,
+              recordingId: request.id,
+            });
+            if (!discarded.ok)
+              getLogger().warn(
+                { requestId: request.id },
+                "could not discard an interrupted recording",
+              );
+          }
+        } catch {
+          getLogger().warn({ requestId: request.id }, "could not discard an interrupted recording");
+        }
+      }
+      const recording = requestHistory.findLast((event) => event.type === "test.recording");
+      if (recording?.type === "test.recording" && recording.payload.recording.state === "started")
+        sink.emit({
+          type: "test.recording",
+          payload: { recording: { state: "unavailable", reason: "lease_lost" } },
+          sessionId: request.sessionId,
+          turnId: request.id,
+          createdAt,
+        });
+    }
+    if (
+      request.kind === "test" &&
+      !requestHistory.some((event) => event.type === "test.completed")
+    ) {
+      const started = requestHistory.find((event) => event.type === "test.started");
+      if (started?.type === "test.started") {
+        const assertions = new Map<string, "passed" | "failed" | "untested">();
+        for (const event of requestHistory)
+          if (event.type === "test.annotation" && event.payload.annotation.type === "assertion")
+            assertions.set(event.payload.annotation.id, event.payload.annotation.result);
+        const counts = { passed: 0, failed: 0, untested: 0 };
+        for (const result of assertions.values()) counts[result] += 1;
+        sink.emit({
+          type: "test.completed",
+          sessionId: request.sessionId,
+          turnId: request.id,
+          createdAt,
+          payload: { jobId: started.payload.jobId, status: "interrupted", counts },
+        });
+      }
+    }
+    const notice =
+      request.kind === "test"
+        ? "The app test was interrupted. Test the app again when ready."
+        : request.kind === "publish"
+          ? PUBLISH_INTERRUPTED_NOTICE
+          : RESUME_NOTICE;
     if (
       !requestHistory.some(
         (event) => event.type === "system.notice" && event.payload.text === notice,

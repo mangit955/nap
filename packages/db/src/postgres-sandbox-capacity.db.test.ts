@@ -260,7 +260,7 @@ describe("giving capacity back", () => {
     const reserved = await capacity.reserve({ projectId, userId });
     if (reserved.ok) await capacity.activate(reserved.value.id, "sb-1");
 
-    await capacity.releaseForProject(projectId);
+    await capacity.releaseForProject(projectId, "sb-1");
 
     expect(await db.$count(sandboxReservations, eq(sandboxReservations.projectId, projectId))).toBe(
       0,
@@ -269,13 +269,38 @@ describe("giving capacity back", () => {
     expect((await capacity.reserve({ projectId, userId })).ok).toBe(true);
   });
 
+  it("keeps the slot a later creation took over from the machine being put away", async () => {
+    // The project's one row is reused by its next creation, so a teardown of the old machine
+    // that finishes late finds the row reset for, then naming, the fresh one.
+    const userId = await seedUser();
+    const projectId = await seedProject(userId);
+    const old = await capacity.reserve({ projectId, userId });
+    if (!old.ok) throw new Error("expected a reservation");
+    await capacity.activate(old.value.id, "sb-old");
+
+    const fresh = await capacity.reserve({ projectId, userId });
+    if (!fresh.ok) throw new Error("expected the slot to be reused");
+    await capacity.releaseForProject(projectId, "sb-old");
+    expect(await db.$count(sandboxReservations, eq(sandboxReservations.projectId, projectId))).toBe(
+      1,
+    );
+
+    await capacity.activate(fresh.value.id, "sb-new");
+    await capacity.releaseForProject(projectId, "sb-old");
+    const [kept] = await db
+      .select()
+      .from(sandboxReservations)
+      .where(eq(sandboxReservations.projectId, projectId));
+    expect(kept).toMatchObject({ sandboxId: "sb-new", state: "active" });
+  });
+
   it("is silent about releasing a reservation that is already gone", async () => {
     // Two teardowns for one project is ordinary — a close racing the reaper — and the second
     // must not fail the caller for finding nothing to do.
     const userId = await seedUser();
     const projectId = await seedProject(userId);
 
-    await expect(capacity.releaseForProject(projectId)).resolves.toBeUndefined();
+    await expect(capacity.releaseForProject(projectId, "sb-1")).resolves.toBeUndefined();
     await expect(capacity.release(randomUUID())).resolves.toBeUndefined();
   });
 });

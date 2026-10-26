@@ -1,0 +1,22 @@
+{
+  "passed": true,
+  "actualChrome": false,
+  "browserLaunches": 9,
+  "faults": ["killed before rename", "killed after rename", "rename failure", "write failure"],
+  "noBrowserBeforeOwnershipCommit": true,
+  "pipeEofExitsWaitingChild": true,
+  "publicationFailureRetried": true,
+  "durableOwnershipDeathRetried": true,
+  "samePortStatePreserved": true,
+  "changedPortRestarted": true,
+  "unknownEndpointRejected": true,
+  "ticksMismatchRejected": true,
+  "lockReleasedAndSerialized": true,
+  "vncFailureRetried": true,
+  "xvfbReused": true,
+  "unrelatedProcessPreserved": true,
+  "debuggerTcpListeners": 0,
+  "debuggerSocketMode": "600",
+  "killedBridgeTookBrowser": true,
+  "staleSocketReplaced": true
+}

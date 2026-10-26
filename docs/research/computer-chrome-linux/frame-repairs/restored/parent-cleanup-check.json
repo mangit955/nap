@@ -1,0 +1,30 @@
+{
+  "docker": [
+    {
+      "query": [
+        "container",
+        "ls",
+        "-a",
+        "--filter",
+        "name=^/nap-chrome-smoke-e04860e4-09d6-4c01-9406-ded42b279078$",
+        "--format",
+        "{{.ID}}"
+      ],
+      "stdout": "",
+      "exit": 0
+    },
+    {
+      "query": [
+        "image",
+        "ls",
+        "--filter",
+        "reference=nap-chrome-smoke-e04860e4-09d6-4c01-9406-ded42b279078:local",
+        "--format",
+        "{{.ID}}"
+      ],
+      "stdout": "",
+      "exit": 0
+    }
+  ],
+  "listenerConnectionRefused": true
+}

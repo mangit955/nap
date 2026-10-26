@@ -39,7 +39,7 @@ import type { MediaAttachment } from "../media.ts";
  * Both go through the same lease, and that is what makes offering the second safe at all — they
  * both create a sandbox when the project has none.
  */
-export const TURN_REQUEST_KINDS = ["turn", "resume", "publish"] as const;
+export const TURN_REQUEST_KINDS = ["turn", "resume", "publish", "test"] as const;
 export type TurnRequestKind = (typeof TURN_REQUEST_KINDS)[number];
 
 /** Where a request is in its life. Terminal states are never left, and none returns to `queued`. */
@@ -80,7 +80,7 @@ export type EnqueueTurnRequest = {
   /** Who asked, which is also whose stored key a billed turn is re-opened from. */
   userId: string;
   kind: TurnRequestKind;
-  /** The prompt. Null for `resume`, which asks for no new work. */
+  /** The prompt for a turn, the approved job ID for a test, or null for a resume. */
   message: string | null;
   attachments?: MediaAttachment[] | undefined;
   /** Resolved at admission, because which models somebody may name is the route's fact. */

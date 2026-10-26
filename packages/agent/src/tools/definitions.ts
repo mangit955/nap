@@ -2,8 +2,8 @@
  * What the model is told it can do.
  *
  * The SDK's built-in file and shell tools act on this API server's filesystem, not on the
- * user's sandbox, so they stay disabled and these six take their place. Every one of them
- * proxies to `SandboxManager`; nothing else reaches the project.
+ * user's sandbox, so they stay disabled. File and command tools proxy to `SandboxManager`;
+ * the computer uses `SandboxDesktop` and object storage behind ports.
  *
  * Argument shapes are Zod schemas, and the JSON Schema the model sees is derived from them
  * rather than written beside them. That is the only way the thing validating a tool call and
@@ -15,6 +15,7 @@
  * request — so wording here is paid for once and read on every turn.
  */
 
+import { ComputerActionSchema } from "@nap/shared/computer";
 import { TOOL_NAMES, type ToolName } from "@nap/shared/events";
 import type { LLMToolDefinition } from "@nap/shared/ports/llm-provider";
 import { z } from "zod";
@@ -31,6 +32,7 @@ export const PROJECT_ROOT = "/home/user/app";
 const path = z.string().min(1).describe(`Absolute path, for example ${PROJECT_ROOT}/src/App.tsx`);
 
 export const TOOL_SCHEMAS = {
+  computer: z.strictObject({ actions: z.array(ComputerActionSchema).min(1).max(32) }),
   read_file: z.strictObject({ path }),
   write_file: z.strictObject({
     path,
@@ -55,6 +57,8 @@ export const TOOL_SCHEMAS = {
 } satisfies Record<ToolName, z.ZodType>;
 
 const DESCRIPTIONS: Record<ToolName, string> = {
+  computer:
+    "Operate the project app on its 1024×768 desktop when you need to see or exercise its UI. Actions run in order and return one final screenshot. Use read_dom and console for observations. No JavaScript execution is available.",
   read_file:
     "Read a file from the project. Call this before editing anything you have not already read this turn — the file may differ from what you expect.",
   write_file:
@@ -74,6 +78,13 @@ function inputSchema(schema: z.ZodType): Record<string, unknown> {
   const { $schema: _dialect, ...rest } = z.toJSONSchema(schema) as Record<string, unknown>;
   return rest;
 }
+
+export const APP_TEST_TOOL_NAMES: readonly ToolName[] = [
+  "read_file",
+  "list_files",
+  "search_files",
+  "computer",
+];
 
 export const TOOL_DEFINITIONS: LLMToolDefinition[] = TOOL_NAMES.map((name) => ({
   name,

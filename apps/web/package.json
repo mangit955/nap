@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@nap/shared": "workspace:*",
+    "@novnc/novnc": "1.5.0",
     "@pierre/diffs": "1.5.2",
     "@tailwindcss/postcss": "4.3.3",
     "better-auth": "1.6.26",
@@ -26,10 +27,13 @@
     "zod": "4.4.3"
   },
   "devDependencies": {
+    "@nap/api": "workspace:*",
     "@nap/db": "workspace:*",
     "@nap/runtime": "workspace:*",
+    "@nap/sandbox": "workspace:*",
     "@testing-library/jest-dom": "7.0.0",
     "@testing-library/react": "16.3.2",
+    "@types/novnc__novnc": "1.5.0",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.4",
     "fake-indexeddb": "^6.2.6",

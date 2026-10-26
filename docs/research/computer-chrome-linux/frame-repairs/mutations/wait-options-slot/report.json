@@ -1,0 +1,17 @@
+{
+  "network": false,
+  "docker": false,
+  "browser": false,
+  "failures": [
+    "Wait guard: AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n\n30000 !== 12000\n"
+  ],
+  "frames": {
+    "baseline": 443,
+    "physical": 1005,
+    "frozenRejected": true,
+    "backgroundRejected": true,
+    "smallCursorRejected": true
+  },
+  "waits": [],
+  "ok": false
+}

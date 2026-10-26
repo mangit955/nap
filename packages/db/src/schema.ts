@@ -35,6 +35,7 @@ import { sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
+  check,
   foreignKey,
   index,
   integer,
@@ -252,6 +253,8 @@ export const projects = pgTable(
       unread: false,
     }),
     navigationRevision: integer("navigation_revision").notNull().default(0),
+    /** Changes with every lease grant, so a completed turn still invalidates prior input grants. */
+    computerRevision: uuid("computer_revision").notNull().defaultRandom(),
     status: projectStatus("status").notNull().default("creating"),
     /** Null until a sandbox has been created for this project. §5 marks both optional. */
     sandboxId: text("sandbox_id"),
@@ -629,5 +632,35 @@ export const githubDeliveries = pgTable(
     index("github_deliveries_pending")
       .on(t.nextAttemptAt)
       .where(sql`${t.state} in ('pending', 'processing')`),
+  ],
+);
+
+/** Retained until an identity-bound input drain proof permits removal. */
+export const projectComputerOperations = pgTable(
+  "project_computer_operations",
+  {
+    projectId: uuid("project_id")
+      .primaryKey()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    sandboxId: text("sandbox_id").notNull(),
+    scopeId: uuid("scope_id").notNull().unique(),
+    actor: jsonb("actor")
+      .$type<
+        import("@nap/shared/ports/project-computer-access").ComputerReservationRequest["actor"]
+      >()
+      .notNull(),
+    state: text("state").notNull().default("active"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    nextRecoveryAt: timestamp("next_recovery_at", { withTimezone: true })
+      .notNull()
+      .default(sql`now() + interval '15 seconds'`),
+  },
+  (table) => [
+    index("project_computer_operations_recovery").on(table.nextRecoveryAt),
+    check("project_computer_operations_state", sql`${table.state} in ('active', 'recovering')`),
+    check(
+      "project_computer_operations_actor",
+      sql`(jsonb_typeof(${table.actor}) = 'object' and ((${table.actor}->>'kind' = 'owner' and jsonb_typeof(${table.actor}->'binding') = 'object' and ${table.actor} - 'kind' - 'binding' = '{}'::jsonb and ${table.actor}->'binding'->>'userId' is not null and ${table.actor}->'binding'->>'sessionId' is not null and ${table.actor}->'binding'->>'revision' is not null and ${table.actor}->'binding'->>'expiresAt' is not null and ${table.actor}->'binding'->>'projectId' = ${table.projectId}::text and ${table.actor}->'binding'->>'sandboxId' = ${table.sandboxId}) or (${table.actor}->>'kind' = 'turn' and jsonb_typeof(${table.actor}->'lease') = 'object' and ${table.actor} - 'kind' - 'lease' = '{}'::jsonb and ${table.actor}->'lease'->>'requestId' is not null and ${table.actor}->'lease'->>'owner' is not null))) is true`,
+    ),
   ],
 );

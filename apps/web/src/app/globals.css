@@ -2,6 +2,33 @@
 @import "../workspace/right-panel.css";
 @import "../landing/landing.css";
 
+.computer-screenshot-card {
+  display: block;
+  width: min(100%, 34rem);
+  margin-block: 0.75rem;
+  overflow: hidden;
+  border: 1px solid var(--color-edge);
+  border-radius: 16px;
+  background: var(--color-panel);
+  box-shadow: var(--shadow-card);
+  text-align: left;
+}
+.computer-screenshot-card img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.computer-screenshot-card span {
+  display: block;
+  padding: 0.6rem 0.8rem;
+  color: var(--color-muted);
+  font-size: 0.75rem;
+}
+.computer-screenshot-card:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+}
+
 /*
  * Tailwind v4 is configured in CSS rather than a JS file. Tokens declared here become
  * utilities automatically — `--color-panel` gives `bg-panel`, `border-panel`, and so on.
@@ -2745,5 +2772,349 @@ details[open] > .nap-float {
   .sidebar-row-controls:has(.session-actions) {
     opacity: 1;
     pointer-events: auto;
+  }
+}
+
+.computer-pane {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  height: 100%;
+  min-height: 0;
+  padding: 16px;
+  background: var(--color-surface);
+  color: var(--color-ink);
+}
+.computer-stage {
+  display: grid;
+  place-items: center;
+  flex: 1;
+  min-height: 0;
+  padding: 16px 0;
+}
+.computer-frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  max-height: 100%;
+  border: 1px solid var(--color-edge);
+  box-shadow: var(--shadow-raised);
+  background: var(--color-surface);
+  overflow: visible;
+}
+.computer-frame[data-driving] {
+  border-color: var(--color-accent);
+  box-shadow:
+    var(--shadow-raised),
+    0 0 0 1px var(--color-accent);
+}
+.computer-frame[data-driving] .ai-lights-layer {
+  background: conic-gradient(
+    from var(--ai-start),
+    var(--color-accent),
+    transparent 180deg,
+    var(--color-accent)
+  );
+}
+.computer-input-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.computer-still {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+.computer-frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.computer-state {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: var(--color-surface);
+}
+.computer-state > * {
+  max-width: 360px;
+}
+.computer-state-card {
+  padding: 24px;
+  border: 1px solid var(--color-edge);
+  border-radius: 20px;
+  background: var(--color-panel);
+  box-shadow: var(--shadow-card);
+  text-align: center;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+.computer-controls {
+  position: relative;
+  flex-shrink: 0;
+  padding: 14px;
+  border: 1px solid var(--color-edge);
+  border-radius: 20px;
+  background: var(--color-panel);
+  box-shadow:
+    var(--shadow-card),
+    inset 0 1px rgb(255 255 255 / 3%);
+}
+.computer-controls input {
+  display: block;
+  width: 100%;
+  height: 4px;
+  margin: 2px 0 14px;
+  accent-color: var(--color-accent);
+  background: linear-gradient(
+    to right,
+    var(--color-accent) var(--computer-progress),
+    var(--color-edge) var(--computer-progress)
+  );
+}
+.computer-control-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.computer-control-row button,
+.computer-control-row select,
+.computer-state button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 7px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.computer-control-row button:hover,
+.computer-state button:hover {
+  color: var(--color-ink);
+  background: var(--color-edge);
+}
+.computer-control-row button:disabled,
+.computer-control-row select:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.computer-control-row svg {
+  width: 16px;
+  height: 16px;
+}
+.computer-control-row select {
+  margin-left: auto;
+}
+.computer-control-row .computer-live {
+  border-color: var(--color-edge);
+  border-radius: 24px;
+  white-space: nowrap;
+  color: var(--color-ink);
+}
+.computer-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-danger);
+}
+.computer-live[data-playing="true"] .computer-live-dot {
+  animation: computer-live-pulse 1600ms ease-in-out;
+}
+.computer-timeline {
+  position: relative;
+}
+.computer-timeline-hint {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  z-index: 2;
+  width: max-content;
+  max-width: 280px;
+  padding: 8px 10px;
+  transform: translateX(-50%);
+  border: 1px solid var(--color-edge);
+  border-radius: 10px;
+  background: var(--color-panel);
+  box-shadow: var(--shadow-raised);
+  color: var(--color-ink);
+  font-size: 12px;
+  pointer-events: none;
+}
+.computer-timeline-hint time {
+  display: block;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.computer-timeline-hint p {
+  display: -webkit-box;
+  margin: 2px 0 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.computer-caption {
+  margin: 8px 0 0;
+  font-size: 10px;
+  color: var(--color-muted);
+}
+.computer-control-reason {
+  margin: 8px 0 0;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+@keyframes computer-live-pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+@supports (backdrop-filter: blur(1px)) {
+  .computer-controls {
+    background: color-mix(in srgb, var(--color-panel) 80%, transparent);
+    backdrop-filter: blur(16px) saturate(1.08);
+  }
+}
+@supports not (backdrop-filter: blur(1px)) {
+  .computer-controls {
+    background: var(--color-panel);
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .computer-controls {
+    background: var(--color-panel);
+    backdrop-filter: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .computer-live-dot {
+    animation: none;
+  }
+}
+@supports (width: 1cqh) {
+  .computer-stage {
+    container-type: size;
+  }
+  .computer-frame {
+    width: min(100cqw, calc(100cqh * 4 / 3), 1024px);
+  }
+}
+
+.computer-review-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: 16px;
+}
+@media (max-width: 760px) {
+  .computer-review-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.app-test-cards {
+  display: grid;
+  gap: 16px;
+  width: 100%;
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 16px 20px;
+}
+.app-test-card {
+  padding: 20px;
+  border-radius: 20px;
+  border: 1px solid var(--color-edge);
+  background: color-mix(in srgb, var(--color-panel) 80%, transparent);
+  backdrop-filter: blur(16px) saturate(1.08);
+  box-shadow:
+    var(--shadow-card),
+    inset 0 1px rgb(255 255 255 / 3%);
+  color: var(--color-ink);
+  overflow-wrap: anywhere;
+}
+.app-test-card h3 {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.app-test-card p {
+  font-size: 13px;
+  color: var(--color-muted);
+  margin-block: 6px;
+}
+.app-test-card button {
+  padding: 8px 14px;
+  margin-top: 10px;
+  border-radius: 12px;
+  border: 1px solid var(--color-edge);
+  font-size: 13px;
+  cursor: pointer;
+}
+.app-test-card button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.app-test-card button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+}
+.app-test-card .app-test-primary {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-white);
+}
+.app-test-counts,
+.app-test-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.app-test-counts {
+  margin-block: 12px;
+}
+.app-test-counts span,
+.app-test-status {
+  border: 1px solid currentColor;
+  border-radius: 99px;
+  padding: 3px 8px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.app-test-passed {
+  color: var(--color-success);
+}
+.app-test-failed {
+  color: var(--color-danger);
+}
+.app-test-untested {
+  color: var(--color-warning);
+}
+.app-test-assertions {
+  display: grid;
+  gap: 10px;
+  padding: 0;
+  margin: 16px 0;
+  list-style: none;
+}
+.app-test-assertion {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+}
+@supports not (backdrop-filter: blur(1px)) {
+  .app-test-card {
+    background: var(--color-panel);
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .app-test-card {
+    backdrop-filter: none;
+    background: var(--color-panel);
   }
 }

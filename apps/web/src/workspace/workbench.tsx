@@ -8,6 +8,7 @@ import {
   GitPullRequest,
   Maximize2,
   Minimize2,
+  Monitor,
   Plus,
   X,
 } from "lucide-react";
@@ -26,6 +27,8 @@ import type { PanelController } from "./use-panel-layout.ts";
 
 export function TabIcon({ tab }: { tab: WorkbenchTab }) {
   switch (tab.kind) {
+    case "computer":
+      return <Monitor />;
     case "preview":
       return <Earth />;
     case "code":
@@ -44,6 +47,7 @@ export function Workbench({
   maximized,
   onMaximize,
   preview,
+  computer,
   code,
   diff,
   pullRequests,
@@ -61,12 +65,16 @@ export function Workbench({
   maximized: boolean;
   onMaximize: () => void;
   preview: ReactNode;
+  computer: ReactNode;
   code: ReactNode;
   diff: ReactNode;
   pullRequests: ReactNode;
   file: (path: string) => ReactNode;
 }) {
   const { layout } = controller;
+  const availableTabs = WORKBENCH_TABS.filter(
+    (tab) => tab.id !== "computer" || computer !== undefined,
+  );
   const isModal = narrow && modal;
   const launcher = useRef<HTMLDetailsElement>(null);
   const root = useRef<HTMLElement>(null);
@@ -148,6 +156,8 @@ export function Workbench({
   };
   const body = (tab: WorkbenchTab) => {
     switch (tab.kind) {
+      case "computer":
+        return computer;
       case "preview":
         return preview;
       case "code":
@@ -278,7 +288,7 @@ export function Workbench({
             <Plus />
           </summary>
           <div className="t3-launcher-menu" role="menu" aria-label="Open a panel">
-            {WORKBENCH_TABS.map((item) => (
+            {availableTabs.map((item) => (
               <button
                 key={item.id}
                 type="button"
@@ -386,7 +396,7 @@ export function Workbench({
           <div className="t3-panel-empty t3-panel-launcher">
             <p>Open a panel</p>
             <div>
-              {WORKBENCH_TABS.map((item) => (
+              {availableTabs.map((item) => (
                 <button
                   type="button"
                   key={item.id}

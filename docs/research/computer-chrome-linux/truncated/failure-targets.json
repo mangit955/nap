@@ -1,0 +1,29 @@
+[
+  {
+    "description": "",
+    "devtoolsFrontendUrl": "https://chrome-devtools-frontend.appspot.com/serve_rev/@1d17a2e2ee147bb7d6ae2ab6abdb3a2510c17775/inspector.html?ws=127.0.0.1:9222/devtools/page/CF314CA325752AB4987877FC333C0994",
+    "id": "CF314CA325752AB4987877FC333C0994",
+    "title": "chrome://omnibox-popup.top-chrome/",
+    "type": "page",
+    "url": "chrome://omnibox-popup.top-chrome/",
+    "webSocketDebuggerUrl": "ws://127.0.0.1:9222/devtools/page/CF314CA325752AB4987877FC333C0994"
+  },
+  {
+    "description": "",
+    "devtoolsFrontendUrl": "https://chrome-devtools-frontend.appspot.com/serve_rev/@1d17a2e2ee147bb7d6ae2ab6abdb3a2510c17775/inspector.html?ws=127.0.0.1:9222/devtools/page/6BC6955EB89ECC5C6F032C955CFA9579",
+    "id": "6BC6955EB89ECC5C6F032C955CFA9579",
+    "title": "example.com",
+    "type": "page",
+    "url": "https://example.com/",
+    "webSocketDebuggerUrl": "ws://127.0.0.1:9222/devtools/page/6BC6955EB89ECC5C6F032C955CFA9579"
+  },
+  {
+    "description": "",
+    "devtoolsFrontendUrl": "https://chrome-devtools-frontend.appspot.com/serve_rev/@1d17a2e2ee147bb7d6ae2ab6abdb3a2510c17775/inspector.html?ws=127.0.0.1:9222/devtools/page/6A17C9E142B4243CD058263793D8029F",
+    "id": "6A17C9E142B4243CD058263793D8029F",
+    "title": "chrome://omnibox-popup.top-chrome/omnibox_popup_aim.html",
+    "type": "page",
+    "url": "chrome://omnibox-popup.top-chrome/omnibox_popup_aim.html",
+    "webSocketDebuggerUrl": "ws://127.0.0.1:9222/devtools/page/6A17C9E142B4243CD058263793D8029F"
+  }
+]

@@ -1,0 +1,121 @@
+{
+  "L2-success": {
+    "kind": "L2-success",
+    "evidence": [
+      {
+        "kind": "runtime",
+        "installedManual": {
+          "missing": true
+        },
+        "driverHash": "89b1e4898d4c871f56ab4e202372103b1cbb95dc9b14419dd1fde78c8c6b485f",
+        "xdotool": "xdotool version 3.20160805.1",
+        "capabilities": {
+          "protocol": 2,
+          "operations": [
+            "start",
+            "act",
+            "close_scope",
+            "observe",
+            "screenshot",
+            "credentials",
+            "cancel",
+            "recording_begin",
+            "recording_timestamp",
+            "recording_finish",
+            "recording_discard"
+          ]
+        }
+      },
+      {
+        "kind": "type",
+        "driver": {
+          "pid": 35,
+          "startTicks": "35042297",
+          "state": "S"
+        },
+        "child": {
+          "pid": 43,
+          "startTicks": "35042335",
+          "state": "T"
+        },
+        "driverFds": [
+          {
+            "fd": "18",
+            "inode": 55,
+            "device": 124,
+            "info": "pos:\t0\nflags:\t02402001\nmnt_id:\t787\nino:\t55\nlock:\t1: FLOCK  ADVISORY  WRITE 0 00:7c:55 0 EOF\n"
+          }
+        ],
+        "xdoFds": [
+          {
+            "fd": "3",
+            "inode": 55,
+            "device": 124,
+            "info": "pos:\t0\nflags:\t0402001\nmnt_id:\t787\nino:\t55\nlock:\t1: FLOCK  ADVISORY  WRITE 0 00:7c:55 0 EOF\n"
+          }
+        ],
+        "pressedAtInterruption": {
+          "keys": [],
+          "buttons": 0
+        }
+      },
+      {
+        "kind": "key",
+        "driver": {
+          "pid": 71,
+          "startTicks": "35043539",
+          "state": "R"
+        },
+        "child": {
+          "pid": 79,
+          "startTicks": "35043576",
+          "state": "T"
+        },
+        "driverFds": [
+          {
+            "fd": "18",
+            "inode": 55,
+            "device": 124,
+            "info": "pos:\t0\nflags:\t02402001\nmnt_id:\t787\nino:\t55\nlock:\t1: FLOCK  ADVISORY  WRITE 0 00:7c:55 0 EOF\n"
+          }
+        ],
+        "xdoFds": [
+          {
+            "fd": "3",
+            "inode": 55,
+            "device": 124,
+            "info": "pos:\t0\nflags:\t0402001\nmnt_id:\t787\nino:\t55\nlock:\t1: FLOCK  ADVISORY  WRITE 0 00:7c:55 0 EOF\n"
+          }
+        ],
+        "pressedAtInterruption": {
+          "keys": [],
+          "buttons": 0
+        }
+      },
+      {
+        "kind": "forked-descendant",
+        "driver": {
+          "pid": 99,
+          "startTicks": "35043721",
+          "state": "S"
+        },
+        "descendant": {
+          "pid": 114,
+          "startTicks": "35043794"
+        },
+        "descendantFds": [
+          {
+            "fd": "3",
+            "inode": 55,
+            "device": 124,
+            "info": "pos:\t0\nflags:\t02402001\nmnt_id:\t787\nino:\t55\nlock:\t1: FLOCK  ADVISORY  WRITE 0 00:7c:55 0 EOF\n"
+          }
+        ]
+      }
+    ],
+    "events": 7662,
+    "source": {
+      "tracked": "40361b183559775a4b43e82dcf1ed7fc24096d08441fea3521cac1b014a73afa",
+      "untracked": "b403a0e28875f48d6f8ce1c03889ad6d0539a7165370089bf14d3cd9cd240895"
+    }
+  },

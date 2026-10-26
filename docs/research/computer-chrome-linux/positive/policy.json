@@ -1,0 +1,7 @@
+{
+  "URLBlocklist": ["*", "chrome://*", "file://*"],
+  "URLAllowlist": ["http://.localhost:5174", "http://127.0.0.1:5174"],
+  "BrowserSignin": 0,
+  "PasswordManagerEnabled": false,
+  "DeveloperToolsAvailability": 1
+}

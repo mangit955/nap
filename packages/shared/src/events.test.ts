@@ -51,6 +51,133 @@ type Case = {
 
 const CASES = [
   {
+    type: "test.recording",
+    valid: {
+      ...ENVELOPE,
+      type: "test.recording",
+      payload: {
+        recording: {
+          state: "available",
+          key: "computer/p/s/t/recording.mp4",
+          durationMs: 1000,
+          width: 1024,
+          height: 768,
+          interrupted: false,
+        },
+      },
+    },
+    malformed: {
+      ...ENVELOPE,
+      type: "test.recording",
+      payload: {
+        recording: {
+          state: "available",
+          key: "clip",
+          durationMs: 1000,
+          width: 0,
+          height: 768,
+          interrupted: false,
+        },
+      },
+    },
+    issuePath: ["payload", "recording", "width"],
+  },
+  {
+    type: "test.started",
+    valid: {
+      ...ENVELOPE,
+      type: "test.started",
+      payload: { jobId: JOB_ID, commitSha: "abc1234", objective: "Save notes" },
+    },
+    malformed: {
+      ...ENVELOPE,
+      type: "test.started",
+      payload: { jobId: JOB_ID, commitSha: "abc1234", objective: "" },
+    },
+    issuePath: ["payload", "objective"],
+  },
+  {
+    type: "test.annotation",
+    valid: {
+      ...ENVELOPE,
+      type: "test.annotation",
+      payload: {
+        annotation: {
+          type: "assertion",
+          id: "save",
+          expectation: "The item appears",
+          result: "untested",
+        },
+        timeMs: 0,
+      },
+    },
+    malformed: {
+      ...ENVELOPE,
+      type: "test.annotation",
+      payload: {
+        annotation: {
+          type: "assertion",
+          id: "save",
+          expectation: "The item appears",
+          result: "untested",
+        },
+        timeMs: -1,
+      },
+    },
+    issuePath: ["payload", "timeMs"],
+  },
+  {
+    type: "test.completed",
+    valid: {
+      ...ENVELOPE,
+      type: "test.completed",
+      payload: {
+        jobId: JOB_ID,
+        status: "completed",
+        counts: { passed: 1, failed: 0, untested: 0 },
+      },
+    },
+    malformed: {
+      ...ENVELOPE,
+      type: "test.completed",
+      payload: { jobId: JOB_ID, status: "passed", counts: { passed: 1, failed: 0, untested: 0 } },
+    },
+    issuePath: ["payload", "status"],
+  },
+  {
+    type: "computer.screenshot",
+    valid: {
+      ...ENVELOPE,
+      type: "computer.screenshot",
+      payload: {
+        toolCallId: "screen",
+        key: "computer/project/session/turn/screen.jpg",
+        width: 1024,
+        height: 768,
+      },
+    },
+    malformed: {
+      ...ENVELOPE,
+      type: "computer.screenshot",
+      payload: { toolCallId: "screen", key: "k", width: 0, height: 768 },
+    },
+    issuePath: ["payload", "width"],
+  },
+  {
+    type: "computer.status",
+    valid: {
+      ...ENVELOPE,
+      type: "computer.status",
+      payload: { toolCallId: "screen", state: "starting" },
+    },
+    malformed: {
+      ...ENVELOPE,
+      type: "computer.status",
+      payload: { toolCallId: "screen", state: "secret" },
+    },
+    issuePath: ["payload", "state"],
+  },
+  {
     type: "compaction.started",
     valid: { ...ENVELOPE, type: "compaction.started", payload: { id: JOB_ID, trigger: "manual" } },
     malformed: { ...ENVELOPE, type: "compaction.started", payload: {} },
@@ -392,4 +519,32 @@ describe("turn.started's prompt source", () => {
 
     expect(result.success).toBe(false);
   });
+});
+
+it("round-trips test prompt sources and rejects invalid nested test data", () => {
+  const started = { ...ENVELOPE, type: "turn.started", payload: { source: "test" } };
+  expect(NapEventSchema.parse(JSON.parse(JSON.stringify(started)))).toStrictEqual(started);
+  for (const annotation of [
+    { type: "setup", description: "Open the app" },
+    { type: "test_start", id: "main", description: "Save a note" },
+    { type: "action", description: "Click Save" },
+    { type: "assertion", id: "save", expectation: "The note appears", result: "failed" },
+  ]) {
+    const event = { ...ENVELOPE, type: "test.annotation", payload: { annotation, timeMs: 1200 } };
+    expect(NapEventSchema.parse(JSON.parse(JSON.stringify(event)))).toStrictEqual(event);
+    expect(
+      NapEventSchema.safeParse({
+        ...event,
+        payload: { ...event.payload, annotation: { ...annotation, bytes: "not metadata" } },
+      }).success,
+    ).toBe(false);
+  }
+  const invalid = NapEventSchema.safeParse({
+    ...ENVELOPE,
+    type: "test.completed",
+    payload: { jobId: JOB_ID, status: "completed", counts: { passed: -1, failed: 0, untested: 0 } },
+  });
+  expect(invalid.success).toBe(false);
+  if (!invalid.success)
+    expect(invalid.error.issues[0]?.path).toEqual(["payload", "counts", "passed"]);
 });

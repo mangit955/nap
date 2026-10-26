@@ -5,6 +5,7 @@ import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
+import { FakeSandboxDesktop } from "@nap/sandbox/testing/fake-sandbox-desktop";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { FAKE_COMMIT_SHA, scriptGit } from "@nap/sandbox/testing/script-git";
 import { foldJobs } from "@nap/shared/job-state";
@@ -14,6 +15,7 @@ import { expect, it, vi } from "vitest";
 import { acquireSandbox } from "./acquire-sandbox.ts";
 import { openProject } from "./restore.ts";
 import { SingleAgentRuntime } from "./single-agent-runtime.ts";
+import { isolatedProjectComputer } from "./testing/isolated-project-computer.ts";
 
 const sessionId = "2a3f8a24-6c1b-4e0e-9b6f-3a5c0a1d9e77";
 const projectId = "4d5e6f70-1a2b-4c3d-8e9f-0a1b2c3d4e5f";
@@ -67,6 +69,16 @@ async function fixture() {
     context,
     bus: new InMemoryEventBus(),
     memory: new NoopMemoryProvider(),
+    computer: {
+      coordinator: isolatedProjectComputer(
+        new FakeSandboxDesktop({
+          bytes: new Uint8Array([255, 216, 255, 217]),
+          width: 1024,
+          height: 768,
+        }).transport,
+      ),
+      objects,
+    },
   });
   const turnId = crypto.randomUUID();
   const run = (signal?: AbortSignal) =>
@@ -74,6 +86,7 @@ async function fixture() {
       sessionId,
       turnId,
       message: "Fix this repo",
+      model: "anthropic/claude-sonnet-5",
       ...(signal === undefined ? {} : { signal }),
     });
   return {
@@ -312,3 +325,95 @@ it("imports once, clears starter dependencies and runs configured setup again on
   expect(imported).toHaveBeenCalledOnce();
   expect(snapshots.all()).toHaveLength(1);
 });
+
+it.each([3000, null])(
+  "uses running repository preview %s for ordinary and repair computer attempts after a settings edit",
+  async (previewPort) => {
+    const f = await fixture();
+    f.repository.source = async () => ({
+      ok: true,
+      value: { ...source, previewPort: 4000, devCommand: "bun run dev --port 4000" },
+    });
+    const sandboxId = f.session.sandboxId;
+    if (sandboxId === null) throw new Error("Missing running sandbox");
+    await f.sandbox.writeFile(
+      sandboxId,
+      "/tmp/nap-repository-preview.json",
+      JSON.stringify({ previewPort }),
+    );
+    if (previewPort !== null) f.sandbox.listen(sandboxId, previewPort);
+    let checks = 0;
+    f.sandbox.script(/bun run typecheck/, () => ({ exitCode: ++checks === 1 ? 1 : 0 }));
+    expect((await f.run()).ok).toBe(true);
+    expect(f.agent.requests.map((request) => request.promptSource)).toEqual([
+      "user",
+      "verification",
+    ]);
+    expect(f.agent.requests.map((request) => request.computer?.devServerUrl)).toEqual(
+      previewPort === null
+        ? [undefined, undefined]
+        : ["http://localhost:3000", "http://localhost:3000"],
+    );
+    if (previewPort === null)
+      expect(f.agent.requests.every((request) => request.computer === undefined)).toBe(true);
+  },
+);
+
+it.each([3000, null])(
+  "uses running repository preview %s when an open continues an interrupted repair",
+  async (previewPort) => {
+    const f = await fixture();
+    f.repository.source = async () => ({
+      ok: true,
+      value: { ...source, previewPort: 4000, devCommand: "bun run dev --port 4000" },
+    });
+    const sandboxId = f.session.sandboxId;
+    if (sandboxId === null) throw new Error("Missing running sandbox");
+    await f.sandbox.writeFile(
+      sandboxId,
+      "/tmp/nap-repository-preview.json",
+      JSON.stringify({ previewPort }),
+    );
+    if (previewPort !== null) f.sandbox.listen(sandboxId, previewPort);
+    const base = {
+      sessionId,
+      turnId: crypto.randomUUID(),
+      createdAt: "2026-10-24T00:00:00Z",
+    };
+    const jobId = crypto.randomUUID();
+    await f.events.append({
+      ...base,
+      type: "job.started",
+      payload: { jobId, objective: "Fix this repo" },
+    });
+    await f.events.append({
+      ...base,
+      type: "turn.completed",
+      payload: {
+        commitSha: FAKE_COMMIT_SHA,
+        usage: { inputTokens: 0, outputTokens: 0 },
+        durationMs: 1,
+      },
+    });
+    await f.events.append({ ...base, type: "verification.started", payload: { jobId } });
+    await f.events.append({
+      ...base,
+      type: "verification.completed",
+      payload: {
+        jobId,
+        checks: [{ name: "typecheck", outcome: "failed", output: "Type error" }],
+      },
+    });
+    const outcome = await f.runtime.resumeSession(sessionId, {
+      turnId: crypto.randomUUID(),
+      model: "anthropic/claude-sonnet-5",
+    });
+    expect(outcome.ok).toBe(true);
+    expect(f.agent.requests).toHaveLength(1);
+    expect(f.agent.requests[0]?.promptSource).toBe("verification");
+    expect(f.agent.requests[0]?.computer?.devServerUrl).toBe(
+      previewPort === null ? undefined : "http://localhost:3000",
+    );
+    if (previewPort === null) expect(f.agent.requests[0]?.computer).toBeUndefined();
+  },
+);

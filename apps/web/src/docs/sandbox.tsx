@@ -1,7 +1,7 @@
 /**
  * The machine the agent works on, and what happens to it when nobody is looking.
  *
- * The six tools and the reaper are one section rather than two because they are the same
+ * The sandbox tools and the reaper are one section rather than two because they are the same
  * argument from two ends: the agent can only reach the sandbox, and the sandbox is disposable.
  * Either alone is half of why walking away is safe.
  */
@@ -13,7 +13,7 @@ const TOOLS = `read_file      write_file     edit_file
 list_files     search_files   run_command
 
 every one of them proxies to SandboxManager.
-there is no seventh, and no filesystem but the sandbox's.`;
+computer is image-gated and uses SandboxDesktop plus object storage.`;
 
 export function Sandbox() {
   return (
@@ -23,13 +23,16 @@ export function Sandbox() {
         served from. It is reclaimable at any time — which is a design constraint, not a caveat.
       </Lede>
 
-      <Sub>No agent harness, and the six tools are the reason</Sub>
+      <Sub>Tools run behind project ports</Sub>
 
       <P>
         A batteries-included agent SDK ships built-in file and shell tools, and those act on the
         filesystem of the process running the harness — which here is one of our own server
         processes, not the user&rsquo;s sandbox. So <Code>AgentService</Code> drives the model loop
-        itself over an <Code>LLMProvider</Code> port, and the only tools that exist are these six.
+        itself over an <Code>LLMProvider</Code> port. File and command tools use{" "}
+        <Code>SandboxManager</Code>. The <Code>computer</Code> tool uses <Code>SandboxDesktop</Code>{" "}
+        and object storage, and is offered only for image-capable models when desktop access is
+        configured. The desktop template still needs paid validation.
       </P>
 
       <Figure label="The whole tool surface.">{TOOLS}</Figure>

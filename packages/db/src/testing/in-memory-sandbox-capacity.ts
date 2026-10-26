@@ -185,11 +185,11 @@ export class InMemorySandboxCapacity implements SandboxCapacity {
     this.#rows.delete(reservationId);
   }
 
-  async releaseForProject(projectId: string): Promise<void> {
+  async releaseForProject(projectId: string, sandboxId: string): Promise<void> {
     this.#refuseIfBroken();
 
     for (const [id, row] of this.#rows) {
-      if (row.projectId === projectId) this.#rows.delete(id);
+      if (row.projectId === projectId && row.sandboxId === sandboxId) this.#rows.delete(id);
     }
   }
 

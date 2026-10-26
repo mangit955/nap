@@ -1,0 +1,20 @@
+{"survivingChild":"55","listener":{"pid":55,"args":["--no-sandbox","--disable-dev-shm-usage","--disable-gpu","--no-first-run","--no-default-browser-check","--password-store=basic","--disable-sync","--disable-breakpad","--window-size=1024,768","--start-maximized","--user-data-dir=/home/user/.nap-desktop/chrome","--remote-debugging-address=127.0.0.1","--remote-debugging-port=9222","http://localhost:5173"],"policy":{"URLBlocklist":["*","chrome://*","file://*"],"URLAllowlist":["http://.localhost:5173","http://127.0.0.1:5173"],"BrowserSignin":0,"PasswordManagerEnabled":false,"DeveloperToolsAvailability":1},"state":""}}
+node:internal/modules/run_main:123
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: child must exit, including after parent SIGKILL
+
+true !== false
+
+    at stopped (file:///home/bun/app/[eval1]:38:10)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async file:///home/bun/app/[eval1]:66:5 {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: true,
+  expected: false,
+  operator: 'strictEqual'
+}
+
+Node.js v20.19.2

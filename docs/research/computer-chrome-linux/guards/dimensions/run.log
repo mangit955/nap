@@ -1,0 +1,23 @@
+Fixture ready on 5173
+Fixture ready on 5174
+Two container-local fixture ports ready
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+800 !== 1024
+
+    at screenshot (file:///smoke/smoke.mjs:5087:10)
+    at file:///smoke/smoke.mjs:5191:24
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5) {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: 800,
+  expected: 1024,
+  operator: 'strictEqual',
+  diff: 'simple'
+}
+
+Node.js v24.22.1

@@ -1,3 +1,5 @@
+import { InMemoryProjectComputerAccess } from "@nap/db/testing/in-memory-project-computer-access";
+import { ProjectComputer } from "@nap/runtime/project-computer";
 /**
  * The table `route-coverage.test.ts` and `authorization.test.ts` share.
  *
@@ -21,6 +23,7 @@ import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store"
 import { InMemoryTurnQueue } from "@nap/db/testing/in-memory-turn-queue";
 import { InMemoryUserKeyStore } from "@nap/db/testing/in-memory-user-key-store";
 import { TEMPLATE_WORKDIR } from "@nap/sandbox/template";
+import { FakeSandboxDesktop } from "@nap/sandbox/testing/fake-sandbox-desktop";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import { encryptionKeyFrom } from "../account/secret-box.ts";
@@ -69,6 +72,54 @@ export type GuardedRoute = RouteEntry & {
  * as somebody else, and signed in as the owner.
  */
 export const GUARDED_ROUTES: GuardedRoute[] = [
+  {
+    method: "GET",
+    path: "/sessions/:sessionId/tests/:turnId/recording",
+    examplePath: `/sessions/${SESSION}/tests/${REQUEST}/recording`,
+  },
+  {
+    method: "HEAD",
+    path: "/sessions/:sessionId/tests/:turnId/recording",
+    examplePath: `/sessions/${SESSION}/tests/${REQUEST}/recording`,
+  },
+  {
+    method: "GET",
+    path: "/sessions/:sessionId/computer/stream",
+    examplePath: `/sessions/${SESSION}/computer/stream`,
+  },
+  {
+    method: "GET",
+    path: "/sessions/:sessionId/computer/control",
+    examplePath: `/sessions/${SESSION}/computer/control`,
+  },
+  {
+    method: "POST",
+    path: "/sessions/:sessionId/computer/control",
+    examplePath: `/sessions/${SESSION}/computer/control`,
+    body: {},
+  },
+  {
+    method: "POST",
+    path: "/sessions/:sessionId/computer/input",
+    examplePath: `/sessions/${SESSION}/computer/input`,
+    body: { grant: "invalid", actions: [{ action: "key", text: "Return" }] },
+  },
+  {
+    method: "GET",
+    path: "/sessions/:sessionId/computer/recovery",
+    examplePath: `/sessions/${SESSION}/computer/recovery`,
+  },
+  {
+    method: "POST",
+    path: "/sessions/:sessionId/computer/abandon",
+    examplePath: `/sessions/${SESSION}/computer/abandon`,
+    body: {},
+  },
+  {
+    method: "GET",
+    path: "/sessions/:sessionId/computer/screenshots/:seq",
+    examplePath: `/sessions/${SESSION}/computer/screenshots/1`,
+  },
   { method: "GET", path: "/ws", examplePath: `/ws?sessionId=${SESSION}` },
   { method: "GET", path: "/models", examplePath: "/models" },
   // Somebody else's API key is the single most sensitive thing this app stores, so these are
@@ -161,6 +212,12 @@ export const GUARDED_ROUTES: GuardedRoute[] = [
   },
   {
     method: "POST",
+    path: "/sessions/:sessionId/tests",
+    examplePath: `/sessions/${SESSION}/tests`,
+    body: { jobId: REQUEST },
+  },
+  {
+    method: "POST",
     path: "/sessions/:sessionId/turns",
     examplePath: `/sessions/${SESSION}/turns`,
     body: { message: "hello" },
@@ -181,6 +238,7 @@ export type SeededSandbox = {
   sandbox: InMemorySandboxManager;
   sandboxId: string;
   objects: InMemoryObjectStore;
+  screenshotEvents: InMemoryEventStore;
 };
 
 /**
@@ -201,7 +259,42 @@ export async function seedSandbox(): Promise<SeededSandbox> {
   const objects = new InMemoryObjectStore();
   await objects.put(`projects/${PROJECT}/thumbnail.png`, new Uint8Array([137, 80, 78, 71]));
 
-  return { sandbox, sandboxId: created.value.id, objects };
+  const screenshotEvents = new InMemoryEventStore();
+  const key = `computer/${PROJECT}/${SESSION}/${REQUEST}/screen.jpg`;
+  await objects.put(key, new Uint8Array([255, 216, 255, 217]));
+  await screenshotEvents.append({
+    type: "computer.screenshot",
+    sessionId: SESSION,
+    turnId: REQUEST,
+    createdAt: "2026-10-24T00:00:00Z",
+    payload: { toolCallId: "screen", key, width: 1024, height: 768 },
+  });
+  const recordingKey = `computer/${PROJECT}/${SESSION}/${REQUEST}/recording.mp4`;
+  await objects.put(recordingKey, new Uint8Array([1, 2, 3]));
+  await screenshotEvents.append({
+    type: "test.started",
+    sessionId: SESSION,
+    turnId: REQUEST,
+    createdAt: "2026-10-24T00:00:00Z",
+    payload: { jobId: REQUEST, commitSha: "abc", objective: "Save a note" },
+  });
+  await screenshotEvents.append({
+    type: "test.recording",
+    sessionId: SESSION,
+    turnId: REQUEST,
+    createdAt: "2026-10-24T00:00:00Z",
+    payload: {
+      recording: {
+        state: "available",
+        key: recordingKey,
+        durationMs: 1000,
+        width: 1024,
+        height: 768,
+        interrupted: false,
+      },
+    },
+  });
+  return { sandbox, sandboxId: created.value.id, objects, screenshotEvents };
 }
 
 /**
@@ -227,12 +320,45 @@ export function fullyWiredDeps(seeded?: SeededSandbox): Omit<AppDeps, "logger"> 
     },
   ]);
 
+  const computerDesktop = new FakeSandboxDesktop({
+    bytes: new Uint8Array(),
+    width: 1024,
+    height: 768,
+  });
+  const computerAccess = new InMemoryProjectComputerAccess();
+  computerAccess.setProject({
+    projectId: PROJECT,
+    userId: OWNER,
+    sessionIds: [SESSION],
+    sandboxId: seeded?.sandboxId ?? null,
+    revision: "00000000-0000-4000-8000-000000000001",
+  });
   return {
     stream: {
       store: new InMemoryEventStore(),
       bus: new InMemoryEventBus(),
       sessions,
       upgradeWebSocket: async () => new Response(null),
+    },
+    computerAccess: {
+      sessions,
+      desktop: computerDesktop,
+      computer: new ProjectComputer({
+        access: computerAccess,
+        transport: computerDesktop.transport,
+      }),
+      secret: "route-table-secret",
+      access: computerAccess,
+    },
+    testRecordings: {
+      sessions,
+      events: seeded?.screenshotEvents ?? new InMemoryEventStore(),
+      objects: seeded?.objects ?? new InMemoryObjectStore(),
+    },
+    computerScreenshots: {
+      sessions,
+      events: seeded?.screenshotEvents ?? new InMemoryEventStore(),
+      objects: seeded?.objects ?? new InMemoryObjectStore(),
     },
     files: { sessions, sandbox },
     providers: {

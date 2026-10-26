@@ -84,13 +84,26 @@ export class InMemoryProjectSandboxStore implements ProjectSandboxStore {
     return idle;
   }
 
-  async releaseSandbox(projectId: string, snapshotKey: string | null): Promise<void> {
+  /** Names a machine on the project, as a turn does once it has created one. */
+  recordSandbox(projectId: string, sandboxId: string): this {
+    const row = this.#projects.get(projectId);
+    if (row !== undefined) this.#projects.set(projectId, { ...row, sandboxId });
+    return this;
+  }
+
+  async releaseSandbox(
+    projectId: string,
+    sandboxId: string,
+    snapshotKey: string | null,
+  ): Promise<boolean> {
     // Thrown rather than returned, like the other stores: a database that cannot be reached
     // is not an outcome this interface models.
     if (this.#failure !== undefined) throw this.#failure;
 
     const row = this.#projects.get(projectId);
     if (row === undefined) throw new Error(`unknown project ${projectId}`);
+    // The project has moved on to another machine since the caller read it. See the port.
+    if (row.sandboxId !== sandboxId) return false;
 
     this.#projects.set(projectId, {
       ...row,
@@ -99,5 +112,6 @@ export class InMemoryProjectSandboxStore implements ProjectSandboxStore {
       // is nothing".
       snapshotKey: snapshotKey ?? row.snapshotKey,
     });
+    return true;
   }
 }

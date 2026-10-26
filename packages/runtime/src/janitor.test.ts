@@ -1,7 +1,9 @@
 import { enqueueRequest } from "@nap/db/testing/enqueue-request";
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
+import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { InMemoryTurnQueue } from "@nap/db/testing/in-memory-turn-queue";
+import { FakeSandboxRecordings } from "@nap/sandbox/testing/fake-sandbox-recordings";
 import type { NapEvent } from "@nap/shared/events";
 import { foldJobs } from "@nap/shared/job-state";
 import { LEASE_GRACE_MS, LEASE_TTL_MS } from "@nap/shared/lease-windows";
@@ -434,4 +436,110 @@ describe("the invariant, over random crash points", () => {
       }
     }
   });
+});
+
+it("ends an orphaned app test once, preserving assertions and offering an explicit rerun", async () => {
+  const { id } = await enqueueRequest(queue, {
+    sessionId: SESSION,
+    userId: "user-1",
+    kind: "test",
+    message: "job",
+    model: "anthropic/claude-sonnet-5",
+    billsToUser: false,
+  });
+  await queue.claim("worker-1");
+  const base = { sessionId: SESSION, turnId: id, createdAt: new Date(now).toISOString() };
+  await events.append({
+    ...base,
+    type: "test.started",
+    payload: {
+      jobId: "7c9b1a52-8d3e-4f21-a0c4-1b2d3e4f5a6b",
+      commitSha: "abcdef1",
+      objective: "Save notes",
+    },
+  });
+  await events.append({
+    ...base,
+    type: "test.annotation",
+    payload: {
+      annotation: {
+        type: "assertion",
+        id: "save",
+        expectation: "Saved note appears",
+        result: "untested",
+      },
+      timeMs: 10,
+    },
+  });
+  pastGrace();
+  await sweep();
+  await sweep();
+  const log = await logOf();
+  expect(log.filter((e) => e.type === "turn.failed")).toHaveLength(1);
+  expect(log.filter((e) => e.type === "test.completed")).toHaveLength(1);
+  expect(log.find((e) => e.type === "test.completed")?.payload).toMatchObject({
+    status: "interrupted",
+    counts: { passed: 0, failed: 0, untested: 1 },
+  });
+  expect(log.find((e) => e.type === "system.notice")?.payload.text).toMatch(/test.*again/i);
+});
+
+it("discards an orphaned test capture and closes its recording state without replaying work", async () => {
+  const { id } = await enqueueRequest(queue, {
+    sessionId: SESSION,
+    userId: "user-1",
+    kind: "test",
+    message: "job",
+    model: "anthropic/claude-sonnet-5",
+    billsToUser: false,
+  });
+  await queue.claim("worker-1");
+  const base = { sessionId: SESSION, turnId: id, createdAt: new Date(now).toISOString() };
+  await events.append({
+    ...base,
+    type: "test.started",
+    payload: {
+      jobId: "7c9b1a52-8d3e-4f21-a0c4-1b2d3e4f5a6b",
+      commitSha: "abc",
+      objective: "Save notes",
+    },
+  });
+  await events.append({
+    ...base,
+    type: "test.recording",
+    payload: { recording: { state: "started" } },
+  });
+  const recordings = new FakeSandboxRecordings({
+    bytes: new Uint8Array([1]),
+    durationMs: 1000,
+    width: 1024,
+    height: 768,
+  });
+  await recordings.begin({ sandboxId: "sandbox", recordingId: id });
+  const computer = {
+    recordings,
+    sessions: new InMemorySessionStore([
+      { sessionId: SESSION, projectId: "project", sandboxId: "sandbox" },
+    ]),
+  };
+  pastGrace();
+  await sweepOrphanedRequests({
+    queue,
+    events,
+    bus,
+    computer,
+    now: () => new Date(now).toISOString(),
+  });
+  await sweepOrphanedRequests({
+    queue,
+    events,
+    bus,
+    computer,
+    now: () => new Date(now).toISOString(),
+  });
+  expect(recordings.calls.filter((call) => call.operation === "discard")).toHaveLength(1);
+  expect((await logOf()).filter((event) => event.type === "test.recording").at(-1)).toMatchObject({
+    payload: { recording: { state: "unavailable", reason: "lease_lost" } },
+  });
+  expect((await logOf()).filter((event) => event.type === "test.completed")).toHaveLength(1);
 });

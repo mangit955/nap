@@ -1,0 +1,80 @@
+{
+  "sourceRoot": "/Users/manasraghuwanshi/.t3/worktrees/nap/t3-0ad410c7",
+  "sourceCommit": "206c2662fe1e9d976f1b634e4ce134fd1a872f80",
+  "sourceDirty": "?? docs/research/computer-chrome-linux/\n?? packages/sandbox/scripts/desktop-chrome-smoke/",
+  "chromePackageVersion": "156.0.8078.47-1",
+  "chromeUrl": "https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_156.0.8078.47-1_amd64.deb",
+  "chromeDebSha256": "6c92cd22e90c6e3e255d782991543fa2091db8614e8536a971a7433a5c4d7ac8",
+  "fault": "typing",
+  "installCommand": "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y xvfb x11-utils openbox xdotool ffmpeg x11vnc websockify novnc dbus-x11 fonts-liberation ca-certificates wget openssl util-linux && wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/nap-chrome.deb && apt-get install -y /tmp/nap-chrome.deb && rm /tmp/nap-chrome.deb && mkdir -p /etc/opt/chrome/policies/managed && chown user:user /etc/opt/chrome/policies/managed",
+  "startupSha256": "85fb4d8c8d9d8cfdf0f2cdf248dd19c79bd5666b9228b5d1e0f5f0d0e6a2e342",
+  "driverBundleSha256": "3bd1aae5917d0c3beecbe452b6fbb70d34c2ae89289977972d9557e9b4267e3e",
+  "expectedDriverBundleSha256": null,
+  "matchesExpectedDriverBundle": null,
+  "image": [
+    {
+      "Id": "sha256:85f4831e2ad351a208e3080a6311a381400f669e0936516914f7cbd6fc1242a0",
+      "RepoTags": ["nap-chrome-smoke-f5c0c621-cc22-4b44-b6c7-50860ef0a145:local"],
+      "RepoDigests": [
+        "nap-chrome-smoke-f5c0c621-cc22-4b44-b6c7-50860ef0a145@sha256:85f4831e2ad351a208e3080a6311a381400f669e0936516914f7cbd6fc1242a0"
+      ],
+      "Comment": "buildkit.dockerfile.v0",
+      "Created": "2026-10-24T15:54:46.215986898+05:30",
+      "Config": {
+        "User": "user",
+        "Env": [
+          "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+          "NODE_VERSION=24.22.1",
+          "YARN_VERSION=1.22.22",
+          "HOME=/home/user",
+          "DISPLAY=:99"
+        ],
+        "Entrypoint": [
+          "timeout",
+          "--signal=TERM",
+          "--kill-after=5s",
+          "240s",
+          "node",
+          "/smoke/smoke.mjs"
+        ]
+      },
+      "Architecture": "amd64",
+      "Os": "linux",
+      "Size": 679648619,
+      "RootFS": {
+        "Type": "layers",
+        "Layers": [
+          "sha256:9b35de7893378218e365c34c2c735fb0032a859112fb7345ca8ea73f9aa1db70",
+          "sha256:b405c072d1d6b8d191f8fe47db6e3c37ff40836c3970c2c03e51b1adc16563fb",
+          "sha256:0ff2c5ad5da71f20291ad85c9f543eaf29984d9883c8c51a0bb117ec2abe097a",
+          "sha256:881f54f72c69e2a38c7f8a642780e61968bea9efe74300b88a2df728c24c7b0b",
+          "sha256:3e12bfea3588951aab89585809de07499eb5094dc38891bdb294e67d7a9327c0",
+          "sha256:e1c4f3bdb45d69f88e169adc2642519121f7ecfb5f3177747e97ec0decb06d6c",
+          "sha256:bbc36ce05db925422605031d6c8cc27c60517201c4bec14c87bbeba6ae02a912",
+          "sha256:2c5780b258089b94662dcb8d58d44b154e6189891188c0680b35066beb030a5c",
+          "sha256:2fdd356c113a574649fb2cd6fa759e96d50f59e47cca9815c14e4581650f093f",
+          "sha256:c44959f347d37f801ae3a5a54b726a3b01b158a61277d5f3e3c8d1257674dee7",
+          "sha256:a5ae1184a9d90ba58363ab9a4a3dbf6177af3d0536934f5e84ad2fa88a1fc2cb",
+          "sha256:d03ce41b08a98249169f12a9ee7d40fd8cc21c720b9ba124baeea85521d9b7a9"
+        ]
+      },
+      "Metadata": {
+        "LastTagTime": "2026-10-24T10:24:46.343865287Z"
+      },
+      "Descriptor": {
+        "mediaType": "application/vnd.oci.image.index.v1+json",
+        "digest": "sha256:85f4831e2ad351a208e3080a6311a381400f669e0936516914f7cbd6fc1242a0",
+        "size": 856
+      },
+      "Identity": {
+        "Build": [
+          {
+            "Ref": "uxtivmffm8ghdyber22ut2952",
+            "CreatedAt": "2026-10-24T15:54:46.34710968+05:30"
+          }
+        ]
+      }
+    }
+  ],
+  "buildMs": 1085
+}

@@ -1,0 +1,91 @@
+$ biome check .
+packages/sandbox/src/desktop-release.ts:4:38 lint/complexity/noUselessStringRaw ━━━━━━━━━━━━━━━━━━━━
+
+  i String.raw is useless when the raw string doesn't contain any escape sequence.
+  
+     2 │  * XSync precedes the state query. A failed release or query never issues a certificate.
+     3 │  */
+   > 4 │ export const RELEASE_PRESSED_INPUT = String.raw`
+       │                                      ^^^^^^^^^^^
+   > 5 │ import ctypes as c
+        ...
+  > 46 │ finally:
+  > 47 │     x.XCloseDisplay(d)
+  > 48 │ `;
+       │ ^
+    49 │ 
+  
+  i Remove the String.raw call because it's useless here, String.raw can deal with string which contains escape sequence like \n, \t, \r, \\, \", \'.
+  
+
+packages/sandbox/src/git-comparison-limits.test.ts:20:17 lint/style/useTemplate  FIXABLE  ━━━━━━━━━━
+
+  i Template literals are preferred over string concatenation.
+  
+    18 │   const calls: { args: string[]; timeout: number; startedAt: number }[] = [];
+    19 │   const patches: string[] = [];
+  > 20 │   const patch = "@@ -1 +1,25000 @@\n-old\n" + "+new\n".repeat(25_000);
+       │                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    21 │   const childProcess = {
+    22 │     execFileSync(_command: string, args: string[], options: { timeout: number }) {
+  
+  i Unsafe fix: Use a template literal.
+  
+     18  18 │     const calls: { args: string[]; timeout: number; startedAt: number }[] = [];
+     19  19 │     const patches: string[] = [];
+     20     │ - ··const·patch·=·"@@·-1·+1,25000·@@\n-old\n"·+·"+new\n".repeat(25_000);
+         20 │ + ··const·patch·=·`@@·-1·+1,25000·@@\n-old\n${"+new\n".repeat(25_000)}`;
+     21  21 │     const childProcess = {
+     22  22 │       execFileSync(_command: string, args: string[], options: { timeout: number }) {
+  
+
+apps/web/src/app/globals.css:2376:3 lint/style/noDescendingSpecificity ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ! Descending specificity selector found. This selector specificity is (0, 2, 0)
+  
+    2374 │     margin-top: -32px;
+    2375 │   }
+  > 2376 │   .dashboard-frame .workspace-header {
+         │   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2377 │     padding-left: 48px;
+    2378 │   }
+  
+  i This selector specificity is (0, 3, 0)
+  
+    1927 │   left: 14px;
+    1928 │ }
+  > 1929 │ .dashboard-frame[data-sidebar-collapsed="true"] .workspace-header {
+         │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    1930 │   padding-left: 52px;
+    1931 │ }
+  
+  i Descending specificity selector may not be applied. Consider rearranging the order of the selectors. See MDN web docs for more details.
+  
+
+packages/db/src/postgres-project-computer-access.ts:88:13 lint/complexity/useOptionalChain  FIXABLE  ━━━━━━━━━━
+
+  ! Change to an optional chain.
+  
+    86 │             .for("update");
+    87 │           if (
+  > 88 │             !held ||
+       │             ^^^^^^^^
+  > 89 │             held.state !== "leased" ||
+       │             ^^^^^^^^^^^^^^^^^^^^^^^
+    90 │             held.leaseOwner !== actor.lease.owner ||
+    91 │             held.cancelRequested
+  
+  i Unsafe fix: Change to an optional chain.
+  
+     86  86 │               .for("update");
+     87  87 │             if (
+     88     │ - ············!held·||
+     89     │ - ············held.state·!==·"leased"·||
+         88 │ + ············held?.state·!==·"leased"·||
+     90  89 │               held.leaseOwner !== actor.lease.owner ||
+     91  90 │               held.cancelRequested
+  
+
+Checked 1270 files in 423ms. No fixes applied.
+Found 2 warnings.
+Found 2 infos.
