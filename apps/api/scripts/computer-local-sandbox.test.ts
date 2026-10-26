@@ -349,7 +349,7 @@ describe.sequential("LocalDockerSandboxManager boundaries", () => {
       ]),
     );
     expect(run).not.toContain("--publish");
-    expect(run?.join(" ")).not.toContain("9222");
+    expect(run).not.toContain("-p");
 
     const firstClose = manager.close();
     const secondClose = manager.close();
@@ -486,7 +486,8 @@ describe.sequential("LocalDockerSandboxManager boundaries", () => {
     expect(new URL(vite.value).port).not.toBe(new URL(vnc.value).port);
     const bytes = Buffer.from([0, 255, 1, 2, 13, 10, 128, 64]);
     await expect(roundTrip(vite.value, bytes)).resolves.toEqual(bytes);
-    await expect(manager.getPreviewUrl(created.value.id, 9222)).resolves.toMatchObject({
+    // Raw VNC sits behind the view-only websockify bridge and is never exposed itself.
+    await expect(manager.getPreviewUrl(created.value.id, 5900)).resolves.toMatchObject({
       ok: false,
       error: { code: "exec_failed" },
     });

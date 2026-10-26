@@ -12,7 +12,16 @@ original = path.read_text()
 branch = 'if [[ "$chrome_port" != "$port" ]] || ! chrome_ready; then'
 identity = '"$(start_ticks "$chrome_pid")" == "$chrome_ticks"'
 profile = 'grep -Fzxq -- "--user-data-dir=$state/chrome" "/proc/$chrome_pid/cmdline" &&'
-socket = '"$found" || fail \'Port 9222 is not owned by this desktop.\''
+socket = '"$found" || fail \'The browser debugger socket is not owned by this desktop.\''
+pipe = 'grep -Fzxq -- \'--remote-debugging-pipe\' "/proc/$chrome_pid/cmdline" &&'
+bridge = 'grep -Fzxq -- \'--cdp-bridge\' "/proc/$chrome_pid/cmdline" &&'
+bridge_socket = 'grep -Fzxq -- "$cdp_socket" "/proc/$chrome_pid/cmdline" &&'
+listener = '$4 == "00010000" && '
+exact_path = ' && $8 == ENVIRON["CDP_SOCKET"]'
+answered = 'if cdp_probe; then'
+launch = 'exec node "$driver" --cdp-bridge "$cdp_socket" -- google-chrome-stable '
+for anchor in (socket, pipe, bridge, bridge_socket, listener, exact_path, answered, launch):
+    assert original.count(anchor) == 1, anchor
 ready = "chrome_ready || fail 'Owned Chrome is not ready.'"
 last_ready = original.rfind(ready)
 assert last_ready >= 0
@@ -33,7 +42,15 @@ mutations = [
     ("launch without waiting", original.replace(barrier, ':'), "does not launch a browser before ownership"),
     ("ignore launch pipe EOF", original.replace(barrier, 'IFS= read -r launch || :'), "does not launch a browser before ownership"),
     ("release browser before rename", original.replace(publish, 'printf \'GO\\n\' >&8\n  mv "$state/chrome-owner.tmp" "$state/chrome-owner" 8>&-'), "does not launch a browser before ownership"),
-    ("lose browser PID at exec", original.replace('exec google-chrome-stable ', 'google-chrome-stable '), "preserves a healthy same-port browser"),
+    ("lose browser PID at exec", original.replace(launch, launch[len('exec '):]), "preserves a healthy same-port browser"),
+    ("ignore debugging pipe identity", original.replace(pipe, ''), "fails closed for no debugging pipe"),
+    ("ignore bridge identity", original.replace(bridge, ''), "fails closed for no bridge"),
+    ("ignore bridge socket identity", original.replace(bridge_socket, ''), "fails closed for other bridge socket"),
+    ("count non-listening sockets", original.replace(listener, ''), "ignores sockets that are not a listener"),
+    ("count sockets at any path", original.replace(exact_path, ''), "ignores sockets that are not a listener"),
+    ("trust an answer from an unplaced listener", original.replace(answered, 'if false; then'), "refuses a browser answering through the debugger path"),
+    ("launch with a debugging port", original.replace('--remote-debugging-pipe "http', '--remote-debugging-pipe --remote-debugging-port=9222 "http'), "runs the browser behind the bridge"),
+    ("launch without the bridge", original.replace(launch, 'exec google-chrome-stable '), "runs the browser behind the bridge"),
 ]
 try:
     with tempfile.TemporaryDirectory(prefix="nap-startup-mutations-") as logs:

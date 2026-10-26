@@ -17,6 +17,7 @@ import {
 } from "@nap/shared/ports/sandbox-desktop";
 
 import { observeDesktopPage } from "../src/desktop-cdp.ts";
+import { runCdpMode } from "../src/desktop-cdp-bridge.ts";
 import { type DesktopActionHost, performDesktopAction } from "../src/desktop-input.ts";
 import { DesktopOperations } from "../src/desktop-operations.ts";
 import { runDesktopProcess } from "../src/desktop-process.ts";
@@ -30,6 +31,10 @@ import { DesktopRecorder } from "../src/desktop-recorder.ts";
 import { RELEASE_PRESSED_INPUT } from "../src/desktop-release.ts";
 import { DesktopScopes } from "../src/desktop-scopes.ts";
 
+// The browser's debugger bridge and its readiness probe ship inside this same bundle, so
+// the image carries one artifact. Neither shape can be mistaken for a base64 request.
+if (process.argv[2] === "--cdp-bridge" || process.argv[2] === "--cdp-probe")
+  process.exit(await runCdpMode(process.argv.slice(2)));
 const encoded = process.argv[2];
 if (!encoded) {
   console.log(

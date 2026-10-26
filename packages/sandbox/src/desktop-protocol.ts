@@ -75,6 +75,8 @@ export const DesktopCapabilitiesSchema = z.object({
 });
 export const DESKTOP_STATE = "/home/user/.nap-desktop";
 export const DESKTOP_DRIVER = "/usr/local/lib/nap-desktop/driver.mjs";
+/** The browser debugger: a Unix socket, never a TCP port. See docs/adr/0019. */
+export const DESKTOP_CDP_SOCKET = `${DESKTOP_STATE}/cdp.sock`;
 export const DESKTOP_STREAM_PORT = 6080;
 
 export const RecordingTimestampSchema = z.strictObject({

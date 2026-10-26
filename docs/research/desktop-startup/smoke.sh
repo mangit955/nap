@@ -2,6 +2,8 @@
 # Run only inside a disposable container. See README.md for the free invocation.
 set -euo pipefail
 [[ -f /.dockerenv && "$(id -u)" == 0 && "${NAP_DESKTOP_START_SMOKE:-}" == 1 ]] || exit 2
+# The real bridge: the freshly bundled driver, mounted where the image installs it.
+[[ -f /usr/local/lib/nap-desktop/driver.mjs ]] || exit 2
 export fixture=$(mktemp -d /tmp/nap-startup.XXXXXX)
 mkdir -p "$fixture/bin" /home/user/.nap-desktop/chrome /etc/opt/chrome/policies/managed
 printf 'fixture-password\n' > /home/user/.nap-desktop/password
@@ -40,12 +42,12 @@ mv() {
     *) command mv "$@" ;;
   esac
 }
-curl() {
-  if [[ "${FAULT_MODE:-}" == 'killed after launch' && "$*" == *9222* && -f "$state/chrome-owner" ]] && command curl "$@" >/dev/null 2>&1; then
+node() {
+  if [[ "${FAULT_MODE:-}" == 'killed after launch' && "${2:-}" == --cdp-probe && -f "$state/chrome-owner" ]] && command node "$@" >/dev/null 2>&1; then
     save_identity
     builtin kill -KILL "$$"
   fi
-  command curl "$@"
+  command node "$@"
 }
 SH
 cat > "$fixture/curl.mjs" <<'JS'
@@ -58,26 +60,36 @@ request.setTimeout(1000, () => request.destroy());
 request.on('error', () => process.exit(7));
 JS
 cat > "$fixture/browser.mjs" <<'JS'
+// Speaks Chrome's pipe contract: NUL-terminated JSON in on descriptor 3, out on 4.
 import fs from 'node:fs';
-import http from 'node:http';
+import net from 'node:net';
 let state = '';
+// The recorded identity is the bridge's: this stand-in runs as its child.
 const launch = {
-  pid: process.pid,
+  pid: process.ppid,
+  browserPid: process.pid,
   args: process.argv.slice(2),
   policy: JSON.parse(fs.readFileSync('/etc/opt/chrome/policies/managed/nap.json', 'utf8')),
 };
 fs.appendFileSync(process.env.fixture + '/launches', JSON.stringify(launch) + '\n');
-const server = http.createServer((request, response) => {
-  const url = new URL(request.url, 'http://localhost');
-  if (url.searchParams.has('set')) state = url.searchParams.get('set');
-  response.setHeader('Content-Type', 'application/json');
-  response.end(JSON.stringify({...launch, state}));
+const input = new net.Socket({fd: 3, readable: true, writable: false});
+const output = new net.Socket({fd: 4, readable: false, writable: true});
+let buffer = '';
+input.on('data', chunk => {
+  buffer += chunk;
+  for (let end; (end = buffer.indexOf('\0')) >= 0; buffer = buffer.slice(end + 1)) {
+    const {id, method, params = {}} = JSON.parse(buffer.slice(0, end));
+    if (method === 'Fixture.setState') state = params.state;
+    const result = method === 'Browser.getVersion' ? {product: 'Stand-in/1'} : {...launch, state};
+    output.write(JSON.stringify({id, result}) + '\0');
+  }
 });
-server.listen(9222, '127.0.0.1');
+// Chrome exits when its command pipe closes, so a bridge's death takes its browser with it.
+input.on('end', () => process.exit(0));
 process.on('SIGTERM', () => {
-  fs.appendFileSync(process.env.fixture + '/stops', String(process.pid) + '\n');
-  // Keep the listener alive briefly: startup must wait before replacing policy/browser.
-  setTimeout(() => server.close(() => process.exit(0)), 200);
+  fs.appendFileSync(process.env.fixture + '/stops', String(process.ppid) + '\n');
+  // Exit late: startup must wait for the bridge, which waits for its browser.
+  setTimeout(() => process.exit(0), 200);
 });
 JS
 node --input-type=module <<'JS'
@@ -86,11 +98,32 @@ import {execFile, spawn, spawnSync} from 'node:child_process';
 import {once} from 'node:events';
 import fs from 'node:fs';
 import http from 'node:http';
+import net from 'node:net';
 import {promisify} from 'node:util';
 const exec = promisify(execFile);
 const startScript = process.env.NAP_DESKTOP_START_SCRIPT ?? '/repo/packages/sandbox/desktop/start-desktop.sh';
 const state = '/home/user/.nap-desktop';
 const record = state + '/chrome-owner';
+const socketPath = state + '/cdp.sock';
+// One request through the bridge's socket, as any desktop client makes it.
+const cdp = (method, params = {}) => new Promise((resolve, reject) => {
+  const connection = net.createConnection(socketPath);
+  let buffer = '';
+  const timer = setTimeout(() => { connection.destroy(); reject(new Error('timed out')); }, 2000);
+  connection.on('connect', () => connection.write(JSON.stringify({id: 1, method, params}) + '\0'));
+  connection.on('data', chunk => {
+    buffer += chunk;
+    const end = buffer.indexOf('\0');
+    if (end < 0) return;
+    clearTimeout(timer);
+    connection.destroy();
+    resolve(JSON.parse(buffer.slice(0, end)).result);
+  });
+  connection.on('error', error => { clearTimeout(timer); reject(error); });
+});
+const debuggerTcpListeners = () => ['/proc/net/tcp', '/proc/net/tcp6'].flatMap(path =>
+  fs.readFileSync(path, 'utf8').trim().split('\n').slice(1).map(line => line.trim().split(/\s+/))
+    .filter(row => row[1]?.endsWith(':2406') && row[3] === '0A'));
 const policy = '/etc/opt/chrome/policies/managed/nap.json';
 let vncReady = true;
 const vnc = http.createServer((_request, response) => {
@@ -115,12 +148,12 @@ const stopped = async (pid, ticks) => {
   for (let attempt = 0; attempt < 100 && runningIdentity(pid, ticks); attempt++)
     await new Promise(resolve => setTimeout(resolve, 20));
   if (runningIdentity(pid, ticks)) {
-    const listener = await fetch('http://127.0.0.1:9222/json/version').then(response => response.json()).catch(() => null);
+    const listener = await cdp('Fixture.info').catch(() => null);
     console.error(JSON.stringify({survivingChild: pid, listener}));
   }
   assert.equal(runningIdentity(pid, ticks), false, 'child must exit, including after parent SIGKILL');
 };
-const info = async (path = '/json/version') => (await fetch('http://127.0.0.1:9222' + path)).json();
+const info = async (set) => cdp(set === undefined ? 'Fixture.info' : 'Fixture.setState', {state: set});
 const start = async (port = '5173') => {
   const result = await exec('bash', [startScript, port], {timeout: 25000});
   assert.deepEqual(JSON.parse(result.stdout), {width: 1024, height: 768});
@@ -148,7 +181,7 @@ try {
     const [pid, ticks] = fs.readFileSync(process.env.fixture + '/fault-identity', 'utf8').trim().split(' ');
     await stopped(pid, ticks);
     assert.equal(launches().length, before, mode + ' must not exec the browser');
-    await assert.rejects(fetch('http://127.0.0.1:9222/json/version'));
+    await assert.rejects(cdp('Fixture.info'));
     assert.equal(fs.existsSync(record), mode === 'killed after rename');
     assert.equal(spawnSync('flock', ['-n', state + '/start.lock', 'true']).status, 0);
     await start();
@@ -184,7 +217,12 @@ try {
   const priorLaunches = launches().length;
 
   await start();
-  const first = await info('/state?set=typed-form-and-scroll');
+  const first = await info('typed-form-and-scroll');
+  assert.equal((fs.statSync(socketPath).mode & 0o777).toString(8), '600');
+  assert.ok(fs.statSync(socketPath).isSocket());
+  assert.deepEqual(debuggerTcpListeners(), []);
+  assert.ok(first.args.includes('--remote-debugging-pipe'));
+  assert.ok(!first.args.some(arg => arg.startsWith('--remote-debugging-port')));
   const xvfb = fs.readFileSync('/tmp/.X99-lock', 'utf8');
   await start();
   assert.equal((await info()).pid, first.pid);
@@ -223,12 +261,28 @@ try {
   assert.equal((await info()).pid, second.pid);
   fs.writeFileSync(record, ownership);
 
+  // A bridge killed outright takes its browser with it and leaves a stale socket file.
+  const killed = fs.readFileSync(record, 'utf8').trim().split(' ');
+  process.kill(Number(killed[0]), 'SIGKILL');
+  await stopped(killed[0], killed[1]);
+  for (let attempt = 0; attempt < 100 && launches().some(entry => {
+    try { process.kill(entry.browserPid, 0); return true; } catch { return false; }
+  }); attempt++) await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal(launches().filter(entry => {
+    try { process.kill(entry.browserPid, 0); return true; } catch { return false; }
+  }).length, 0, 'no stand-in browser may outlive its bridge');
+  assert.ok(fs.statSync(socketPath).isSocket());
+  await start('4321');
+  const third = await info();
+  assert.notEqual(third.pid, second.pid);
+  assert.equal(launches().length, priorLaunches + 3);
+
   vncReady = false;
   await fails('4321', 22);
   vncReady = true;
   await start('4321');
-  assert.equal((await info()).pid, second.pid);
-  assert.equal(launches().length, priorLaunches + 2);
+  assert.equal((await info()).pid, third.pid);
+  assert.equal(launches().length, priorLaunches + 3);
   assert.equal(spawnSync('flock', ['-n', state + '/start.lock', 'true']).status, 0);
   assert.ok(unrelated.exitCode === null);
   console.log(JSON.stringify({passed: true, actualChrome: false, browserLaunches: launches().length,
@@ -236,7 +290,8 @@ try {
     publicationFailureRetried: true, durableOwnershipDeathRetried: true,
     samePortStatePreserved: true, changedPortRestarted: true, unknownEndpointRejected: true,
     ticksMismatchRejected: true, lockReleasedAndSerialized: true, vncFailureRetried: true,
-    xvfbReused: true, unrelatedProcessPreserved: true}, null, 2));
+    xvfbReused: true, unrelatedProcessPreserved: true, debuggerTcpListeners: 0,
+    debuggerSocketMode: '600', killedBridgeTookBrowser: true, staleSocketReplaced: true}, null, 2));
 } finally {
   unrelated.kill();
   vnc.close();

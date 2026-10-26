@@ -106,15 +106,18 @@ async function scopedRequest(machine: Sandbox, action?: DesktopAction) {
 }
 async function inspect(machine: Sandbox) {
   const command = `node --input-type=module <<'NAP_INSPECT'
-const pages = await (await fetch('http://127.0.0.1:9222/json/list')).json();
-const page = pages.find(p => p.type === 'page');
-if (!page) throw Error('No browser page');
-const ws = new WebSocket(page.webSocketDebuggerUrl);
-const pending = new Map(); let id = 0;
+import net from 'node:net';
+// The browser debugger is a Unix socket bridged to Chrome's pipe; it has no TCP port.
+const socket = net.createConnection('/home/user/.nap-desktop/cdp.sock');
+const pending = new Map(); let id = 0; let buffer = ''; let sessionId;
 const deadline = setTimeout(() => process.exit(2), 7000);
-ws.onmessage = e => { const m = JSON.parse(String(e.data)); const p = pending.get(m.id); if (p) {pending.delete(m.id); m.error ? p.reject(Error(m.error.message)) : p.resolve(m.result);} };
-await new Promise((resolve, reject) => {ws.onopen = resolve; ws.onerror = reject;});
-const rpc = (method, params = {}) => new Promise((resolve, reject) => {const n = ++id; pending.set(n, {resolve, reject}); ws.send(JSON.stringify({id:n, method, params}));});
+socket.on('data', chunk => { buffer += chunk; for (let end; (end = buffer.indexOf('\\0')) >= 0; buffer = buffer.slice(end + 1)) { const m = JSON.parse(buffer.slice(0, end)); const p = pending.get(m.id); if (p && m.sessionId === p.sessionId) {pending.delete(m.id); m.error ? p.reject(Error(m.error.message)) : p.resolve(m.result);} } });
+await new Promise((resolve, reject) => {socket.once('connect', resolve); socket.once('error', reject);});
+const rpc = (method, params = {}) => new Promise((resolve, reject) => {const n = ++id; pending.set(n, {resolve, reject, sessionId}); socket.write(JSON.stringify({id:n, method, params, ...(sessionId ? {sessionId} : {})}) + '\\0');});
+const {targetInfos} = await rpc('Target.getTargets');
+const page = targetInfos.find(p => p.type === 'page' && (/^(?:https?:|chrome-error:)/.test(p.url) || p.url === 'about:blank'));
+if (!page) throw Error('No browser page');
+sessionId = (await rpc('Target.attachToTarget', {targetId: page.targetId, flatten: true})).sessionId;
 const {root} = await rpc('DOM.getDocument', {depth:0});
 const {outerHTML} = await rpc('DOM.getOuterHTML', {nodeId: root.nodeId});
 const {nodeId} = await rpc('DOM.querySelector', {nodeId:root.nodeId, selector:'button'});
@@ -127,7 +130,7 @@ if (nodeId) {
  click = [Math.round((model.content[0]+model.content[4])/2), Math.round((model.content[1]+model.content[5])/2 + 768-layout.cssVisualViewport.clientHeight)];
 }
 console.log(JSON.stringify({markerVisible: outerHTML.includes(${JSON.stringify(marker)}), click, clicked, blocked:outerHTML.includes('ERR_BLOCKED_BY_ADMINISTRATOR') || outerHTML.includes('This page is blocked')}));
-clearTimeout(deadline); ws.close();
+clearTimeout(deadline); socket.destroy();
 NAP_INSPECT`;
   const result = await machine.commands.run(command, { timeoutMs: 10000 });
   return z

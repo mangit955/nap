@@ -1,11 +1,20 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, readdirSync, readFileSync, readlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
 import type { DesktopAction } from "@nap/shared/ports/sandbox-desktop";
 import { z } from "zod";
+import { openCdpSocket } from "../../src/desktop-cdp-bridge.ts";
 import {
+  DESKTOP_CDP_SOCKET,
   DESKTOP_DRIVER,
   DESKTOP_STATE,
   DesktopImageSchema,
@@ -137,18 +146,30 @@ function identity() {
   const fields = stat.slice(stat.lastIndexOf(") ") + 2).split(" ");
   assert.notEqual(fields[0], "Z");
   assert.equal(fields[19], ticks);
+  // The recorded process is the debugger bridge, which runs Chrome as its child.
   const command = readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0");
   assert.ok(command.includes(`--user-data-dir=${DESKTOP_STATE}/chrome`));
-  assert.ok(command.includes("--remote-debugging-port=9222"));
-  const sockets = ["/proc/net/tcp", "/proc/net/tcp6"].flatMap((path) =>
+  assert.ok(command.includes("--cdp-bridge"));
+  assert.ok(command.includes(DESKTOP_CDP_SOCKET));
+  assert.ok(command.includes("--remote-debugging-pipe"));
+  assert.ok(!command.some((arg) => arg.startsWith("--remote-debugging-port")));
+  const debuggerPorts = ["/proc/net/tcp", "/proc/net/tcp6"].flatMap((path) =>
     readFileSync(path, "utf8")
       .trim()
       .split("\n")
       .slice(1)
       .map((line) => line.trim().split(/\s+/))
-      .filter((row) => row[1]?.endsWith(":2406") && row[3] === "0A")
-      .map((row) => row[9]),
+      .filter((row) => row[1]?.endsWith(":2406") && row[3] === "0A"),
   );
+  assert.deepEqual(debuggerPorts, [], "Nothing may listen on the old debugging port.");
+  assert.equal(statSync(DESKTOP_CDP_SOCKET).mode & 0o777, 0o600);
+  const sockets = readFileSync("/proc/net/unix", "utf8")
+    .trim()
+    .split("\n")
+    .slice(1)
+    .map((line) => line.trim().split(/\s+/))
+    .filter((row) => row[3] === "00010000" && row[7] === DESKTOP_CDP_SOCKET)
+    .map((row) => row[6]);
   assert.ok(sockets.length > 0);
   const descriptors = readdirSync(`/proc/${pid}/fd`).flatMap((fd) => {
     try {
@@ -160,26 +181,57 @@ function identity() {
   for (const inode of sockets)
     assert.ok(
       descriptors.includes(`socket:[${inode}]`),
-      "Actual Chrome must own the debugging socket.",
+      "The recorded bridge must own the debugger socket.",
     );
   return { pid, ticks, port, record };
 }
 
+// One request through the debugger bridge, on a page session when one is given.
+async function cdp(method: string, params: object = {}, sessionId?: string): Promise<unknown> {
+  const socket = openCdpSocket(DESKTOP_CDP_SOCKET, 16_000_000);
+  try {
+    return await new Promise<unknown>((resolve, reject) => {
+      const deadline = setTimeout(() => reject(new Error(`${method} timed out.`)), 5000);
+      const settle = (done: () => void) => {
+        clearTimeout(deadline);
+        done();
+      };
+      socket.addEventListener("error", () => settle(() => reject(new Error("Socket failed."))));
+      socket.addEventListener("open", () =>
+        socket.send(JSON.stringify({ id: 1, method, params, ...(sessionId ? { sessionId } : {}) })),
+      );
+      socket.addEventListener("message", (event) => {
+        const reply = z
+          .object({ id: z.number(), result: z.unknown().optional(), error: z.unknown().optional() })
+          .safeParse(JSON.parse(String((event as MessageEvent).data)));
+        if (!reply.success || reply.data.id !== 1) return;
+        const { result, error } = reply.data;
+        settle(() => (error ? reject(new Error(JSON.stringify(error))) : resolve(result)));
+      });
+    });
+  } finally {
+    socket.close();
+  }
+}
+const targets = async () =>
+  z
+    .object({
+      targetInfos: z.array(z.object({ targetId: z.string(), type: z.string(), url: z.string() })),
+    })
+    .parse(await cdp("Target.getTargets")).targetInfos;
+
 // Read-only geometry and failure diagnostics. Assertions use production observations.
+// Each call is one connection, so the bridge detaches its session as the connection closes.
 async function observeActualPage(expression: string): Promise<unknown> {
-  const pages = z
-    .array(
-      z.object({ type: z.string(), url: z.string(), webSocketDebuggerUrl: z.string().optional() }),
-    )
-    .parse(await (await fetch("http://127.0.0.1:9222/json/list")).json());
-  const address = pages.find(
-    (page) => page.type === "page" && /^https?:\/\//.test(page.url),
-  )?.webSocketDebuggerUrl;
-  assert.ok(address);
-  const socket = new WebSocket(address);
+  const page = (await targets()).find(
+    (target) => target.type === "page" && /^https?:\/\//.test(target.url),
+  );
+  assert.ok(page);
+  const socket = openCdpSocket(DESKTOP_CDP_SOCKET, 16_000_000);
   try {
     return await new Promise<unknown>((resolve, reject) => {
       const deadline = setTimeout(() => reject(new Error("Geometry observation timed out.")), 5000);
+      let sessionId: string | undefined;
       socket.addEventListener("error", () => {
         clearTimeout(deadline);
         reject(new Error("Geometry socket failed."));
@@ -188,25 +240,35 @@ async function observeActualPage(expression: string): Promise<unknown> {
         socket.send(
           JSON.stringify({
             id: 1,
-            method: "Runtime.evaluate",
-            params: {
-              expression,
-              returnByValue: true,
-            },
+            method: "Target.attachToTarget",
+            params: { targetId: page.targetId, flatten: true },
           }),
         ),
       );
       socket.addEventListener("message", (event) => {
-        clearTimeout(deadline);
         try {
-          const reply = z
-            .object({
-              id: z.literal(1),
-              result: z.object({ result: z.object({ value: z.unknown() }) }),
-            })
-            .parse(JSON.parse(String(event.data)));
-          resolve(reply.result.result.value);
+          const message = z
+            .object({ id: z.number().optional(), result: z.unknown().optional() })
+            .parse(JSON.parse(String((event as MessageEvent).data)));
+          if (message.id === 1) {
+            sessionId = z.object({ sessionId: z.string() }).parse(message.result).sessionId;
+            socket.send(
+              JSON.stringify({
+                id: 2,
+                sessionId,
+                method: "Runtime.evaluate",
+                params: { expression, returnByValue: true },
+              }),
+            );
+          } else if (message.id === 2) {
+            clearTimeout(deadline);
+            resolve(
+              z.object({ result: z.object({ value: z.unknown() }) }).parse(message.result).result
+                .value,
+            );
+          }
         } catch (error) {
+          clearTimeout(deadline);
           reject(error);
         }
       });
@@ -507,12 +569,7 @@ try {
 } catch (error) {
   writeFileSync(`${output}/last-observed-dom.txt`, lastDom);
   try {
-    save(
-      "failure-targets",
-      await (
-        await fetch("http://127.0.0.1:9222/json/list", { signal: AbortSignal.timeout(3000) })
-      ).json(),
-    );
+    save("failure-targets", await targets());
     await screenshot("failure-screen");
     save(
       "failure-page",

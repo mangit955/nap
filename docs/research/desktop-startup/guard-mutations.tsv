@@ -12,3 +12,11 @@ launch without waiting	observed assertion failure
 ignore launch pipe EOF	observed assertion failure
 release browser before rename	observed assertion failure
 lose browser PID at exec	observed assertion failure
+ignore debugging pipe identity	observed assertion failure
+ignore bridge identity	observed assertion failure
+ignore bridge socket identity	observed assertion failure
+count non-listening sockets	observed assertion failure
+count sockets at any path	observed assertion failure
+trust an answer from an unplaced listener	observed assertion failure
+launch with a debugging port	observed assertion failure
+launch without the bridge	observed assertion failure
