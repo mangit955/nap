@@ -90,6 +90,77 @@ it("shows a named computer with a private screenshot and navigable history contr
   expect(screen.getByRole("button", { name: "Full screen" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Open computer in new window" })).toBeInTheDocument();
 });
+it("says what happened and when, at the shown point and wherever the timeline is hovered", () => {
+  const prompt: StoredEvent = {
+    type: "user.message",
+    sessionId: "session",
+    turnId: "turn",
+    seq: 1,
+    createdAt: "2026-10-24T06:46:00Z",
+    payload: { text: "Check the sign-in page" },
+  };
+  const call: StoredEvent = {
+    type: "tool.call",
+    sessionId: "session",
+    turnId: "turn",
+    seq: 2,
+    createdAt: "2026-10-24T06:47:00Z",
+    payload: {
+      toolCallId: "screen",
+      toolName: "computer",
+      input: { actions: [{ action: "left_click", coordinate: [10, 20] }] },
+    },
+  };
+  const local = (at: string) =>
+    new Date(at).toLocaleString([], { dateStyle: "medium", timeStyle: "medium" });
+  render(<ComputerPane events={[prompt, call, frame]} selectedSeq={3} onSeek={() => {}} />);
+  const shown = `Clicked at (10, 20) · ${local(call.createdAt)}`;
+  expect(screen.getByText(shown)).toBeVisible();
+  const timeline = screen.getByRole("slider", { name: "Session timeline" });
+  expect(timeline).toHaveAttribute("aria-valuetext", shown);
+  timeline.getBoundingClientRect = () => DOMRect.fromRect({ x: 0, width: 300 });
+  fireEvent.mouseMove(timeline, { clientX: 100 });
+  expect(screen.getByRole("tooltip")).toHaveTextContent(
+    `${local(prompt.createdAt)}Check the sign-in page`,
+  );
+  fireEvent.mouseLeave(timeline);
+  expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+});
+it("keeps a long prompt and a many-action step to one short line", () => {
+  const long: StoredEvent = {
+    type: "user.message",
+    sessionId: "session",
+    turnId: "turn",
+    seq: 1,
+    createdAt: "2026-10-24T06:46:00Z",
+    payload: { text: `${"Check the sign-in page ".repeat(10)}\nthen the dashboard` },
+  };
+  const view = render(<ComputerPane events={[long, frame]} selectedSeq={3} onSeek={() => {}} />);
+  const timeline = screen.getByRole("slider", { name: "Session timeline" });
+  const said = timeline.getAttribute("aria-valuetext") ?? "";
+  expect(said).toMatch(/^Check the sign-in page .{50,}… · /);
+  expect(said).not.toContain("dashboard");
+  const call: StoredEvent = {
+    type: "tool.call",
+    sessionId: "session",
+    turnId: "turn",
+    seq: 2,
+    createdAt: "2026-10-24T06:47:00Z",
+    payload: {
+      toolCallId: "screen",
+      toolName: "computer",
+      input: {
+        actions: [
+          { action: "left_click", coordinate: [10, 20] },
+          { action: "type", text: "hello" },
+          { action: "key", text: "Return" },
+        ],
+      },
+    },
+  };
+  view.rerender(<ComputerPane events={[long, call, frame]} selectedSeq={3} onSeek={() => {}} />);
+  expect(timeline.getAttribute("aria-valuetext")).toMatch(/^Clicked at \(10, 20\) and 2 more · /);
+});
 it("returns from history to following the latest screenshot", () => {
   const seek = vi.fn();
   render(<ComputerPane events={[frame, { ...frame, seq: 6 }]} selectedSeq={3} onSeek={seek} />);

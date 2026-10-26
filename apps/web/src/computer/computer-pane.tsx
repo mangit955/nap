@@ -10,6 +10,7 @@ import { RimGlow } from "../glow/rim-glow.tsx";
 import { useAiPulse } from "../glow/use-pulse.ts";
 import { useRimMask } from "../glow/use-rim-mask.ts";
 import { useElapsed } from "../ui/use-elapsed.ts";
+import { computerActionLabel, computerActions } from "./action-labels.ts";
 import { ComputerInputSurface } from "./computer-input-surface.tsx";
 import {
   type DesktopConnectionStatus,
@@ -22,6 +23,41 @@ import { useDesktopStream } from "./use-desktop-stream.ts";
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
 export function computerScreenshotUrl(sessionId: string, seq: number): string {
   return `${BASE_URL}/sessions/${encodeURIComponent(sessionId)}/computer/screenshots/${seq}`;
+}
+
+/** One line, short enough for a caption a screen reader repeats on every timeline step. */
+function brief(text: string): string {
+  const line = text.trim().split("\n")[0] ?? "";
+  return line.length > 80 ? `${line.slice(0, 79)}…` : line;
+}
+
+function computerStep(input: Record<string, unknown>): string {
+  const [first, ...rest] = computerActions(input).map(computerActionLabel);
+  if (!first) return "Used the computer";
+  return rest.length ? `${first} and ${rest.length} more` : first;
+}
+
+/** The prompt or computer action at or before `seq`, timed in the viewer's own zone. */
+function momentAt(events: readonly StoredEvent[], seq: number) {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    if (!event || event.seq > seq) continue;
+    const label =
+      event.type === "user.message"
+        ? brief(event.payload.text)
+        : event.type === "tool.call" && event.payload.toolName === "computer"
+          ? computerStep(event.payload.input)
+          : null;
+    if (label !== null)
+      return {
+        label,
+        time: new Date(event.createdAt).toLocaleString([], {
+          dateStyle: "medium",
+          timeStyle: "medium",
+        }),
+      };
+  }
+  return null;
 }
 
 export function ComputerPane({
@@ -65,6 +101,8 @@ export function ComputerPane({
   const [attempt, setAttempt] = useState(0);
   const [fullscreenError, setFullscreenError] = useState(false);
   const [quality, setQuality] = useState<"auto" | "sharp" | "data-saver">("auto");
+  // Where the pointer sits along the timeline, so a growing log moves what it points at.
+  const [hover, setHover] = useState<number | null>(null);
   const liveWanted = active && selectedSeq === null && !!sessionId && !!sandboxId;
   const stream = useDesktopStream({ sessionId, sandboxId, active: liveWanted, fetchJson });
   const liveFrame = stream.state.status === "ready";
@@ -123,6 +161,13 @@ export function ComputerPane({
   const progress: CSSProperties & { "--computer-progress": string } = {
     "--computer-progress": `${max ? (cursor / max) * 100 : 0}%`,
   };
+  const moment = momentAt(events, cursor);
+  const hovered = hover === null ? null : momentAt(events, Math.round(hover * max));
+  const caption = liveWanted
+    ? "Live desktop"
+    : moment
+      ? `${moment.label} · ${moment.time}`
+      : "Screenshot history";
   const retry = () => {
     if (liveWanted) {
       stream.retry();
@@ -203,16 +248,36 @@ export function ComputerPane({
         </div>
       </div>
       <div className="computer-controls">
-        <input
-          type="range"
-          min={0}
-          max={max}
-          value={Math.min(cursor, max)}
-          aria-label="Session timeline"
-          disabled={frames.length === 0}
-          onChange={(event) => onSeek(Number(event.currentTarget.value))}
-          style={progress}
-        />
+        <div className="computer-timeline">
+          <input
+            type="range"
+            min={0}
+            max={max}
+            value={Math.min(cursor, max)}
+            aria-label="Session timeline"
+            aria-valuetext={caption}
+            disabled={frames.length === 0}
+            onChange={(event) => onSeek(Number(event.currentTarget.value))}
+            onMouseMove={(event) => {
+              const box = event.currentTarget.getBoundingClientRect();
+              if (!box.width) return;
+              setHover(Math.min(Math.max((event.clientX - box.left) / box.width, 0), 1));
+            }}
+            onMouseLeave={() => setHover(null)}
+            style={progress}
+          />
+          {hover !== null && hovered && (
+            <div
+              className="computer-timeline-hint"
+              role="tooltip"
+              // Half the card's widest, so it stays inside the pane at either end.
+              style={{ left: `clamp(140px, ${hover * 100}%, calc(100% - 140px))` }}
+            >
+              <time>{hovered.time}</time>
+              <p>{hovered.label}</p>
+            </div>
+          )}
+        </div>
         <div className="computer-control-row">
           <button
             type="button"
@@ -305,13 +370,7 @@ export function ComputerPane({
             {control.error}
           </p>
         )}
-        <p className="computer-caption">
-          {liveWanted
-            ? "Live desktop"
-            : frame
-              ? `Screenshot · ${new Date(frame.createdAt).toISOString().slice(11, 19)} UTC`
-              : "Screenshot history"}
-        </p>
+        <p className="computer-caption">{caption}</p>
         {fullscreenError && <p role="alert">Full screen is unavailable in this browser.</p>}
       </div>
     </section>

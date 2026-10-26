@@ -58,7 +58,7 @@ Every new event has schema parsing, issue-path, discriminant and JSON round-trip
 
 ## Current limits
 
-Production boot composes the E2B desktop adapter unconditionally, so do not deploy until VNC viewing, physical input and recording have passed on a real VM; what one VM has verified so far is in [ADR-0019](adr/0019-the-desktop-debugger-has-no-port.md). Desktop behavior, screenshot bytes and model responses in these checks are fakes. Annotation timestamps are elapsed from the app test; recording must anchor them to capture start. The app test cards and explicit Fix it UI are separate from the backend.
+Production boot composes the E2B desktop adapter unconditionally, so a deploy turns the desktop on. Republish the desktop template from the commit being deployed and run one VM against it first: the published build predates the current start script and driver. What real VMs have verified is in [ADR-0019](adr/0019-the-desktop-debugger-has-no-port.md). Desktop behavior, screenshot bytes and model responses in these checks are fakes. Annotation timestamps are elapsed from the app test; recording must anchor them to capture start. The app test cards and explicit Fix it UI are separate from the backend.
 
 Actual Computer pane and work-log browser evidence is under [panel review](assets/computer-use/panel-review/README.md) and [work-log review](assets/computer-use/work-log-review/README.md). The standalone mockup is design evidence, not proof of the live desktop or recording transport.
 

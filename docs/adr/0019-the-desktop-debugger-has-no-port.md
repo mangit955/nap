@@ -1,6 +1,6 @@
 # ADR-0019 — The desktop debugger has no port
 
-**Status:** Accepted, 2026-10-26. Verified locally against Chrome 156 in the local desktop image and in a Linux replica. One real E2B VM on template build `3814bf7e-565e-43c2-883a-fc6898eb6657` passed desktop startup, the owner stream route, protocol 2, same-port reuse and 1024×768 screenshot capture, with no TCP debugging listener. VNC viewing, physical input and recording on a real VM remain unverified.
+**Status:** Accepted, 2026-10-26. Verified locally against Chrome 156 in the local desktop image and in a Linux replica. One real E2B VM on template build `3814bf7e-565e-43c2-883a-fc6898eb6657` passed desktop startup, the owner stream route, protocol 2, same-port reuse and 1024×768 screenshot capture, with no TCP debugging listener. A second VM on the same build, on the same day, passed live VNC viewing through the cloud proxy, owner input that saved a note in the app, a recording served by byte range that played and seeked, a scope-drain proof and a changed-port replacement. It ran without a model, the deployed runtime or real object storage. Its screens showed Chrome's warning bar for `--no-sandbox`; `--test-type` now hides it, so the next published build has not yet been seen on a VM.
 
 ## Context
 

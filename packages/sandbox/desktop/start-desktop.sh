@@ -99,10 +99,15 @@ if [[ "$chrome_port" != "$port" ]] || ! chrome_ready; then
   # Only this parent holds the pipe writer. EOF aborts an unpublished launch even on SIGKILL.
   # Exec keeps the waiting child's PID/start ticks as the recorded identity: the bridge's,
   # which runs the browser as its child and exits only once the browser has.
+  # --test-type hides the warning bar --no-sandbox raises, which a real VM showed taking the
+  # top of every screenshot, live view and recording. It is a test switch Chrome does not
+  # document, and it also drops the other startup bars (API keys, default browser); none of
+  # those help an agent. If a Chrome update brings the bar back, the managed policy
+  # CommandLineFlagSecurityWarningsEnabled=false is the documented route.
   exec 8> >(
     exec >"$state/chrome.log" 2>&1 9>&-
     IFS= read -r launch && [[ "$launch" == GO ]] || exit 1
-    exec node "$driver" --cdp-bridge "$cdp_socket" -- google-chrome-stable --no-sandbox --disable-dev-shm-usage --disable-gpu --no-first-run --no-default-browser-check --password-store=basic --disable-sync --disable-breakpad --window-size=1024,768 --start-maximized --user-data-dir="$state/chrome" --remote-debugging-pipe "http://localhost:$port" </dev/null
+    exec node "$driver" --cdp-bridge "$cdp_socket" -- google-chrome-stable --no-sandbox --test-type --disable-dev-shm-usage --disable-gpu --no-first-run --no-default-browser-check --password-store=basic --disable-sync --disable-breakpad --window-size=1024,768 --start-maximized --user-data-dir="$state/chrome" --remote-debugging-pipe "http://localhost:$port" </dev/null
   )
   chrome_pid=$!
   until chrome_ticks=$(start_ticks "$chrome_pid" 8>&-) || ((SECONDS >= ready_by)); do

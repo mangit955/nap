@@ -2928,6 +2928,37 @@ details[open] > .nap-float {
 .computer-live[data-playing="true"] .computer-live-dot {
   animation: computer-live-pulse 1600ms ease-in-out;
 }
+.computer-timeline {
+  position: relative;
+}
+.computer-timeline-hint {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  z-index: 2;
+  width: max-content;
+  max-width: 280px;
+  padding: 8px 10px;
+  transform: translateX(-50%);
+  border: 1px solid var(--color-edge);
+  border-radius: 10px;
+  background: var(--color-panel);
+  box-shadow: var(--shadow-raised);
+  color: var(--color-ink);
+  font-size: 12px;
+  pointer-events: none;
+}
+.computer-timeline-hint time {
+  display: block;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.computer-timeline-hint p {
+  display: -webkit-box;
+  margin: 2px 0 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
 .computer-caption {
   margin: 8px 0 0;
   font-size: 10px;

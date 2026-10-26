@@ -378,6 +378,7 @@ it("runs the browser behind the bridge with a debugging pipe and no debugging po
     "google-chrome-stable",
   ]);
   expect(launch?.args).toContain("--remote-debugging-pipe");
+  expect(launch?.args).toContain("--test-type");
   expect(launch?.args.filter((arg) => /^--remote-debugging-(?:port|address)/.test(arg))).toEqual(
     [],
   );
