@@ -17,6 +17,14 @@ export async function runSubagent(
   ctx: ToolContext,
 ): Promise<ToolOutcome> {
   if (ctx.subagents === undefined) return UNAVAILABLE;
+  // A helper that writes runs while the agent waits, like any other write: in the background it
+  // would be editing the tree at the same moment as the agent that started it.
+  if (args.background === true && args.profile !== "explore")
+    return {
+      ok: false,
+      output:
+        "Only an explore helper can run in the background. Run a general helper without background.",
+    };
   const request = { toolCallId: call.id, profile: args.profile, task: args.task };
   if (args.background !== true) return ctx.subagents.run(request);
   const subagentId = ctx.subagents.start(request);

@@ -20,7 +20,7 @@
  */
 
 import type { SubagentOutcome, SubagentProfile } from "@nap/shared/agent-plan";
-import type { NapEvent, NapEventOf } from "@nap/shared/events";
+import type { NapEvent, NapEventOf, ToolName } from "@nap/shared/events";
 import type { AgentTurnRequest } from "@nap/shared/ports/agent-service";
 import type { DistributiveOmit } from "@nap/shared/ports/event-store";
 import type {
@@ -32,6 +32,7 @@ import type {
 import { CANCELLED, stopAware } from "./cancellation.ts";
 import type { TurnBudget } from "./safety/budget.ts";
 import type { SubagentRunner, ToolOutcome } from "./tools/context.ts";
+import type { ToolDefinition } from "./tools/definitions.ts";
 import { executeTool } from "./tools/execute.ts";
 import { FileLedger } from "./tools/ledger.ts";
 import { type ModelFamily, toolNamesFor, toolsetFor } from "./tools/toolset.ts";
@@ -68,6 +69,8 @@ export class SubagentPool implements SubagentRunner {
   readonly #options: SubagentPoolOptions;
   readonly #helpers = new Map<string, Helper>();
   readonly #usage = { inputTokens: 0, outputTokens: 0 };
+  /** Tokens promised to helpers still running, so two at once cannot each claim the same half. */
+  #reserved = 0;
   #started = 0;
 
   constructor(options: SubagentPoolOptions) {
@@ -165,7 +168,39 @@ export class SubagentPool implements SubagentRunner {
     const tools = toolsetFor(toolsetOptions);
     const offered = toolNamesFor(toolsetOptions);
     const ledger = new FileLedger();
-    const allowance = Math.floor(options.budget.remaining().tokens * SUBAGENT_BUDGET_SHARE);
+    const allowance = Math.floor(
+      Math.max(0, options.budget.remaining().tokens - this.#reserved) * SUBAGENT_BUDGET_SHARE,
+    );
+    this.#reserved += allowance;
+    try {
+      return await this.#converse(
+        request,
+        signal,
+        allowance,
+        { tools, offered, ledger },
+        finish,
+        () => {
+          toolCalls += 1;
+        },
+        usage,
+      );
+    } finally {
+      this.#reserved -= allowance;
+    }
+  }
+
+  /** The helper's own loop: ask, run what it asked for, until it reports or runs out. */
+  async #converse(
+    request: Request,
+    signal: AbortSignal,
+    allowance: number,
+    access: { tools: ToolDefinition[]; offered: ReadonlySet<ToolName>; ledger: FileLedger },
+    finish: (outcome: SubagentOutcome, report: string) => ToolOutcome,
+    counted: () => void,
+    usage: TokenUsage,
+  ): Promise<ToolOutcome> {
+    const { tools, offered, ledger } = access;
+    const options = this.#options;
     const turn = options.provider.startTurn({
       model: options.models[request.profile],
       credentials: options.credentials,
@@ -208,7 +243,7 @@ export class SubagentPool implements SubagentRunner {
 
       const results: LLMContentBlock[] = [];
       for (const call of result.toolCalls) {
-        toolCalls += 1;
+        counted();
         const outcome = await executeTool(call, {
           sessionId: options.request.sessionId,
           turnId: options.request.turnId,

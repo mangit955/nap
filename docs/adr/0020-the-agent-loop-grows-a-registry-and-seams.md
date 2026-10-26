@@ -60,8 +60,8 @@ A per-turn ledger records what the turn has read or written. `edit_file` and `wr
 
 `run_subagent` runs a second model loop with its own conversation and a narrower tool set, and returns its final report. Four rules keep it accountable:
 
-- **It spends the turn's budget.** Every token is recorded against the parent's `TurnBudget`, and one helper may use at most half of what remains.
-- **It lives inside the turn.** It shares the turn's cancellation. A background helper nobody collected is stopped before the turn commits.
+- **It spends the turn's budget.** Every token is recorded against the parent's `TurnBudget`. One helper may use at most half of what remains unpromised, so two helpers running at once cannot both be given the same half.
+- **It lives inside the turn.** It shares the turn's cancellation. A background helper nobody collected is stopped before the turn commits. Only an `explore` helper may run in the background: a helper that writes runs while the agent waits, or it would be editing the tree at the same time as the agent.
 - **Its traffic stays out of the log.** Its tool calls would replay into the parent's conversation as calls the parent never made. The log gets `subagent.started`, the files it changed, and `subagent.completed`.
 - **On a person's own key it uses the turn's model.** A cheaper helper model (`NAP_SUBAGENT_MODEL`) is the deployment's to choose and to pay for.
 
