@@ -1,0 +1,43 @@
+$ next build
+▲ Next.js 16.3.0 (Turbopack)
+✓ Running next.config.ts took 55ms
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 2.5s
+  Skipping validation of types
+  Finished TypeScript config validation in 7ms ...
+  Collecting page data using 9 workers ...
+  Generating static pages using 9 workers (0/19) ...
+  Generating static pages using 9 workers (4/19) 
+  Generating static pages using 9 workers (9/19) 
+  Generating static pages using 9 workers (14/19) 
+(node:21703) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✓ Generating static pages using 9 workers (19/19) in 240ms
+  Finalizing page optimization ...
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ○ /dashboard
+├ ○ /demo/booking
+├ ƒ /demo/landing
+├ ○ /demo/launch
+├ ○ /demo/ledger
+├ ○ /docs
+├ ○ /icon.svg
+├ ○ /opengraph-image.png
+├ ƒ /p/[projectId]
+├ ○ /settings/archived
+├ ƒ /settings/connections
+├ ƒ /settings/connections/github
+├ ○ /settings/providers
+├ ƒ /sign-in
+├ ƒ /sign-up
+├ ○ /twitter-image.png
+└ ○ /welcome
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+

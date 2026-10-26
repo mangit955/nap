@@ -17,15 +17,17 @@ export function Dashboard({
   hero,
   grid,
   fading = false,
+  persistSidebar = true,
   contentLandmark = true,
   contentRef,
   details,
   detailsCard,
 }: {
-  sidebar: ReactNode;
+  sidebar: ReactNode | ((controls: { closeNavigation: () => void }) => ReactNode);
   hero: ReactNode;
   grid?: ReactNode;
   fading?: boolean;
+  persistSidebar?: boolean;
   contentLandmark?: boolean;
   /** Measures the content area, which decides whether the details card floats or pops over. */
   contentRef?: ((element: HTMLElement | null) => void) | undefined;
@@ -38,18 +40,23 @@ export function Dashboard({
   useDocumentScrollLock();
   const [collapsed, setCollapsed] = useState(false);
   const [width, setWidth] = useState(256);
-  const resize = useCallback((next: number) => {
-    const value = Math.round(
-      Math.max(208, Math.min(Math.max(208, Math.min(420, window.innerWidth - 400)), next)),
-    );
-    setWidth(value);
-    try {
-      localStorage.setItem("nap.sidebar.width", String(value));
-    } catch {
-      /* Width still applies for this page. */
-    }
-  }, []);
+  const resize = useCallback(
+    (next: number) => {
+      const value = Math.round(
+        Math.max(208, Math.min(Math.max(208, Math.min(420, window.innerWidth - 400)), next)),
+      );
+      setWidth(value);
+      if (!persistSidebar) return;
+      try {
+        localStorage.setItem("nap.sidebar.width", String(value));
+      } catch {
+        /* Width still applies for this page. */
+      }
+    },
+    [persistSidebar],
+  );
   useEffect(() => {
+    if (!persistSidebar) return;
     try {
       const saved = Number(localStorage.getItem("nap.sidebar.width"));
       if (saved > 0 && Number.isFinite(saved)) resize(saved);
@@ -57,7 +64,7 @@ export function Dashboard({
     } catch {
       /* Storage is optional for layout. */
     }
-  }, [resize]);
+  }, [persistSidebar, resize]);
   useEffect(() => {
     const clamp = () => resize(width);
     window.addEventListener("resize", clamp);
@@ -70,9 +77,10 @@ export function Dashboard({
   const mobileTrigger = useRef<HTMLButtonElement>(null);
   const navigation = useRef<HTMLDivElement>(null);
   const closeNavigation = useCallback(() => {
+    if (!navigationOpen) return;
     setNavigationOpen(false);
     mobileTrigger.current?.focus();
-  }, []);
+  }, [navigationOpen]);
 
   useEffect(() => {
     if (!navigationOpen) return;
@@ -171,6 +179,7 @@ export function Dashboard({
         aria-expanded={!collapsed}
         onClick={() => {
           setCollapsed(!collapsed);
+          if (!persistSidebar) return;
           try {
             localStorage.setItem("nap.sidebar.collapsed", String(!collapsed));
           } catch {
@@ -201,7 +210,7 @@ export function Dashboard({
         />
       )}
       <div ref={navigation} className="dashboard-sidebar min-h-0">
-        {sidebar}
+        {typeof sidebar === "function" ? sidebar({ closeNavigation }) : sidebar}
       </div>
       {!collapsed && (
         <div className="sidebar-resize">

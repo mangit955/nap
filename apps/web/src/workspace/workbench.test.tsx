@@ -4,7 +4,15 @@ import { DEFAULT_PANEL_LAYOUT } from "./tabs.ts";
 import { usePanelLayout } from "./use-panel-layout.ts";
 import { Workbench } from "./workbench.tsx";
 
-function Workspace({ scope = "test" }: { scope?: string }) {
+function Workspace({
+  scope = "test",
+  narrow = false,
+  computerAvailable = true,
+}: {
+  scope?: string;
+  narrow?: boolean;
+  computerAvailable?: boolean;
+}) {
   const controller = usePanelLayout(scope);
   return (
     <>
@@ -16,9 +24,10 @@ function Workspace({ scope = "test" }: { scope?: string }) {
       </button>
       <Workbench
         controller={controller}
+        narrow={narrow}
         maximized={false}
         onMaximize={() => {}}
-        computer={<p>the computer</p>}
+        computer={computerAvailable ? <p>the computer</p> : undefined}
         preview={<input aria-label="App state" defaultValue="kept" />}
         code={<p>the files</p>}
         diff={<p>the changes</p>}
@@ -30,6 +39,31 @@ function Workspace({ scope = "test" }: { scope?: string }) {
 }
 beforeEach(() => localStorage.clear());
 describe("the right panel", () => {
+  it.each([false, true])(
+    "omits unavailable Computer from the panel menu with narrow=%s",
+    (narrow) => {
+      render(<Workspace narrow={narrow} computerAvailable={false} />);
+      fireEvent.click(screen.getByLabelText("Add panel"));
+      expect(screen.queryByRole("menuitem", { name: "Computer" })).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole("menuitem", { name: "Files" }));
+      expect(screen.getByRole("tabpanel", { name: "Files" })).toBeVisible();
+    },
+  );
+
+  it.each([false, true])(
+    "omits unavailable Computer from the empty launcher with narrow=%s",
+    (narrow) => {
+      localStorage.setItem(
+        "nap.right-panel.v1:test",
+        JSON.stringify({ ...DEFAULT_PANEL_LAYOUT, tabs: [], active: null }),
+      );
+      render(<Workspace narrow={narrow} computerAvailable={false} />);
+      expect(screen.queryByRole("button", { name: "Computer" })).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Browser" }));
+      expect(screen.getByRole("tabpanel", { name: "Browser" })).toBeVisible();
+    },
+  );
+
   it("preserves the preview DOM across selection, tab closure, and reopening", () => {
     render(<Workspace />);
     const frame = screen.getByLabelText("App state");
@@ -216,6 +250,50 @@ describe("the right panel", () => {
     expect(screen.getByText("the files")).not.toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Toggle panel" }));
     expect(screen.getByRole("tabpanel", { name: "Files" })).toBeVisible();
+  });
+
+  it("moves focus into the native narrow panel, contains it, and restores its opener on close", () => {
+    localStorage.setItem(
+      "nap.right-panel.v1:test",
+      JSON.stringify({ ...DEFAULT_PANEL_LAYOUT, open: false }),
+    );
+    render(<Workspace narrow />);
+    const opener = screen.getByRole("button", { name: "Toggle panel" });
+    opener.focus();
+    fireEvent.click(opener);
+
+    expect(screen.getByRole("dialog", { name: "Right panel" })).toHaveAttribute(
+      "aria-modal",
+      "true",
+    );
+    const browser = screen.getByRole("tab", { name: "Browser" });
+    expect(browser).toHaveFocus();
+    screen.getByRole("button", { name: "Close Files externally" }).focus();
+    expect(browser).toHaveFocus();
+
+    fireEvent.click(screen.getByRole("button", { name: "Close right panel" }));
+    expect(screen.queryByRole("dialog", { name: "Right panel" })).not.toBeInTheDocument();
+    expect(opener).toHaveFocus();
+  });
+
+  it("wraps Tab at both ends of the native narrow panel", () => {
+    const rects = vi.spyOn(HTMLElement.prototype, "getClientRects").mockReturnValue(
+      Object.assign([new DOMRect(0, 0, 100, 30)], {
+        item: () => new DOMRect(0, 0, 100, 30),
+      }),
+    );
+    try {
+      render(<Workspace narrow />);
+      const first = screen.getByRole("tab", { name: "Browser" });
+      const last = screen.getByRole("textbox", { name: "App state" });
+      first.focus();
+      fireEvent.keyDown(first, { key: "Tab", shiftKey: true });
+      expect(last).toHaveFocus();
+      fireEvent.keyDown(last, { key: "Tab" });
+      expect(first).toHaveFocus();
+    } finally {
+      rects.mockRestore();
+    }
   });
 });
 

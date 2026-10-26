@@ -373,23 +373,29 @@ export class PostgresTurnQueue implements TurnQueue {
   }
 
   async orphanExpired(limit = ORPHAN_SWEEP_LIMIT): Promise<OrphanedTurnRequest[]> {
-    // Postgres materializes a CTE containing FOR UPDATE. Keeping the locking selection here
-    // prevents a nested-loop semi join from rescanning it and taking a new batch per outer row.
-    // SKIP LOCKED lets overlapping janitors take different rows. Expiry order closes the
-    // longest-abandoned turns first.
-    const expired = this.#db.$with("expired_requests", { id: turnRequests.id }).as(sql`
-      select id from ${turnRequests}
-      where state = 'leased'
-        and lease_expires_at < now() - ${LEASE_GRACE}::interval
-      order by lease_expires_at
-      for update skip locked
-      limit ${limit}
-    `);
     return await this.#db
-      .with(expired)
       .update(turnRequests)
       .set({ state: "orphaned" })
-      .where(inArray(turnRequests.id, this.#db.select({ id: expired.id }).from(expired)))
+      // `for update skip locked` is what makes two janitors ticking at once safe: whichever holds
+      // the row takes it, and the other steps over it rather than waiting to update a row that is
+      // about to stop being `leased`. Ordered by expiry, so the longest-abandoned turn — the one
+      // whose chat pane has been spinning longest — is closed out first.
+      //
+      // `= any(array(…))` rather than `in (…)` so the limit holds whatever plan Postgres picks.
+      // `in` may be planned as a nested-loop semi-join that re-runs the locking subquery once per
+      // outer row; each re-run skips the rows this statement has already updated, so its `limit`
+      // hands back later ones and the update takes more than `limit`. An uncorrelated `array(…)`
+      // is evaluated once, before the update reads anything.
+      .where(
+        sql`${turnRequests.id} = any(array(
+          select id from ${turnRequests}
+          where state = 'leased'
+            and lease_expires_at < now() - ${LEASE_GRACE}::interval
+          order by lease_expires_at, id
+          for update skip locked
+          limit ${limit}
+        ))`,
+      )
       // `finished_at` is deliberately left null, and `lease_expires_at` deliberately left set. The
       // first is the marker saying this request's terminal events are not in the log yet; the
       // second is the only record of when its worker went silent, and no index reads it outside

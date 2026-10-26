@@ -1,0 +1,156 @@
+:where(.launch-app) {
+  min-height: 100dvh;
+  background: #f2f3f5;
+  color: #242933;
+  font-family: Arial, sans-serif;
+}
+:where(.launch-app nav) {
+  height: 43px;
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  padding: 0 24px;
+  border-bottom: 1px solid #24293312;
+  font-size: 8px;
+  color: #81858e;
+}
+:where(.launch-brand) {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: #242933;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+}
+.launch-person,
+:where(.launch-assignee) {
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #e2e5eb;
+  font-size: 7px;
+  width: 21px;
+  height: 21px;
+}
+:where(.launch-person) {
+  margin-left: auto;
+}
+:where(.launch-content) {
+  max-width: 540px;
+  margin: auto;
+  padding: 36px 28px 22px;
+}
+:where(.launch-eyebrow) {
+  color: #7d818b;
+  font-size: 7px;
+  letter-spacing: 0.14em;
+}
+:where(.launch-content h1) {
+  margin: 14px 0 12px;
+  font-size: 31px;
+  line-height: 1.08;
+  font-weight: 500;
+  letter-spacing: -0.055em;
+}
+:where(.launch-content h1 span) {
+  color: #9499a3;
+}
+:where(.launch-content > p) {
+  font-size: 9px;
+  color: #7e8490;
+  line-height: 1.7;
+}
+:where(.launch-summary) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 27px;
+  font-size: 8px;
+  color: #777e8b;
+}
+:where(.launch-summary > span:first-child) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #636b7b;
+}
+:where(.launch-progress) {
+  height: 3px;
+  border-radius: 3px;
+  background: #e0e3e9;
+  overflow: hidden;
+  margin-top: 10px;
+}
+:where(.launch-progress > span) {
+  display: block;
+  height: 100%;
+  background: #6675a6;
+  transition: width 180ms ease;
+}
+:where(.launch-task-heading) {
+  display: flex;
+  justify-content: space-between;
+  margin: 28px 0 10px;
+  font-size: 10px;
+  font-weight: 600;
+}
+:where(.launch-content ul) {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+:where(.launch-content li) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 46px;
+  border-bottom: 1px solid #2429330d;
+  gap: 10px;
+}
+:where(.launch-content li button) {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  text-align: left;
+  min-height: 46px;
+  cursor: pointer;
+  font-size: 10px;
+}
+:where(.launch-checkbox) {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid #b6bdca;
+  border-radius: 4px;
+}
+:where(.launch-content li[data-complete="true"] .launch-checkbox) {
+  background: #6776a5;
+  border-color: #6776a5;
+  color: white;
+}
+:where(.launch-content li[data-complete="true"] button > span:last-child) {
+  color: #9096a2;
+}
+:where(.launch-content small) {
+  display: block;
+  margin-top: 4px;
+  font-size: 7px;
+  color: #9399a4;
+}
+:where(.launch-content footer) {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 22px;
+  gap: 12px;
+  color: #969ca7;
+  font-size: 7px;
+}
+@media (prefers-reduced-motion: reduce) {
+  :where(.launch-progress > span) {
+    transition: none;
+  }
+}

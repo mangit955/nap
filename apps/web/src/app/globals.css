@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "../workspace/right-panel.css";
+@import "../landing/landing.css";
 
 .computer-screenshot-card {
   display: block;
@@ -1870,7 +1871,8 @@ body {
  * are T3 Code's dark canvas, raised surface and sidebar, so the chat reads the same in both.
  */
 :root:has(.dashboard-frame),
-.dashboard-frame {
+.dashboard-frame,
+.dashboard-preview {
   color-scheme: dark;
   --color-surface: #0a0a0a;
   --color-panel: #111111;

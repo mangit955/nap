@@ -221,3 +221,12 @@ describe("the dashboard hero", () => {
     expect(screen.getByRole("button", { name: "Start dictation" })).toBeInTheDocument();
   });
 });
+
+it("can render in a demo without taking focus from the containing page", () => {
+  show({ autoFocus: false });
+  expect(box()).not.toHaveFocus();
+  expect(box()).toHaveAttribute(
+    "placeholder",
+    "Ask nap to build an app, fix a bug, or explore an idea…",
+  );
+});

@@ -1,0 +1,1345 @@
+@layer components {
+  .landing {
+    --lp-text-body: 16px;
+    --lp-text-small: 14px;
+    --lp-text-label: 12px;
+    --lp-ground: #09090b;
+    --lp-card: #111113;
+    --lp-night: #0a0a0b;
+    --lp-ink: #f6f3ef;
+    --lp-ink-2: #c2bfbd;
+    --lp-ink-3: #979492;
+    --lp-line: #ffffff12;
+    --lp-accent: #d6b89e;
+    --lp-green: #b1c8b7;
+    --lp-app-ground: #f5f7f4;
+    --lp-app-card: #fff;
+    --lp-app-line: #e1e6e0;
+    --lp-app-ink: #1b2d24;
+    --lp-app-muted: #6c786f;
+    --lp-app-brand: #365e4b;
+    --lp-app-brand-soft: #d6e4d9;
+    --lp-app-up: #397751;
+    --lp-app-down: #a66b39;
+    background: var(--lp-ground);
+    color: var(--lp-ink);
+    font-family: var(--font-inter), sans-serif;
+    letter-spacing: -0.025em;
+  }
+  .lp-container {
+    width: min(1240px, calc(100% - 96px));
+    margin-inline: auto;
+  }
+  .lp-serif {
+    font-family: var(--font-newsreader), Georgia, serif;
+    font-weight: 400;
+    font-variation-settings: "opsz" 72;
+    letter-spacing: -0.045em;
+  }
+  .lp-muted {
+    color: #858180;
+  }
+  .lp-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    font-size: var(--lp-text-label);
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    line-height: 1.5;
+  }
+  .lp-status-dot {
+    display: inline-block;
+    width: 5px;
+    height: 5px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    background: var(--lp-green);
+    box-shadow: 0 0 8px #b1c8b722;
+  }
+  .landing :is(a, button, select, summary):focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 5px;
+  }
+  .lp-pill {
+    display: inline-flex;
+    height: 48px;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 0 24px;
+    border-radius: 999px;
+    font-size: var(--lp-text-small);
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    white-space: nowrap;
+    transition:
+      transform 140ms ease,
+      background-color 140ms ease,
+      box-shadow 140ms ease;
+  }
+  .lp-pill:hover {
+    transform: translateY(-2px);
+  }
+  .lp-pill:active {
+    transform: translateY(0) scale(0.97);
+  }
+  .lp-pill svg {
+    transition: transform 160ms ease;
+  }
+  .lp-pill:hover svg {
+    transform: translateX(2px);
+  }
+  .lp-pill-light {
+    color: #151411;
+    background: #f6f3ef;
+    box-shadow:
+      0 2px 3px #0002,
+      inset 0 1px 0 #fff;
+  }
+  .lp-pill-light:hover {
+    background: #fff;
+    box-shadow: 0 5px 20px #0002;
+  }
+  .lp-pill-glass {
+    background: #ffffff08;
+    border: 1px solid #ffffff1a;
+    color: var(--lp-ink);
+  }
+  .lp-pill-small {
+    height: 40px;
+    padding: 0 17px;
+    font-size: var(--lp-text-small);
+  }
+  .lp-menu-toggle {
+    width: 40px;
+    padding: 0;
+  }
+  .lp-text-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--lp-ink-2);
+    font-size: var(--lp-text-small);
+    letter-spacing: -0.01em;
+    transition: color 140ms ease;
+  }
+  .lp-text-link:hover {
+    color: white;
+  }
+  .lp-text-link svg,
+  .lp-text-link > span {
+    transition: transform 160ms ease;
+  }
+  .lp-text-link:hover > :last-child {
+    transform: translate(2px, -1px);
+  }
+  .lp-nav {
+    isolation: isolate;
+  }
+  .lp-nav::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 -36px;
+    z-index: -1;
+    pointer-events: none;
+    background: linear-gradient(to bottom, #0a0a0ad6 0%, #0a0a0a8c 46%, #0a0a0a00 100%);
+    -webkit-backdrop-filter: blur(20px) saturate(1.25);
+    backdrop-filter: blur(20px) saturate(1.25);
+    -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 40%, #0000 100%);
+    mask-image: linear-gradient(to bottom, #000 0%, #000 40%, #0000 100%);
+    opacity: 0.78;
+    transition: opacity 220ms ease;
+  }
+  .lp-nav[data-scrolled="true"]::before {
+    opacity: 1;
+  }
+  .lp-nav-menu {
+    border: 1px solid #ffffff0e;
+    background: #101010bd;
+    -webkit-backdrop-filter: blur(24px) saturate(1.2);
+    backdrop-filter: blur(24px) saturate(1.2);
+    box-shadow:
+      0 16px 48px -12px #0008,
+      inset 0 1px 0 #ffffff05;
+  }
+  .lp-hero {
+    --lp-hero-progress: 0;
+    --lp-mountain-start: 28svh;
+    position: relative;
+    height: auto;
+    overflow: clip;
+    padding: 0;
+  }
+  .lp-hero-rail {
+    position: relative;
+    height: calc(100svh + 760px);
+  }
+  .lp-hero-scenery {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .lp-hero-stage {
+    position: sticky;
+    top: 0;
+    height: 100svh;
+    overflow: visible;
+    padding: 108px 24px 0;
+    isolation: isolate;
+    background: var(--lp-ground);
+  }
+  .lp-scene {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(180deg, #07080e, #20121c80 70%, var(--lp-ground));
+  }
+  .lp-hero-sky,
+  .lp-hero-mountains {
+    position: absolute;
+    left: 50%;
+    bottom: calc(-1 * var(--lp-mountain-start));
+    width: max(100%, 960px);
+    aspect-ratio: 2200 / 1466;
+    pointer-events: none;
+    filter: saturate(0.65) brightness(0.74);
+  }
+  .lp-hero-sky,
+  .lp-mountain-texture {
+    background-image:
+      linear-gradient(180deg, #15101d50 20%, #09090b22 70%, var(--lp-ground)),
+      url("/landing/dusk-hills.jpg");
+    background-size: 100% 100%;
+  }
+  .lp-hero-sky {
+    z-index: 0;
+    transform: translateX(-50%);
+    mask-image: linear-gradient(180deg, transparent 0%, #000 14%, #000 26%, transparent 40%);
+  }
+  .lp-hero-mountains {
+    z-index: 6;
+    transform: translate3d(-50%, var(--lp-mountain-drop, 0px), 0);
+    mask-image: url("/landing/mountain-foreground-mask.svg");
+    mask-size: 100% 100%;
+    mask-repeat: no-repeat;
+  }
+  .lp-mountain-texture {
+    position: absolute;
+    inset: 0;
+  }
+  .lp-mountain-texture-right {
+    mask-image: linear-gradient(90deg, #000 0%, #000 43%, transparent 50%);
+    transform: scaleX(-1);
+  }
+  .lp-hero-copy {
+    z-index: 2;
+    opacity: var(--lp-copy-opacity, 1);
+    transform: translate3d(0, var(--lp-copy-drop, 0px), 0);
+    position: relative;
+    text-align: center;
+  }
+  .lp-hero-copy .lp-eyebrow {
+    color: #c6bfb8;
+    border: 1px solid #ffffff1a;
+    border-radius: 999px;
+    background: #ffffff04;
+    padding: 8px 13px;
+    font-size: var(--lp-text-label);
+    letter-spacing: 0.045em;
+    text-transform: uppercase;
+  }
+  .lp-hero h1 {
+    margin: 26px auto 0;
+    font-size: clamp(60px, 5.9vw, 84px);
+    line-height: 0.98;
+  }
+  .lp-hero-copy > p {
+    margin: 20px auto 0;
+    max-width: 460px;
+    font-size: 17px;
+    line-height: 1.65;
+    color: #d1c9c4;
+    letter-spacing: -0.025em;
+  }
+  .lp-hero-actions {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 30px;
+    margin-top: 24px;
+  }
+  .lp-hero-product {
+    container-type: inline-size;
+    position: relative;
+    z-index: 5;
+    margin: 24px auto 0;
+    transform: translate3d(0, var(--lp-hero-lift, 0px), 0);
+    width: min(1200px, 100%, calc((100svh - 140px) * 1.6));
+  }
+  .lp-product-caption {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 4px 14px;
+    color: #c8c2bc;
+    font-size: var(--lp-text-label);
+    letter-spacing: 0.02em;
+    gap: 12px;
+  }
+  .lp-product-caption > span:first-child {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .lp-product-caption > span:last-child {
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    opacity: 0.65;
+  }
+  .lp-hero-scroll-hint {
+    position: absolute;
+    left: 24px;
+    right: 24px;
+    bottom: 22px;
+    z-index: 7;
+    text-align: center;
+    color: #c5bcb0;
+    font-size: var(--lp-text-label);
+    letter-spacing: 0.12em;
+    opacity: clamp(0, calc(1 - var(--lp-hero-progress) * 5), 1);
+  }
+  .lp-hero-scroll-hint > span {
+    display: inline-block;
+    margin-left: 12px;
+  }
+  .lp-session-container {
+    container-type: inline-size;
+  }
+  .lp-session-shell {
+    position: relative;
+    min-width: 0;
+    width: 100%;
+    aspect-ratio: 1440 / 900;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    border: 1px solid #ffffff24;
+    border-radius: 13px;
+    background: #18181a;
+    text-align: left;
+    box-shadow:
+      0 36px 100px #0008,
+      0 0 0 5px #ffffff03,
+      inset 0 1px 0 #ffffff15;
+  }
+  .lp-session-stage {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 1440px;
+    height: 900px;
+    display: grid;
+    grid-template-columns: 232px minmax(0, 1fr);
+    transform: scale(var(--space-k, 1));
+    transform-origin: top left;
+    background: var(--color-panel);
+    color: var(--color-ink);
+    font-family: var(--font-sans), sans-serif;
+    font-size: 14px;
+    letter-spacing: -0.015em;
+  }
+  .lp-session-sidebar {
+    min-width: 0;
+    height: 100%;
+    overflow: hidden;
+    border-right: 1px solid var(--color-edge);
+  }
+  .lp-session-sidebar > * {
+    width: 100%;
+    height: 100%;
+  }
+  .lp-session-main {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+  }
+  .lp-session-header {
+    height: 56px;
+    flex: 0 0 auto;
+  }
+  .lp-session-header > * {
+    height: 100%;
+  }
+  .lp-session-mobile-tabs {
+    display: none;
+  }
+  .lp-session-panes {
+    display: grid;
+    grid-template-columns: 43% minmax(0, 1fr);
+    flex: 1;
+    min-height: 0;
+  }
+  .lp-session-chat {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    padding: 24px 20px 14px;
+    border-right: 1px solid var(--color-edge);
+  }
+  .lp-session-transcript {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-width: thin;
+  }
+  .lp-session-composer {
+    flex-shrink: 0;
+    margin-top: 18px;
+    padding: 16px 18px 12px;
+    border: 1px solid var(--color-edge);
+    border-radius: 22px;
+    background: var(--color-field);
+    color: var(--color-muted);
+    font-size: 13px;
+  }
+  .lp-session-composer > span {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 20px;
+    font-size: 20px;
+  }
+  .lp-session-composer > span > span {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--color-ink);
+    color: var(--color-panel);
+  }
+  .lp-session-replay {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    min-height: 36px;
+    margin-top: 6px;
+    color: var(--color-muted);
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .lp-session-replay:hover {
+    color: var(--color-ink);
+  }
+  .lp-session-right {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+  }
+  .lp-session-preview-tabs {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    height: 44px;
+    gap: 4px;
+    padding: 0 12px;
+    border-bottom: 1px solid var(--color-edge);
+  }
+  .lp-session-preview-tabs > button {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    height: 30px;
+    padding: 0 11px;
+    border-radius: 6px;
+    color: var(--color-muted);
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .lp-session-preview-tabs > button[aria-pressed="true"] {
+    color: var(--color-ink);
+    background: var(--color-field);
+  }
+  .lp-session-preview-tabs > span {
+    margin-left: auto;
+    font-size: 8px;
+    letter-spacing: 0.12em;
+    color: var(--color-muted);
+  }
+  .lp-session-app {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    background: #eeeae2;
+    color: #263c31;
+    scrollbar-width: thin;
+  }
+  .lp-session-preview {
+    height: 100%;
+  }
+  .lp-session-app > [hidden] {
+    display: none;
+  }
+  .lp-session-building {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    align-items: center;
+    gap: 24px;
+    padding: 48px 32px;
+    background: #efede7;
+    text-align: center;
+  }
+  .lp-session-building > span {
+    font-size: 34px;
+  }
+  .lp-session-building > p {
+    font-size: 11px;
+    color: #778176;
+  }
+  .lp-booking-scaffold {
+    width: 100%;
+    max-width: 400px;
+    padding: 22px;
+    border: 1px solid #29423312;
+    border-radius: 8px;
+    background: #fff8;
+  }
+  .lp-booking-scaffold i {
+    display: block;
+    height: 12px;
+    border-radius: 3px;
+    background: #d9ddd3;
+  }
+  .lp-booking-scaffold > i:first-child {
+    height: 130px;
+    background: #c0cabc;
+    margin-bottom: 18px;
+  }
+  .lp-booking-scaffold > i:nth-child(2) {
+    width: 65%;
+    margin-bottom: 24px;
+  }
+  .lp-booking-scaffold > div {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+  }
+  .lp-booking-scaffold > div > i {
+    height: 48px;
+  }
+  .lp-booking-code {
+    height: 100%;
+    padding: 32px 24px;
+    background: #17191b;
+    color: #c2cdb8;
+    font-size: 12px;
+    line-height: 1.9;
+    white-space: pre-wrap;
+  }
+  .lp-booking-app {
+    color-scheme: light;
+    min-height: 100%;
+    background: #f3f0e9;
+    color: #263c31;
+    font-family: var(--font-inter), sans-serif;
+  }
+  .lp-booking-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    height: 54px;
+    padding: 0 30px;
+    border-bottom: 1px solid #263c3115;
+  }
+  .lp-booking-nav > span:first-child {
+    font-family: var(--font-newsreader), Georgia, serif;
+    font-size: 32px;
+    letter-spacing: -0.06em;
+  }
+  .lp-booking-nav > span:nth-child(2) {
+    font-size: 10px;
+    color: #738074;
+  }
+  .lp-booking-nav > span:last-child {
+    font-size: 8px;
+    letter-spacing: 0.12em;
+  }
+  .lp-booking-photo {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    height: 240px;
+    padding: 27px 30px 20px;
+    color: #fff9ee;
+    background:
+      linear-gradient(90deg, #18292165, #1b1d1022),
+      url("/landing/dusk-hills.jpg") center 63% / cover;
+  }
+  .lp-booking-photo span {
+    font-size: 8px;
+    letter-spacing: 0.13em;
+  }
+  .lp-booking-photo p {
+    font-size: 48px;
+    line-height: 0.95;
+    margin-top: 18px;
+  }
+  .lp-booking-photo > span {
+    align-self: flex-end;
+  }
+  .lp-booking-content {
+    padding: 26px 30px 18px;
+  }
+  .lp-booking-intro {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding-bottom: 24px;
+  }
+  .lp-booking-intro > div:first-child > span {
+    font-size: 8px;
+    letter-spacing: 0.1em;
+    color: #738074;
+  }
+  .lp-booking-intro p {
+    font-size: 34px;
+    line-height: 1;
+    margin: 9px 0 7px;
+  }
+  .lp-booking-intro small {
+    font-size: 10px;
+    color: #738074;
+  }
+  .lp-booking-intro > div:last-child {
+    white-space: nowrap;
+  }
+  .lp-booking-intro b {
+    font-size: 23px;
+    font-weight: 500;
+  }
+  .lp-booking-intro > div:last-child > span {
+    font-size: 10px;
+    color: #738074;
+  }
+  .lp-booking-date-label {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 17px 0 12px;
+    border-top: 1px solid #263c3120;
+    font-size: 11px;
+  }
+  .lp-booking-date-label > span:last-child {
+    font-size: 8px;
+    letter-spacing: 0.08em;
+    color: #738074;
+  }
+  .lp-booking-dates {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 6px;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+  .lp-booking-dates > button {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 7px;
+    padding: 11px 0;
+    border: 1px solid #263c3124;
+    border-radius: 5px;
+    cursor: pointer;
+    transition:
+      background-color 120ms ease,
+      color 120ms ease;
+  }
+  .lp-booking-dates > button > span {
+    font-size: 8px;
+    letter-spacing: 0.04em;
+  }
+  .lp-booking-dates > button > b {
+    font-size: 17px;
+    font-weight: 500;
+  }
+  .lp-booking-dates > button[aria-pressed="true"] {
+    background: #314d3f;
+    border-color: #314d3f;
+    color: #fff9ee;
+  }
+  .lp-booking-dates > button:hover {
+    background: #314d3f16;
+  }
+  .lp-booking-dates > button[aria-pressed="true"]:hover {
+    background: #253e31;
+  }
+  .lp-booking-options {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 18px 0;
+    font-size: 11px;
+  }
+  .lp-booking-options > label {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .lp-booking-options select {
+    padding: 9px 20px 9px 9px;
+    border: 1px solid #263c3124;
+    border-radius: 5px;
+    background: #f9f7f2;
+    color: #263c31;
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .lp-booking-options > span {
+    text-align: right;
+    line-height: 1.6;
+  }
+  .lp-booking-options small {
+    color: #738074;
+    font-size: 10px;
+  }
+  .lp-booking-reserve {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    min-height: 46px;
+    padding: 0 18px;
+    border-radius: 5px;
+    background: #314d3f;
+    color: #fff9ee;
+    font-size: 12px;
+    cursor: pointer;
+    transition:
+      background-color 120ms ease,
+      transform 120ms ease;
+  }
+  .lp-booking-reserve:hover {
+    background: #253e31;
+  }
+  .lp-booking-reserve:active {
+    transform: scale(0.99);
+  }
+  .lp-booking-footnote {
+    margin-top: 10px;
+    color: #738074;
+    font-size: 9px;
+    text-align: center;
+  }
+  .lp-booking-confirmation {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 0;
+    text-align: center;
+    font-size: 12px;
+  }
+  .lp-booking-confirmation > span {
+    display: grid;
+    place-items: center;
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
+    background: #dbe3d7;
+  }
+  .lp-booking-confirmation p {
+    font-size: 33px;
+  }
+  .lp-booking-confirmation small {
+    font-size: 10px;
+    color: #738074;
+  }
+  .lp-booking-confirmation button {
+    min-height: 40px;
+    padding: 0 18px;
+    border: 1px solid #263c3124;
+    border-radius: 5px;
+    cursor: pointer;
+  }
+  @container (max-width: 600px) {
+    .lp-session-shell {
+      height: min(620px, calc(100svh - 150px));
+      min-height: 440px;
+      aspect-ratio: auto;
+    }
+    .lp-session-stage {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      grid-template-columns: minmax(0, 1fr);
+      transform: none;
+    }
+    .lp-session-sidebar {
+      display: none;
+    }
+    .lp-session-header {
+      height: 44px;
+    }
+    .lp-session-mobile-tabs {
+      display: flex;
+      align-items: center;
+      height: 40px;
+      padding: 0 12px;
+      gap: 5px;
+      border-bottom: 1px solid var(--color-edge);
+      flex-shrink: 0;
+    }
+    .lp-session-mobile-tabs > button {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 32px;
+      padding: 0 10px;
+      border-radius: 5px;
+      color: var(--color-muted);
+      font-size: 11px;
+      cursor: pointer;
+    }
+    .lp-session-mobile-tabs > button[aria-pressed="true"] {
+      color: var(--color-ink);
+      background: var(--color-field);
+    }
+    .lp-session-mobile-tabs > button:last-child {
+      margin-left: auto;
+    }
+    .lp-session-panes {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .lp-session-stage[data-mobile-view="preview"] .lp-session-chat {
+      display: none;
+    }
+    .lp-session-stage[data-mobile-view="session"] .lp-session-right {
+      display: none;
+    }
+    .lp-session-chat {
+      padding: 15px 12px 8px;
+      border-right: 0;
+    }
+    .lp-session-preview-tabs {
+      height: 36px;
+      padding-inline: 6px;
+    }
+    .lp-session-preview-tabs > button {
+      height: 28px;
+      font-size: 10px;
+      padding-inline: 8px;
+    }
+    .lp-session-preview-tabs > span {
+      font-size: 6px;
+    }
+    .lp-booking-nav {
+      height: 42px;
+      padding-inline: 18px;
+    }
+    .lp-booking-nav > span:first-child {
+      font-size: 27px;
+    }
+    .lp-booking-nav > span:nth-child(2) {
+      display: none;
+    }
+    .lp-booking-photo {
+      height: 150px;
+      padding: 19px 18px 14px;
+    }
+    .lp-booking-photo p {
+      font-size: 35px;
+      margin-top: 12px;
+    }
+    .lp-booking-photo span {
+      font-size: 6px;
+    }
+    .lp-booking-content {
+      padding: 18px;
+    }
+    .lp-booking-intro {
+      padding-bottom: 16px;
+    }
+    .lp-booking-intro > div:first-child > span {
+      font-size: 6px;
+    }
+    .lp-booking-intro p {
+      font-size: 27px;
+    }
+    .lp-booking-intro small {
+      font-size: 8px;
+    }
+    .lp-booking-intro b {
+      font-size: 18px;
+    }
+    .lp-booking-intro > div:last-child > span {
+      font-size: 8px;
+    }
+    .lp-booking-date-label {
+      font-size: 10px;
+    }
+    .lp-booking-dates {
+      gap: 4px;
+    }
+    .lp-booking-dates > button {
+      min-height: 50px;
+      padding: 8px 0;
+      gap: 5px;
+    }
+    .lp-booking-dates > button > span {
+      font-size: 6px;
+    }
+    .lp-booking-dates > button > b {
+      font-size: 14px;
+    }
+    .lp-booking-options {
+      align-items: flex-start;
+      font-size: 10px;
+    }
+    .lp-booking-options > label {
+      align-items: flex-start;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .lp-booking-options select {
+      min-height: 38px;
+      font-size: 12px;
+    }
+    .lp-booking-confirmation p {
+      font-size: 27px;
+    }
+  }
+  .lp-proof h2 {
+    font-size: clamp(40px, 4.7vw, 66px);
+    line-height: 1.02;
+    margin: 20px 0 0;
+  }
+  .lp-proof {
+    padding-block: 70px 0;
+    border-top: 1px solid #ffffff10;
+    scroll-margin-top: 96px;
+  }
+  .lp-proof-heading {
+    display: flex;
+    justify-content: space-between;
+    gap: 24px;
+    align-items: flex-end;
+  }
+  .lp-proof-heading .lp-eyebrow {
+    color: var(--lp-ink-3);
+  }
+  .lp-proof h2 {
+    font-size: clamp(40px, 4.7vw, 60px);
+  }
+  .lp-proof-heading > a {
+    padding-bottom: 7px;
+    font-size: var(--lp-text-small);
+  }
+  .lp-proof-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    margin: 55px 0 0;
+  }
+  .lp-proof-grid > div {
+    padding-inline: 35px;
+    border-left: 1px solid #ffffff12;
+  }
+  .lp-proof-grid > div:first-child {
+    padding-left: 0;
+    border: 0;
+  }
+  .lp-proof-grid dt {
+    color: var(--lp-ink-3);
+    font-size: var(--lp-text-small);
+  }
+  .lp-proof-grid dd {
+    margin: 20px 0 15px;
+    font-size: 64px;
+    font-weight: 400;
+    letter-spacing: -0.075em;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  .lp-proof-grid dd > span {
+    font-size: 16px;
+    letter-spacing: -0.02em;
+    color: #77736d;
+    margin-left: 8px;
+  }
+  .lp-proof-grid p {
+    color: #b2aba3;
+    font-size: var(--lp-text-body);
+    line-height: 1.6;
+    margin: 0;
+  }
+  .lp-proof-source {
+    margin-top: 30px;
+    color: #99948e;
+    font-size: var(--lp-text-label);
+    line-height: 1.6;
+  }
+  .lp-stack-strip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 36px;
+    padding: 60px 0;
+    margin-top: 50px;
+    border-top: 1px solid #ffffff10;
+  }
+  .lp-stack-strip > span {
+    color: #a29d97;
+    font-size: var(--lp-text-small);
+    line-height: 1.6;
+    white-space: nowrap;
+  }
+  .lp-stack-strip b {
+    color: #c5beb5;
+    font-weight: 400;
+  }
+  .lp-stack-strip ul {
+    display: flex;
+    justify-content: flex-end;
+    gap: 42px;
+    flex-wrap: wrap;
+    padding: 0;
+    margin: 0;
+    list-style: none;
+  }
+  .lp-stack-strip li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: var(--lp-text-small);
+    color: #9f9b96;
+  }
+  .lp-stack-strip img {
+    opacity: 0.8;
+    filter: grayscale(1);
+  }
+  .lp-start {
+    position: relative;
+    overflow: hidden;
+    padding: 160px 24px 170px;
+    text-align: center;
+  }
+  .lp-start-photo {
+    position: absolute;
+    inset: 0;
+    background:
+      linear-gradient(
+        180deg,
+        var(--lp-ground) 0%,
+        #09090b88 40%,
+        #09090b99 72%,
+        var(--lp-ground) 100%
+      ),
+      url("/landing/dusk-hills.jpg") center 65% / cover;
+    filter: saturate(0.6);
+  }
+  .lp-start-copy {
+    position: relative;
+  }
+  .lp-start .lp-eyebrow {
+    color: #b9ada1;
+    font-size: var(--lp-text-label);
+  }
+  .lp-start h2 {
+    margin: 25px 0 20px;
+    font-size: clamp(48px, 6.5vw, 88px);
+    line-height: 1;
+  }
+  .lp-start h2 span {
+    color: #c8b9aa;
+  }
+  .lp-start p {
+    margin-bottom: 30px;
+    font-size: var(--lp-text-body);
+    color: #c5b9ad;
+  }
+  .lp-footer {
+    padding-block: 50px 20px;
+  }
+  .lp-footer-main {
+    display: flex;
+    justify-content: space-between;
+    gap: 60px;
+  }
+  .lp-footer-brand {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 29px;
+    font-weight: 500;
+  }
+  .lp-footer-main > div > p {
+    margin: 20px 0;
+    font-size: var(--lp-text-body);
+    line-height: 1.65;
+    color: #a29d97;
+  }
+  .lp-footer-main .lp-text-link {
+    font-size: 15px;
+  }
+  .lp-footer nav {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: clamp(24px, 4vw, 64px);
+    padding-top: 9px;
+    width: min(600px, 62%);
+  }
+  .lp-footer nav h2 {
+    margin: 0 0 18px;
+    font-size: var(--lp-text-small);
+    font-weight: 500;
+    color: #d1c9bf;
+  }
+  .lp-footer nav a {
+    display: block;
+    margin-top: 10px;
+    font-size: var(--lp-text-body);
+    color: #aaa6a1;
+    transition: color 140ms ease;
+    line-height: 1.6;
+    padding-block: 3px;
+  }
+  .lp-footer nav a:hover {
+    color: white;
+  }
+  .lp-footer-bottom {
+    display: flex;
+    justify-content: space-between;
+    padding-top: 25px;
+    margin-top: 65px;
+    border-top: 1px solid #ffffff10;
+    color: #99948e;
+    font-size: 13px;
+    gap: 20px;
+    flex-wrap: wrap;
+  }
+  .lp-photo-credit {
+    margin: 22px 0 0;
+    font-size: var(--lp-text-label);
+    line-height: 1.6;
+    color: #918c87;
+    max-width: 80ch;
+  }
+  .lp-photo-credit a {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  @media (max-width: 1023px) {
+    .lp-container {
+      width: calc(100% - 64px);
+    }
+    .lp-stack-strip ul {
+      gap: 24px;
+    }
+  }
+  @media (max-width: 767px) {
+    .lp-container {
+      width: calc(100% - 40px);
+    }
+    .lp-hero {
+      --lp-mountain-start: 10svh;
+      height: auto;
+    }
+    .lp-hero-rail {
+      height: calc(100svh + 620px);
+    }
+    .lp-hero-stage {
+      padding: 108px 20px 0;
+    }
+    .lp-hero h1 {
+      font-size: clamp(44px, 8.5vw, 62px);
+      line-height: 1.02;
+      margin-top: 25px;
+      letter-spacing: -0.055em;
+    }
+    .lp-hero-copy > p {
+      font-size: 17px;
+      line-height: 1.65;
+      max-width: 300px;
+      margin-top: 23px;
+    }
+    .lp-hero-actions {
+      gap: 22px;
+      margin-top: 25px;
+    }
+    .lp-hero-actions .lp-pill {
+      height: 44px;
+      font-size: var(--lp-text-small);
+      padding-inline: 20px;
+      gap: 10px;
+    }
+    .lp-hero-actions .lp-text-link {
+      font-size: var(--lp-text-small);
+    }
+    .lp-hero-product {
+      margin-top: 32px;
+    }
+    .lp-product-caption {
+      font-size: var(--lp-text-label);
+      padding-bottom: 12px;
+      gap: 12px;
+    }
+    .lp-product-caption > span:last-child {
+      font-size: 11px;
+    }
+    .lp-proof {
+      padding-top: 50px;
+    }
+    .lp-proof-heading {
+      align-items: flex-start;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .lp-proof .lp-eyebrow {
+      font-size: var(--lp-text-label);
+    }
+    .lp-proof h2 {
+      font-size: 40px;
+    }
+    .lp-proof-grid {
+      grid-template-columns: 1fr;
+      margin-top: 25px;
+    }
+    .lp-proof-grid > div {
+      position: relative;
+      padding: 24px 0;
+      border-left: 0;
+      border-bottom: 1px solid #ffffff10;
+    }
+    .lp-proof-grid > div:first-child {
+      padding-top: 24px;
+      border-bottom: 1px solid #ffffff10;
+    }
+    .lp-proof-grid dd {
+      margin-block: 15px 10px;
+      font-size: 60px;
+    }
+    .lp-proof-grid dt {
+      font-size: var(--lp-text-small);
+    }
+    .lp-proof-source {
+      font-size: var(--lp-text-label);
+      max-width: 300px;
+      color: #99948e;
+    }
+    .lp-stack-strip {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 25px;
+      padding-block: 35px;
+      margin-top: 30px;
+    }
+    .lp-stack-strip ul {
+      justify-content: flex-start;
+      gap: 22px;
+    }
+    .lp-stack-strip li {
+      font-size: var(--lp-text-small);
+    }
+    .lp-stack-strip img {
+      width: 18px;
+      height: 18px;
+    }
+    .lp-start {
+      padding: 110px 20px 130px;
+    }
+    .lp-start .lp-eyebrow {
+      font-size: var(--lp-text-label);
+    }
+    .lp-start h2 {
+      font-size: clamp(42px, 9.2vw, 62px);
+    }
+    .lp-start p {
+      font-size: var(--lp-text-body);
+    }
+    .lp-footer {
+      padding-top: 30px;
+    }
+    .lp-footer-main {
+      flex-direction: column;
+      gap: 40px;
+    }
+    .lp-footer nav {
+      width: 100%;
+      gap: 24px;
+    }
+    .lp-footer-bottom {
+      margin-top: 45px;
+    }
+  }
+  @media (max-width: 480px) {
+    .lp-footer nav {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 32px 24px;
+    }
+    .lp-product-caption > span:last-child {
+      display: none;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .landing *,
+    .landing *::before,
+    .landing *::after {
+      /* biome-ignore lint/complexity/noImportantStyles: Reduced motion overrides scene and utility animations. */
+      animation: none !important;
+      /* biome-ignore lint/complexity/noImportantStyles: Reduced motion overrides scene and utility transitions. */
+      transition: none !important;
+      scroll-behavior: auto;
+    }
+    .lp-hero {
+      height: auto;
+    }
+    .lp-hero-rail {
+      height: auto;
+    }
+    .lp-hero-scroll-hint {
+      display: none;
+    }
+    .lp-hero-stage {
+      position: relative;
+      height: auto;
+      padding-bottom: 60px;
+    }
+    .lp-hero-copy {
+      opacity: 1;
+      transform: none;
+    }
+    .lp-hero-product {
+      transform: none;
+    }
+    .lp-hero-mountains {
+      visibility: hidden;
+    }
+  }
+}
+.nap-mark-awake .nap-mark-shut {
+  opacity: 0;
+}
+.nap-mark-awake .nap-mark-open {
+  opacity: 1;
+}
+/* The mark stays still at rest on the landing page; hover can wake it once. */
+.landing .nap-mark-body,
+.landing .nap-mark-z {
+  animation: none;
+}
+.landing .nap-mark:hover .nap-mark-body,
+.landing .nap-mark:hover .nap-mark-eyes {
+  animation-iteration-count: 1;
+}

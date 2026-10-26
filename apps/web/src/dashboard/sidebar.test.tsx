@@ -53,6 +53,37 @@ function openAccountMenu() {
 }
 
 describe("the dashboard sidebar", () => {
+  it("stores and restores session-list scroll across native mounts by default", () => {
+    sessionStorage.setItem("nap.sidebar.scroll", "640");
+    try {
+      const sidebar = (
+        <Sidebar
+          name="Reader"
+          email={undefined}
+          recents={[project()]}
+          keyHint={undefined}
+          onNewProject={vi.fn()}
+          onApiKey={vi.fn()}
+          onSignOut={vi.fn()}
+        />
+      );
+      const view = render(sidebar);
+      const list = screen.getByRole("region", { name: "Session list" });
+      expect(list.scrollTop).toBe(640);
+
+      list.scrollTop = 120;
+      fireEvent.scroll(list);
+      expect(sessionStorage.getItem("nap.sidebar.scroll")).toBe("120");
+
+      // A fresh mount must consume the offset written by the previous native sidebar.
+      view.unmount();
+      render(sidebar);
+      expect(screen.getByRole("region", { name: "Session list" }).scrollTop).toBe(120);
+    } finally {
+      sessionStorage.removeItem("nap.sidebar.scroll");
+    }
+  });
+
   it("restores scroll after asynchronous rows load only once", () => {
     sessionStorage.setItem("nap.sidebar.scroll", "4000");
     const props = {

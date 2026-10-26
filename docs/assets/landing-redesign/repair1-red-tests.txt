@@ -1,0 +1,2448 @@
+$ vitest run --project unit --project types --project web --project web apps/web/src/landing/landing-desktop-demo.test.tsx
+Testing types with tsc and vue-tsc is an experimental feature.
+Breaking changes might not follow SemVer, please pin Vitest's version when using it.
+
+ RUN  v4.1.10 <repo>
+
+ ❯ |web| apps/web/src/landing/landing-desktop-demo.test.tsx (11 tests | 11 failed) 1466ms
+     × does not clamp the real app's saved width when mounted in a compact viewport 126ms
+     × starts with its own expanded sidebar even when the real app saved a collapsed one 226ms
+     × keeps demo collapse and expansion out of the real app's preferences 78ms
+     × resizes its sidebar locally without replacing the real app's saved width 28ms
+     × keeps chapter-control focus when the parent advances from describe to the ready preview 90ms
+     × keeps chapter-control focus when the parent advances from build to the ready preview 85ms
+     × allows focus to leave an already open preview for the chapter controls 59ms
+     × activates the selected example and closes the drawer for click detail 0 230ms
+     × activates the selected example and closes the drawer for click detail 1 224ms
+     × closes the drawer when the visitor selects the already active example 242ms
+     × honors a cancelled session selection without switching the example or closing the drawer 78ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 11 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |web| apps/web/src/landing/landing-desktop-demo.test.tsx > the native landing demo's sidebar preferences > does not clamp the real app's saved width when mounted in a compact viewport
+AssertionError: expected '208' to be '320' // Object.is equality
+
+Expected: "320"
+Received: "208"
+
+ ❯ apps/web/src/landing/landing-desktop-demo.test.tsx:60:55
+     58|
+     59|     expect(screen.getByRole("separator", { name: "Sidebar width" })).t…
+     60|     expect(localStorage.getItem("nap.sidebar.width")).toBe("320");
+       |                                                       ^
+     61|   });
+     62|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/11]⎯
+
+ FAIL  |web| apps/web/src/landing/landing-desktop-demo.test.tsx > the native landing demo's sidebar preferences > starts with its own expanded sidebar even when the real app saved a collapsed one
+TestingLibraryElementError: Unable to find an accessible element with the role "button" and name "Collapse sidebar"
+
+Here are the accessible roles:
+
+  button:
+
+  Name "Expand sidebar":
+  <button
+    aria-expanded="false"
+    aria-label="Expand sidebar"
+    class="sidebar-toggle desktop-sidebar-toggle"
+    title="Expand sidebar"
+    type="button"
+  />
+
+  Name "Open sessions":
+  <button
+    aria-expanded="false"
+    aria-label="Open sessions"
+    class="sidebar-toggle mobile-sidebar-toggle"
+    type="button"
+  />
+
+  Name "Filter by source":
+  <button
+    aria-expanded="false"
+    aria-label="Filter by source"
+    class="grid size-7 place-items-center rounded-md hover:bg-hover hover:text-ink text-sidebar-icon"
+    title="Filter by source"
+    type="button"
+  />
+
+  Name "New session":
+  <button
+    aria-label="New session"
+    class="grid size-7 shrink-0 place-items-center rounded-md text-sidebar-icon hover:bg-hover hover:text-ink"
+    data-new-session="true"
+    title="New session"
+    type="button"
+  />
+
+  Name "Session actions for Personal finance":
+  <button
+    aria-expanded="false"
+    aria-label="Session actions for Personal finance"
+    class="session-actions mr-1 grid size-7 shrink-0 place-items-center rounded-md text-muted transition-opacity hover:bg-hover hover:text-ink group-hover:opacity-100 focus-visible:opacity-100 opacity-0"
+    type="button"
+  />
+
+  Name "Session actions for Highland stays":
+  <button
+    aria-expanded="false"
+    aria-label="Session actions for Highland stays"
+    class="session-actions mr-1 grid size-7 shrink-0 place-items-center rounded-md text-muted transition-opacity hover:bg-hover hover:text-ink group-hover:opacity-100 focus-visible:opacity-100 opacity-0"
+    type="button"
+  />
+
+  Name "Session actions for Launch tracker":
+  <button
+    aria-expanded="false"
+    aria-label="Session actions for Launch tracker"
+    class="session-actions mr-1 grid size-7 shrink-0 place-items-center rounded-md text-muted transition-opacity hover:bg-hover hover:text-ink group-hover:opacity-100 focus-visible:opacity-100 opacity-0"
+    type="button"
+  />
+
+  Name "Settings":
+  <button
+    aria-expanded="false"
+    aria-haspopup="menu"
+    aria-label="Settings"
+    class="grid size-7 place-items-center rounded-md text-sidebar-icon hover:bg-hover hover:text-ink focus-visible:outline-accent"
+    title="Settings"
+    type="button"
+  />
+
+  Name "Add to prompt":
+  <button
+    aria-expanded="false"
+    aria-haspopup="menu"
+    aria-label="Add to prompt"
+    class="grid size-8 shrink-0 place-items-center rounded-[8px] transition-[background-color,color,scale] duration-150 hover:bg-hover hover:text-ink aria-expanded:bg-hover aria-expanded:text-ink motion-safe:[&:active:not([aria-haspopup])]:scale-[0.97] focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40 text-muted"
+    type="button"
+  />
+
+  Name "Model":
+  <button
+    aria-expanded="false"
+    aria-label="Model"
+    class="flex h-7 max-w-[180px] items-center gap-1.5 rounded-lg px-2 font-normal text-[13px] text-ink-2 transition-colors duration-150 hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent disabled:text-muted"
+    type="button"
+  />
+
+  Name "Start dictation":
+  <button
+    aria-label="Start dictation"
+    aria-pressed="false"
+    class="grid size-8 shrink-0 place-items-center rounded-[8px] transition-[background-color,color,scale] duration-150 hover:bg-hover hover:text-ink aria-expanded:bg-hover aria-expanded:text-ink motion-safe:[&:active:not([aria-haspopup])]:scale-[0.97] focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40 text-muted"
+    disabled=""
+    title="Voice input is not supported by this browser"
+    type="button"
+  />
+
+  Name "Send":
+  <button
+    aria-label="Send"
+    class="composer-send grid size-8 place-items-center rounded-full bg-accent text-white transition-colors hover:bg-accent/90 disabled:bg-hover disabled:text-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+    type="button"
+  />
+
+  --------------------------------------------------
+  navigation:
+
+  Name "Dashboard":
+  <nav
+    aria-label="Dashboard"
+    class="flex h-full min-h-0 flex-col border-r border-edge bg-sidebar px-2 pt-3 pb-2"
+  />
+
+  --------------------------------------------------
+  link:
+
+  Name "nap dashboard":
+  <a
+    aria-label="nap dashboard"
+    class="mb-3 flex h-8 items-center gap-2 px-2 text-sm font-medium text-ink"
+    href="/dashboard"
+  />
+
+  Name "Scratch7hPersonal finance":
+  <a
+    class="rounded-md outline-none select-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent flex h-full flex-col px-2.5 py-2"
+    data-session-link=""
+    href="/p/bb42b020-3c6d-411d-bff5-dc1b72b4c763"
+    title="Personal finance · Scratch · Workspace running"
+  />
+
+  Name "Scratch8hHighland stays":
+  <a
+    class="rounded-md outline-none select-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent flex h-full flex-col px-2.5 py-2"
+    data-session-link=""
+    href="/p/9a81f390-b50b-41d5-a989-77d1a3fb804c"
+    title="Highland stays · Scratch · Workspace running"
+  />
+
+  Name "Scratch9hLaunch tracker":
+  <a
+    class="rounded-md outline-none select-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent flex h-full flex-col px-2.5 py-2"
+    data-session-link=""
+    href="/p/4b840bd0-963f-4cb4-8bb0-af6aef257670"
+    title="Launch tracker · Scratch · Workspace running"
+  />
+
+  Name "Help":
+  <a
+    aria-label="Help"
+    class="grid size-7 place-items-center rounded-md text-sidebar-icon hover:bg-hover hover:text-ink"
+    href="/docs"
+    title="Help"
+  />
+
+  --------------------------------------------------
+  textbox:
+
+  Name "Search sessions":
+  <input
+    aria-label="Search sessions"
+    class="min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-muted"
+    placeholder="Search"
+    value=""
+  />
+
+  Name "Describe the app you want":
+  <textarea
+    aria-label="Describe the app you want"
+    class="block h-24 min-h-24 w-full resize-none bg-transparent px-4 pt-4 pb-2 text-sm leading-relaxed text-ink outline-none placeholder:text-muted disabled:text-muted"
+    placeholder="Ask nap to build an app, fix a bug, or explore an idea…"
+    rows="4"
+  />
+
+  --------------------------------------------------
+  region:
+
+  Name "Session list":
+  <section
+    aria-label="Session list"
+    class="nap-scroll-hidden relative flex min-h-0 flex-1 flex-col overflow-y-auto"
+    tabindex="0"
+  />
+
+  --------------------------------------------------
+  list:
+
+  Name "Inbox sessions":
+  <ul
+    aria-label="Inbox sessions"
+  />
+
+  --------------------------------------------------
+  listitem:
+
+  Name "":
+  <li
+    class="group relative list-none py-0.5"
+    data-drop="false"
+    draggable="false"
+  />
+
+  Name "":
+  <li
+    class="group relative list-none py-0.5"
+    data-drop="false"
+    draggable="false"
+  />
+
+  Name "":
+  <li
+    class="group relative list-none py-0.5"
+    data-drop="false"
+    draggable="false"
+  />
+
+  --------------------------------------------------
+  main:
+
+  Name "":
+  <main
+    class="dashboard-content nap-scroll-hidden relative min-h-0 min-w-0 overflow-y-auto"
+  />
+
+  --------------------------------------------------
+  heading:
+
+  Name "nap":
+  <h1
+    class="flex items-center gap-2.5 text-[28px] font-normal tracking-[-1px] text-ink"
+  />
+
+  --------------------------------------------------
+  group:
+
+  Name "New session composer":
+  <fieldset
+    aria-label="New session composer"
+    class="workspace-composer"
+  />
+
+  --------------------------------------------------
+  menu:
+
+  Name "Add to prompt":
+  <div
+    aria-label="Add to prompt"
+    class="composer-add-menu composer-surface nap-float"
+    data-open="false"
+    inert=""
+    role="menu"
+  />
+
+  --------------------------------------------------
+  menuitem:
+
+  Name "Upload media":
+  <button
+    role="menuitem"
+    type="button"
+  />
+
+  Name "Repositories":
+  <button
+    role="menuitem"
+    type="button"
+  />
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+<body
+  style="overflow: hidden;"
+>
+  <div>
+    <div
+      data-demo-chapter="describe"
+      data-demo-thread="finance"
+    >
+      <div
+        aria-busy="false"
+        class="dashboard-frame relative grid h-dvh overflow-hidden bg-surface text-ink transition-opacity duration-200 opacity-100"
+        data-navigation-open="false"
+        data-sidebar-collapsed="true"
+        data-signing-out="false"
+        style="--sidebar-width: 256px;"
+      >
+        <button
+          aria-expanded="false"
+          aria-label="Expand sidebar"
+          class="sidebar-toggle desktop-sidebar-toggle"
+          title="Expand sidebar"
+          type="button"
+        >
+          <svg
+            aria-hidden="true"
+            class="size-4"
+            fill="none"
+            stroke="currentColor"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="1.4"
+            viewBox="0 0 16 16"
+          >
+            <rect
+              height="10"
+              rx="1.5"
+              width="12"
+              x="2"
+              y="3"
+            />
+            <path
+              d="M6.5 3v10"
+            />
+          </svg>
+        </button>
+        <button
+          aria-expanded="false"
+          aria-label="Open sessions"
+          class="sidebar-toggle mobile-sidebar-toggle"
+          type="button"
+        >
+          <svg
+            aria-hidden="true"
+            class="size-4"
+            fill="none"
+            stroke="currentColor"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="1.4"
+            viewBox="0 0 16 16"
+          >
+            <rect
+              height="10"
+              rx="1.5"
+              width="12"
+              x="2"
+              y="3"
+            />
+            <path
+              d="M6.5 3v10"
+            />
+          </svg>
+        </button>
+        <div
+          class="dashboard-sidebar min-h-0"
+        >
+          <div
+            class="h-full"
+          >
+            <nav
+              aria-label="Dashboard"
+              class="flex h-full min-h-0 flex-col border-r border-edge bg-sidebar px-2 pt-3 pb-2"
+            >
+              <a
+                aria-label="nap dashboard"
+                class="mb-3 flex h-8 items-center gap-2 px-2 text-sm font-medium text-ink"
+                href="/dashboard"
+              >
+                <svg
+                  aria-hidden="true"
+                  class="nap-mark size-6"
+                  fill="currentColor"
+                  viewBox="-1 -6 32 32"
+                >
+                  <mask
+                    id="nap-mark-r9"
+                  >
+                    <rect
+                      fill="#fff"
+                      height="32"
+                      width="32"
+                      x="-1"
+                      y="-6"
+                    />
+                    <g
+                      class="nap-mark-eyes"
+                      fill="#000"
+                    >
+                      <g
+                        class="nap-mark-shut"
+                      >
+                        <path
+                          d="M6.5 11.9c.44 1.7 1.2 2.7 2.1 2.7s1.66-1 2.1-2.7c.14-.53-.66-.76-.82-.24-.32 1.16-.76 1.79-1.28 1.79s-.96-.63-1.28-1.79c-.16-.52-.96-.29-.82.24Z"
+                        />
+                        <path
+                          d="M13.3 11.9c.44 1.7 1.2 2.7 2.1 2.7s1.66-1 2.1-2.7c.14-.53-.66-.76-.82-.24-.32 1.16-.76 1.79-1.28 1.79s-.96-.63-1.28-1.79c-.16-.52-.96-.29-.82.24Z"
+                        />
+                      </g>
+                      <g
+                        class="nap-mark-open"
+                      >
+                        <ellipse
+                          cx="8.6"
+                          cy="12.4"
+                          rx="1.35"
+                          ry="1.7"
+                        />
+                        <ellipse
+                          cx="15.4"
+                          cy="12.4"
+                          rx="1.35"
+                          ry="1.7"
+                        />
+                      </g>
+                      <g
+                        class="nap-mark-squint"
+                        fill="none"
+                        stroke="#000"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="1.25"
+                      >
+                        <path
+                          d="M7.4 10.7 9.6 12.4 7.4 14.1"
+                        />
+                        <path
+                          d="M16.6 10.7 14.4 12.4 16.6 14.1"
+                        />
+                      </g>
+     ...
+ ❯ Object.getElementError node_modules/.bun/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ node_modules/.bun/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ node_modules/.bun/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ node_modules/.bun/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ apps/web/src/landing/landing-desktop-demo.test.tsx:68:19
+     66|     render(<LandingDesktopDemo />);
+     67|
+     68|     expect(screen.getByRole("button", { name: "Collapse sidebar" })).t…
+       |                   ^
+     69|       "aria-expanded",
+     70|       "true",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/11]⎯
+
+ FAIL  |web| apps/web/src/landing/landing-desktop-demo.test.tsx > the native landing demo's sidebar preferences > keeps demo collapse and expansion out of the real app's preferences
+AssertionError: expected 'true' to be 'false' // Object.is equality
+
+Expected: "false"
+Received: "true"
+
+ ❯ apps/web/src/landing/landing-desktop-demo.test.tsx:82:59
+     80|     fireEvent.click(screen.getByRole("button", { name: "Collapse sideb…
+     81|     expect(screen.getByRole("button", { name: "Expand sidebar" })).toB…
+     82|     expect(localStorage.getItem("nap.sidebar.collapsed")).toBe("false"…
+       |                                                           ^
+     83|     fireEvent.click(screen.getByRole("button", { name: "Expand sidebar…
+     84|     expect(screen.getByRole("separator", { name: "Sidebar width" })).t…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/11]⎯
+
+ FAIL  |web| apps/web/src/landing/landing-desktop-demo.test.tsx > the native landing demo's sidebar preferences > resizes its sidebar locally without replacing the real app's saved width
+AssertionError: expected '336' to be '320' // Object.is equality
+
+Expected: "320"
+Received: "336"
+
+ ❯ apps/web/src/landing/landing-desktop-demo.test.tsx:97:55
+     95|     fireEvent.keyDown(handle, { key: "ArrowRight" });
+     96|     expect(Number(handle.getAttribute("aria-valuenow"))).toBe(previous…
+     97|     expect(localStorage.getItem("nap.sidebar.width")).toBe("320");
+       |                                                       ^
+     98|
+     99|     Object.defineProperty(window, "innerWidth", { configurable: true, …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/11]⎯
+
+ FAIL  |web| apps/web/src/landing/landing-desktop-demo.test.tsx > compact demo chapter focus > keeps chapter-control focus when the parent advances from describe to the ready preview
+ FAIL  |web| apps/web/src/landing/landing-desktop-demo.test.tsx > compact demo chapter focus > keeps chapter-control focus when the parent advances from build to the ready preview
+Error: expect(element).toHaveFocus()
+
+Expected element with focus:
+  <button
+  type="button"
+>
+  Walkthrough chapters
+</button>
+Received element with focus:
+  <button
+  aria-controls="workbench-preview"
+  aria-selected="true"
+  class="t3-tab"
+  id="workbench-tab-preview"
+  role="tab"
+  tabindex="0"
+  title="Browser"
+  type="button"
+>
+  <span
+    class="t3-tab-symbol"
+  >
+    <svg
+      aria-hidden="true"
+      class="lucide lucide-earth lucide-globe-2"
+      fill="none"
+      height="24"
+      stroke="currentColor"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      stroke-width="2"
+      viewBox="0 0 24 24"
+      width="24"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        d="M21.54 15H17a2 2 0 0 0-2 2v4.54"
+      />
+      <path
+        d="M7 3.34V5a3 3 0 0 0 3 3a2 2 0 0 1 2 2c0 1.1.9 2 2 2a2 2 0 0 0 2-2c0-1.1.9-2 2-2h3.17"
+      />
+      <path
+        d="M11 21.95V18a2 2 0 0 0-2-2a2 2 0 0 1-2-2v-1a2 2 0 0 0-2-2H2.05"
+      />
+      <circle
+        cx="12"
+        cy="12"
+        r="10"
+      />
+    </svg>
+  </span>
+  <span
+    class="truncate"
+  >
+    Browser
+  </span>
+</button>
+ ❯ apps/web/src/landing/landing-desktop-demo.test.tsx:126:24
+    124|         "true",
+    125|       );
+    126|       expect(chapters).toHaveFocus();
+       |                        ^
+    127|     },
+    128|   );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/11]⎯
+
+ FAIL  |web| apps/web/src/landing/landing-desktop-demo.test.tsx > compact demo chapter focus > allows focus to leave an already open preview for the chapter controls
+Error: expect(element).toHaveFocus()
+
+Expected element with focus:
+  <button
+  type="button"
+>
+  Walkthrough chapters
+</button>
+Received element with focus:
+  <button
+  aria-controls="workbench-preview"
+  aria-selected="true"
+  class="t3-tab"
+  id="workbench-tab-preview"
+  role="tab"
+  tabindex="0"
+  title="Browser"
+  type="button"
+>
+  <span
+    class="t3-tab-symbol"
+  >
+    <svg
+      aria-hidden="true"
+      class="lucide lucide-earth lucide-globe-2"
+      fill="none"
+      height="24"
+      stroke="currentColor"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      stroke-width="2"
+      viewBox="0 0 24 24"
+      width="24"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        d="M21.54 15H17a2 2 0 0 0-2 2v4.54"
+      />
+      <path
+        d="M7 3.34V5a3 3 0 0 0 3 3a2 2 0 0 1 2 2c0 1.1.9 2 2 2a2 2 0 0 0 2-2c0-1.1.9-2 2-2h3.17"
+      />
+      <path
+        d="M11 21.95V18a2 2 0 0 0-2-2a2 2 0 0 1-2-2v-1a2 2 0 0 0-2-2H2.05"
+      />
+      <circle
+        cx="12"
+        cy="12"
+        r="10"
+      />
+    </svg>
+  </span>
+  <span
+    class="truncate"
+  >
+    Browser
+  </span>
+</button>
+ ❯ apps/web/src/landing/landing-desktop-demo.test.tsx:143:22
+    141|     chapters.focus();
+    142|
+    143|     expect(chapters).toHaveFocus();
+       |                      ^
+    144|     expect(browser).toHaveAttribute("aria-selected", "true");
+    145|     expect(screen.getByRole("region", { name: "Right panel" })).not.to…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/11]⎯
+
+ FAIL  |web| apps/web/src/landing/landing-desktop-demo.test.tsx > compact demo session selection > activates the selected example and closes the drawer for click detail 0
+TestingLibraryElementError: Unable to find an accessible element with the role "button" and name "Open sessions"
+
+Here are the accessible roles:
+
+  button:
+
+  Name "Collapse sidebar":
+  <button
+    aria-expanded="true"
+    aria-label="Collapse sidebar"
+    class="sidebar-toggle desktop-sidebar-toggle"
+    title="Collapse sidebar"
+    type="button"
+  />
+
+  Name "Close sessions":
+  <button
+    aria-expanded="true"
+    aria-label="Close sessions"
+    class="sidebar-toggle mobile-sidebar-toggle"
+    type="button"
+  />
+
+  Name "Close navigation":
+  <button
+    aria-label="Close navigation"
+    class="sidebar-backdrop"
+    type="button"
+  />
+
+  Name "Filter by source":
+  <button
+    aria-expanded="false"
+    aria-label="Filter by source"
+    class="grid size-7 place-items-center rounded-md hover:bg-hover hover:text-ink text-sidebar-icon"
+    title="Filter by source"
+    type="button"
+  />
+
+  Name "New session":
+  <button
+    aria-label="New session"
+    class="grid size-7 shrink-0 place-items-center rounded-md text-sidebar-icon hover:bg-hover hover:text-ink"
+    data-new-session="true"
+    title="New session"
+    type="button"
+  />
+
+  Name "Session actions for Personal finance":
+  <button
+    aria-expanded="false"
+    aria-label="Session actions for Personal finance"
+    class="session-actions mr-1 grid size-7 shrink-0 place-items-center rounded-md text-muted transition-opacity hover:bg-hover hover:text-ink group-hover:opacity-100 focus-visible:opacity-100 opacity-0"
+    type="button"
+  />
+
+  Name "Session actions for Highland stays":
+  <button
+    aria-expanded="false"
+    aria-label="Session actions for Highland stays"
+    class="session-actions mr-1 grid size-7 shrink-0 place-items-center rounded-md text-muted transition-opacity hover:bg-hover hover:text-ink group-hover:opacity-100 focus-visible:opacity-100 opacity-0"
+    type="button"
+  />
+
+  Name "Session actions for Launch tracker":
+  <button
+    aria-expanded="false"
+    aria-label="Session actions for Launch tracker"
+    class="session-actions mr-1 grid size-7 shrink-0 place-items-center rounded-md text-muted transition-opacity hover:bg-hover hover:text-ink group-hover:opacity-100 focus-visible:opacity-100 opacity-0"
+    type="button"
+  />
+
+  Name "Settings":
+  <button
+    aria-expanded="false"
+    aria-haspopup="menu"
+    aria-label="Settings"
+    class="grid size-7 place-items-center rounded-md text-sidebar-icon hover:bg-hover hover:text-ink focus-visible:outline-accent"
+    title="Settings"
+    type="button"
+  />
+
+  Name "Close Browser":
+  <button
+    aria-label="Close Browser"
+    class="t3-tab-close"
+    tabindex="-1"
+    title="Close Browser"
+    type="button"
+  />
+
+  Name "Close Files":
+  <button
+    aria-label="Close Files"
+    class="t3-tab-close"
+    tabindex="-1"
+    title="Close Files"
+    type="button"
+  />
+
+  Name "Hide chat":
+  <button
+    aria-label="Hide chat"
+    class="t3-icon-button t3-maximize"
+    title="Maximize panel"
+    type="button"
+  />
+
+  Name "Close right panel":
+  <button
+    aria-label="Close right panel"
+    class="t3-icon-button"
+    title="Close right panel"
+    type="button"
+  />
+
+  Name "Reload the preview":
+  <button
+    aria-label="Reload the preview"
+    class="t3-icon-button"
+    title="Reload"
+    type="button"
+  />
+
+  --------------------------------------------------
+  navigation:
+
+  Name "Dashboard":
+  <nav
+    aria-label="Dashboard"
+    class="flex h-full min-h-0 flex-col border-r border-edge bg-sidebar px-2 pt-3 pb-2"
+  />
+
+  --------------------------------------------------
+  link:
+
+  Name "nap dashboard":
+  <a
+    aria-label="nap dashboard"
+    class="mb-3 flex h-8 items-center gap-2 px-2 text-sm font-medium text-ink"
+    href="/dashboard"
+  />
+
+  Name "Scratch7hPersonal finance":
+  <a
+    class="rounded-md outline-none select-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent flex h-full flex-col px-2.5 py-2"
+    data-session-link=""
+    href="/p/bb42b020-3c6d-411d-bff5-dc1b72b4c763"
+    title="Personal finance · Scratch · Workspace running"
+  />
+
+  Name "Scratch8hHighland stays":
+  <a
+    aria-current="page"
+    class="rounded-md outline-none select-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent flex h-full flex-col px-2.5 py-2"
+    data-session-link=""
+    href="/p/9a81f390-b50b-41d5-a989-77d1a3fb804c"
+    title="Highland stays · Scratch · Workspace running"
+  />
+
+  Name "Scratch9hLaunch tracker":
+  <a
+    class="rounded-md outline-none select-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent flex h-full flex-col px-2.5 py-2"
+    data-session-link=""
+    href="/p/4b840bd0-963f-4cb4-8bb0-af6aef257670"
+    title="Launch tracker · Scratch · Workspace running"
+  />
+
+  Name "Help":
+  <a
+    aria-label="Help"
+    class="grid size-7 place-items-center rounded-md text-sidebar-icon hover:bg-hover hover:text-ink"
+    href="/docs"
+    title="Help"
+  />
+
+  Name "Open the preview in a new tab":
+  <a
+    aria-label="Open the preview in a new tab"
+    class="t3-icon-button"
+    href="http://localhost:3000/demo/booking"
+    rel="noopener noreferrer"
+    target="_blank"
+    title="Open in browser"
+  />
+
+  --------------------------------------------------
+  textbox:
+
+  Name "Search sessions":
+  <input
+    aria-label="Search sessions"
+    class="min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-muted"
+    placeholder="Search"
+    value=""
+  />
+
+  Name "Page to show":
+  <input
+    aria-label="Page to show"
+    spellcheck="false"
+    title="Preview path. Navigation inside the app is controlled by the app."
+    value="/"
+  />
+
+  --------------------------------------------------
+  region:
+
+  Name "Session list":
+  <section
+    aria-label="Session list"
+    class="nap-scroll-hidden relative flex min-h-0 flex-1 flex-col overflow-y-auto"
+    tabindex="0"
+  />
+
+  Name "Preview":
+  <section
+    aria-labelledby="story-preview-cabins-heading"
+    class="relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-panel"
+  />
+
+  --------------------------------------------------
+  list:
+
+  Name "Inbox sessions":
+  <ul
+    aria-label="Inbox sessions"
+  />
+
+  --------------------------------------------------
+  listitem:
+
+  Name "":
+  <li
+    class="group relative list-none py-0.5"
+    data-drop="false"
+    draggable="false"
+  />
+
+  Name "":
+  <li
+    class="group relative list-none py-0.5"
+    data-drop="false"
+    draggable="false"
+  />
+
+  Name "":
+  <li
+    class="group relative list-none py-0.5"
+    data-drop="false"
+    draggable="false"
+  />
+
+  --------------------------------------------------
+  separator:
+
+  Name "Sidebar width":
+  <div
+    aria-label="Sidebar width"
+    aria-orientation="vertical"
+    aria-valuenow="256"
+    class="group relative z-10 -mx-[3px] h-full w-[7px] shrink-0 cursor-col-resize outline-none"
+    role="separator"
+    tabindex="0"
+  />
+
+  --------------------------------------------------
+  main:
+
+  Name "":
+  <main
+    class="dashboard-content nap-scroll-hidden relative min-h-0 min-w-0 overflow-y-auto"
+    inert=""
+  />
+
+  --------------------------------------------------
+  dialog:
+
+  Name "Right panel":
+  <section
+    aria-label="Right panel"
+    aria-modal="true"
+    class="t3-workbench"
+    role="dialog"
+  />
+
+  --------------------------------------------------
+  tablist:
+
+  Name "Workbench":
+  <div
+    aria-label="Workbench"
+    class="t3-tabs"
+    role="tablist"
+  />
+
+  --------------------------------------------------
+  presentation:
+
+  Name "":
+  <div
+    class="t3-tab-wrap"
+    data-active="true"
+    draggable="true"
+    role="presentation"
+  />
+
+  Name "":
+  <div
+    class="t3-tab-wrap"
+    data-active="false"
+    draggable="true"
+    role="presentation"
+  />
+
+  --------------------------------------------------
+  tab:
+
+  Name "Browser":
+  <button
+    aria-controls="workbench-preview"
+    aria-selected="true"
+    class="t3-tab"
+    id="workbench-tab-preview"
+    role="tab"
+    tabindex="0"
+    title="Browser"
+    type="button"
+  />
+
+  Name "Files":
+  <button
+    aria-controls="workbench-code"
+    aria-selected="false"
+    class="t3-tab"
+    id="workbench-tab-code"
+    role="tab"
+    tabindex="-1"
+    title="Files"
+    type="button"
+  />
+
+  --------------------------------------------------
+  group:
+
+  Name "":
+  <details
+    class="t3-launcher"
+  />
+
+  --------------------------------------------------
+  menu:
+
+  Name "Open a panel":
+  <div
+    aria-label="Open a panel"
+    class="t3-launcher-menu"
+    role="menu"
+  />
+
+  --------------------------------------------------
+  menuitem:
+
+  Name "Browser":
+  <button
+    role="menuitem"
+    type="button"
+  />
+
+  Name "Files":
+  <button
+    role="menuitem"
+    type="button"
+  />
+
+  Name "Diff":
+  <button
+    role="menuitem"
+    type="button"
+  />
+
+  Name "Pull requests":
+  <button
+    role="menuitem"
+    type="button"
+  />
+
+  --------------------------------------------------
+  status:
+
+  Name "Job phase":
+  <p
+    aria-label="Job phase"
+    class="t3-panel-job"
+    role="status"
+  />
+
+  --------------------------------------------------
+  tabpanel:
+
+  Name "Browser":
+  <section
+    aria-label="Browser"
+    aria-labelledby="workbench-tab-preview"
+    class="t3-panel-body"
+    id="workbench-preview"
+    role="tabpanel"
+  />
+
+  --------------------------------------------------
+  heading:
+
+  Name "Preview":
+  <h2
+    class="sr-only"
+    id="story-preview-cabins-heading"
+  />
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+<body
+  style="overflow: hidden;"
+>
+  <div>
+    <div
+      data-demo-chapter="ready"
+      data-demo-thread="cabins"
+    >
+      <div
+        aria-busy="false"
+        class="dashboard-frame relative grid h-dvh overflow-hidden bg-surface text-ink transition-opacity duration-200 opacity-100"
+        data-navigation-open="true"
+        data-sidebar-collapsed="false"
+        data-signing-out="false"
+        style="--sidebar-width: 256px;"
+      >
+        <button
+          aria-expanded="true"
+          aria-label="Collapse sidebar"
+          class="sidebar-toggle desktop-sidebar-toggle"
+          title="Collapse sidebar"
+          type="button"
+        >
+          <svg
+            aria-hidden="true"
+            class="size-4"
+            fill="none"
+            stroke="currentColor"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="1.4"
+            viewBox="0 0 16 16"
+          >
+            <rect
+              height="10"
+              rx="1.5"
+              width="12"
+              x="2"
+              y="3"
+            />
+            <path
+              d="M6.5 3v10"
+            />
+            <path
+              d="M4.2 3.2v9.6"
+              stroke-width="2.6"
+            />
+          </svg>
+        </button>
+        <button
+          aria-expanded="true"
+          aria-label="Close sessions"
+          class="sidebar-toggle mobile-sidebar-toggle"
+          type="button"
+        >
+          <svg
+            aria-hidden="true"
+            class="size-4"
+            fill="none"
+            stroke="currentColor"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="1.4"
+            viewBox="0 0 16 16"
+          >
+            <rect
+              height="10"
+              rx="1.5"
+              width="12"
+              x="2"
+              y="3"
+            />
+            <path
+              d="M6.5 3v10"
+            />
+            <path
+              d="M4.2 3.2v9.6"
+              stroke-width="2.6"
+            />
+          </svg>
+        </button>
+        <button
+          aria-label="Close navigation"
+          class="sidebar-backdrop"
+          type="button"
+        />
+        <div
+          class="dashboard-sidebar min-h-0"
+        >
+          <div
+            class="h-full"
+          >
+            <nav
+              aria-label="Dashboard"
+              class="flex h-full min-h-0 flex-col border-r border-edge bg-sidebar px-2 pt-3 pb-2"
+            >
+              <a
+                aria-label="nap dashboard"
+                class="mb-3 flex h-8 items-center gap-2 px-2 text-sm font-medium text-ink"
+                href="/dashboard"
+              >
+                <svg
+                  aria-hidden="true"
+                  class="nap-mark size-6"
+                  fill="currentColor"
+                  viewBox="-1 -6 32 32"
+                >
+                  <mask
+                    id="nap-mark-r1v"
+                  >
+                    <rect
+                      fill="#fff"
+                      height="32"
+                      width="32"
+                      x="-1"
+                      y="-6"
+                    />
+                    <g
+                      class="nap-mark-eyes"
+                      fill="#000"
+                    >
+                      <g
+                        class="nap-mark-shut"
+                      >
+                        <path
+                          d="M6.5 11.9c.44 1.7 1.2 2.7 2.1 2.7s1.66-1 2.1-2.7c.14-.53-.66-.76-.82-.24-.32 1.16-.76 1.79-1.28 1.79s-.96-.63-1.28-1.79c-.16-.52-.96-.29-.82.24Z"
+                        />
+                        <path
+                          d="M13.3 11.9c.44 1.7 1.2 2.7 2.1 2.7s1.66-1 2.1-2.7c.14-.53-.66-.76-.82-.24-.32 1.16-.76 1.79-1.28 1.79s-.96-.63-1.28-1.79c-.16-.52-.96-.29-.82.24Z"
+                        />
+                      </g>
+                      <g
+                        class="nap-mark-open"
+                      >
+                        <ellipse
+                          cx="8.6"
+                          cy="12.4"
+                          rx="1.35"
+                          ry="1.7"
+                        />
+                        <ellipse
+                          cx="15.4"
+                          cy="12.4"
+                          rx="1.35"
+                          ry="1.7"
+                        />
+                      </g>
+                      <g
+                        class="nap-mark-squint"
+                        fill="none"
+                        stroke="#000"
+                        stroke-linecap="round"
+ ...
+ ❯ Object.getElementError node_modules/.bun/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ node_modules/.bun/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ node_modules/.bun/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ node_modules/.bun/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ apps/web/src/landing/landing-desktop-demo.test.tsx:165:21
+    163|
+    164|       expect(selected).toHaveAttribute("aria-current", "page");
+    165|       expect(screen.getByRole("button", { name: "Open sessions" })).to…
+       |                     ^
+    166|         "aria-expanded",
+    167|         "false",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/11]⎯
+
+ FAIL  |web| apps/web/src/landing/landing-desktop-demo.test.tsx > compact demo session selection > activates the selected example and closes the drawer for click detail 1
+TestingLibraryElementError: Unable to find an accessible element with the role "button" and name "Open sessions"
+
+Here are the accessible roles:
+
+  button:
+
+  Name "Collapse sidebar":
+  <button
+    aria-expanded="true"
+    aria-label="Collapse sidebar"
+    class="sidebar-toggle desktop-sidebar-toggle"
+    title="Collapse sidebar"
+    type="button"
+  />
+
+  Name "Close sessions":
+  <button
+    aria-expanded="true"
+    aria-label="Close sessions"
+    class="sidebar-toggle mobile-sidebar-toggle"
+    type="button"
+  />
+
+  Name "Close navigation":
+  <button
+    aria-label="Close navigation"
+    class="sidebar-backdrop"
+    type="button"
+  />
+
+  Name "Filter by source":
+  <button
+    aria-expanded="false"
+    aria-label="Filter by source"
+    class="grid size-7 place-items-center rounded-md hover:bg-hover hover:text-ink text-sidebar-icon"
+    title="Filter by source"
+    type="button"
+  />
+
+  Name "New session":
+  <button
+    aria-label="New session"
+    class="grid size-7 shrink-0 place-items-center rounded-md text-sidebar-icon hover:bg-hover hover:text-ink"
+    data-new-session="true"
+    title="New session"
+    type="button"
+  />
+
+  Name "Session actions for Personal finance":
+  <button
+    aria-expanded="false"
+    aria-label="Session actions for Personal finance"
+    class="session-actions mr-1 grid size-7 shrink-0 place-items-center rounded-md text-muted transition-opacity hover:bg-hover hover:text-ink group-hover:opacity-100 focus-visible:opacity-100 opacity-0"
+    type="button"
+  />
+
+  Name "Session actions for Highland stays":
+  <button
+    aria-expanded="false"
+    aria-label="Session actions for Highland stays"
+    class="session-actions mr-1 grid size-7 shrink-0 place-items-center rounded-md text-muted transition-opacity hover:bg-hover hover:text-ink group-hover:opacity-100 focus-visible:opacity-100 opacity-0"
+    type="button"
+  />
+
+  Name "Session actions for Launch tracker":
+  <button
+    aria-expanded="false"
+    aria-label="Session actions for Launch tracker"
+    class="session-actions mr-1 grid size-7 shrink-0 place-items-center rounded-md text-muted transition-opacity hover:bg-hover hover:text-ink group-hover:opacity-100 focus-visible:opacity-100 opacity-0"
+    type="button"
+  />
+
+  Name "Settings":
+  <button
+    aria-expanded="false"
+    aria-haspopup="menu"
+    aria-label="Settings"
+    class="grid size-7 place-items-center rounded-md text-sidebar-icon hover:bg-hover hover:text-ink focus-visible:outline-accent"
+    title="Settings"
+    type="button"
+  />
+
+  Name "Close Browser":
+  <button
+    aria-label="Close Browser"
+    class="t3-tab-close"
+    tabindex="-1"
+    title="Close Browser"
+    type="button"
+  />
+
+  Name "Close Files":
+  <button
+    aria-label="Close Files"
+    class="t3-tab-close"
+    tabindex="-1"
+    title="Close Files"
+    type="button"
+  />
+
+  Name "Hide chat":
+  <button
+    aria-label="Hide chat"
+    class="t3-icon-button t3-maximize"
+    title="Maximize panel"
+    type="button"
+  />
+
+  Name "Close right panel":
+  <button
+    aria-label="Close right panel"
+    class="t3-icon-button"
+    title="Close right panel"
+    type="button"
+  />
+
+  Name "Reload the preview":
+  <button
+    aria-label="Reload the preview"
+    class="t3-icon-button"
+    title="Reload"
+    type="button"
+  />
+
+  --------------------------------------------------
+  navigation:
+
+  Name "Dashboard":
+  <nav
+    aria-label="Dashboard"
+    class="flex h-full min-h-0 flex-col border-r border-edge bg-sidebar px-2 pt-3 pb-2"
+  />
+
+  --------------------------------------------------
+  link:
+
+  Name "nap dashboard":
+  <a
+    aria-label="nap dashboard"
+    class="mb-3 flex h-8 items-center gap-2 px-2 text-sm font-medium text-ink"
+    href="/dashboard"
+  />
+
+  Name "Scratch7hPersonal finance":
+  <a
+    class="rounded-md outline-none select-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent flex h-full flex-col px-2.5 py-2"
+    data-session-link=""
+    href="/p/bb42b020-3c6d-411d-bff5-dc1b72b4c763"
+    title="Personal finance · Scratch · Workspace running"
+  />
+
+  Name "Scratch8hHighland stays":
+  <a
+    aria-current="page"
+    class="rounded-md outline-none select-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent flex h-full flex-col px-2.5 py-2"
+    data-session-link=""
+    href="/p/9a81f390-b50b-41d5-a989-77d1a3fb804c"
+    title="Highland stays · Scratch · Workspace running"
+  />
+
+  Name "Scratch9hLaunch tracker":
+  <a
+    class="rounded-md outline-none select-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent flex h-full flex-col px-2.5 py-2"
+    data-session-link=""
+    href="/p/4b840bd0-963f-4cb4-8bb0-af6aef257670"
+    title="Launch tracker · Scratch · Workspace running"
+  />
+
+  Name "Help":
+  <a
+    aria-label="Help"
+    class="grid size-7 place-items-center rounded-md text-sidebar-icon hover:bg-hover hover:text-ink"
+    href="/docs"
+    title="Help"
+  />
+
+  Name "Open the preview in a new tab":
+  <a
+    aria-label="Open the preview in a new tab"
+    class="t3-icon-button"
+    href="http://localhost:3000/demo/booking"
+    rel="noopener noreferrer"
+    target="_blank"
+    title="Open in browser"
+  />
+
+  --------------------------------------------------
+  textbox:
+
+  Name "Search sessions":
+  <input
+    aria-label="Search sessions"
+    class="min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-muted"
+    placeholder="Search"
+    value=""
+  />
+
+  Name "Page to show":
+  <input
+    aria-label="Page to show"
+    spellcheck="false"
+    title="Preview path. Navigation inside the app is controlled by the app."
+    value="/"
+  />
+
+  --------------------------------------------------
+  region:
+
+  Name "Session list":
+  <section
+    aria-label="Session list"
+    class="nap-scroll-hidden relative flex min-h-0 flex-1 flex-col overflow-y-auto"
+    tabindex="0"
+  />
+
+  Name "Preview":
+  <section
+    aria-labelledby="story-preview-cabins-heading"
+    class="relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-panel"
+  />
+
+  --------------------------------------------------
+  list:
+
+  Name "Inbox sessions":
+  <ul
+    aria-label="Inbox sessions"
+  />
+
+  --------------------------------------------------
+  listitem:
+
+  Name "":
+  <li
+    class="group relative list-none py-0.5"
+    data-drop="false"
+    draggable="false"
+  />
+
+  Name "":
+  <li
+    class="group relative list-none py-0.5"
+    data-drop="false"
+    draggable="false"
+  />
+
+  Name "":
+  <li
+    class="group relative list-none py-0.5"
+    data-drop="false"
+    draggable="false"
+  />
+
+  --------------------------------------------------
+  separator:
+
+  Name "Sidebar width":
+  <div
+    aria-label="Sidebar width"
+    aria-orientation="vertical"
+    aria-valuenow="256"
+    class="group relative z-10 -mx-[3px] h-full w-[7px] shrink-0 cursor-col-resize outline-none"
+    role="separator"
+    tabindex="0"
+  />
+
+  --------------------------------------------------
+  main:
+
+  Name "":
+  <main
+    class="dashboard-content nap-scroll-hidden relative min-h-0 min-w-0 overflow-y-auto"
+    inert=""
+  />
+
+  --------------------------------------------------
+  dialog:
+
+  Name "Right panel":
+  <section
+    aria-label="Right panel"
+    aria-modal="true"
+    class="t3-workbench"
+    role="dialog"
+  />
+
+  --------------------------------------------------
+  tablist:
+
+  Name "Workbench":
+  <div
+    aria-label="Workbench"
+    class="t3-tabs"
+    role="tablist"
+  />
+
+  --------------------------------------------------
+  presentation:
+
+  Name "":
+  <div
+    class="t3-tab-wrap"
+    data-active="true"
+    draggable="true"
+    role="presentation"
+  />
+
+  Name "":
+  <div
+    class="t3-tab-wrap"
+    data-active="false"
+    draggable="true"
+    role="presentation"
+  />
+
+  --------------------------------------------------
+  tab:
+
+  Name "Browser":
+  <button
+    aria-controls="workbench-preview"
+    aria-selected="true"
+    class="t3-tab"
+    id="workbench-tab-preview"
+    role="tab"
+    tabindex="0"
+    title="Browser"
+    type="button"
+  />
+
+  Name "Files":
+  <button
+    aria-controls="workbench-code"
+    aria-selected="false"
+    class="t3-tab"
+    id="workbench-tab-code"
+    role="tab"
+    tabindex="-1"
+    title="Files"
+    type="button"
+  />
+
+  --------------------------------------------------
+  group:
+
+  Name "":
+  <details
+    class="t3-launcher"
+  />
+
+  --------------------------------------------------
+  menu:
+
+  Name "Open a panel":
+  <div
+    aria-label="Open a panel"
+    class="t3-launcher-menu"
+    role="menu"
+  />
+
+  --------------------------------------------------
+  menuitem:
+
+  Name "Browser":
+  <button
+    role="menuitem"
+    type="button"
+  />
+
+  Name "Files":
+  <button
+    role="menuitem"
+    type="button"
+  />
+
+  Name "Diff":
+  <button
+    role="menuitem"
+    type="button"
+  />
+
+  Name "Pull requests":
+  <button
+    role="menuitem"
+    type="button"
+  />
+
+  --------------------------------------------------
+  status:
+
+  Name "Job phase":
+  <p
+    aria-label="Job phase"
+    class="t3-panel-job"
+    role="status"
+  />
+
+  --------------------------------------------------
+  tabpanel:
+
+  Name "Browser":
+  <section
+    aria-label="Browser"
+    aria-labelledby="workbench-tab-preview"
+    class="t3-panel-body"
+    id="workbench-preview"
+    role="tabpanel"
+  />
+
+  --------------------------------------------------
+  heading:
+
+  Name "Preview":
+  <h2
+    class="sr-only"
+    id="story-preview-cabins-heading"
+  />
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+<body
+  style="overflow: hidden;"
+>
+  <div>
+    <div
+      data-demo-chapter="ready"
+      data-demo-thread="cabins"
+    >
+      <div
+        aria-busy="false"
+        class="dashboard-frame relative grid h-dvh overflow-hidden bg-surface text-ink transition-opacity duration-200 opacity-100"
+        data-navigation-open="true"
+        data-sidebar-collapsed="false"
+        data-signing-out="false"
+        style="--sidebar-width: 256px;"
+      >
+        <button
+          aria-expanded="true"
+          aria-label="Collapse sidebar"
+          class="sidebar-toggle desktop-sidebar-toggle"
+          title="Collapse sidebar"
+          type="button"
+        >
+          <svg
+            aria-hidden="true"
+            class="size-4"
+            fill="none"
+            stroke="currentColor"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="1.4"
+            viewBox="0 0 16 16"
+          >
+            <rect
+              height="10"
+              rx="1.5"
+              width="12"
+              x="2"
+              y="3"
+            />
+            <path
+              d="M6.5 3v10"
+            />
+            <path
+              d="M4.2 3.2v9.6"
+              stroke-width="2.6"
+            />
+          </svg>
+        </button>
+        <button
+          aria-expanded="true"
+          aria-label="Close sessions"
+          class="sidebar-toggle mobile-sidebar-toggle"
+          type="button"
+        >
+          <svg
+            aria-hidden="true"
+            class="size-4"
+            fill="none"
+            stroke="currentColor"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="1.4"
+            viewBox="0 0 16 16"
+          >
+            <rect
+              height="10"
+              rx="1.5"
+              width="12"
+              x="2"
+              y="3"
+            />
+            <path
+              d="M6.5 3v10"
+            />
+            <path
+              d="M4.2 3.2v9.6"
+              stroke-width="2.6"
+            />
+          </svg>
+        </button>
+        <button
+          aria-label="Close navigation"
+          class="sidebar-backdrop"
+          type="button"
+        />
+        <div
+          class="dashboard-sidebar min-h-0"
+        >
+          <div
+            class="h-full"
+          >
+            <nav
+              aria-label="Dashboard"
+              class="flex h-full min-h-0 flex-col border-r border-edge bg-sidebar px-2 pt-3 pb-2"
+            >
+              <a
+                aria-label="nap dashboard"
+                class="mb-3 flex h-8 items-center gap-2 px-2 text-sm font-medium text-ink"
+                href="/dashboard"
+              >
+                <svg
+                  aria-hidden="true"
+                  class="nap-mark size-6"
+                  fill="currentColor"
+                  viewBox="-1 -6 32 32"
+                >
+                  <mask
+                    id="nap-mark-r29"
+                  >
+                    <rect
+                      fill="#fff"
+                      height="32"
+                      width="32"
+                      x="-1"
+                      y="-6"
+                    />
+                    <g
+                      class="nap-mark-eyes"
+                      fill="#000"
+                    >
+                      <g
+                        class="nap-mark-shut"
+                      >
+                        <path
+                          d="M6.5 11.9c.44 1.7 1.2 2.7 2.1 2.7s1.66-1 2.1-2.7c.14-.53-.66-.76-.82-.24-.32 1.16-.76 1.79-1.28 1.79s-.96-.63-1.28-1.79c-.16-.52-.96-.29-.82.24Z"
+                        />
+                        <path
+                          d="M13.3 11.9c.44 1.7 1.2 2.7 2.1 2.7s1.66-1 2.1-2.7c.14-.53-.66-.76-.82-.24-.32 1.16-.76 1.79-1.28 1.79s-.96-.63-1.28-1.79c-.16-.52-.96-.29-.82.24Z"
+                        />
+                      </g>
+                      <g
+                        class="nap-mark-open"
+                      >
+                        <ellipse
+                          cx="8.6"
+                          cy="12.4"
+                          rx="1.35"
+                          ry="1.7"
+                        />
+                        <ellipse
+                          cx="15.4"
+                          cy="12.4"
+                          rx="1.35"
+                          ry="1.7"
+                        />
+                      </g>
+                      <g
+                        class="nap-mark-squint"
+                        fill="none"
+                        stroke="#000"
+                        stroke-linecap="round"
+ ...
+ ❯ Object.getElementError node_modules/.bun/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ node_modules/.bun/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ node_modules/.bun/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ node_modules/.bun/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ apps/web/src/landing/landing-desktop-demo.test.tsx:165:21
+    163|
+    164|       expect(selected).toHaveAttribute("aria-current", "page");
+    165|       expect(screen.getByRole("button", { name: "Open sessions" })).to…
+       |                     ^
+    166|         "aria-expanded",
+    167|         "false",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/11]⎯
+
+ FAIL  |web| apps/web/src/landing/landing-desktop-demo.test.tsx > compact demo session selection > closes the drawer when the visitor selects the already active example
+TestingLibraryElementError: Unable to find an accessible element with the role "button" and name "Open sessions"
+
+Here are the accessible roles:
+
+  button:
+
+  Name "Collapse sidebar":
+  <button
+    aria-expanded="true"
+    aria-label="Collapse sidebar"
+    class="sidebar-toggle desktop-sidebar-toggle"
+    title="Collapse sidebar"
+    type="button"
+  />
+
+  Name "Close sessions":
+  <button
+    aria-expanded="true"
+    aria-label="Close sessions"
+    class="sidebar-toggle mobile-sidebar-toggle"
+    type="button"
+  />
+
+  Name "Close navigation":
+  <button
+    aria-label="Close navigation"
+    class="sidebar-backdrop"
+    type="button"
+  />
+
+  Name "Filter by source":
+  <button
+    aria-expanded="false"
+    aria-label="Filter by source"
+    class="grid size-7 place-items-center rounded-md hover:bg-hover hover:text-ink text-sidebar-icon"
+    title="Filter by source"
+    type="button"
+  />
+
+  Name "New session":
+  <button
+    aria-label="New session"
+    class="grid size-7 shrink-0 place-items-center rounded-md text-sidebar-icon hover:bg-hover hover:text-ink"
+    data-new-session="true"
+    title="New session"
+    type="button"
+  />
+
+  Name "Session actions for Personal finance":
+  <button
+    aria-expanded="false"
+    aria-label="Session actions for Personal finance"
+    class="session-actions mr-1 grid size-7 shrink-0 place-items-center rounded-md text-muted transition-opacity hover:bg-hover hover:text-ink group-hover:opacity-100 focus-visible:opacity-100 opacity-0"
+    type="button"
+  />
+
+  Name "Session actions for Highland stays":
+  <button
+    aria-expanded="false"
+    aria-label="Session actions for Highland stays"
+    class="session-actions mr-1 grid size-7 shrink-0 place-items-center rounded-md text-muted transition-opacity hover:bg-hover hover:text-ink group-hover:opacity-100 focus-visible:opacity-100 opacity-0"
+    type="button"
+  />
+
+  Name "Session actions for Launch tracker":
+  <button
+    aria-expanded="false"
+    aria-label="Session actions for Launch tracker"
+    class="session-actions mr-1 grid size-7 shrink-0 place-items-center rounded-md text-muted transition-opacity hover:bg-hover hover:text-ink group-hover:opacity-100 focus-visible:opacity-100 opacity-0"
+    type="button"
+  />
+
+  Name "Settings":
+  <button
+    aria-expanded="false"
+    aria-haspopup="menu"
+    aria-label="Settings"
+    class="grid size-7 place-items-center rounded-md text-sidebar-icon hover:bg-hover hover:text-ink focus-visible:outline-accent"
+    title="Settings"
+    type="button"
+  />
+
+  Name "Toggle thread details panel":
+  <button
+    aria-expanded="false"
+    aria-label="Toggle thread details panel"
+    aria-pressed="false"
+    class="t3-icon-button"
+    data-thread-details-toggle=""
+    title="Toggle thread details"
+    type="button"
+  />
+
+  Name "Show right panel":
+  <button
+    aria-label="Show right panel"
+    class="t3-icon-button"
+    title="Show right panel"
+    type="button"
+  />
+
+  Name "Copy response":
+  <button
+    aria-label="Copy response"
+    class="self-start rounded-chip p-1 text-muted transition-colors hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
+    type="button"
+  />
+
+  Name "Running npm":
+  <button
+    aria-expanded="false"
+    aria-label="Running npm"
+    class="group/live-work flex w-full max-w-full cursor-pointer rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/70 min-h-6 items-center"
+    type="button"
+  />
+
+  Name "Model":
+  <button
+    aria-expanded="false"
+    aria-label="Model"
+    class="flex h-7 max-w-[180px] items-center gap-1.5 rounded-lg px-2 font-normal text-[13px] text-ink-2 transition-colors duration-150 hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent disabled:text-muted"
+    disabled=""
+    type="button"
+  />
+
+  Name "Start dictation":
+  <button
+    aria-label="Start dictation"
+    aria-pressed="false"
+    class="grid size-8 shrink-0 place-items-center rounded-[8px] transition-[background-color,color,scale] duration-150 hover:bg-hover hover:text-ink aria-expanded:bg-hover aria-expanded:text-ink motion-safe:[&:active:not([aria-haspopup])]:scale-[0.97] focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40 text-muted"
+    disabled=""
+    title="Voice input is not supported by this browser"
+    type="button"
+  />
+
+  Name "Add to prompt":
+  <button
+    aria-expanded="false"
+    aria-haspopup="menu"
+    aria-label="Add to prompt"
+    class="grid size-8 shrink-0 place-items-center rounded-[8px] transition-[background-color,color,scale] duration-150 hover:bg-hover hover:text-ink aria-expanded:bg-hover aria-expanded:text-ink motion-safe:[&:active:not([aria-haspopup])]:scale-[0.97] focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40 text-muted"
+    disabled=""
+    type="button"
+  />
+
+  Name "Compact context":
+  <button
+    aria-describedby="_r_2o_"
+    class="mt-1 flex min-h-8 w-full shrink-0 items-center justify-center gap-1.5 rounded-chip border border-edge bg-field px-2 py-1 font-medium text-ink-2 transition-colors hover:bg-[color-mix(in_srgb,var(--color-field)_92%,white)] hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent disabled:opacity-40 motion-reduce:transition-none"
+    disabled=""
+    type="button"
+  />
+
+  Name "Stop":
+  <button
+    aria-label="Stop"
+    class="composer-stop flex size-8 shrink-0 items-center justify-center rounded-full bg-danger/90 text-white transition-colors duration-150 hover:bg-danger focus-visible:outline-accent [&_svg]:pointer-events-none"
+    type="button"
+  />
+
+  --------------------------------------------------
+  navigation:
+
+  Name "Dashboard":
+  <nav
+    aria-label="Dashboard"
+    class="flex h-full min-h-0 flex-col border-r border-edge bg-sidebar px-2 pt-3 pb-2"
+  />
+
+  --------------------------------------------------
+  link:
+
+  Name "nap dashboard":
+  <a
+    aria-label="nap dashboard"
+    class="mb-3 flex h-8 items-center gap-2 px-2 text-sm font-medium text-ink"
+    href="/dashboard"
+  />
+
+  Name "Scratch7hPersonal finance":
+  <a
+    aria-current="page"
+    class="rounded-md outline-none select-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent flex h-full flex-col px-2.5 py-2"
+    data-session-link=""
+    href="/p/bb42b020-3c6d-411d-bff5-dc1b72b4c763"
+    title="Personal finance · Scratch · Workspace running"
+  />
+
+  Name "Scratch8hHighland stays":
+  <a
+    class="rounded-md outline-none select-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent flex h-full flex-col px-2.5 py-2"
+    data-session-link=""
+    href="/p/9a81f390-b50b-41d5-a989-77d1a3fb804c"
+    title="Highland stays · Scratch · Workspace running"
+  />
+
+  Name "Scratch9hLaunch tracker":
+  <a
+    class="rounded-md outline-none select-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent flex h-full flex-col px-2.5 py-2"
+    data-session-link=""
+    href="/p/4b840bd0-963f-4cb4-8bb0-af6aef257670"
+    title="Launch tracker · Scratch · Workspace running"
+  />
+
+  Name "Help":
+  <a
+    aria-label="Help"
+    class="grid size-7 place-items-center rounded-md text-sidebar-icon hover:bg-hover hover:text-ink"
+    href="/docs"
+    title="Help"
+  />
+
+  --------------------------------------------------
+  textbox:
+
+  Name "Search sessions":
+  <input
+    aria-label="Search sessions"
+    class="min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-muted"
+    placeholder="Search"
+    value=""
+  />
+
+  Name "Message":
+  <textarea
+    aria-label="Message"
+    class="block min-h-12 w-full min-w-0 resize-none bg-transparent text-sm leading-relaxed text-ink outline-none placeholder:text-muted disabled:text-muted"
+    disabled=""
+    placeholder="Working…"
+    rows="1"
+    style="height: 28px; overflow-y: hidden;"
+  />
+
+  --------------------------------------------------
+  region:
+
+  Name "Session list":
+  <section
+    aria-label="Session list"
+    class="nap-scroll-hidden relative flex min-h-0 flex-1 flex-col overflow-y-auto"
+    tabindex="0"
+  />
+
+  Name "Chat":
+  <section
+    aria-labelledby="chat-heading"
+    class="relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-panel"
+  />
+
+  Name "Conversation":
+  <section
+    aria-label="Conversation"
+    class="chat-scroller nap-scroll relative h-full overflow-y-auto overflow-x-hidden focus-visible:outline-accent"
+    style="padding-bottom: 144px; scroll-padding-bottom: 144px;"
+    tabindex="0"
+  />
+
+  --------------------------------------------------
+  list:
+
+  Name "Inbox sessions":
+  <ul
+    aria-label="Inbox sessions"
+  />
+
+  --------------------------------------------------
+  listitem:
+
+  Name "":
+  <li
+    class="group relative list-none py-0.5"
+    data-drop="false"
+    draggable="false"
+  />
+
+  Name "":
+  <li
+    class="group relative list-none py-0.5"
+    data-drop="false"
+    draggable="false"
+  />
+
+  Name "":
+  <li
+    class="group relative list-none py-0.5"
+    data-drop="false"
+    draggable="false"
+  />
+
+  --------------------------------------------------
+  separator:
+
+  Name "Sidebar width":
+  <div
+    aria-label="Sidebar width"
+    aria-orientation="vertical"
+    aria-valuenow="256"
+    class="group relative z-10 -mx-[3px] h-full w-[7px] shrink-0 cursor-col-resize outline-none"
+    role="separator"
+    tabindex="0"
+  />
+
+  --------------------------------------------------
+  main:
+
+  Name "":
+  <main
+    class="dashboard-content nap-scroll-hidden relative min-h-0 min-w-0 overflow-y-auto"
+    inert=""
+  />
+
+  --------------------------------------------------
+  banner:
+
+  Name "":
+  <header
+    class="workspace-header t3-chat-header"
+  />
+
+  --------------------------------------------------
+  status:
+
+  Name "Job phase":
+  <p
+    aria-label="Job phase"
+    class="ml-auto flex min-w-0 items-center gap-1.5 text-[11px] text-muted"
+    role="status"
+  />
+
+  Name "Agent is working":
+  <div
+    aria-label="Agent is working"
+    class="border-edge border-b pt-1 pb-2"
+    role="status"
+  />
+
+  --------------------------------------------------
+  heading:
+
+  Name "Chat":
+  <h2
+    class="sr-only"
+    id="chat-heading"
+  />
+
+  --------------------------------------------------
+  log:
+
+  Name "Transcript":
+  <div
+    aria-label="Transcript"
+    class="mx-auto flex max-w-[46rem] flex-col px-5 py-6"
+    role="log"
+  />
+
+  --------------------------------------------------
+  paragraph:
+
+  Name "":
+  <p
+    class="whitespace-pre-wrap"
+  />
+
+  Name "":
+  <p
+    class="sr-only"
+  />
+
+  Name "":
+  <p />
+
+  Name "":
+  <p />
+
+  Name "":
+  <p
+    class="text-pretty font-medium text-[11px] text-ink-2"
+  />
+
+  Name "":
+  <p
+    id="_r_2o_"
+  />
+
+  --------------------------------------------------
+  group:
+
+  Name "Message composer":
+  <fieldset
+    aria-label="Message composer"
+    class="workspace-composer relative "
+    data-resting="false"
+    style="--composer-expanded-height: 0px;"
+  />
+
+  Name "":
+  <details
+    class="context-control relative shrink-0 text-xs text-muted"
+  />
+
+  --------------------------------------------------
+  menu:
+
+  Name "Add to prompt":
+  <div
+    aria-label="Add to prompt"
+    class="composer-add-menu composer-surface nap-float"
+    data-open="false"
+    inert=""
+    role="menu"
+  />
+
+  --------------------------------------------------
+  menuitem:
+
+  Name "Upload media":
+  <button
+    role="menuitem"
+    type="button"
+  />
+
+  Name "Repositories":
+  <button
+    role="menuitem"
+    type="button"
+  />
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+<body
+  style="overflow: hidden;"
+>
+  <div>
+    <div
+      data-demo-chapter="build"
+      data-demo-thread="finance"
+    >
+      <div
+        aria-busy="false"
+        class="dashboard-frame relative grid h-dvh overflow-hidden bg-surface text-ink transition-opacity duration-200 opacity-100"
+        data-navigation-open="true"
+        data-sidebar-collapsed="false"
+        data-signing-out="false"
+        style="--sidebar-width: 256px;"
+      >
+        <button
+          aria-expanded="true"
+          aria-label="Collapse sidebar"
+          class="sidebar-toggle desktop-sidebar-toggle"
+          title="Collapse sidebar"
+          type="button"
+        >
+          <svg
+            aria-hidden="true"
+            class="size-4"
+            fill="none"
+            stroke="currentColor"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="1.4"
+            viewBox="0 0 16 16"
+          >
+            <rect
+              height="10"
+              rx="1.5"
+              width="12"
+              x="2"
+              y="3"
+            />
+            <path
+              d="M6.5 3v10"
+            />
+            <path
+              d="M4.2 3.2v9.6"
+              stroke-width="2.6"
+            />
+          </svg>
+        </button>
+        <button
+          aria-expanded="true"
+          aria-label="Close sessions"
+          class="sidebar-toggle mobile-sidebar-toggle"
+          type="button"
+        >
+          <svg
+            aria-hidden="true"
+            class="size-4"
+            fill="none"
+            stroke="currentColor"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="1.4"
+            viewBox="0 0 16 16"
+          >
+            <rect
+              height="10"
+              rx="1.5"
+              width="12"
+              x="2"
+              y="3"
+            />
+            <path
+              d="M6.5 3v10"
+            />
+            <path
+              d="M4.2 3.2v9.6"
+              stroke-width="2.6"
+            />
+          </svg>
+        </button>
+        <button
+          aria-label="Close navigation"
+          class="sidebar-backdrop"
+          type="button"
+        />
+        <div
+          class="dashboard-sidebar min-h-0"
+        >
+          <div
+            class="h-full"
+          >
+            <nav
+              aria-label="Dashboard"
+              class="flex h-full min-h-0 flex-col border-r border-edge bg-sidebar px-2 pt-3 pb-2"
+            >
+              <a
+                aria-label="nap dashboard"
+                class="mb-3 flex h-8 items-center gap-2 px-2 text-sm font-medium text-ink"
+                href="/dashboard"
+              >
+                <svg
+                  aria-hidden="true"
+                  class="nap-mark size-6"
+                  fill="currentColor"
+                  viewBox="-1 -6 32 32"
+                >
+                  <mask
+                    id="nap-mark-r2j"
+                  >
+                    <rect
+                      fill="#fff"
+                      height="32"
+                      width="32"
+                      x="-1"
+                      y="-6"
+                    />
+                    <g
+                      class="nap-mark-eyes"
+                      fill="#000"
+                    >
+                      <g
+                        class="nap-mark-shut"
+                      >
+                        <path
+                          d="M6.5 11.9c.44 1.7 1.2 2.7 2.1 2.7s1.66-1 2.1-2.7c.14-.53-.66-.76-.82-.24-.32 1.16-.76 1.79-1.28 1.79s-.96-.63-1.28-1.79c-.16-.52-.96-.29-.82.24Z"
+                        />
+                        <path
+                          d="M13.3 11.9c.44 1.7 1.2 2.7 2.1 2.7s1.66-1 2.1-2.7c.14-.53-.66-.76-.82-.24-.32 1.16-.76 1.79-1.28 1.79s-.96-.63-1.28-1.79c-.16-.52-.96-.29-.82.24Z"
+                        />
+                      </g>
+                      <g
+                        class="nap-mark-open"
+                      >
+                        <ellipse
+                          cx="8.6"
+                          cy="12.4"
+                          rx="1.35"
+                          ry="1.7"
+                        />
+                        <ellipse
+                          cx="15.4"
+                          cy="12.4"
+                          rx="1.35"
+                          ry="1.7"
+                        />
+                      </g>
+                      <g
+                        class="nap-mark-squint"
+                        fill="none"
+                        stroke="#000"
+                        stroke-linecap="round"
+...
+ ❯ Object.getElementError node_modules/.bun/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ node_modules/.bun/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ node_modules/.bun/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ node_modules/.bun/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ apps/web/src/landing/landing-desktop-demo.test.tsx:185:19
+    183|     });
+    184|
+    185|     expect(screen.getByRole("button", { name: "Open sessions" })).toHa…
+       |                   ^
+    186|       "aria-expanded",
+    187|       "false",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/11]⎯
+
+ FAIL  |web| apps/web/src/landing/landing-desktop-demo.test.tsx > compact demo session selection > honors a cancelled session selection without switching the example or closing the drawer
+Error: expect(element).not.toHaveAttribute("aria-current", "page") // element.getAttribute("aria-current") === "page"
+
+Expected the element not to have attribute:
+  aria-current="page"
+Received:
+  aria-current="page"
+ ❯ apps/web/src/landing/landing-desktop-demo.test.tsx:206:26
+    204|     });
+    205|
+    206|     expect(selected).not.toHaveAttribute("aria-current", "page");
+       |                          ^
+    207|     expect(screen.getByRole("button", { name: "Close sessions" })).toH…
+    208|       "aria-expanded",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/11]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  11 failed (11)
+Type Errors  no errors
+   Start at  01:22:01
+   Duration  2.61s (transform 223ms, setup 116ms, import 481ms, tests 1.47s, environment 418ms)
+
+error: script "test:fast" exited with code 1

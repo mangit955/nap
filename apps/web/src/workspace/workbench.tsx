@@ -55,10 +55,12 @@ export function Workbench({
   job = null,
   chatHidden = false,
   narrow = false,
+  modal = true,
 }: {
   job?: JobSummary | null;
   chatHidden?: boolean;
   narrow?: boolean;
+  modal?: boolean;
   controller: PanelController;
   maximized: boolean;
   onMaximize: () => void;
@@ -70,6 +72,10 @@ export function Workbench({
   file: (path: string) => ReactNode;
 }) {
   const { layout } = controller;
+  const availableTabs = WORKBENCH_TABS.filter(
+    (tab) => tab.id !== "computer" || computer !== undefined,
+  );
+  const isModal = narrow && modal;
   const launcher = useRef<HTMLDetailsElement>(null);
   const root = useRef<HTMLElement>(null);
   const [context, setContext] = useState<string | null>(null);
@@ -107,7 +113,7 @@ export function Workbench({
     return () => window.removeEventListener("pointerdown", dismiss);
   }, []);
   useEffect(() => {
-    if (!layout.open || !narrow) return;
+    if (!layout.open || !isModal) return;
     const previous = document.activeElement;
     root.current
       ?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"], summary')
@@ -123,7 +129,7 @@ export function Workbench({
       document.removeEventListener("focusin", containFocus);
       if (previous instanceof HTMLElement) previous.focus();
     };
-  }, [layout.open, narrow]);
+  }, [layout.open, isModal]);
   const keyboard = (event: KeyboardEvent<HTMLElement>) => {
     if (event.key === "Escape") {
       if (context) setContext(null);
@@ -131,7 +137,7 @@ export function Workbench({
       else controller.hide();
       event.stopPropagation();
     }
-    if (event.key === "Tab" && narrow) {
+    if (event.key === "Tab" && isModal) {
       const focusable = [
         ...(root.current?.querySelectorAll<HTMLElement>(
           'button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), iframe, summary, [tabindex="0"]',
@@ -168,8 +174,8 @@ export function Workbench({
     // biome-ignore lint/a11y/useAriaPropsSupportedByRole: aria-modal is only present with the dialog role on narrow screens.
     <section
       ref={root}
-      role={narrow ? "dialog" : "region"}
-      aria-modal={narrow ? true : undefined}
+      role={isModal ? "dialog" : "region"}
+      aria-modal={isModal ? true : undefined}
       aria-label="Right panel"
       className="t3-workbench"
       hidden={!layout.open}
@@ -282,7 +288,7 @@ export function Workbench({
             <Plus />
           </summary>
           <div className="t3-launcher-menu" role="menu" aria-label="Open a panel">
-            {WORKBENCH_TABS.map((item) => (
+            {availableTabs.map((item) => (
               <button
                 key={item.id}
                 type="button"
@@ -390,7 +396,7 @@ export function Workbench({
           <div className="t3-panel-empty t3-panel-launcher">
             <p>Open a panel</p>
             <div>
-              {WORKBENCH_TABS.map((item) => (
+              {availableTabs.map((item) => (
                 <button
                   type="button"
                   key={item.id}

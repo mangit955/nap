@@ -1,7 +1,7 @@
 "use client";
 import { Check, Copy, FileCode2, WrapText } from "lucide-react";
 import dynamic from "next/dynamic";
-import { useLayoutEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { type FetchJson, useFileContent } from "../files/use-project-files.ts";
 import type { SessionLog } from "../hooks/use-session-log.ts";
 
@@ -27,27 +27,31 @@ export function FilePanel({
     ...(fetchJson ? { fetchJson } : {}),
   });
   const [wrap, setWrap] = useState(false);
-  const [copy, setCopy] = useState<"idle" | "copied" | "failed">("idle");
-  const copyGeneration = useRef(0);
-  // Reset before the enabled Copy button can receive an event for these contents.
-  useLayoutEffect(() => {
-    void sessionId;
-    void path;
-    void file?.contents;
-    copyGeneration.current++;
-    setCopy("idle");
-    return () => {
-      copyGeneration.current++;
-    };
-  }, [sessionId, path, file?.contents]);
+  // A copy result remembers which file and contents it was for, and only shows while those are
+  // still on screen. Resetting it from an effect instead lost a click that landed between the
+  // commit showing new contents and that effect running: the late reset wiped the result.
+  const [copyResult, setCopyResult] = useState<{
+    status: "copied" | "failed";
+    sessionId: string | undefined;
+    path: string;
+    contents: string;
+  }>();
+  const copy =
+    copyResult &&
+    file &&
+    copyResult.sessionId === sessionId &&
+    copyResult.path === path &&
+    copyResult.contents === file.contents
+      ? copyResult.status
+      : "idle";
   const copyFile = async () => {
     if (!file) return;
-    const generation = ++copyGeneration.current;
+    const target = { sessionId, path, contents: file.contents };
     try {
-      await navigator.clipboard.writeText(file.contents);
-      if (generation === copyGeneration.current) setCopy("copied");
+      await navigator.clipboard.writeText(target.contents);
+      setCopyResult({ status: "copied", ...target });
     } catch {
-      if (generation === copyGeneration.current) setCopy("failed");
+      setCopyResult({ status: "failed", ...target });
     }
   };
   return (
