@@ -71,6 +71,39 @@ describe("file clipboard", () => {
       );
     },
   );
+  it("keeps the fallback for a click that lands before the new contents' effects run", async () => {
+    clipboard({
+      writeText: () => {
+        throw new Error("blocked");
+      },
+    });
+    // A MutationObserver callback runs after React commits the contents but before it flushes
+    // that commit's passive effects, which is the window an ordinary click can only hit by chance.
+    let clicked = false;
+    const observer = new MutationObserver(() => {
+      if (clicked || !document.body.textContent?.includes("original")) return;
+      clicked = true;
+      fireEvent.click(screen.getByRole("button", { name: "Copy file" }));
+    });
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+    try {
+      render(
+        <FilePanel
+          sessionId={sessionId}
+          path="app.ts"
+          log={log}
+          fetchJson={async () => response()}
+        />,
+      );
+      await screen.findByText("original");
+    } finally {
+      observer.disconnect();
+    }
+    expect(clicked).toBe(true);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Select its contents to copy manually",
+    );
+  });
   it.each([false, true])(
     "resets copy status after new contents, including a pending copy: %s",
     async (pending) => {

@@ -341,15 +341,21 @@ export class PostgresTurnQueue implements TurnQueue {
       // the row takes it, and the other steps over it rather than waiting to update a row that is
       // about to stop being `leased`. Ordered by expiry, so the longest-abandoned turn — the one
       // whose chat pane has been spinning longest — is closed out first.
+      //
+      // `= any(array(…))` rather than `in (…)` so the limit holds whatever plan Postgres picks.
+      // `in` may be planned as a nested-loop semi-join that re-runs the locking subquery once per
+      // outer row; each re-run skips the rows this statement has already updated, so its `limit`
+      // hands back later ones and the update takes more than `limit`. An uncorrelated `array(…)`
+      // is evaluated once, before the update reads anything.
       .where(
-        sql`${turnRequests.id} in (
+        sql`${turnRequests.id} = any(array(
           select id from ${turnRequests}
           where state = 'leased'
             and lease_expires_at < now() - ${LEASE_GRACE}::interval
-          order by lease_expires_at
+          order by lease_expires_at, id
           for update skip locked
           limit ${limit}
-        )`,
+        ))`,
       )
       // `finished_at` is deliberately left null, and `lease_expires_at` deliberately left set. The
       // first is the marker saying this request's terminal events are not in the log yet; the

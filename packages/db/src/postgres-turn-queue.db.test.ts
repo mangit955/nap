@@ -694,6 +694,41 @@ describe("orphanExpired", () => {
     expect(await queue.orphanExpired(2)).toHaveLength(2);
     expect(await queue.orphanExpired(2)).toHaveLength(1);
   });
+
+  it("takes no more than the limit when the planner re-runs the locking subquery", async () => {
+    const seeds = await Promise.all(Array.from({ length: 3 }, () => seedSession()));
+    for (const seed of seeds) {
+      const { id } = await enqueueTurn(seed);
+      await queue.claim("worker-1");
+      await expireLease(id);
+    }
+
+    // With these paths switched off for its one connection, Postgres plans a membership test
+    // against the sweep's subquery as a nested-loop semi-join that re-runs that subquery once per
+    // row it updates. That plan is legal, and a table's statistics can make it the cheapest, so
+    // the limit has to hold under it rather than under whichever plan an empty table happens to
+    // get. Startup parameters rather than `set`, so no pooled connection can miss them.
+    const forced = postgres(inject("postgresUrl"), {
+      max: 1,
+      connection: {
+        enable_hashjoin: "off",
+        enable_mergejoin: "off",
+        enable_material: "off",
+        enable_hashagg: "off",
+        enable_sort: "off",
+      },
+    });
+    try {
+      const [setting] = await forced`show enable_hashagg`;
+      expect(setting?.enable_hashagg).toBe("off");
+
+      const sweeper = new PostgresTurnQueue(drizzle(forced));
+      expect(await sweeper.orphanExpired(2)).toHaveLength(2);
+      expect(await sweeper.orphanExpired(2)).toHaveLength(1);
+    } finally {
+      await forced.end();
+    }
+  });
 });
 
 describe("unannouncedOrphans", () => {
