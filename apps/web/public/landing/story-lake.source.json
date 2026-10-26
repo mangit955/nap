@@ -1,0 +1,6 @@
+{
+  "tool": "image_gen",
+  "mode": "built-in",
+  "prompt": "Use case: photorealistic-natural. Create a wide landscape background for Nap's dark product demo: a quiet forest lake at dusk, gently layered wooded hills, soft clouds and a faint amber horizon reflected in still water. Muted slate blue, deep forest green, warm stone. Natural asymmetry, subtle film grain, realistic foliage and water. Restrained editorial photography, 16:9 composition. Keep the center calm and low-contrast for overlaid white text. No people, buildings, text, logos, UI, neon colors, or surreal elements.",
+  "asset": "story-lake.webp"
+}

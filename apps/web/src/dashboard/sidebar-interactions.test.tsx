@@ -220,6 +220,82 @@ it("keeps the drawer open when a document listener cancels ordinary navigation",
   }
 });
 
+it("commits local project selection only after the rename delay expires", () => {
+  vi.useFakeTimers();
+  const session = row();
+  const select = vi.fn();
+  render(
+    <SessionList
+      sessions={[session]}
+      query=""
+      repository=""
+      onRename={vi.fn()}
+      onSelectProject={select}
+    />,
+  );
+  fireEvent.click(screen.getByRole("link", { name: /Review target/ }), { detail: 1 });
+  expect(select).not.toHaveBeenCalled();
+  act(() => vi.advanceTimersByTime(299));
+  expect(select).not.toHaveBeenCalled();
+  act(() => vi.advanceTimersByTime(1));
+  expect(select).toHaveBeenCalledExactlyOnceWith(session.projectId);
+});
+
+it("keeps double-click rename from committing a local project selection", () => {
+  vi.useFakeTimers();
+  const select = vi.fn();
+  render(
+    <SessionList
+      sessions={[row()]}
+      query=""
+      repository=""
+      onRename={vi.fn()}
+      onSelectProject={select}
+    />,
+  );
+  const link = screen.getByRole("link", { name: /Review target/ });
+  fireEvent.click(link, { detail: 1 });
+  fireEvent.click(link, { detail: 2 });
+  fireEvent.doubleClick(link);
+  act(() => vi.advanceTimersByTime(350));
+  expect(select).not.toHaveBeenCalled();
+  expect(screen.getByRole("textbox", { name: "Session name" })).toHaveFocus();
+});
+
+it.each(["metaKey", "ctrlKey", "shiftKey", "altKey"])(
+  "leaves %s project-link clicks to native navigation even with local selection configured",
+  (modifier) => {
+    vi.useFakeTimers();
+    const select = vi.fn();
+    render(
+      <SessionList
+        sessions={[row()]}
+        query=""
+        repository=""
+        onRename={vi.fn()}
+        onSelectProject={select}
+      />,
+    );
+    const navigate = vi.fn((event: MouseEvent) => {
+      expect(event.defaultPrevented).toBe(false);
+      event.preventDefault();
+    });
+    document.addEventListener("click", navigate);
+    try {
+      fireEvent.click(screen.getByRole("link", { name: /Review target/ }), {
+        detail: 1,
+        [modifier]: true,
+      });
+      act(() => vi.advanceTimersByTime(350));
+      expect(navigate).toHaveBeenCalledOnce();
+      expect(select).not.toHaveBeenCalled();
+      expect(screen.queryByRole("textbox", { name: "Session name" })).not.toBeInTheDocument();
+    } finally {
+      document.removeEventListener("click", navigate);
+    }
+  },
+);
+
 it("closes the drawer for ordinary keyboard navigation", async () => {
   render(<Dashboard hero={<p>Workspace</p>} sidebar={<a href="#destination">Destination</a>} />);
   fireEvent.click(screen.getByRole("button", { name: "Open sessions" }));

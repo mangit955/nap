@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Bricolage_Grotesque } from "next/font/google";
+import { Bricolage_Grotesque, Inter, Newsreader } from "next/font/google";
 import type { ReactNode } from "react";
 import "./globals.css";
 
@@ -18,6 +18,27 @@ import "./globals.css";
 const display = Bricolage_Grotesque({
   subsets: ["latin"],
   variable: "--font-bricolage",
+  display: "swap",
+});
+
+/**
+ * The front page's two faces: a light serif for its headings and Inter for everything else on it.
+ *
+ * The serif is what makes the page read as editorial rather than as another dashboard — the same
+ * choice the design it follows makes — and it is loaded across its optical-size axis because the
+ * headings are set at display sizes, where the high-`opsz` cut is the one drawn for them. Both are
+ * exposed as variables and used only under `.landing`; the app keeps its system sans.
+ */
+const landingSerif = Newsreader({
+  subsets: ["latin"],
+  variable: "--font-newsreader",
+  axes: ["opsz"],
+  display: "swap",
+});
+
+const landingSans = Inter({
+  subsets: ["latin"],
+  variable: "--font-inter",
   display: "swap",
 });
 
@@ -70,7 +91,10 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" className={display.variable}>
+    <html
+      lang="en"
+      className={`${display.variable} ${landingSerif.variable} ${landingSans.variable}`}
+    >
       <body>{children}</body>
     </html>
   );

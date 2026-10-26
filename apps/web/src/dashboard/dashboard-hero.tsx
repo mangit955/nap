@@ -13,6 +13,7 @@ import { useMediaAttachments } from "../chat/use-media-attachments.ts";
 import { appendDictation, useDictation } from "./use-dictation.ts";
 
 export function DashboardHero({
+  autoFocus = true,
   value,
   source,
   picker,
@@ -29,6 +30,7 @@ export function DashboardHero({
   onChange,
   onSubmit,
 }: {
+  autoFocus?: boolean;
   value: string;
   source?: ReactNode;
   picker?: ReactNode;
@@ -53,10 +55,10 @@ export function DashboardHero({
   const dictation = useDictation((spoken) => onChange(appendDictation(value, spoken)));
   const disabled = busy || media.processing;
   useEffect(() => {
-    if (!busy && document.activeElement === document.body) {
+    if (autoFocus && !busy && document.activeElement === document.body) {
       box.current?.focus({ preventScroll: true });
     }
-  }, [busy]);
+  }, [busy, autoFocus]);
   useEffect(() => {
     if (busy) dictation.stop();
   }, [busy, dictation.stop]);

@@ -1,0 +1,762 @@
+@layer components {
+  :where(.lp-benefits) {
+    padding-block: 80px 100px;
+    scroll-margin-top: 100px;
+  }
+  :where(.nf-heading) {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 36px;
+  }
+  :where(.nf-heading .lp-eyebrow) {
+    color: var(--color-muted);
+    font-size: var(--lp-text-label);
+    letter-spacing: 0.12em;
+  }
+  :where(.lp-benefits h2) {
+    margin: 20px 0 0;
+    font-size: clamp(40px, 4.5vw, 62px);
+    line-height: 1.04;
+  }
+  :where(.lp-benefits h2 > span) {
+    color: var(--color-muted);
+  }
+  :where(.nf-heading-aside) {
+    flex-shrink: 1;
+    padding-bottom: 4px;
+  }
+  :where(.nf-heading-aside p) {
+    color: var(--color-muted);
+    font-size: var(--lp-text-body);
+    line-height: 1.8;
+    letter-spacing: -0.01em;
+    min-width: 0;
+  }
+  :where(.nf-replay) {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 40px;
+    margin: 12px 0 -7px;
+    color: var(--color-ink-2);
+    font-size: 13px;
+    cursor: pointer;
+    transition: color 150ms ease;
+    white-space: nowrap;
+  }
+  :where(.nf-replay:hover) {
+    color: var(--color-ink);
+  }
+  :where(.lp-benefit-grid) {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+    margin-top: 43px;
+  }
+  :where(.lp-benefit-card) {
+    height: 100%;
+    min-width: 0;
+    overflow: hidden;
+    border: 1px solid var(--color-edge);
+    border-radius: 12px;
+    background: var(--color-panel);
+    transition: border-color 180ms ease;
+  }
+  :where(.lp-benefit-card:hover, .lp-benefit-card:focus-within) {
+    border-color: var(--color-line-strong);
+  }
+  :where(.nf-card-copy) {
+    padding: 23px 25px 29px;
+    border-top: 1px solid #ffffff07;
+  }
+  :where(.nf-card-index) {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    color: var(--color-muted);
+    font-size: var(--lp-text-label);
+    letter-spacing: 0.1em;
+    font-variant-numeric: tabular-nums;
+  }
+  :where(.nf-card-index i) {
+    width: 13px;
+    height: 1px;
+    background: var(--color-line-strong);
+  }
+  :where(.lp-benefit-card h3) {
+    margin: 17px 0 14px;
+    color: var(--color-ink);
+    font-size: 25px;
+    font-weight: 450;
+    line-height: 1.16;
+    letter-spacing: -0.045em;
+  }
+  :where(.lp-benefit-card p) {
+    color: var(--color-ink-2);
+    font-size: var(--lp-text-body);
+    line-height: 1.8;
+    letter-spacing: -0.015em;
+  }
+  :where(.nf-art) {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    height: 276px;
+    padding: 24px 19px;
+    color: var(--color-ink-2);
+    font-family: var(--font-sans);
+    font-size: 12px;
+    background: var(--color-surface);
+    overflow: hidden;
+  }
+  :where(.nf-art code) {
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+  :where(.nf-window-bar) {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 36px;
+    padding: 0 12px;
+    border-bottom: 1px solid var(--color-edge);
+    color: var(--color-muted);
+    font-size: 12px;
+  }
+  :where(.nf-window-bar > .nap-mark) {
+    color: var(--color-ink-2);
+  }
+  :where(.nf-window-hint) {
+    margin-left: auto;
+    color: var(--color-gutter);
+    font-family: var(--font-mono);
+    font-size: 11px;
+  }
+  :where(.nf-working-label) {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--color-accent-ink);
+    font-size: 11px;
+  }
+  :where(.nf-working-label i) {
+    width: 4px;
+    height: 4px;
+    background: var(--color-accent);
+    border-radius: 50%;
+  }
+  :where(.nf-browser) {
+    position: absolute;
+    top: 19px;
+    left: 35px;
+    right: 35px;
+    height: 67px;
+    border: 1px solid var(--color-edge);
+    border-radius: 7px;
+    background: var(--color-field);
+    opacity: 0;
+    transform: translateY(-12px) scale(0.97);
+  }
+  :where(.nf-browser > div) {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    height: 29px;
+    padding-inline: 9px;
+    border-bottom: 1px solid var(--color-edge);
+    color: var(--color-muted);
+    font-size: 11px;
+  }
+  :where(.nf-browser > div > svg:last-child) {
+    margin-left: auto;
+  }
+  :where(.nf-browser-line) {
+    display: block;
+    width: 65%;
+    height: 3px;
+    border-radius: 2px;
+    margin: 10px 12px 0;
+    background: var(--color-edge);
+  }
+  :where(.nf-browser-line:last-child) {
+    width: 38%;
+    margin-top: 6px;
+  }
+  :where(.nf-tab-closed) {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    position: absolute;
+    top: 29px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: var(--color-muted);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  :where(.nf-offline-dot) {
+    height: 4px;
+    width: 4px;
+    margin-left: 3px;
+    border-radius: 50%;
+    background: var(--color-line-strong);
+  }
+  :where(.nf-connection) {
+    position: absolute;
+    top: 52px;
+    left: 50%;
+    width: 1px;
+    height: 26px;
+    background: var(--color-edge);
+    transform-origin: top;
+  }
+  :where(.nf-connection > span) {
+    position: absolute;
+    bottom: 0;
+    left: -2px;
+    width: 5px;
+    height: 5px;
+    border: 1px solid var(--color-accent);
+    background: var(--color-surface);
+    border-radius: 50%;
+  }
+  :where(.nf-sandbox) {
+    position: relative;
+    margin-top: 48px;
+    background: var(--color-panel);
+    border: 1px solid var(--color-edge);
+    border-radius: 8px;
+    box-shadow: 0 6px 24px #0003;
+  }
+  :where(.nf-sandbox-body) {
+    padding: 12px 12px 8px;
+  }
+  :where(.nf-command) {
+    display: flex;
+    gap: 7px;
+    align-items: center;
+    color: var(--color-ink);
+    font-size: 12px;
+    margin-bottom: 10px;
+  }
+  :where(.nf-process-row) {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 25px;
+    color: var(--color-muted);
+    font-size: 12px;
+  }
+  :where(.nf-process-row > svg) {
+    color: var(--color-ink-2);
+    flex-shrink: 0;
+  }
+  :where(.nf-process-row > span:last-child) {
+    margin-left: auto;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--color-gutter);
+  }
+  :where(.nf-sandbox-footer) {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-top: 1px solid #ffffff07;
+    padding: 9px 12px;
+    color: var(--color-gutter);
+    font-size: 11px;
+  }
+  :where(.nf-activity-track) {
+    display: block;
+    width: 29px;
+    height: 2px;
+    overflow: hidden;
+    background: var(--color-edge);
+  }
+  :where(.nf-activity-track > span) {
+    display: block;
+    width: 70%;
+    height: 100%;
+    background: var(--color-accent);
+    transform-origin: left;
+  }
+  :where(.nf-checks-window) {
+    border: 1px solid var(--color-edge);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--color-panel);
+    box-shadow: 0 6px 24px #0003;
+  }
+  :where(.nf-check-row) {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-inline: 12px;
+    min-height: 57px;
+    border-bottom: 1px solid #ffffff09;
+  }
+  :where(.nf-check-icon) {
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 1px solid var(--color-line-strong);
+    color: var(--color-ink-2);
+  }
+  :where(.nf-check-row > div > span) {
+    color: var(--color-ink-2);
+    font-size: 12px;
+  }
+  :where(.nf-check-row code) {
+    display: block;
+    color: var(--color-gutter);
+    margin-top: 4px;
+    font-size: 11px;
+  }
+  :where(.nf-check-result) {
+    margin-left: auto;
+    text-align: right;
+    font-size: 12px;
+    color: var(--color-ink-2);
+  }
+  :where(.nf-check-result small) {
+    display: block;
+    margin-top: 4px;
+    color: var(--color-gutter);
+    font-size: 11px;
+  }
+  :where(.nf-checkpoint) {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 14px 12px;
+    color: var(--color-ink-2);
+    font-size: 12px;
+  }
+  :where(.nf-checkpoint > div > span) {
+    display: block;
+    color: var(--color-gutter);
+    font-size: 11px;
+    margin-top: 4px;
+  }
+  :where(.nf-checkpoint > code) {
+    color: var(--color-gutter);
+    font-size: 11px;
+    margin-left: auto;
+  }
+  :where(.nf-verification-note) {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    margin-top: 14px;
+    color: var(--color-gutter);
+    font-size: 11px;
+  }
+  :where(.nf-inspector) {
+    border: 1px solid var(--color-edge);
+    border-radius: 8px;
+    background: var(--color-panel);
+    overflow: hidden;
+    box-shadow: 0 6px 24px #0003;
+  }
+  :where(.nf-inspector-tabs) {
+    display: grid;
+    position: relative;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    border-bottom: 1px solid var(--color-edge);
+  }
+  :where(.nf-inspector-tabs)::after {
+    content: "";
+    position: absolute;
+    bottom: -1px;
+    height: 1px;
+    left: 0;
+    width: calc(100% / 3);
+    background: var(--color-ink-2);
+    transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+    pointer-events: none;
+  }
+  :where(.nf-inspector-tabs[data-view="Changes"])::after {
+    transform: translateX(100%);
+  }
+  :where(.nf-inspector-tabs[data-view="History"])::after {
+    transform: translateX(200%);
+  }
+  :where(.nf-inspector-tabs > button) {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    min-height: 38px;
+    color: var(--color-muted);
+    font-size: 12px;
+    cursor: pointer;
+    transition:
+      color 130ms ease,
+      background-color 130ms ease;
+  }
+  :where(.nf-inspector-tabs > button[aria-selected="true"]) {
+    color: var(--color-ink);
+  }
+  :where(.nf-inspector-tabs > button:hover) {
+    background: var(--color-hover);
+    color: var(--color-ink);
+  }
+  :where(.nf-inspector-panel) {
+    min-height: 138px;
+  }
+  :where(.nf-inspector-content) {
+    padding: 10px 8px;
+    animation: nf-content-in 170ms ease both;
+  }
+  :where(.nf-folder-row, .nf-file-row) {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    height: 28px;
+    padding-inline: 6px;
+    font-size: 12px;
+  }
+  :where(.nf-folder-row) {
+    color: var(--color-muted);
+    font-size: 12px;
+  }
+  :where(.nf-folder-row > span) {
+    margin-left: auto;
+    color: var(--color-gutter);
+    font-size: 11px;
+  }
+  :where(.nf-file-row) {
+    padding-left: 27px;
+    border-radius: 4px;
+    color: var(--color-ink-2);
+  }
+  :where(.nf-file-row > svg) {
+    color: var(--color-muted);
+  }
+  :where(.nf-file-row > span:last-child) {
+    margin-left: auto;
+    font-family: var(--font-mono);
+    color: var(--color-gutter);
+    font-size: 11px;
+  }
+  :where(.nf-file-selected) {
+    background: var(--color-row-active);
+    color: var(--color-ink);
+  }
+  :where(.nf-diff-title) {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    padding-inline: 5px;
+    color: var(--color-ink-2);
+    font-size: 12px;
+  }
+  :where(.nf-diff-title > span) {
+    margin-left: auto;
+    color: var(--color-gutter);
+    font-family: var(--font-mono);
+    font-size: 11px;
+  }
+  :where(.nf-code-line) {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 5px;
+    height: 26px;
+  }
+  :where(.nf-code-line > span) {
+    color: var(--color-gutter);
+    font-family: var(--font-mono);
+    font-size: 11px;
+  }
+  :where(.nf-code-line code) {
+    font-size: 11px;
+    white-space: pre;
+    color: var(--color-ink-2);
+  }
+  :where(.nf-code-removed) {
+    opacity: 0.45;
+  }
+  :where(.nf-code-added) {
+    background: var(--color-accent-tint);
+  }
+  :where(.nf-git-log) {
+    padding-inline: 3px;
+  }
+  :where(.nf-git-log > div) {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    height: 39px;
+    font-size: 12px;
+  }
+  :where(.nf-git-log > div > svg) {
+    flex-shrink: 0;
+    color: var(--color-muted);
+  }
+  :where(.nf-git-log small) {
+    display: block;
+    margin-top: 4px;
+    font-size: 11px;
+    color: var(--color-gutter);
+  }
+  :where(.nf-git-log code) {
+    margin-left: auto;
+    font-size: 10px;
+    color: var(--color-gutter);
+  }
+  :where(.nf-inspector-footer) {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    border-top: 1px solid var(--color-edge);
+    height: 28px;
+    padding-inline: 11px;
+    font-size: 11px;
+    color: var(--color-muted);
+  }
+  :where(.nf-inspector-footer > span:last-child) {
+    margin-left: auto;
+    color: var(--color-gutter);
+    font-size: 10px;
+  }
+  :where(.nf-inspector-hint) {
+    text-align: center;
+    color: var(--color-gutter);
+    font-size: 11px;
+    margin-top: 14px;
+  }
+  :where(.nf-section-foot) {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--color-gutter);
+    font-size: var(--lp-text-label);
+    margin-top: 20px;
+  }
+  :where(.nf-section-foot > span:last-child) {
+    margin-left: auto;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+  }
+  :where([data-reveal="in"] .nf-browser) {
+    animation: nf-close-tab 1600ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  :where([data-reveal="in"] .nf-tab-closed) {
+    animation: nf-appear 350ms 1050ms ease both;
+  }
+  :where([data-reveal="in"] .nf-connection) {
+    animation: nf-connect 500ms 1200ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  :where([data-reveal="in"] .nf-sandbox) {
+    animation: nf-sandbox-enter 800ms 400ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  :where([data-reveal="in"] .nf-process-first) {
+    animation: nf-content-in 260ms 1250ms ease both;
+  }
+  :where([data-reveal="in"] .nf-process-second) {
+    animation: nf-content-in 260ms 1700ms ease both;
+  }
+  :where([data-reveal="in"] .nf-process-third) {
+    animation: nf-content-in 260ms 2150ms ease both;
+  }
+  :where([data-reveal="in"] .nf-activity-track > span) {
+    animation: nf-progress 2300ms 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  :where([data-reveal="in"] .nf-check-first .nf-check-icon svg) {
+    animation: nf-appear 200ms 650ms ease both;
+  }
+  :where([data-reveal="in"] .nf-check-first .nf-check-result) {
+    animation: nf-content-in 250ms 650ms ease both;
+  }
+  :where([data-reveal="in"] .nf-check-second .nf-check-icon svg) {
+    animation: nf-appear 200ms 1400ms ease both;
+  }
+  :where([data-reveal="in"] .nf-check-second .nf-check-result) {
+    animation: nf-content-in 250ms 1400ms ease both;
+  }
+  :where([data-reveal="in"] .nf-checkpoint) {
+    animation: nf-content-in 300ms 2050ms ease both;
+  }
+  :where([data-reveal="in"] .nf-verification-note) {
+    animation: nf-appear 250ms 2250ms ease both;
+  }
+  :where([data-reveal="in"] .nf-inspector) {
+    animation: nf-content-in 500ms 200ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  @keyframes nf-close-tab {
+    0%,
+    45% {
+      opacity: 1;
+      transform: none;
+    }
+    75%,
+    100% {
+      opacity: 0;
+      transform: translateY(-12px) scale(0.97);
+    }
+  }
+  @keyframes nf-appear {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes nf-connect {
+    from {
+      transform: scaleY(0);
+      opacity: 0;
+    }
+    to {
+      transform: scaleY(1);
+      opacity: 1;
+    }
+  }
+  @keyframes nf-progress {
+    from {
+      transform: scaleX(0);
+    }
+    to {
+      transform: scaleX(1);
+    }
+  }
+  @keyframes nf-sandbox-enter {
+    from {
+      transform: translateY(9px);
+    }
+    to {
+      transform: none;
+    }
+  }
+  @keyframes nf-content-in {
+    from {
+      opacity: 0;
+      transform: translateY(5px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @media (max-width: 1100px) {
+    :where(.nf-heading-aside p) {
+      font-size: var(--lp-text-body);
+      min-width: 0;
+    }
+    :where(.nf-heading) {
+      gap: 20px;
+    }
+    :where(.nf-card-copy) {
+      padding: 21px 20px 25px;
+    }
+    :where(.nf-art) {
+      padding-inline: 12px;
+    }
+    :where(.lp-benefit-card h3) {
+      font-size: 23px;
+    }
+  }
+  @media (max-width: 1000px) {
+    :where(.nf-heading) {
+      align-items: flex-start;
+      flex-direction: column;
+    }
+    :where(.nf-heading-aside) {
+      display: flex;
+      width: 100%;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 4px 16px;
+      flex-shrink: 1;
+    }
+    :where(.nf-replay) {
+      margin: 0;
+      min-height: 40px;
+      white-space: nowrap;
+    }
+    :where(.lp-benefit-grid) {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 14px;
+      margin-top: 30px;
+    }
+    :where(.lp-benefit-card) {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      align-items: stretch;
+    }
+    :where(.nf-art) {
+      padding-inline: 24px;
+    }
+    :where(.nf-card-copy) {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 28px;
+      border-top: 0;
+      border-left: 1px solid #ffffff07;
+    }
+    :where(.lp-benefit-card h3) {
+      font-size: 25px;
+    }
+  }
+  @media (max-width: 680px) {
+    :where(.lp-benefits) {
+      padding-block: 60px 70px;
+    }
+    :where(.lp-benefits h2) {
+      font-size: clamp(33px, 7.2vw, 46px);
+    }
+    :where(.nf-heading .lp-eyebrow) {
+      font-size: var(--lp-text-label);
+    }
+    :where(.nf-heading-aside p) {
+      font-size: var(--lp-text-body);
+      min-width: 0;
+    }
+    :where(.nf-replay) {
+      font-size: 13px;
+      min-height: 40px;
+      white-space: nowrap;
+    }
+    :where(.lp-benefit-card) {
+      display: block;
+    }
+    :where(.nf-art) {
+      padding-inline: 24px;
+    }
+    :where(.nf-card-copy) {
+      border-left: 0;
+      border-top: 1px solid #ffffff07;
+      padding: 24px;
+    }
+    :where(.lp-benefit-card h3) {
+      font-size: 27px;
+    }
+    :where(.lp-benefit-card p) {
+      font-size: var(--lp-text-body);
+      color: var(--color-ink-2);
+    }
+    :where(.nf-section-foot > span:last-child) {
+      display: none;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    :where(.lp-benefits *, .lp-benefits *::after) {
+      animation: none;
+      transition: none;
+    }
+    :where(.nf-replay, .nf-browser) {
+      display: none;
+    }
+  }
+}

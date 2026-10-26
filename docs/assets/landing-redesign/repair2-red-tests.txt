@@ -1,0 +1,542 @@
+$ vitest run --project unit --project types --project web --project web apps/web/src/landing/landing-desktop-demo.test.tsx apps/web/src/landing/session-preview.test.tsx --testNamePattern "ready demo file identity|saved session-list scroll|saved scroll"
+Testing types with tsc and vue-tsc is an experimental feature.
+Breaking changes might not follow SemVer, please pin Vitest's version when using it.
+
+ RUN  v4.1.10 <repo>
+
+ ❯ |web| apps/web/src/landing/session-preview.test.tsx (5 tests | 2 failed | 3 skipped) 74ms
+     × does not restore the real app's saved session-list scroll 50ms
+     × keeps hero session-list scrolling out of the real app's saved scroll 22ms
+ ❯ |web| apps/web/src/landing/landing-desktop-demo.test.tsx (16 tests | 4 failed | 12 skipped) 2525ms
+     × does not restore the real app's saved session-list scroll 131ms
+     × keeps demo session-list scrolling out of the real app's saved scroll 52ms
+     × shows cabins source after Finance without restarting ready previews 1180ms
+     × shows launch source after Finance without restarting ready previews 1161ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |web| apps/web/src/landing/landing-desktop-demo.test.tsx > the native landing demo's sidebar preferences > does not restore the real app's saved session-list scroll
+AssertionError: expected "getItem" to not be called with arguments: [ 'nap.sidebar.scroll' ]
+
+Received:
+
+  1st getItem call:
+
+  [
+-   "nap.sidebar.scroll",
++   "nap.sidebar.shelves.local",
+  ]
+
+  2nd getItem call:
+
+  [
+-   "nap.sidebar.scroll",
++   "nap.right-panel.v1:landing-desktop-example",
+  ]
+
+  3rd getItem call:
+
+Compared values have no visual difference.
+
+
+Number of calls: 3
+
+ ❯ apps/web/src/landing/landing-desktop-demo.test.tsx:68:22
+     66|     render(<LandingDesktopDemo initialChapter="ready" />);
+     67|
+     68|     expect(read).not.toHaveBeenCalledWith("nap.sidebar.scroll");
+       |                      ^
+     69|     expect(screen.getByRole("region", { name: "Session list" }).scroll…
+     70|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+ FAIL  |web| apps/web/src/landing/landing-desktop-demo.test.tsx > the native landing demo's sidebar preferences > keeps demo session-list scrolling out of the real app's saved scroll
+AssertionError: expected "setItem" to not be called with arguments: [ 'nap.sidebar.scroll', Anything ]
+
+Received:
+
+  1st setItem call:
+
+  [
+-   "nap.sidebar.scroll",
+-   Anything,
++   "nap.right-panel.v1:landing-desktop-example",
++   "{\"version\":1,\"tabs\":[{\"kind\":\"preview\"},{\"kind\":\"code\"}],\"active\":\"preview\",\"open\":true}",
+  ]
+
+  2nd setItem call:
+
+  [
+    "nap.sidebar.scroll",
+-   Anything,
++   "120",
+  ]
+
+
+Number of calls: 2
+
+ ❯ apps/web/src/landing/landing-desktop-demo.test.tsx:83:23
+     81|
+     82|     expect(list.scrollTop).toBe(120);
+     83|     expect(write).not.toHaveBeenCalledWith("nap.sidebar.scroll", expec…
+       |                       ^
+     84|     expect(sessionStorage.getItem("nap.sidebar.scroll")).toBe("640");
+     85|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ FAIL  |web| apps/web/src/landing/landing-desktop-demo.test.tsx > ready demo file identity > shows cabins source after Finance without restarting ready previews
+AssertionError: expected 'import { useState } from "react";\nim…' to be 'import { useState } from "react";\n\n…' // Object.is equality
+
+Ignored nodes: comments, script, style
+<html
+  style="overflow: hidden;"
+>
+  <head />
+  <body
+    style="overflow: hidden;"
+  >
+    <div>
+      <div
+        data-demo-chapter="ready"
+        data-demo-thread="cabins"
+      >
+        <div
+          aria-busy="false"
+          class="dashboard-frame relative grid h-dvh overflow-hidden bg-surface text-ink transition-opacity duration-200 opacity-100"
+          data-navigation-open="false"
+          data-sidebar-collapsed="false"
+          data-signing-out="false"
+          style="--sidebar-width: 256px;"
+        >
+          <button
+            aria-expanded="true"
+            aria-label="Collapse sidebar"
+            class="sidebar-toggle desktop-sidebar-toggle"
+            title="Collapse sidebar"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="size-4"
+              fill="none"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.4"
+              viewBox="0 0 16 16"
+            >
+              <rect
+                height="10"
+                rx="1.5"
+                width="12"
+                x="2"
+                y="3"
+              />
+              <path
+                d="M6.5 3v10"
+              />
+              <path
+                d="M4.2 3.2v9.6"
+                stroke-width="2.6"
+              />
+            </svg>
+          </button>
+          <button
+            aria-expanded="false"
+            aria-label="Open sessions"
+            class="sidebar-toggle mobile-sidebar-toggle"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="size-4"
+              fill="none"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.4"
+              viewBox="0 0 16 16"
+            >
+              <rect
+                height="10"
+                rx="1.5"
+                width="12"
+                x="2"
+                y="3"
+              />
+              <path
+                d="M6.5 3v10"
+              />
+            </svg>
+          </button>
+          <div
+            class="dashboard-sidebar min-h-0"
+          >
+            <nav
+              aria-label="Dashboard"
+              class="flex h-full min-h-0 flex-col border-r border-edge bg-sidebar px-2 pt-3 pb-2"
+            >
+              <a
+                aria-label="nap dashboard"
+                class="mb-3 flex h-8 items-center gap-2 px-2 text-sm font-medium text-ink"
+                href="/dashboard"
+              >
+                <svg
+                  aria-hidden="true"
+                  class="nap-mark size-6"
+                  fill="currentColor"
+                  viewBox="-1 -6 32 32"
+                >
+                  <mask
+                    id="nap-mark-ri"
+                  >
+                    <rect
+                      fill="#fff"
+                      height="32"
+                      width="32"
+                      x="-1"
+                      y="-6"
+                    />
+                    <g
+                      class="nap-mark-eyes"
+                      fill="#000"
+                    >
+                      <g
+                        class="nap-mark-shut"
+                      >
+                        <path
+                          d="M6.5 11.9c.44 1.7 1.2 2.7 2.1 2.7s1.66-1 2.1-2.7c.14-.53-.66-.76-.82-.24-.32 1.16-.76 1.79-1.28 1.79s-.96-.63-1.28-1.79c-.16-.52-.96-.29-.82.24Z"
+                        />
+                        <path
+                          d="M13.3 11.9c.44 1.7 1.2 2.7 2.1 2.7s1.66-1 2.1-2.7c.14-.53-.66-.76-.82-.24-.32 1.16-.76 1.79-1.28 1.79s-.96-.63-1.28-1.79c-.16-.52-.96-.29-.82.24Z"
+                        />
+                      </g>
+                      <g
+                        class="nap-mark-open"
+                      >
+                        <ellipse
+                          cx="8.6"
+                          cy="12.4"
+                          rx="1.35"
+                          ry="1.7"
+                        />
+                        <ellipse
+                          cx="15.4"
+                          cy="12.4"
+                          rx="1.35"
+                          ry="1.7"
+                        />
+                      </g>
+                      <g
+                        class="nap-mark-squint"
+                        fill="none"
+                        stroke="#000"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="1.25"
+                      >
+                        <path...
+
+- Expected
++ Received
+
+  import { useState } from "react";
+-
+- export default function App() {
+-   const [nights, setNights] = useState(2);
+-   const [confirmed, setConfirmed] = useState(false);
++ import { SpendingChart } from "./SpendingChart";
++
++ export default function App() {
++   const [period, setPeriod] = useState("month");
+-   return <main>
++   return (
++     <main className="dashboard">
+-     <h1>The Heather Cabin</h1>
++       <h1>Room to do more.</h1>
+-     <p>{nights * 195} USD total</p>
+-     <button onClick={() => setNights(nights + 1)}>Stay longer</button>
++       <Balance amount={12684.50} />
++       <PeriodSwitch value={period} onChange={setPeriod} />
+-     <button onClick={() => setConfirmed(true)}>Reserve your quiet</button>
+-     {confirmed && <p>Your stay is confirmed.</p>}
+-   </main>;
++       <SpendingChart period={period} />
++       <Transactions />
++     </main>
++   );
+  }
+
+
+ ❯ apps/web/src/landing/landing-desktop-demo.test.tsx:196:58
+    194|       await waitFor(() => {
+    195|         const viewer = screen.getByRole("region", { name: `${path} (re…
+    196|         expect(viewer.querySelector("pre")?.textContent).toBe(target.f…
+       |                                                          ^
+    197|         expect(viewer).not.toHaveTextContent("SpendingChart");
+    198|       });
+ ❯ runWithExpensiveErrorDiagnosticsDisabled node_modules/.bun/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:47:12
+ ❯ checkCallback node_modules/.bun/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:124:77
+ ❯ Timeout.checkRealTimersCallback node_modules/.bun/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:118:16
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
+
+ FAIL  |web| apps/web/src/landing/landing-desktop-demo.test.tsx > ready demo file identity > shows launch source after Finance without restarting ready previews
+AssertionError: expected 'import { useState } from "react";\nim…' to be 'import { useState } from "react";\n\n…' // Object.is equality
+
+Ignored nodes: comments, script, style
+<html
+  style="overflow: hidden;"
+>
+  <head />
+  <body
+    style="overflow: hidden;"
+  >
+    <div>
+      <div
+        data-demo-chapter="ready"
+        data-demo-thread="launch"
+      >
+        <div
+          aria-busy="false"
+          class="dashboard-frame relative grid h-dvh overflow-hidden bg-surface text-ink transition-opacity duration-200 opacity-100"
+          data-navigation-open="false"
+          data-sidebar-collapsed="false"
+          data-signing-out="false"
+          style="--sidebar-width: 256px;"
+        >
+          <button
+            aria-expanded="true"
+            aria-label="Collapse sidebar"
+            class="sidebar-toggle desktop-sidebar-toggle"
+            title="Collapse sidebar"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="size-4"
+              fill="none"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.4"
+              viewBox="0 0 16 16"
+            >
+              <rect
+                height="10"
+                rx="1.5"
+                width="12"
+                x="2"
+                y="3"
+              />
+              <path
+                d="M6.5 3v10"
+              />
+              <path
+                d="M4.2 3.2v9.6"
+                stroke-width="2.6"
+              />
+            </svg>
+          </button>
+          <button
+            aria-expanded="false"
+            aria-label="Open sessions"
+            class="sidebar-toggle mobile-sidebar-toggle"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="size-4"
+              fill="none"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.4"
+              viewBox="0 0 16 16"
+            >
+              <rect
+                height="10"
+                rx="1.5"
+                width="12"
+                x="2"
+                y="3"
+              />
+              <path
+                d="M6.5 3v10"
+              />
+            </svg>
+          </button>
+          <div
+            class="dashboard-sidebar min-h-0"
+          >
+            <nav
+              aria-label="Dashboard"
+              class="flex h-full min-h-0 flex-col border-r border-edge bg-sidebar px-2 pt-3 pb-2"
+            >
+              <a
+                aria-label="nap dashboard"
+                class="mb-3 flex h-8 items-center gap-2 px-2 text-sm font-medium text-ink"
+                href="/dashboard"
+              >
+                <svg
+                  aria-hidden="true"
+                  class="nap-mark size-6"
+                  fill="currentColor"
+                  viewBox="-1 -6 32 32"
+                >
+                  <mask
+                    id="nap-mark-rs"
+                  >
+                    <rect
+                      fill="#fff"
+                      height="32"
+                      width="32"
+                      x="-1"
+                      y="-6"
+                    />
+                    <g
+                      class="nap-mark-eyes"
+                      fill="#000"
+                    >
+                      <g
+                        class="nap-mark-shut"
+                      >
+                        <path
+                          d="M6.5 11.9c.44 1.7 1.2 2.7 2.1 2.7s1.66-1 2.1-2.7c.14-.53-.66-.76-.82-.24-.32 1.16-.76 1.79-1.28 1.79s-.96-.63-1.28-1.79c-.16-.52-.96-.29-.82.24Z"
+                        />
+                        <path
+                          d="M13.3 11.9c.44 1.7 1.2 2.7 2.1 2.7s1.66-1 2.1-2.7c.14-.53-.66-.76-.82-.24-.32 1.16-.76 1.79-1.28 1.79s-.96-.63-1.28-1.79c-.16-.52-.96-.29-.82.24Z"
+                        />
+                      </g>
+                      <g
+                        class="nap-mark-open"
+                      >
+                        <ellipse
+                          cx="8.6"
+                          cy="12.4"
+                          rx="1.35"
+                          ry="1.7"
+                        />
+                        <ellipse
+                          cx="15.4"
+                          cy="12.4"
+                          rx="1.35"
+                          ry="1.7"
+                        />
+                      </g>
+                      <g
+                        class="nap-mark-squint"
+                        fill="none"
+                        stroke="#000"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="1.25"
+                      >
+                        <path...
+
+- Expected
++ Received
+
+- import { useState } from "react";
++ import { useState } from "react";
++ import { SpendingChart } from "./SpendingChart";
+
+  export default function App() {
+-   const [done, setDone] = useState(false);
++   const [period, setPeriod] = useState("month");
+-   return <main>
+-     <h1>A little closer to launch.</h1>
++   return (
++     <main className="dashboard">
++       <h1>Room to do more.</h1>
+-     <button onClick={() => setDone(!done)}>
+-       {done ? "Launch checklist complete" : "Complete launch checklist"}
+-     </button>
++       <Balance amount={12684.50} />
++       <PeriodSwitch value={period} onChange={setPeriod} />
++       <SpendingChart period={period} />
++       <Transactions />
+-   </main>;
++     </main>
++   );
+  }
+
+
+ ❯ apps/web/src/landing/landing-desktop-demo.test.tsx:196:58
+    194|       await waitFor(() => {
+    195|         const viewer = screen.getByRole("region", { name: `${path} (re…
+    196|         expect(viewer.querySelector("pre")?.textContent).toBe(target.f…
+       |                                                          ^
+    197|         expect(viewer).not.toHaveTextContent("SpendingChart");
+    198|       });
+ ❯ runWithExpensiveErrorDiagnosticsDisabled node_modules/.bun/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:47:12
+ ❯ checkCallback node_modules/.bun/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:124:77
+ ❯ Timeout.checkRealTimersCallback node_modules/.bun/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:118:16
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/6]⎯
+
+ FAIL  |web| apps/web/src/landing/session-preview.test.tsx > the hero demo's sidebar preferences > does not restore the real app's saved session-list scroll
+AssertionError: expected "getItem" to not be called with arguments: [ 'nap.sidebar.scroll' ]
+
+Received:
+
+  1st getItem call:
+
+  [
+-   "nap.sidebar.scroll",
++   "nap.sidebar.shelves.local",
+  ]
+
+  2nd getItem call:
+
+Compared values have no visual difference.
+
+
+Number of calls: 2
+
+ ❯ apps/web/src/landing/session-preview.test.tsx:17:22
+     15|     render(<SessionPreview stage="ready" />);
+     16|
+     17|     expect(read).not.toHaveBeenCalledWith("nap.sidebar.scroll");
+       |                      ^
+     18|     expect(screen.getByLabelText("Session list", { selector: "section"…
+     19|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/6]⎯
+
+ FAIL  |web| apps/web/src/landing/session-preview.test.tsx > the hero demo's sidebar preferences > keeps hero session-list scrolling out of the real app's saved scroll
+AssertionError: expected "setItem" to not be called with arguments: [ 'nap.sidebar.scroll', Anything ]
+
+Received:
+
+  1st setItem call:
+
+  [
+    "nap.sidebar.scroll",
+-   Anything,
++   "120",
+  ]
+
+
+Number of calls: 1
+
+ ❯ apps/web/src/landing/session-preview.test.tsx:31:23
+     29|
+     30|     expect(list.scrollTop).toBe(120);
+     31|     expect(write).not.toHaveBeenCalledWith("nap.sidebar.scroll", expec…
+       |                       ^
+     32|     expect(sessionStorage.getItem("nap.sidebar.scroll")).toBe("640");
+     33|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/6]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  6 failed | 15 skipped (21)
+Type Errors  no errors
+   Start at  01:38:48
+   Duration  3.68s (transform 363ms, setup 248ms, import 871ms, tests 2.60s, environment 856ms)
+
+error: script "test:fast" exited with code 1

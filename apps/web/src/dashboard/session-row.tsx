@@ -55,6 +55,7 @@ export function SessionRow({
   now,
   busy,
   onOpen,
+  onSelectProject,
   onSettle,
   onSnooze,
   onRename,
@@ -70,6 +71,8 @@ export function SessionRow({
   now: number;
   busy: boolean;
   onOpen: () => void;
+  /** Handles a committed selection locally instead of following the project link. */
+  onSelectProject?: ((projectId: string) => void) | undefined;
   /** Settle (true) or un-settle (false). */
   onSettle?: ((value: boolean) => void) | undefined;
   /** Snooze until a time, or wake now with `null`. */
@@ -148,15 +151,15 @@ export function SessionRow({
     "data-session-link": "",
     title: details(session, source),
     onClick: (event: MouseEvent<HTMLAnchorElement>) => {
-      if (
-        !onRename ||
-        event.detail === 0 ||
-        event.metaKey ||
-        event.ctrlKey ||
-        event.shiftKey ||
-        event.altKey
-      ) {
+      if (event.defaultPrevented) return;
+      const modified =
+        event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey;
+      if (!onRename || event.detail === 0 || modified) {
         onOpen();
+        if (onSelectProject && !modified) {
+          event.preventDefault();
+          onSelectProject(session.projectId);
+        }
         return;
       }
       event.preventDefault();

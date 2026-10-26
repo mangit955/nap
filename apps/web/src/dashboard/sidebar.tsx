@@ -25,12 +25,15 @@ export function Sidebar({
   onRename,
   onDelete,
   onClose,
+  onSelectProject,
   error,
   loading = false,
   busyProjectId,
   navigation,
   ownerId,
+  persistScroll = true,
 }: {
+  persistScroll?: boolean;
   ownerId?: string | undefined;
   navigation?: ReturnType<typeof useSessionNavigation> | undefined;
   name: string;
@@ -46,6 +49,7 @@ export function Sidebar({
   onRename?: ((id: string, name: string) => void) | undefined;
   onDelete?: ((id: string) => void) | undefined;
   onClose?: ((id: string) => void) | undefined;
+  onSelectProject?: ((projectId: string) => void) | undefined;
   error?: string | undefined;
   loading?: boolean;
   busyProjectId?: string | undefined;
@@ -85,7 +89,7 @@ export function Sidebar({
     (selected: HTMLAnchorElement | null) => {
       const element = scroll.current;
       if (loading || (navigationStatus && navigationStatus !== "ready") || !element) return;
-      if (!restoredScroll.current) {
+      if (persistScroll && !restoredScroll.current) {
         try {
           element.scrollTop = Number(sessionStorage.getItem("nap.sidebar.scroll") ?? 0);
         } catch {
@@ -98,7 +102,7 @@ export function Sidebar({
       }
       revealedSelection.current = selected;
     },
-    [loading, navigationStatus],
+    [loading, navigationStatus, persistScroll],
   );
   const sessions: SessionSummary[] =
     navigation?.projects ??
@@ -162,7 +166,7 @@ export function Sidebar({
         tabIndex={0}
         className="nap-scroll-hidden relative flex min-h-0 flex-1 flex-col overflow-y-auto"
         onScroll={(event) => {
-          if (!restoredScroll.current) return;
+          if (!persistScroll || !restoredScroll.current) return;
           try {
             sessionStorage.setItem("nap.sidebar.scroll", String(event.currentTarget.scrollTop));
           } catch {
@@ -200,6 +204,7 @@ export function Sidebar({
                 onRename={onRename}
                 onDelete={onDelete}
                 onClose={onClose}
+                onSelectProject={onSelectProject}
               />
             </div>
           </>
