@@ -1,0 +1,735 @@
+{
+  "head": "38dd3e1f997614ec52251b8405924381378f796b",
+  "base": "7cd9f89b42ffd3a071a1c9831e71dc4599a9bc36",
+  "tree": "005c4c8442191d8fd9a1860fab4dac3fd0b770c2",
+  "cwd": "/Users/manasraghuwanshi/Developer/s-30/nap",
+  "runner": {
+    "active": true,
+    "timeout_seconds": 240,
+    "argv": [
+      "python3",
+      "/Users/manasraghuwanshi/.claude/skills/gods-hand/scripts/run_check.py",
+      "--timeout",
+      "240",
+      "--",
+      "node",
+      "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/scratch/ui-final/run.mjs"
+    ]
+  },
+  "argv": [
+    "/opt/homebrew/Cellar/node/26.12.0/bin/node",
+    "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/scratch/ui-final/run.mjs"
+  ],
+  "started_at": "2026-10-27T04:22:46.990Z",
+  "browser": "155.0.8059.85",
+  "fixture": "Actual ChatTranscript/buildTranscript/product CSS from final source commit. Synthetic events only; same task and messages as earlier base captures. Base PNGs reused byte-for-byte. Direct component folding/callback/sessionStorage replay, not a real model, E2B, production API or database/reconnect test.",
+  "checks": [
+    {
+      "name": "initial plan and genuinely running helper accessible state",
+      "result": "pass",
+      "transcript": "You:\nUpdate the task list in this imported repository.\n\nWorking for 10s\n\nTurn started\n\nAgent:\n\nI will locate the task list, confirm the layout, then update it.\n\nPLAN \u00b7 0 OF 3 DONE\nIn progress:\nFind the task list component\nTo do:\nChoose the list layout\nTo do:\nUpdate the component and verify\nFind the task list component"
+    },
+    {
+      "name": "updated plan, completed helper report and open question",
+      "result": "pass",
+      "transcript": "You:\nUpdate the task list in this imported repository.\n\nWorked for 8.0s\n5:30\n\nTurn started\n\nAgent:\n\nI will locate the task list, confirm the layout, then update it.\n\nFind the task list component\n\n5:30\nSearch helper \u00b7 Reported after 3 steps\nFind the task list component\nsrc/components/task-list.tsx renders the task rows. No files changed.\nPLAN \u00b7 1 OF 3 DONE\nDone:\nFind the task list component\nIn progress:\nChoose the list layout\nTo do:\nUpdate the component and verify\nAgent:\n\nI found the task list component. Choose the layout to continue.\n\nHow should the tasks be displayed?\nList\nCompact rows for scanning tasks\nGrid\nCards arranged in columns"
+    },
+    {
+      "name": "collapsed failed background helper has accessible failure label after successful launch",
+      "result": "pass",
+      "accessible_label": "Find the task list component, tool call failed",
+      "aria_expanded": "false",
+      "events": [
+        {
+          "type": "user.message",
+          "payload": {
+            "text": "Update the task list in this imported repository."
+          },
+          "seq": 1,
+          "sessionId": "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f",
+          "turnId": "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f",
+          "createdAt": "2026-10-27T00:00:01.000Z"
+        },
+        {
+          "type": "turn.started",
+          "payload": {
+            "source": "user"
+          },
+          "seq": 2,
+          "sessionId": "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f",
+          "turnId": "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f",
+          "createdAt": "2026-10-27T00:00:02.000Z"
+        },
+        {
+          "type": "agent.message",
+          "payload": {
+            "text": "I will locate the task list, confirm the layout, then update it."
+          },
+          "seq": 3,
+          "sessionId": "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f",
+          "turnId": "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f",
+          "createdAt": "2026-10-27T00:00:03.000Z"
+        },
+        {
+          "type": "tool.call",
+          "payload": {
+            "toolCallId": "failed-helper-call",
+            "toolName": "run_subagent",
+            "input": {
+              "task": "Find the task list component",
+              "profile": "explore",
+              "background": true
+            }
+          },
+          "seq": 4,
+          "sessionId": "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f",
+          "turnId": "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f",
+          "createdAt": "2026-10-27T00:00:04.000Z"
+        },
+        {
+          "type": "subagent.started",
+          "payload": {
+            "toolCallId": "failed-helper-call",
+            "subagentId": "failed-helper-1",
+            "profile": "explore",
+            "task": "Find the task list component"
+          },
+          "seq": 5,
+          "sessionId": "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f",
+          "turnId": "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f",
+          "createdAt": "2026-10-27T00:00:05.000Z"
+        },
+        {
+          "type": "tool.result",
+          "payload": {
+            "toolCallId": "failed-helper-call",
+            "toolName": "run_subagent",
+            "ok": true,
+            "output": "Started helper failed-helper-1."
+          },
+          "seq": 6,
+          "sessionId": "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f",
+          "turnId": "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f",
+          "createdAt": "2026-10-27T00:00:06.000Z"
+        },
+        {
+          "type": "subagent.completed",
+          "payload": {
+            "subagentId": "failed-helper-1",
+            "outcome": "failed",
+            "summary": "Synthetic helper failure for UI review. No files changed.",
+            "toolCalls": 2,
+            "usage": {
+              "inputTokens": 100,
+              "outputTokens": 20
+            }
+          },
+          "seq": 7,
+          "sessionId": "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f",
+          "turnId": "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f",
+          "createdAt": "2026-10-27T00:00:07.000Z"
+        },
+        {
+          "type": "agent.message",
+          "payload": {
+            "text": "\n\nThe helper could not complete. I can continue from the repository files."
+          },
+          "seq": 8,
+          "sessionId": "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f",
+          "turnId": "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f",
+          "createdAt": "2026-10-27T00:00:08.000Z"
+        },
+        {
+          "type": "turn.completed",
+          "payload": {
+            "usage": {
+              "inputTokens": 200,
+              "outputTokens": 40
+            },
+            "durationMs": 8000,
+            "commitSha": null
+          },
+          "seq": 9,
+          "sessionId": "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f",
+          "turnId": "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f",
+          "createdAt": "2026-10-27T00:00:09.000Z"
+        }
+      ]
+    },
+    {
+      "name": "expanded failed helper body preserves report and ended state",
+      "result": "pass",
+      "transcript": "You:\nUpdate the task list in this imported repository.\n\nWorked for 8.0s\n5:30\n\nTurn started\n\nAgent:\n\nI will locate the task list, confirm the layout, then update it.\n\nFind the task list component\n\n5:30\nSearch helper \u00b7 Failed after 2 steps\nFind the task list component\nSynthetic helper failure for UI review. No files changed.\nAgent:\n\nThe helper could not complete. I can continue from the repository files."
+    },
+    {
+      "name": "actual question onAnswer invokes same local prompt handler used by fixture composer once",
+      "result": "pass",
+      "calls": [
+        {
+          "callback": "sendPrompt",
+          "text": "List",
+          "source": "question-option"
+        }
+      ]
+    },
+    {
+      "name": "sessionStorage event replay preserves answered question without second callback",
+      "result": "pass",
+      "events": [
+        {
+          "type": "user.message",
+          "payload": {
+            "text": "Update the task list in this imported repository."
+          },
+          "seq": 1,
+          "sessionId": "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f",
+          "turnId": "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f",
+          "createdAt": "2026-10-27T00:00:01.000Z"
+        },
+        {
+          "type": "turn.started",
+          "payload": {
+            "source": "user"
+          },
+          "seq": 2,
+          "sessionId": "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f",
+          "turnId": "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f",
+          "createdAt": "2026-10-27T00:00:02.000Z"
+        },
+        {
+          "type": "agent.message",
+          "payload": {
+            "text": "I will locate the task list, confirm the layout, then update it."
+          },
+          "seq": 3,
+          "sessionId": "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f",
+          "turnId": "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f",
+          "createdAt": "2026-10-27T00:00:03.000Z"
+        },
+        {
+          "type": "plan.updated",
+          "payload": {
+            "toolCallId": "plan-1",
+            "items": [
+              {
+                "content": "Find the task list component",
+                "status": "in_progress"
+              },
+              {
+                "content": "Choose the list layout",
+                "status": "pending"
+              },
+              {
+                "content": "Update the component and verify",
+                "status": "pending"
+              }
+            ]
+          },
+          "seq": 4,
+          "sessionId": "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f",
+          "turnId": "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f",
+          "createdAt": "2026-10-27T00:00:04.000Z"
+        },
+        {
+          "type": "tool.call",
+          "payload": {
+            "toolCallId": "helper-call",
+            "toolName": "run_subagent",
+            "input": {
+              "task": "Find the task list component",
+              "profile": "explore"
+            }
+          },
+          "seq": 5,
+          "sessionId": "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f",
+          "turnId": "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f",
+          "createdAt": "2026-10-27T00:00:05.000Z"
+        },
+        {
+          "type": "subagent.started",
+          "payload": {
+            "toolCallId": "helper-call",
+            "subagentId": "helper-1",
+            "profile": "explore",
+            "task": "Find the task list component"
+          },
+          "seq": 6,
+          "sessionId": "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f",
+          "turnId": "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f",
+          "createdAt": "2026-10-27T00:00:06.000Z"
+        },
+        {
+          "type": "subagent.completed",
+          "payload": {
+            "subagentId": "helper-1",
+            "outcome": "completed",
+            "summary": "src/components/task-list.tsx renders the task rows. No files changed.",
+            "toolCalls": 3,
+            "usage": {
+              "inputTokens": 100,
+              "outputTokens": 20
+            }
+          },
+          "seq": 7,
+          "sessionId": "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f",
+          "turnId": "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f",
+          "createdAt": "2026-10-27T00:00:07.000Z"
+        },
+        {
+          "type": "tool.result",
+          "payload": {
+            "toolCallId": "helper-call",
+            "toolName": "run_subagent",
+            "ok": true,
+            "output": "src/components/task-list.tsx renders the task rows. No files changed."
+          },
+          "seq": 8,
+          "sessionId": "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f",
+          "turnId": "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f",
+          "createdAt": "2026-10-27T00:00:08.000Z"
+        },
+        {
+          "type": "plan.updated",
+          "payload": {
+            "toolCallId": "plan-2",
+            "items": [
+              {
+                "content": "Find the task list component",
+                "status": "completed"
+              },
+              {
+                "content": "Choose the list layout",
+                "status": "in_progress"
+              },
+              {
+                "content": "Update the component and verify",
+                "status": "pending"
+              }
+            ]
+          },
+          "seq": 9,
+          "sessionId": "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f",
+          "turnId": "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f",
+          "createdAt": "2026-10-27T00:00:09.000Z"
+        },
+        {
+          "type": "agent.message",
+          "payload": {
+            "text": "\n\nI found the task list component. Choose the layout to continue."
+          },
+          "seq": 10,
+          "sessionId": "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f",
+          "turnId": "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f",
+          "createdAt": "2026-10-27T00:00:10.000Z"
+        },
+        {
+          "type": "agent.question",
+          "payload": {
+            "toolCallId": "question-1",
+            "question": "How should the tasks be displayed?",
+            "options": [
+              {
+                "label": "List",
+                "description": "Compact rows for scanning tasks"
+              },
+              {
+                "label": "Grid",
+                "description": "Cards arranged in columns"
+              }
+            ],
+            "multiSelect": false
+          },
+          "seq": 11,
+          "sessionId": "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f",
+          "turnId": "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f",
+          "createdAt": "2026-10-27T00:00:11.000Z"
+        },
+        {
+          "type": "turn.completed",
+          "payload": {
+            "usage": {
+              "inputTokens": 200,
+              "outputTokens": 40
+            },
+            "durationMs": 8000,
+            "commitSha": null
+          },
+          "seq": 12,
+          "sessionId": "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f",
+          "turnId": "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f",
+          "createdAt": "2026-10-27T00:00:12.000Z"
+        },
+        {
+          "type": "user.message",
+          "payload": {
+            "text": "List"
+          },
+          "seq": 13,
+          "sessionId": "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f",
+          "turnId": "8c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f",
+          "createdAt": "2026-10-27T00:00:13.000Z"
+        }
+      ]
+    }
+  ],
+  "page_errors": [],
+  "network_denied": [],
+  "screenshots": [
+    {
+      "path": "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/evidence/ui-final/candidate-working.png",
+      "revision": "38dd3e1f997614ec52251b8405924381378f796b",
+      "reused": false,
+      "width": 1440,
+      "height": 1000,
+      "bytes": 63754,
+      "sha256": "6373a76c1e5c69ec1676452479c1418e327e3c46e025d6d1d362ae7a71de6f60"
+    },
+    {
+      "path": "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/evidence/ui-final/candidate-question.png",
+      "revision": "38dd3e1f997614ec52251b8405924381378f796b",
+      "reused": false,
+      "width": 1440,
+      "height": 1088,
+      "bytes": 86865,
+      "sha256": "075c4e5a0e9ca7c366c039264e80a7c24b78855421459823684f59de73eaf777"
+    },
+    {
+      "path": "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/evidence/ui-final/candidate-helper-failed.png",
+      "revision": "38dd3e1f997614ec52251b8405924381378f796b",
+      "reused": false,
+      "width": 1440,
+      "height": 1000,
+      "bytes": 68540,
+      "sha256": "01033c5476c94b660f8abb058ccffbb5928509b440450b468afa8082b7e9ad0d"
+    },
+    {
+      "path": "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/evidence/ui-final/candidate-answered.png",
+      "revision": "38dd3e1f997614ec52251b8405924381378f796b",
+      "reused": false,
+      "width": 1440,
+      "height": 1068,
+      "bytes": 83385,
+      "sha256": "ec8ab8612ae34c0af98d43b479717007741e907b34e1e129d3cca7bc9421f133"
+    },
+    {
+      "path": "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/evidence/ui-final/candidate-reloaded.png",
+      "revision": "38dd3e1f997614ec52251b8405924381378f796b",
+      "reused": false,
+      "width": 1440,
+      "height": 1068,
+      "bytes": 83858,
+      "sha256": "74a4a31618f5b59ca636750b46eb38edf2ed7b23dea4b3bdd02abeb2bf1c52dc"
+    }
+  ],
+  "reused_screenshots": [
+    {
+      "path": "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/evidence/ui-final/base-working.png",
+      "revision": "7cd9f89b42ffd3a071a1c9831e71dc4599a9bc36",
+      "reused": true,
+      "original_path": "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/evidence/ui/base-working.png",
+      "sha256": "da4c2ddecaf7d5e543af68161f0cda19ec56f0c69a5f618bfd11a1bb53073abe",
+      "width": 1440,
+      "height": 1000,
+      "bytes": 51298,
+      "note": "Earlier actual base rendering reused unchanged; no base browser redraw in this refresh."
+    },
+    {
+      "path": "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/evidence/ui-final/base-question.png",
+      "revision": "7cd9f89b42ffd3a071a1c9831e71dc4599a9bc36",
+      "reused": true,
+      "original_path": "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/evidence/ui/base-question.png",
+      "sha256": "613842b7ee6ff0b66dad13af8ea82ebcb324753beb735613d4140921b3345532",
+      "width": 1440,
+      "height": 1000,
+      "bytes": 52682,
+      "note": "Earlier actual base rendering reused unchanged; no base browser redraw in this refresh."
+    }
+  ],
+  "websocket_urls": [
+    "ws://127.0.0.1:4337/",
+    "ws://127.0.0.1:4337/",
+    "ws://127.0.0.1:4337/",
+    "ws://127.0.0.1:4337/"
+  ],
+  "cleanup": {
+    "browserClosed": true,
+    "serverClosed": true
+  },
+  "environment": {
+    "platform": "darwin",
+    "release": "27.0.0",
+    "architecture": "arm64",
+    "node": "v26.12.0",
+    "bun": "1.4.2",
+    "vite": "8.2.1",
+    "playwright_core": "1.57.0",
+    "react": "19.2.8",
+    "selected_env": {}
+  },
+  "preview_route": {
+    "current_preview_status": {
+      "available": false,
+      "visible": false,
+      "tabId": null,
+      "url": null,
+      "title": null,
+      "loading": false
+    },
+    "historical_preview": {
+      "status_raw": {
+        "available": false,
+        "visible": false,
+        "tabId": null,
+        "url": null,
+        "title": null,
+        "loading": false,
+        "profiles": [
+          {
+            "id": "default",
+            "name": "Default"
+          },
+          {
+            "id": "incognito",
+            "name": "Incognito",
+            "incognito": true
+          }
+        ],
+        "defaultProfileId": "default"
+      },
+      "open_raw": {
+        "available": true,
+        "visible": false,
+        "tabId": "tab_1_daab9961-ce69-4bce-85e3-2c99ebace7ba",
+        "url": null,
+        "title": null,
+        "loading": false,
+        "control": {
+          "owner": "agent",
+          "ownedByCaller": true,
+          "generation": 0
+        },
+        "dialog": null,
+        "viewportSetting": {
+          "_tag": "fill"
+        },
+        "fileChooser": null,
+        "downloads": [],
+        "tabs": [
+          {
+            "tabId": "tab_1_daab9961-ce69-4bce-85e3-2c99ebace7ba",
+            "url": null,
+            "owner": "agent",
+            "ownedByCaller": true,
+            "visible": false,
+            "profileId": "default"
+          }
+        ],
+        "profiles": [
+          {
+            "id": "default",
+            "name": "Default"
+          },
+          {
+            "id": "incognito",
+            "name": "Incognito",
+            "incognito": true
+          }
+        ],
+        "defaultProfileId": "default"
+      },
+      "open_error": null,
+      "fallback_reason": "Native preview opened successfully, but its separate MCP browser operations cannot execute inside required run_check.py process supervision. User explicitly permits repository documented Playwright workflow for that case. docs/assets/computer-use/recovery-review/README.md names playwright-core 1.57 and system headless Chrome. Blank native preview tab closed before local browser started.",
+      "close_result": {}
+    },
+    "refresh_route": "User explicitly invokes the existing bounded runner/Playwright fixture workflow. Earlier preview_open succeeded on a blank tab and was closed; its MCP operations cannot run inside process supervision. Current status is inventory only. No fresh claim that preview_open is unavailable; no new native preview navigation or open attempted."
+  },
+  "reused_prepared_source_export": true,
+  "recording_encoder": {
+    "source": "/opt/homebrew/bin/ffmpeg",
+    "version": "ffmpeg version 8.0.1 Copyright (c) 2000-2025 the FFmpeg developers",
+    "encoder": "Software VP8, one thread. Native recording completes before single-thread crop encoding starts. No hardware encoder, downloads or broad screen recording."
+  },
+  "server": {
+    "url": "http://127.0.0.1:4337",
+    "pid": 12540
+  },
+  "video": {
+    "path": "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/evidence/ui-final/answer-interaction.webm",
+    "revision": "38dd3e1f997614ec52251b8405924381378f796b",
+    "source": "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/scratch/ui-final/answer-interaction-native.webm",
+    "bytes": 448452,
+    "width": 1440,
+    "height": 912,
+    "duration_seconds": 5.68,
+    "note": "Actual browser viewport interaction. Original1440x1000 native recording has bottom88px recorder padding removed, no scaling or reconstructed content. Full-page PNGs uncropped.",
+    "crop_argv": [
+      "/opt/homebrew/bin/ffmpeg",
+      "-v",
+      "error",
+      "-i",
+      "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/scratch/ui-final/answer-interaction-native.webm",
+      "-vf",
+      "crop=1440:912:0:0",
+      "-an",
+      "-c:v",
+      "libvpx",
+      "-threads",
+      "1",
+      "-deadline",
+      "realtime",
+      "-cpu-used",
+      "8",
+      "-crf",
+      "8",
+      "-b:v",
+      "1M",
+      "-y",
+      "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/evidence/ui-final/answer-interaction.webm"
+    ],
+    "probe_argv": [
+      "/opt/homebrew/bin/ffprobe",
+      "-v",
+      "error",
+      "-show_streams",
+      "-show_format",
+      "-of",
+      "json",
+      "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/evidence/ui-final/answer-interaction.webm"
+    ],
+    "frame_argv": [
+      "/opt/homebrew/bin/ffmpeg",
+      "-v",
+      "error",
+      "-ss",
+      "2",
+      "-i",
+      "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/evidence/ui-final/answer-interaction.webm",
+      "-frames:v",
+      "1",
+      "-threads",
+      "1",
+      "-y",
+      "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/scratch/ui-final/video-frame.png"
+    ]
+  },
+  "root_source_unchanged": true,
+  "status": "passed",
+  "finished_at": "2026-10-27T04:22:58.056Z",
+  "execution": {
+    "runner_argv": [
+      "python3",
+      "/Users/manasraghuwanshi/.claude/skills/gods-hand/scripts/run_check.py",
+      "--timeout",
+      "240",
+      "--",
+      "node",
+      "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/scratch/ui-final/run.mjs"
+    ],
+    "cwd": "/Users/manasraghuwanshi/Developer/s-30/nap",
+    "source_commit": "38dd3e1f997614ec52251b8405924381378f796b",
+    "base": "7cd9f89b42ffd3a071a1c9831e71dc4599a9bc36",
+    "tree": "005c4c8442191d8fd9a1860fab4dac3fd0b770c2",
+    "exit_code": 0,
+    "actual_log": "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/evidence/final-ui-resume2.log",
+    "reused_source_export": true,
+    "capture_reused": false
+  },
+  "attempt_history": [
+    {
+      "outcome": "provider turn failed during setup/launch; no product assertion or completed runner envelope available",
+      "exit_code": null,
+      "log": "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/evidence/final-ui-provider-interrupted.log",
+      "note": "Original zero-byte log and partial export/provenance/base files preserved; parent confirmed no active jobs/panic. Same review/repair run resumed."
+    },
+    {
+      "outcome": "fixture live-row label expectation failed",
+      "exit_code": 1,
+      "log": "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/evidence/final-ui-resume1.log",
+      "result_record": "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/evidence/final-ui-resume1-result.json",
+      "note": "Expected closed-row still-running suffix on live row. Corrected only fixture to actual task label plus working status and folded helper outcome. Browser/server closed."
+    },
+    {
+      "outcome": "final source capture passed",
+      "exit_code": 0,
+      "log": "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/evidence/final-ui-resume2.log"
+    }
+  ],
+  "visual_qa": {
+    "result": "passed",
+    "inspected_new_screenshots": [
+      "candidate-working.png",
+      "candidate-question.png",
+      "candidate-helper-failed.png",
+      "candidate-answered.png",
+      "candidate-reloaded.png"
+    ],
+    "decoded_video_frame_seconds": 2,
+    "readable_full_page_pngs": true,
+    "video_padding_removed_without_scaling": true
+  },
+  "fixture_sources": {
+    "fixture.jsx": {
+      "sha256": "cf5b97e30989df7065bed45d5cb789bf32be7b31fde1b90a39db1af94d98e9bf",
+      "original_path": "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/scratch/ui-final/fixture.jsx"
+    },
+    "frame.css": {
+      "sha256": "bb6bc0ab1ce22684f7880c97d862224e57efac11d661fed9dc0907e44b066a59",
+      "original_path": "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/scratch/ui-final/frame.css"
+    },
+    "index.html": {
+      "sha256": "b98e2f40402bd0043d2d869082e853364e8cedc8d562893de05de7320e223c1a",
+      "original_path": "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/scratch/ui-final/index.html"
+    },
+    "run.mjs": {
+      "sha256": "a0893918cb9a007921b111da15ce7d2cf56091bdfb76b9bbbee8fc14d37c37a1",
+      "original_path": "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/scratch/ui-final/run.mjs"
+    }
+  },
+  "publication": {
+    "selected_public_safe_filenames": [
+      "base-working.png",
+      "base-question.png",
+      "candidate-working.png",
+      "candidate-question.png",
+      "candidate-helper-failed.png",
+      "candidate-answered.png",
+      "candidate-reloaded.png",
+      "answer-interaction.webm",
+      "README.md",
+      "browser-result.json",
+      "source-provenance.json",
+      "video-metadata.json",
+      "artifact-manifest.json"
+    ],
+    "media_count": 8,
+    "new_png_count": 5,
+    "reused_base_png_count": 2,
+    "fixture_code_copies_not_required_for_publication": [
+      "fixture.jsx",
+      "frame.css",
+      "index.html",
+      "run.mjs"
+    ],
+    "data": "Generic synthetic task/messages/events only. No auth, cookies, model credentials, API keys, user recording or production account data. Vite websocket query values omitted."
+  },
+  "resource_cleanup": {
+    "all_worker_resource_jobs_stopped_on_successful_return": true,
+    "all_worker_browsers_closed": true,
+    "server_closed": true,
+    "one_browser_per_capture_attempt": true,
+    "native_encoder_complete_before_crop_encoder": true,
+    "cpu_vp8_threads": 1,
+    "detached_work": false,
+    "worker_shared_lock_released_on_runner_return": true,
+    "lock_file_preserved": true,
+    "basis": "Capture runner returned exit0 after browser/server cleanup and process-group cleanup; metadata packaging also uses shared finite runner. No independent GPU/encoder/process saturation or lock probe."
+  },
+  "limits": [
+    "Actual product components and CSS with scripted events, not real model/E2B behavior or quality.",
+    "Question option invokes actual ChatTranscript.onAnswer and shared local fixture sendPrompt handler; no production API submission.",
+    "Reload reads sessionStorage-saved synthetic events, not database/reconnect behavior.",
+    "Earlier actual base PNGs reused byte-for-byte on base7cd9f89. Base omits helper tool calls/results its older protocol cannot represent and ignores new semantic event types.",
+    "Viewport1440x1000, full-page PNGs uncropped. Published recording1440x912 removes88px native recorder padding; original retained in scratch.",
+    "Current native preview status was inventory only. Earlier preview_open succeeded/closed; user explicitly invokes repository documented runner/Playwright workflow because MCP browser calls cannot be process-supervised inside runner. No fresh claim that preview_open is unavailable."
+  ]
+}

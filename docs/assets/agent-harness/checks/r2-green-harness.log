@@ -1,0 +1,90 @@
+{
+  "verification_header": {
+    "id": "harness",
+    "argv": [
+      "bun",
+      "run",
+      "harness",
+      "Add a theme toggle"
+    ],
+    "runner_argv": [
+      "python3",
+      "/Users/manasraghuwanshi/.claude/skills/gods-hand/scripts/run_check.py",
+      "--timeout",
+      "60",
+      "--",
+      "bun",
+      "run",
+      "harness",
+      "Add a theme toggle"
+    ],
+    "cwd": "/Users/manasraghuwanshi/Developer/s-30/nap",
+    "head": "5fa06eb508ed51ec69c4fe6e26edb5b8f7f1f27f",
+    "base": "7cd9f89b42ffd3a071a1c9831e71dc4599a9bc36",
+    "snapshot": "893f787d4e83f3edda6f6e211543be145fec2e2d",
+    "tree": "005c4c8442191d8fd9a1860fab4dac3fd0b770c2",
+    "environment": {
+      "platform": "macOS-27.0.1-arm64-arm-64bit",
+      "architecture": "arm64",
+      "node": "v26.12.0",
+      "bun": "1.4.2",
+      "vitest": "4.1.10",
+      "selected_env": {}
+    },
+    "env_adjustment": null,
+    "timeout_seconds": 60,
+    "started_at": "2026-10-27T04:10:05.382260+00:00",
+    "reused": false,
+    "log": "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/evidence/r2-green-harness.log",
+    "expected_exit_code": 0
+  },
+  "identity_before": {
+    "snapshot": "893f787d4e83f3edda6f6e211543be145fec2e2d",
+    "tree": "005c4c8442191d8fd9a1860fab4dac3fd0b770c2",
+    "staged_tree_equals_snapshot": true,
+    "unstaged_diff_empty": true
+  }
+}
+
+$ bun run packages/runtime/scripts/harness.ts "Add a theme toggle"
+Dry run on a scripted model and an in-memory sandbox. Pass --real to spend.
+
+  1  user.message    Add a theme toggle
+  2  job.started     Add a theme toggle
+  3  preview.ready   https://5173-f57968b0-8f01-4d4f-ab69-aa6ca1dcb031.sandbox.invalid
+  4  turn.started
+  5  context.usage   4494 input tokens (estimated)
+  6  context.usage   4494 input tokens (estimated)
+  7  tool.call       computer actions
+  8  computer.status starting
+  9  computer.status ready
+ 10  computer.screenshot computer_1 1024×768 computer/ee0191cc-9e27-47d1-b4c8-22d5a3e32ee5/37f1ce6e-c3a8-4268-9fb0-cab8e29e2631/86152462-60d8-4a01-aaf4-d229cc6893a0/computer_1.jpg
+ 11  tool.result     computer ok Completed 4 computer actions. Screenshot 1024×768.
+ 12  context.usage   6797 input tokens (estimated)
+ 13  context.usage   1200 input tokens (reported)
+ 14  agent.thinking  The project has no toggle yet, so I will add one component.
+ 15  agent.message   I'll add the component.
+ 16  tool.call       write_file {"path":"/home/user/app/src/DarkModeToggle.tsx","contents":"export function DarkModeToggle() {\n re…
+ 17  file.changed    created /home/user/app/src/DarkModeToggle.tsx
+ 18  tool.result     write_file ok Wrote /home/user/app/src/DarkModeToggle.tsx (77 characters).
+ 19  context.usage   6906 input tokens (estimated)
+ 20  context.usage   1400 input tokens (reported)
+ 21  agent.thinking  The file is written. Nothing else is needed.
+ 22  agent.message   Added the toggle component.
+ 23  turn.completed  2600 in / 110 out, 8ms, commit 0000000000000000000000000000000000000000
+ 24  verification.started
+ 25  verification.completed typecheck absent, lint absent, build passed, test absent, preview passed
+ 26  job.checkpointed 0000000000000000000000000000000000000000
+ 27  job.completed   verified
+
+Done in 0.0s — commit 0000000000000000000000000000000000000000
+
+{
+  "verification_footer": {
+    "exit_code": 0,
+    "elapsed_seconds": 0.226,
+    "finished_at": "2026-10-27T04:10:05.609130+00:00",
+    "identity_after_matches_before": true,
+    "result": "passed"
+  }
+}
