@@ -117,6 +117,31 @@ function detail(event: NapEvent): Record<string, unknown> {
         chars: event.payload.output.length,
       };
 
+    case "plan.updated":
+      return {
+        toolCallId: event.payload.toolCallId,
+        items: event.payload.items.length,
+        completed: event.payload.items.filter((item) => item.status === "completed").length,
+      };
+
+    case "agent.question":
+      return { toolCallId: event.payload.toolCallId, options: event.payload.options.length };
+
+    case "subagent.started":
+      return {
+        toolCallId: event.payload.toolCallId,
+        subagentId: event.payload.subagentId,
+        profile: event.payload.profile,
+      };
+
+    case "subagent.completed":
+      return {
+        subagentId: event.payload.subagentId,
+        outcome: event.payload.outcome,
+        toolCalls: event.payload.toolCalls,
+        usage: event.payload.usage,
+      };
+
     case "file.changed":
       // The path is not content: it is what the turn did, and the whole point of the line.
       return { path: event.payload.path, changeType: event.payload.changeType };

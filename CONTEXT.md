@@ -181,6 +181,32 @@ is a fact about the log rather than a third party to the conversation. `chat/tra
 `apps/web` is the fold; a second view over the same log is another fold, not another copy. See
 `docs/adr/0008`.
 
+**Toolset** — the tools one turn is *offered*, as against the closed list of tool names the log
+accepts. Chosen from facts about the turn — who asked, what is wired, the model's family, whether it
+is a helper — and never from preference. A real tool outside the toolset is refused, and the attempt
+is still logged. See `docs/adr/0020`.
+
+**Tool kind** — what a tool is *for*: read, edit, search, execute, plan, ask, delegate or computer.
+What the pane and anything summarising a turn group by, so a new tool needs a kind rather than a
+place in every reader.
+
+**Plan** — the agent's visible checklist for the work in hand, replaced whole each time it changes
+(`plan.updated`). Per turn, and unrelated to a **Job**, which is the durable objective; a plan is
+how one turn says what it is doing about it.
+
+**Question** — a multiple-choice question the agent ends its turn on (`agent.question`). Its answer
+is not a field anywhere: it is the person's next message, whether they clicked an option or typed.
+
+**Helper** — a second, smaller model loop a turn hands one self-contained task to, with its own
+conversation and fewer tools: *explore* reads and searches, *general* may also edit and run
+commands. It spends the turn's budget, ends with the turn, and leaves only its start, its file
+changes and its report in the log. Offered to imported repositories. Called a subagent in the code
+(`run_subagent`), which is the same thing.
+
+**Background shell** — a command started to keep running, read and typed into and stopped by id
+over later calls. Its state lives in files inside the sandbox, so it outlives the turn and the worker
+that started it, and dies with the sandbox.
+
 **Sandbox** — the isolated machine a project's code is written into and served from. Reclaimable at
 any time, by the reaper or by the provider's own timer, which is why no view may treat "there is a
 `preview.ready` in the log" as "something is running".

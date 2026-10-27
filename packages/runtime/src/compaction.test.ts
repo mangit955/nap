@@ -21,7 +21,9 @@ function fixture(provider: LLMProvider, budgetTokens = 80_000, maxTokens = 400_0
   const sessions = new InMemorySessionStore([{ sessionId: SESSION, projectId: PROJECT }]);
   const sandbox = scriptGit(
     new InMemorySandboxManager({
-      seed: { "/home/user/app/large.txt": "tool-output-".repeat(2200) },
+      // Many lines rather than one: a read cuts a single line at a couple of thousand
+      // characters, and this file exists to make each read large.
+      seed: { "/home/user/app/large.txt": "tool-output\n".repeat(2200) },
     }),
     { dirty: false },
   );

@@ -89,6 +89,8 @@ export type NapConfig = Pick<
   Env,
   | "NAP_WEB_ORIGIN"
   | "NAP_MODEL"
+  | "NAP_FALLBACK_MODEL"
+  | "NAP_SUBAGENT_MODEL"
   | "NAP_FREE_MODEL"
   | "NAP_ALLOWED_MODELS"
   | "NAP_MAX_STEPS"
@@ -390,6 +392,11 @@ export function composeNap(deps: NapDeps): ComposedNap {
     agent: new NapAgentService({
       provider: deps.provider,
       budget: { maxSteps: config.NAP_MAX_STEPS },
+      fallbackModel: config.NAP_FALLBACK_MODEL,
+      subagentModels:
+        config.NAP_SUBAGENT_MODEL === undefined
+          ? undefined
+          : { explore: config.NAP_SUBAGENT_MODEL },
     }),
     events: deps.events,
     bus: deps.bus,

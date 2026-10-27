@@ -54,6 +54,8 @@ export type ScriptedResponse = {
    * which is exactly what a real one does.
    */
   streamedText?: string[];
+  /** The reply stopped at the output limit, as a real one does when a file is too long to write. */
+  truncated?: boolean;
 };
 
 /** The responses one turn hands out, in call order. */
@@ -79,7 +81,13 @@ function toResult(response: ScriptedResponse): LLMTurnResult {
   }
   if (response.refusal === true) return { type: "refusal", usage };
 
-  return { type: "message", text: response.text ?? "", toolCalls: response.toolCalls ?? [], usage };
+  return {
+    type: "message",
+    text: response.text ?? "",
+    toolCalls: response.toolCalls ?? [],
+    usage,
+    ...(response.truncated === true ? { truncated: true } : {}),
+  };
 }
 
 export class ScriptedLLMProvider implements LLMProvider {

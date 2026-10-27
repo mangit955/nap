@@ -88,6 +88,18 @@ export type BuiltContext = {
   messages: LLMMessage[];
   /** Estimated input cost. Essential instructions can exceed the budget; the loop must compact or stop. */
   estimatedTokens: number;
+  /**
+   * The system prompts a turn's helpers run under, one per profile. Absent means this turn may
+   * not start helpers — the prompts are assembled here like every other, and the agent offers
+   * delegation only when it has been handed them (ADR-0020).
+   */
+  subagentPrompts?: { explore: string; general: string } | undefined;
+  /**
+   * Whether the project's root rules file is new to the model. True for an imported repository,
+   * whose root `AGENTS.md` nothing else carries; false for a Nap project, whose root brief is
+   * already in the system prompt.
+   */
+  rootRules?: boolean | undefined;
 };
 
 export interface ContextEngine {

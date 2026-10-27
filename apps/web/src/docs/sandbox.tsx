@@ -9,11 +9,17 @@
 import { REPO_URL } from "../landing/github-button.tsx";
 import { Code, Facts, Figure, Lede, P, Source, Sub, Term } from "./prose.tsx";
 
-const TOOLS = `read_file      write_file     edit_file
-list_files     search_files   run_command
+const TOOLS = `read      read_file
+edit      write_file · edit_file · apply_patch (GPT models)
+search    list_files · glob · search_files
+execute   run_command · shell_output · shell_input · shell_kill
+plan      todo_write
+ask       ask_user
+delegate  run_subagent · read_subagent (imported repositories)
+computer  computer (image models, when a desktop is composed)
 
-every one of them proxies to SandboxManager.
-computer is image-gated and uses SandboxDesktop plus object storage.`;
+file, search and command tools proxy to SandboxManager.
+a helper is a second loop over the same ports, inside the turn's budget.`;
 
 export function Sandbox() {
   return (
@@ -35,7 +41,21 @@ export function Sandbox() {
         configured. The desktop template still needs paid validation.
       </P>
 
-      <Figure label="The whole tool surface.">{TOOLS}</Figure>
+      <Figure label="The whole tool surface, by what each tool is for.">{TOOLS}</Figure>
+
+      <P>
+        Not every turn is offered all of it. A turn&rsquo;s tools follow from facts about it: an app
+        test can only look, a repair has nobody to answer a question, and a model is offered the
+        editing format it was trained on. Reads run side by side; anything that changes the project
+        runs alone, in order. A file has to be read in a turn before that turn may change it.
+      </P>
+
+      <P>
+        A command that keeps running — a server, a watcher — runs as a background shell whose
+        output, exit code and process group are files in the sandbox. The agent comes back to it by
+        id, and it outlives the turn that started it, because nothing about it lives in our
+        processes.
+      </P>
 
       <P>
         That is stronger than disabling built-ins, because there is no toggle to get wrong. It is
