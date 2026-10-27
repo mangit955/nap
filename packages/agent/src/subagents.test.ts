@@ -39,7 +39,7 @@ describe("SubagentPool", () => {
     async (mode) => {
       const { helpers, sandbox, events } = await pool(
         [[{ toolCalls: [READ] }, { text: "late" }]],
-        1_000,
+        10_000,
       );
       let entered: () => void = () => {};
       let release: () => void = () => {};
@@ -77,15 +77,15 @@ describe("SubagentPool", () => {
   );
 
   it("shares the turn's budget between helpers running at once, rather than promising it twice", async () => {
-    // Of 1000 tokens, the first helper may spend half (500) and the second half of what is left
-    // unpromised (250). Each spends 260 on its first request: enough to stop only the second.
-    const step = { toolCalls: [READ], usage: { inputTokens: 260, outputTokens: 0 } };
+    // The 5000/2500 shares cover the request schemas and input. Spending 2600 leaves the
+    // first helper room for its next input, while the second has already exceeded its share.
+    const step = { toolCalls: [READ], usage: { inputTokens: 2_600, outputTokens: 0 } };
     const { helpers } = await pool(
       [
         [step, { text: "first report" }],
         [step, { text: "never" }],
       ],
-      1_000,
+      10_000,
     );
 
     const first = helpers.start({ toolCallId: "a", profile: "explore", task: "one" });
@@ -105,12 +105,12 @@ describe("SubagentPool", () => {
     const { helpers } = await pool(
       [
         [{ text: "one", usage: { inputTokens: 10, outputTokens: 0 } }],
-        [{ toolCalls: [READ], usage: { inputTokens: 260, outputTokens: 0 } }, { text: "two" }],
+        [{ toolCalls: [READ], usage: { inputTokens: 2_600, outputTokens: 0 } }, { text: "two" }],
       ],
-      1_000,
+      10_000,
     );
     await helpers.run({ toolCallId: "a", profile: "explore", task: "one" });
-    // Promised (1000 - 10) / 2 = 495 now, not a quarter.
+    // Promised (10000 - 10) / 2 = 4995 now, not a quarter.
     expect(await helpers.run({ toolCallId: "b", profile: "explore", task: "two" })).toEqual({
       ok: true,
       output: "Report from helper-2:\ntwo",

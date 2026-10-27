@@ -1,4 +1,5 @@
 import { E2BSandboxDesktop } from "@nap/sandbox/e2b-sandbox-desktop";
+import { FakeSandboxDesktop } from "@nap/sandbox/testing/fake-sandbox-desktop";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { isolatedDesktop } from "@nap/sandbox/testing/isolated-desktop";
 import { NapEventSchema, type NapEventType } from "@nap/shared/events";
@@ -195,6 +196,122 @@ describe("a batch of tool calls", () => {
 });
 
 describe("recovering", () => {
+  it.each(["reference", "screenshot"] as const)(
+    "refuses a text-only fallback while retained %s pixels are needed",
+    async (source) => {
+      const { agent, provider } = run(
+        [
+          [
+            ...(source === "screenshot"
+              ? [
+                  {
+                    toolCalls: [
+                      call("computer", { actions: [{ action: "screenshot" }] }, "screen"),
+                    ],
+                  },
+                ]
+              : []),
+            { refusal: true },
+          ],
+          [{ text: "must not continue without the image" }],
+        ],
+        { fallbackModel: "poolside/laguna-s-2.1:free" },
+      );
+      const desktop = new FakeSandboxDesktop({
+        bytes: new Uint8Array([255, 216, 255, 217]),
+        width: 1024,
+        height: 768,
+      });
+      await agent.runTurn(
+        request({
+          model: "openai/gpt-5.6-luna",
+          context: {
+            systemPrompt: "Build from the visual evidence.",
+            estimatedTokens: 2_500,
+            messages: [
+              {
+                role: "user",
+                content:
+                  source === "reference"
+                    ? [
+                        { type: "text", text: "Build this reference." },
+                        { type: "image", mediaType: "image/jpeg", data: "AA==" },
+                      ]
+                    : "Inspect the screen.",
+              },
+            ],
+          },
+          computer: {
+            desktop,
+            objects: new InMemoryObjectStore(),
+            projectId: "project",
+            devServerUrl: "http://localhost:5173",
+            beforeStore: async () => {},
+          },
+        }),
+      );
+
+      // Establish that pixels reached the refusing request, including nested screenshots.
+      const refusing = provider.requests[source === "reference" ? 0 : 1];
+      expect(refusing).toBeDefined();
+      expect(
+        refusing?.messages.flatMap((message) =>
+          typeof message.content === "string"
+            ? []
+            : message.content.flatMap((block) =>
+                block.type === "image"
+                  ? [block]
+                  : block.type === "tool_result" && Array.isArray(block.content)
+                    ? block.content.filter((observation) => observation.type === "image")
+                    : [],
+              ),
+        ),
+      ).toHaveLength(1);
+      expect(provider.turnOptions.map((options) => options.model)).toEqual(["openai/gpt-5.6-luna"]);
+      expect(provider.requests).toHaveLength(source === "reference" ? 1 : 2);
+      expect(payloads("turn.failed")).toEqual([expect.objectContaining({ reason: "refusal" })]);
+      expect(types()).not.toContain("turn.completed");
+      expect(payloads("system.notice")).not.toContainEqual(
+        expect.objectContaining({ text: expect.stringMatching(/is continuing it/) }),
+      );
+    },
+  );
+
+  it("preserves the reference when falling back to another image model", async () => {
+    const image = { type: "image", mediaType: "image/jpeg", data: "AA==" } as const;
+    const { agent, provider } = run([[{ refusal: true }], [{ text: "done" }]], {
+      fallbackModel: "anthropic/claude-opus-5",
+    });
+    await agent.runTurn(
+      request({
+        model: "openai/gpt-5.6-luna",
+        context: {
+          systemPrompt: "Build this.",
+          estimatedTokens: 2_500,
+          messages: [{ role: "user", content: [image] }],
+        },
+      }),
+    );
+    expect(provider.turnOptions.map((options) => options.model)).toEqual([
+      "openai/gpt-5.6-luna",
+      "anthropic/claude-opus-5",
+    ]);
+    expect(provider.requests[1]?.messages[0]?.content).toContainEqual(image);
+    expect(types().at(-1)).toBe("turn.completed");
+  });
+
+  it("allows a text-only fallback for a conversation without images", async () => {
+    const { agent, provider } = run([[{ refusal: true }], [{ text: "done" }]], {
+      fallbackModel: "poolside/laguna-s-2.1:free",
+    });
+    await agent.runTurn(request({ model: "openai/gpt-5.6-luna" }));
+    expect(provider.turnOptions.map((options) => options.model)).toEqual([
+      "openai/gpt-5.6-luna",
+      "poolside/laguna-s-2.1:free",
+    ]);
+    expect(types().at(-1)).toBe("turn.completed");
+  });
+
   it.each([
     ["openai/gpt-5.6-luna", "anthropic/claude-fable-5", false],
     ["anthropic/claude-fable-5", "openai/gpt-5.6-luna", true],

@@ -246,7 +246,7 @@ class Turn {
         );
       if (
         this.#request.context.budgetTokens !== undefined &&
-        input > this.#budget.remaining().tokens
+        input > (this.#helpers?.availableTokens() ?? this.#budget.remaining().tokens)
       )
         return this.#fail(
           "budget_exceeded",
@@ -283,6 +283,18 @@ class Turn {
           reminders.map((text) => `<reminder>${text}</reminder>`).join("\n"),
         );
 
+      // The helper pool owns outstanding promises. Include reminders in this estimate and
+      // bound the parent's output too, so a concurrent request cannot spend those promises.
+      const maxOutputTokens =
+        this.#helpers === undefined
+          ? undefined
+          : Math.floor(this.#helpers.availableTokens() - this.#estimate());
+      if (maxOutputTokens !== undefined && maxOutputTokens < 1)
+        return this.#fail(
+          "budget_exceeded",
+          "The unpromised turn budget cannot cover the next model request.",
+        );
+
       // The provider receives the signal too, but a proxy or upstream stream can take a while
       // to honour it. Racing here ends our turn immediately, preventing further tool calls or
       // streamed output while the transport tears itself down in the background.
@@ -292,6 +304,7 @@ class Turn {
           systemPrompt: this.#request.context.systemPrompt,
           messages,
           tools: this.#tools,
+          ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
           onThinkingDelta: (delta) => thinking.push(delta),
           onTextDelta: (delta) => prose.push(delta),
           ...(this.#request.signal === undefined ? {} : { signal: this.#request.signal }),
@@ -425,7 +438,19 @@ class Turn {
       this.#fellBack ||
       fallback === undefined ||
       fallback === this.#request.model ||
-      this.#request.credentials !== undefined
+      this.#request.credentials !== undefined ||
+      (!modelSupportsImages(fallback) &&
+        this.#messages.some(
+          (message) =>
+            Array.isArray(message.content) &&
+            message.content.some(
+              (block) =>
+                block.type === "image" ||
+                (block.type === "tool_result" &&
+                  Array.isArray(block.content) &&
+                  block.content.some((observation) => observation.type === "image")),
+            ),
+        ))
     )
       return false;
     this.#fellBack = true;
@@ -530,10 +555,11 @@ class Turn {
     const complete = async (request: LLMRequest): Promise<LLMTurnResult> => {
       const estimate = estimateContextTokens(request);
       const remaining = this.#budget.remaining();
+      const availableTokens = this.#helpers?.availableTokens() ?? remaining.tokens;
       const reserve = trigger === "automatic" ? 4_096 : 0;
       if (
         remaining.steps <= (trigger === "automatic" ? 1 : 0) ||
-        estimate + (request.maxOutputTokens ?? 4_096) + reserve > remaining.tokens
+        estimate + (request.maxOutputTokens ?? 4_096) + reserve > availableTokens
       )
         throw new Error("Not enough turn budget remains for compaction and continuation.");
       if (
@@ -561,7 +587,10 @@ class Turn {
           ? undefined
           : async (request) => {
               const reserve = this.#estimate() + 4_096;
-              if (this.#budget.remaining().tokens < reserve || this.#budget.remaining().steps < 1)
+              if (
+                (this.#helpers?.availableTokens() ?? this.#budget.remaining().tokens) < reserve ||
+                this.#budget.remaining().steps < 1
+              )
                 throw new Error("Not enough turn budget remains for native compaction.");
               this.#budget.recordStep();
               let result: Awaited<ReturnType<typeof native>>;
@@ -718,7 +747,9 @@ class Turn {
     this.#emit({
       type: "turn.completed",
       payload: {
-        ...(this.#usageIncomplete ? { usageIncomplete: true as const } : {}),
+        ...(this.#usageIncomplete || this.#helpers?.usageIncomplete()
+          ? { usageIncomplete: true as const }
+          : {}),
         usage: {
           inputTokens:
             this.#modelUsage().inputTokens + this.#nativeUsage.inputTokens + helpers.inputTokens,

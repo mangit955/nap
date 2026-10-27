@@ -5,10 +5,9 @@
  * outright whether it adds, updates, moves or deletes. That is what makes it robust to a model
  * that cannot count lines, and it is why applying one is a search rather than an offset.
  *
- * **All or nothing.** Every section is parsed and every hunk located before anything is written,
- * so a patch whose third hunk does not match changes no file at all. A half-applied patch is
- * worse than a refused one: the model's picture of the tree is then wrong in a way it was not
- * told about.
+ * Every section is parsed and every hunk located before anything is written, so a patch whose
+ * third hunk does not match changes no file at all. Runtime write/delete failures can leave a
+ * partial patch; its result and change events report what actually completed.
  *
  * Matching tolerates what models get wrong without changing what they meant — trailing
  * whitespace first, then indentation — and nothing looser. A hunk that matches only after both
@@ -251,39 +250,41 @@ export async function applyPatch(
       const occupied = await ctx.sandbox.readFile(ctx.sandboxId, target);
       if (occupied.ok) return refuse(`${target} already exists, so ${path} cannot move there.`);
       if (occupied.error.code !== "file_not_found") return failed(occupied.error);
-      planned.push({ path, before: existing, after: null });
       planned.push({ path: target, before: null, after: applied.value });
+      planned.push({ path, before: existing, after: null });
     }
   }
 
+  const completed: string[] = [];
+  const stopped = (message: string): ToolOutcome => ({
+    ok: false,
+    output: [...completed, message].join("\n"),
+  });
   for (const change of planned) {
+    if (ctx.signal?.aborted) return stopped("Patch cancelled before the next change.");
     if (change.after === null) {
       const removed = await ctx.sandbox.exec(ctx.sandboxId, `rm -f -- ${shellQuote(change.path)}`);
-      if (!removed.ok) return failed(removed.error);
+      if (!removed.ok) return stopped(failed(removed.error).output);
       if (removed.value.exitCode !== 0)
-        return {
-          ok: false,
-          output:
-            removed.value.stderr ||
+        return stopped(
+          removed.value.stderr ||
             `Could not delete ${change.path}: exit code ${removed.value.exitCode}.`,
-        };
+        );
       ctx.ledger?.forget(change.path);
     } else {
       const written = await ctx.sandbox.writeFile(ctx.sandboxId, change.path, change.after);
-      if (!written.ok) return failed(written.error);
+      if (!written.ok) return stopped(failed(written.error).output);
       ctx.ledger?.remember(change.path);
     }
     emitChange(ctx, change.path, change.before, change.after);
+    completed.push(
+      `${change.after === null ? "Deleted" : change.before === null ? "Added" : "Updated"} ${change.path}`,
+    );
   }
 
   return {
     ok: true,
-    output: planned
-      .map(
-        (change) =>
-          `${change.after === null ? "Deleted" : change.before === null ? "Added" : "Updated"} ${change.path}`,
-      )
-      .join("\n"),
+    output: completed.join("\n"),
   };
 }
 

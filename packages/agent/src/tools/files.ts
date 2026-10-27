@@ -64,6 +64,7 @@ export async function writeFile(
   if (before !== null && ctx.ledger !== undefined && !ctx.ledger.knows(args.path))
     return unread(args.path, "overwriting");
 
+  if (ctx.signal?.aborted) return { ok: false, output: "Cancelled before writing the file." };
   const written = await ctx.sandbox.writeFile(ctx.sandboxId, args.path, args.contents);
   if (!written.ok) return failed(written.error);
 
@@ -101,6 +102,7 @@ export async function editFile(
   // `split`/`join` rather than `replace`, whose replacement string treats `$&` and `$1` as
   // patterns — a model writing a shell snippet or a regex into a file would see it mangled.
   const after = before.split(args.old_string).join(args.new_string);
+  if (ctx.signal?.aborted) return { ok: false, output: "Cancelled before editing the file." };
   const written = await ctx.sandbox.writeFile(ctx.sandboxId, args.path, after);
   if (!written.ok) return failed(written.error);
 

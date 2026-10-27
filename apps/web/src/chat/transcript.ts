@@ -486,6 +486,7 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
             items,
             stepsById,
           );
+        step.status = event.payload.outcome === "completed" ? "ok" : "failed";
         step.helper = {
           subagentId: event.payload.subagentId,
           profile: step.helper?.profile ?? "explore",

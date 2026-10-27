@@ -319,7 +319,7 @@ export function WorkEntryRow({
   const [expanded, setExpanded] = useState(false);
   const seekComputer = use(ComputerNavigation);
   const failed = entryFailed(entry);
-  const running = entry.kind === "step" && entry.status === "running";
+  const running = entry.kind === "step" && (entry.helper?.outcome ?? entry.status) === "running";
   const label = displayLabel ?? workEntryDisplayLabel(entry);
   const name = `${label}${running ? ", still running" : ""}${failed ? ", tool call failed" : ""}`;
 

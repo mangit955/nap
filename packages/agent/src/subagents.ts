@@ -9,8 +9,8 @@
  * Four rules keep a helper from being a second, unaccountable turn (ADR-0020):
  *
  *  - **It spends the turn's budget.** Every token is recorded against the parent's
- *    `TurnBudget`, so the ceiling that caps a turn's bill still caps it, and a helper may only
- *    use part of what remains so the parent can still act on the answer.
+ *    `TurnBudget`. Estimated input and capped output must fit its share; actual usage is
+ *    checked before acting on a response, leaving room for the parent to use the answer.
  *  - **It lives inside the turn.** It shares the turn's cancellation, and a background helper
  *    nobody collected is cancelled when the turn ends — nothing runs on after the lease.
  *  - **Its traffic stays out of the log.** Its tool calls would replay into the parent's
@@ -20,6 +20,7 @@
  */
 
 import type { SubagentOutcome, SubagentProfile } from "@nap/shared/agent-plan";
+import { estimateContextTokens } from "@nap/shared/compaction";
 import type { NapEvent, NapEventOf, ToolName } from "@nap/shared/events";
 import type { AgentTurnRequest } from "@nap/shared/ports/agent-service";
 import type { DistributiveOmit } from "@nap/shared/ports/event-store";
@@ -27,6 +28,7 @@ import type {
   LLMContentBlock,
   LLMMessage,
   LLMProvider,
+  LLMTurnResult,
   TokenUsage,
 } from "@nap/shared/ports/llm-provider";
 import { CANCELLED, stopAware } from "./cancellation.ts";
@@ -34,6 +36,7 @@ import { DirectoryRules } from "./hooks/directory-rules.ts";
 import type { TurnBudget } from "./safety/budget.ts";
 import type { SubagentRunner, ToolContext, ToolOutcome } from "./tools/context.ts";
 import type { ToolDefinition } from "./tools/definitions.ts";
+import { runsConcurrently } from "./tools/definitions.ts";
 import { executeTool } from "./tools/execute.ts";
 import { FileLedger } from "./tools/ledger.ts";
 import { modelFamily, toolNamesFor, toolsetFor } from "./tools/toolset.ts";
@@ -70,7 +73,8 @@ export class SubagentPool implements SubagentRunner {
   readonly #options: SubagentPoolOptions;
   readonly #helpers = new Map<string, Helper>();
   readonly #usage = { inputTokens: 0, outputTokens: 0 };
-  /** Tokens promised to helpers still running, so two at once cannot each claim the same half. */
+  #usageIncomplete = false;
+  /** Unspent tokens promised to helpers, unavailable to other helpers or parent requests. */
   #reserved = 0;
   #started = 0;
 
@@ -118,6 +122,15 @@ export class SubagentPool implements SubagentRunner {
 
   usage(): TokenUsage {
     return { ...this.#usage };
+  }
+
+  usageIncomplete(): boolean {
+    return this.#usageIncomplete;
+  }
+
+  /** The parent and new helpers may spend only tokens not already promised. */
+  availableTokens(): number {
+    return Math.max(0, this.#options.budget.remaining().tokens - this.#reserved);
   }
 
   /** Unique within the turn, and short, because the model types it back into read_subagent. */
@@ -175,16 +188,26 @@ export class SubagentPool implements SubagentRunner {
     const tools = toolsetFor(toolsetOptions);
     const offered = toolNamesFor(toolsetOptions);
     const ledger = new FileLedger();
-    const allowance = Math.floor(
-      Math.max(0, options.budget.remaining().tokens - this.#reserved) * SUBAGENT_BUDGET_SHARE,
-    );
+    const allowance = Math.floor(this.availableTokens() * SUBAGENT_BUDGET_SHARE);
+    let reserved = allowance;
     this.#reserved += allowance;
+    const recordUsage = (spent: TokenUsage) => {
+      usage.inputTokens += spent.inputTokens;
+      usage.outputTokens += spent.outputTokens;
+      this.#usage.inputTokens += spent.inputTokens;
+      this.#usage.outputTokens += spent.outputTokens;
+      options.budget.recordUsage(spent);
+      // Actual spend is already removed by TurnBudget; only the unused promise stays held.
+      const consumed = Math.min(reserved, spent.inputTokens + spent.outputTokens);
+      reserved -= consumed;
+      this.#reserved -= consumed;
+    };
     try {
       return await this.#converse(
         request,
         signal,
         allowance,
-        { tools, offered, ledger, emit, model },
+        { tools, offered, ledger, emit, model, recordUsage },
         finish,
         () => {
           toolCalls += 1;
@@ -197,7 +220,7 @@ export class SubagentPool implements SubagentRunner {
         error instanceof Error ? error.message : String(error),
       );
     } finally {
-      this.#reserved -= allowance;
+      this.#reserved -= reserved;
     }
   }
 
@@ -212,12 +235,13 @@ export class SubagentPool implements SubagentRunner {
       ledger: FileLedger;
       emit: ToolContext["emit"];
       model: string | undefined;
+      recordUsage: (usage: TokenUsage) => void;
     },
     finish: (outcome: SubagentOutcome, report: string) => ToolOutcome,
     counted: () => void,
     usage: TokenUsage,
   ): Promise<ToolOutcome> {
-    const { tools, offered, ledger, emit, model } = access;
+    const { tools, offered, ledger, emit, model, recordUsage } = access;
     const options = this.#options;
     const turn = options.provider.startTurn({
       model,
@@ -241,24 +265,46 @@ export class SubagentPool implements SubagentRunner {
           "This is your last request. Reply with your report now, from what you have found.",
         );
 
-      const completed = await stopAware(
-        turn.complete({
-          systemPrompt: options.prompts[request.profile],
-          messages: [...messages],
-          tools,
-          signal,
-        }),
-        signal,
+      const remaining = allowance - usage.inputTokens - usage.outputTokens;
+      const available = Math.min(
+        remaining,
+        options.budget.remaining().tokens - this.#reserved + remaining,
       );
-      if (completed === CANCELLED) return finish("cancelled", "Stopped before it finished.");
+      const input = estimateContextTokens({
+        systemPrompt: options.prompts[request.profile],
+        messages,
+        tools,
+      });
+      const maxOutputTokens = Math.floor(available - input);
+      if (maxOutputTokens < 1)
+        return finish("failed", "Stopped: the turn's budget cannot cover more of this search.");
+      let completed: LLMTurnResult | typeof CANCELLED;
+      try {
+        completed = await stopAware(
+          turn.complete({
+            systemPrompt: options.prompts[request.profile],
+            messages: [...messages],
+            tools,
+            signal,
+            maxOutputTokens,
+          }),
+          signal,
+        );
+      } catch (error) {
+        this.#usageIncomplete = true;
+        throw error;
+      }
+      if (completed === CANCELLED) {
+        // The transport may still be billed even though its usage was not delivered.
+        this.#usageIncomplete = true;
+        return finish("cancelled", "Stopped before it finished.");
+      }
       const result = completed;
-      usage.inputTokens += result.usage.inputTokens;
-      usage.outputTokens += result.usage.outputTokens;
-      this.#usage.inputTokens += result.usage.inputTokens;
-      this.#usage.outputTokens += result.usage.outputTokens;
-      options.budget.recordUsage(result.usage);
+      recordUsage(result.usage);
 
       if (signal.aborted) return finish("cancelled", "Stopped before it finished.");
+      if (usage.inputTokens + usage.outputTokens > allowance || !options.budget.check().ok)
+        return finish("failed", "Stopped: the turn's budget cannot cover more of this search.");
       if (result.type === "refusal") return finish("failed", "The model declined this task.");
       if (result.type === "error") return finish("failed", result.message);
       if (result.toolCalls.length === 0)
@@ -266,25 +312,28 @@ export class SubagentPool implements SubagentRunner {
 
       const results: LLMContentBlock[] = [];
       for (const call of result.toolCalls) {
+        if (signal.aborted) return finish("cancelled", "Stopped before it finished.");
         counted();
-        const outcome = await stopAware(
-          executeTool(call, {
-            sessionId: options.request.sessionId,
-            turnId: options.request.turnId,
-            sandboxId: options.request.sandboxId,
-            sandbox: options.request.sandbox,
-            signal,
-            offered,
-            ledger,
-            backgroundShells: false,
-            // A helper's own calls stay out of the log; the files it changed do not.
-            emit: (event) => {
-              if (event.type === "file.changed" && !signal.aborted) emit(event);
-            },
-            now: options.now,
-          }).then((executed) => (signal.aborted ? executed : rules.afterTool(call, executed))),
+        const work = executeTool(call, {
+          sessionId: options.request.sessionId,
+          turnId: options.request.turnId,
+          sandboxId: options.request.sandboxId,
+          sandbox: options.request.sandbox,
           signal,
-        );
+          offered,
+          ledger,
+          backgroundShells: false,
+          // A helper's own calls stay out of the log; the files it changed do not.
+          emit: (event) => {
+            if (event.type === "file.changed") emit(event);
+          },
+          now: options.now,
+        }).then((executed) => (signal.aborted ? executed : rules.afterTool(call, executed)));
+        // Reads can be abandoned promptly. Mutations must finish before helper/turn ownership
+        // is released, including a write whose transport does not accept an abort signal.
+        const outcome = runsConcurrently(call.name, call.input)
+          ? await stopAware(work, signal)
+          : await work;
         if (outcome === CANCELLED || signal.aborted)
           return finish("cancelled", "Stopped before it finished.");
         results.push({

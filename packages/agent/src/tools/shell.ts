@@ -56,6 +56,7 @@ export async function runCommand(
   const command = `cd ${PROJECT_ROOT} && ${args.command}`;
   const timeoutMs = (args.timeout_seconds ?? 60) * 1_000;
 
+  if (ctx.signal?.aborted) return { ok: false, output: "Cancelled before running the command." };
   const executed = await ctx.sandbox.exec(
     ctx.sandboxId,
     command,

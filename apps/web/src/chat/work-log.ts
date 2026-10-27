@@ -78,10 +78,11 @@ export function commandExitCode(entry: WorkEntry): number | undefined {
   return match?.[1] === undefined ? undefined : Number.parseInt(match[1], 10);
 }
 
-/** A refused call, or a command that exited non-zero — both failed, to the person watching. */
+/** A failed/stopped helper, refused call or command that exited non-zero. */
 export function entryFailed(entry: WorkEntry): boolean {
   if (entry.kind !== "step") return false;
   if (entry.status === "failed") return true;
+  if (entry.helper?.outcome === "failed" || entry.helper?.outcome === "cancelled") return true;
   const code = commandExitCode(entry);
   return code !== undefined && code !== 0;
 }
