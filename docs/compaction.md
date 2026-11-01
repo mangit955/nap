@@ -148,17 +148,20 @@ context replay omits. A search for `^#42 ` finds exactly entry 42.
 
 The summarizer reads the same entries in brief form: identical headers, but older turns' tool
 output and multi-line or long arguments are replaced with a note naming the entry. That is the
-same material staleness drops from replayed context. The previous checkpoint's summary travels
-beside the fragment as `previousSummary`. The prompt asks for three sections, Overview, Key
-details and Current state and next steps, with every key detail ending in entry numbers or a
-search term. The sections are requested, not validated.
+same material staleness drops from replayed context. The turn kept in full is the last one with
+any conversation, so a `/compact` that has only started leaves the turn before it intact. Chunks
+are cut between entries, and inside one only when it is larger than a chunk. The previous
+checkpoint's summary travels beside the fragment as `previousSummary`. The prompt asks for three
+sections, Overview, Key details and Current state and next steps, with every key detail ending
+in entry numbers or a search term. The sections are requested, not validated.
 
 Ordering inside a compaction: summarize, write the file with the new boundary, rebuild with
 the path only if that write succeeded, validate, then append `compaction.completed`. The file is
 written before the event that commits its part, so a rejected or cancelled compaction can
 leave one extra part behind. A dot file beside it, `.<sessionId>.parts`, records the format
-version and the boundaries the file holds, and is written only after the file. Before context
-is built, every turn whose log has an API checkpoint compares that record against the log's
+version and the boundaries the file holds. It is cleared before the file is written and filled
+in only after, so a write that fails part way can never be vouched for. Before context is
+built, every turn whose log has an API checkpoint compares that record against the log's
 boundaries and confirms the file is listed. On any mismatch it regenerates the whole file from
 events. That rewrite repairs an extra part, a replaced or restored sandbox, a deleted file and
 a format change. Sessions without a checkpoint do no sandbox I/O for this.
@@ -167,7 +170,8 @@ The rebuilt context carries a second text block after the quoted summary, at use
 in the application's voice. It names the file and says to search it with `search_files`, using
 the file as the path, then read around a match with `read_file` and an offset. If the runtime
 could not write or confirm the file, the block says instead that the cited history is
-unavailable. The block appears on every later turn while the checkpoint stands.
+unavailable. The block appears on every later turn while the checkpoint stands. The local
+computer harness refuses paths outside the project, so the agent gets the unavailable text there.
 
 Native compaction writes no history file. The provider compacts with its own prompt, which
 cannot cite these entry numbers. Parts are cut only at API checkpoints, so if that session

@@ -1,6 +1,10 @@
 import { NapAgentService } from "@nap/agent/agent-service";
 import { ScriptedLLMProvider, type ScriptedTurn } from "@nap/agent/testing/scripted-llm-provider";
-import { compactionHistoryPath, renderCompactionHistory } from "@nap/context/compaction-history";
+import {
+  COMPACTION_HISTORY_DIR,
+  compactionHistoryPath,
+  renderCompactionHistory,
+} from "@nap/context/compaction-history";
 import { NapContextEngine } from "@nap/context/context-engine";
 import { NoopMemoryProvider } from "@nap/context/noop-memory-provider";
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
@@ -18,12 +22,17 @@ import { SingleAgentRuntime } from "./single-agent-runtime.ts";
 const SESSION = "00000000-0000-4000-8000-000000000001";
 const PROJECT = "00000000-0000-4000-8000-000000000002";
 const EARLY = "Keep keyboard navigation and the purple theme. Never deploy.";
-function fixture(provider: LLMProvider, budgetTokens = 80_000, maxTokens = 400_000) {
+function fixture(
+  provider: LLMProvider,
+  budgetTokens = 80_000,
+  maxTokens = 400_000,
+  Sandbox = InMemorySandboxManager,
+) {
   const events = new InMemoryEventStore();
   const bus = new InMemoryEventBus();
   const sessions = new InMemorySessionStore([{ sessionId: SESSION, projectId: PROJECT }]);
   const sandbox = scriptGit(
-    new InMemorySandboxManager({
+    new Sandbox({
       // Many lines rather than one: a read cuts a single line at a couple of thousand
       // characters, and this file exists to make each read large.
       seed: { "/home/user/app/large.txt": "tool-output\n".repeat(2200) },
@@ -102,7 +111,8 @@ it("manual compaction persists a boundary, retains early instructions and surviv
   expect(request.systemPrompt).not.toContain(checkpoint!.summary);
 });
 
-it("compacts within a tool loop, preserves complete pairs, and charges summary calls to that turn", async () => {
+/** A model that keeps reading a large file, so its turn outgrows a small budget mid-loop. */
+function readingModel() {
   const requests: LLMRequest[] = [];
   let normal = 0;
   const provider: LLMProvider = {
@@ -144,6 +154,11 @@ it("compacts within a tool loop, preserves complete pairs, and charges summary c
       };
     },
   };
+  return { provider, requests };
+}
+
+it("compacts within a tool loop, preserves complete pairs, and charges summary calls to that turn", async () => {
+  const { provider, requests } = readingModel();
   const f = fixture(provider, 24_000);
   const outcome = await f.run(EARLY);
   const history = await f.history();
@@ -159,6 +174,9 @@ it("compacts within a tool loop, preserves complete pairs, and charges summary c
   expect(history.filter((e) => e.type === "tool.call")).toHaveLength(4);
   const after = requests.filter((r) => r.purpose !== "compaction").at(-1)!;
   expect(JSON.stringify(after.messages)).toContain(EARLY);
+  // The turn that compacted is told about the file then and there, not only from the next turn.
+  expect(JSON.stringify(after.messages)).toContain(compactionHistoryPath(SESSION));
+  expect(JSON.stringify(after.messages)).not.toContain("not available in this sandbox");
   for (const request of requests.filter((r) => r.purpose !== "compaction")) {
     const blocks = request.messages.flatMap((m) =>
       typeof m.content === "string" ? [] : m.content,
@@ -487,6 +505,66 @@ describe("the compaction history", () => {
     const conversation = JSON.stringify(next.requests[0]?.messages);
     expect(conversation).toContain(PATH);
     expect(conversation).not.toContain("not available in this sandbox");
+  });
+
+  it("gives the summarizer the tool output of the turn a manual compaction follows", async () => {
+    const provider = new ScriptedLLMProvider([
+      [
+        {
+          toolCalls: [{ id: "r1", name: "read_file", input: { path: "/home/user/app/large.txt" } }],
+        },
+        { text: "Read it." },
+      ],
+      [{ text: "Overview\nRead (#3)." }],
+    ]);
+    const f = fixture(provider);
+    await f.run(EARLY);
+    expect((await f.run("/compact")).ok).toBe(true);
+    const source = provider.requests.find((r) => r.purpose === "compaction")?.messages[0]?.content;
+    expect(source).toContain("tool-output");
+    expect(source).not.toContain("output not repeated here");
+  });
+
+  describe("in a sandbox that will not take the file", () => {
+    /** The way the local computer harness behaves, which refuses anything outside the project. */
+    class RefusingSandbox extends InMemorySandboxManager {
+      override async writeFile(sandboxId: string, path: string, contents: string) {
+        if (path.startsWith(`${COMPACTION_HISTORY_DIR}/`))
+          return { ok: false as const, error: { code: "exec_failed" as const, message: "no" } };
+        return super.writeFile(sandboxId, path, contents);
+      }
+    }
+
+    it("still compacts on /compact, and the next turn is told the file is unavailable", async () => {
+      const provider = new ScriptedLLMProvider([
+        [{ text: "first answer" }],
+        [{ text: "Overview\nDone (#2)." }],
+        [{ text: "second answer" }],
+      ]);
+      const f = fixture(provider, 80_000, 400_000, RefusingSandbox);
+      await f.run(EARLY);
+      expect((await f.run("/compact")).ok).toBe(true);
+      expect((await f.history()).some((e) => e.type === "compaction.completed")).toBe(true);
+      await f.run("Now add a filter");
+      const conversation = JSON.stringify(provider.requests.at(-1)?.messages);
+      expect(conversation).toContain("not available in this sandbox");
+      expect(conversation).not.toContain(PATH);
+    });
+
+    it("still compacts within a turn, and tells that same turn the file is unavailable", async () => {
+      const { provider, requests } = readingModel();
+      const f = fixture(provider, 24_000, 400_000, RefusingSandbox);
+      expect((await f.run(EARLY)).ok).toBe(true);
+      const history = await f.history();
+      const completed = history.findIndex((e) => e.type === "compaction.completed");
+      expect(completed).toBeGreaterThan(-1);
+      expect(history.findLastIndex((e) => e.type === "tool.result")).toBeGreaterThan(completed);
+      const conversation = JSON.stringify(
+        requests.filter((r) => r.purpose !== "compaction").at(-1)?.messages,
+      );
+      expect(conversation).toContain("not available in this sandbox");
+      expect(conversation).not.toContain(PATH);
+    });
   });
 
   it("adds a part at each compaction without rewriting the earlier ones", async () => {

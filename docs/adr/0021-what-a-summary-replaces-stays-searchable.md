@@ -38,7 +38,7 @@ the summary points into it.**
   it and regenerates it from events when it is missing or holds different parts. The agent is
   told the file exists only after a write or check succeeded.
 - **The runtime writes it; the context engine renders it.** Writing to a sandbox is a turn's
-  side effect, and the component that owns the budget does no I/O.
+  side effect, and the component that owns the budget has no side effects on the sandbox.
 
 **Native compaction does not get a file.** A session-backed Claude or Codex provider compacts
 its own history with its own summary prompt. We cannot ask that summary to cite our entry
@@ -51,14 +51,20 @@ the events a native marker covered appear in the next API part.
 ## Consequences
 
 - A compacted session pays two small sandbox reads per turn. A compaction, or a sandbox
-  without the file, pays one write of the whole history. Sessions that were never compacted
-  pay nothing.
+  without the file, pays three writes: clearing the record, the whole history, then the record.
+  Sessions that were never compacted pay nothing.
 - The file grows with the session and is never trimmed. Tool output is already capped by the
-  tools that produced it, which bounds each entry but not the total.
+  tools that produced it, which bounds each entry but not the total. Reads of the file are tool
+  output too, so they land in later parts and the file accumulates copies of itself, each
+  bounded by a tool result's limit.
 - The three-section shape is requested, not enforced. Rejecting a summary with a missing
   heading would discard a paid call while the context is still too full.
-- The agent can edit or delete its copy with a shell command. The next turn notices a deleted
-  file but not an edited one, and the log is unaffected either way.
+- The agent can edit or delete its copy with its file tools; the command guard refuses most
+  shell writes outside the project. The next turn notices a deleted file but not an edited one,
+  and the log is unaffected either way.
+- Code running in the sandbox, including an imported repository's scripts, can read the
+  transcript. It could already read the workspace, and a project's sessions share one owner and
+  one sandbox, so this crosses no boundary that existed.
 - The summarizer's input changed from JSON-encoded provider messages to the brief rendering.
   Old turns' tool output is elided from it as before (ADR-0011), so a summary call costs about
   what it did.

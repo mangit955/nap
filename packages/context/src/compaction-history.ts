@@ -123,9 +123,11 @@ export function renderHistoryEntries(
   events: readonly NapEvent[],
   options: { brief: boolean },
 ): string {
-  const lastTurn = events.findLast(
-    (event) => event.type === "user.message" || event.type === "turn.started",
-  )?.turnId;
+  // The last turn anybody said anything in, which is the turn the context engine's staleness
+  // pass spares too. Not simply the last turn: a `/compact`, or an app test about to take its
+  // first step, has started and has no conversation yet, and counting it would hide the output
+  // of the real last turn from the summary that is about to replace it.
+  const lastTurn = events.findLast(isConversation)?.turnId;
   const lines: string[] = [];
   /** The event that opened the prose entry still being written, if the last entry was prose. */
   let prose: string | undefined;
@@ -147,7 +149,7 @@ export function renderHistoryEntries(
         entry(event, "user", [
           ...indent(event.payload.text),
           ...(event.payload.attachments ?? []).map(
-            (attachment) => `${BODY}[reference: ${attachment.name} (${attachment.kind})]`,
+            (attachment) => `${BODY}[reference: ${oneLine(attachment.name)} (${attachment.kind})]`,
           ),
         ]);
         break;
@@ -166,7 +168,8 @@ export function renderHistoryEntries(
       }
       case "tool.call": {
         const { toolName, toolCallId, input } = event.payload;
-        const body = Object.entries(input).flatMap(([key, value]) => {
+        const body = Object.entries(input).flatMap(([rawKey, value]) => {
+          const key = oneLine(rawKey);
           const text = typeof value === "string" ? value : JSON.stringify(value);
           if (stale && (text.includes("\n") || text.length > BRIEF_ARGUMENT_CHARS))
             return [`${BODY}${key}: [not repeated here; entry #${event.seq} has it in full]`];
@@ -174,14 +177,14 @@ export function renderHistoryEntries(
             ? [`${BODY}${key}:`, ...indent(text, NESTED)]
             : [`${BODY}${key}: ${text}`];
         });
-        entry(event, `tool call ${toolName} (call ${toolCallId})`, body);
+        entry(event, `tool call ${toolName} (call ${oneLine(toolCallId)})`, body);
         break;
       }
       case "tool.result": {
         const { toolName, toolCallId, ok, output } = event.payload;
         entry(
           event,
-          `tool result ${toolName} (call ${toolCallId})${ok ? "" : " failed"}`,
+          `tool result ${toolName} (call ${oneLine(toolCallId)})${ok ? "" : " failed"}`,
           stale
             ? [`${BODY}[output not repeated here; entry #${event.seq} has it in full]`]
             : indent(output),
@@ -191,9 +194,16 @@ export function renderHistoryEntries(
       case "turn.completed":
         entry(event, "turn completed");
         break;
-      case "turn.failed":
-        entry(event, `turn failed (${event.payload.reason}): ${firstLine(event.payload.message)}`);
+      case "turn.failed": {
+        // A header is one line, whatever a failure message contains.
+        const [first = "", ...rest] = event.payload.message.split("\n");
+        entry(
+          event,
+          `turn failed (${event.payload.reason}): ${first}`,
+          rest.map((line) => `${BODY}${line}`),
+        );
         break;
+      }
       case "compaction.completed":
         if (event.payload.result.kind === "api") entry(event, "context compacted");
         break;
@@ -206,7 +216,22 @@ export function renderHistoryEntries(
   return lines.length === 0 ? "" : `${lines.join("\n")}\n`;
 }
 
-/** A header is one line, whatever a failure message contains. */
-function firstLine(text: string): string {
-  return text.split("\n")[0] ?? "";
+/** The event types that are something somebody said, which are what `toMessages` replays. */
+function isConversation(event: NapEvent): boolean {
+  return (
+    event.type === "user.message" ||
+    event.type === "agent.message" ||
+    event.type === "tool.call" ||
+    event.type === "tool.result"
+  );
+}
+
+/**
+ * A string from outside that has to stay on the line it was put on: a file name somebody
+ * uploaded, a key or an id a model made up. Its next line would otherwise start at column 0,
+ * where it could read as another entry's header. Quoted only when it has to be, since nearly
+ * every name is an ordinary one and reads better bare.
+ */
+function oneLine(text: string): string {
+  return text.includes("\n") ? JSON.stringify(text) : text;
 }

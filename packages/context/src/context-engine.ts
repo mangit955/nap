@@ -559,7 +559,7 @@ export class NapContextEngine implements ContextEngine {
 function historyPointer(historyFile: string | undefined): string {
   if (historyFile === undefined)
     return "The history file this summary cites is not available in this sandbox right now, so treat its entry references as unavailable.";
-  return `The summary above stands in for earlier conversation removed to make room. That conversation is saved verbatim at ${historyFile}, outside the project and never committed. Each entry starts with its event number, as in "#42 tool result", and the summary's references like (#42) point there. Search it with search_files, giving that file as the path and a pattern such as "^#42 " or a term from the summary, then use read_file with an offset to read around a match. Check it before redoing work or guessing at a detail the summary leaves out.`;
+  return `The summary above stands in for earlier conversation removed to make room. A plain-text transcript of its messages, tool calls and tool results is saved at ${historyFile}, outside the project and never committed. Each entry starts with its event number, as in "#42 tool result", and the summary's references like (#42) point there. Search it with search_files, giving that file as the path and a pattern such as "^#42 " or a term from the summary, then use read_file with an offset to read around a match. Check it before redoing work or guessing at a detail the summary leaves out.`;
 }
 
 /** The instructions the application owns for this workspace — the prompt's stable head. */

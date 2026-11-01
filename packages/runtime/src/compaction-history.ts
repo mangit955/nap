@@ -12,7 +12,8 @@ import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
  * Keeps a session's compaction history in its sandbox: the file the summary points the agent at.
  *
  * Here because writing to a sandbox is a turn's side effect, which is the runtime's job; the
- * context engine renders the text and decides what the model is told, and does no I/O.
+ * context engine renders the text and decides what the model is told, and has no side effects
+ * on the sandbox.
  *
  * The file is a cache of the event log and is treated like one. A sandbox loses it whenever it
  * is replaced, because snapshots carry the project's git history and nothing outside it, so a
@@ -33,6 +34,9 @@ export type CompactionHistoryFile = {
   sync(history: readonly NapEvent[]): Promise<string | undefined>;
 };
 
+/** What the record says while the file is being replaced. No `describe` result can equal it. */
+const WRITING = "writing\n";
+
 export function compactionHistoryFile(options: {
   sandbox: SandboxManager;
   sandboxId: string;
@@ -47,6 +51,12 @@ export function compactionHistoryFile(options: {
     `format ${COMPACTION_HISTORY_FORMAT}\nparts ${boundaries.join(",")}\n`;
 
   const write = async (history: readonly NapEvent[], boundaries: readonly number[]) => {
+    // Cleared first, because a write that fails may have left part of a file behind, and the
+    // record from before it would still vouch for the result if the compaction then came to
+    // nothing and the log went on saying what that record says. If this fails too, the file
+    // is left exactly as the record describes it.
+    const cleared = await sandbox.writeFile(sandboxId, record, WRITING);
+    if (!cleared.ok) return false;
     const written = await sandbox.writeFile(
       sandboxId,
       path,

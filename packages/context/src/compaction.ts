@@ -52,16 +52,37 @@ export function prepareCompaction(history: NapEvent[], chunkTokens: number): Com
     }
   }
   const source = renderHistoryEntries(fresh, { brief: true });
-  const chunks: string[] = [];
-  const chars = Math.max(1, Math.floor(chunkTokens * 4));
-  for (let offset = 0; offset < source.length; offset += chars)
-    chunks.push(source.slice(offset, offset + chars));
   return {
     coveredThrough: history.at(-1)?.seq ?? 0,
     previousSummary: checkpoint?.summary ?? "",
-    chunks,
+    chunks: chunksOfEntries(source, Math.max(1, Math.floor(chunkTokens * 4))),
     tail,
   };
+}
+
+/**
+ * Cuts the source between entries, so the summarizer never sees half of a number it is asked to
+ * cite: `#4` at the end of one chunk and `2 tool result` at the start of the next invites a
+ * pointer to the wrong entry, which is worse than none because the agent will trust it.
+ *
+ * Body lines are indented and the source has no part headings, so a newline followed by `#` is
+ * always a header. Only an entry larger than a whole chunk is cut inside, at the limit. Two
+ * neighbouring chunks always exceed the limit together, or the first would have taken the next
+ * entry too, so this costs at most twice the summary calls of an even cut.
+ */
+function chunksOfEntries(source: string, chars: number): string[] {
+  const chunks: string[] = [];
+  let start = 0;
+  while (source.length - start > chars) {
+    const boundary = source.lastIndexOf("\n#", start + chars - 1);
+    // Strictly after `start`: a boundary at `start` is a newline a cut left behind, and a chunk
+    // holding only that would be a paid call about nothing.
+    const end = boundary > start ? boundary + 1 : start + chars;
+    chunks.push(source.slice(start, end));
+    start = end;
+  }
+  if (start < source.length) chunks.push(source.slice(start));
+  return chunks;
 }
 
 /** Summary and native restoration carry media references, never encoded frame bytes. */

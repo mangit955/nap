@@ -11,6 +11,7 @@ import { compactionHistoryFile } from "./compaction-history.ts";
 const SESSION = "00000000-0000-4000-8000-000000000001";
 const TURN = "00000000-0000-4000-8000-00000000000a";
 const PATH = compactionHistoryPath(SESSION);
+const RECORD = `${COMPACTION_HISTORY_DIR}/.${SESSION}.parts`;
 
 let seq = 0;
 function event(body: Pick<NapEvent, "type" | "payload">): NapEvent {
@@ -39,9 +40,13 @@ function checkpoint(coveredThrough: number): NapEvent {
 /** Counts writes, so "already current" can be told apart from "rewritten identically". */
 class CountingSandbox extends InMemorySandboxManager {
   writes: string[] = [];
+  /** A path whose writes fail part way, leaving what had arrived, as a dropped transfer could. */
+  failing: string | undefined;
   override async writeFile(sandboxId: string, path: string, contents: string) {
     this.writes.push(path);
-    return super.writeFile(sandboxId, path, contents);
+    if (path !== this.failing) return super.writeFile(sandboxId, path, contents);
+    await super.writeFile(sandboxId, path, contents.slice(0, Math.floor(contents.length / 2)));
+    return { ok: false as const, error: { code: "exec_failed" as const, message: "dropped" } };
   }
 }
 
@@ -135,6 +140,36 @@ describe("the compaction history in a sandbox", () => {
     expect(await file().sync(pending)).toBe(PATH);
     expect(await read()).toBe(renderCompactionHistory(pending, SESSION));
     expect(await read()).not.toContain("Part 2");
+  });
+
+  it("does not let a current record vouch for a file a failed write damaged", async () => {
+    await file().sync(history);
+    const whole = await read();
+    const pending = [...history, event({ type: "agent.message", payload: { text: "More." } })];
+    sandbox.failing = PATH;
+    expect(await file().write(pending, [2, 4])).toBe(false);
+    expect(await read()).not.toBe(whole);
+    // The compaction that tried this never committed, so the log still says what the record did.
+    sandbox.failing = undefined;
+    sandbox.writes = [];
+    expect(await file().sync(history)).toBe(PATH);
+    expect(sandbox.writes).toContain(PATH);
+    expect(await read()).toBe(whole);
+  });
+
+  it("clears the record, writes the file, then fills the record in, in that order", async () => {
+    await file().write(history, [2]);
+    expect(sandbox.writes).toEqual([RECORD, PATH, RECORD]);
+  });
+
+  it("leaves the file alone when the record cannot be cleared first", async () => {
+    await file().sync(history);
+    const whole = await read();
+    sandbox.failing = RECORD;
+    sandbox.writes = [];
+    expect(await file().write(history, [2])).toBe(false);
+    expect(sandbox.writes).toEqual([RECORD]);
+    expect(await read()).toBe(whole);
   });
 
   it("reports a sandbox it could not write to instead of pointing at nothing", async () => {
