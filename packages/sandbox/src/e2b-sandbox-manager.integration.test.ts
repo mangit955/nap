@@ -11,7 +11,7 @@
  */
 
 import { Sandbox } from "e2b";
-import { afterAll, expect } from "vitest";
+import { afterAll, expect, it, vi } from "vitest";
 import { E2BSandboxManager } from "./e2b-sandbox-manager.ts";
 import { describeSandboxManagerConformance } from "./testing/conformance.ts";
 
@@ -65,7 +65,7 @@ describeSandboxManagerConformance({
         writeFile: (id, path, contents) => manager.writeFile(id, path, contents),
         readFile: (id, path) => manager.readFile(id, path),
         listFiles: (id, path) => manager.listFiles(id, path),
-        exec: (id, command, onOutput) => manager.exec(id, command, onOutput),
+        exec: (id, command, onOutput, options) => manager.exec(id, command, onOutput, options),
         getPreviewUrl: (id, port) => manager.getPreviewUrl(id, port),
         waitForPreview: (id, port, opts) => manager.waitForPreview(id, port, opts),
       },
@@ -77,6 +77,43 @@ describeSandboxManagerConformance({
     };
   },
 });
+
+it("stops a command and what it started when its signal fires", async () => {
+  // Real E2B only, because this is a fact about envd rather than about our code: the SDK documents
+  // that the kill sends SIGKILL to the command, and says nothing about the command's children.
+  const manager = new E2BSandboxManager();
+  const opened = await manager.create("stop-on-abort");
+  if (!opened.ok) throw new Error(opened.error.message);
+  const sandboxId = opened.value.id;
+  created.add(sandboxId);
+  try {
+    const controller = new AbortController();
+    const running = manager.exec(
+      sandboxId,
+      "sh -c 'echo $$ > /tmp/child.pid; sleep 300; true' & wait",
+      undefined,
+      { signal: controller.signal, stopOnAbort: true, timeoutMs: 120_000 },
+    );
+    await vi.waitFor(
+      async () => expect((await manager.readFile(sandboxId, "/tmp/child.pid")).ok).toBe(true),
+      { timeout: 15_000, interval: 500 },
+    );
+
+    controller.abort();
+    await running;
+
+    await vi.waitFor(
+      async () => {
+        const alive = await manager.exec(sandboxId, "kill -0 $(cat /tmp/child.pid)");
+        expect(alive).toMatchObject({ ok: true });
+        expect(alive.ok && alive.value.exitCode).not.toBe(0);
+      },
+      { timeout: 15_000, interval: 1_000 },
+    );
+  } finally {
+    await Sandbox.kill(sandboxId).catch(() => false);
+  }
+}, 60_000);
 
 afterAll(async () => {
   const stillRunning: string[] = [];

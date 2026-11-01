@@ -22,6 +22,7 @@ import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { TEMPLATE_DEV_PORT } from "@nap/sandbox/template";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { scriptGit } from "@nap/sandbox/testing/script-git";
+import { VERIFICATION_ROUND_LIMIT_MS } from "@nap/shared/command-windows";
 import type { NapEventType, PromptSource } from "@nap/shared/events";
 import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
 import { foldJobs, MAX_REPAIR_ATTEMPTS } from "@nap/shared/job-state";
@@ -313,6 +314,70 @@ describe("a crash inside a repair", () => {
     expect(countOf(types, "turn.failed")).toBe(1);
     expect(countOf(types, "job.completed")).toBe(1);
     expect((await jobs()).jobs.at(-1)?.phase).toBe("abandoned");
+  });
+});
+
+describe("cancelling a job while its checks are running", () => {
+  /** A check that is running when the cancel lands, and answers the way E2B does to one. */
+  function cancelledDuringTheCheck(controller: AbortController): void {
+    sandbox.script(/bun run typecheck/, (_command, options) => {
+      controller.abort();
+      return options.signal?.aborted === true
+        ? { error: { code: "timeout", message: "canceled" } }
+        : { exitCode: 2, stderr: "src/App.tsx: error TS2304" };
+    });
+  }
+
+  it("abandons the job, recording no verification and opening no repair", async () => {
+    const controller = new AbortController();
+    cancelledDuringTheCheck(controller);
+
+    await run({ signal: controller.signal });
+
+    expect(agent.calls).toBe(1);
+    expect((await jobs()).jobs.at(-1)?.phase).toBe("abandoned");
+    expect((await log()).map((event) => event.type)).not.toContain("verification.completed");
+  });
+});
+
+describe("the sandbox under a round of checks", () => {
+  it("pushes the sandbox's deadline back far enough for the whole round", async () => {
+    // The deadline was last pushed back when the turn acquired the sandbox, however long ago that
+    // was, and a round of checks can run for longer than whatever is left of it.
+    sandbox.script(/bun run typecheck/, { exitCode: 0 });
+
+    await new SingleAgentRuntime({
+      sessions,
+      sandbox,
+      context,
+      agent,
+      events,
+      bus: new InMemoryEventBus(),
+      memory: new NoopMemoryProvider(),
+      sandboxTtlMs: 60_000,
+    }).runTurn({ turnId: REQUEST_TURN_ID, sessionId: SESSION_ID, message: "add a button" });
+
+    const session = await sessions.get(SESSION_ID);
+    expect(sandbox.timeoutOf(session?.sandboxId ?? "")).toBe(VERIFICATION_ROUND_LIMIT_MS);
+  });
+
+  it("does not shorten a deadline configured longer than the round", async () => {
+    sandbox.script(/bun run typecheck/, { exitCode: 0 });
+    const sandboxTtlMs = VERIFICATION_ROUND_LIMIT_MS + 60_000;
+
+    await new SingleAgentRuntime({
+      sessions,
+      sandbox,
+      context,
+      agent,
+      events,
+      bus: new InMemoryEventBus(),
+      memory: new NoopMemoryProvider(),
+      sandboxTtlMs,
+    }).runTurn({ turnId: REQUEST_TURN_ID, sessionId: SESSION_ID, message: "add a button" });
+
+    const session = await sessions.get(SESSION_ID);
+    expect(sandbox.timeoutOf(session?.sandboxId ?? "")).toBe(sandboxTtlMs);
   });
 });
 

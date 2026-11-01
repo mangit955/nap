@@ -24,6 +24,7 @@
 
 import type { SandboxInventory, SandboxListing } from "@nap/shared/ports/sandbox-inventory";
 import type {
+  ExecOptions,
   ExecOutputHandler,
   ExecResult,
   FileNode,
@@ -60,6 +61,16 @@ export type E2BSandboxHandle = {
         timeoutMs?: number;
       },
     ): Promise<E2BCommandResult>;
+    /** As `run`, handing back the running command rather than waiting for it to finish. */
+    start(
+      cmd: string,
+      opts?: {
+        onStdout?: (data: string) => void;
+        onStderr?: (data: string) => void;
+        signal?: AbortSignal;
+        timeoutMs?: number;
+      },
+    ): Promise<E2BRunningCommand>;
   };
   getHost(port: number): string;
   /** Reads back what `create` stored, which is how a resume recovers the project id. */
@@ -73,6 +84,9 @@ export type E2BSandboxHandle = {
 export type E2BEntry = { name: string; path: string; type?: FileType };
 
 export type E2BCommandResult = { exitCode: number; stdout: string; stderr: string };
+
+/** `CommandHandle`, minus the fields we ignore. */
+export type E2BRunningCommand = { wait(): Promise<E2BCommandResult>; kill(): Promise<boolean> };
 
 /** One running sandbox as the provider describes it. `SandboxInfo`, minus the fields we ignore. */
 export type E2BSandboxSummary = {
@@ -154,6 +168,33 @@ function toFileNode(entry: E2BEntry): FileNode {
   return { path: entry.path, type: entry.type === FileType.DIR ? "directory" : "file" };
 }
 
+/**
+ * Runs a command and kills it if `signal` fires.
+ *
+ * The SDK's own `signal` only drops the connection: `CommandHandle.disconnect` documents that the
+ * command is not killed by doing exactly that, and the command goes on running until its timeout.
+ * The kill is not awaited, because the caller asked to stop waiting and the result would change
+ * nothing it does next. It fails only when the command or the sandbox has already gone.
+ */
+async function runUntilAborted(
+  handle: E2BSandboxHandle,
+  command: string,
+  opts: Parameters<E2BSandboxHandle["commands"]["start"]>[1],
+  signal: AbortSignal,
+): Promise<E2BCommandResult> {
+  const running = await handle.commands.start(command, opts);
+  const kill = () => {
+    running.kill().catch(() => {});
+  };
+  if (signal.aborted) kill();
+  else signal.addEventListener("abort", kill, { once: true });
+  try {
+    return await running.wait();
+  } finally {
+    signal.removeEventListener("abort", kill);
+  }
+}
+
 /** Wraps the real `Sandbox` class in the narrow shape above. */
 function realClient(template: string | undefined): E2BClient {
   const adapt = (sandbox: Sandbox): E2BSandboxHandle => ({
@@ -165,6 +206,7 @@ function realClient(template: string | undefined): E2BClient {
     },
     commands: {
       run: (cmd, opts) => sandbox.commands.run(cmd, { ...opts, background: false }),
+      start: (cmd, opts) => sandbox.commands.run(cmd, { ...opts, background: true }),
     },
     getHost: (port) => sandbox.getHost(port),
     getMetadata: async () => (await sandbox.getInfo()).metadata,
@@ -354,16 +396,20 @@ export class E2BSandboxManager implements SandboxManager, SandboxInventory {
     sandboxId: string,
     command: string,
     onOutput?: ExecOutputHandler,
-    options?: { signal?: AbortSignal | undefined; timeoutMs?: number | undefined },
+    options?: ExecOptions,
   ): Promise<Result<ExecResult, SandboxError>> {
     return this.#withSandbox(sandboxId, async (handle) => {
+      const opts = {
+        ...(options?.signal ? { signal: options.signal } : {}),
+        ...(options?.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+        onStdout: (data: string) => onOutput?.({ stream: "stdout", data }),
+        onStderr: (data: string) => onOutput?.({ stream: "stderr", data }),
+      };
       try {
-        const result = await handle.commands.run(command, {
-          ...(options?.signal ? { signal: options.signal } : {}),
-          ...(options?.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
-          onStdout: (data) => onOutput?.({ stream: "stdout", data }),
-          onStderr: (data) => onOutput?.({ stream: "stderr", data }),
-        });
+        const result =
+          options?.signal !== undefined && options.stopOnAbort === true
+            ? await runUntilAborted(handle, command, opts, options.signal)
+            : await handle.commands.run(command, opts);
         return { exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr };
       } catch (cause) {
         // A non-zero exit is an outcome, not a fault — see the module doc.

@@ -1055,6 +1055,7 @@ describe("keeping a resumed sandbox alive", () => {
   it("uses the lifetime it was configured with", async () => {
     const created = await sandbox.create(PROJECT_ID);
     if (!created.ok) throw new Error("could not seed a sandbox");
+    const extended = vi.spyOn(sandbox, "extendTimeout");
 
     await new SingleAgentRuntime({
       sessions: new InMemorySessionStore([
@@ -1069,7 +1070,8 @@ describe("keeping a resumed sandbox alive", () => {
       sandboxTtlMs: 90_000,
     }).runTurn({ turnId: crypto.randomUUID(), sessionId: SESSION_ID, message: "carry on" });
 
-    expect(sandbox.timeoutOf(created.value.id)).toBe(90_000);
+    // The first call, because a round of checks may push it further once it starts.
+    expect(extended).toHaveBeenNthCalledWith(1, created.value.id, 90_000);
   });
 });
 

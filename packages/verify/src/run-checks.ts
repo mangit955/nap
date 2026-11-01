@@ -29,6 +29,7 @@
  */
 
 import type { CheckOutcome } from "@nap/shared/check-outcome";
+import { CHECK_TIMEOUT_MS } from "@nap/shared/command-windows";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import { type CommandOutput, captureCommandOutput } from "./command-output.ts";
 import type { CheckName, DiscoveredCheck } from "./discover-checks.ts";
@@ -75,6 +76,8 @@ export type RunChecksOptions = {
    * rather than defaulted to a port — a check nobody asked for must not be able to fail.
    */
   preview?: PreviewProbe;
+  /** Cancelling this stops the running check and starts nothing further. */
+  signal?: AbortSignal | undefined;
 };
 
 export async function runChecks(
@@ -98,7 +101,13 @@ export async function runChecks(
       continue;
     }
 
-    const attempt = await runOne(sandbox, sandboxId, check);
+    if (options.signal?.aborted) {
+      ran.push({ name: check.name, outcome: "absent", detail: CANCELLED_BEFORE_RUNNING });
+      stopped = { verdict: "errored", by: check.name };
+      continue;
+    }
+
+    const attempt = await runOne(sandbox, sandboxId, check, options.signal);
     ran.push(attempt.check);
     stopped = attempt.stopped;
   }
@@ -106,6 +115,9 @@ export async function runChecks(
   if (options.preview !== undefined) {
     if (stopped !== undefined) {
       ran.push({ name: PREVIEW_CHECK_NAME, outcome: "absent", detail: notReached(stopped) });
+    } else if (options.signal?.aborted) {
+      ran.push({ name: PREVIEW_CHECK_NAME, outcome: "absent", detail: CANCELLED_BEFORE_RUNNING });
+      stopped = { verdict: "errored", by: PREVIEW_CHECK_NAME };
     } else {
       const attempt = await probePreview(sandbox, sandboxId, options.preview);
       ran.push(attempt.check);
@@ -132,8 +144,24 @@ async function runOne(
   sandbox: SandboxManager,
   sandboxId: string,
   check: DiscoveredCheck & { state: "runnable" },
+  signal: AbortSignal | undefined,
 ): Promise<Attempt> {
-  const result = await sandbox.exec(sandboxId, check.command);
+  const result = await sandbox.exec(sandboxId, check.command, undefined, {
+    signal,
+    // Nothing else would stop it: dropping the connection leaves it running in the sandbox, where
+    // the next turn would be working around a build nobody is waiting for.
+    stopOnAbort: true,
+    timeoutMs: CHECK_TIMEOUT_MS,
+  });
+
+  // Whatever the command came back with, a cancel is why it stopped. Stopping one makes it exit
+  // non-zero, and a check saying no is what opens a repair turn.
+  if (signal?.aborted && !(result.ok && result.value.exitCode === 0)) {
+    return {
+      check: { name: check.name, outcome: "absent", detail: "cancelled while it was running" },
+      stopped: { verdict: "errored", by: check.name },
+    };
+  }
 
   if (!result.ok) {
     // Absent, not failed: the command never produced an answer about the project. NapBench
@@ -205,6 +233,8 @@ async function probePreview(
     stopped: { verdict: "errored", by: PREVIEW_CHECK_NAME },
   };
 }
+
+const CANCELLED_BEFORE_RUNNING = "not run: cancelled first";
 
 const notDeclared = (name: CheckName) => `the project declares no ${name} script`;
 

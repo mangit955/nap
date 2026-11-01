@@ -45,6 +45,25 @@ export type ExecResult = {
 /** Receives output as it arrives, so a caller can stream it before `exec` resolves. */
 export type ExecOutputHandler = (chunk: { stream: "stdout" | "stderr"; data: string }) => void;
 
+export type ExecOptions = {
+  /** Stops the caller waiting. Alone, it says nothing about the command, which may carry on. */
+  signal?: AbortSignal | undefined;
+  /**
+   * How long the command may run before the provider stops it and the call fails with `timeout`.
+   * Absent is the provider's own default, which on E2B is one minute.
+   */
+  timeoutMs?: number | undefined;
+  /**
+   * Also stop the command when `signal` fires, for a caller with no way of its own to do that.
+   *
+   * Opt-in, because stopping is not always the right thing: the desktop driver has to live long
+   * enough to release what it holds, and its caller asks it to through a cancel of its own. Best
+   * effort even so: an abort that lands before the command has started leaves nothing to stop,
+   * and the command then runs until `timeoutMs`.
+   */
+  stopOnAbort?: boolean | undefined;
+};
+
 export interface SandboxManager {
   create(projectId: string): Promise<Result<Sandbox, SandboxError>>;
   resume(sandboxId: string): Promise<Result<Sandbox, SandboxError>>;
@@ -64,17 +83,12 @@ export interface SandboxManager {
   readFile(sandboxId: string, path: string): Promise<Result<string, SandboxError>>;
   listFiles(sandboxId: string, path: string): Promise<Result<FileNode[], SandboxError>>;
 
-  /**
-   * A transport signal bounds waiting; it never certifies remote process completion.
-   *
-   * `timeoutMs` is how long the command may run before the provider stops it and the call fails
-   * with `timeout`. Absent is the provider's own default, which on E2B is one minute.
-   */
+  /** A transport signal bounds waiting; it never certifies remote process completion. */
   exec(
     sandboxId: string,
     command: string,
     onOutput?: ExecOutputHandler,
-    options?: { signal?: AbortSignal | undefined; timeoutMs?: number | undefined },
+    options?: ExecOptions,
   ): Promise<Result<ExecResult, SandboxError>>;
 
   getPreviewUrl(sandboxId: string, port: number): Promise<Result<string, SandboxError>>;

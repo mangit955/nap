@@ -34,6 +34,19 @@ const ANSWER: LLMTurnResult = {
 };
 
 describe("slowSandboxManager", () => {
+  it("hands a command's options through to the sandbox that runs it", async () => {
+    const clock = recordingSleep();
+    const inner = new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0 }) });
+    const sandbox = slowSandboxManager(inner, { sleep: clock.sleep });
+    const created = await sandbox.create("project");
+    if (!created.ok) throw new Error(created.error.message);
+    const options = { signal: new AbortController().signal, timeoutMs: 1_234, stopOnAbort: true };
+
+    await sandbox.exec(created.value.id, "bun run build", undefined, options);
+
+    expect(inner.execs(created.value.id)[0]?.options).toEqual(options);
+  });
+
   it("makes a cold start take what a cold start took", async () => {
     const clock = recordingSleep();
     const sandbox = slowSandboxManager(new InMemorySandboxManager(), { sleep: clock.sleep });

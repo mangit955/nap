@@ -65,11 +65,11 @@ export function Verification() {
             term: "Errored",
             body: (
               <>
-                Nothing was learned about the project — the sandbox refused the command, or the
-                preview listens inside and is unreachable from outside. A repair turn on that would
-                ask a model to fix a machine it cannot see, so{" "}
-                <Term>an errored run is never written as a verification</Term> and the job ends
-                abandoned instead.
+                Nothing was learned about the project — the sandbox refused the command, a check ran
+                past its five minutes or was cancelled, or the preview listens inside and is
+                unreachable from outside. A repair turn on that would ask a model to fix a machine
+                it cannot see, so <Term>an errored run is never written as a verification</Term> and
+                the job ends abandoned instead.
               </>
             ),
           },

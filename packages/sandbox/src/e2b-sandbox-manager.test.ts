@@ -16,7 +16,11 @@ import { E2BSandboxManager, toSandboxError } from "./e2b-sandbox-manager.ts";
  * A stub standing in for one E2B sandbox. Every method rejects unless the test
  * overrides it, so a case can only pass by exercising the path it names.
  */
-function stubHandle(overrides: Partial<E2BSandboxHandle> = {}): E2BSandboxHandle {
+function stubHandle(
+  overrides: Omit<Partial<E2BSandboxHandle>, "commands"> & {
+    commands?: Partial<E2BSandboxHandle["commands"]>;
+  } = {},
+): E2BSandboxHandle {
   return {
     sandboxId: "sbx_stub",
     files: {
@@ -24,12 +28,16 @@ function stubHandle(overrides: Partial<E2BSandboxHandle> = {}): E2BSandboxHandle
       write: () => Promise.reject(new Error("files.write not stubbed")),
       list: () => Promise.reject(new Error("files.list not stubbed")),
     },
-    commands: { run: () => Promise.reject(new Error("commands.run not stubbed")) },
     getHost: (port) => `${port}-sbx_stub.e2b.app`,
     getMetadata: () => Promise.resolve({ projectId: "project" }),
     setTimeout: () => Promise.resolve(),
     kill: () => Promise.resolve(true),
     ...overrides,
+    commands: {
+      run: () => Promise.reject(new Error("commands.run not stubbed")),
+      start: () => Promise.reject(new Error("commands.start not stubbed")),
+      ...overrides.commands,
+    },
   };
 }
 
@@ -159,6 +167,128 @@ describe("E2BSandboxManager exec", () => {
       { stream: "stdout", data: "one\n" },
       { stream: "stderr", data: "two\n" },
     ]);
+  });
+
+  describe("a command asked to stop when its signal fires", () => {
+    /** A running command that ends only when the test says, and counts the kills it receives. */
+    function runningCommand() {
+      let finish: (result: { exitCode: number; stdout: string; stderr: string }) => void = () => {};
+      let fail: (cause: unknown) => void = () => {};
+      const finished = new Promise<{ exitCode: number; stdout: string; stderr: string }>(
+        (resolve, reject) => {
+          finish = resolve;
+          fail = reject;
+        },
+      );
+      const command = {
+        kills: 0,
+        wait: () => finished,
+        kill: () => {
+          command.kills += 1;
+          return Promise.resolve(true);
+        },
+      };
+      return {
+        command,
+        finish: (exitCode = 0) => finish({ exitCode, stdout: "", stderr: "" }),
+        fail,
+      };
+    }
+
+    it("kills the command, because dropping the connection leaves it running", async () => {
+      const { command, fail } = runningCommand();
+      const start = vi.fn(() => Promise.resolve(command));
+      const { manager, sandboxId } = await managerWith(stubHandle({ commands: { start } }));
+      const controller = new AbortController();
+
+      const execution = manager.exec(sandboxId, "bun run build", undefined, {
+        signal: controller.signal,
+        stopOnAbort: true,
+      });
+      await vi.waitFor(() => expect(start).toHaveBeenCalled());
+      await new Promise((resolve) => setImmediate(resolve));
+      controller.abort();
+      fail(new TimeoutError("canceled"));
+
+      expect(await execution).toMatchObject({ ok: false, error: { code: "timeout" } });
+      expect(command.kills).toBe(1);
+    });
+
+    it("kills a command whose signal fired while it was starting", async () => {
+      const { command, fail } = runningCommand();
+      const controller = new AbortController();
+      const { manager, sandboxId } = await managerWith(
+        stubHandle({
+          commands: {
+            start: () => {
+              controller.abort();
+              return Promise.resolve(command);
+            },
+          },
+        }),
+      );
+
+      const execution = manager.exec(sandboxId, "bun run build", undefined, {
+        signal: controller.signal,
+        stopOnAbort: true,
+      });
+      await vi.waitFor(() => expect(command.kills).toBe(1));
+      fail(new TimeoutError("canceled"));
+
+      expect(await execution).toMatchObject({ ok: false });
+    });
+
+    it("gives the command the same timeout and output handlers an ordinary one gets", async () => {
+      const { command, finish } = runningCommand();
+      const start = vi.fn<E2BSandboxHandle["commands"]["start"]>((_cmd, opts) => {
+        opts?.onStdout?.("one\n");
+        return Promise.resolve(command);
+      });
+      const { manager, sandboxId } = await managerWith(stubHandle({ commands: { start } }));
+      const { signal } = new AbortController();
+      const chunks: unknown[] = [];
+      finish();
+
+      await manager.exec(sandboxId, "bun run build", (chunk) => chunks.push(chunk), {
+        signal,
+        stopOnAbort: true,
+        timeoutMs: 1_234,
+      });
+
+      expect(start.mock.calls[0]?.[1]).toMatchObject({ signal, timeoutMs: 1_234 });
+      expect(chunks).toEqual([{ stream: "stdout", data: "one\n" }]);
+    });
+
+    it("reports a non-zero exit as data, and kills nothing once the command has finished", async () => {
+      const { command, fail } = runningCommand();
+      const { manager, sandboxId } = await managerWith(
+        stubHandle({ commands: { start: () => Promise.resolve(command) } }),
+      );
+      const controller = new AbortController();
+      fail(new CommandExitError({ exitCode: 3, stdout: "", stderr: "no" }));
+
+      const result = await manager.exec(sandboxId, "bun run build", undefined, {
+        signal: controller.signal,
+        stopOnAbort: true,
+      });
+      controller.abort();
+
+      expect(result).toMatchObject({ ok: true, value: { exitCode: 3, stderr: "no" } });
+      expect(command.kills).toBe(0);
+    });
+
+    it("leaves the command alone when the caller did not ask for it to be stopped", async () => {
+      // The desktop driver has to live long enough to release what it holds.
+      const run = vi.fn<E2BSandboxHandle["commands"]["run"]>(() =>
+        Promise.resolve({ exitCode: 0, stdout: "", stderr: "" }),
+      );
+      const { manager, sandboxId } = await managerWith(stubHandle({ commands: { run } }));
+      const { signal } = new AbortController();
+
+      await manager.exec(sandboxId, "node driver.mjs", undefined, { signal });
+
+      expect(run).toHaveBeenCalledOnce();
+    });
   });
 
   it("still reports a genuine infrastructure failure as an error", async () => {

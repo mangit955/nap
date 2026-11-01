@@ -1,10 +1,14 @@
 import { TEMPLATE_WORKDIR } from "@nap/sandbox/template";
+import { SETUP_EXEC_TIMEOUT_MS, SETUP_TIMEOUT_SECONDS } from "@nap/shared/command-windows";
 import type { RepositoryError, RepositorySource } from "@nap/shared/ports/repository-workspace";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { Result } from "@nap/shared/result";
 import { shellQuote } from "@nap/shared/shell";
 
 const PREVIEW_CONFIGURATION = "/tmp/nap-repository-preview.json";
+
+/** What `timeout(1)` exits with when it had to stop the command. */
+const TIMEOUT_EXIT_CODE = 124;
 
 export async function prepareRepositoryEnvironment(options: {
   sandbox: SandboxManager;
@@ -34,12 +38,21 @@ export async function prepareRepositoryEnvironment(options: {
       if (signal?.aborted) return cancelled();
       const script =
         `cd ${TEMPLATE_WORKDIR} || exit 1; test ! -f ${marker}.cancel || exit 143; ` +
-        `setsid timeout 600s sh -c ${shellQuote(source.setupCommand)} & nap_setup_pid=$!; ` +
+        `setsid timeout ${SETUP_TIMEOUT_SECONDS}s sh -c ${shellQuote(source.setupCommand)} & nap_setup_pid=$!; ` +
         `printf '%s' "$nap_setup_pid" > ${marker}.pid; ` +
         `if test -f ${marker}.cancel; then kill -TERM -- -"$nap_setup_pid" 2>/dev/null || true; fi; ` +
         `wait "$nap_setup_pid"; nap_setup_status=$?; rm -f ${marker}.pid ${marker}.cancel; exit "$nap_setup_status"`;
-      const setup = await sandbox.exec(sandboxId, script);
+      // The signal only stops the wait. `abort` above is what stops setup, because it signals the
+      // whole process group and a provider's kill of this shell would not.
+      const setup = await sandbox.exec(sandboxId, script, undefined, {
+        signal,
+        timeoutMs: SETUP_EXEC_TIMEOUT_MS,
+      });
       if (signal?.aborted) return cancelled();
+      if (setup.ok && setup.value.exitCode === TIMEOUT_EXIT_CODE)
+        return failed(
+          `Repository setup did not finish within ${SETUP_TIMEOUT_SECONDS / 60} minutes. Shorten the configured setup command and retry.`,
+        );
       if (!setup.ok || setup.value.exitCode !== 0)
         return failed("Repository setup failed. Check the configured setup command and retry.");
     } finally {
