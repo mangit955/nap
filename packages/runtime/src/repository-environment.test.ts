@@ -140,9 +140,10 @@ it("lets setup run for most of the ten minutes it was promised", async () => {
 });
 
 it("leaves the setup script's own ten-minute timeout to fire first, and reports it", async () => {
-  // Exactly ten minutes is when `timeout 600s` gives up with 124. A provider deadline at or before
-  // that point would take the exit code with it and turn this into a generic failure.
-  const { sandbox, sandboxId } = await setupRunning({ runsForMs: 600_000, exitCode: 124 });
+  // `timeout 600s` signals at ten minutes, but exits with 124 only once what it signalled has died,
+  // a few seconds later. A provider deadline at or before ten minutes would end the call first, take
+  // the exit code with it and turn this into a generic failure.
+  const { sandbox, sandboxId } = await setupRunning({ runsForMs: 605_000, exitCode: 124 });
 
   const result = await prepareRepositoryEnvironment({ sandbox, sandboxId, source });
 

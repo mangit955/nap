@@ -2,8 +2,9 @@
  * The scripts themselves, under a real `bash`, because whether they work is a fact about processes:
  * a stub can only prove which string was sent.
  *
- * Skipped where there is no `setsid`, which means macOS. CI is Linux, and the sandbox is Debian, so
- * these do run where they count. See docs/GOTCHAS.md for running them on Debian from a Mac.
+ * Skipped on macOS, which has no `setsid` and no `/proc`. Nowhere else: CI is Linux and the sandbox
+ * is Debian, so a Linux missing `setsid` is a broken environment, and these should fail there rather
+ * than quietly not run. See docs/GOTCHAS.md for running them on Debian from a Mac.
  */
 
 import { type ChildProcess, type SpawnOptions, spawn, spawnSync } from "node:child_process";
@@ -12,8 +13,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { groupedCommand, stopGroupCommand } from "./e2b-exec-group.ts";
-
-const hasSetsid = spawnSync("setsid", ["--version"]).status === 0;
 
 /** How each wrapped command gets started, which decides whether `setsid` has to fork. */
 const STARTS: ReadonlyArray<{
@@ -97,7 +96,7 @@ async function startWithGrandchild(start: (typeof STARTS)[number]) {
   return { ...running, grandchild };
 }
 
-describe.skipIf(!hasSetsid)("a command in its own process group", () => {
+describe.skipIf(process.platform === "darwin")("a command in its own process group", () => {
   describe.each(STARTS)("started by $name", (start) => {
     const run = (command: string) =>
       runScript(`${start.prefix}${groupedCommand(command, marker)}`, start.spawn).finished;

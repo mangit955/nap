@@ -8,10 +8,10 @@ import {
   SandboxNotFoundError,
   TimeoutError,
 } from "e2b";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { groupedCommand, stopGroupCommand } from "./e2b-exec-group.ts";
 import type { E2BClient, E2BSandboxHandle, E2BSandboxSummary } from "./e2b-sandbox-manager.ts";
-import { E2BSandboxManager, toSandboxError } from "./e2b-sandbox-manager.ts";
+import { E2BSandboxManager, STOP_TIMEOUT_MS, toSandboxError } from "./e2b-sandbox-manager.ts";
 
 /**
  * A stub standing in for one E2B sandbox. Every method rejects unless the test
@@ -297,22 +297,42 @@ describe("E2BSandboxManager exec", () => {
       await execution;
     });
 
-    it("bounds the stop with a signal of its own, since the caller's has already fired", async () => {
+    it("gives up on a stop that never answers once its own bound passes, since the caller's signal has already fired", async () => {
+      // Node runs `AbortSignal.timeout` on a timer fake timers cannot reach, so this test stands in
+      // for the bound with a signal it fires itself, and checks the bound is the one asked for.
+      const bound = new AbortController();
+      const timeout = vi.spyOn(AbortSignal, "timeout").mockReturnValue(bound.signal);
+      onTestFinished(() => timeout.mockRestore());
       const controller = new AbortController();
-      const run = runAnswering(() => {
-        controller.abort();
-        return Promise.reject(new TimeoutError("canceled"));
+      const run = vi.fn<E2BSandboxHandle["commands"]["run"]>((command, opts) => {
+        if (!command.startsWith("touch ")) {
+          controller.abort();
+          return Promise.reject(new TimeoutError("canceled"));
+        }
+        // A sandbox that has stopped answering: nothing but the stop's own signal ends the wait.
+        return new Promise((_resolve, reject) => {
+          opts?.signal?.addEventListener("abort", () => reject(new Error("stop abandoned")), {
+            once: true,
+          });
+        });
       });
       const { manager, sandboxId } = await managerWith(stubHandle({ commands: { run } }));
+      let returned = false;
 
-      await manager.exec(sandboxId, "bun run build", undefined, {
-        ...OPTIONS,
-        signal: controller.signal,
-      });
+      const execution = manager
+        .exec(sandboxId, "bun run build", undefined, { ...OPTIONS, signal: controller.signal })
+        .then((result) => {
+          returned = true;
+          return result;
+        });
+      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2));
+      await new Promise((resolve) => setImmediate(resolve));
 
-      const stopSignal = run.mock.calls[1]?.[1]?.signal;
-      expect(stopSignal).toBeInstanceOf(AbortSignal);
-      expect(stopSignal?.aborted).toBe(false);
+      expect(returned).toBe(false);
+      expect(timeout).toHaveBeenCalledWith(STOP_TIMEOUT_MS);
+      bound.abort();
+      // The command's own failure, not the stop's.
+      expect(await execution).toMatchObject({ ok: false, error: { code: "timeout" } });
     });
 
     it("reports the original failure when the stop fails as well", async () => {

@@ -160,7 +160,7 @@ function toFileNode(entry: E2BEntry): FileNode {
  * How long a stop may take, within what the worker allows an aborted turn to finish in. Waited for,
  * so the next turn cannot start on top of what it was meant to stop.
  */
-const STOP_TIMEOUT_MS = 5_000;
+export const STOP_TIMEOUT_MS = 5_000;
 
 /**
  * Runs a command so that it stops, along with everything it started, if this call gives up on it.
