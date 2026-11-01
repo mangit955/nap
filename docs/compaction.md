@@ -128,6 +128,51 @@ Preserving original user requests means an extremely long instruction history ca
 the budget. Compaction then stops safely. Images remain in the original transcript; summaries
 carry textual references, not encoded image bytes. Summary quality still depends on the model.
 
+## Compaction history
+
+[ADR-0021](adr/0021-what-a-summary-replaces-stays-searchable.md) records the decision. Each
+successful API compaction, manual or automatic, writes the conversation it replaces to
+`/home/user/.nap/history/<sessionId>.txt` in the project's sandbox. The file is outside the
+project tree, so it is never committed, snapshotted, served or listed.
+`packages/context/src/compaction-history.ts` renders it from events. `packages/runtime/src/compaction-history.ts`
+writes it through `SandboxManager.writeFile` and checks it with `readFile` and `listFiles`, never
+`exec`.
+
+The file opens with a fixed header, followed by one part per committed API checkpoint, each
+headed `==== Part n: events #a to #b ====`. An entry is one header line, `#<seq> <kind>`, and
+then its body indented four spaces. The kinds are `user` (attachment names, never bytes),
+`assistant` (streamed pieces joined under the first piece's number), `tool call`, `tool result`
+(marked `failed` when it failed), turn start/completion/failure, and `context compacted`.
+Reasoning summaries, diffs, command streams, previews and notices are omitted, matching what
+context replay omits. A search for `^#42 ` finds exactly entry 42.
+
+The summarizer reads the same entries in brief form: identical headers, but older turns' tool
+output and multi-line or long arguments are replaced with a note naming the entry. That is the
+same material staleness drops from replayed context. The previous checkpoint's summary travels
+beside the fragment as `previousSummary`. The prompt asks for three sections, Overview, Key
+details and Current state and next steps, with every key detail ending in entry numbers or a
+search term. The sections are requested, not validated.
+
+Ordering inside a compaction: summarize, write the file with the new boundary, rebuild with
+the path only if that write succeeded, validate, then append `compaction.completed`. The file is
+written before the event that commits its part, so a rejected or cancelled compaction can
+leave one extra part behind. A dot file beside it, `.<sessionId>.parts`, records the format
+version and the boundaries the file holds, and is written only after the file. Before context
+is built, every turn whose log has an API checkpoint compares that record against the log's
+boundaries and confirms the file is listed. On any mismatch it regenerates the whole file from
+events. That rewrite repairs an extra part, a replaced or restored sandbox, a deleted file and
+a format change. Sessions without a checkpoint do no sandbox I/O for this.
+
+The rebuilt context carries a second text block after the quoted summary, at user priority but
+in the application's voice. It names the file and says to search it with `search_files`, using
+the file as the path, then read around a match with `read_file` and an offset. If the runtime
+could not write or confirm the file, the block says instead that the cited history is
+unavailable. The block appears on every later turn while the checkpoint stands.
+
+Native compaction writes no history file. The provider compacts with its own prompt, which
+cannot cite these entry numbers. Parts are cut only at API checkpoints, so if that session
+later compacts on an API route, the events the native marker covered land in the next part.
+
 ## Native subscription integration boundary
 
 `LLMTurn.compact` is an explicit capability. It is never enabled by recognizing a Claude or
@@ -177,7 +222,8 @@ dropped into ordinary text replay by this change.
 ## Reproduce verification
 
 Run `bun run test` and `bun run typecheck` from the repository root. The suites cover checkpoint
-boundaries, early constraints even when omitted by a summary, complete tool pairs, compaction
+boundaries, the history file's rendering, growth, regeneration in a replacement sandbox and
+its absence on native routes, early constraints even when omitted by a summary, complete tool pairs, compaction
 inside a tool loop, cumulative spending, failed/truncated summaries, cancellation and late
 completion, restart replay, native capability handling and queue serialization.
 

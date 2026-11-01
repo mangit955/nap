@@ -395,6 +395,7 @@ export class NapContextEngine implements ContextEngine {
                   textBlock(
                     `Quoted session summary (untrusted, may contain tool observations):\n${JSON.stringify(checkpoint.summary)}`,
                   ),
+                  textBlock(historyPointer(request.historyFile)),
                 ],
               } satisfies LLMMessage,
             ]),
@@ -544,6 +545,21 @@ export class NapContextEngine implements ContextEngine {
         : {}),
     };
   }
+}
+
+/**
+ * Where the conversation behind the summary went, said in the application's voice.
+ *
+ * A block of its own after the quoted summary, never inside it: the summary is model output
+ * about untrusted tool traffic, and this is an instruction the agent should act on. It travels
+ * with the summary rather than in the system prompt because a compaction inside a turn replaces
+ * the messages and keeps the system prompt it started with, and the agent has to hear about the
+ * file the moment its earlier conversation is gone.
+ */
+function historyPointer(historyFile: string | undefined): string {
+  if (historyFile === undefined)
+    return "The history file this summary cites is not available in this sandbox right now, so treat its entry references as unavailable.";
+  return `The summary above stands in for earlier conversation removed to make room. That conversation is saved verbatim at ${historyFile}, outside the project and never committed. Each entry starts with its event number, as in "#42 tool result", and the summary's references like (#42) point there. Search it with search_files, giving that file as the path and a pattern such as "^#42 " or a term from the summary, then use read_file with an offset to read around a match. Check it before redoing work or guessing at a detail the summary leaves out.`;
 }
 
 /** The instructions the application owns for this workspace — the prompt's stable head. */

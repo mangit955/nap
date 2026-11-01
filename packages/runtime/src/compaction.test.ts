@@ -1,15 +1,18 @@
 import { NapAgentService } from "@nap/agent/agent-service";
 import { ScriptedLLMProvider, type ScriptedTurn } from "@nap/agent/testing/scripted-llm-provider";
+import { compactionHistoryPath, renderCompactionHistory } from "@nap/context/compaction-history";
 import { NapContextEngine } from "@nap/context/context-engine";
 import { NoopMemoryProvider } from "@nap/context/noop-memory-provider";
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
+import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { scriptGit } from "@nap/sandbox/testing/script-git";
 import { latestCheckpoint } from "@nap/shared/compaction";
 import type { LLMProvider, LLMRequest, LLMTurnResult } from "@nap/shared/ports/llm-provider";
-import { expect, it } from "vitest";
+import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
+import { describe, expect, it } from "vitest";
 import { SingleAgentRuntime } from "./single-agent-runtime.ts";
 
 const SESSION = "00000000-0000-4000-8000-000000000001";
@@ -27,8 +30,11 @@ function fixture(provider: LLMProvider, budgetTokens = 80_000, maxTokens = 400_0
     }),
     { dirty: false },
   );
-  const restart = (nextProvider = provider) =>
+  const restart = (nextProvider = provider, restorable = false) =>
     new SingleAgentRuntime({
+      ...(restorable
+        ? { objects: new InMemoryObjectStore(), snapshots: new InMemorySnapshotStore() }
+        : {}),
       events,
       bus,
       sessions,
@@ -442,4 +448,108 @@ it("marks aggregate usage incomplete when native compaction supplied no usage", 
     "usageIncomplete",
     true,
   );
+});
+
+describe("the compaction history", () => {
+  const PATH = compactionHistoryPath(SESSION);
+  const sandboxOf = async (f: ReturnType<typeof fixture>) => {
+    const id = (await f.sessions.get(SESSION))?.sandboxId;
+    if (id === null || id === undefined) throw new Error("the session has no sandbox");
+    return id;
+  };
+  const historyFile = async (f: ReturnType<typeof fixture>) => {
+    const read = await f.sandbox.readFile(await sandboxOf(f), PATH);
+    return read.ok ? read.value : undefined;
+  };
+
+  it("keeps the replaced conversation in the sandbox and points the summary and later turns at it", async () => {
+    const provider = new ScriptedLLMProvider([
+      [{ text: "old assistant detail ".repeat(500) }],
+      [{ text: "Overview\nThemed (#2)." }],
+    ]);
+    const f = fixture(provider);
+    await f.run(EARLY);
+    expect(await historyFile(f)).toBeUndefined();
+    expect((await f.run("/compact")).ok).toBe(true);
+
+    const file = await historyFile(f);
+    expect(file).toBe(renderCompactionHistory(await f.history(), SESSION));
+    expect(file).toContain(`    ${EARLY}`);
+    expect(file).toContain("old assistant detail old assistant detail");
+    const summarizing = provider.requests.find((r) => r.purpose === "compaction");
+    expect(summarizing?.systemPrompt).toContain(PATH);
+    expect(summarizing?.messages[0]?.content).toContain(`user\\n    ${EARLY}`);
+
+    const next = new ScriptedLLMProvider([[{ text: "new answer" }]]);
+    await f
+      .restart(next)
+      .runTurn({ turnId: crypto.randomUUID(), sessionId: SESSION, message: "Now add a filter" });
+    const conversation = JSON.stringify(next.requests[0]?.messages);
+    expect(conversation).toContain(PATH);
+    expect(conversation).not.toContain("not available in this sandbox");
+  });
+
+  it("adds a part at each compaction without rewriting the earlier ones", async () => {
+    const f = fixture(
+      new ScriptedLLMProvider([
+        [{ text: "first answer" }],
+        [{ text: "first summary" }],
+        [{ text: "second answer" }],
+        [{ text: "second summary" }],
+      ]),
+    );
+    await f.run(EARLY);
+    await f.run("/compact");
+    const first = await historyFile(f);
+    await f.run("Add a filter");
+    expect(await historyFile(f)).toBe(first);
+    await f.run("/compact");
+    const second = await historyFile(f);
+    expect(second?.startsWith(first ?? "missing")).toBe(true);
+    expect(second?.slice(first?.length)).toMatch(/==== Part 2: events #\d+ to #\d+ ====/);
+    expect(second?.slice(first?.length)).toContain("    Add a filter");
+    expect(second?.slice(first?.length)).not.toContain(EARLY);
+  });
+
+  it("regenerates the file from events when the project comes back in a new sandbox", async () => {
+    const f = fixture(
+      new ScriptedLLMProvider([[{ text: "first answer" }], [{ text: "first summary" }]]),
+    );
+    await f.run(EARLY);
+    await f.run("/compact");
+    const original = await historyFile(f);
+    const before = await sandboxOf(f);
+    await f.sandbox.destroy(before);
+
+    const next = new ScriptedLLMProvider([[{ text: "resumed" }]]);
+    const outcome = await f
+      .restart(next, true)
+      .runTurn({ turnId: crypto.randomUUID(), sessionId: SESSION, message: "Carry on" });
+    expect(outcome).toMatchObject({ ok: true });
+    expect(await sandboxOf(f)).not.toBe(before);
+    expect(await historyFile(f)).toBe(original);
+    expect(JSON.stringify(next.requests[0]?.messages)).toContain(PATH);
+  });
+
+  it("leaves native compaction's history to the native session", async () => {
+    const f = fixture(new ScriptedLLMProvider([[{ text: "prior work" }]]));
+    await f.run(EARLY);
+    const { NativeSessionLifecycle } = await import("@nap/agent/native-compaction");
+    const lifecycle = new NativeSessionLifecycle(async () => ({
+      provider: "claude",
+      sessionId: "native-session",
+      usage: { inputTokens: 1, outputTokens: 1 },
+      beforeTokens: null,
+      afterTokens: null,
+    }));
+    const underlying = new ScriptedLLMProvider([[]]);
+    const native: LLMProvider = {
+      startTurn: (options) => lifecycle.bind(underlying.startTurn(options)),
+    };
+    const result = await f
+      .restart(native)
+      .runTurn({ turnId: crypto.randomUUID(), sessionId: SESSION, message: "/compact" });
+    expect(result.ok).toBe(true);
+    expect(await historyFile(f)).toBeUndefined();
+  });
 });
