@@ -1,0 +1,58 @@
+{
+  "id": "build",
+  "result": "passed, reused approved unchanged web build evidence",
+  "reused": true,
+  "candidate_snapshot": "893f787d4e83f3edda6f6e211543be145fec2e2d",
+  "candidate_tree": "005c4c8442191d8fd9a1860fab4dac3fd0b770c2",
+  "original_snapshot": "43e5ed6dbde21fd19f038b877e8836937b105ff2",
+  "original_tree": "f398e26784b9556780ef3d28974d7a01376819c8",
+  "original_runner_argv": [
+    "python3",
+    "/Users/manasraghuwanshi/.claude/skills/gods-hand/scripts/run_check.py",
+    "--timeout",
+    "240",
+    "--",
+    "bun",
+    "run",
+    "build"
+  ],
+  "original_cwd": "/Users/manasraghuwanshi/Developer/s-30/nap",
+  "original_exit_code": 0,
+  "original_log": "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/evidence/r1-green-build.log",
+  "original_log_sha256": "396ef179cf0d25592df694836e9c4f841a6f44b0c4de08662940b4cb1c00c5c1",
+  "validation_argv": [
+    "python3",
+    "/Users/manasraghuwanshi/.claude/skills/gods-hand/scripts/run_check.py",
+    "--timeout",
+    "30",
+    "--",
+    "python3",
+    "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/scratch/verification-r2/build_reuse.py"
+  ],
+  "validation_cwd": "/Users/manasraghuwanshi/Developer/s-30/nap",
+  "validation_exit_code": 0,
+  "validation_timestamp_utc": "2026-10-27T04:10:49.621435+00:00",
+  "proof": {
+    "complete_delta_paths": [
+      "apps/web/src/chat/work-log-helpers.test.tsx",
+      "packages/agent/src/agent-service.ts",
+      "packages/agent/src/subagents-usage.test.ts",
+      "packages/agent/src/subagents.ts"
+    ],
+    "web_delta_test_only": [
+      "apps/web/src/chat/work-log-helpers.test.tsx"
+    ],
+    "web_production_unchanged": true,
+    "tracked_config_and_dependency_inputs_unchanged": true,
+    "shared_package_unchanged": true,
+    "web_agent_imports": [],
+    "web_production_internal_import_names": [
+      "@nap/shared"
+    ],
+    "web_regular_internal_dependency": [
+      "@nap/shared"
+    ],
+    "shared_internal_dependencies": []
+  },
+  "limits": "Original production Next build skipped type validation. Round2 full typecheck is separately required and was run. No claim that agent runtime build was repeated; the web app does not import agent."
+}

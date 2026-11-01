@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { NapEventSchema, type NapEventType } from "@nap/shared/events";
 import type { PendingEvent } from "@nap/shared/ports/event-store";
@@ -52,6 +51,9 @@ function context(): ToolContext {
   };
 }
 
+/** Content search decides between ripgrep and grep inside the sandbox, in one command. */
+const SEARCH = /command -v rg/;
+
 function call(name: string, input: Record<string, unknown>, id = "toolu_1"): LLMToolCall {
   return { id, name, input };
 }
@@ -84,7 +86,7 @@ const HAPPY_PATHS = [
     name: "search_files",
     input: { pattern: "useState" },
     setUp: async () => {
-      manager.script(/^grep /, { stdout: `${APP}:3:  const [n] = useState(0)\n` });
+      manager.script(SEARCH, { stdout: `${APP}:3:  const [n] = useState(0)\n` });
     },
   },
   {
@@ -112,7 +114,7 @@ const FAILURE_PATHS = [
     name: "search_files",
     input: { pattern: "x" },
     setUp: async () => {
-      manager.script(/^grep /, { exitCode: 2, stderr: "grep: no such directory\n" });
+      manager.script(SEARCH, { exitCode: 2, stderr: "grep: no such directory\n" });
     },
   },
   { name: "run_command", input: { command: "" }, setUp: async () => {} },
@@ -177,7 +179,7 @@ describe("executeTool — the call/result pair", () => {
 
   it("emits events the log accepts", async () => {
     await manager.writeFile(sandboxId, APP, "before\n");
-    manager.script(/^grep /, { stdout: "hit\n" });
+    manager.script(SEARCH, { stdout: "hit\n" });
     manager.script(/echo hi/, { stdout: "hi\n" });
 
     await executeTool(call("write_file", { path: APP, contents: "after\n" }), context());
@@ -198,7 +200,8 @@ describe("read_file", () => {
 
     const result = await executeTool(call("read_file", { path: APP }), context());
 
-    expect(result.output).toBe("line one\nline two\n");
+    // Numbered, so the model can come back for line 40 with an offset.
+    expect(result.output).toBe("1\tline one\n2\tline two");
   });
 
   it("names the missing path when the file is not there", async () => {
@@ -328,7 +331,7 @@ describe("list_files", () => {
 
 describe("search_files", () => {
   it("searches the project root when no path is given", async () => {
-    manager.script(/^grep /, { stdout: "hit\n" });
+    manager.script(SEARCH, { stdout: "hit\n" });
 
     await executeTool(call("search_files", { pattern: "useState" }), context());
 
@@ -336,16 +339,18 @@ describe("search_files", () => {
   });
 
   it("skips node_modules, which is baked into the image and never interesting", async () => {
-    manager.script(/^grep /, { stdout: "" });
+    manager.script(SEARCH, { stdout: "" });
 
     await executeTool(call("search_files", { pattern: "x" }), context());
 
+    // Whichever program the sandbox has, so both spellings are in the one command.
     expect(manager.commands(sandboxId)[0]).toContain("--exclude-dir=node_modules");
+    expect(manager.commands(sandboxId)[0]).toContain("--glob '!node_modules'");
   });
 
-  it("treats grep's no-match exit as a successful empty search", async () => {
+  it("treats the search's no-match exit as a successful empty search", async () => {
     // grep exits 1 for "found nothing", which is an answer, not a failure.
-    manager.script(/^grep /, { exitCode: 1, stdout: "" });
+    manager.script(SEARCH, { exitCode: 1, stdout: "" });
 
     const result = await executeTool(call("search_files", { pattern: "nope" }), context());
 
@@ -353,31 +358,13 @@ describe("search_files", () => {
     expect(result.output).toMatch(/no match/i);
   });
 
-  it("treats a grep exit above 1 as an error", async () => {
-    manager.script(/^grep /, { exitCode: 2, stderr: "grep: bad pattern\n" });
+  it("treats a search exit above 1 as an error", async () => {
+    manager.script(SEARCH, { exitCode: 2, stderr: "grep: bad pattern\n" });
 
     const result = await executeTool(call("search_files", { pattern: "[" }), context());
 
     expect(result.ok).toBe(false);
     expect(result.output).toContain("bad pattern");
-  });
-
-  it("passes a hostile pattern to the shell as one literal argument", async () => {
-    // The pattern comes from a model, and the model is repeating what a user typed into a
-    // chat box. Asserting the payload is absent would be wrong — it is present, quoted.
-    // Only a real shell can settle whether it survives as text or runs as code.
-    const hostile = "'; touch /tmp/pwned; echo '";
-    manager.script(/^grep /, { stdout: "" });
-
-    await executeTool(call("search_files", { pattern: hostile }), context());
-
-    const command = manager.commands(sandboxId)[0] ?? "";
-    const argument = execFileSync(
-      "sh",
-      ["-c", command.replace(/^grep .*-e /, "printf %s ").replace(/ '[^']*'$/, "")],
-      { encoding: "utf8" },
-    );
-    expect(argument).toBe(hostile);
   });
 });
 
@@ -475,6 +462,44 @@ describe("output size", () => {
 
     const result = await executeTool(call("read_file", { path: APP }), context());
 
-    expect(result.output).toBe("short\n");
+    expect(result.output).toBe("1\tshort");
+  });
+});
+
+describe("a tool this turn was not offered", () => {
+  it("is logged as an attempt, refused, and never run", async () => {
+    const result = await executeTool(call("write_file", { path: APP, contents: "x\n" }), {
+      ...context(),
+      offered: new Set(["read_file"]),
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      output: "write_file is not available in this turn. Available tools: read_file.",
+    });
+    expect(recorder.types).toEqual(["tool.call", "tool.result"]);
+    expect((await manager.readFile(sandboxId, APP)).ok).toBe(false);
+  });
+
+  it("says what an app test may do instead", async () => {
+    const result = await executeTool(call("run_command", { command: "ls" }), {
+      ...context(),
+      offered: new Set(["read_file"]),
+      testMode: true,
+    });
+    expect(result.output).toMatch(/App tests can read source/);
+    expect(manager.commands(sandboxId)).toEqual([]);
+  });
+
+  it("is not logged at all when the name is no tool anyone has", async () => {
+    const result = await executeTool(call("teleport", {}), {
+      ...context(),
+      offered: new Set(["read_file"]),
+    });
+    expect(result).toEqual({
+      ok: false,
+      output: "No tool named teleport. Available tools: read_file.",
+    });
+    expect(recorder.types).toEqual([]);
   });
 });

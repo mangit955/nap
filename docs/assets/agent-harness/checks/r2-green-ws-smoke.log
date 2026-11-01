@@ -1,0 +1,71 @@
+{
+  "verification_header": {
+    "id": "ws-smoke",
+    "argv": [
+      "bun",
+      "run",
+      "ws:smoke"
+    ],
+    "runner_argv": [
+      "python3",
+      "/Users/manasraghuwanshi/.claude/skills/gods-hand/scripts/run_check.py",
+      "--timeout",
+      "60",
+      "--",
+      "bun",
+      "run",
+      "ws:smoke"
+    ],
+    "cwd": "/Users/manasraghuwanshi/Developer/s-30/nap",
+    "head": "5fa06eb508ed51ec69c4fe6e26edb5b8f7f1f27f",
+    "base": "7cd9f89b42ffd3a071a1c9831e71dc4599a9bc36",
+    "snapshot": "893f787d4e83f3edda6f6e211543be145fec2e2d",
+    "tree": "005c4c8442191d8fd9a1860fab4dac3fd0b770c2",
+    "environment": {
+      "platform": "macOS-27.0.1-arm64-arm-64bit",
+      "architecture": "arm64",
+      "node": "v26.12.0",
+      "bun": "1.4.2",
+      "vitest": "4.1.10",
+      "selected_env": {}
+    },
+    "env_adjustment": null,
+    "timeout_seconds": 60,
+    "started_at": "2026-10-27T04:10:08.747947+00:00",
+    "reused": false,
+    "log": "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/evidence/r2-green-ws-smoke.log",
+    "expected_exit_code": 0
+  },
+  "identity_before": {
+    "snapshot": "893f787d4e83f3edda6f6e211543be145fec2e2d",
+    "tree": "005c4c8442191d8fd9a1860fab4dac3fd0b770c2",
+    "staged_tree_equals_snapshot": true,
+    "unstaged_diff_empty": true
+  }
+}
+
+$ bun run apps/api/scripts/ws-smoke.ts
+serving on http://localhost:62266/
+  ok    bad query refused  status 400
+  ok    upgraded  ws://localhost:62266/ws?sessionId=…&seq=5
+  ok    replayed  seq 6 7 8 9 10
+  ok    announced the end of the replay  at index 5
+  ok    tailed live  seq 6 7 8 9 10 11 12
+  ok    malformed frame answered
+  ok    still streaming  seq 13
+  ok    answered heartbeats keep it open
+  ok    closed cleanly  code 1000
+  ok    second connection replayed the whole log  14 frames
+  ok    silent connection closed  code 4000
+
+ok — the Bun upgrade path works end to end
+
+{
+  "verification_footer": {
+    "exit_code": 0,
+    "elapsed_seconds": 2.646,
+    "finished_at": "2026-10-27T04:10:11.394824+00:00",
+    "identity_after_matches_before": true,
+    "result": "passed"
+  }
+}

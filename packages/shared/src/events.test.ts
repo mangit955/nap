@@ -446,6 +446,98 @@ const CASES = [
     },
     issuePath: ["payload", "outcome"],
   },
+  {
+    type: "plan.updated",
+    valid: {
+      ...ENVELOPE,
+      type: "plan.updated",
+      payload: {
+        toolCallId: "toolu_plan",
+        items: [
+          { content: "Add the list", status: "completed" },
+          { content: "Style it", status: "in_progress" },
+        ],
+      },
+    },
+    malformed: {
+      ...ENVELOPE,
+      type: "plan.updated",
+      payload: { toolCallId: "toolu_plan", items: [{ content: "Style it", status: "doing" }] },
+    },
+    issuePath: ["payload", "items", 0, "status"],
+  },
+  {
+    type: "agent.question",
+    valid: {
+      ...ENVELOPE,
+      type: "agent.question",
+      payload: {
+        toolCallId: "toolu_ask",
+        question: "Which layout?",
+        options: [
+          { label: "Grid", description: null },
+          { label: "List", description: "One item per row" },
+        ],
+        multiSelect: false,
+      },
+    },
+    malformed: {
+      ...ENVELOPE,
+      type: "agent.question",
+      payload: {
+        toolCallId: "toolu_ask",
+        question: "Which layout?",
+        options: [{ label: "Grid", description: null }],
+        multiSelect: false,
+      },
+    },
+    issuePath: ["payload", "options"],
+  },
+  {
+    type: "subagent.started",
+    valid: {
+      ...ENVELOPE,
+      type: "subagent.started",
+      payload: {
+        toolCallId: "toolu_sub",
+        subagentId: "sub_1",
+        profile: "explore",
+        task: "Find where routes are declared",
+      },
+    },
+    malformed: {
+      ...ENVELOPE,
+      type: "subagent.started",
+      payload: { toolCallId: "toolu_sub", subagentId: "sub_1", profile: "admin", task: "x" },
+    },
+    issuePath: ["payload", "profile"],
+  },
+  {
+    type: "subagent.completed",
+    valid: {
+      ...ENVELOPE,
+      type: "subagent.completed",
+      payload: {
+        subagentId: "sub_1",
+        outcome: "completed",
+        summary: "src/routes.ts:4-20",
+        toolCalls: 3,
+        usage: { inputTokens: 1200, outputTokens: 80 },
+      },
+    },
+    malformed: {
+      ...ENVELOPE,
+      type: "subagent.completed",
+      payload: {
+        subagentId: "sub_1",
+        outcome: "completed",
+        summary: "",
+        toolCalls: -1,
+        usage: { inputTokens: 1200, outputTokens: 80 },
+      },
+    },
+    issuePath: ["payload", "toolCalls"],
+  },
 ] as const satisfies readonly Case[];
 
 function byType(type: NapEvent["type"]): Case {

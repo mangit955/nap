@@ -16,7 +16,7 @@ import { ComputerActions } from "../computer/computer-actions.tsx";
 import { ansiSpans } from "./ansi.ts";
 import { ChatMarkdown } from "./chat-markdown.tsx";
 import { HighlightedCode } from "./highlight.tsx";
-import type { FileChange } from "./transcript.ts";
+import type { FileChange, HelperRun } from "./transcript.ts";
 import { commandExitCode, type WorkEntry } from "./work-log.ts";
 import { shorten } from "./working-state.ts";
 
@@ -62,6 +62,8 @@ export function WorkEntryBody({ entry }: { entry: WorkEntry }) {
     );
   }
 
+  if (entry.helper !== undefined) return <HelperBody helper={entry.helper} />;
+
   if (entry.toolName === "read_file") {
     const path = typeof input.path === "string" ? shorten(input.path) : "";
     return (
@@ -75,6 +77,28 @@ export function WorkEntryBody({ entry }: { entry: WorkEntry }) {
   return (
     <div className="ms-7">
       <pre className={bodyClass(failed)}>{entry.output || "No output."}</pre>
+    </div>
+  );
+}
+
+/**
+ * What a helper was asked and what it reported. Its own tool calls are not in the log (ADR-0020),
+ * so this is the whole account of it — task, how it ended, and the report the agent received.
+ */
+function HelperBody({ helper }: { helper: HelperRun }) {
+  const ended =
+    helper.outcome === "running"
+      ? "Working…"
+      : `${helper.outcome === "completed" ? "Reported" : helper.outcome === "cancelled" ? "Stopped" : "Failed"} after ${helper.toolCalls} ${helper.toolCalls === 1 ? "step" : "steps"}`;
+  return (
+    <div className="ms-7 space-y-1.5 font-mono text-2xs">
+      <div className="text-muted">
+        {helper.profile === "explore" ? "Search helper" : "Helper"} · {ended}
+      </div>
+      <pre className={bodyClass(false)}>{helper.task}</pre>
+      {helper.summary !== null && helper.summary !== "" && (
+        <pre className={bodyClass(helper.outcome === "failed")}>{helper.summary}</pre>
+      )}
     </div>
   );
 }

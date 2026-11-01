@@ -10,7 +10,8 @@ import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NapAgentService } from "./agent-service.ts";
 import { ScriptedLLMProvider, type ScriptedTurn } from "./testing/scripted-llm-provider.ts";
-import { PROJECT_ROOT, TOOL_DEFINITIONS } from "./tools/definitions.ts";
+import { PROJECT_ROOT } from "./tools/definitions.ts";
+import { toolsetFor } from "./tools/toolset.ts";
 
 /**
  * What a turn did, asserted through its events and its traffic — never through prose.
@@ -356,14 +357,17 @@ describe("runTurn — event ordering", () => {
 });
 
 describe("runTurn — talking to the model", () => {
-  it("declares the six proxy tools as the entire tool set", async () => {
+  it("declares exactly the tools this turn is offered, in the registry's order", async () => {
     const { agent, provider } = service([[{ text: "Nothing to do." }]]);
 
     await agent.runTurn(request());
 
+    // No model named reads as Claude, no desktop means no computer, and no helper prompts
+    // means no delegation — see toolset.ts for the rules themselves.
     expect(provider.requests[0]?.tools).toEqual(
-      TOOL_DEFINITIONS.filter((tool) => tool.name !== "computer"),
+      toolsetFor({ promptSource: "user", family: "claude", computer: false, subagents: false }),
     );
+    expect(provider.requests[0]?.tools.map((tool) => tool.name)).not.toContain("apply_patch");
     expect(provider.requests[0]?.systemPrompt).toBe(CONTEXT.systemPrompt);
   });
 
@@ -448,18 +452,59 @@ describe("runTurn — failure branches", () => {
     ]);
   });
 
-  it("says the model was unavailable when the provider retried and still could not reach it", async () => {
-    // Retries are the provider's business and are already spent by the time one of these
-    // arrives, so there is nothing left for the loop to do but stop. `retryable` is what
-    // distinguishes the two ways that happens: a throttled or overloaded model is not the agent
-    // breaking, and telling the user it stopped partway through sends them looking for a fault
-    // in their own request.
-    const { agent } = service([[{ error: { message: "529 overloaded", retryable: true } }]]);
+  it("says the model was unavailable when one longer wait did not bring it back", async () => {
+    // The provider's own retries are spent by the time one of these arrives, and they are
+    // sized for a dropped connection. A throttled minute needs one longer wait, once; after
+    // that, `retryable` is what says a throttled or overloaded model is not the agent breaking,
+    // and telling the user it stopped partway through sends them looking for a fault in their
+    // own request.
+    const provider = new ScriptedLLMProvider([
+      [
+        { error: { message: "529 overloaded", retryable: true } },
+        { error: { message: "529 overloaded", retryable: true } },
+      ],
+    ]);
+    const agent = new NapAgentService({ provider, retryDelayMs: 0 });
 
     await agent.runTurn(request());
 
+    expect(provider.requests).toHaveLength(2);
+    expect(recorder.types).toEqual(["turn.started", "system.notice", "turn.failed"]);
     expect(recorder.payloadsOf("turn.failed")).toEqual([
       expect.objectContaining({ reason: "model_unavailable", message: "529 overloaded" }),
+    ]);
+  });
+
+  it("carries on when the model is back after the wait", async () => {
+    const provider = new ScriptedLLMProvider([
+      [{ error: { message: "rate limited", retryable: true } }, { text: "Back." }],
+    ]);
+    const agent = new NapAgentService({ provider, retryDelayMs: 0 });
+
+    await agent.runTurn(request());
+
+    expect(recorder.types).toEqual([
+      "turn.started",
+      "system.notice",
+      "agent.message",
+      "turn.completed",
+    ]);
+  });
+
+  it("stops waiting the moment the turn is cancelled", async () => {
+    const controller = new AbortController();
+    const provider = new ScriptedLLMProvider([[{ error: { message: "busy", retryable: true } }]]);
+    const agent = new NapAgentService({ provider, retryDelayMs: 60_000 });
+    recorder.onEach = (event) => {
+      if (event.type === "system.notice") controller.abort();
+    };
+
+    const started = Date.now();
+    await agent.runTurn(request({ signal: controller.signal }));
+
+    expect(Date.now() - started).toBeLessThan(5_000);
+    expect(recorder.payloadsOf("turn.failed")).toEqual([
+      expect.objectContaining({ reason: "cancelled" }),
     ]);
   });
 
@@ -826,6 +871,7 @@ it("gives app tests a separate budget and refuses source changes even if the mod
     "read_file",
     "list_files",
     "search_files",
+    "glob",
   ]);
   expect(
     recorder.events

@@ -147,6 +147,18 @@ const BaseSchema = z.object({
    * `DEFAULT_MODEL_CONFIG`, which used to disagree with it.
    */
   NAP_EFFORT: z.enum(["low", "medium", "high", "xhigh", "max"]).default("medium"),
+  /**
+   * A model a turn continues on when its own model refuses, on the deployment's account only —
+   * a person's own key is never moved to a model they did not pick. Unset, a refusal ends the
+   * turn, as it always has. Must be on the allowlist.
+   */
+  NAP_FALLBACK_MODEL: z.string().min(1).optional(),
+  /**
+   * What an `explore` helper runs on when the deployment pays — searching is the work a cheaper
+   * model does as well as a dear one. Unset, helpers run on the turn's own model. Must be on the
+   * allowlist. Helpers are offered to imported repositories only (ADR-0020).
+   */
+  NAP_SUBAGENT_MODEL: z.string().min(1).optional(),
 
   /**
    * Which models a request may ask for, as a comma-separated list.
@@ -407,6 +419,18 @@ export const EnvSchema = BaseSchema.superRefine((env, ctx) => {
       path: ["NAP_ALLOWED_MODELS"],
       message: `must include NAP_MODEL (${env.NAP_MODEL})`,
     });
+  }
+
+  // A model the deployment would switch a turn to has passed the same check a person's choice
+  // does, or the allowlist has a side door.
+  for (const key of ["NAP_FALLBACK_MODEL", "NAP_SUBAGENT_MODEL"] as const) {
+    const model = env[key];
+    if (model !== undefined && !env.NAP_ALLOWED_MODELS.includes(model))
+      ctx.addIssue({
+        code: "custom",
+        path: [key],
+        message: `must be one of NAP_ALLOWED_MODELS (${model} is not)`,
+      });
   }
 
   // The free-tier model has to be reachable too, or every turn by somebody without a key is

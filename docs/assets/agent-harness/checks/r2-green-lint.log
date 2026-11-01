@@ -1,0 +1,147 @@
+{
+  "verification_header": {
+    "id": "lint",
+    "argv": [
+      "bun",
+      "run",
+      "lint"
+    ],
+    "runner_argv": [
+      "python3",
+      "/Users/manasraghuwanshi/.claude/skills/gods-hand/scripts/run_check.py",
+      "--timeout",
+      "60",
+      "--",
+      "bun",
+      "run",
+      "lint"
+    ],
+    "cwd": "/Users/manasraghuwanshi/Developer/s-30/nap",
+    "head": "5fa06eb508ed51ec69c4fe6e26edb5b8f7f1f27f",
+    "base": "7cd9f89b42ffd3a071a1c9831e71dc4599a9bc36",
+    "snapshot": "893f787d4e83f3edda6f6e211543be145fec2e2d",
+    "tree": "005c4c8442191d8fd9a1860fab4dac3fd0b770c2",
+    "environment": {
+      "platform": "macOS-27.0.1-arm64-arm-64bit",
+      "architecture": "arm64",
+      "node": "v26.12.0",
+      "bun": "1.4.2",
+      "vitest": "4.1.10",
+      "selected_env": {}
+    },
+    "env_adjustment": null,
+    "timeout_seconds": 60,
+    "started_at": "2026-10-27T04:10:01.167464+00:00",
+    "reused": false,
+    "log": "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/evidence/r2-green-lint.log",
+    "expected_exit_code": 0
+  },
+  "identity_before": {
+    "snapshot": "893f787d4e83f3edda6f6e211543be145fec2e2d",
+    "tree": "005c4c8442191d8fd9a1860fab4dac3fd0b770c2",
+    "staged_tree_equals_snapshot": true,
+    "unstaged_diff_empty": true
+  }
+}
+
+$ biome check .
+packages/sandbox/src/desktop-release.ts:4:38 lint/complexity/noUselessStringRaw ━━━━━━━━━━━━━━━━━━━━
+
+  i String.raw is useless when the raw string doesn't contain any escape sequence.
+  
+     2 │  * XSync precedes the state query. A failed release or query never issues a certificate.
+     3 │  */
+   > 4 │ export const RELEASE_PRESSED_INPUT = String.raw`
+       │                                      ^^^^^^^^^^^
+   > 5 │ import ctypes as c
+        ...
+  > 46 │ finally:
+  > 47 │     x.XCloseDisplay(d)
+  > 48 │ `;
+       │ ^
+    49 │ 
+  
+  i Remove the String.raw call because it's useless here, String.raw can deal with string which contains escape sequence like \n, \t, \r, \\, \", \'.
+  
+
+packages/sandbox/src/git-comparison-limits.test.ts:20:17 lint/style/useTemplate  FIXABLE  ━━━━━━━━━━
+
+  i Template literals are preferred over string concatenation.
+  
+    18 │   const calls: { args: string[]; timeout: number; startedAt: number }[] = [];
+    19 │   const patches: string[] = [];
+  > 20 │   const patch = "@@ -1 +1,25000 @@\n-old\n" + "+new\n".repeat(25_000);
+       │                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    21 │   const childProcess = {
+    22 │     execFileSync(_command: string, args: string[], options: { timeout: number }) {
+  
+  i Unsafe fix: Use a template literal.
+  
+     18  18 │     const calls: { args: string[]; timeout: number; startedAt: number }[] = [];
+     19  19 │     const patches: string[] = [];
+     20     │ - ··const·patch·=·"@@·-1·+1,25000·@@\n-old\n"·+·"+new\n".repeat(25_000);
+         20 │ + ··const·patch·=·`@@·-1·+1,25000·@@\n-old\n${"+new\n".repeat(25_000)}`;
+     21  21 │     const childProcess = {
+     22  22 │       execFileSync(_command: string, args: string[], options: { timeout: number }) {
+  
+
+apps/web/src/app/globals.css:2378:3 lint/style/noDescendingSpecificity ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ! Descending specificity selector found. This selector specificity is (0, 2, 0)
+  
+    2376 │     margin-top: -32px;
+    2377 │   }
+  > 2378 │   .dashboard-frame .workspace-header {
+         │   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2379 │     padding-left: 48px;
+    2380 │   }
+  
+  i This selector specificity is (0, 3, 0)
+  
+    1929 │   left: 14px;
+    1930 │ }
+  > 1931 │ .dashboard-frame[data-sidebar-collapsed="true"] .workspace-header {
+         │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    1932 │   padding-left: 52px;
+    1933 │ }
+  
+  i Descending specificity selector may not be applied. Consider rearranging the order of the selectors. See MDN web docs for more details.
+  
+
+packages/db/src/postgres-project-computer-access.ts:88:13 lint/complexity/useOptionalChain  FIXABLE  ━━━━━━━━━━
+
+  ! Change to an optional chain.
+  
+    86 │             .for("update");
+    87 │           if (
+  > 88 │             !held ||
+       │             ^^^^^^^^
+  > 89 │             held.state !== "leased" ||
+       │             ^^^^^^^^^^^^^^^^^^^^^^^
+    90 │             held.leaseOwner !== actor.lease.owner ||
+    91 │             held.cancelRequested
+  
+  i Unsafe fix: Change to an optional chain.
+  
+     86  86 │               .for("update");
+     87  87 │             if (
+     88     │ - ············!held·||
+     89     │ - ············held.state·!==·"leased"·||
+         88 │ + ············held?.state·!==·"leased"·||
+     90  89 │               held.leaseOwner !== actor.lease.owner ||
+     91  90 │               held.cancelRequested
+  
+
+Checked 1321 files in 785ms. No fixes applied.
+Found 2 warnings.
+Found 2 infos.
+
+{
+  "verification_footer": {
+    "exit_code": 0,
+    "elapsed_seconds": 1.086,
+    "finished_at": "2026-10-27T04:10:02.254289+00:00",
+    "identity_after_matches_before": true,
+    "result": "passed"
+  }
+}

@@ -176,6 +176,10 @@ read the section covering whatever you are about to touch, not the whole file.
 
 - **Anything that writes to the real bucket from a test must delete every key it wrote, not the newest one.** `full-cycle.integration.test.ts` runs against a throwaway Postgres and a *real* R2, so the rows naming its objects die with the container — it collects `snapshots.listFor` inside `beforeAll` and deletes them all in `afterAll`. It used to delete exactly one, which was correct only while a run produced exactly one; per-turn snapshots would have silently turned it into an orphan generator. There is no automatic orphan detection: the check is joining `ListObjectsV2` against the `snapshots` table by hand, and it has found real orphans.
 
+- **On the sandbox, `/bin/sh` is dash, and dash's `kill` refuses `--`.** `kill -TERM -- -PID` is the textbook way to signal a process group and it is an "Illegal number" error under dash; a script with an `|| kill PID` fallback then stops only the leader and leaves its children running — a stopped background shell whose dev server is still bound to the port. macOS cannot show this, since its `sh` is bash. Write `kill -TERM "-$pid"` and test shell scripts on Debian as well (`node:24-bookworm` in Docker, running vitest under Node; see Testing). The same run proved `setsid` is present there and absent on macOS, which is why `shell.ts` starts a shell with `setsid` and falls back to `set -m`.
+
+- **Anything the agent loop does on *every* tool call must use a port method that answers "missing", never `exec`.** `InMemorySandboxManager` throws on a command nobody scripted — on purpose, it is a mistake in the test — so a hook that probed for a file with a shell loop broke every scripted turn in the repo at once. The project-rules hook reads candidate files with `readFile` in parallel, where `file_not_found` is an ordinary answer on every implementation.
+
 ## API, auth and logging
 
 - **An abandoned desktop request can block its replacement.** Strict Mode and navigation can abort a stream fetch while its server-side desktop start keeps the action lock. Forward the request signal to startup and skip credential acquisition after cancellation. Otherwise a later start can hold the lock beyond the earlier credential command's five-second wait and fail the visible connection. The local app exposed this race; the route regression checks signal forwarding and the post-start cancellation boundary.
@@ -322,6 +326,12 @@ read the section covering whatever you are about to touch, not the whole file.
 - **A count cannot be waited for the way everything else can, because "nothing yet" and "nothing at all" are the same reading.** An empty page is perfectly stable right up until it renders, so a settling rule alone returns zero for any application that fetches before it paints. `count` therefore waits for *something* to appear first and only then lets the number settle — which means an expected zero costs the whole deadline before it can be believed, exactly as `expectNoText` does. A check asserting an empty list should declare a short `timeoutMs` rather than pay the default for it; four assertions that did not turned one integration file from 7 seconds into 67.
 
 - **A bare regex inside `toMatchObject` matches any string, so the assertion it looks like it makes is never made.** Measured on Vitest 4.1.10: `expect({ m: "abc" }).toMatchObject({ m: /zzz/ })` passes, nested or not, while the same regex under `toEqual` fails as it should. A computer test asserting which refusal message the model got passed with the guard deleted, and only the mutation check showed it. Write `expect.stringMatching(/…/)` for a string a test means to check.
+
+- **Vitest has to run under Node, including in a container.** `bunx vitest` in an image with no `node` runs it on Bun, and the first schema module fails with `undefined is not an object (evaluating 'z.enum')`, which reads as a broken dependency. Install Bun for the workspace and run `node node_modules/vitest/vitest.mjs`.
+
+- **A read returns numbered lines and cuts a single line at a couple of thousand characters**, so a fixture meant to make a tool's output large must be many lines, not one long one. The compaction test's `"x".repeat(n)` file stopped triggering compaction the day reads were numbered, silently, because the turn simply fit.
+
+- **Real shell behaviour is tested for free with `LocalShellSandbox`** (`packages/agent/src/testing`), a temporary directory plus real `bash` with the sandbox's paths rewritten in and out. Use it for anything whose correctness lives in a shell — process groups, quoting, `find` output — where the scripted sandbox can only prove which command string was sent.
 
 ## Load testing
 

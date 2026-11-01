@@ -477,6 +477,37 @@ const PAYLOADS = [
   },
   { type: "job.checkpointed", payload: { jobId: JOB, commitSha: "a1b2c3d" } },
   { type: "job.completed", payload: { jobId: JOB, outcome: "exhausted" } },
+  {
+    type: "plan.updated",
+    payload: { toolCallId: "toolu_plan", items: [{ content: "Add a list", status: "pending" }] },
+  },
+  {
+    type: "agent.question",
+    payload: {
+      toolCallId: "toolu_ask",
+      question: "Grid or list?",
+      // The nested `null` is what has to survive jsonb, as with the checks above.
+      options: [
+        { label: "Grid", description: null },
+        { label: "List", description: "One per row" },
+      ],
+      multiSelect: false,
+    },
+  },
+  {
+    type: "subagent.started",
+    payload: { toolCallId: "toolu_sub", subagentId: "sub_1", profile: "explore", task: "Find it" },
+  },
+  {
+    type: "subagent.completed",
+    payload: {
+      subagentId: "sub_1",
+      outcome: "completed",
+      summary: "src/App.tsx:3-9",
+      toolCalls: 2,
+      usage: { inputTokens: 10, outputTokens: 2 },
+    },
+  },
 ] as const satisfies readonly { type: NapEvent["type"]; payload: NapEvent["payload"] }[];
 
 describe("every event type survives the round trip", () => {

@@ -1,0 +1,55 @@
+{
+  "verification_header": {
+    "id": "probe-cancelled-usage",
+    "argv": [
+      "bun",
+      "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/scratch/checker-round1/probe-cancelled-helper-usage.ts"
+    ],
+    "runner_argv": [
+      "python3",
+      "/Users/manasraghuwanshi/.claude/skills/gods-hand/scripts/run_check.py",
+      "--timeout",
+      "30",
+      "--",
+      "bun",
+      "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/scratch/checker-round1/probe-cancelled-helper-usage.ts"
+    ],
+    "cwd": "/Users/manasraghuwanshi/Developer/s-30/nap",
+    "head": "5fa06eb508ed51ec69c4fe6e26edb5b8f7f1f27f",
+    "base": "7cd9f89b42ffd3a071a1c9831e71dc4599a9bc36",
+    "snapshot": "893f787d4e83f3edda6f6e211543be145fec2e2d",
+    "tree": "005c4c8442191d8fd9a1860fab4dac3fd0b770c2",
+    "environment": {
+      "platform": "macOS-27.0.1-arm64-arm-64bit",
+      "architecture": "arm64",
+      "node": "v26.12.0",
+      "bun": "1.4.2",
+      "vitest": "4.1.10",
+      "selected_env": {}
+    },
+    "env_adjustment": null,
+    "timeout_seconds": 30,
+    "started_at": "2026-10-27T04:02:08.412584+00:00",
+    "reused": false,
+    "log": "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/evidence/r2-green-probe-cancelled-usage.log",
+    "expected_exit_code": 0
+  },
+  "identity_before": {
+    "snapshot": "893f787d4e83f3edda6f6e211543be145fec2e2d",
+    "tree": "005c4c8442191d8fd9a1860fab4dac3fd0b770c2",
+    "staged_tree_equals_snapshot": true,
+    "unstaged_diff_empty": true
+  }
+}
+
+{"actualProviderUsage":{"inputTokens":1500,"outputTokens":100},"helperCompletion":{"subagentId":"helper-1","outcome":"cancelled","summary":"Stopped before it finished.","toolCalls":0,"usage":{"inputTokens":0,"outputTokens":0}},"parentCompletion":{"usageIncomplete":true,"usage":{"inputTokens":0,"outputTokens":0},"durationMs":3,"commitSha":null}}
+
+{
+  "verification_footer": {
+    "exit_code": 0,
+    "elapsed_seconds": 0.08,
+    "finished_at": "2026-10-27T04:02:08.493152+00:00",
+    "identity_after_matches_before": true,
+    "result": "passed"
+  }
+}

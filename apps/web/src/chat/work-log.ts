@@ -15,7 +15,7 @@
  * every case is checkable without rendering anything.
  */
 
-import type { ToolName } from "@nap/shared/events";
+import { TOOL_KINDS, type ToolKind } from "@nap/shared/tool-kinds";
 import { computerActions } from "../computer/action-labels.ts";
 import type { TranscriptItem } from "./transcript.ts";
 import { shorten } from "./working-state.ts";
@@ -31,28 +31,38 @@ export type WorkEntry =
   | Extract<TranscriptItem, { kind: "thinking" }>
   | Extract<TranscriptItem, { kind: "files" }>;
 
-export type ToolGroupAction = "read" | "edit" | "command" | "code-search" | "computer";
+export type ToolGroupAction =
+  | "read"
+  | "edit"
+  | "command"
+  | "code-search"
+  | "computer"
+  | "plan"
+  | "ask"
+  | "delegate";
 
 /** What a group is, for its icon: one kind of work, a thought, or several kinds. */
 export type ToolGroupSummaryKind = ToolGroupAction | "reasoning" | "mixed";
 
 /**
- * Nap's six tools on T3's actions. A `Record` over the union, so a seventh tool fails typecheck
- * here instead of being summarised as nothing. Listing files is a search for T3 too (`ls` is
- * classified with `grep` and `glob`), and it reads that way: the agent was looking for something.
+ * Each kind of tool on T3's actions. Keyed by kind rather than by name (`@nap/shared/tool-kinds`),
+ * so a new tool is summarised by what it is for without this file learning its name. Listing and
+ * globbing are searches for T3 too (`ls` is classified with `grep` and `glob`), and they read that
+ * way: the agent was looking for something.
  */
-const ACTIONS: Record<ToolName, ToolGroupAction> = {
-  read_file: "read",
-  write_file: "edit",
-  edit_file: "edit",
-  list_files: "code-search",
-  search_files: "code-search",
-  run_command: "command",
+const ACTIONS: Record<ToolKind, ToolGroupAction> = {
+  read: "read",
+  edit: "edit",
+  search: "code-search",
+  execute: "command",
   computer: "computer",
+  plan: "plan",
+  ask: "ask",
+  delegate: "delegate",
 };
 
 export function toolGroupAction(entry: Step | Extract<WorkEntry, { kind: "files" }>) {
-  return entry.kind === "files" ? "edit" : ACTIONS[entry.toolName];
+  return entry.kind === "files" ? "edit" : ACTIONS[TOOL_KINDS[entry.toolName]];
 }
 
 /**
@@ -68,10 +78,11 @@ export function commandExitCode(entry: WorkEntry): number | undefined {
   return match?.[1] === undefined ? undefined : Number.parseInt(match[1], 10);
 }
 
-/** A refused call, or a command that exited non-zero — both failed, to the person watching. */
+/** A failed/stopped helper, refused call or command that exited non-zero. */
 export function entryFailed(entry: WorkEntry): boolean {
   if (entry.kind !== "step") return false;
   if (entry.status === "failed") return true;
+  if (entry.helper?.outcome === "failed" || entry.helper?.outcome === "cancelled") return true;
   const code = commandExitCode(entry);
   return code !== undefined && code !== 0;
 }
@@ -119,6 +130,12 @@ function actionLabel(action: ToolGroupAction, count: number): string {
       return `Ran ${count} ${count === 1 ? "command" : "commands"}`;
     case "code-search":
       return `Searched code ${count} ${count === 1 ? "time" : "times"}`;
+    case "plan":
+      return `Updated the plan${count === 1 ? "" : ` ${count} times`}`;
+    case "ask":
+      return `Asked ${count === 1 ? "a question" : `${count} questions`}`;
+    case "delegate":
+      return `Delegated ${count} ${count === 1 ? "task" : "tasks"}`;
   }
 }
 
@@ -194,7 +211,19 @@ export function toolGroupSummaryKind(entries: readonly WorkEntry[]): ToolGroupSu
 }
 
 /** What a tool's arguments say it was pointed at, with the sandbox's project root taken off. */
-function argument(step: Step, key: "command" | "path" | "pattern"): string | undefined {
+/** The file a change touched, and how many more — or nothing, before any change arrived. */
+function changedLabel(step: Step): string | undefined {
+  const [first] = step.files;
+  if (first === undefined) return undefined;
+  return step.files.length === 1
+    ? shorten(first.path)
+    : `${shorten(first.path)} +${step.files.length - 1} more`;
+}
+
+function argument(
+  step: Step,
+  key: "command" | "path" | "pattern" | "question" | "task",
+): string | undefined {
   const value = (step.input as Record<string, unknown>)[key];
   return typeof value === "string" && value.trim() !== "" ? shorten(value.trim()) : undefined;
 }
@@ -236,14 +265,8 @@ export function workEntryDisplayLabel(entry: WorkEntry): string {
       return path === undefined ? "Read file" : `Read ${path}`;
     }
     case "write_file":
-    case "edit_file": {
-      const [first] = entry.files;
-      return first === undefined
-        ? (argument(entry, "path") ?? "Changed files")
-        : entry.files.length === 1
-          ? shorten(first.path)
-          : `${shorten(first.path)} +${entry.files.length - 1} more`;
-    }
+    case "edit_file":
+      return changedLabel(entry) ?? argument(entry, "path") ?? "Changed files";
     case "search_files": {
       const pattern = argument(entry, "pattern");
       const path = argument(entry, "path");
@@ -255,6 +278,26 @@ export function workEntryDisplayLabel(entry: WorkEntry): string {
       const path = argument(entry, "path");
       return path === undefined ? "Listed files" : `Listed ${path}`;
     }
+    case "glob": {
+      const pattern = argument(entry, "pattern");
+      return pattern === undefined ? "Found files" : `Found ${pattern}`;
+    }
+    case "apply_patch":
+      return changedLabel(entry) ?? "Patched files";
+    case "shell_output":
+      return "Read command output";
+    case "shell_input":
+      return "Typed into a command";
+    case "shell_kill":
+      return "Stopped a command";
+    case "todo_write":
+      return "Updated the plan";
+    case "ask_user":
+      return argument(entry, "question") ?? "Asked a question";
+    case "run_subagent":
+      return argument(entry, "task") ?? "Delegated a task";
+    case "read_subagent":
+      return "Collected a helper's report";
   }
 }
 

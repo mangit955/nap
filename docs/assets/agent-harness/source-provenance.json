@@ -1,0 +1,54 @@
+{
+  "candidate": {
+    "revision": "38dd3e1f997614ec52251b8405924381378f796b",
+    "tree": "005c4c8442191d8fd9a1860fab4dac3fd0b770c2",
+    "source": "git archive exact final source commit, exported under run scratch; root product source read-only",
+    "archive_sha256": "54ecadcbca5dcac8b7195d8f4fb5b727670164830674e6811385869524020ca6",
+    "source_files": {
+      "apps/web/src/chat/chat-transcript.tsx": {
+        "git_blob": "642bc6f90607c7caf8d9e350146967bd34b28ee7",
+        "sha256": "a6a5f9b9201bd62f0ff9bd7f29612a235afec1c247cbf20d6c132caf083d41fa"
+      },
+      "apps/web/src/chat/transcript.ts": {
+        "git_blob": "24b615f7f733a637c1603c478e4d6360900fdab6",
+        "sha256": "ade31bc48293d6487bea3472f4b0b4a7cee3fbc945abc2ba543115fd7b1dad76"
+      },
+      "apps/web/src/chat/work-log.ts": {
+        "git_blob": "366d4ced0be31ebf518894420a8bcd941caebef5",
+        "sha256": "1637a02fbd3f271654313fa60a2c14f22bad54f387571217ec4e97c8e5485c9a"
+      },
+      "apps/web/src/chat/work-log-rows.tsx": {
+        "git_blob": "40be4c675c19ea9b106f6a61449ec214dc99163b",
+        "sha256": "07ebd8dbdedb9553fe4a2f422edad8d3884508d93f1935569f62514a06719b14"
+      },
+      "apps/web/src/chat/tool-body.tsx": {
+        "git_blob": "454ff0173c28f96f8f7455efd4be4755c474ebf4",
+        "sha256": "085ccbf08178b0df103aaa1e24e1efde3aa6006d92db00d00fbe3c1f47f66a9e"
+      },
+      "apps/web/src/chat/agent-cards.tsx": {
+        "git_blob": "de466564d13775d1f1206ea6ddf32229cdd0dc8f",
+        "sha256": "84cc70e4ffab495d254b66781c9dada993056b0df59ed1c867945f8d2e21987e"
+      },
+      "apps/web/src/app/globals.css": {
+        "git_blob": "38082823426aac7440f083d02cf8a1b28ab9bc5c",
+        "sha256": "3f0fd0a0260f3e391cad4e11167eecb8f26061e90d48358a67cf2327650599ab"
+      }
+    }
+  },
+  "base": {
+    "label": "base",
+    "revision": "7cd9f89b42ffd3a071a1c9831e71dc4599a9bc36",
+    "tree": "5ad68051b01d684e8b81fdb757109c6dc2f405ee",
+    "source": "git archive exact revision; web/src and shared/src only; installed dependencies shared because manifests/lock unchanged",
+    "source_files": {
+      "apps/web/src/chat/chat-transcript.tsx": "d6e911d4d003ccea9c5bbffc416fcb26c03d5077",
+      "apps/web/src/chat/transcript.ts": "5128160ed9ec09746e869e155e778fc0d1b4d242",
+      "apps/web/src/app/globals.css": "38082823426aac7440f083d02cf8a1b28ab9bc5c"
+    }
+  },
+  "equivalence": {
+    "verified_snapshot": "893f787d4e83f3edda6f6e211543be145fec2e2d",
+    "verified_tree": "005c4c8442191d8fd9a1860fab4dac3fd0b770c2",
+    "branch_commit_tree_equal": true
+  }
+}

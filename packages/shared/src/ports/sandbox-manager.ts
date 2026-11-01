@@ -64,12 +64,17 @@ export interface SandboxManager {
   readFile(sandboxId: string, path: string): Promise<Result<string, SandboxError>>;
   listFiles(sandboxId: string, path: string): Promise<Result<FileNode[], SandboxError>>;
 
-  /** A transport signal bounds waiting; it never certifies remote process completion. */
+  /**
+   * A transport signal bounds waiting; it never certifies remote process completion.
+   *
+   * `timeoutMs` is how long the command may run before the provider stops it and the call fails
+   * with `timeout`. Absent is the provider's own default, which on E2B is one minute.
+   */
   exec(
     sandboxId: string,
     command: string,
     onOutput?: ExecOutputHandler,
-    options?: { signal?: AbortSignal | undefined },
+    options?: { signal?: AbortSignal | undefined; timeoutMs?: number | undefined },
   ): Promise<Result<ExecResult, SandboxError>>;
 
   getPreviewUrl(sandboxId: string, port: number): Promise<Result<string, SandboxError>>;

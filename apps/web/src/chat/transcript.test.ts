@@ -209,6 +209,36 @@ const CASES = [
     type: "system.notice",
     payload: { level: "warning", text: "Could not restore your last snapshot." },
   },
+  {
+    type: "plan.updated",
+    payload: { toolCallId: "p1", items: [{ content: "Add the list", status: "pending" }] },
+  },
+  {
+    type: "agent.question",
+    payload: {
+      toolCallId: "q1",
+      question: "Grid or list?",
+      options: [
+        { label: "Grid", description: null },
+        { label: "List", description: null },
+      ],
+      multiSelect: false,
+    },
+  },
+  {
+    type: "subagent.started",
+    payload: { toolCallId: "s1", subagentId: "helper-1", profile: "explore", task: "Find it" },
+  },
+  {
+    type: "subagent.completed",
+    payload: {
+      subagentId: "helper-1",
+      outcome: "failed",
+      summary: "ran out of steps",
+      toolCalls: 15,
+      usage: { inputTokens: 10, outputTokens: 1 },
+    },
+  },
 ] as const satisfies readonly { type: NapEventType; payload: NapEvent["payload"] }[];
 
 describe("the treatment table covers the union", () => {
@@ -840,4 +870,109 @@ describe("a repair turn", () => {
 
     expect(items[0]).toMatchObject({ from: "user" });
   });
+});
+
+describe("the agent's plan, questions and helpers", () => {
+  const plan = (status: "pending" | "completed") =>
+    ev("plan.updated", {
+      toolCallId: "p",
+      items: [
+        { content: "Build", status: "completed" },
+        { content: "Style", status },
+      ],
+    });
+
+  it("keeps one checklist per turn, moved to where it last changed and keyed where it began", () => {
+    const first = plan("pending");
+    const items = fold(
+      first,
+      ev("tool.call", { toolCallId: "r", toolName: "read_file", input: { path: "/a" } }),
+      ev("tool.result", { toolCallId: "r", toolName: "read_file", ok: true, output: "a" }),
+      plan("completed"),
+    );
+
+    expect(items.map((item) => item.kind)).toEqual(["step", "plan"]);
+    expect(items[1]).toEqual({
+      kind: "plan",
+      key: first.seq,
+      turnId: first.turnId,
+      items: [
+        { content: "Build", status: "completed" },
+        { content: "Style", status: "completed" },
+      ],
+    });
+  });
+
+  it("gives each turn its own checklist", () => {
+    const items = fold(
+      evIn("0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6a", plan("pending")),
+      evIn("0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6b", plan("completed")),
+    );
+    expect(items.filter((item) => item.kind === "plan")).toHaveLength(2);
+  });
+
+  it("records what the person said next as a question's answer, and nothing before then", () => {
+    const question = ev("agent.question", {
+      toolCallId: "q",
+      question: "Grid or list?",
+      options: [
+        { label: "Grid", description: null },
+        { label: "List", description: null },
+      ],
+      multiSelect: false,
+    });
+    expect(fold(question)).toMatchObject([{ kind: "question", answer: null }]);
+    expect(fold(question, ev("user.message", { text: "List" }))).toMatchObject([
+      { kind: "question", answer: "List" },
+      { kind: "message", text: "List" },
+    ]);
+  });
+
+  it("hangs a helper on the call that started it, and finishes it there", () => {
+    const items = fold(
+      ev("tool.call", {
+        toolCallId: "s",
+        toolName: "run_subagent",
+        input: { profile: "explore", task: "Find it" },
+      }),
+      ev("subagent.started", {
+        toolCallId: "s",
+        subagentId: "helper-1",
+        profile: "explore",
+        task: "Find it",
+      }),
+      ev("subagent.completed", {
+        subagentId: "helper-1",
+        outcome: "completed",
+        summary: "src/a.ts:1",
+        toolCalls: 2,
+        usage: { inputTokens: 1, outputTokens: 1 },
+      }),
+    );
+
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      kind: "step",
+      toolName: "run_subagent",
+      helper: { subagentId: "helper-1", outcome: "completed", summary: "src/a.ts:1", toolCalls: 2 },
+    });
+  });
+});
+
+it("does not take a repair prompt for the answer to a question", () => {
+  const question = ev("agent.question", {
+    toolCallId: "q",
+    question: "Grid or list?",
+    options: [
+      { label: "Grid", description: null },
+      { label: "List", description: null },
+    ],
+    multiSelect: false,
+  });
+  const items = fold(
+    question,
+    ev("turn.started", { source: "verification" }),
+    ev("user.message", { text: "The build failed; fix it." }),
+  );
+  expect(items.find((item) => item.kind === "question")).toMatchObject({ answer: null });
 });

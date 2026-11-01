@@ -1,3 +1,9 @@
+import {
+  PlanSchema,
+  QuestionOptionSchema,
+  SubagentOutcomeSchema,
+  SubagentProfileSchema,
+} from "./agent-plan.ts";
 import { MediaAttachmentsSchema } from "./media.ts";
 /**
  * The event contract.
@@ -26,7 +32,15 @@ import { CompactionResultSchema, TokenUsageSchema } from "./compaction.ts";
 import { ComputerAnnotationSchema } from "./computer.ts";
 import { TestRecordingStateSchema } from "./test-recording.ts";
 
-/** The sandbox tools, including the image-gated computer capability. See ADR-0018. */
+/**
+ * Every tool the agent has ever been able to call, and the only names `tool.call` accepts.
+ *
+ * Closed on purpose: a name outside this list is a tool that does not exist, and the log must
+ * not record one. Only ever added to — a session written last year names the tools it had, and
+ * removing one would make that session unreadable. Which of these a given turn is *offered* is
+ * the agent's registry's decision, not this list's (ADR-0020); the computer is offered only to
+ * image-capable models (ADR-0018).
+ */
 export const TOOL_NAMES = [
   "read_file",
   "write_file",
@@ -35,6 +49,15 @@ export const TOOL_NAMES = [
   "search_files",
   "run_command",
   "computer",
+  "apply_patch",
+  "glob",
+  "shell_output",
+  "shell_input",
+  "shell_kill",
+  "todo_write",
+  "ask_user",
+  "run_subagent",
+  "read_subagent",
 ] as const;
 
 export const ToolNameSchema = z.enum(TOOL_NAMES);
@@ -174,6 +197,44 @@ export const NapEventSchema = z.discriminatedUnion("type", [
   event("tool.call", { ...toolRef, input: z.record(z.string(), z.unknown()) }),
   /** A tool failure sets `ok: false` and reports through `output`; it never throws. */
   event("tool.result", { ...toolRef, ok: z.boolean(), output: z.string() }),
+  /**
+   * The agent's checklist for the work in hand, replaced whole each time it changes.
+   *
+   * The latest one in a turn is the plan; earlier ones are how it got there. Carried as its own
+   * event rather than read back out of `todo_write`'s arguments so that the pane never has to
+   * trust a `tool.call` input it did not validate.
+   */
+  event("plan.updated", { toolCallId: z.string().min(1), items: PlanSchema }),
+  /**
+   * The agent stopped to ask the person something, and the turn ends with it.
+   *
+   * The answer is not part of this event: it arrives as the next `user.message`, which is what
+   * any answer to a question in a chat already is.
+   */
+  event("agent.question", {
+    toolCallId: z.string().min(1),
+    question: z.string().min(1),
+    options: z.array(QuestionOptionSchema).min(2).max(4),
+    multiSelect: z.boolean(),
+  }),
+  /**
+   * A delegated piece of work began inside this turn. Its own tool traffic is deliberately
+   * not in the log: it would replay into the parent's conversation as tool calls the parent
+   * never made, which the model API rejects. What it did comes back as its summary.
+   */
+  event("subagent.started", {
+    toolCallId: z.string().min(1),
+    subagentId: z.string().min(1),
+    profile: SubagentProfileSchema,
+    task: z.string().min(1),
+  }),
+  event("subagent.completed", {
+    subagentId: z.string().min(1),
+    outcome: SubagentOutcomeSchema,
+    summary: z.string(),
+    toolCalls: z.int().nonnegative(),
+    usage: TokenUsageSchema,
+  }),
   event("computer.screenshot", {
     toolCallId: z.string().min(1),
     key: z.string().min(1),

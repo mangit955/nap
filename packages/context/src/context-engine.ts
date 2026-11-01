@@ -40,6 +40,7 @@ import type { LLMContentBlock, LLMMessage } from "@nap/shared/ports/llm-provider
 import type { Memory } from "@nap/shared/ports/memory-provider";
 import { buildFileTreeDigest } from "./file-tree.ts";
 import { renderJobBrief } from "./job-brief.ts";
+import { SUBAGENT_PROMPTS } from "./subagent-prompts.ts";
 import { REPOSITORY_SYSTEM_PROMPT, SYSTEM_PROMPT } from "./system-prompt.ts";
 import { estimateTokens } from "./tokens.ts";
 
@@ -535,6 +536,12 @@ export class NapContextEngine implements ContextEngine {
       needsCompaction,
       messages,
       estimatedTokens: estimateTokens(prompt) + messagesTokens(messages),
+      // Helpers earn their keep where a search would otherwise fill the context: an imported
+      // repository. A Nap project is a handful of files listed in the prompt already, where a
+      // helper is a second model paid to find what the first can see (ADR-0020).
+      ...(request.workspace === "repository"
+        ? { subagentPrompts: SUBAGENT_PROMPTS, rootRules: true }
+        : {}),
     };
   }
 }

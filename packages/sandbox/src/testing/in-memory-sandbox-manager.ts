@@ -39,6 +39,12 @@ export type ScriptedExecResponse = {
    * aggregate `stdout`/`stderr` are the concatenation of these instead.
    */
   chunks?: ExecChunk[];
+  /**
+   * The command never finished, for this reason — a provider timeout, a sandbox that went away.
+   * Output already scripted in `chunks` is still streamed first, as a real command prints before
+   * it is stopped.
+   */
+  error?: SandboxError;
 };
 
 export type ExecChunk = { stream: "stdout" | "stderr"; data: string };
@@ -263,6 +269,8 @@ export class InMemorySandboxManager implements SandboxManager, SandboxInventory 
     sandboxId: string,
     command: string,
     onOutput?: ExecOutputHandler,
+    // Accepted so the signature is the port's; a scripted command finishes when it is answered.
+    _options?: { signal?: AbortSignal | undefined; timeoutMs?: number | undefined },
   ): Promise<Result<ExecResult, SandboxError>> {
     const found = this.#lookup(sandboxId);
     if (!found.ok) return found;
@@ -288,6 +296,7 @@ export class InMemorySandboxManager implements SandboxManager, SandboxInventory 
       if (chunk.stream === "stdout") stdout += chunk.data;
       else stderr += chunk.data;
     }
+    if (response.error !== undefined) return { ok: false, error: response.error };
 
     return { ok: true, value: { exitCode: response.exitCode ?? 0, stdout, stderr } };
   }

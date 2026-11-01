@@ -26,6 +26,7 @@ import { ComputerNavigation } from "../computer/navigation.tsx";
 import { ScreenshotCard } from "../computer/screenshot-card.tsx";
 import { turnFailureCopy } from "../errors/failure-copy.ts";
 import { AlertIcon, CopyIcon } from "../ui/icons.tsx";
+import { PlanCard, QuestionCard } from "./agent-cards.tsx";
 import { ChangedFilesCard } from "./changed-files-card.tsx";
 import { ChatMarkdown, ProjectFiles } from "./chat-markdown.tsx";
 import { CompactionRow } from "./compaction-row.tsx";
@@ -51,6 +52,7 @@ export function ChatTranscript({
   pending = false,
   startedAt,
   onRetry,
+  onAnswer,
   files = [],
   onOpenFile,
   onOpenChanges,
@@ -78,6 +80,8 @@ export function ChatTranscript({
   startedAt?: string | undefined;
   /** Re-sends a failed turn's message. Absent means no retry is offered, not a broken button. */
   onRetry?: ((message: string, attachments?: MediaAttachment[]) => void) | undefined;
+  /** Sends a question's chosen answer as the next message. Absent, a question cannot be clicked. */
+  onAnswer?: ((text: string) => void) | undefined;
   /** The project's files, so a path in a reply can become a chip that opens it. */
   files?: readonly string[] | undefined;
   /** Opens a file in the Code tab. Absent, a path is still a chip, just not a button. */
@@ -159,6 +163,7 @@ export function ChatTranscript({
                   row.kind === "item" ? compactionFailures.get(row.item.key) : undefined
                 }
                 onRetry={onRetry}
+                onAnswer={onAnswer}
                 onToggleFold={(id) => toggle(setOpenFolds, id)}
                 onToggleGroup={(id) => toggle(setOpenGroups, id)}
               />
@@ -208,6 +213,7 @@ function Row({
   live,
   compactionFailure,
   onRetry,
+  onAnswer,
   onToggleFold,
   onToggleGroup,
 }: {
@@ -216,6 +222,7 @@ function Row({
   live: boolean;
   compactionFailure: FailedTurn | undefined;
   onRetry?: ((message: string, attachments?: MediaAttachment[]) => void) | undefined;
+  onAnswer?: ((text: string) => void) | undefined;
   onToggleFold: (id: string) => void;
   onToggleGroup: (id: string) => void;
 }) {
@@ -228,6 +235,7 @@ function Row({
           live={live}
           compactionFailure={compactionFailure}
           onRetry={onRetry}
+          onAnswer={onAnswer}
         />
       );
     case "work-entry":
@@ -257,6 +265,7 @@ function Item({
   item,
   live,
   onRetry,
+  onAnswer,
   compactionFailure,
 }: {
   busy: boolean;
@@ -265,6 +274,7 @@ function Item({
   /** Whether this item can still be added to. Only ever true of the last one, mid-turn. */
   live: boolean;
   onRetry?: ((message: string, attachments?: MediaAttachment[]) => void) | undefined;
+  onAnswer?: ((text: string) => void) | undefined;
 }) {
   switch (item.kind) {
     case "app-test":
@@ -417,6 +427,21 @@ function Item({
 
     case "turn-end":
       return item.outcome === "completed" ? null : <TurnFailure item={item} onRetry={onRetry} />;
+
+    case "plan":
+      return <PlanCard items={item.items} />;
+
+    case "question":
+      return (
+        <QuestionCard
+          question={item.question}
+          options={item.options}
+          multiSelect={item.multiSelect}
+          answer={item.answer}
+          busy={busy}
+          onAnswer={onAnswer}
+        />
+      );
   }
 }
 

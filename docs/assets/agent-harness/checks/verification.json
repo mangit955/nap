@@ -1,0 +1,989 @@
+{
+  "phase": "normal repair round2 candidate verification",
+  "identity": {
+    "head": "5fa06eb508ed51ec69c4fe6e26edb5b8f7f1f27f",
+    "base": "7cd9f89b42ffd3a071a1c9831e71dc4599a9bc36",
+    "snapshot": "893f787d4e83f3edda6f6e211543be145fec2e2d",
+    "snapshot_tree": "005c4c8442191d8fd9a1860fab4dac3fd0b770c2",
+    "staged_tree_equals_snapshot": true,
+    "unstaged_diff_empty": true,
+    "changed_file_blobs": {
+      "apps/web/src/chat/transcript.ts": {
+        "git_blob": "24b615f7f733a637c1603c478e4d6360900fdab6",
+        "sha256": "ade31bc48293d6487bea3472f4b0b4a7cee3fbc945abc2ba543115fd7b1dad76",
+        "bytes": 26020
+      },
+      "apps/web/src/chat/work-log-helpers.test.tsx": {
+        "git_blob": "f5da6e41e7a1db439712d08e15e7602f2b4b3bc2",
+        "sha256": "f6a9900fba38da5bac62e56c133ef6c96e2546567a32c820fefcc65d380a15b8",
+        "bytes": 4155
+      },
+      "apps/web/src/chat/work-log-rows.tsx": {
+        "git_blob": "40be4c675c19ea9b106f6a61449ec214dc99163b",
+        "sha256": "07ebd8dbdedb9553fe4a2f422edad8d3884508d93f1935569f62514a06719b14",
+        "bytes": 21931
+      },
+      "apps/web/src/chat/work-log.ts": {
+        "git_blob": "366d4ced0be31ebf518894420a8bcd941caebef5",
+        "sha256": "1637a02fbd3f271654313fa60a2c14f22bad54f387571217ec4e97c8e5485c9a",
+        "bytes": 17602
+      },
+      "docs/adr/0020-the-agent-loop-grows-a-registry-and-seams.md": {
+        "git_blob": "35cdaf0e1eb7c5d9a1931cb809a1174f356ca37e",
+        "sha256": "4fa31881d7d2f8affbd3f862676d5a713ba9a7c374f546c158de43e0928758a0",
+        "bytes": 9995
+      },
+      "packages/agent/src/agent-service.ts": {
+        "git_blob": "1254922df9489cecc98898387b2169a73d696faa",
+        "sha256": "e6d2c6b844f23d90dbdd6b7c252268a45fbda2be81c5e096e43c896be6184a6b",
+        "bytes": 33831
+      },
+      "packages/agent/src/loop.test.ts": {
+        "git_blob": "b39b4aae7429115b49a2f2a843cec14df3705a56",
+        "sha256": "91753fb739df2c554a9b481387add56ee0b70b6c9450cdfb9cc273a8db998216",
+        "bytes": 33858
+      },
+      "packages/agent/src/subagents-budget.test.ts": {
+        "git_blob": "2b9fca1bc3515351803109dc311dc6533add5752",
+        "sha256": "053d45c96b955593c81a2ad027b5a2572867b70512f26d3f5afd3bead86185a8",
+        "bytes": 12178
+      },
+      "packages/agent/src/subagents-cancellation.test.ts": {
+        "git_blob": "7a636780bce530dfee6512007f5d3076c3546d9f",
+        "sha256": "9c01e43f9e1bb2145833415cc58ae59aaab805cd7ab38f838d0c16a4b7ffcf7f",
+        "bytes": 9178
+      },
+      "packages/agent/src/subagents-usage.test.ts": {
+        "git_blob": "499bb4e9bb7973d9258a1c67621dc19245d6d127",
+        "sha256": "f128a08337416188f2358d214bed148c9206724384c6b727b1b2a1c39871057f",
+        "bytes": 9822
+      },
+      "packages/agent/src/subagents.test.ts": {
+        "git_blob": "15e6891aedc47b88ccaa45c27ae3613f3aba5d80",
+        "sha256": "a048136d6d7e6ab7af95001a0ad1e254e3ad98b142ac026380c3723c4e85fc3e",
+        "bytes": 5604
+      },
+      "packages/agent/src/subagents.ts": {
+        "git_blob": "50b71564ca23ebbbb02f2ad014856fc3a2d5df1b",
+        "sha256": "42e0eb208f352144aae126de99ed18c45d522e656a5675a860ede71c80a458ad",
+        "bytes": 14870
+      },
+      "packages/agent/src/tools/files.ts": {
+        "git_blob": "6eb8f7c0afd881a6dadf9ecd181f8e988add2200",
+        "sha256": "95d972805ce5239a0522e03cfc5a245e0cf4b4d2a0e786a02dd8fdd986336fbe",
+        "bytes": 6086
+      },
+      "packages/agent/src/tools/patch-failures.test.ts": {
+        "git_blob": "f06eda665f68b48c5bd79b7dd1adbb037aefe1c4",
+        "sha256": "9c1b921569f9b9de25453dae76d14967509052776be198561b0aad6e63350be8",
+        "bytes": 4060
+      },
+      "packages/agent/src/tools/patch.ts": {
+        "git_blob": "b80ace1c5bbcad885a13311e6c6403b7cbeb9c95",
+        "sha256": "f8b40381bb94cc967f11b10afd65803c63b8d167f8c35fa2e11d14d0429b3064",
+        "bytes": 12002
+      },
+      "packages/agent/src/tools/shell.ts": {
+        "git_blob": "f4f82065a9c6f51a84aca4ddd059dc46354929c1",
+        "sha256": "d6e44c6b59622d094db0f5347e2710fce8007b537578850c1fb9b48164bf9521",
+        "bytes": 11070
+      }
+    }
+  },
+  "environment": {
+    "platform": "macOS-27.0.1-arm64-arm-64bit",
+    "architecture": "arm64",
+    "node": "v26.12.0",
+    "bun": "1.4.2",
+    "vitest": "4.1.10",
+    "selected_env": {}
+  },
+  "checks": [
+    {
+      "id": "collection",
+      "argv": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "list",
+        "--project",
+        "unit",
+        "--project",
+        "web",
+        "packages/agent/src/subagents-usage.test.ts",
+        "apps/web/src/chat/work-log-helpers.test.tsx"
+      ],
+      "runner_argv": [
+        "python3",
+        "/Users/manasraghuwanshi/.claude/skills/gods-hand/scripts/run_check.py",
+        "--timeout",
+        "60",
+        "--",
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "list",
+        "--project",
+        "unit",
+        "--project",
+        "web",
+        "packages/agent/src/subagents-usage.test.ts",
+        "apps/web/src/chat/work-log-helpers.test.tsx"
+      ],
+      "cwd": "/Users/manasraghuwanshi/Developer/s-30/nap",
+      "head": "5fa06eb508ed51ec69c4fe6e26edb5b8f7f1f27f",
+      "base": "7cd9f89b42ffd3a071a1c9831e71dc4599a9bc36",
+      "snapshot": "893f787d4e83f3edda6f6e211543be145fec2e2d",
+      "tree": "005c4c8442191d8fd9a1860fab4dac3fd0b770c2",
+      "environment": {
+        "platform": "macOS-27.0.1-arm64-arm-64bit",
+        "architecture": "arm64",
+        "node": "v26.12.0",
+        "bun": "1.4.2",
+        "vitest": "4.1.10",
+        "selected_env": {}
+      },
+      "env_adjustment": null,
+      "timeout_seconds": 60,
+      "started_at": "2026-10-27T04:01:25.149435+00:00",
+      "reused": false,
+      "log": "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/evidence/r2-green-collection.log",
+      "expected_exit_code": 0,
+      "exit_code": 0,
+      "elapsed_seconds": 1.648,
+      "finished_at": "2026-10-27T04:01:26.798184+00:00",
+      "identity_after_matches_before": true,
+      "result": "passed",
+      "log_sha256": "95531fb6758fb628b33685c290b776003e3a3947093e7bbbb299bfc95fdacb9a",
+      "log_bytes": 5448,
+      "summary_lines": [],
+      "counts": {
+        "files_collected": 2,
+        "tests_collected": 23,
+        "new_usage_tests": 9,
+        "existing_helper_ui_tests": 14
+      }
+    },
+    {
+      "id": "usage-tests",
+      "argv": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "--project",
+        "unit",
+        "--maxWorkers=1",
+        "packages/agent/src/subagents-usage.test.ts"
+      ],
+      "runner_argv": [
+        "python3",
+        "/Users/manasraghuwanshi/.claude/skills/gods-hand/scripts/run_check.py",
+        "--timeout",
+        "30",
+        "--",
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "--project",
+        "unit",
+        "--maxWorkers=1",
+        "packages/agent/src/subagents-usage.test.ts"
+      ],
+      "cwd": "/Users/manasraghuwanshi/Developer/s-30/nap",
+      "head": "5fa06eb508ed51ec69c4fe6e26edb5b8f7f1f27f",
+      "base": "7cd9f89b42ffd3a071a1c9831e71dc4599a9bc36",
+      "snapshot": "893f787d4e83f3edda6f6e211543be145fec2e2d",
+      "tree": "005c4c8442191d8fd9a1860fab4dac3fd0b770c2",
+      "environment": {
+        "platform": "macOS-27.0.1-arm64-arm-64bit",
+        "architecture": "arm64",
+        "node": "v26.12.0",
+        "bun": "1.4.2",
+        "vitest": "4.1.10",
+        "selected_env": {}
+      },
+      "env_adjustment": null,
+      "timeout_seconds": 30,
+      "started_at": "2026-10-27T04:01:39.394788+00:00",
+      "reused": false,
+      "log": "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/evidence/r2-green-usage-tests.log",
+      "expected_exit_code": 0,
+      "exit_code": 0,
+      "elapsed_seconds": 0.733,
+      "finished_at": "2026-10-27T04:01:40.128337+00:00",
+      "identity_after_matches_before": true,
+      "result": "passed",
+      "log_sha256": "6835e3105486714dc4ab826ef233d6462e07079ca6a577c6dc0ae07b1de73b2a",
+      "log_bytes": 2023,
+      "summary_lines": ["Test Files  1 passed (1)", "Tests  9 passed (9)"],
+      "counts": {
+        "files_passed": 1,
+        "tests_passed": 9
+      }
+    },
+    {
+      "id": "focused",
+      "argv": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "--project",
+        "unit",
+        "--project",
+        "web",
+        "--maxWorkers=1",
+        "packages/agent/src/subagents-usage.test.ts",
+        "packages/agent/src/subagents.test.ts",
+        "packages/agent/src/subagents-budget.test.ts",
+        "packages/agent/src/subagents-cancellation.test.ts",
+        "packages/agent/src/loop.test.ts",
+        "packages/agent/src/agent-service.test.ts",
+        "packages/agent/src/native-compaction.test.ts",
+        "packages/agent/src/native-compaction-recovery.test.ts",
+        "apps/web/src/chat/work-log-helpers.test.tsx"
+      ],
+      "runner_argv": [
+        "python3",
+        "/Users/manasraghuwanshi/.claude/skills/gods-hand/scripts/run_check.py",
+        "--timeout",
+        "120",
+        "--",
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "--project",
+        "unit",
+        "--project",
+        "web",
+        "--maxWorkers=1",
+        "packages/agent/src/subagents-usage.test.ts",
+        "packages/agent/src/subagents.test.ts",
+        "packages/agent/src/subagents-budget.test.ts",
+        "packages/agent/src/subagents-cancellation.test.ts",
+        "packages/agent/src/loop.test.ts",
+        "packages/agent/src/agent-service.test.ts",
+        "packages/agent/src/native-compaction.test.ts",
+        "packages/agent/src/native-compaction-recovery.test.ts",
+        "apps/web/src/chat/work-log-helpers.test.tsx"
+      ],
+      "cwd": "/Users/manasraghuwanshi/Developer/s-30/nap",
+      "head": "5fa06eb508ed51ec69c4fe6e26edb5b8f7f1f27f",
+      "base": "7cd9f89b42ffd3a071a1c9831e71dc4599a9bc36",
+      "snapshot": "893f787d4e83f3edda6f6e211543be145fec2e2d",
+      "tree": "005c4c8442191d8fd9a1860fab4dac3fd0b770c2",
+      "environment": {
+        "platform": "macOS-27.0.1-arm64-arm-64bit",
+        "architecture": "arm64",
+        "node": "v26.12.0",
+        "bun": "1.4.2",
+        "vitest": "4.1.10",
+        "selected_env": {}
+      },
+      "env_adjustment": null,
+      "timeout_seconds": 120,
+      "started_at": "2026-10-27T04:01:45.966135+00:00",
+      "reused": false,
+      "log": "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/evidence/r2-green-focused.log",
+      "expected_exit_code": 0,
+      "exit_code": 0,
+      "elapsed_seconds": 3.594,
+      "finished_at": "2026-10-27T04:01:49.560562+00:00",
+      "identity_after_matches_before": true,
+      "result": "passed",
+      "log_sha256": "ef4c78ef269406e0b45bcaed1b19c0ca4dd86840cce2159b5bc10f1902f57e02",
+      "log_bytes": 2927,
+      "summary_lines": ["Test Files  9 passed (9)", "Tests  146 passed (146)"],
+      "counts": {
+        "files_passed": 9,
+        "tests_passed": 146
+      }
+    },
+    {
+      "id": "probe-cancelled-usage",
+      "argv": [
+        "bun",
+        "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/scratch/checker-round1/probe-cancelled-helper-usage.ts"
+      ],
+      "runner_argv": [
+        "python3",
+        "/Users/manasraghuwanshi/.claude/skills/gods-hand/scripts/run_check.py",
+        "--timeout",
+        "30",
+        "--",
+        "bun",
+        "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/scratch/checker-round1/probe-cancelled-helper-usage.ts"
+      ],
+      "cwd": "/Users/manasraghuwanshi/Developer/s-30/nap",
+      "head": "5fa06eb508ed51ec69c4fe6e26edb5b8f7f1f27f",
+      "base": "7cd9f89b42ffd3a071a1c9831e71dc4599a9bc36",
+      "snapshot": "893f787d4e83f3edda6f6e211543be145fec2e2d",
+      "tree": "005c4c8442191d8fd9a1860fab4dac3fd0b770c2",
+      "environment": {
+        "platform": "macOS-27.0.1-arm64-arm-64bit",
+        "architecture": "arm64",
+        "node": "v26.12.0",
+        "bun": "1.4.2",
+        "vitest": "4.1.10",
+        "selected_env": {}
+      },
+      "env_adjustment": null,
+      "timeout_seconds": 30,
+      "started_at": "2026-10-27T04:02:08.412584+00:00",
+      "reused": false,
+      "log": "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/evidence/r2-green-probe-cancelled-usage.log",
+      "expected_exit_code": 0,
+      "exit_code": 0,
+      "elapsed_seconds": 0.08,
+      "finished_at": "2026-10-27T04:02:08.493152+00:00",
+      "identity_after_matches_before": true,
+      "result": "passed",
+      "log_sha256": "735ac6e1cf7e5a0d7b9a372eed508c6b1d09bd02a0586ea7166756001bdcde29",
+      "log_bytes": 2115,
+      "summary_lines": [],
+      "probe_script_sha256": "b4b1a96b206a70696c3feaf1097e97d0187fdcccd4b14e6273ae63e576a1a1e1",
+      "facts": {
+        "actualProviderUsage": {
+          "inputTokens": 1500,
+          "outputTokens": 100
+        },
+        "helperCompletion": {
+          "subagentId": "helper-1",
+          "outcome": "cancelled",
+          "summary": "Stopped before it finished.",
+          "toolCalls": 0,
+          "usage": {
+            "inputTokens": 0,
+            "outputTokens": 0
+          }
+        },
+        "parentCompletion": {
+          "usageIncomplete": true,
+          "usage": {
+            "inputTokens": 0,
+            "outputTokens": 0
+          },
+          "durationMs": 3,
+          "commitSha": null
+        }
+      },
+      "classification": "original GH-06 safe assertion now passes through honest usageIncomplete:true; known subtotal remains0 while transport returns1500+100 after terminal"
+    },
+    {
+      "id": "typecheck",
+      "argv": ["bun", "run", "typecheck"],
+      "runner_argv": [
+        "python3",
+        "/Users/manasraghuwanshi/.claude/skills/gods-hand/scripts/run_check.py",
+        "--timeout",
+        "180",
+        "--",
+        "bun",
+        "run",
+        "typecheck"
+      ],
+      "cwd": "/Users/manasraghuwanshi/Developer/s-30/nap",
+      "head": "5fa06eb508ed51ec69c4fe6e26edb5b8f7f1f27f",
+      "base": "7cd9f89b42ffd3a071a1c9831e71dc4599a9bc36",
+      "snapshot": "893f787d4e83f3edda6f6e211543be145fec2e2d",
+      "tree": "005c4c8442191d8fd9a1860fab4dac3fd0b770c2",
+      "environment": {
+        "platform": "macOS-27.0.1-arm64-arm-64bit",
+        "architecture": "arm64",
+        "node": "v26.12.0",
+        "bun": "1.4.2",
+        "vitest": "4.1.10",
+        "selected_env": {}
+      },
+      "env_adjustment": null,
+      "timeout_seconds": 180,
+      "started_at": "2026-10-27T04:02:12.759224+00:00",
+      "reused": false,
+      "log": "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/evidence/r2-green-typecheck.log",
+      "expected_exit_code": 0,
+      "exit_code": 0,
+      "elapsed_seconds": 6.012,
+      "finished_at": "2026-10-27T04:02:18.771905+00:00",
+      "identity_after_matches_before": true,
+      "result": "passed",
+      "log_sha256": "b20ed24f2df3eddf201eeed920236bfacd937dbd4d2fb3037b55bb71edea3d30",
+      "log_bytes": 3342,
+      "summary_lines": ["Tasks:    14 successful, 14 total", "Cached:    0 cached, 14 total"],
+      "programs_passed": 14,
+      "programs_total": 14,
+      "turbo_cache_hits": 0,
+      "root_tsc_passed": true,
+      "root_tsc_basis": "Full bun run typecheck expands to turbo run typecheck && tsc --noEmit. Turbo14/14 succeeded and full command exited0, so the root program executed and succeeded."
+    },
+    {
+      "id": "full-test",
+      "argv": [
+        "env",
+        "-u",
+        "VITEST_MAX_WORKERS",
+        "-u",
+        "VITEST_MIN_WORKERS",
+        "bun",
+        "run",
+        "test",
+        "--maxWorkers=4"
+      ],
+      "runner_argv": [
+        "python3",
+        "/Users/manasraghuwanshi/.claude/skills/gods-hand/scripts/run_check.py",
+        "--timeout",
+        "420",
+        "--",
+        "env",
+        "-u",
+        "VITEST_MAX_WORKERS",
+        "-u",
+        "VITEST_MIN_WORKERS",
+        "bun",
+        "run",
+        "test",
+        "--maxWorkers=4"
+      ],
+      "cwd": "/Users/manasraghuwanshi/Developer/s-30/nap",
+      "head": "5fa06eb508ed51ec69c4fe6e26edb5b8f7f1f27f",
+      "base": "7cd9f89b42ffd3a071a1c9831e71dc4599a9bc36",
+      "snapshot": "893f787d4e83f3edda6f6e211543be145fec2e2d",
+      "tree": "005c4c8442191d8fd9a1860fab4dac3fd0b770c2",
+      "environment": {
+        "platform": "macOS-27.0.1-arm64-arm-64bit",
+        "architecture": "arm64",
+        "node": "v26.12.0",
+        "bun": "1.4.2",
+        "vitest": "4.1.10",
+        "selected_env": {}
+      },
+      "env_adjustment": "unset VITEST_MAX_WORKERS and VITEST_MIN_WORKERS for DB suite through env command",
+      "timeout_seconds": 420,
+      "started_at": "2026-10-27T04:02:30.284369+00:00",
+      "reused": false,
+      "log": "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/evidence/r2-green-full-test.log",
+      "expected_exit_code": 0,
+      "exit_code": 1,
+      "elapsed_seconds": 149.404,
+      "finished_at": "2026-10-27T04:04:59.689598+00:00",
+      "identity_after_matches_before": true,
+      "result": "failed",
+      "log_sha256": "0b057da7680558cfd8d355626dfe1e8d036aa42ce088b9e629fed3ef1b18b270",
+      "log_bytes": 4143,
+      "summary_lines": [
+        "Test Files  1 failed | 455 passed (456)",
+        "Tests  1 failed | 6380 passed (6381)",
+        "Type Errors  no errors"
+      ],
+      "counts": {
+        "files_passed": 455,
+        "files_failed": 1,
+        "tests_passed": 6380,
+        "tests_failed": 1,
+        "total_files": 456,
+        "total_tests": 6381
+      },
+      "classification": "preserved initial required-gate failure at unchanged Git broker fixture startup wait; not relabelled as a pass"
+    },
+    {
+      "id": "git-broker-isolated",
+      "argv": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "--project",
+        "unit",
+        "--maxWorkers=1",
+        "apps/api/src/github/git-broker.test.ts",
+        "-t",
+        "^waits for a stopped Git to exit before answering$"
+      ],
+      "runner_argv": [
+        "python3",
+        "/Users/manasraghuwanshi/.claude/skills/gods-hand/scripts/run_check.py",
+        "--timeout",
+        "60",
+        "--",
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "--project",
+        "unit",
+        "--maxWorkers=1",
+        "apps/api/src/github/git-broker.test.ts",
+        "-t",
+        "^waits for a stopped Git to exit before answering$"
+      ],
+      "cwd": "/Users/manasraghuwanshi/Developer/s-30/nap",
+      "head": "5fa06eb508ed51ec69c4fe6e26edb5b8f7f1f27f",
+      "base": "7cd9f89b42ffd3a071a1c9831e71dc4599a9bc36",
+      "snapshot": "893f787d4e83f3edda6f6e211543be145fec2e2d",
+      "tree": "005c4c8442191d8fd9a1860fab4dac3fd0b770c2",
+      "environment": {
+        "platform": "macOS-27.0.1-arm64-arm-64bit",
+        "architecture": "arm64",
+        "node": "v26.12.0",
+        "bun": "1.4.2",
+        "vitest": "4.1.10",
+        "selected_env": {}
+      },
+      "env_adjustment": null,
+      "timeout_seconds": 60,
+      "started_at": "2026-10-27T04:05:45.323933+00:00",
+      "reused": false,
+      "log": "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/evidence/r2-green-git-broker-isolated.log",
+      "expected_exit_code": 0,
+      "exit_code": 0,
+      "elapsed_seconds": 1.423,
+      "finished_at": "2026-10-27T04:05:46.747871+00:00",
+      "identity_after_matches_before": true,
+      "result": "passed",
+      "log_sha256": "18d30d90afca1aa7aabe61574a8724883e54f60b9e93d6553a264ee01d84986a",
+      "log_bytes": 2186,
+      "summary_lines": ["Test Files  1 passed (1)", "Tests  1 passed | 7 skipped (8)"],
+      "counts": {
+        "files_passed": 1,
+        "tests_passed": 1,
+        "tests_skipped": 7
+      },
+      "classification": "single exact startup/cancellation test passed in isolation; no other file/test executed"
+    },
+    {
+      "id": "full-test-retry2",
+      "argv": [
+        "env",
+        "-u",
+        "VITEST_MAX_WORKERS",
+        "-u",
+        "VITEST_MIN_WORKERS",
+        "bun",
+        "run",
+        "test",
+        "--maxWorkers=2"
+      ],
+      "runner_argv": [
+        "python3",
+        "/Users/manasraghuwanshi/.claude/skills/gods-hand/scripts/run_check.py",
+        "--timeout",
+        "600",
+        "--",
+        "env",
+        "-u",
+        "VITEST_MAX_WORKERS",
+        "-u",
+        "VITEST_MIN_WORKERS",
+        "bun",
+        "run",
+        "test",
+        "--maxWorkers=2"
+      ],
+      "cwd": "/Users/manasraghuwanshi/Developer/s-30/nap",
+      "head": "5fa06eb508ed51ec69c4fe6e26edb5b8f7f1f27f",
+      "base": "7cd9f89b42ffd3a071a1c9831e71dc4599a9bc36",
+      "snapshot": "893f787d4e83f3edda6f6e211543be145fec2e2d",
+      "tree": "005c4c8442191d8fd9a1860fab4dac3fd0b770c2",
+      "environment": {
+        "platform": "macOS-27.0.1-arm64-arm-64bit",
+        "architecture": "arm64",
+        "node": "v26.12.0",
+        "bun": "1.4.2",
+        "vitest": "4.1.10",
+        "selected_env": {}
+      },
+      "env_adjustment": "unset VITEST_MAX_WORKERS and VITEST_MIN_WORKERS for DB suite through env command",
+      "timeout_seconds": 600,
+      "started_at": "2026-10-27T04:06:20.223456+00:00",
+      "reused": false,
+      "log": "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/evidence/r2-green-full-test-retry2.log",
+      "expected_exit_code": 0,
+      "exit_code": 0,
+      "elapsed_seconds": 215.3,
+      "finished_at": "2026-10-27T04:09:55.525459+00:00",
+      "identity_after_matches_before": true,
+      "result": "passed",
+      "log_sha256": "9ee5271779d0632509d1040d9a613bb747dbfb554348fdda8748bc6c5655049c",
+      "log_bytes": 3312,
+      "summary_lines": [
+        "Test Files  456 passed (456)",
+        "Tests  6381 passed (6381)",
+        "Type Errors  no errors"
+      ],
+      "counts": {
+        "files_passed": 456,
+        "tests_passed": 6381
+      },
+      "timeout_reason": "Explicit parent approval for one600-second full-suite rerun across456files with reduced fanout2 after unchanged-source timing failure and exact isolated pass."
+    },
+    {
+      "id": "lint",
+      "argv": ["bun", "run", "lint"],
+      "runner_argv": [
+        "python3",
+        "/Users/manasraghuwanshi/.claude/skills/gods-hand/scripts/run_check.py",
+        "--timeout",
+        "60",
+        "--",
+        "bun",
+        "run",
+        "lint"
+      ],
+      "cwd": "/Users/manasraghuwanshi/Developer/s-30/nap",
+      "head": "5fa06eb508ed51ec69c4fe6e26edb5b8f7f1f27f",
+      "base": "7cd9f89b42ffd3a071a1c9831e71dc4599a9bc36",
+      "snapshot": "893f787d4e83f3edda6f6e211543be145fec2e2d",
+      "tree": "005c4c8442191d8fd9a1860fab4dac3fd0b770c2",
+      "environment": {
+        "platform": "macOS-27.0.1-arm64-arm-64bit",
+        "architecture": "arm64",
+        "node": "v26.12.0",
+        "bun": "1.4.2",
+        "vitest": "4.1.10",
+        "selected_env": {}
+      },
+      "env_adjustment": null,
+      "timeout_seconds": 60,
+      "started_at": "2026-10-27T04:10:01.167464+00:00",
+      "reused": false,
+      "log": "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/evidence/r2-green-lint.log",
+      "expected_exit_code": 0,
+      "exit_code": 0,
+      "elapsed_seconds": 1.086,
+      "finished_at": "2026-10-27T04:10:02.254289+00:00",
+      "identity_after_matches_before": true,
+      "result": "passed",
+      "log_sha256": "191cb47169f27959c6cb28dd2fa75d5fb22a409cdb6dceebce3126c3f80e9daa",
+      "log_bytes": 5369,
+      "summary_lines": [
+        "Checked 1321 files in 785ms. No fixes applied.",
+        "Found 2 warnings.",
+        "Found 2 infos."
+      ],
+      "files_checked": 1321,
+      "warnings": 2,
+      "infos": 2
+    },
+    {
+      "id": "harness",
+      "argv": ["bun", "run", "harness", "Add a theme toggle"],
+      "runner_argv": [
+        "python3",
+        "/Users/manasraghuwanshi/.claude/skills/gods-hand/scripts/run_check.py",
+        "--timeout",
+        "60",
+        "--",
+        "bun",
+        "run",
+        "harness",
+        "Add a theme toggle"
+      ],
+      "cwd": "/Users/manasraghuwanshi/Developer/s-30/nap",
+      "head": "5fa06eb508ed51ec69c4fe6e26edb5b8f7f1f27f",
+      "base": "7cd9f89b42ffd3a071a1c9831e71dc4599a9bc36",
+      "snapshot": "893f787d4e83f3edda6f6e211543be145fec2e2d",
+      "tree": "005c4c8442191d8fd9a1860fab4dac3fd0b770c2",
+      "environment": {
+        "platform": "macOS-27.0.1-arm64-arm-64bit",
+        "architecture": "arm64",
+        "node": "v26.12.0",
+        "bun": "1.4.2",
+        "vitest": "4.1.10",
+        "selected_env": {}
+      },
+      "env_adjustment": null,
+      "timeout_seconds": 60,
+      "started_at": "2026-10-27T04:10:05.382260+00:00",
+      "reused": false,
+      "log": "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/evidence/r2-green-harness.log",
+      "expected_exit_code": 0,
+      "exit_code": 0,
+      "elapsed_seconds": 0.226,
+      "finished_at": "2026-10-27T04:10:05.609130+00:00",
+      "identity_after_matches_before": true,
+      "result": "passed",
+      "log_sha256": "3d1a936c2e345ad0c76abb832780a4d27f1b6d28cb02857f7404dec41e064312",
+      "log_bytes": 3491,
+      "summary_lines": ["Done in 0.0s \u2014 commit 0000000000000000000000000000000000000000"],
+      "rerun_reason": "Agent runtime changed from snapshot1; fresh free composition evidence required rather than inherited runtime results."
+    },
+    {
+      "id": "ws-smoke",
+      "argv": ["bun", "run", "ws:smoke"],
+      "runner_argv": [
+        "python3",
+        "/Users/manasraghuwanshi/.claude/skills/gods-hand/scripts/run_check.py",
+        "--timeout",
+        "60",
+        "--",
+        "bun",
+        "run",
+        "ws:smoke"
+      ],
+      "cwd": "/Users/manasraghuwanshi/Developer/s-30/nap",
+      "head": "5fa06eb508ed51ec69c4fe6e26edb5b8f7f1f27f",
+      "base": "7cd9f89b42ffd3a071a1c9831e71dc4599a9bc36",
+      "snapshot": "893f787d4e83f3edda6f6e211543be145fec2e2d",
+      "tree": "005c4c8442191d8fd9a1860fab4dac3fd0b770c2",
+      "environment": {
+        "platform": "macOS-27.0.1-arm64-arm-64bit",
+        "architecture": "arm64",
+        "node": "v26.12.0",
+        "bun": "1.4.2",
+        "vitest": "4.1.10",
+        "selected_env": {}
+      },
+      "env_adjustment": null,
+      "timeout_seconds": 60,
+      "started_at": "2026-10-27T04:10:08.747947+00:00",
+      "reused": false,
+      "log": "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/evidence/r2-green-ws-smoke.log",
+      "expected_exit_code": 0,
+      "exit_code": 0,
+      "elapsed_seconds": 2.646,
+      "finished_at": "2026-10-27T04:10:11.394824+00:00",
+      "identity_after_matches_before": true,
+      "result": "passed",
+      "log_sha256": "7140e33f57c96ced7847a643b6eff85e0086634276a11a05f85323b252f753dd",
+      "log_bytes": 2118,
+      "summary_lines": ["ok \u2014 the Bun upgrade path works end to end"],
+      "rerun_reason": "Agent runtime changed from snapshot1; fresh free composition evidence required rather than inherited runtime results."
+    }
+  ],
+  "unexercised": [
+    "Real provider billing/tokenization and abort teardown; scripted usage completeness only.",
+    "Actual E2B filesystem/process quiescence beyond the SandboxManager promise boundary.",
+    "Deployed API/reconnect and browser/database event replay.",
+    "Fresh browser capture of repaired helper failure state remains pending the parent source commit; existing media stays attributed to starthead5fa06eb.",
+    "Combined held-helper/native-compaction, multiple-helper incomplete stickiness and combined native/helper unknown metadata remain static assessments rather than distinct new runtime experiments.",
+    "Exact host scheduling/resource cause of initial Git-broker fixture startup timeout not measured; unchanged source, isolated pass and reduced-fanout full pass recorded.",
+    "Final pushed source/base pair, PR publication and final merge-state assessment remain parent-owned future gates."
+  ],
+  "source_mutations_by_worker": false,
+  "formatting_by_worker": false,
+  "active_job": null,
+  "status": "complete: approved mandatory gates satisfied on snapshot2, with initial timing-sensitive full-suite failure preserved",
+  "full_suite_retry_decision": {
+    "authorization": "One parent-approved reduced-fanout rerun after exact isolated test passes and source is unchanged. No further retry authorized.",
+    "initial_failure": {
+      "job": "full-test",
+      "exit_code": 1,
+      "files_passed": 455,
+      "files_failed": 1,
+      "tests_passed": 6380,
+      "tests_failed": 1,
+      "test": "waits for a stopped Git to exit before answering",
+      "file": "apps/api/src/github/git-broker.test.ts",
+      "line": 318,
+      "observation": "vi.waitFor for fixture started marker failed after1019ms, before cancel.abort and exit-order assertions.",
+      "log": "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/evidence/r2-green-full-test.log",
+      "log_sha256": "0b057da7680558cfd8d355626dfe1e8d036aa42ce088b9e629fed3ef1b18b270"
+    },
+    "source_attribution": {
+      "apps/api/src/github/git-broker.test.ts": {
+        "7cd9f89b42ffd3a071a1c9831e71dc4599a9bc36": "ef9a9eaf37c9c6f3dde47157aa697658268bd19c",
+        "5fa06eb508ed51ec69c4fe6e26edb5b8f7f1f27f": "ef9a9eaf37c9c6f3dde47157aa697658268bd19c",
+        "43e5ed6dbde21fd19f038b877e8836937b105ff2": "ef9a9eaf37c9c6f3dde47157aa697658268bd19c",
+        "893f787d4e83f3edda6f6e211543be145fec2e2d": "ef9a9eaf37c9c6f3dde47157aa697658268bd19c"
+      },
+      "apps/api/src/github/git-broker.ts": {
+        "7cd9f89b42ffd3a071a1c9831e71dc4599a9bc36": "cb9e0c0512b8c271d375c8a5549527f61eac14e6",
+        "5fa06eb508ed51ec69c4fe6e26edb5b8f7f1f27f": "cb9e0c0512b8c271d375c8a5549527f61eac14e6",
+        "43e5ed6dbde21fd19f038b877e8836937b105ff2": "cb9e0c0512b8c271d375c8a5549527f61eac14e6",
+        "893f787d4e83f3edda6f6e211543be145fec2e2d": "cb9e0c0512b8c271d375c8a5549527f61eac14e6"
+      }
+    },
+    "isolation": {
+      "job": "git-broker-isolated",
+      "exit_code": 0,
+      "passed": 1,
+      "excluded": 7,
+      "test_duration_ms": 857,
+      "log": "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/evidence/r2-green-git-broker-isolated.log"
+    },
+    "classification": "Timing-sensitive fixture startup wait under four-worker full suite, unchanged source; exact host scheduling/resource cause not measured. No new production cancellation failure demonstrated.",
+    "rerun": {
+      "id": "full-test-retry2",
+      "max_workers": 2,
+      "timeout_seconds": 600,
+      "budget_reason": "One bounded required full-suite rerun across456files with reduced fanout; more elapsed time allowed for fewer workers. Both DB worker environment overrides unset.",
+      "allowed_attempts": 1
+    },
+    "initial_failure_preserved": true,
+    "unrelated_source_changes": false
+  },
+  "reused_build": {
+    "id": "build",
+    "result": "passed, reused approved unchanged web build evidence",
+    "reused": true,
+    "candidate_snapshot": "893f787d4e83f3edda6f6e211543be145fec2e2d",
+    "candidate_tree": "005c4c8442191d8fd9a1860fab4dac3fd0b770c2",
+    "original_snapshot": "43e5ed6dbde21fd19f038b877e8836937b105ff2",
+    "original_tree": "f398e26784b9556780ef3d28974d7a01376819c8",
+    "original_runner_argv": [
+      "python3",
+      "/Users/manasraghuwanshi/.claude/skills/gods-hand/scripts/run_check.py",
+      "--timeout",
+      "240",
+      "--",
+      "bun",
+      "run",
+      "build"
+    ],
+    "original_cwd": "/Users/manasraghuwanshi/Developer/s-30/nap",
+    "original_exit_code": 0,
+    "original_log": "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/evidence/r1-green-build.log",
+    "original_log_sha256": "396ef179cf0d25592df694836e9c4f841a6f44b0c4de08662940b4cb1c00c5c1",
+    "validation_argv": [
+      "python3",
+      "/Users/manasraghuwanshi/.claude/skills/gods-hand/scripts/run_check.py",
+      "--timeout",
+      "30",
+      "--",
+      "python3",
+      "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/scratch/verification-r2/build_reuse.py"
+    ],
+    "validation_cwd": "/Users/manasraghuwanshi/Developer/s-30/nap",
+    "validation_exit_code": 0,
+    "validation_timestamp_utc": "2026-10-27T04:10:49.621435+00:00",
+    "proof": {
+      "complete_delta_paths": [
+        "apps/web/src/chat/work-log-helpers.test.tsx",
+        "packages/agent/src/agent-service.ts",
+        "packages/agent/src/subagents-usage.test.ts",
+        "packages/agent/src/subagents.ts"
+      ],
+      "web_delta_test_only": ["apps/web/src/chat/work-log-helpers.test.tsx"],
+      "web_production_unchanged": true,
+      "tracked_config_and_dependency_inputs_unchanged": true,
+      "shared_package_unchanged": true,
+      "web_agent_imports": [],
+      "web_production_internal_import_names": ["@nap/shared"],
+      "web_regular_internal_dependency": ["@nap/shared"],
+      "shared_internal_dependencies": []
+    },
+    "limits": "Original production Next build skipped type validation. Round2 full typecheck is separately required and was run. No claim that agent runtime build was repeated; the web app does not import agent.",
+    "validation_environment": {
+      "platform": "macOS-27.0.1-arm64-arm-64bit",
+      "architecture": "arm64",
+      "node": "v26.12.0",
+      "bun": "1.4.2",
+      "vitest": "4.1.10",
+      "selected_env": {}
+    },
+    "validation_log": "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/evidence/r2-green-build-reuse.log",
+    "validation_log_sha256": "c5909d2218f548491976ae8ed4ef7ea07af2581ef9af7a40777dd7f69338ba58",
+    "original_environment": {
+      "platform": "macOS-27.0.1-arm64-arm-64bit",
+      "architecture": "arm64",
+      "node": "v26.12.0",
+      "bun": "1.4.2",
+      "vitest": "4.1.10",
+      "selected_env": {}
+    },
+    "validation_tooling_attempts": [
+      {
+        "exit_code": 1,
+        "log": "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/evidence/r2-green-build-reuse-attempt1.log",
+        "reason": "Initial source-audit regex counted a documentation mention of @nap/verify as an import. This was a verification-tool false positive, not a product failure.",
+        "runner_argv": [
+          "python3",
+          "/Users/manasraghuwanshi/.claude/skills/gods-hand/scripts/run_check.py",
+          "--timeout",
+          "30",
+          "--",
+          "python3",
+          "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/scratch/verification-r2/build_reuse.py"
+        ],
+        "cwd": "/Users/manasraghuwanshi/Developer/s-30/nap",
+        "snapshot": "893f787d4e83f3edda6f6e211543be145fec2e2d",
+        "tree": "005c4c8442191d8fd9a1860fab4dac3fd0b770c2",
+        "env": {
+          "platform": "macOS-27.0.1-arm64-arm-64bit",
+          "architecture": "arm64",
+          "node": "v26.12.0",
+          "bun": "1.4.2",
+          "vitest": "4.1.10",
+          "selected_env": {}
+        }
+      },
+      {
+        "exit_code": 0,
+        "log": "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/evidence/r2-green-build-reuse.log",
+        "reason": "Corrected the audit to match import statements. Confirmed all actual internal production imports are @nap/shared, no @nap/agent reference, and unchanged web/config/dependency inputs.",
+        "runner_argv": [
+          "python3",
+          "/Users/manasraghuwanshi/.claude/skills/gods-hand/scripts/run_check.py",
+          "--timeout",
+          "30",
+          "--",
+          "python3",
+          "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/scratch/verification-r2/build_reuse.py"
+        ],
+        "cwd": "/Users/manasraghuwanshi/Developer/s-30/nap",
+        "snapshot": "893f787d4e83f3edda6f6e211543be145fec2e2d",
+        "tree": "005c4c8442191d8fd9a1860fab4dac3fd0b770c2",
+        "env": {
+          "platform": "macOS-27.0.1-arm64-arm-64bit",
+          "architecture": "arm64",
+          "node": "v26.12.0",
+          "bun": "1.4.2",
+          "vitest": "4.1.10",
+          "selected_env": {}
+        }
+      }
+    ]
+  },
+  "mandatory_gates": {
+    "test": {
+      "status": "passed on sole approved reduced-fanout rerun",
+      "job": "full-test-retry2",
+      "initial_failure_preserved": true
+    },
+    "typecheck": {
+      "status": "passed",
+      "job": "typecheck",
+      "workspace_programs": 14,
+      "root_program": true
+    },
+    "lint": {
+      "status": "passed",
+      "job": "lint"
+    },
+    "production_web_build": {
+      "status": "passed evidence reused after approved unchanged-input validation",
+      "original_snapshot": "43e5ed6dbde21fd19f038b877e8836937b105ff2",
+      "validation_record": "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/evidence/r2-green-build-reuse.json"
+    },
+    "free_runtime": {
+      "status": "passed fresh",
+      "jobs": ["harness", "ws-smoke"]
+    }
+  },
+  "completed_at": "2026-10-27T04:12:39.311667+00:00",
+  "all_approved_jobs_executed": true,
+  "counts": {
+    "executed_check_jobs": 11,
+    "passed_jobs": 10,
+    "initial_failed_jobs": 1,
+    "reused_build_results": 1,
+    "source_audit_tooling_attempts": 2
+  },
+  "no_further_checks_after_parent_completion_instruction": true,
+  "checker_handoff": {
+    "report": "/Users/manasraghuwanshi/.gods-hand/nap/feat-agent-harness-20261027T030321Z/reports/checker-round2.md",
+    "report_sha256": "f13d38f09204b4cd7c17a9e4107f736ad3a557086872f42cf0681d71775ec22a",
+    "parent_confirmed_assessment": "GH-06/GH-07 hold; previous GH-01 through GH-05 coverage remains valid.",
+    "scope": "Independent delta repair assessment, not final published merge-state or PR readiness.",
+    "normal_rounds_used": 2,
+    "worker_started_new_round_or_source_repair": false
+  },
+  "resource_cleanup": {
+    "all_worker_resource_jobs_stopped": true,
+    "all_worker_browsers_closed": true,
+    "active_job": null,
+    "worker_shared_lock_released": true,
+    "lock_file_preserved": true,
+    "lock_path": "/Users/manasraghuwanshi/.gods-hand/resource.lock",
+    "confirmation_basis": "Every runner invocation has returned, including the last source-only build-reuse audit. Runner holds its lock until process-group cleanup completes and releases/closes it on return. No extra process/browser/lock probe performed after parent stop.",
+    "detached_work_started": false,
+    "new_browser_or_vite_started_in_round2": false,
+    "database": "Normal completed Vitest database-suite teardown awaits Postgres stop; no separate Docker inventory experiment.",
+    "source_format_index_commit_or_github_writes_by_worker": false
+  }
+}

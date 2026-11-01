@@ -1,0 +1,382 @@
+/**
+ * Helpers: a second, smaller model loop the turn hands a self-contained task to.
+ *
+ * The reason to have them is context, not speed. Finding where something lives in a large
+ * repository is twenty searches and reads whose output the parent needs none of — only the
+ * answer. Run in the parent's own conversation, that output is re-sent on every later request of
+ * the turn; run in a helper, it is spent once and the parent receives a paragraph.
+ *
+ * Four rules keep a helper from being a second, unaccountable turn (ADR-0020):
+ *
+ *  - **It spends the turn's budget.** Every token is recorded against the parent's
+ *    `TurnBudget`. Estimated input and capped output must fit its share; actual usage is
+ *    checked before acting on a response, leaving room for the parent to use the answer.
+ *  - **It lives inside the turn.** It shares the turn's cancellation, and a background helper
+ *    nobody collected is cancelled when the turn ends — nothing runs on after the lease.
+ *  - **Its traffic stays out of the log.** Its tool calls would replay into the parent's
+ *    conversation as calls the parent never made, which the model API rejects. The log gets a
+ *    `subagent.started`, the files it changed, and a `subagent.completed`.
+ *  - **It gets fewer tools.** No questions, no plan, no further helpers; `explore` cannot write.
+ */
+
+import type { SubagentOutcome, SubagentProfile } from "@nap/shared/agent-plan";
+import { estimateContextTokens } from "@nap/shared/compaction";
+import type { NapEvent, NapEventOf, ToolName } from "@nap/shared/events";
+import type { AgentTurnRequest } from "@nap/shared/ports/agent-service";
+import type { DistributiveOmit } from "@nap/shared/ports/event-store";
+import type {
+  LLMContentBlock,
+  LLMMessage,
+  LLMProvider,
+  LLMTurnResult,
+  TokenUsage,
+} from "@nap/shared/ports/llm-provider";
+import { CANCELLED, stopAware } from "./cancellation.ts";
+import { DirectoryRules } from "./hooks/directory-rules.ts";
+import type { TurnBudget } from "./safety/budget.ts";
+import type { SubagentRunner, ToolContext, ToolOutcome } from "./tools/context.ts";
+import type { ToolDefinition } from "./tools/definitions.ts";
+import { runsConcurrently } from "./tools/definitions.ts";
+import { executeTool } from "./tools/execute.ts";
+import { FileLedger } from "./tools/ledger.ts";
+import { modelFamily, toolNamesFor, toolsetFor } from "./tools/toolset.ts";
+
+/** Model requests one helper may make. A search that has not converged by then will not. */
+export const SUBAGENT_STEPS: Record<SubagentProfile, number> = { explore: 15, general: 30 };
+
+/** The share of the turn's remaining tokens one helper may spend. */
+export const SUBAGENT_BUDGET_SHARE = 0.5;
+
+/** How much of a report the log keeps; the model gets all of it in the tool result. */
+const LOGGED_SUMMARY_CHARS = 2_000;
+
+type Request = { toolCallId: string; profile: SubagentProfile; task: string };
+type Payload<T extends NapEvent["type"]> = NapEventOf<T>["payload"];
+
+export type SubagentPoolOptions = {
+  provider: LLMProvider;
+  /** The model each profile runs on. */
+  modelFor: (profile: SubagentProfile) => string | undefined;
+  credentials: AgentTurnRequest["credentials"];
+  prompts: Record<SubagentProfile, string>;
+  rootRules?: boolean;
+  budget: TurnBudget;
+  request: Pick<AgentTurnRequest, "sessionId" | "turnId" | "sandboxId" | "sandbox" | "signal">;
+  /** The turn's event sink. Only what a reader of the log needs reaches it. */
+  emit: (event: DistributiveOmit<NapEvent, "seq">) => void;
+  now: () => string;
+};
+
+type Helper = { report: Promise<ToolOutcome>; controller: AbortController; collected: boolean };
+
+export class SubagentPool implements SubagentRunner {
+  readonly #options: SubagentPoolOptions;
+  readonly #helpers = new Map<string, Helper>();
+  readonly #usage = { inputTokens: 0, outputTokens: 0 };
+  #usageIncomplete = false;
+  /** Unspent tokens promised to helpers, unavailable to other helpers or parent requests. */
+  #reserved = 0;
+  #started = 0;
+
+  constructor(options: SubagentPoolOptions) {
+    this.#options = options;
+  }
+
+  run(request: Request, emit = this.#options.emit): Promise<ToolOutcome> {
+    const subagentId = this.#nextId();
+    const controller = new AbortController();
+    const report = this.#execute(subagentId, request, controller, emit);
+    this.#helpers.set(subagentId, { report, controller, collected: true });
+    return report;
+  }
+
+  start(request: Request): string {
+    const subagentId = this.#nextId();
+    const controller = new AbortController();
+    this.#helpers.set(subagentId, {
+      report: this.#execute(subagentId, request, controller, this.#options.emit),
+      controller,
+      collected: false,
+    });
+    return subagentId;
+  }
+
+  async collect(subagentId: string): Promise<ToolOutcome> {
+    const helper = this.#helpers.get(subagentId);
+    if (helper === undefined)
+      return { ok: false, output: `No helper ${subagentId} was started in this turn.` };
+    helper.collected = true;
+    return helper.report;
+  }
+
+  /** Background helpers whose report nobody has asked for. */
+  uncollected(): string[] {
+    return [...this.#helpers].filter(([, helper]) => !helper.collected).map(([id]) => id);
+  }
+
+  /** Stops every helper and waits for each to say so, so none outlives the turn. */
+  async settle(): Promise<void> {
+    for (const helper of this.#helpers.values()) helper.controller.abort();
+    await Promise.all([...this.#helpers.values()].map((helper) => helper.report));
+  }
+
+  usage(): TokenUsage {
+    return { ...this.#usage };
+  }
+
+  usageIncomplete(): boolean {
+    return this.#usageIncomplete;
+  }
+
+  /** The parent and new helpers may spend only tokens not already promised. */
+  availableTokens(): number {
+    return Math.max(0, this.#options.budget.remaining().tokens - this.#reserved);
+  }
+
+  /** Unique within the turn, and short, because the model types it back into read_subagent. */
+  #nextId(): string {
+    this.#started += 1;
+    return `helper-${this.#started}`;
+  }
+
+  async #execute(
+    subagentId: string,
+    request: Request,
+    controller: AbortController,
+    emit: ToolContext["emit"],
+  ): Promise<ToolOutcome> {
+    const options = this.#options;
+    const parent = options.request.signal;
+    const signal =
+      parent === undefined ? controller.signal : AbortSignal.any([parent, controller.signal]);
+    this.#emit(emit, {
+      type: "subagent.started",
+      payload: {
+        toolCallId: request.toolCallId,
+        subagentId,
+        profile: request.profile,
+        task: request.task,
+      },
+    });
+
+    const usage = { inputTokens: 0, outputTokens: 0 };
+    let toolCalls = 0;
+    const finish = (outcome: SubagentOutcome, report: string): ToolOutcome => {
+      this.#emit(emit, {
+        type: "subagent.completed",
+        payload: {
+          subagentId,
+          outcome,
+          summary: report.slice(0, LOGGED_SUMMARY_CHARS),
+          toolCalls,
+          usage,
+        },
+      });
+      return outcome === "completed"
+        ? { ok: true, output: `Report from ${subagentId}:\n${report}` }
+        : { ok: false, output: `${subagentId} ${outcome}: ${report}` };
+    };
+
+    const model = options.modelFor(request.profile);
+    const toolsetOptions = {
+      promptSource: "user" as const,
+      family: modelFamily(model),
+      computer: false,
+      subagents: false,
+      subagent: request.profile,
+    };
+    const tools = toolsetFor(toolsetOptions);
+    const offered = toolNamesFor(toolsetOptions);
+    const ledger = new FileLedger();
+    const allowance = Math.floor(this.availableTokens() * SUBAGENT_BUDGET_SHARE);
+    let reserved = allowance;
+    this.#reserved += allowance;
+    const recordUsage = (spent: TokenUsage) => {
+      usage.inputTokens += spent.inputTokens;
+      usage.outputTokens += spent.outputTokens;
+      this.#usage.inputTokens += spent.inputTokens;
+      this.#usage.outputTokens += spent.outputTokens;
+      options.budget.recordUsage(spent);
+      // Actual spend is already removed by TurnBudget; only the unused promise stays held.
+      const consumed = Math.min(reserved, spent.inputTokens + spent.outputTokens);
+      reserved -= consumed;
+      this.#reserved -= consumed;
+    };
+    try {
+      return await this.#converse(
+        request,
+        signal,
+        allowance,
+        { tools, offered, ledger, emit, model, recordUsage },
+        finish,
+        () => {
+          toolCalls += 1;
+        },
+        usage,
+      );
+    } catch (error) {
+      return finish(
+        signal.aborted ? "cancelled" : "failed",
+        error instanceof Error ? error.message : String(error),
+      );
+    } finally {
+      this.#reserved -= reserved;
+    }
+  }
+
+  /** The helper's own loop: ask, run what it asked for, until it reports or runs out. */
+  async #converse(
+    request: Request,
+    signal: AbortSignal,
+    allowance: number,
+    access: {
+      tools: ToolDefinition[];
+      offered: ReadonlySet<ToolName>;
+      ledger: FileLedger;
+      emit: ToolContext["emit"];
+      model: string | undefined;
+      recordUsage: (usage: TokenUsage) => void;
+    },
+    finish: (outcome: SubagentOutcome, report: string) => ToolOutcome,
+    counted: () => void,
+    usage: TokenUsage,
+  ): Promise<ToolOutcome> {
+    const { tools, offered, ledger, emit, model, recordUsage } = access;
+    const options = this.#options;
+    const turn = options.provider.startTurn({
+      model,
+      credentials: options.credentials,
+    });
+    const messages: LLMMessage[] = [{ role: "user", content: request.task }];
+    const steps = SUBAGENT_STEPS[request.profile];
+    const rules = new DirectoryRules({
+      sandbox: options.request.sandbox,
+      sandboxId: options.request.sandboxId,
+      includeRoot: options.rootRules === true,
+    });
+
+    for (let step = 1; step <= steps; step += 1) {
+      if (signal.aborted) return finish("cancelled", "Stopped before it finished.");
+      if (usage.inputTokens + usage.outputTokens >= allowance || !options.budget.check().ok)
+        return finish("failed", "Stopped: the turn's budget cannot cover more of this search.");
+      if (step === steps)
+        appendText(
+          messages,
+          "This is your last request. Reply with your report now, from what you have found.",
+        );
+
+      const remaining = allowance - usage.inputTokens - usage.outputTokens;
+      const available = Math.min(
+        remaining,
+        options.budget.remaining().tokens - this.#reserved + remaining,
+      );
+      const input = estimateContextTokens({
+        systemPrompt: options.prompts[request.profile],
+        messages,
+        tools,
+      });
+      const maxOutputTokens = Math.floor(available - input);
+      if (maxOutputTokens < 1)
+        return finish("failed", "Stopped: the turn's budget cannot cover more of this search.");
+      let completed: LLMTurnResult | typeof CANCELLED;
+      try {
+        completed = await stopAware(
+          turn.complete({
+            systemPrompt: options.prompts[request.profile],
+            messages: [...messages],
+            tools,
+            signal,
+            maxOutputTokens,
+          }),
+          signal,
+        );
+      } catch (error) {
+        this.#usageIncomplete = true;
+        throw error;
+      }
+      if (completed === CANCELLED) {
+        // The transport may still be billed even though its usage was not delivered.
+        this.#usageIncomplete = true;
+        return finish("cancelled", "Stopped before it finished.");
+      }
+      const result = completed;
+      recordUsage(result.usage);
+
+      if (signal.aborted) return finish("cancelled", "Stopped before it finished.");
+      if (usage.inputTokens + usage.outputTokens > allowance || !options.budget.check().ok)
+        return finish("failed", "Stopped: the turn's budget cannot cover more of this search.");
+      if (result.type === "refusal") return finish("failed", "The model declined this task.");
+      if (result.type === "error") return finish("failed", result.message);
+      if (result.toolCalls.length === 0)
+        return finish("completed", result.text === "" ? "(no report)" : result.text);
+
+      const results: LLMContentBlock[] = [];
+      for (const call of result.toolCalls) {
+        if (signal.aborted) return finish("cancelled", "Stopped before it finished.");
+        counted();
+        const work = executeTool(call, {
+          sessionId: options.request.sessionId,
+          turnId: options.request.turnId,
+          sandboxId: options.request.sandboxId,
+          sandbox: options.request.sandbox,
+          signal,
+          offered,
+          ledger,
+          backgroundShells: false,
+          // A helper's own calls stay out of the log; the files it changed do not.
+          emit: (event) => {
+            if (event.type === "file.changed") emit(event);
+          },
+          now: options.now,
+        }).then((executed) => (signal.aborted ? executed : rules.afterTool(call, executed)));
+        // Reads can be abandoned promptly. Mutations must finish before helper/turn ownership
+        // is released, including a write whose transport does not accept an abort signal.
+        const outcome = runsConcurrently(call.name, call.input)
+          ? await stopAware(work, signal)
+          : await work;
+        if (outcome === CANCELLED || signal.aborted)
+          return finish("cancelled", "Stopped before it finished.");
+        results.push({
+          type: "tool_result",
+          toolCallId: call.id,
+          content: outcome.output,
+          isError: !outcome.ok,
+        });
+      }
+      const assistant: LLMContentBlock[] = result.toolCalls.map((call) => ({
+        type: "tool_use",
+        id: call.id,
+        name: call.name,
+        input: call.input,
+      }));
+      if (result.text !== "") assistant.unshift({ type: "text", text: result.text });
+      messages.push({ role: "assistant", content: assistant }, { role: "user", content: results });
+    }
+    return finish("failed", "Ran out of steps before reporting.");
+  }
+
+  #emit<T extends NapEvent["type"]>(
+    emit: ToolContext["emit"],
+    event: { type: T; payload: Payload<T> },
+  ): void {
+    emit({
+      ...event,
+      sessionId: this.#options.request.sessionId,
+      turnId: this.#options.request.turnId,
+      createdAt: this.#options.now(),
+    } as DistributiveOmit<NapEvent, "seq">);
+  }
+}
+
+/** Adds text to the last user message, so it never splits a result from its request. */
+export function appendText(messages: LLMMessage[], text: string): void {
+  const last = messages.at(-1);
+  if (last === undefined || last.role !== "user") {
+    messages.push({ role: "user", content: text });
+    return;
+  }
+  const blocks: LLMContentBlock[] =
+    typeof last.content === "string" ? [{ type: "text", text: last.content }] : [...last.content];
+  blocks.push({ type: "text", text });
+  messages[messages.length - 1] = { role: "user", content: blocks };
+}

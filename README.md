@@ -165,7 +165,7 @@ repository's Vitest project configuration.
 | [`apps/api`](apps/api) | Hono API, WebSocket streaming, authentication, admission, worker, and reaper processes |
 | [`apps/napbench`](apps/napbench) | CLI that runs NapBench against the agent and real or fake infrastructure |
 | [`packages/runtime`](packages/runtime) | Turn lifecycle, jobs, commits, verification, checkpoints, and continuation |
-| [`packages/agent`](packages/agent) | Model loop and the six sandbox-backed tools |
+| [`packages/agent`](packages/agent) | Model loop, its sandbox-backed tools, and the helpers it can hand a search to |
 | [`packages/context`](packages/context) | Prompt assembly, token budgets, and truncation |
 | [`packages/sandbox`](packages/sandbox) | Sandbox, filesystem, command, and preview ports plus the E2B adapter |
 | [`packages/db`](packages/db) and [`packages/storage`](packages/storage) | Postgres event data and Git bundle snapshots in R2 |

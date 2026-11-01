@@ -19,16 +19,17 @@ const CONTEXT_LINES = 3;
  * Describes a write as a change, given what the file held before.
  *
  * `before` is `null` when the file did not exist, which is the only thing separating a
- * creation from a modification — the tools cannot ask the filesystem after the fact.
+ * creation from a modification — the tools cannot ask the filesystem after the fact. `after` is
+ * `null` when the change removed the file, which only a patch can do.
  */
 export function fileChange(
   path: string,
   before: string | null,
-  after: string,
+  after: string | null,
 ): Pick<FileChanged, "changeType" | "diff"> {
   return {
-    changeType: before === null ? "created" : "modified",
-    diff: createPatch(path, before ?? "", after, undefined, undefined, {
+    changeType: after === null ? "deleted" : before === null ? "created" : "modified",
+    diff: createPatch(path, before ?? "", after ?? "", undefined, undefined, {
       context: CONTEXT_LINES,
     }),
   };

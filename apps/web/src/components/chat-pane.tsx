@@ -196,6 +196,7 @@ export function ChatPane({
                     pending={pending !== undefined}
                     startedAt={startedAt}
                     onRetry={onRetry}
+                    onAnswer={onRetry === undefined ? undefined : (text) => onRetry(text)}
                     files={files}
                     onOpenFile={onOpenFile}
                     onOpenChanges={onOpenChanges}

@@ -1,6 +1,6 @@
 import { TOOL_NAMES } from "@nap/shared/events";
 import { describe, expect, it } from "vitest";
-import { PROJECT_ROOT, TOOL_DEFINITIONS, TOOL_SCHEMAS } from "./definitions.ts";
+import { PROJECT_ROOT, runsConcurrently, TOOL_DEFINITIONS, TOOL_SCHEMAS } from "./definitions.ts";
 
 /** The JSON Schema shape the model is handed, narrowed enough to assert on. */
 type ObjectSchema = {
@@ -17,8 +17,8 @@ function schemaFor(name: string): ObjectSchema {
 }
 
 describe("TOOL_DEFINITIONS", () => {
-  // Structural rather than a hardcoded list: adding a seventh tool to the event union
-  // fails here until it is given a definition, which is the point.
+  // Structural rather than a hardcoded list: adding a tool to the event union fails here
+  // until it is given a definition, which is the point.
   it("covers exactly the tool names the event log accepts", () => {
     expect(TOOL_DEFINITIONS.map((d) => d.name).toSorted()).toEqual([...TOOL_NAMES].toSorted());
   });
@@ -47,14 +47,36 @@ describe("TOOL_DEFINITIONS", () => {
     ["list_files", ["path"]],
     ["search_files", ["pattern"]],
     ["run_command", ["command"]],
+    ["apply_patch", ["patch"]],
+    ["glob", ["pattern"]],
+    ["shell_output", ["shell_id"]],
+    ["shell_input", ["shell_id", "text"]],
+    ["shell_kill", ["shell_id"]],
+    ["todo_write", ["todos"]],
+    ["ask_user", ["question", "options", "multiSelect"]],
+    ["run_subagent", ["profile", "task"]],
+    ["read_subagent", ["subagent_id"]],
   ] as const)("%s requires %j", (name, required) => {
     expect(schemaFor(name).required?.toSorted()).toEqual([...required].toSorted());
   });
 
-  it("offers search_files an optional path", () => {
+  it("offers search_files an optional path and filters", () => {
     const schema = schemaFor("search_files");
-    expect(Object.keys(schema.properties).toSorted()).toEqual(["path", "pattern"]);
-    expect(schema.required).not.toContain("path");
+    expect(Object.keys(schema.properties).toSorted()).toEqual([
+      "files_only",
+      "glob",
+      "ignore_case",
+      "path",
+      "pattern",
+    ]);
+    expect(schema.required).toEqual(["pattern"]);
+  });
+
+  it("describes the patch format in apply_patch's own description", () => {
+    // The format is the contract, and GPT models are trained on it by these exact markers.
+    const description = TOOL_DEFINITIONS.find((tool) => tool.name === "apply_patch")?.description;
+    for (const marker of ["*** Begin Patch", "*** Update File:", "*** End Patch", "@@"])
+      expect(description).toContain(marker);
   });
 
   it("does not leak the $schema dialect marker into the tool schema", () => {
@@ -63,6 +85,29 @@ describe("TOOL_DEFINITIONS", () => {
     for (const definition of TOOL_DEFINITIONS) {
       expect(definition.inputSchema).not.toHaveProperty("$schema");
     }
+  });
+});
+
+describe("runsConcurrently", () => {
+  it.each([
+    ["read_file", {}, true],
+    ["list_files", {}, true],
+    ["glob", {}, true],
+    ["search_files", {}, true],
+    ["write_file", {}, false],
+    ["edit_file", {}, false],
+    ["apply_patch", {}, false],
+    ["run_command", {}, false],
+    ["shell_output", {}, false],
+    ["todo_write", {}, false],
+    ["ask_user", {}, false],
+    ["computer", {}, false],
+    ["run_subagent", { profile: "explore" }, true],
+    ["run_subagent", { profile: "general" }, false],
+    ["run_subagent", { profile: "explore", background: true }, false],
+    ["not_a_tool", {}, false],
+  ] as const)("%s %j runs concurrently: %s", (name, input, expected) => {
+    expect(runsConcurrently(name, input)).toBe(expected);
   });
 });
 

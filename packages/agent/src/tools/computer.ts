@@ -1,6 +1,6 @@
 import type { ComputerAction } from "@nap/shared/computer";
 import { computerScreenshotKey } from "@nap/shared/computer-artifacts";
-import type { ToolContext, ToolOutcome } from "./execute.ts";
+import type { ToolContext, ToolOutcome } from "./context.ts";
 
 /** Validate the entire batch before this function; a bad final action must have no effects. */
 export async function runComputer(
