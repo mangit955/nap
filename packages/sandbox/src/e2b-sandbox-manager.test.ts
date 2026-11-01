@@ -9,6 +9,7 @@ import {
   TimeoutError,
 } from "e2b";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { groupedCommand, stopGroupCommand } from "./e2b-exec-group.ts";
 import type { E2BClient, E2BSandboxHandle, E2BSandboxSummary } from "./e2b-sandbox-manager.ts";
 import { E2BSandboxManager, toSandboxError } from "./e2b-sandbox-manager.ts";
 
@@ -35,7 +36,6 @@ function stubHandle(
     ...overrides,
     commands: {
       run: () => Promise.reject(new Error("commands.run not stubbed")),
-      start: () => Promise.reject(new Error("commands.start not stubbed")),
       ...overrides.commands,
     },
   };
@@ -169,125 +169,215 @@ describe("E2BSandboxManager exec", () => {
     ]);
   });
 
-  describe("a command asked to stop when its signal fires", () => {
-    /** A running command that ends only when the test says, and counts the kills it receives. */
-    function runningCommand() {
-      let finish: (result: { exitCode: number; stdout: string; stderr: string }) => void = () => {};
-      let fail: (cause: unknown) => void = () => {};
-      const finished = new Promise<{ exitCode: number; stdout: string; stderr: string }>(
-        (resolve, reject) => {
-          finish = resolve;
-          fail = reject;
-        },
+  describe("a command to be stopped when the call gives up", () => {
+    const OPTIONS = { stopOnGiveUp: true };
+    const OK = { exitCode: 0, stdout: "", stderr: "" };
+
+    /** A `run` that answers the command with `answer`, and the stop that may follow with success. */
+    function runAnswering(answer: () => Promise<typeof OK>) {
+      return vi.fn<E2BSandboxHandle["commands"]["run"]>((command) =>
+        command.startsWith("touch ") ? Promise.resolve(OK) : answer(),
       );
-      const command = {
-        kills: 0,
-        wait: () => finished,
-        kill: () => {
-          command.kills += 1;
-          return Promise.resolve(true);
-        },
-      };
-      return {
-        command,
-        finish: (exitCode = 0) => finish({ exitCode, stdout: "", stderr: "" }),
-        fail,
-      };
     }
 
-    it("kills the command, because dropping the connection leaves it running", async () => {
-      const { command, fail } = runningCommand();
-      const start = vi.fn(() => Promise.resolve(command));
-      const { manager, sandboxId } = await managerWith(stubHandle({ commands: { start } }));
-      const controller = new AbortController();
+    const stops = (run: ReturnType<typeof runAnswering>) =>
+      run.mock.calls.map(([command]) => command).filter((command) => command.startsWith("touch "));
 
-      const execution = manager.exec(sandboxId, "bun run build", undefined, {
-        signal: controller.signal,
-        stopOnAbort: true,
-      });
-      await vi.waitFor(() => expect(start).toHaveBeenCalled());
-      await new Promise((resolve) => setImmediate(resolve));
-      controller.abort();
-      fail(new TimeoutError("canceled"));
+    /** The marker in a wrapped command, which is what ties a stop to the command it stops. */
+    function markerIn(run: ReturnType<typeof runAnswering>): string {
+      const marker = /\/tmp\/nap-exec-[\w-]+/.exec(run.mock.calls[0]?.[0] ?? "")?.[0];
+      if (marker === undefined) throw new Error("the command names no marker");
+      return marker;
+    }
 
-      expect(await execution).toMatchObject({ ok: false, error: { code: "timeout" } });
-      expect(command.kills).toBe(1);
-    });
-
-    it("kills a command whose signal fired while it was starting", async () => {
-      const { command, fail } = runningCommand();
-      const controller = new AbortController();
-      const { manager, sandboxId } = await managerWith(
-        stubHandle({
-          commands: {
-            start: () => {
-              controller.abort();
-              return Promise.resolve(command);
-            },
-          },
-        }),
-      );
-
-      const execution = manager.exec(sandboxId, "bun run build", undefined, {
-        signal: controller.signal,
-        stopOnAbort: true,
-      });
-      await vi.waitFor(() => expect(command.kills).toBe(1));
-      fail(new TimeoutError("canceled"));
-
-      expect(await execution).toMatchObject({ ok: false });
-    });
-
-    it("gives the command the same timeout and output handlers an ordinary one gets", async () => {
-      const { command, finish } = runningCommand();
-      const start = vi.fn<E2BSandboxHandle["commands"]["start"]>((_cmd, opts) => {
-        opts?.onStdout?.("one\n");
-        return Promise.resolve(command);
-      });
-      const { manager, sandboxId } = await managerWith(stubHandle({ commands: { start } }));
+    it("runs the command inside the group, with its timeout, signal and output handlers", async () => {
+      const run = runAnswering(() => Promise.resolve(OK));
+      const { manager, sandboxId } = await managerWith(stubHandle({ commands: { run } }));
       const { signal } = new AbortController();
-      const chunks: unknown[] = [];
-      finish();
 
-      await manager.exec(sandboxId, "bun run build", (chunk) => chunks.push(chunk), {
+      await manager.exec(sandboxId, "bun run build", undefined, {
+        ...OPTIONS,
         signal,
-        stopOnAbort: true,
         timeoutMs: 1_234,
       });
 
-      expect(start.mock.calls[0]?.[1]).toMatchObject({ signal, timeoutMs: 1_234 });
+      const [command, opts] = run.mock.calls[0] ?? [];
+      expect(command).toBe(groupedCommand("bun run build", markerIn(run)));
+      expect(opts).toMatchObject({ signal, timeoutMs: 1_234 });
+    });
+
+    it("gives each command a marker of its own", async () => {
+      const run = runAnswering(() => Promise.resolve(OK));
+      const { manager, sandboxId } = await managerWith(stubHandle({ commands: { run } }));
+
+      await manager.exec(sandboxId, "one", undefined, OPTIONS);
+      await manager.exec(sandboxId, "two", undefined, OPTIONS);
+
+      expect(run.mock.calls[0]?.[0].match(/nap-exec-[\w-]+/)?.[0]).not.toBe(
+        run.mock.calls[1]?.[0].match(/nap-exec-[\w-]+/)?.[0],
+      );
+    });
+
+    it("forwards streamed output", async () => {
+      const run = vi.fn<E2BSandboxHandle["commands"]["run"]>((_command, opts) => {
+        opts?.onStdout?.("one\n");
+        return Promise.resolve(OK);
+      });
+      const { manager, sandboxId } = await managerWith(stubHandle({ commands: { run } }));
+      const chunks: unknown[] = [];
+
+      await manager.exec(sandboxId, "bun run build", (chunk) => chunks.push(chunk), OPTIONS);
+
       expect(chunks).toEqual([{ stream: "stdout", data: "one\n" }]);
     });
 
-    it("reports a non-zero exit as data, and kills nothing once the command has finished", async () => {
-      const { command, fail } = runningCommand();
-      const { manager, sandboxId } = await managerWith(
-        stubHandle({ commands: { start: () => Promise.resolve(command) } }),
-      );
+    it("stops the group when the signal fires, and reports why the command did not finish", async () => {
       const controller = new AbortController();
-      fail(new CommandExitError({ exitCode: 3, stdout: "", stderr: "no" }));
+      const run = runAnswering(() => {
+        controller.abort();
+        return Promise.reject(new TimeoutError("canceled"));
+      });
+      const { manager, sandboxId } = await managerWith(stubHandle({ commands: { run } }));
 
       const result = await manager.exec(sandboxId, "bun run build", undefined, {
+        ...OPTIONS,
         signal: controller.signal,
-        stopOnAbort: true,
       });
-      controller.abort();
 
-      expect(result).toMatchObject({ ok: true, value: { exitCode: 3, stderr: "no" } });
-      expect(command.kills).toBe(0);
+      expect(result).toMatchObject({ ok: false, error: { code: "timeout" } });
+      expect(stops(run)).toEqual([stopGroupCommand(markerIn(run))]);
     });
 
-    it("leaves the command alone when the caller did not ask for it to be stopped", async () => {
-      // The desktop driver has to live long enough to release what it holds.
-      const run = vi.fn<E2BSandboxHandle["commands"]["run"]>(() =>
-        Promise.resolve({ exitCode: 0, stdout: "", stderr: "" }),
+    it("stops the group at the deadline, where no signal is involved", async () => {
+      const run = runAnswering(() => Promise.reject(new TimeoutError("deadline_exceeded")));
+      const { manager, sandboxId } = await managerWith(stubHandle({ commands: { run } }));
+
+      const result = await manager.exec(sandboxId, "bun run build", undefined, {
+        ...OPTIONS,
+        timeoutMs: 1_234,
+      });
+
+      expect(result).toMatchObject({ ok: false, error: { code: "timeout" } });
+      expect(stops(run)).toEqual([stopGroupCommand(markerIn(run))]);
+    });
+
+    it("stops the group on any other failure, such as the connection dropping", async () => {
+      const run = runAnswering(() => Promise.reject(new Error("socket closed")));
+      const { manager, sandboxId } = await managerWith(stubHandle({ commands: { run } }));
+
+      const result = await manager.exec(sandboxId, "bun run build", undefined, OPTIONS);
+
+      expect(result).toMatchObject({ ok: false, error: { code: "unavailable" } });
+      expect(stops(run)).toEqual([stopGroupCommand(markerIn(run))]);
+    });
+
+    it("waits for the stop, so the next turn cannot start on top of what it was stopping", async () => {
+      let stopped: (result: typeof OK) => void = () => {};
+      const run = vi.fn<E2BSandboxHandle["commands"]["run"]>((command) =>
+        command.startsWith("touch ")
+          ? new Promise((resolve) => {
+              stopped = resolve;
+            })
+          : Promise.reject(new TimeoutError("canceled")),
       );
+      const { manager, sandboxId } = await managerWith(stubHandle({ commands: { run } }));
+      let returned = false;
+
+      const execution = manager
+        .exec(sandboxId, "bun run build", undefined, OPTIONS)
+        .then((result) => {
+          returned = true;
+          return result;
+        });
+      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2));
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(returned).toBe(false);
+      stopped(OK);
+      await execution;
+    });
+
+    it("bounds the stop with a signal of its own, since the caller's has already fired", async () => {
+      const controller = new AbortController();
+      const run = runAnswering(() => {
+        controller.abort();
+        return Promise.reject(new TimeoutError("canceled"));
+      });
+      const { manager, sandboxId } = await managerWith(stubHandle({ commands: { run } }));
+
+      await manager.exec(sandboxId, "bun run build", undefined, {
+        ...OPTIONS,
+        signal: controller.signal,
+      });
+
+      const stopSignal = run.mock.calls[1]?.[1]?.signal;
+      expect(stopSignal).toBeInstanceOf(AbortSignal);
+      expect(stopSignal?.aborted).toBe(false);
+    });
+
+    it("reports the original failure when the stop fails as well", async () => {
+      const run = vi.fn<E2BSandboxHandle["commands"]["run"]>((command) =>
+        Promise.reject(
+          command.startsWith("touch ")
+            ? new SandboxNotFoundError("gone")
+            : new TimeoutError("deadline_exceeded"),
+        ),
+      );
+      const { manager, sandboxId } = await managerWith(stubHandle({ commands: { run } }));
+
+      const result = await manager.exec(sandboxId, "bun run build", undefined, OPTIONS);
+
+      expect(run).toHaveBeenCalledTimes(2);
+      expect(result).toMatchObject({ ok: false, error: { code: "timeout" } });
+    });
+
+    it("reports a command's non-zero exit as data, with nothing left to stop", async () => {
+      const run = runAnswering(() =>
+        Promise.reject(new CommandExitError({ exitCode: 3, stdout: "", stderr: "no" })),
+      );
+      const { manager, sandboxId } = await managerWith(stubHandle({ commands: { run } }));
+
+      const result = await manager.exec(sandboxId, "bun run build", undefined, OPTIONS);
+
+      expect(result).toMatchObject({ ok: true, value: { exitCode: 3, stderr: "no" } });
+      expect(stops(run)).toEqual([]);
+    });
+
+    it("does not report the provider killing the shell as the command having failed", async () => {
+      // How envd reports a process that died to a signal. The wrapper forwards the command's exit,
+      // so this is the wrapper itself dying, with the group still running underneath it.
+      const run = runAnswering(() =>
+        Promise.reject(
+          new CommandExitError({ exitCode: -1, stdout: "", stderr: "", error: "signal: killed" }),
+        ),
+      );
+      const { manager, sandboxId } = await managerWith(stubHandle({ commands: { run } }));
+
+      const result = await manager.exec(sandboxId, "bun run build", undefined, OPTIONS);
+
+      expect(result).toMatchObject({ ok: false, error: { code: "unavailable" } });
+      expect(stops(run)).toEqual([stopGroupCommand(markerIn(run))]);
+    });
+
+    it("stops nothing when the command finishes", async () => {
+      const run = runAnswering(() => Promise.resolve(OK));
+      const { manager, sandboxId } = await managerWith(stubHandle({ commands: { run } }));
+
+      await manager.exec(sandboxId, "bun run build", undefined, OPTIONS);
+
+      expect(run).toHaveBeenCalledOnce();
+    });
+
+    it("leaves the command as it is when the caller did not ask for it to be stopped", async () => {
+      // The desktop driver has to live long enough to release what it holds.
+      const run = runAnswering(() => Promise.reject(new TimeoutError("canceled")));
       const { manager, sandboxId } = await managerWith(stubHandle({ commands: { run } }));
       const { signal } = new AbortController();
 
       await manager.exec(sandboxId, "node driver.mjs", undefined, { signal });
 
       expect(run).toHaveBeenCalledOnce();
+      expect(run.mock.calls[0]?.[0]).toBe("node driver.mjs");
     });
   });
 

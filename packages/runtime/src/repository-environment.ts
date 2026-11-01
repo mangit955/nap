@@ -51,7 +51,7 @@ export async function prepareRepositoryEnvironment(options: {
       if (signal?.aborted) return cancelled();
       if (setup.ok && setup.value.exitCode === TIMEOUT_EXIT_CODE)
         return failed(
-          `Repository setup did not finish within ${SETUP_TIMEOUT_SECONDS / 60} minutes. Shorten the configured setup command and retry.`,
+          `Repository setup timed out. It may run for at most ${SETUP_TIMEOUT_SECONDS / 60} minutes. Shorten the configured setup command and retry.`,
         );
       if (!setup.ok || setup.value.exitCode !== 0)
         return failed("Repository setup failed. Check the configured setup command and retry.");

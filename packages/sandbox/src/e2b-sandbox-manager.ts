@@ -42,6 +42,7 @@ import {
   SandboxNotFoundError,
   TimeoutError,
 } from "e2b";
+import { groupedCommand, stopGroupCommand } from "./e2b-exec-group.ts";
 
 /** The slice of an E2B sandbox this adapter uses. Narrow on purpose: it is what a stub must fake. */
 export type E2BSandboxHandle = {
@@ -61,16 +62,6 @@ export type E2BSandboxHandle = {
         timeoutMs?: number;
       },
     ): Promise<E2BCommandResult>;
-    /** As `run`, handing back the running command rather than waiting for it to finish. */
-    start(
-      cmd: string,
-      opts?: {
-        onStdout?: (data: string) => void;
-        onStderr?: (data: string) => void;
-        signal?: AbortSignal;
-        timeoutMs?: number;
-      },
-    ): Promise<E2BRunningCommand>;
   };
   getHost(port: number): string;
   /** Reads back what `create` stored, which is how a resume recovers the project id. */
@@ -84,9 +75,6 @@ export type E2BSandboxHandle = {
 export type E2BEntry = { name: string; path: string; type?: FileType };
 
 export type E2BCommandResult = { exitCode: number; stdout: string; stderr: string };
-
-/** `CommandHandle`, minus the fields we ignore. */
-export type E2BRunningCommand = { wait(): Promise<E2BCommandResult>; kill(): Promise<boolean> };
 
 /** One running sandbox as the provider describes it. `SandboxInfo`, minus the fields we ignore. */
 export type E2BSandboxSummary = {
@@ -169,29 +157,42 @@ function toFileNode(entry: E2BEntry): FileNode {
 }
 
 /**
- * Runs a command and kills it if `signal` fires.
- *
- * The SDK's own `signal` only drops the connection: `CommandHandle.disconnect` documents that the
- * command is not killed by doing exactly that, and the command goes on running until its timeout.
- * The kill is not awaited, because the caller asked to stop waiting and the result would change
- * nothing it does next. It fails only when the command or the sandbox has already gone.
+ * How long a stop may take, within what the worker allows an aborted turn to finish in. Waited for,
+ * so the next turn cannot start on top of what it was meant to stop.
  */
-async function runUntilAborted(
+const STOP_TIMEOUT_MS = 5_000;
+
+/**
+ * Runs a command so that it stops, along with everything it started, if this call gives up on it.
+ *
+ * Giving up is any way of leaving without an answer from the command: `signal` firing, `timeoutMs`
+ * passing, or the connection going. The SDK's signal only drops the connection, its deadline kills
+ * one pid, and a dropped connection does nothing at all, so each leaves the work running. All three
+ * reject here, as does a signal firing before the command has told us its pid, so there is one path
+ * to the stop and it needs no pid. See `e2b-exec-group.ts`.
+ *
+ * A failed stop is swallowed because the sandbox may be gone, and what the caller needs to see is
+ * why the command did not finish.
+ */
+async function runStoppingOnGiveUp(
   handle: E2BSandboxHandle,
   command: string,
-  opts: Parameters<E2BSandboxHandle["commands"]["start"]>[1],
-  signal: AbortSignal,
+  opts: Parameters<E2BSandboxHandle["commands"]["run"]>[1],
 ): Promise<E2BCommandResult> {
-  const running = await handle.commands.start(command, opts);
-  const kill = () => {
-    running.kill().catch(() => {});
-  };
-  if (signal.aborted) kill();
-  else signal.addEventListener("abort", kill, { once: true });
+  const marker = `/tmp/nap-exec-${crypto.randomUUID()}`;
   try {
-    return await running.wait();
-  } finally {
-    signal.removeEventListener("abort", kill);
+    return await handle.commands.run(groupedCommand(command, marker), opts);
+  } catch (cause) {
+    if (cause instanceof CommandExitError && cause.exitCode >= 0) throw cause;
+    await handle.commands
+      .run(stopGroupCommand(marker), { signal: AbortSignal.timeout(STOP_TIMEOUT_MS) })
+      .catch(() => {});
+    // The wrapper forwards the command's exit, which is never negative. Negative is how envd reports
+    // that it killed the wrapper, which can beat the SDK's own deadline to the connection. That says
+    // nothing about the command, and must not reach the caller as the command having failed.
+    throw cause instanceof CommandExitError
+      ? new Error(`The command's shell was killed: ${cause.message}`)
+      : cause;
   }
 }
 
@@ -206,7 +207,6 @@ function realClient(template: string | undefined): E2BClient {
     },
     commands: {
       run: (cmd, opts) => sandbox.commands.run(cmd, { ...opts, background: false }),
-      start: (cmd, opts) => sandbox.commands.run(cmd, { ...opts, background: true }),
     },
     getHost: (port) => sandbox.getHost(port),
     getMetadata: async () => (await sandbox.getInfo()).metadata,
@@ -407,8 +407,8 @@ export class E2BSandboxManager implements SandboxManager, SandboxInventory {
       };
       try {
         const result =
-          options?.signal !== undefined && options.stopOnAbort === true
-            ? await runUntilAborted(handle, command, opts, options.signal)
+          options?.stopOnGiveUp === true
+            ? await runStoppingOnGiveUp(handle, command, opts)
             : await handle.commands.run(command, opts);
         return { exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr };
       } catch (cause) {

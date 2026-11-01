@@ -253,7 +253,7 @@ describe("cancelling a run of checks", () => {
 
     await runChecks(sandbox, sandboxId, [runnable("build")], { signal });
 
-    expect(sandbox.execs(sandboxId)[0]?.options).toMatchObject({ signal, stopOnAbort: true });
+    expect(sandbox.execs(sandboxId)[0]?.options).toMatchObject({ signal, stopOnGiveUp: true });
   });
 
   it("starts nothing once the signal has fired", async () => {

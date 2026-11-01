@@ -40,7 +40,7 @@ describe("slowSandboxManager", () => {
     const sandbox = slowSandboxManager(inner, { sleep: clock.sleep });
     const created = await sandbox.create("project");
     if (!created.ok) throw new Error(created.error.message);
-    const options = { signal: new AbortController().signal, timeoutMs: 1_234, stopOnAbort: true };
+    const options = { signal: new AbortController().signal, timeoutMs: 1_234, stopOnGiveUp: true };
 
     await sandbox.exec(created.value.id, "bun run build", undefined, options);
 

@@ -54,14 +54,17 @@ export type ExecOptions = {
    */
   timeoutMs?: number | undefined;
   /**
-   * Also stop the command when `signal` fires, for a caller with no way of its own to do that.
+   * When this call gives up on the command, by `signal` or by `timeoutMs`, also stop the command
+   * and everything it started. Neither of those does that alone.
    *
    * Opt-in, because stopping is not always the right thing: the desktop driver has to live long
-   * enough to release what it holds, and its caller asks it to through a cancel of its own. Best
-   * effort even so: an abort that lands before the command has started leaves nothing to stop,
-   * and the command then runs until `timeoutMs`.
+   * enough to release what it holds, and its caller asks it to through a cancel of its own.
+   * Repository setup does not use it either, because its script owns a process group of its own.
+   *
+   * Best effort even so: the stop is one more request to the sandbox, so a sandbox that cannot be
+   * reached keeps whatever it was running.
    */
-  stopOnAbort?: boolean | undefined;
+  stopOnGiveUp?: boolean | undefined;
 };
 
 export interface SandboxManager {

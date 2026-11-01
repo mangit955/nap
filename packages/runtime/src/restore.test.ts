@@ -158,7 +158,7 @@ describe("dependencies", () => {
     const install = sandbox
       .execs(opened.value.sandboxId)
       .find((exec) => /bun install/.test(exec.command));
-    expect(install?.options).toMatchObject({ signal, stopOnAbort: true });
+    expect(install?.options).toMatchObject({ signal, stopOnGiveUp: true });
   });
 
   it("skips the install when the lockfile is unchanged", async () => {

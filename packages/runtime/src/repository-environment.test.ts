@@ -163,5 +163,5 @@ it("stops waiting on setup when cancelled, leaving the stopping to the setup scr
   expect(setup?.options.signal).toBe(signal);
   // The script kills the whole process group through its pid file; a provider kill of its shell
   // could leave that group running, with nothing left holding the pid.
-  expect(setup?.options.stopOnAbort).toBeUndefined();
+  expect(setup?.options.stopOnGiveUp).toBeUndefined();
 });

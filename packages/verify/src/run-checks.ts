@@ -13,10 +13,10 @@
  *
  * **Three verdicts, because one of them is not the project's fault.** `failed` means a check the
  * project asked for said no — that is a repair turn. `errored` means the run learned nothing:
- * the sandbox refused the command, or the preview is listening but unreachable from out here.
- * Opening a repair turn on either would spend tokens asking a model to fix a machine it cannot
- * see, so the checks involved come back *absent*. Same reading as `diagnosePreview`, and the
- * same one `CheckOutcome` was given three values for.
+ * the sandbox refused the command, a check ran past its limit or was cancelled, or the preview is
+ * listening but unreachable from out here. Opening a repair turn on any of those would spend tokens
+ * on something a model cannot fix, so the checks involved come back *absent*. Same reading as
+ * `diagnosePreview`, and the same one `CheckOutcome` was given three values for.
  *
  * **`errored` is not a verification, and must never be recorded as one.** This is the sharp
  * edge on this module. `verification.completed` carries checks and no verdict on purpose — a
@@ -24,7 +24,7 @@
  * payload as `verified`, correctly, because an unasked check is not a failed one. So a caller
  * that emitted the event for an errored run would tell the log that a commit nothing ran
  * against had been checked, and `job.checkpointed` would follow. An errored run is the job
- * ending as **abandoned**: the sandbox went away, which `JobOutcome` already has a word for.
+ * ending as **abandoned**: nothing can be said for that commit, which `JobOutcome` has a word for.
  * The verdict exists to be branched on before anything is written, not to be persisted.
  */
 
@@ -76,7 +76,12 @@ export type RunChecksOptions = {
    * rather than defaulted to a port — a check nobody asked for must not be able to fail.
    */
   preview?: PreviewProbe;
-  /** Cancelling this stops the running check and starts nothing further. */
+  /**
+   * Cancelling this stops the running check and starts nothing further.
+   *
+   * The preview wait is not interrupted: it is skipped if the signal has already fired, and once
+   * begun it runs to its own limit.
+   */
   signal?: AbortSignal | undefined;
 };
 
@@ -148,9 +153,9 @@ async function runOne(
 ): Promise<Attempt> {
   const result = await sandbox.exec(sandboxId, check.command, undefined, {
     signal,
-    // Nothing else would stop it: dropping the connection leaves it running in the sandbox, where
-    // the next turn would be working around a build nobody is waiting for.
-    stopOnAbort: true,
+    // Neither the signal nor the deadline would stop it: the work would go on running in the sandbox,
+    // where the next turn would be working around a build nobody is waiting for.
+    stopOnGiveUp: true,
     timeoutMs: CHECK_TIMEOUT_MS,
   });
 

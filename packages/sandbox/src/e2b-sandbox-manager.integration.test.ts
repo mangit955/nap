@@ -11,7 +11,7 @@
  */
 
 import { Sandbox } from "e2b";
-import { afterAll, expect, it, vi } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import { E2BSandboxManager } from "./e2b-sandbox-manager.ts";
 import { describeSandboxManagerConformance } from "./testing/conformance.ts";
 
@@ -78,42 +78,80 @@ describeSandboxManagerConformance({
   },
 });
 
-it("stops a command and what it started when its signal fires", async () => {
-  // Real E2B only, because this is a fact about envd rather than about our code: the SDK documents
-  // that the kill sends SIGKILL to the command, and says nothing about the command's children.
-  const manager = new E2BSandboxManager();
-  const opened = await manager.create("stop-on-abort");
-  if (!opened.ok) throw new Error(opened.error.message);
-  const sandboxId = opened.value.id;
-  created.add(sandboxId);
-  try {
-    const controller = new AbortController();
-    const running = manager.exec(
-      sandboxId,
-      "sh -c 'echo $$ > /tmp/child.pid; sleep 300; true' & wait",
-      undefined,
-      { signal: controller.signal, stopOnAbort: true, timeoutMs: 120_000 },
-    );
-    await vi.waitFor(
-      async () => expect((await manager.readFile(sandboxId, "/tmp/child.pid")).ok).toBe(true),
-      { timeout: 15_000, interval: 500 },
-    );
+/**
+ * Real E2B only, because this is a fact about envd rather than about our code: it can signal the one
+ * process it spawned, and these are about the ones further down. The child is started the way a
+ * check's real work is, below a shell.
+ */
+describe("a command stopped when the call gives up", () => {
+  const CHILD_PID = "/tmp/child.pid";
+  const COMMAND = `sh -c 'echo $$ > ${CHILD_PID}; sleep 300; true' & wait`;
 
-    controller.abort();
-    await running;
+  async function withSandbox(body: (manager: E2BSandboxManager, id: string) => Promise<void>) {
+    const manager = new E2BSandboxManager();
+    const opened = await manager.create("stop-on-give-up");
+    if (!opened.ok) throw new Error(opened.error.message);
+    created.add(opened.value.id);
+    try {
+      await body(manager, opened.value.id);
+    } finally {
+      await Sandbox.kill(opened.value.id).catch(() => false);
+    }
+  }
 
+  async function childHasStarted(manager: E2BSandboxManager, id: string): Promise<void> {
+    await vi.waitFor(async () => expect((await manager.readFile(id, CHILD_PID)).ok).toBe(true), {
+      timeout: 15_000,
+      interval: 500,
+    });
+  }
+
+  /** Reads its state rather than `kill -0`, which says yes to a zombie nothing has reaped yet. */
+  async function childHasDied(manager: E2BSandboxManager, id: string): Promise<void> {
     await vi.waitFor(
       async () => {
-        const alive = await manager.exec(sandboxId, "kill -0 $(cat /tmp/child.pid)");
+        const alive = await manager.exec(
+          id,
+          `grep -Eq '^State:[[:space:]]+[^Z]' /proc/$(cat ${CHILD_PID})/status`,
+        );
         expect(alive).toMatchObject({ ok: true });
         expect(alive.ok && alive.value.exitCode).not.toBe(0);
       },
       { timeout: 15_000, interval: 1_000 },
     );
-  } finally {
-    await Sandbox.kill(sandboxId).catch(() => false);
   }
-}, 60_000);
+
+  it("stops what it started when the signal fires", async () => {
+    await withSandbox(async (manager, id) => {
+      const controller = new AbortController();
+      const running = manager.exec(id, COMMAND, undefined, {
+        signal: controller.signal,
+        stopOnGiveUp: true,
+        timeoutMs: 120_000,
+      });
+      await childHasStarted(manager, id);
+
+      controller.abort();
+      await running;
+
+      await childHasDied(manager, id);
+    });
+  }, 60_000);
+
+  it("stops what it started when the deadline passes", async () => {
+    await withSandbox(async (manager, id) => {
+      const running = manager.exec(id, COMMAND, undefined, {
+        stopOnGiveUp: true,
+        timeoutMs: 5_000,
+      });
+      await childHasStarted(manager, id);
+
+      expect(await running).toMatchObject({ ok: false, error: { code: "timeout" } });
+
+      await childHasDied(manager, id);
+    });
+  }, 60_000);
+});
 
 afterAll(async () => {
   const stillRunning: string[] = [];

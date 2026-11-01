@@ -13,9 +13,10 @@
  *     a command is that it stops when told, which is what passing the turn's signal is for.
  *   - **No wall-clock budget bounds them.** A turn is budgeted in model steps and tokens, and a
  *     check spends neither.
- *   - **The sandbox's own lifetime does**, and that is what sets the check limit. It is pushed back
- *     when a turn acquires the sandbox and otherwise runs down, and it kills the sandbox whatever
- *     is happening inside.
+ *   - **The sandbox's own lifetime has to stay ahead of them.** It kills the sandbox whatever is
+ *     happening inside, so a sandbox starts with the lifetime it was configured with, and the
+ *     deadline is pushed back when a turn acquires an existing one and again before a round of
+ *     checks.
  *
  * They live in `shared` because `@nap/verify`, `@nap/runtime` and `@nap/bench` all read them, and
  * the first has no business importing the others.
@@ -24,13 +25,19 @@
 /**
  * How long one verification check may run.
  *
- * Ten minutes, the ceiling the agent's own foreground commands have, does not fit: four checks at
- * that length is forty minutes against a default sandbox lifetime of thirty. Five does, and is
- * well past what a generated project takes while still ending a test runner left in watch mode in
- * a time somebody would wait for. It also lets a check finish inside a worker's default drain.
+ * Not because a longer limit would outlast the sandbox: the push before a round covers whatever the
+ * round adds up to. The reasons are what that push does and who is waiting. The worst round should
+ * fit the default sandbox lifetime, so that checks do not keep a sandbox alive past what a deployment
+ * configured. Ten minutes, the ceiling the agent's own foreground commands have, would not. And this
+ * is how long a hung check holds a worker slot. Five is well past what a generated project takes,
+ * and still ends a test runner left in watch mode, and whatever it started, in a time somebody would
+ * wait for.
  *
- * A check that outlives this has told us nothing about the project, so the run comes back
- * `errored` and the job closes abandoned, rather than spending a repair turn on it.
+ * A check that outlives this has told us nothing about the project, so the run comes back `errored`
+ * and the job closes abandoned, rather than spending a repair turn on it.
+ *
+ * It can outlast a worker's drain, whose length depends on the deployment. A check still running at
+ * the end of one is aborted, and that reads the same way: `errored`, abandoned, no repair.
  */
 export const CHECK_TIMEOUT_MS = 5 * 60 * 1000;
 

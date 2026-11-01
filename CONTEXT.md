@@ -38,7 +38,8 @@ A job is *working*, *verifying* or *repairing* while it is open, and once closed
 ended: **verified** (checks passed, so the commit is a checkpoint), **unverified** (the turn changed
 no files, so there was nothing to check — not a failure and not a success), **exhausted** (three
 repairs spent with checks still red) or **abandoned** (the turn it was riding on was cancelled or
-refused). `foldJobs` in `@nap/shared` is the one function that decides all of it.
+refused, or its checks came to an errored verdict). `foldJobs` in `@nap/shared` is the one function
+that decides all of it.
 
 **Verification** — what the system finds, as against what the model claims. A turn that changed the
 workspace is committed and then checked: the project's own checks, cheapest first, stopping at the
@@ -58,8 +59,9 @@ one layer lower still, in `@nap/shared`, because `verification.completed` carrie
 **Verdict** — what a whole *run* of the checks came to, as against the outcome of any one of them:
 **passed**, **failed**, or **errored**. The third is the one worth the word. Failed is the project's
 and opens a repair turn; errored means nothing was learned about the project — the sandbox refused
-the command, or the preview listens inside and is unreachable from outside — and a repair turn on
-that would ask a model to fix a machine it cannot see, so its checks come back *absent*. **An
+the command, a check ran past its limit or was cancelled, or the preview listens inside and is
+unreachable from outside — and a repair turn on that would ask a model to fix something it cannot,
+so its checks come back *absent*. **An
 errored run is never written as a verification.** `verification.completed` carries checks and no
 verdict on purpose, and an all-absent payload folds to `verified`; the job ends **abandoned**
 instead. `runChecks` in `@nap/verify` is where a verdict comes from, and it is branched on before

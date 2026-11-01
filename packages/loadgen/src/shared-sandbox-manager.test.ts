@@ -158,7 +158,7 @@ describe("sharedSandboxManager", () => {
     const inner = scriptedManager();
     const manager = sharedSandboxManager(inner, store);
     const sandboxId = await created(manager);
-    const options = { signal: new AbortController().signal, timeoutMs: 1_234, stopOnAbort: true };
+    const options = { signal: new AbortController().signal, timeoutMs: 1_234, stopOnGiveUp: true };
 
     await manager.exec(sandboxId, "npm run build", undefined, options);
 

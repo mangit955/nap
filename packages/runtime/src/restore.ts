@@ -233,7 +233,7 @@ export async function openProject(
       sandboxId,
       `cd ${TEMPLATE_WORKDIR} && bun install`,
       undefined,
-      { signal: options.signal, stopOnAbort: true, timeoutMs: RESTORE_INSTALL_TIMEOUT_MS },
+      { signal: options.signal, stopOnGiveUp: true, timeoutMs: RESTORE_INSTALL_TIMEOUT_MS },
     );
     if (!installed.ok || installed.value.exitCode !== 0) {
       return {

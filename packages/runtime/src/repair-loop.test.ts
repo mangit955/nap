@@ -343,8 +343,14 @@ describe("cancelling a job while its checks are running", () => {
 describe("the sandbox under a round of checks", () => {
   it("pushes the sandbox's deadline back far enough for the whole round", async () => {
     // The deadline was last pushed back when the turn acquired the sandbox, however long ago that
-    // was, and a round of checks can run for longer than whatever is left of it.
-    sandbox.script(/bun run typecheck/, { exitCode: 0 });
+    // was, and a round of checks can run for longer than whatever is left of it. Read from inside
+    // a check, because a push that came after the round would have protected nothing.
+    let deadlineDuringTheCheck: number | undefined;
+    sandbox.script(/bun run typecheck/, async () => {
+      const session = await sessions.get(SESSION_ID);
+      deadlineDuringTheCheck = sandbox.timeoutOf(session?.sandboxId ?? "");
+      return { exitCode: 0 };
+    });
 
     await new SingleAgentRuntime({
       sessions,
@@ -357,8 +363,7 @@ describe("the sandbox under a round of checks", () => {
       sandboxTtlMs: 60_000,
     }).runTurn({ turnId: REQUEST_TURN_ID, sessionId: SESSION_ID, message: "add a button" });
 
-    const session = await sessions.get(SESSION_ID);
-    expect(sandbox.timeoutOf(session?.sandboxId ?? "")).toBe(VERIFICATION_ROUND_LIMIT_MS);
+    expect(deadlineDuringTheCheck).toBe(VERIFICATION_ROUND_LIMIT_MS);
   });
 
   it("does not shorten a deadline configured longer than the round", async () => {
