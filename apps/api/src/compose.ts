@@ -283,8 +283,9 @@ export type ComposedNap = {
   app: Hono<{ Variables: AuthVariables }>;
   runtime: SingleAgentRuntime;
   /**
-   * Which requests are running *in this process* — the fast path for a cancel that lands on the
-   * pod holding the turn, and nothing else now that "busy" is a lease.
+   * Which requests are running *in this process*, and nothing else now that "busy" is a lease. No
+   * deployed process finds anything here, since a cancel lands on an API pod and the turn runs on a
+   * worker; only scripts and tests do. See docs/adr/0022.
    */
   registry: TurnRegistry;
   /**

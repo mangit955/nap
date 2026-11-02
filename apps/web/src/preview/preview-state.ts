@@ -42,7 +42,10 @@ export function previewState(events: readonly StoredEvent[]): PreviewState {
   let state: PreviewState = { status: "idle" };
   /** The log's last word on a sandbox was that it went away, so there is saved work to come back. */
   let putAway = false;
-  /** The latest turn was given a sandbox: a job opens only once one is in hand. */
+  /**
+   * A job has opened since the log last said the sandbox went away, so as far as the log can tell
+   * one is still there.
+   */
   let hasSandbox = false;
 
   for (const event of events) {
@@ -82,8 +85,8 @@ export function previewState(events: readonly StoredEvent[]): PreviewState {
         if (state.status !== "ready" && PREVIEW_FAILURES.includes(event.payload.reason)) {
           state = { status: "error", message: event.payload.message };
         } else if (state.status === "starting" && event.payload.reason === "cancelled") {
-          // No later event will end this wait. With a sandbox in hand it does not end: the dev
-          // server was merely slow to answer and may yet, so "starting" is still the true thing.
+          // No later event will end this wait. With a sandbox in hand, nothing here can say the
+          // dev server failed, only that it has not been announced, so "starting" stays.
           if (!hasSandbox) state = putAway ? { status: "stopped" } : { status: "cancelled" };
         }
         break;
