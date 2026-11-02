@@ -201,6 +201,31 @@ describe("when the sandbox never came up", () => {
     expect(result).toMatchObject({ status: "starting" });
   });
 
+  it("is still starting when a later prompt is stopped before any new job opens", () => {
+    // A repair continues the job it repairs and the next turn has not opened its own yet, so no
+    // `job.started` follows this prompt. The sandbox has not gone anywhere because of it.
+    const result = state(
+      ev("user.message", { text: "go" }),
+      ev("job.started", { jobId: "job-1", objective: "go" }),
+      ev("user.message", { text: "fix the failing check" }),
+      ev("turn.failed", { reason: "cancelled", message: "stopped" }),
+    );
+
+    expect(result).toMatchObject({ status: "starting" });
+  });
+
+  it("no longer counts a sandbox once the project has been put away", () => {
+    const result = state(
+      ev("user.message", { text: "go" }),
+      ev("job.started", { jobId: "job-1", objective: "go" }),
+      ev("preview.stopped", {}),
+      ev("user.message", { text: "pick this back up" }),
+      ev("turn.failed", { reason: "cancelled", message: "stopped" }),
+    );
+
+    expect(result).toMatchObject({ status: "stopped" });
+  });
+
   it("starts again when somebody asks again after stopping", () => {
     const result = state(
       ev("user.message", { text: "go" }),

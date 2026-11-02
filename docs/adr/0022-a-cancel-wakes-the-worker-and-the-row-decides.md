@@ -24,8 +24,9 @@ This is ADR-0010's bargain applied to cancellation: a notification is a wake-up 
 | names a request this worker is running but nobody flagged | One renewal, and the turn carries on |
 | is malformed | Ignored by the adapter |
 | lands between the claim committing and the worker registering the request | Ignored, so the stop waits for the next renewal or a second click |
+| lands while the worker is settling that request | One renewal, answered `held: false`, so one false "lease lost" warning about a turn that ended cleanly, and nothing else. The timed renewal has the same race |
 
-Each case but the last has a test, and each guard was seen to fail. The last is a narrow window that this accepts rather than closes.
+The first five cases each have a test, and each guard was seen to fail. The last two are narrow windows that this accepts rather than closes. A settled row with `cancel_requested` set and no "could not be settled" line is how to recognise the warning.
 
 ### D2: It names a request, never a session
 

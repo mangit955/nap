@@ -848,6 +848,7 @@ describe("a cancel wake-up", () => {
     it("does not hold up stop(), and claims nothing on the way out", async () => {
       const queue = new InMemoryTurnQueue();
       const runtime = new RecordingRuntime();
+      const warned = warnings();
       const worker = start(queue, runtime, { cancels: HUNG, listenTimeoutMs: PATIENCE_MS * 4 });
       await enqueueTurn(queue);
 
@@ -855,6 +856,8 @@ describe("a cancel wake-up", () => {
 
       await new Promise((resolve) => setTimeout(resolve, PATIENCE_MS * 8));
       expect(runtime.turns).toHaveLength(0);
+      // Stopping is what ended the wait. Sitting it out would say it is claiming while it is not.
+      expect(warned.filter((message) => /claiming anyway/.test(message))).toEqual([]);
     });
 
     it("does not hold up stop() when it is the unlisten that does not answer", async () => {

@@ -23,7 +23,7 @@ import type { PreviewState } from "../preview/preview-state.ts";
 export type ProjectPhase =
   /** Nothing knowable yet: the record is in flight, or the log of a running project is. */
   | { kind: "opening" }
-  /** Nothing has ever run here. The pane invites a first prompt. */
+  /** Nothing is running here and nothing is on its way. The pane invites a prompt. */
   | { kind: "idle" }
   /** A sandbox is coming up, or is about to be asked for. */
   | { kind: "starting" }
