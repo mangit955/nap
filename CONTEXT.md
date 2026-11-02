@@ -87,6 +87,12 @@ transcript. A **compaction checkpoint** is the saved summary and the conversatio
 covers; it says nothing about whether the project's code is verified.
 _Avoid_: checkpoint without the compaction qualifier, deleting history.
 
+**Compaction history** — the conversation compaction summaries replaced, written as a plain-text
+file in the project's sandbox for the agent to search. Entries are named by event number, which
+the summary cites. A derived view of the session's events, like the **Transcript**: rebuilt from
+them whenever a sandbox lacks it, and never read back as a record. See ADR-0021.
+_Avoid_: history file without the compaction qualifier, transcript (that is the reader's view).
+
 **Checkpoint** — a *verified* commit, and the answer to "is this project in a valid state right
 now", which is `HEAD == last checkpoint` rather than a judgement anybody renders. Distinct from a
 **Snapshot**, which is a filesystem archived because a sandbox went away: a checkpoint is about
@@ -253,7 +259,7 @@ the work has got.
 **Thumbnail lane** — where a project's dashboard picture is taken, after the turn that asked for it
 has given its lease back. Best-effort and bounded by dropping: a picture that is late, skipped or
 kept from the turn before is a stale card and nothing more. It never keeps a sandbox alive or makes
-a session *busy*. See ADR-0021.
+a session *busy*. See ADR-0022.
 
 **Preview** — the user's app, running in a sandbox and reachable at a URL announced by
 `preview.ready`. The `seq` of that announcement, not its URL, is what identifies *which* preview:

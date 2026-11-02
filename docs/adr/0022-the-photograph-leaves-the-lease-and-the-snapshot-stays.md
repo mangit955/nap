@@ -1,4 +1,4 @@
-# ADR-0021 — The photograph leaves the lease, and the snapshot stays
+# ADR-0022 — The photograph leaves the lease, and the snapshot stays
 
 **Status:** Accepted, 2026-11-02. Built and tested on fakes and a real local git repository. Not yet measured against a real E2B sandbox or a real Chromium.
 

@@ -75,6 +75,15 @@ export type ContextRequest = {
    * path of every test about which messages survive a budget.
    */
   history: StoredEvent[];
+  /**
+   * Where the sandbox holds the conversation the latest compaction summary replaced, when the
+   * runtime has just written or confirmed it. Absent means the agent must not be sent there.
+   *
+   * Handed in because keeping that file current writes to the sandbox, and the component that
+   * owns the budget has no side effects on it. The runtime writes it; this only decides what
+   * the model is told.
+   */
+  historyFile?: string | undefined;
   sandbox: SandboxManager;
   memory: MemoryProvider;
 };

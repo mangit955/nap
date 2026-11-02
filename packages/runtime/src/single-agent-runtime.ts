@@ -76,6 +76,7 @@ import {
 import { type AppTestRecordingClock, withAppTestRecording } from "./app-test-recording.ts";
 import { AppTestRun } from "./app-test-run.ts";
 import { contextCompactor } from "./compaction.ts";
+import { compactionHistoryFile } from "./compaction-history.ts";
 import { continuationFor } from "./continue-job.ts";
 import { EventSink } from "./event-sink.ts";
 import { repairCommitSubject, repairPrompt } from "./repair-prompt.ts";
@@ -1114,6 +1115,14 @@ export class SingleAgentRuntime implements Runtime {
 
     // Preparation belongs to this turn too, even if it fails before the agent starts.
     sink.beginTurn();
+    const compactionHistory = compactionHistoryFile({
+      sandbox: this.#options.sandbox,
+      sandboxId,
+      sessionId: settings.sessionId,
+    });
+    // A replaced or restored sandbox comes back without the file a summary cites, so every
+    // compacted session confirms it before the agent is told it is there.
+    const historyFile = await compactionHistory.sync(history);
     const context = await this.#options.context.build({
       sessionId: settings.sessionId,
       sandboxId,
@@ -1121,6 +1130,7 @@ export class SingleAgentRuntime implements Runtime {
       model: settings.model,
       attachments: options.attachments,
       history,
+      historyFile,
       ...(job === undefined ? {} : { job }),
       ...(options.manualCompaction === undefined ? {} : { continuation: true }),
       sandbox: this.#options.sandbox,
@@ -1178,6 +1188,7 @@ export class SingleAgentRuntime implements Runtime {
             ? {}
             : { startedId: options.manualCompaction.id }),
           budgetTokens: context.budgetTokens ?? 80_000,
+          history: compactionHistory,
           read: async () => {
             await sink.drain();
             return this.#options.events.readFrom(settings.sessionId, 0);
@@ -1198,7 +1209,7 @@ export class SingleAgentRuntime implements Runtime {
             }
           },
           drain: () => sink.drain(),
-          rebuild: (history) =>
+          rebuild: (history, historyFile) =>
             this.#options.context.build({
               sessionId: settings.sessionId,
               sandboxId,
@@ -1208,6 +1219,7 @@ export class SingleAgentRuntime implements Runtime {
               // the current request after compaction, without protecting it in later turns.
               continuation: appTest === undefined,
               history,
+              historyFile,
               ...(job === undefined ? {} : { job }),
               sandbox: this.#options.sandbox,
               memory: this.#options.memory,

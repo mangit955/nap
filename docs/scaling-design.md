@@ -801,7 +801,7 @@ every other project's photograph on the same worker, so at 25 turns finishing to
 lease was held until 24 browsers had come and gone. Every follow-up message to that session waited
 for all of it.
 
-**Resolution (ADR-0021):**
+**Resolution (ADR-0022):**
 
 - **The photograph leaves the lease.** Under the lease the turn reads the workspace's state, one
   sandbox command, and hands it to the composition's `ThumbnailLane`. The lane reads the state again
