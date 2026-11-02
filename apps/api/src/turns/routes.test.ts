@@ -4,6 +4,7 @@ import { FAKE_OWNER, InMemoryProjectStore } from "@nap/db/testing/in-memory-proj
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { InMemoryTurnQueue } from "@nap/db/testing/in-memory-turn-queue";
 import { InMemoryTurnRateLimiter } from "@nap/db/testing/in-memory-turn-rate-limiter";
+import type { CancelChannel } from "@nap/shared/ports/cancel-channel";
 import { UNTITLED_PROJECT } from "@nap/shared/project-title";
 import type { Hono } from "hono";
 import { describe, expect, it } from "vitest";
@@ -35,6 +36,7 @@ function app(
   logger = silent(),
   projects = unnamedProject(),
   store = new InMemoryEventStore(),
+  cancels?: Pick<CancelChannel, "announce">,
 ) {
   return {
     projects,
@@ -50,6 +52,7 @@ function app(
       turns: {
         queue,
         registry,
+        ...(cancels === undefined ? {} : { cancels }),
         projects,
         allowedModels: ALLOWED,
         // Somebody who brought their own key, which is what most of these tests are about —
@@ -263,12 +266,110 @@ describe("POST /sessions/:sessionId/turns/cancel", () => {
     const queue = new InMemoryTurnQueue();
     const { app: hono, registry } = app(queue);
     await post(hono, `/sessions/${SESSION}/turns`, { message: "hello" });
+    const claimed = await queue.claim("this-pod");
     const controller = new AbortController();
-    registry.adopt(SESSION, controller);
+    registry.adopt(claimed?.id ?? "", controller);
 
     await post(hono, `/sessions/${SESSION}/turns/cancel`);
 
     expect(controller.signal.aborted).toBe(true);
+  });
+
+  it("leaves alone a turn in this process that is not the request it flagged", async () => {
+    // What a session key used to get wrong: the flagged request had finished by the time the route
+    // looked, and the same session was on to a turn nobody had asked to stop.
+    const queue = new InMemoryTurnQueue();
+    const { app: hono, registry } = app(queue);
+    await post(hono, `/sessions/${SESSION}/turns`, { message: "hello" });
+    const flagged = await queue.claim("this-pod");
+    const flaggedController = new AbortController();
+    registry.adopt(flagged?.id ?? "", flaggedController);
+    const next = new AbortController();
+    registry.adopt("a-request-admitted-after-the-cancel", next);
+
+    await post(hono, `/sessions/${SESSION}/turns/cancel`);
+
+    expect(flaggedController.signal.aborted).toBe(true);
+    expect(next.signal.aborted).toBe(false);
+  });
+
+  describe("the wake-up", () => {
+    /** A channel that records what the row said at the moment it was told. */
+    function recording(queue: InMemoryTurnQueue, owner: string) {
+      const told: { requestId: string; flagged: Promise<unknown> }[] = [];
+      return {
+        told,
+        announce: (requestId: string) => {
+          told.push({ requestId, flagged: queue.renew(requestId, owner) });
+        },
+      };
+    }
+
+    it("names the request it flagged, once that flag is durable", async () => {
+      const queue = new InMemoryTurnQueue();
+      const channel = recording(queue, "some-other-pod");
+      const { app: hono } = app(queue, undefined, undefined, undefined, undefined, channel);
+      await post(hono, `/sessions/${SESSION}/turns`, { message: "hello" });
+      const claimed = await queue.claim("some-other-pod");
+
+      await post(hono, `/sessions/${SESSION}/turns/cancel`);
+
+      expect(channel.told.map((entry) => entry.requestId)).toEqual([claimed?.id]);
+      await expect(channel.told[0]?.flagged).resolves.toEqual({
+        held: true,
+        cancelRequested: true,
+      });
+    });
+
+    it("is sent again on a second click, which is one more chance at a lost one", async () => {
+      const queue = new InMemoryTurnQueue();
+      const channel = recording(queue, "some-other-pod");
+      const { app: hono } = app(queue, undefined, undefined, undefined, undefined, channel);
+      await post(hono, `/sessions/${SESSION}/turns`, { message: "hello" });
+      await queue.claim("some-other-pod");
+
+      await post(hono, `/sessions/${SESSION}/turns/cancel`);
+      const second = await post(hono, `/sessions/${SESSION}/turns/cancel`);
+
+      expect(second.status).toBe(202);
+      expect(channel.told).toHaveLength(2);
+    });
+
+    it("is not sent for a request nobody has claimed, because nobody holds it", async () => {
+      const queue = new InMemoryTurnQueue();
+      const channel = recording(queue, "nobody");
+      const { app: hono } = app(queue, undefined, undefined, undefined, undefined, channel);
+      await post(hono, `/sessions/${SESSION}/turns`, { message: "hello" });
+
+      const res = await post(hono, `/sessions/${SESSION}/turns/cancel`);
+
+      expect(res.status).toBe(202);
+      expect(channel.told).toEqual([]);
+      expect(await queue.claim("worker-1")).toBeNull();
+    });
+
+    it("names the running request when a follow-up is queued behind it", async () => {
+      const queue = new InMemoryTurnQueue();
+      const channel = recording(queue, "some-other-pod");
+      const { app: hono } = app(queue, undefined, undefined, undefined, undefined, channel);
+      await post(hono, `/sessions/${SESSION}/turns`, { message: "hello" });
+      const claimed = await queue.claim("some-other-pod");
+      await post(hono, `/sessions/${SESSION}/turns`, { message: "and then this" });
+
+      await post(hono, `/sessions/${SESSION}/turns/cancel`);
+
+      expect(channel.told.map((entry) => entry.requestId)).toEqual([claimed?.id]);
+    });
+
+    it("is not sent when there is nothing to cancel, or for somebody else's session", async () => {
+      const queue = new InMemoryTurnQueue();
+      const channel = recording(queue, "nobody");
+      const { app: hono } = app(queue, undefined, undefined, undefined, undefined, channel);
+
+      expect((await post(hono, `/sessions/${SESSION}/turns/cancel`)).status).toBe(409);
+      expect((await post(hono, "/sessions/nope/turns/cancel")).status).not.toBe(202);
+      expect(channel.told).toEqual([]);
+    });
   });
 
   it("409s when the turn already ended", async () => {

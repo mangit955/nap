@@ -163,6 +163,11 @@ durable log is the delivery** — a lost notification costs latency and never co
 the catch-up read is what actually hands anything to a socket. The notification carries
 `{sessionId, seq}` and never a payload; see `docs/adr/0010`.
 
+**Cancel wake-up** — a notification that a turn request's `cancel_requested` has been committed,
+telling the worker running that request to renew now instead of at its next interval. It names a
+request, never a session, and cancels nothing itself: the renewal's answer does that, and a lost
+wake-up costs a wait of up to one renewal. See `docs/adr/0021`.
+
 **Event** — one durable, ordered fact about a session, identified by its `seq`. Appended to the
 store *before* it is published to the bus, never the other way round.
 

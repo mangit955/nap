@@ -1,5 +1,5 @@
 /**
- * The two things about a multi-pod deployment that no manifest can assert.
+ * The things about a multi-pod deployment that no manifest can assert.
  *
  * 1. **A turn submitted to any pod completes and streams to a socket on any other pod.** The
  *    request is admitted on API pod A, executed by a worker pod that neither of them can name, and
@@ -8,6 +8,9 @@
  * 2. **A rolling restart of the API loses no events.** The socket dies mid-turn with the pod that
  *    held it; the client reconnects with the last `seq` it saw and gets exactly the gap — no
  *    missing event, no duplicate, and the turn it was watching still ends.
+ * 3. **A cancel crosses pods faster than a renewal.** Pressed on API pod A, it stops a model running
+ *    on a worker pod, and pod B's socket hears the turn end, well inside the fifteen seconds the
+ *    durable path alone would take.
  *
  * Driven by `infra/k8s/proof/run.sh`, which brings up the cluster and hands this three addresses:
  * two individual API pods, and the ingress that fronts all of them. Run it against anything else
@@ -18,7 +21,9 @@
  * fakes. What is being exercised is the layer that used to be single-process.
  */
 
+import { LEASE_RENEWAL_INTERVAL_MS } from "@nap/shared/lease-windows";
 import { type ServerFrame, ServerFrameSchema } from "@nap/shared/ws-protocol";
+import { HOLD_UNTIL_CANCELLED } from "./fake-turn.ts";
 
 type Json = Record<string, unknown>;
 
@@ -109,7 +114,7 @@ class Client {
   }
 }
 
-type Storedish = { seq: number; type: string; turnId: string | null };
+type Storedish = { seq: number; type: string; turnId: string | null; reason?: string };
 
 /**
  * One socket, reconnectable — which is the whole subject of the second check.
@@ -145,6 +150,7 @@ class Stream {
           seq: frame.event.seq,
           type: frame.event.type,
           turnId: frame.event.turnId ?? null,
+          ...(frame.event.type === "turn.failed" ? { reason: frame.event.payload.reason } : {}),
         });
       }
     });
@@ -247,6 +253,56 @@ async function main(): Promise<void> {
   const crossPodGaps = gapsIn(stream.events);
   if (crossPodGaps.length === 0) pass("no gaps in the stream", `seq 1..${stream.lastSeq}`);
   else fail("no gaps in the stream", crossPodGaps.join("; "));
+
+  // ── a cancel ──────────────────────────────────────────────────────────────
+  heading("a cancel crosses pods faster than a renewal");
+  // Somebody else's project, for two reasons: a held turn occupies its session until it is stopped,
+  // and an anonymous caller may only have one project running.
+  const stopper = new Client();
+  await stopper.signIn(A);
+  const held = await stopper.json(B, "/projects", {
+    method: "POST",
+    body: JSON.stringify({ name: "cluster proof cancel" }),
+  });
+  const heldSession = String(held.sessionId);
+  const heldStream = new Stream(heldSession, stopper.cookie);
+  await heldStream.open(B);
+
+  const heldTurn = await stopper.post(A, `/sessions/${heldSession}/turns`, {
+    message: HOLD_UNTIL_CANCELLED,
+  });
+  if (heldTurn.status === 202) pass("a turn that will not end by itself", "on pod A, 202");
+  else fail("a turn that will not end by itself", `${heldTurn.status} ${await heldTurn.text()}`);
+
+  // Several seconds on the worker's renewal clock, so the cancel lands well away from the renewal
+  // that started it. Landing right after one is what the durable path alone is worst at.
+  for (let waited = 0; waited < 30_000; waited += 200) {
+    if (heldStream.events.some((event) => event.type === "turn.started")) break;
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  await new Promise((resolve) => setTimeout(resolve, 2_000));
+
+  const pressedAt = Date.now();
+  const cancel = await stopper.post(A, `/sessions/${heldSession}/turns/cancel`, {});
+  if (cancel.status === 202) pass("cancel accepted", "on pod A, 202");
+  else fail("cancel accepted", `${cancel.status} ${await cancel.text()}`);
+
+  const ended = await heldStream.waitForTurnEnd(0);
+  const cancelMs = Date.now() - pressedAt;
+  if (ended.type === "turn.failed" && ended.reason === "cancelled") {
+    pass("the turn ended cancelled", "heard on pod B's socket");
+  } else {
+    fail("the turn ended cancelled", `ended as ${ended.type} (${ended.reason ?? "no reason"})`);
+  }
+  if (cancelMs < LEASE_RENEWAL_INTERVAL_MS / 5) {
+    pass("faster than a renewal", `${cancelMs}ms from the press to pod B's socket`);
+  } else {
+    fail(
+      "faster than a renewal",
+      `${cancelMs}ms; a renewal alone is at most ${LEASE_RENEWAL_INTERVAL_MS}ms`,
+    );
+  }
+  heldStream.close();
 
   // ── two ───────────────────────────────────────────────────────────────────
   heading("a rolling restart of the API loses nothing");

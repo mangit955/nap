@@ -19,8 +19,9 @@ import { MODEL_MEDIA_UNSUPPORTED, modelSupportsImages } from "@nap/shared/model-
  *   - **Admission returns the durable request ID.** Execution arrives as session events. A
  *     pending caller can also read that row's status, since a queued cancellation emits none.
  *   - **Cancellation is a row, not a `Map`.** `requestCancel` reaches a turn running on any pod,
- *     which the old registry could not. The registry is still consulted, as a fast path for the
- *     case where the turn happens to be running here — see `registry.ts`.
+ *     which the old registry could not. A wake-up then tells that pod to read the row now rather
+ *     than at its next renewal, and the registry is still consulted for the case where the turn
+ *     happens to be running here — see `registry.ts`.
  *
  * A session that does not exist is refused here as well as inside the runtime. The runtime's
  * answer is a failed turn with no event — correctly, since an event needs a session to belong
@@ -28,6 +29,7 @@ import { MODEL_MEDIA_UNSUPPORTED, modelSupportsImages } from "@nap/shared/model-
  */
 
 import { getLogger } from "@nap/shared/logging";
+import type { CancelChannel } from "@nap/shared/ports/cancel-channel";
 import type { EventStore } from "@nap/shared/ports/event-store";
 import type { ModelCredentials } from "@nap/shared/ports/llm-provider";
 import type { ProjectStore } from "@nap/shared/ports/project-store";
@@ -51,6 +53,11 @@ export type TurnRouteDeps = {
    * is felt at once rather than at the worker's next renewal. Never the durable answer.
    */
   registry: TurnRegistry;
+  /**
+   * Tells whichever worker holds a flagged request to read the flag now. Absent where no channel
+   * crosses processes, which is the single-container arrangement: there, `registry` reaches it.
+   */
+  cancels?: Pick<CancelChannel, "announce">;
   /**
    * The projects these sessions belong to, so a project still carrying the default name can be
    * named after the first thing it was asked for.
@@ -294,9 +301,9 @@ export function registerTurnRoutes(
     if (!found.ok) return c.json({ error: found.error.message }, found.error.status);
     const { sessionId } = found.value;
 
-    // The durable half, and the only one that reaches a turn running on another pod: a queued
-    // request is failed outright so it is never claimed, and a leased one is flagged for the
-    // worker holding it, which aborts on its next renewal.
+    // The durable half, and the authority: a queued request is failed outright so it is never
+    // claimed, and a leased one is flagged for the worker holding it. Everything below only makes
+    // the worker notice sooner, and its next renewal finds this flag if all of that is lost.
     const outcome = await deps.queue.requestCancel(sessionId);
 
     // Nothing in flight is a race, not a failure: the user clicked as the turn was ending. The
@@ -305,9 +312,13 @@ export function registerTurnRoutes(
       return c.json({ error: "no turn is running for this session" }, 409);
     }
 
-    // The fast path, for when the turn happens to be running in this process. Does nothing at all
-    // when it is not, which is correct — the flag above has already reached it.
-    deps.registry.cancel(sessionId);
+    // Only for a leased request, and only by its id, and only now that the flag has committed: a
+    // worker told any earlier would read an unflagged row and carry on. A queued request has
+    // nobody to tell.
+    if (outcome.was === "leased") {
+      deps.cancels?.announce(outcome.requestId);
+      deps.registry.cancel(outcome.requestId);
+    }
 
     return c.json({ cancelled: true }, 202);
   });

@@ -171,7 +171,7 @@ live. **Its figures live there and are not repeated here.**
 | The old reason | What replaced it |
 |---|---|
 | **The in-process bus** — `InProcessEventBus` fanned events out to sockets inside one process, so a browser on pod A never saw a turn that ran on B | `PostgresNotifyEventBus`, under `NAP_EVENT_BUS=postgres`. The notification carries `{sessionId, seq}` and the pod reads the events out of the durable log; a 2s catch-up poll makes the notification optional for correctness. See `docs/adr/0010` |
-| **The in-memory registry** — `TurnRegistry` meant a cancel landing on pod A could not reach a turn on pod B, and `isBusy` went blind | Cancellation is a row. `cancel_requested` on `turn_requests` reaches an executing turn on any pod within one lease renewal (≤15s); the registry survives only as the same-process fast path. **Busy** is `TurnQueue.anyLeased` — a `state = 'leased'` query — so close, delete and the idle sweep all get the same answer cluster-wide |
+| **The in-memory registry** — `TurnRegistry` meant a cancel landing on pod A could not reach a turn on pod B, and `isBusy` went blind | Cancellation is a row. `cancel_requested` on `turn_requests` reaches an executing turn on any pod within one lease renewal (≤15s), and a `pg_notify` after the commit makes the worker renew at once (`docs/adr/0021`); the registry survives only as the same-process fast path. **Busy** is `TurnQueue.anyLeased` — a `state = 'leased'` query — so close, delete and the idle sweep all get the same answer cluster-wide |
 | **The in-memory queue** — `SessionQueue` serialised a session's turns inside one process, so two pods would run two turns for one session and the project would end up with two sandboxes | `turn_requests` plus per-session **leases**, exclusive by the partial unique index `unique (session_id) where state = 'leased'`. One in-flight turn per session cluster-wide, adjudicated by Postgres rather than by every caller remembering. See `docs/adr/0009` |
 | **The per-process rate limiter** — N pods meant N times the free-tier allowance | `turn_rate_events`: one row per accepted turn, counted over a rolling hour in Postgres. `NAP_FREE_TURNS_PER_HOUR=5` means five whether one process is running or twelve. The sandbox ceiling moved the same way, to `sandbox_reservations` taken *before* creation |
 | **The in-process reaper** — N pods meant N concurrent sweeps tearing the same project down twice | **Not retired: moved.** The sweeps left the API process entirely and became `apps/api/src/reaper.ts`, of which there is exactly one. That is what makes the row above it safe to scale — see below |
@@ -215,6 +215,11 @@ right when you do:
   connection reconnects on its own, and restarting the process would only drop the sockets it
   still had. A `503` from `/readyz` with `{"checks":{"database":"ok","listener":"down"}}` means
   exactly this, and usually means the listener is going through the pooler.
+- **The stop button rides on the same listener, and costs it no connection.** Cancel wake-ups
+  share the socket the fanout already holds. A worker whose listener is down still stops a turn,
+  at its next lease renewal rather than at once. A worker has no `/readyz`, so the only symptom
+  there is a slow stop button; on `NAP_EVENT_BUS=in-process` no listener exists and the same-process
+  registry does this job.
 
 ### What each process scales on
 

@@ -505,14 +505,15 @@ a rare crash path in exchange for leaving the store, the sink and the port exact
 2. `update turn_requests set cancel_requested = true where session_id = $1 and state in
    ('queued','leased') returning state`. No row → `409`, exactly as today.
 3. A `queued` row is never claimed — the claim query already excludes `cancel_requested`.
-4. A `leased` row: `pg_notify('nap_cancel', request_id)`. The owning worker listens and aborts its
-   local `AbortController`.
+4. A `leased` row: once the update has committed, `pg_notify('nap_cancel', request_id)`. The worker
+   running that request renews at once, and the renewal's answer is what aborts it. The notification
+   alone stops nothing.
 5. If the notification is missed, the next lease renewal (≤15s) returns `cancel_requested = true`
    and the worker aborts.
 
-`TurnRegistry` survives, unchanged in shape, but moves to the worker and is keyed by **request id**.
-Its own doc comment predicted this: *"the honest fix for that is a cancellation signal in the
-database rather than a shared map."*
+`TurnRegistry` survives, keyed by **request id**, and stays in the API composition, where it spares
+the single-container arrangement a wait. Where steps 4 and 5 and this paragraph differ from the
+original design, `docs/adr/0021` says why.
 
 `isBusy` — used by project close, project delete and the reaper — stops reading the registry:
 

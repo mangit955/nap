@@ -348,7 +348,7 @@ export class PostgresTurnQueue implements TurnQueue {
         cancelRequested: true,
         // A queued request is failed here and now: it can never be claimed, and leaving it queued
         // and permanently skipped would be a request with no terminal state. A leased one is only
-        // flagged — the worker owns its own abort, and it learns on its next renewal.
+        // flagged — the worker owns its own abort, and reads this flag when it next renews.
         state: sql`case when ${turnRequests.state} = 'queued' then 'failed' else ${turnRequests.state} end`,
         finishedAt: sql`case when ${turnRequests.state} = 'queued' then now() else ${turnRequests.finishedAt} end`,
       })
@@ -358,15 +358,17 @@ export class PostgresTurnQueue implements TurnQueue {
       //
       // **Already-cancelled rows are deliberately still matched.** Filtering them out would make
       // a second click on a turn that is still running answer "there is nothing to cancel", which
-      // is the opposite of what is true for the fifteen seconds before the worker's next renewal.
-      // State is what ends a request, so re-flagging a leased one costs nothing.
+      // is the opposite of what is true until the worker has actually stopped. State is what ends
+      // a request, so re-flagging a leased one costs nothing.
       .where(
         and(eq(turnRequests.sessionId, sessionId), inArray(turnRequests.state, [...IN_FLIGHT])),
       )
-      .returning({ state: turnRequests.state });
+      .returning({ id: turnRequests.id, state: turnRequests.state });
 
-    // `failed` here can only be a row this statement just moved out of `queued`.
-    if (rows.some((row) => row.state === "leased")) return { cancelled: true, was: "leased" };
+    // At most one, by the partial unique index. `failed` here can only be a row this statement just
+    // moved out of `queued`.
+    const leased = rows.find((row) => row.state === "leased");
+    if (leased !== undefined) return { cancelled: true, was: "leased", requestId: leased.id };
     if (rows.length > 0) return { cancelled: true, was: "queued" };
     return { cancelled: false };
   }

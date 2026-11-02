@@ -1,4 +1,5 @@
 import { ScriptedLLMProvider } from "@nap/agent/testing/scripted-llm-provider";
+import { enqueueRequest } from "@nap/db/testing/enqueue-request";
 import { InMemoryCapacityReconciler } from "@nap/db/testing/in-memory-capacity-reconciler";
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
@@ -153,6 +154,7 @@ function compose(overrides: Partial<NapDeps> = {}) {
     userKeys: new InMemoryUserKeyStore(),
     events: new InMemoryEventStore(),
     bus: new InMemoryEventBus(),
+    cancels: null,
     sandbox: new InMemorySandboxManager(),
     objects: new InMemoryObjectStore(),
     provider: new ScriptedLLMProvider([]),
@@ -358,6 +360,47 @@ describe("composeNap", () => {
     // Still waiting for a worker somewhere else, which is exactly what an API pod should leave
     // behind: the request written down, and nothing in this process having touched it.
     expect(queue.inFlight).toBe(1);
+  });
+
+  it.each([
+    ["worker", 1],
+    ["all", 1],
+    ["api", 0],
+    ["reaper", 0],
+  ] as const)("as %s, listens for cancel wake-ups %i time(s)", async (role, expected) => {
+    // Only what runs turns has any use for hearing about them. Listening is the cost of one more
+    // channel on a socket, so an API pod or a reaper paying it would be paying for nothing.
+    const listen = vi.fn(async () => async () => {});
+    const composed = compose({ role, cancels: { announce: () => {}, listen } });
+
+    await vi.waitFor(() => expect(listen).toHaveBeenCalledTimes(expected));
+    await composed.worker.stop();
+    expect(listen).toHaveBeenCalledTimes(expected);
+  });
+
+  it("announces a cancel from a pod that does not run the turn", async () => {
+    const queue = new InMemoryTurnQueue();
+    const announce = vi.fn();
+    const { app } = compose({
+      role: "api",
+      queue,
+      sessions: new InMemorySessionStore([{ sessionId: SESSION, projectId: "project-1" }]),
+      cancels: { announce, listen: async () => async () => {} },
+    });
+    const { id } = await enqueueRequest(queue, {
+      sessionId: SESSION,
+      userId: FAKE_OWNER,
+      kind: "turn",
+      message: "hello",
+      model: "openai/gpt-5-mini",
+      billsToUser: false,
+    });
+    await queue.claim("a-worker-on-another-pod");
+
+    const res = await app.request(`/sessions/${SESSION}/turns/cancel`, { method: "POST" });
+
+    expect(res.status).toBe(202);
+    expect(announce).toHaveBeenCalledExactlyOnceWith(id);
   });
 
   it.each(["api", "worker"] as const)("sweeps nothing when it is composed as %s", async (role) => {

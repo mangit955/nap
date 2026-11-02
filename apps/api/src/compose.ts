@@ -40,6 +40,7 @@ import { startSweeping } from "@nap/runtime/sweep-schedule";
 import { startTurnWorker, type TurnWorker } from "@nap/runtime/turn-worker";
 import { TEMPLATE_DEV_PORT } from "@nap/sandbox/template";
 import type { Logger } from "@nap/shared/logging";
+import type { CancelChannel } from "@nap/shared/ports/cancel-channel";
 import type { CapacityReconciler } from "@nap/shared/ports/capacity-reconciler";
 import type { EventBus } from "@nap/shared/ports/event-bus";
 import type { EventStore } from "@nap/shared/ports/event-store";
@@ -209,6 +210,14 @@ export type NapDeps = {
    */
   events: EventStore;
   bus: EventBus;
+  /**
+   * How a cancel reaches a worker in another process before its next renewal. Null where nothing
+   * crosses processes.
+   *
+   * Required rather than optional because forgetting it would be silent: every cancel would still
+   * work, up to fifteen seconds late, with a paid model running throughout.
+   */
+  cancels: CancelChannel | null;
   sandbox: SandboxManager;
   objects: ObjectStore;
   /** Model policy is the provider's; which provider it is, is the caller's. */
@@ -274,8 +283,8 @@ export type ComposedNap = {
   app: Hono<{ Variables: AuthVariables }>;
   runtime: SingleAgentRuntime;
   /**
-   * Which turns are running *in this process* — the fast path for a cancel that lands on the pod
-   * holding the turn, and nothing else now that "busy" is a lease.
+   * Which requests are running *in this process* — the fast path for a cancel that lands on the
+   * pod holding the turn, and nothing else now that "busy" is a lease.
    */
   registry: TurnRegistry;
   /**
@@ -578,6 +587,7 @@ export function composeNap(deps: NapDeps): ComposedNap {
     turns: {
       queue: deps.queue,
       registry,
+      ...(deps.cancels === null ? {} : { cancels: deps.cancels }),
       sessions: deps.sessions,
       // Who pays for each turn, which is also what decides the models they may name.
       keys: openCallerKey,
@@ -773,6 +783,7 @@ export function composeNap(deps: NapDeps): ComposedNap {
         // the asker pays, so this is where their key is re-opened, once the request is claimed.
         credentialsFor: openCallerKey,
         running: registry,
+        ...(deps.cancels === null ? {} : { cancels: deps.cancels }),
         // A worker has no port, so this loop coming round is the only liveness signal there is.
         ...(deps.onClaimTick === undefined ? {} : { onClaimTick: deps.onClaimTick }),
       });

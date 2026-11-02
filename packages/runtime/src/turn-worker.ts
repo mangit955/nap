@@ -25,9 +25,10 @@
  * this is the last line of it.
  *
  * **Cancellation arrives on the same answer.** One statement asks "do I still hold this, and am I
- * still wanted?", because a worker asking every fifteen seconds is asking one question. The cost is
- * that a cancel is felt within a renewal interval rather than instantly — which is why the process
- * holding the socket also aborts locally, through `running`, when it happens to be this one.
+ * still wanted?", because a worker asking every fifteen seconds is asking one question. A cancel
+ * wake-up changes *when* it is asked and nothing else: it makes this worker ask straight away, so a
+ * stop is felt in milliseconds, and it is the row's answer rather than the notification that aborts
+ * anything. A wake-up that never arrives leaves the next renewal to find the same flag.
  *
  * **Concurrency is per worker, and the queue decides what it gets.** Nothing here reserves,
  * balances or waits for a particular session: a request whose session is busy is simply not
@@ -41,6 +42,7 @@
 
 import { LEASE_RENEWAL_INTERVAL_MS } from "@nap/shared/lease-windows";
 import { getLogger } from "@nap/shared/logging";
+import type { CancelChannel, StopListening } from "@nap/shared/ports/cancel-channel";
 import type { ModelCredentials } from "@nap/shared/ports/llm-provider";
 import type { Runtime } from "@nap/shared/ports/runtime";
 import type { LeasedTurnRequest, TurnQueue } from "@nap/shared/ports/turn-queue";
@@ -50,15 +52,17 @@ import { TurnAbortError } from "@nap/shared/turn-abort";
  * Where a worker announces the turns it is running, for whatever else in this process needs to
  * know — the cancel route, and the reaper's "is this project busy?".
  *
+ * Keyed by request rather than session, because a session outlives any one turn on it: a cancel
+ * that named the session could land on the turn after the one somebody meant to stop.
+ *
  * A structural type rather than an import: the thing that implements it lives in the API app, and
  * `@nap/runtime` may not depend on an app. It is deliberately per-process and deliberately not
  * authoritative — the queue is. What it buys is that a cancel arriving at the pod already running
  * the turn is felt at once instead of at the next renewal.
  */
 export type RunningTurns = {
-  adopt(sessionId: string, controller: AbortController): void;
-  /** Takes the controller it is releasing, so a settled turn cannot clear its successor's entry. */
-  release(sessionId: string, controller: AbortController): void;
+  adopt(requestId: string, controller: AbortController): void;
+  release(requestId: string, controller: AbortController): void;
 };
 
 /** Re-opening the asker's stored credential, for a request they are paying for themselves. */
@@ -108,6 +112,11 @@ export type TurnWorkerOptions = {
   drainTimeoutMs?: number;
   credentialsFor?: CredentialsFor;
   running?: RunningTurns;
+  /**
+   * What makes a cancel felt before the next renewal. Only the listening half, because the route is
+   * what announces. Absent means renewals alone, which is still correct and up to one interval slow.
+   */
+  cancels?: Pick<CancelChannel, "listen">;
   /**
    * Called every time round the claim loop, whether or not there was anything to claim.
    *
@@ -189,6 +198,13 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
    * nothing about how to stop it.
    */
   const controllers = new Set<AbortController>();
+  /**
+   * What a cancel wake-up does, for each request running here and for nothing else.
+   *
+   * This is the whole of the targeting. Every worker hears every cancel, so a wake-up naming a
+   * request on another worker, or one that has already settled, finds nothing and costs no query.
+   */
+  const wakeups = new Map<string, () => void>();
   let stopped = false;
   let idle = Promise.resolve();
 
@@ -201,8 +217,12 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
    */
   async function run(request: LeasedTurnRequest): Promise<void> {
     const controller = new AbortController();
-    running?.adopt(request.sessionId, controller);
+    running?.adopt(request.id, controller);
     controllers.add(controller);
+    wakeups.set(request.id, () => {
+      // Already stopping, so the row has nothing left to say and another click costs no query.
+      if (!controller.signal.aborted) void renew(request, controller);
+    });
 
     const renewal = setInterval(() => {
       void renew(request, controller);
@@ -230,7 +250,8 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
     } finally {
       clearInterval(renewal);
       controllers.delete(controller);
-      running?.release(request.sessionId, controller);
+      wakeups.delete(request.id);
+      running?.release(request.id, controller);
     }
   }
 
@@ -305,6 +326,10 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
    *
    * Both abort, and the distinction is only in what is written down: a cancellation is somebody
    * asking, and a lost lease is this worker discovering it is a zombie.
+   *
+   * A cancel wake-up comes through here too rather than aborting for itself, so the row decides. A
+   * notification about a request that was never flagged therefore stops nothing, and an extra
+   * renewal is harmless: it pushes the lease out and answers the same question.
    */
   async function renew(request: LeasedTurnRequest, controller: AbortController): Promise<void> {
     try {
@@ -365,7 +390,21 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
     }
   }
 
-  idle = loop();
+  /**
+   * Before the first claim, so every turn this worker takes is one a cancel can reach at once.
+   *
+   * A failure is a warning rather than a refusal to work: renewals still carry every cancel, and the
+   * connection this shares with the event bus has already been opened by the time this runs.
+   */
+  const listening: Promise<StopListening | null> =
+    options.cancels
+      ?.listen((requestId) => wakeups.get(requestId)?.())
+      .catch((error: unknown) => {
+        logger.warn({ err: error }, "not hearing cancel wake-ups; a cancel waits for a renewal");
+        return null;
+      }) ?? Promise.resolve(null);
+
+  idle = listening.then(loop);
 
   /**
    * The drain: wait for what is running, and end it if the wait runs out.
@@ -424,6 +463,10 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
       stopped = true;
       await idle;
       await drain();
+      // After the drain, because somebody can still press stop on a turn this is waiting for.
+      await (await listening)?.().catch((error: unknown) => {
+        logger.warn({ err: error }, "could not stop listening for cancel wake-ups");
+      });
     },
   };
 }

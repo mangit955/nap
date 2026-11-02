@@ -1,5 +1,8 @@
+import { PostgresCancelChannel } from "@nap/db/postgres-cancel-channel";
 import { enqueueRequest } from "@nap/db/testing/enqueue-request";
+import { NotifyHub } from "@nap/db/testing/in-memory-notify-transport";
 import { InMemoryTurnQueue } from "@nap/db/testing/in-memory-turn-queue";
+import type { CancelChannel } from "@nap/shared/ports/cancel-channel";
 import type { ModelCredentials } from "@nap/shared/ports/llm-provider";
 import type {
   ContinueOptions,
@@ -123,6 +126,8 @@ function start(
     abortGraceMs?: number;
     onClaimTick?: () => void;
     publish?: (request: LeasedTurnRequest, signal: AbortSignal) => Promise<boolean>;
+    renewIntervalMs?: number;
+    cancels?: Pick<CancelChannel, "listen">;
   } = {},
 ): TurnWorker {
   const worker = startTurnWorker({
@@ -131,7 +136,8 @@ function start(
     owner: "worker-1",
     concurrency: overrides.concurrency ?? 1,
     pollIntervalMs: POLL_MS,
-    renewIntervalMs: RENEW_MS,
+    renewIntervalMs: overrides.renewIntervalMs ?? RENEW_MS,
+    ...(overrides.cancels === undefined ? {} : { cancels: overrides.cancels }),
     ...(overrides.credentialsFor === undefined ? {} : { credentialsFor: overrides.credentialsFor }),
     ...(overrides.running === undefined ? {} : { running: overrides.running }),
     ...(overrides.drainTimeoutMs === undefined ? {} : { drainTimeoutMs: overrides.drainTimeoutMs }),
@@ -463,7 +469,11 @@ describe("cancellation", () => {
     const { id } = await enqueueTurn(queue);
 
     await vi.waitFor(() => expect(runtime.turns).toHaveLength(1));
-    expect(await queue.requestCancel("session-a")).toEqual({ cancelled: true, was: "leased" });
+    expect(await queue.requestCancel("session-a")).toEqual({
+      cancelled: true,
+      was: "leased",
+      requestId: id,
+    });
 
     await vi.waitFor(() => expect(runtime.signal?.aborted).toBe(true));
     // Settled by this worker, which still holds the lease: cancelling asks it to stop, it does not
@@ -484,6 +494,256 @@ describe("cancellation", () => {
   });
 });
 
+describe("a cancel wake-up", () => {
+  /** Longer than any test here runs, so whatever stops a turn below is not a renewal. */
+  const NEVER_MS = 600_000;
+  /** How long to go on watching a turn that must not stop. Many polls of the loop. */
+  const STILL_RUNNING_MS = POLL_MS * 15;
+
+  /** Both halves of the channel, as one process announcing and another hearing. */
+  function channel() {
+    const hub = new NotifyHub();
+    return {
+      hub,
+      worker: new PostgresCancelChannel(hub.connect()),
+      api: new PostgresCancelChannel(hub.connect()),
+    };
+  }
+
+  async function running(queue: InMemoryTurnQueue, runtime: RecordingRuntime, count = 1) {
+    await vi.waitFor(() => expect(runtime.turns).toHaveLength(count));
+    expect(runtime.signal?.aborted).toBe(false);
+    return vi.spyOn(queue, "renew");
+  }
+
+  it("aborts the turn it names without waiting for a renewal", async () => {
+    const queue = new InMemoryTurnQueue();
+    const runtime = new RecordingRuntime();
+    const { worker, api } = channel();
+    start(queue, runtime, { cancels: worker, renewIntervalMs: NEVER_MS });
+    const { id } = await enqueueTurn(queue);
+    await running(queue, runtime);
+
+    await queue.requestCancel("session-a");
+    api.announce(id);
+
+    await vi.waitFor(() => expect(runtime.signal?.aborted).toBe(true));
+    expect(runtime.signal?.reason).toMatchObject({ code: "cancelled" });
+    await vi.waitFor(() => expect(queue.stateOf(id)).toBe("failed"));
+  });
+
+  it("stops nothing when the row was never flagged, because the row is the cancel", async () => {
+    const queue = new InMemoryTurnQueue();
+    const runtime = new RecordingRuntime();
+    const { worker, api } = channel();
+    start(queue, runtime, { cancels: worker, renewIntervalMs: NEVER_MS });
+    const { id } = await enqueueTurn(queue);
+    const renew = await running(queue, runtime);
+
+    api.announce(id);
+
+    // It was heard — the worker went and asked — and the answer was to carry on.
+    await vi.waitFor(() => expect(renew).toHaveBeenCalledWith(id, "worker-1"));
+    await new Promise((resolve) => setTimeout(resolve, STILL_RUNNING_MS));
+    expect(runtime.signal?.aborted).toBe(false);
+  });
+
+  it("costs nothing when it names a request running somewhere else", async () => {
+    const queue = new InMemoryTurnQueue();
+    const runtime = new RecordingRuntime();
+    const { worker, api } = channel();
+    start(queue, runtime, { cancels: worker, renewIntervalMs: NEVER_MS });
+    await enqueueTurn(queue);
+    const renew = await running(queue, runtime);
+
+    api.announce(crypto.randomUUID());
+
+    await new Promise((resolve) => setTimeout(resolve, STILL_RUNNING_MS));
+    expect(renew).not.toHaveBeenCalled();
+    expect(runtime.signal?.aborted).toBe(false);
+  });
+
+  it("does nothing to a session's next turn when it arrives late for the last one", async () => {
+    // The shape that makes a wake-up name a request rather than a session. The first turn has
+    // finished by the time this lands, and the same session is on to its next.
+    const queue = new InMemoryTurnQueue();
+    const runtime = new RecordingRuntime();
+    const { worker, api } = channel();
+    start(queue, runtime, { cancels: worker, renewIntervalMs: NEVER_MS });
+    const first = await enqueueTurn(queue);
+    await running(queue, runtime);
+    runtime.complete();
+    await vi.waitFor(() => expect(queue.stateOf(first.id)).toBe("done"));
+    await enqueueTurn(queue);
+    const renew = await running(queue, runtime, 2);
+
+    api.announce(first.id);
+
+    await new Promise((resolve) => setTimeout(resolve, STILL_RUNNING_MS));
+    expect(renew).not.toHaveBeenCalled();
+    expect(runtime.signal?.aborted).toBe(false);
+  });
+
+  it("still cancels at the next renewal when the wake-up is lost", async () => {
+    const queue = new InMemoryTurnQueue();
+    const runtime = new RecordingRuntime();
+    const { hub, worker, api } = channel();
+    start(queue, runtime, { cancels: worker, renewIntervalMs: POLL_MS * 20 });
+    const { id } = await enqueueTurn(queue);
+    await running(queue, runtime);
+
+    hub.suppress();
+    await queue.requestCancel("session-a");
+    api.announce(id);
+
+    expect(hub.sent).toBe(1);
+    expect(runtime.signal?.aborted).toBe(false);
+    await vi.waitFor(() => expect(runtime.signal?.aborted).toBe(true));
+    expect(runtime.signal?.reason).toMatchObject({ code: "cancelled" });
+  });
+
+  it("finds out at once when the row says the lease has gone", async () => {
+    // Told to look for one reason and learning another. Somebody else holds this request now, and
+    // this worker aborts for that rather than for the cancel: what it just learned is that it is a
+    // zombie, and the row's other answers are no longer its business.
+    const queue = new InMemoryTurnQueue();
+    const runtime = new RecordingRuntime();
+    const { worker, api } = channel();
+    start(queue, runtime, { cancels: worker, renewIntervalMs: NEVER_MS });
+    const { id } = await enqueueTurn(queue);
+    await running(queue, runtime);
+
+    queue.stealLease(id, "worker-2");
+    api.announce(id);
+
+    await vi.waitFor(() => expect(runtime.signal?.aborted).toBe(true));
+    expect(runtime.signal?.reason).toMatchObject({ code: "lease_lost" });
+  });
+
+  it("reaches a publication running under the same lease", async () => {
+    const queue = new InMemoryTurnQueue();
+    const runtime = new RecordingRuntime();
+    const { worker, api } = channel();
+    let seen: AbortSignal | undefined;
+    const publish = (_request: LeasedTurnRequest, signal: AbortSignal) =>
+      new Promise<boolean>((resolve) => {
+        seen = signal;
+        signal.addEventListener("abort", () => resolve(false));
+      });
+    start(queue, runtime, { cancels: worker, renewIntervalMs: NEVER_MS, publish });
+    const { id } = await enqueueRequest(queue, {
+      sessionId: "session-a",
+      userId: "user-1",
+      kind: "publish",
+      message: null,
+      model: "unused",
+      billsToUser: false,
+    });
+    await vi.waitFor(() => expect(seen).toBeDefined());
+
+    await queue.requestCancel("session-a");
+    api.announce(id);
+
+    await vi.waitFor(() => expect(seen?.aborted).toBe(true));
+    await vi.waitFor(() => expect(queue.stateOf(id)).toBe("failed"));
+  });
+
+  it("asks nothing further once the turn is stopping", async () => {
+    // Somebody pressing stop repeatedly on a turn slow to wind down, which is when they would.
+    const queue = new InMemoryTurnQueue();
+    const runtime = RecordingRuntime.deaf();
+    const { worker, api } = channel();
+    start(queue, runtime, { cancels: worker, renewIntervalMs: NEVER_MS });
+    const { id } = await enqueueTurn(queue);
+    const renew = await running(queue, runtime);
+
+    await queue.requestCancel("session-a");
+    api.announce(id);
+    await vi.waitFor(() => expect(runtime.signal?.aborted).toBe(true));
+    renew.mockClear();
+
+    api.announce(id);
+    api.announce(id);
+
+    await new Promise((resolve) => setTimeout(resolve, STILL_RUNNING_MS));
+    expect(renew).not.toHaveBeenCalled();
+  });
+
+  it("is still heard during a drain, and stops being heard after it", async () => {
+    const queue = new InMemoryTurnQueue();
+    const runtime = new RecordingRuntime();
+    const { worker, api } = channel();
+    const stopListening = vi.fn(async () => {});
+    const draining = start(queue, runtime, {
+      cancels: {
+        listen: async (handler) => {
+          const stop = await worker.listen(handler);
+          return async () => {
+            await stop();
+            await stopListening();
+          };
+        },
+      },
+      renewIntervalMs: NEVER_MS,
+      drainTimeoutMs: NEVER_MS,
+    });
+    const { id } = await enqueueTurn(queue);
+    await running(queue, runtime);
+
+    const stopped = draining.stop();
+    await new Promise((resolve) => setTimeout(resolve, STILL_RUNNING_MS));
+    expect(stopListening).not.toHaveBeenCalled();
+
+    await queue.requestCancel("session-a");
+    api.announce(id);
+
+    await vi.waitFor(() => expect(runtime.signal?.aborted).toBe(true));
+    await stopped;
+    expect(stopListening).toHaveBeenCalledOnce();
+  });
+
+  it("claims nothing until it is listening", async () => {
+    // A turn claimed first would be one a cancel could only reach at the next renewal.
+    const queue = new InMemoryTurnQueue();
+    const runtime = new RecordingRuntime();
+    const { worker } = channel();
+    let listen: () => void = () => {};
+    const open = new Promise<void>((resolve) => {
+      listen = resolve;
+    });
+    start(queue, runtime, {
+      cancels: {
+        listen: async (handler) => {
+          await open;
+          return await worker.listen(handler);
+        },
+      },
+      renewIntervalMs: NEVER_MS,
+    });
+    await enqueueTurn(queue);
+
+    await new Promise((resolve) => setTimeout(resolve, STILL_RUNNING_MS));
+    expect(runtime.turns).toHaveLength(0);
+
+    listen();
+    await vi.waitFor(() => expect(runtime.turns).toHaveLength(1));
+  });
+
+  it("works on, with renewals carrying the cancel, when it cannot listen at all", async () => {
+    const queue = new InMemoryTurnQueue();
+    const runtime = new RecordingRuntime();
+    start(queue, runtime, {
+      cancels: { listen: () => Promise.reject(new Error("the listener is down")) },
+    });
+    await enqueueTurn(queue);
+    await running(queue, runtime);
+
+    await queue.requestCancel("session-a");
+
+    await vi.waitFor(() => expect(runtime.signal?.aborted).toBe(true));
+  });
+});
+
 describe("what else in this process is told", () => {
   it("announces a turn while it runs and releases it afterwards", async () => {
     const queue = new InMemoryTurnQueue();
@@ -491,29 +751,28 @@ describe("what else in this process is told", () => {
     const adopted: string[] = [];
     const released: string[] = [];
     const running: RunningTurns = {
-      adopt: (sessionId) => adopted.push(sessionId),
-      release: (sessionId) => released.push(sessionId),
+      adopt: (requestId) => adopted.push(requestId),
+      release: (requestId) => released.push(requestId),
     };
     start(queue, runtime, { running });
-    await enqueueTurn(queue);
+    const { id } = await enqueueTurn(queue);
 
-    await vi.waitFor(() => expect(adopted).toEqual(["session-a"]));
+    await vi.waitFor(() => expect(adopted).toEqual([id]));
     expect(released).toEqual([]);
     runtime.complete();
-    await vi.waitFor(() => expect(released).toEqual(["session-a"]));
+    await vi.waitFor(() => expect(released).toEqual([id]));
   });
 
   it("releases the turn even when the runtime throws", async () => {
     const queue = new InMemoryTurnQueue();
     const released: string[] = [];
     start(queue, RecordingRuntime.throwing(), {
-      running: { adopt: () => {}, release: (sessionId) => released.push(sessionId) },
+      running: { adopt: () => {}, release: (requestId) => released.push(requestId) },
     });
-    await enqueueTurn(queue);
+    const { id } = await enqueueTurn(queue);
 
-    // Otherwise the session stays "busy" in this process forever, and the reaper never puts its
-    // project away.
-    await vi.waitFor(() => expect(released).toEqual(["session-a"]));
+    // Otherwise the entry for it stays in this process's registry forever.
+    await vi.waitFor(() => expect(released).toEqual([id]));
   });
 });
 

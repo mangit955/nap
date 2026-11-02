@@ -18,6 +18,7 @@
  */
 
 import { createDatabase, createListenerConnection } from "@nap/db/client";
+import { PostgresCancelChannel } from "@nap/db/postgres-cancel-channel";
 import { PostgresEventStore } from "@nap/db/postgres-event-store";
 import { PostgresNotifyEventBus } from "@nap/db/postgres-notify-event-bus";
 import { PostgresNotifyTransport } from "@nap/db/postgres-notify-transport";
@@ -34,6 +35,7 @@ import { seededRandom } from "@nap/loadgen/calibration";
 import { loopingLLMProvider } from "@nap/loadgen/looping-llm-provider";
 import { sharedSandboxManager } from "@nap/loadgen/shared-sandbox-manager";
 import { slowLLMProvider, slowSandboxManager } from "@nap/loadgen/slow-ports";
+import type { LLMProvider } from "@nap/shared/ports/llm-provider";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import { upgradeWebSocket, websocket } from "hono/bun";
 import { encryptionKeyFrom } from "../src/account/secret-box.ts";
@@ -41,7 +43,7 @@ import { createAuth } from "../src/auth/auth.ts";
 import { composeNap, type NapConfig, type NapRole } from "../src/compose.ts";
 import { createLogger } from "../src/logger.ts";
 import { createHeartbeatWriter } from "../src/worker-heartbeat.ts";
-import { fakeSandbox, scriptedTurn } from "./fake-turn.ts";
+import { fakeSandbox, HOLD_UNTIL_CANCELLED, scriptedTurn } from "./fake-turn.ts";
 import { createSharedSandboxTable, PostgresSharedSandboxStore } from "./loadgen-sandbox-store.ts";
 
 const ROLES: NapRole[] = ["api", "worker", "reaper"];
@@ -125,16 +127,37 @@ const events = new PostgresEventStore(db);
  * The in-process one would make every pod look healthy and stream nothing — the worker publishes
  * to subscribers inside itself, and every socket is on an API pod.
  */
-const bus = new PostgresNotifyEventBus({
-  reader: events,
-  transport: new PostgresNotifyTransport({
-    notifier: client,
-    listener: createListenerConnection(process.env.NAP_LISTEN_DATABASE_URL ?? databaseUrl),
-  }),
+const transport = new PostgresNotifyTransport({
+  notifier: client,
+  listener: createListenerConnection(process.env.NAP_LISTEN_DATABASE_URL ?? databaseUrl),
 });
+const bus = new PostgresNotifyEventBus({ reader: events, transport });
 await bus.start();
 
-const model = loopingLLMProvider(scriptedTurn());
+/**
+ * The scripted model, except that one prompt runs until it is cancelled.
+ *
+ * Instant fakes finish a turn before anybody could stop it, and the check that a cancel crosses pods
+ * needs a model that is still going when the cancel lands. Everything else answers as scripted.
+ */
+function holdingWhenAsked(inner: LLMProvider): LLMProvider {
+  return {
+    startTurn: (options) => {
+      const turn = inner.startTurn(options);
+      return {
+        usage: () => turn.usage(),
+        complete: (request) =>
+          JSON.stringify(request.messages).includes(HOLD_UNTIL_CANCELLED)
+            ? new Promise((_resolve, reject) => {
+                request.signal?.addEventListener("abort", () => reject(request.signal?.reason));
+              })
+            : turn.complete(request),
+      };
+    },
+  };
+}
+
+const model = holdingWhenAsked(loopingLLMProvider(scriptedTurn()));
 
 /**
  * The fake sandbox, made findable from the pod that did not create it.
@@ -188,6 +211,7 @@ const { app, worker, reaper, janitor } = composeNap({
   userKeys: new PostgresUserKeyStore(db),
   events,
   bus,
+  cancels: new PostgresCancelChannel(transport),
   sandbox: calibrated ? slowSandboxManager(sandbox) : sandbox,
   objects: new InMemoryObjectStore(),
   provider: calibrated ? slowLLMProvider(model, { random }) : model,
