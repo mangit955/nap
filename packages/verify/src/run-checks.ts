@@ -1,7 +1,7 @@
 /**
  * Running a project's checks and saying what happened — the system's half of a turn.
  *
- * The model claims the work is done; this is what the system finds (`docs/adr/0006`). It runs
+ * The model claims the work is done; this is what the system finds (`docs/adr/0006`). It reports
  * the checks in the order it is handed them, which `discoverChecks` has already put cheapest
  * first, and **stops at the first failure**. That stopping is not an optimisation. The repair
  * loop iterates anyway, so a second attempt costs nothing to arrange, while a build error
@@ -86,6 +86,7 @@ export async function runChecks(
   const ran: RanCheck[] = [];
   /** What ended the run, once something has. Everything after it is recorded unasked. */
   let stopped: Stop | undefined;
+  const passed = await passTogether(sandbox, sandboxId, checks);
 
   for (const check of checks) {
     if (check.state === "absent") {
@@ -98,7 +99,7 @@ export async function runChecks(
       continue;
     }
 
-    const attempt = await runOne(sandbox, sandboxId, check);
+    const attempt = passed.get(check.name) ?? (await runOne(sandbox, sandboxId, check));
     ran.push(attempt.check);
     stopped = attempt.stopped;
   }
@@ -114,6 +115,37 @@ export async function runChecks(
   }
 
   return { verdict: stopped?.verdict ?? "passed", checks: ran };
+}
+
+/**
+ * The typecheck and the lint at once, when both are known to write nothing the other reads.
+ *
+ * **This can only ever contribute a pass.** Anything else is thrown away and the loop above runs
+ * them again one at a time, as if this had never happened. That costs a failing run one more
+ * command and it buys two things: which check is blamed cannot depend on which finished first, and
+ * a check that lost a fight for the sandbox's memory is not charged to the project, where it would
+ * open a repair turn that a model pays for and nothing can fix.
+ *
+ * Only this pair. A build and a test share output directories, and a build beside a typecheck saves
+ * under a tenth of a second on the template while spending the whole build on every type error.
+ */
+async function passTogether(
+  sandbox: SandboxManager,
+  sandboxId: string,
+  checks: readonly DiscoveredCheck[],
+): Promise<Map<CheckName, Attempt>> {
+  const pair = checks.filter(
+    (check): check is DiscoveredCheck & { state: "runnable" } =>
+      (check.name === "typecheck" || check.name === "lint") &&
+      check.state === "runnable" &&
+      check.readOnly === true,
+  );
+  if (pair.length !== 2) return new Map();
+
+  const attempts = await Promise.all(pair.map((check) => runOne(sandbox, sandboxId, check)));
+  if (attempts.some((attempt) => attempt.stopped !== undefined)) return new Map();
+
+  return new Map(pair.map((check, index) => [check.name, attempts[index] as Attempt]));
 }
 
 /**

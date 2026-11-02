@@ -37,6 +37,7 @@ describe("discoverChecks", () => {
       name: "lint",
       state: "runnable",
       command: plainCommand("lint"),
+      readOnly: true,
     });
   });
 
@@ -127,5 +128,77 @@ describe("discoverChecks", () => {
       expect(checks).toHaveLength(CHECK_NAMES.length);
       expect(checks.every((check) => check.state === "absent")).toBe(true);
     }
+  });
+
+  describe("which checks are known to leave the workspace alone", () => {
+    const readOnly = (name: "typecheck" | "lint" | "build" | "test", script: string) => {
+      const check = checkNamed(discoverChecks(packageJson({ [name]: script })), name);
+      return check.state === "runnable" && check.readOnly === true;
+    };
+
+    it.each([
+      "tsc --noEmit",
+      "tsc --noEmit -p tsconfig.app.json",
+      "bunx tsc --noEmit",
+      "npx tsc --noEmit",
+      "pnpm exec tsc --noEmit",
+      "vue-tsc --noEmit",
+    ])("trusts a typecheck of `%s`", (script) => {
+      expect(readOnly("typecheck", script)).toBe(true);
+    });
+
+    it.each([
+      // Without `--noEmit` nobody here knows what the tsconfig asks for.
+      "tsc",
+      "tsc -p .",
+      "tsc --build",
+      "tsc -b --noEmit",
+      // More than one command, so this is no longer a claim about one tool.
+      "tsc --noEmit && eslint --fix .",
+      "next build; tsc --noEmit",
+      "tsc --noEmit > report.txt",
+      "$(./prepare.sh) tsc --noEmit",
+      "./scripts/typecheck.sh",
+      "something-else --noEmit",
+    ])("does not trust a typecheck of `%s`", (script) => {
+      expect(readOnly("typecheck", script)).toBe(false);
+    });
+
+    it.each([
+      "eslint .",
+      "eslint src --ext .ts",
+      "eslint --cache .",
+      "biome check .",
+      "biome lint src",
+      "biome ci .",
+      "oxlint",
+      "bunx eslint .",
+    ])("trusts a lint of `%s`", (script) => {
+      expect(readOnly("lint", script)).toBe(true);
+    });
+
+    it.each([
+      "eslint --fix .",
+      "eslint . --fix",
+      "eslint --fix-dry-run .",
+      "biome check --write .",
+      "biome check --apply .",
+      "biome check --write --unsafe .",
+      "biome format --write .",
+      "next lint",
+      "eslint . && prettier --write .",
+      "prettier --check .",
+    ])("does not trust a lint of `%s`", (script) => {
+      expect(readOnly("lint", script)).toBe(false);
+    });
+
+    it("never trusts a build or a test, whatever they are spelled", () => {
+      // A build writes its output directory and a test may read it, which is the whole reason the
+      // pair stays apart: `vite build` and `tsc --noEmit` are both fine alone.
+      expect(readOnly("build", "tsc --noEmit")).toBe(false);
+      expect(readOnly("build", "vite build")).toBe(false);
+      expect(readOnly("test", "tsc --noEmit")).toBe(false);
+      expect(readOnly("test", "vitest")).toBe(false);
+    });
   });
 });

@@ -471,7 +471,9 @@ is affordable, and they are worth setting deliberately rather than inheriting:
 - `NAP_CAPTURE_CONCURRENCY=1` — how many browsers a worker may have open at once. Every
   committed turn is photographed, so this is *not* the worker's concurrency: unbounded it
   would be 25 simultaneous Chromiums in one container, and an OOM kill costs every turn in
-  flight rather than a thumbnail. Nobody waits on a card, so queueing costs nothing visible.
+  flight rather than a thumbnail. Pictures are taken after the session's lease goes back, so
+  a slow browser delays a card and never a follow-up message. At most `NAP_WORKER_CONCURRENCY`
+  projects wait for one, later requests are dropped, and a shutdown drops the queue.
 - `NAP_DRAIN_TIMEOUT_SECONDS=600` — how long a worker being taken away waits for the turns it
   is already running before aborting them. Keep it inside the platform's grace period.
 - `NAP_REAP_INTERVAL_SECONDS=60` — how often the reaper looks. The idle sweep and the janitor

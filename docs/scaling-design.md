@@ -70,7 +70,7 @@ This is more than the brief assumed, and it is why the change is smaller than it
 | `TurnRegistry` | `apps/api/src/turns/registry.ts` | Cancel on pod A cannot reach a turn on pod B. Also feeds `isBusy` for project close/delete and the reaper, so both go blind. |
 | `TurnRateLimiter` ×2 | `apps/api/src/turns/rate-limiter.ts` | N pods = N× the limit. Free-tier spend multiplies by replica count. |
 | Reaper `setInterval` | `apps/api/src/compose.ts:283` | N pods = N concurrent sweeps tearing the same project down twice. |
-| `ChromePageCapture` | `apps/api/src/boot.ts` | One Chromium per process; ~1GB of image and a RAM spike per capture. Bounded by `BoundedPageCapture` since B-6. |
+| `ChromePageCapture` | `apps/api/src/boot.ts` | One Chromium per process; ~1GB of image and a RAM spike per capture. Bounded by the `ThumbnailLane` (B-6), which runs outside the lease since B-7. |
 | DB pool `max: 10` | `packages/db/src/client.ts:25` | Sized for one process doing everything. |
 | Sandbox quota TOCTOU | `apps/api/src/turns/sandbox-quota.ts` | Count-then-create. At 100 concurrent admissions the global cap is guaranteed to overshoot. |
 
@@ -669,7 +669,9 @@ Worker, on `SIGTERM`:
 3. **Keep renewing leases** of turns still running, so the janitor does not orphan progressing work.
 4. On completion, settle each request and release its lease.
 5. If the drain timeout expires: abort remaining turns via their `AbortController`. A cancelled turn
-   commits nothing and closes the Job `abandoned` — a clean stop, not a kill. Then exit.
+   commits nothing and closes the Job `abandoned` — a clean stop, not a kill.
+6. Stop the thumbnail lane: drop the pictures still queued and give the ones in flight a short
+   grace (B-7). Only after the drain, because a draining turn may still ask for one. Then exit.
 
 Sizing: a turn is 8–43s (`docs/napbench-first-real-run.md:159`), but a Job with verification and
 three repairs is minutes. 900s covers the tail.
@@ -787,6 +789,32 @@ simultaneous Chromium page loads in one pod.
 worker unless measurement proves more is safe. Capture is already best-effort — a failure is only a
 log line (`single-agent-runtime.ts:1013`) — so queueing behind a semaphore costs nothing a user can
 see, while five Chromiums in a 3Gi pod is an OOMKill.
+
+*Revised by B-7.* The semaphore's queue had no limit and sat inside the lease. The bound now lives in
+`ThumbnailLane`, and the queue is capped at `NAP_WORKER_CONCURRENCY`.
+
+### B-7 — after-turn work held the lease, and a follow-up message waited for a browser
+
+Once the agent finished, the worker kept the session's lease through verification, the snapshot and
+the photograph, one after another. The photograph alone could take over 35s, and it queued behind
+every other project's photograph on the same worker, so at 25 turns finishing together the last
+lease was held until 24 browsers had come and gone. Every follow-up message to that session waited
+for all of it.
+
+**Resolution (ADR-0021):**
+
+- **The photograph leaves the lease.** Under the lease the turn reads the workspace's state, one
+  sandbox command, and hands it to the composition's `ThumbnailLane`. The lane reads the state again
+  before launching a browser and before storing, and keeps the old picture if the workspace has
+  moved. It holds one place per project, refuses new projects past its cap, keeps no sandbox alive
+  and makes no session busy. A stopped turn, or one with a repair still to come, asks for nothing,
+  which is what keeps invariant 10 true: nothing is photographed on behalf of a lost lease.
+- **The snapshot stays under the lease.** A restore reads the newest snapshot row, two snapshots of
+  one project are ordered only by never overlapping, and the idle sweep asks `anyLeased` before it
+  destroys a sandbox. All three depend on the bundle being recorded before the lease goes back.
+- **Typecheck and lint run together** when both are recognisably read-only, and the result is used
+  only if both pass. Otherwise they run again one at a time, so the verdict and the event order do
+  not depend on timing. Build and test never run beside anything.
 
 ---
 

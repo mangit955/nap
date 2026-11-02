@@ -1,4 +1,5 @@
 import { ScriptedLLMProvider } from "@nap/agent/testing/scripted-llm-provider";
+import { GatedPageCapture } from "@nap/capture/testing/gated-page-capture";
 import { InMemoryCapacityReconciler } from "@nap/db/testing/in-memory-capacity-reconciler";
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
@@ -597,6 +598,76 @@ describe("composeNap", () => {
     await expect.poll(() => queue.inFlight, { timeout: 10_000 }).toBe(0);
     const logged = (await events.readFrom(SESSION, 0)).map((event) => event.type);
     expect(logged).toContain("turn.completed");
+  });
+
+  describe("the thumbnail lane", () => {
+    /** Several projects that each finish a committing turn, with their pictures left waiting. */
+    async function finished(projects: number, config: Partial<NapDeps["config"]>) {
+      const capture = new GatedPageCapture();
+      const ids = Array.from({ length: projects }, () => ({
+        sessionId: crypto.randomUUID(),
+        projectId: crypto.randomUUID(),
+      }));
+      const composed = compose({
+        // An API role, so these turns are driven here rather than by a claim loop racing them.
+        role: "api",
+        capture,
+        sessions: new InMemorySessionStore(ids),
+        sandbox: turnableSandbox().script(/git diff --cached --quiet/, { exitCode: 1 }),
+        provider: new ScriptedLLMProvider(
+          ids.map(() => [{ text: "Done." }, { stopReason: "end_turn" }]),
+        ),
+        config: { ...CONFIG, ...config },
+      });
+      for (const { sessionId } of ids) {
+        const outcome = await composed.runtime.runTurn({
+          sessionId,
+          turnId: crypto.randomUUID(),
+          message: "add a dark mode toggle",
+        });
+        expect(outcome).toMatchObject({ ok: true, commitSha: expect.any(String) });
+      }
+      return { capture, composed };
+    }
+
+    it.each([1, 3])("opens only as many browsers as NAP_CAPTURE_CONCURRENCY=%i", async (limit) => {
+      const { capture } = await finished(5, { NAP_CAPTURE_CONCURRENCY: limit });
+
+      await expect.poll(() => capture.waiting).toBe(limit);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(capture.waiting).toBe(limit);
+
+      capture.releaseAll();
+    });
+
+    it("keeps no more waiting than the worker can finish at once", async () => {
+      const { capture } = await finished(5, {
+        NAP_CAPTURE_CONCURRENCY: 1,
+        NAP_WORKER_CONCURRENCY: 2,
+      });
+
+      // One in flight, two in line, and the other two refused.
+      for (let photographed = 1; photographed <= 3; photographed += 1) {
+        await expect.poll(() => capture.requests.length).toBe(photographed);
+        capture.release();
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      expect(capture.requests).toHaveLength(3);
+    });
+
+    it("is stopped by stopping the worker, which is what a shutdown calls", async () => {
+      const { capture, composed } = await finished(3, { NAP_CAPTURE_CONCURRENCY: 1 });
+      await expect.poll(() => capture.waiting).toBe(1);
+
+      const stopping = composed.worker.stop();
+      capture.releaseAll();
+      await stopping;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      // The one in flight was let finish, and the two in line were never launched.
+      expect(capture.requests).toHaveLength(1);
+    });
   });
 
   it("sweeps a project nobody is using", async () => {

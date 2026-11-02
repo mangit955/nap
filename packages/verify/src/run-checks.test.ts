@@ -217,3 +217,166 @@ describe("runChecks", () => {
     });
   });
 });
+
+describe("a typecheck and a lint known to be independent", () => {
+  const trusted = (name: DiscoveredCheck["name"]): DiscoveredCheck => ({
+    name,
+    state: "runnable",
+    command: `run-${name}`,
+    readOnly: true,
+  });
+  const TRUSTED_ALL: DiscoveredCheck[] = [
+    trusted("typecheck"),
+    trusted("lint"),
+    runnable("build"),
+    runnable("test"),
+  ];
+
+  /** Answers a command only once both of the pair have been asked, so a queue deadlocks here. */
+  function meetingInTheMiddle(sandbox: InMemorySandboxManager) {
+    let arrived = 0;
+    let bothHere: () => void = () => {};
+    const meeting = new Promise<void>((resolve) => {
+      bothHere = resolve;
+    });
+    sandbox.script(/run-(typecheck|lint)/, async () => {
+      arrived += 1;
+      if (arrived === 2) bothHere();
+      await meeting;
+      return { exitCode: 0 };
+    });
+  }
+
+  it("runs them at the same time when both pass", async () => {
+    const { sandbox, sandboxId } = await sandboxWith();
+    meetingInTheMiddle(sandbox);
+
+    const result = await runChecks(sandbox, sandboxId, TRUSTED_ALL);
+
+    expect(result.verdict).toBe("passed");
+    expect(sandbox.commands(sandboxId)).toEqual([
+      "run-typecheck",
+      "run-lint",
+      "run-build",
+      "run-test",
+    ]);
+    expect(outcomes(result)).toEqual([
+      ["typecheck", "passed"],
+      ["lint", "passed"],
+      ["build", "passed"],
+      ["test", "passed"],
+    ]);
+  });
+
+  it("starts the build only once both have finished", async () => {
+    const { sandbox, sandboxId } = await sandboxWith();
+    let lintFinished = false;
+    sandbox.script("run-lint", async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      lintFinished = true;
+      return { exitCode: 0 };
+    });
+    let lintFinishedAtBuild = false;
+    sandbox.script("run-build", () => {
+      lintFinishedAtBuild = lintFinished;
+      return { exitCode: 0 };
+    });
+
+    await runChecks(sandbox, sandboxId, TRUSTED_ALL);
+
+    expect(lintFinishedAtBuild).toBe(true);
+  });
+
+  it("does not run them together when either one cannot be vouched for", async () => {
+    const { sandbox, sandboxId } = await sandboxWith();
+    let running = 0;
+    let peak = 0;
+    sandbox.script(/run-(typecheck|lint)/, async () => {
+      running += 1;
+      peak = Math.max(peak, running);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      running -= 1;
+      return { exitCode: 0 };
+    });
+
+    await runChecks(sandbox, sandboxId, [trusted("typecheck"), runnable("lint")]);
+
+    expect(peak).toBe(1);
+  });
+
+  it("does nothing special for a project that declares only one of them", async () => {
+    const { sandbox, sandboxId } = await sandboxWith();
+
+    const result = await runChecks(sandbox, sandboxId, [trusted("typecheck"), absent("lint")]);
+
+    expect(sandbox.commands(sandboxId)).toEqual(["run-typecheck"]);
+    expect(result.verdict).toBe("passed");
+  });
+
+  /** Runs a scenario through the pair, and through checks nothing ever ran together. */
+  async function bothWays(
+    answer: (name: string) => { exitCode: number; stderr?: string } | undefined,
+    finishFirst: "typecheck" | "lint",
+  ) {
+    const respond = (name: string) => async () => {
+      await new Promise((resolve) => setTimeout(resolve, name === finishFirst ? 0 : 5));
+      return answer(name) ?? { exitCode: 0 };
+    };
+    const script = (sandbox: InMemorySandboxManager) => {
+      for (const name of ["typecheck", "lint", "build", "test"]) {
+        sandbox.script(`run-${name}`, respond(name));
+      }
+    };
+
+    const together = await sandboxWith();
+    script(together.sandbox);
+    const apart = await sandboxWith();
+    script(apart.sandbox);
+
+    return {
+      together: await runChecks(together.sandbox, together.sandboxId, TRUSTED_ALL),
+      apart: await runChecks(apart.sandbox, apart.sandboxId, ALL),
+    };
+  }
+
+  it.each([
+    ["the typecheck failing", { typecheck: 1 }],
+    ["the lint failing", { lint: 1 }],
+    ["both failing", { typecheck: 1, lint: 1 }],
+  ])("reports %s exactly as running them apart would", async (_, exits) => {
+    const answer = (name: string) => {
+      const exitCode = (exits as Record<string, number>)[name];
+      return exitCode === undefined ? undefined : { exitCode, stderr: `${name} said no` };
+    };
+
+    for (const finishFirst of ["typecheck", "lint"] as const) {
+      const { together, apart } = await bothWays(answer, finishFirst);
+      expect(together).toStrictEqual(apart);
+    }
+  });
+
+  it("does not charge the project for a check that only failed because of its neighbour", async () => {
+    // Two compilers in a one-gigabyte sandbox can get one of them killed, and a 137 read as a lint
+    // failure opens a repair turn that a model pays for and nothing can fix. Alone, it passes.
+    const { sandbox, sandboxId } = await sandboxWith();
+    let attempts = 0;
+    sandbox.script("run-lint", () => {
+      attempts += 1;
+      return attempts === 1 ? { exitCode: 137 } : { exitCode: 0 };
+    });
+
+    const result = await runChecks(sandbox, sandboxId, TRUSTED_ALL);
+
+    expect(result.verdict).toBe("passed");
+    expect(attempts).toBe(2);
+  });
+
+  it("errors rather than fails when the sandbox goes away under the pair", async () => {
+    const { sandbox, sandboxId } = await sandboxWith({ destroyed: true });
+
+    const result = await runChecks(sandbox, sandboxId, TRUSTED_ALL);
+
+    expect(result.verdict).toBe("errored");
+    expect(result.checks[1]?.detail).toBe("not run: typecheck could not be run");
+  });
+});

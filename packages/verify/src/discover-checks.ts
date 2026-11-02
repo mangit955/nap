@@ -34,8 +34,13 @@ export const CHECK_NAMES = ["typecheck", "lint", "build", "test"] as const;
 export type CheckName = (typeof CHECK_NAMES)[number];
 
 export type DiscoveredCheck =
-  /** The project declares this script, and this is what running it once looks like. */
-  | { name: CheckName; state: "runnable"; command: string }
+  /**
+   * The project declares this script, and this is what running it once looks like.
+   *
+   * `readOnly` is present when the script is recognisably one command that writes nothing another
+   * check reads, which is what lets it run beside another. Absent means nobody can say.
+   */
+  | { name: CheckName; state: "runnable"; command: string; readOnly?: true }
   /** The project does not declare it. Nobody will ask, and nothing failed. */
   | { name: CheckName; state: "absent" };
 
@@ -55,7 +60,12 @@ export function discoverChecks(packageJsonContents: string): DiscoveredCheck[] {
     const script = scripts[name];
     if (typeof script !== "string" || script.trim() === "") return { name, state: "absent" };
 
-    return { name, state: "runnable", command: commandFor(name, script) };
+    return {
+      name,
+      state: "runnable",
+      command: commandFor(name, script),
+      ...(isReadOnly(name, script) ? { readOnly: true as const } : {}),
+    };
   });
 }
 
@@ -114,6 +124,38 @@ function needsRunFlag(script: string): boolean {
   if (vitest === -1) return false;
 
   return !ASKED_TO_RUN_ONCE.test(tokens.slice(vitest + 1).join(" "));
+}
+
+/** Anything that makes a script more than one command, or lets it write where it likes. */
+const SHELL_SYNTAX = /[;&|<>`$()\n]/;
+
+const TOOL_PREFIX = String.raw`^(?:(?:bunx|npx|bun x|pnpm exec|yarn)\s+)?`;
+
+/** Only these two: a build and a test share output directories and ports, and are never asked. */
+const READ_ONLY_TOOLS: Partial<Record<CheckName, RegExp>> = {
+  typecheck: new RegExp(`${TOOL_PREFIX}(?:vue-)?tsc(?:\\s|$)`),
+  lint: new RegExp(`${TOOL_PREFIX}(?:eslint|oxlint|biome\\s+(?:check|lint|ci))(?:\\s|$)`),
+};
+
+/** A linter told to rewrite the files `tsc` is reading, or a `tsc` told to emit. */
+const WRITES = /(?:^|\s)(?:--fix\S*|--write|--apply\S*|--unsafe|--build|-b)(?:\s|$)/;
+
+/**
+ * Whether this script is known to leave alone everything another check reads.
+ *
+ * **An allowlist, because the file is the user's.** A script can be anything, and `eslint --fix`
+ * beside `tsc` is a type error that exists only while a file is half written, which spends a
+ * repair turn on nothing. Being wrong in this direction only costs the time this was saving, so
+ * whatever is not recognised runs on its own, as every check used to.
+ */
+function isReadOnly(name: CheckName, script: string): boolean {
+  const tool = READ_ONLY_TOOLS[name];
+  if (tool === undefined) return false;
+
+  const line = script.trim();
+  if (SHELL_SYNTAX.test(line) || WRITES.test(line) || !tool.test(line)) return false;
+
+  return name !== "typecheck" || /(?:^|\s)--noEmit(?:\s|$)/.test(line);
 }
 
 function readScripts(packageJsonContents: string): Record<string, unknown> {
