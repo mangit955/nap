@@ -155,6 +155,72 @@ describe("when the sandbox never came up", () => {
     },
   );
 
+  it("stops saying it is starting when the turn is stopped before a sandbox exists", () => {
+    // Nothing is coming up any more, and no event will ever arrive to say so. Left on `starting`,
+    // the pane spins with no sandbox behind it until the next prompt.
+    const result = state(
+      ev("user.message", { text: "go" }),
+      ev("turn.failed", { reason: "cancelled", message: "stopped" }),
+    );
+
+    expect(result).toMatchObject({ status: "cancelled" });
+  });
+
+  it("goes back to being put away when a turn restoring it is stopped", () => {
+    // The work is still saved and the pane's Resume button is the honest offer. "Nothing running
+    // yet, describe an app" would read as though the project were gone.
+    const result = state(
+      ready(),
+      ev("preview.stopped", {}),
+      ev("user.message", { text: "go" }),
+      ev("turn.failed", { reason: "cancelled", message: "stopped" }),
+    );
+
+    expect(result).toMatchObject({ status: "stopped" });
+  });
+
+  it("does not bring back an old failure when a retry of it is stopped", () => {
+    const result = state(
+      ev("turn.failed", { reason: "sandbox_unavailable", message: "no capacity" }),
+      ev("user.message", { text: "try again" }),
+      ev("turn.failed", { reason: "cancelled", message: "stopped" }),
+    );
+
+    expect(result).toMatchObject({ status: "cancelled" });
+  });
+
+  it("is still starting when the turn stopped had a sandbox whose server was slow to answer", () => {
+    // A timed-out wait for the dev server is not a failure, so there is a sandbox here and no
+    // announcement yet. "Nothing running" would be false about it.
+    const result = state(
+      ev("user.message", { text: "go" }),
+      ev("job.started", { jobId: "job-1", objective: "go" }),
+      ev("turn.failed", { reason: "cancelled", message: "stopped" }),
+    );
+
+    expect(result).toMatchObject({ status: "starting" });
+  });
+
+  it("starts again when somebody asks again after stopping", () => {
+    const result = state(
+      ev("user.message", { text: "go" }),
+      ev("turn.failed", { reason: "cancelled", message: "stopped" }),
+      ev("user.message", { text: "go on then" }),
+    );
+
+    expect(result).toMatchObject({ status: "starting" });
+  });
+
+  it("keeps showing the app when a turn is stopped under it", () => {
+    const result = state(
+      ready(),
+      ev("user.message", { text: "go" }),
+      ev("turn.failed", { reason: "cancelled", message: "stopped" }),
+    );
+
+    expect(result).toMatchObject({ status: "ready" });
+  });
+
   it("clears the error once a later turn starts", () => {
     const result = state(
       ev("turn.failed", { reason: "sandbox_unavailable", message: "no capacity" }),

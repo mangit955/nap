@@ -49,13 +49,13 @@ export type TurnRouteDeps = {
   /** Where an admitted turn goes. A worker takes it from here; this route never runs one. */
   queue: TurnQueue;
   /**
-   * Which turns are running *in this process*, so a cancel that lands on the pod holding the turn
-   * is felt at once rather than at the worker's next renewal. Never the durable answer.
+   * Which turns are running *in this process*, which only a composition running every role at once
+   * has any of: scripts and tests. Never the durable answer. See `./registry.ts`.
    */
   registry: TurnRegistry;
   /**
-   * Tells whichever worker holds a flagged request to read the flag now. Absent where no channel
-   * crosses processes, which is the single-container arrangement: there, `registry` reaches it.
+   * Tells whichever worker holds a flagged request to read the flag now. Absent where nothing
+   * crosses processes, which is those same scripts and tests: there, `registry` reaches it.
    */
   cancels?: Pick<CancelChannel, "announce">;
   /**

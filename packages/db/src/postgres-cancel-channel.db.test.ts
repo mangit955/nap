@@ -69,7 +69,10 @@ describe("PostgresCancelChannel over two connections", () => {
     const sentAt = Date.now();
     api.channel.announce(request);
 
-    await expect.poll(() => heardAt, { interval: 2 }).not.toBeNull();
+    // Waited for past the limit below, so a slow wake-up reads as the number it is.
+    await expect
+      .poll(() => heardAt, { timeout: LEASE_RENEWAL_INTERVAL_MS / 5, interval: 2 })
+      .not.toBeNull();
     expect((heardAt ?? 0) - sentAt).toBeLessThan(LEASE_RENEWAL_INTERVAL_MS / 10);
   });
 

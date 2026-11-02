@@ -15,7 +15,10 @@
 /** Called for every wake-up on the channel, whichever worker's request it names. */
 export type CancelWakeupHandler = (requestId: string) => void;
 
-/** Stops delivery. */
+/**
+ * Asks for delivery to stop, and resolving does not promise that it has: a handler may go on being
+ * called afterwards, so it must stay safe to call. See `PostgresCancelChannel.listen`.
+ */
 export type StopListening = () => Promise<void>;
 
 export interface CancelChannel {

@@ -70,7 +70,8 @@ describe("PostgresCancelChannel", () => {
     expect(warn.mock.calls[0]?.[0]).toMatchObject({ requestId: REQUEST });
   });
 
-  it("stops delivering once it has been told to stop", async () => {
+  it("stops delivering when told to, on a connection that has not been lost", async () => {
+    // Only that: after a reconnect the stop resolves and delivery goes on. See `listen`.
     const hub = new NotifyHub();
     const heard: string[] = [];
     const channel = new PostgresCancelChannel(hub.connect());

@@ -40,6 +40,12 @@ export class PostgresCancelChannel implements CancelChannel {
     });
   }
 
+  /**
+   * After a reconnect, the stop this returns resolves and delivery continues: postgres.js puts each
+   * channel back under a new listener entry, so the one this closes over no longer matches anything.
+   * Observed under Bun, and not worth working around, because the only caller stops during shutdown,
+   * after its drain, when a wake-up has nothing left to find and the process is about to exit.
+   */
   async listen(handler: CancelWakeupHandler): Promise<StopListening> {
     return await this.#transport.listen(CANCEL_CHANNEL, (payload) => {
       const requestId = RequestIdSchema.safeParse(payload);

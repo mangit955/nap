@@ -12,7 +12,7 @@ That wait was measured across a real API composition and a real worker compositi
 
 ### D1: The notification is a wake-up, not an abort
 
-§9 step 4 says the owning worker "aborts its local `AbortController`". It does not. A worker that hears a cancel for a request it is running makes its ordinary conditional renewal straight away and acts on the answer, exactly as it does on the timer.
+§9 step 4 originally said the owning worker "aborts its local `AbortController`". It does not. A worker that hears a cancel for a request it is running makes its ordinary conditional renewal straight away and acts on the answer, exactly as it does on the timer.
 
 This is ADR-0010's bargain applied to cancellation: a notification is a wake-up signal and the durable row is the truth. A payload proves nothing. Every process on the database shares the channel, and a notification can be late or duplicated, or come from a replica on another version mid-rollout. Because the row decides, every bad case is cheap:
 
@@ -23,8 +23,9 @@ This is ADR-0010's bargain applied to cancellation: a notification is a wake-up 
 | names a request that has settled | Nothing, not even a query. The entry left with the turn |
 | names a request this worker is running but nobody flagged | One renewal, and the turn carries on |
 | is malformed | Ignored by the adapter |
+| lands between the claim committing and the worker registering the request | Ignored, so the stop waits for the next renewal or a second click |
 
-Each case has a test, and each guard was seen to fail.
+Each case but the last has a test, and each guard was seen to fail. The last is a narrow window that this accepts rather than closes.
 
 ### D2: It names a request, never a session
 
@@ -51,11 +52,13 @@ The connection budget does not change, and `NAP_LISTEN_DATABASE_URL` carries the
 
 ### D5: Only a worker listens
 
-The API sends and never listens, because nothing runs in it. The worker starts listening before its first claim, so no turn runs unreachable, and stops after its drain, so a turn still draining stays reachable. A `LISTEN` that fails is logged and the worker runs on, with cancels back to arriving at renewal. A worker that cannot hear a wake-up is slower to stop a turn, which is no reason to refuse to run one.
+The API sends and never listens, because nothing runs in it. The worker starts listening before its first claim, so no turn runs unreachable, and stops after its drain, so a turn still draining stays reachable. A `LISTEN` that fails is logged and the worker runs on, with cancels back to arriving at renewal. A `LISTEN` that hangs gets the same treatment after a few seconds, because postgres.js sets no limit of its own: the worker logs and starts claiming, and hears wake-ups from then on if the answer ever comes. A worker that cannot hear a wake-up is slower to stop a turn, which is no reason to refuse to run one. Stopping is bounded the same way, so a channel that does not answer cannot hold up an exit.
 
-### D6: The registry stays in the API composition
+### D6: The registry stays, and no deployment uses it
 
-§9 says `TurnRegistry` "moves to the worker". It does not. It keeps doing one job: the single-container arrangement on the in-process bus has no listening connection, so there `cancels` is `null` and the registry is what makes a cancel immediate. Removing it would make that arrangement wait for renewal, and it would be a larger change to `turn-worker.ts` than this fix needs.
+§9 originally said `TurnRegistry` "moves to the worker". It does not. It stays in the composition, and what it serves is compositions running every role in one process, meaning scripts and tests: `role: "all"` comes only from `composeNap`'s default. Those pass `cancels: null`, and the registry is what makes a cancel immediate in them.
+
+No entrypoint can run that arrangement. `bootNap` is called only with `api`, `worker` and `reaper`, the worker and reaper refuse the in-process bus at boot, and an API alone on it runs no turns. So in every deployed process the route's `registry.cancel` finds nothing: API pods adopt nothing, and worker pods serve no route. Removing it would only make those scripts and tests wait for a renewal, and it would be a larger change to `turn-worker.ts` than this fix needs, so it is left for a change of its own.
 
 `NapDeps.cancels` is required and nullable, so a new entrypoint that forgets it fails to compile. That mistake would otherwise look like a healthy deployment with a slow stop button.
 
@@ -63,5 +66,6 @@ The API sends and never listens, because nothing runs in it. The worker starts l
 
 - **The bound in §9 is unchanged.** Cancellation reaches an executing turn within one renewal interval. The wake-up improves the typical case. It is not a new guarantee, and nothing may rely on it.
 - **Measured after the fix:** p50 10 ms, p95 17 ms, max 18 ms from the cancel request to the model's abort signal, over 30 turns across two compositions and a local Postgres container. `infra/k8s/proof/run.sh` now checks the same crossing between pods, up to the terminal `turn.failed` reaching a socket on another pod, and fails above a fifth of a renewal: one run on kind took 233 ms, and 12,930 ms with the channel taken out of the pods, where the turn still ended cancelled.
+- **Where those figures came from.** The p50/p95 figures came from a throwaway loop that was not committed, and the two readings before the fix have no committed script either; `apps/api/src/split.db.test.ts` runs one turn. The real entrypoints were checked once, with no turn running: only the worker issued `LISTEN nap_cancel`, and a cancel through the real API sent one notification naming the row with the flag already committed.
 - **This measures the abort signal, not the end of the turn.** How quickly a step in progress honours the signal is unchanged.
 - **Nothing reports a dead listener on a worker.** A worker serves nothing, so it has no `/readyz` to fail, and a degraded listener there only shows up as a slow stop button. Every process reads the same `NAP_LISTEN_DATABASE_URL`, so the likeliest cause, a pooler, also fails the API's `listener` check.

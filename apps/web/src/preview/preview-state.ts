@@ -25,6 +25,8 @@ const PREVIEW_FAILURES: readonly FailureReason[] = ["sandbox_unavailable", "inte
 export type PreviewState =
   | { status: "idle" }
   | { status: "starting" }
+  /** A turn was stopped before it had a sandbox, so nothing is coming up and nothing is serving. */
+  | { status: "cancelled" }
   /**
    * `seq` identifies *which* announcement this is, which is what a reload keys on; `createdAt`
    * is when the server made it, which is what decides whether the project record read at mount
@@ -37,6 +39,10 @@ export type PreviewState =
 
 export function previewState(events: readonly StoredEvent[]): PreviewState {
   let state: PreviewState = { status: "idle" };
+  /** The log's last word on a sandbox was that it went away, so there is saved work to come back. */
+  let putAway = false;
+  /** The latest turn was given a sandbox: a job opens only once one is in hand. */
+  let hasSandbox = false;
 
   for (const event of events) {
     switch (event.type) {
@@ -48,6 +54,7 @@ export function previewState(events: readonly StoredEvent[]): PreviewState {
           seq: event.seq,
           createdAt: event.createdAt,
         };
+        putAway = false;
         break;
 
       // Unconditional, unlike every other transition here: a ready preview is exactly what
@@ -56,17 +63,27 @@ export function previewState(events: readonly StoredEvent[]): PreviewState {
       // the user's app.
       case "preview.stopped":
         state = { status: "stopped" };
+        putAway = true;
+        break;
+
+      case "job.started":
+        hasSandbox = true;
         break;
 
       case "user.message":
         // A new turn supersedes an old failure: the user has asked again, and the pane should
         // say it is working on it rather than keep showing what went wrong last time.
         if (state.status !== "ready") state = { status: "starting" };
+        hasSandbox = false;
         break;
 
       case "turn.failed":
         if (state.status !== "ready" && PREVIEW_FAILURES.includes(event.payload.reason)) {
           state = { status: "error", message: event.payload.message };
+        } else if (state.status === "starting" && event.payload.reason === "cancelled") {
+          // No later event will end this wait. With a sandbox in hand it does not end: the dev
+          // server was merely slow to answer and may yet, so "starting" is still the true thing.
+          if (!hasSandbox) state = putAway ? { status: "stopped" } : { status: "cancelled" };
         }
         break;
 

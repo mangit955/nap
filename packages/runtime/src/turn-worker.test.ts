@@ -2,7 +2,8 @@ import { PostgresCancelChannel } from "@nap/db/postgres-cancel-channel";
 import { enqueueRequest } from "@nap/db/testing/enqueue-request";
 import { NotifyHub } from "@nap/db/testing/in-memory-notify-transport";
 import { InMemoryTurnQueue } from "@nap/db/testing/in-memory-turn-queue";
-import type { CancelChannel } from "@nap/shared/ports/cancel-channel";
+import { type Logger, setRootLogger } from "@nap/shared/logging";
+import type { CancelChannel, StopListening } from "@nap/shared/ports/cancel-channel";
 import type { ModelCredentials } from "@nap/shared/ports/llm-provider";
 import type {
   ContinueOptions,
@@ -128,6 +129,7 @@ function start(
     publish?: (request: LeasedTurnRequest, signal: AbortSignal) => Promise<boolean>;
     renewIntervalMs?: number;
     cancels?: Pick<CancelChannel, "listen">;
+    listenTimeoutMs?: number;
   } = {},
 ): TurnWorker {
   const worker = startTurnWorker({
@@ -138,6 +140,9 @@ function start(
     pollIntervalMs: POLL_MS,
     renewIntervalMs: overrides.renewIntervalMs ?? RENEW_MS,
     ...(overrides.cancels === undefined ? {} : { cancels: overrides.cancels }),
+    ...(overrides.listenTimeoutMs === undefined
+      ? {}
+      : { listenTimeoutMs: overrides.listenTimeoutMs }),
     ...(overrides.credentialsFor === undefined ? {} : { credentialsFor: overrides.credentialsFor }),
     ...(overrides.running === undefined ? {} : { running: overrides.running }),
     ...(overrides.drainTimeoutMs === undefined ? {} : { drainTimeoutMs: overrides.drainTimeoutMs }),
@@ -741,6 +746,176 @@ describe("a cancel wake-up", () => {
     await queue.requestCancel("session-a");
 
     await vi.waitFor(() => expect(runtime.signal?.aborted).toBe(true));
+  });
+
+  /**
+   * A `LISTEN` written to a socket that has stopped answering, which postgres.js has no timeout for.
+   * Nothing rejects, so a worker that only handled a failure would stop claiming and say nothing.
+   */
+  describe("when the LISTEN does not answer", () => {
+    const PATIENCE_MS = POLL_MS * 5;
+    const HUNG = { listen: () => new Promise<StopListening>(() => {}) };
+
+    /** Every warning logged from here on. */
+    function warnings(): string[] {
+      const warned: string[] = [];
+      const quiet = () => {};
+      const logger: Logger = {
+        debug: quiet,
+        info: quiet,
+        warn: (_fields: unknown, message?: string) => warned.push(message ?? ""),
+        error: quiet,
+        child: () => logger,
+      };
+      setRootLogger(logger);
+      return warned;
+    }
+
+    /** Whether it finished, as an answer rather than as a test that times out in its teardown. */
+    async function finishes(stopping: Promise<void>): Promise<boolean> {
+      return await Promise.race([
+        stopping.then(() => true),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 2_000)),
+      ]);
+    }
+
+    it("claims anyway, runs the turn to the end, and says what it did", async () => {
+      const queue = new InMemoryTurnQueue();
+      const runtime = new RecordingRuntime();
+      const warned = warnings();
+      start(queue, runtime, { cancels: HUNG, listenTimeoutMs: PATIENCE_MS });
+      const { id } = await enqueueTurn(queue);
+
+      await vi.waitFor(() => expect(runtime.turns).toHaveLength(1));
+      expect(warned).toContainEqual(expect.stringMatching(/claiming anyway/));
+
+      runtime.complete();
+      await vi.waitFor(() => expect(queue.stateOf(id)).toBe("done"));
+    });
+
+    it("still stops a turn at its next renewal", async () => {
+      const queue = new InMemoryTurnQueue();
+      const runtime = new RecordingRuntime();
+      start(queue, runtime, { cancels: HUNG, listenTimeoutMs: PATIENCE_MS });
+      await enqueueTurn(queue);
+      await running(queue, runtime);
+
+      await queue.requestCancel("session-a");
+
+      await vi.waitFor(() => expect(runtime.signal?.aborted).toBe(true));
+    });
+
+    it("gives up on nothing, and warns of nothing, when the answer comes in time", async () => {
+      const queue = new InMemoryTurnQueue();
+      const warned = warnings();
+      const { worker } = channel();
+      start(queue, new RecordingRuntime(), { cancels: worker, listenTimeoutMs: PATIENCE_MS });
+
+      await new Promise((resolve) => setTimeout(resolve, PATIENCE_MS * 4));
+
+      expect(warned).toEqual([]);
+    });
+
+    it("hears wake-ups from then on when the answer only comes late", async () => {
+      const queue = new InMemoryTurnQueue();
+      const runtime = new RecordingRuntime();
+      const { worker, api } = channel();
+      let answer: () => void = () => {};
+      const answered = new Promise<void>((resolve) => {
+        answer = resolve;
+      });
+      start(queue, runtime, {
+        cancels: {
+          listen: async (handler) => {
+            await answered;
+            return await worker.listen(handler);
+          },
+        },
+        listenTimeoutMs: PATIENCE_MS,
+        renewIntervalMs: NEVER_MS,
+      });
+      const { id } = await enqueueTurn(queue);
+      await running(queue, runtime);
+
+      answer();
+      await new Promise((resolve) => setTimeout(resolve, STILL_RUNNING_MS));
+      await queue.requestCancel("session-a");
+      api.announce(id);
+
+      await vi.waitFor(() => expect(runtime.signal?.aborted).toBe(true));
+    });
+
+    it("does not hold up stop(), and claims nothing on the way out", async () => {
+      const queue = new InMemoryTurnQueue();
+      const runtime = new RecordingRuntime();
+      const worker = start(queue, runtime, { cancels: HUNG, listenTimeoutMs: PATIENCE_MS * 4 });
+      await enqueueTurn(queue);
+
+      expect(await finishes(worker.stop())).toBe(true);
+
+      await new Promise((resolve) => setTimeout(resolve, PATIENCE_MS * 8));
+      expect(runtime.turns).toHaveLength(0);
+    });
+
+    it("does not hold up stop() when it is the unlisten that does not answer", async () => {
+      const worker = start(new InMemoryTurnQueue(), new RecordingRuntime(), {
+        cancels: { listen: async () => () => new Promise<void>(() => {}) },
+        listenTimeoutMs: PATIENCE_MS,
+      });
+
+      expect(await finishes(worker.stop())).toBe(true);
+    });
+
+    it("still stops a listen that answers after stop() has returned", async () => {
+      const stopListening = vi.fn(async () => {});
+      let answer: (stop: StopListening) => void = () => {};
+      const worker = start(new InMemoryTurnQueue(), new RecordingRuntime(), {
+        cancels: {
+          listen: () =>
+            new Promise<StopListening>((resolve) => {
+              answer = resolve;
+            }),
+        },
+        listenTimeoutMs: PATIENCE_MS,
+      });
+
+      expect(await finishes(worker.stop())).toBe(true);
+      expect(stopListening).not.toHaveBeenCalled();
+
+      answer(stopListening);
+
+      await vi.waitFor(() => expect(stopListening).toHaveBeenCalledOnce());
+    });
+
+    it("reports an unlisten that fails, and stops anyway", async () => {
+      const warned = warnings();
+      const worker = start(new InMemoryTurnQueue(), new RecordingRuntime(), {
+        cancels: { listen: async () => () => Promise.reject(new Error("the socket went away")) },
+        listenTimeoutMs: PATIENCE_MS,
+      });
+
+      await expect(worker.stop()).resolves.toBeUndefined();
+
+      expect(warned).toContainEqual(expect.stringMatching(/could not stop listening/));
+    });
+
+    it("reports a listen that fails late, rather than leaving a rejection nobody handled", async () => {
+      const warned = warnings();
+      const failing = {
+        listen: () =>
+          new Promise<StopListening>((_resolve, reject) => {
+            setTimeout(() => reject(new Error("the listener is down")), PATIENCE_MS * 2);
+          }),
+      };
+      start(new InMemoryTurnQueue(), new RecordingRuntime(), {
+        cancels: failing,
+        listenTimeoutMs: PATIENCE_MS,
+      });
+
+      await vi.waitFor(() =>
+        expect(warned).toContainEqual(expect.stringMatching(/not hearing cancel wake-ups/)),
+      );
+    });
   });
 });
 

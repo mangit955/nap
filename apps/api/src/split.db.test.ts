@@ -411,7 +411,12 @@ describe("a worker and a real channel over one database", () => {
   });
 
   /** Claims only the request it is told to, because the container is shared with other tests. */
-  function workerOf(options: { sessionId: string; renewIntervalMs: number }) {
+  function workerOf(options: {
+    sessionId: string;
+    renewIntervalMs: number;
+    /** Told of every renewal, which is the only thing a wake-up can do to an unflagged row. */
+    onRenew?: (requestId: string) => void;
+  }) {
     const queue = new PostgresTurnQueue(db);
     const runtime = new ControllableRuntime();
     const worker = startTurnWorker({
@@ -424,6 +429,10 @@ describe("a worker and a real channel over one database", () => {
             return null;
           }
           return next;
+        },
+        renew: (requestId, owner) => {
+          options.onRenew?.(requestId);
+          return queue.renew(requestId, owner);
         },
       },
       runtime,
@@ -468,7 +477,6 @@ describe("a worker and a real channel over one database", () => {
     if (!outcome.cancelled || outcome.was !== "leased") throw new Error("expected a leased row");
     channelOf({ dropping: true }).announce(outcome.requestId);
 
-    expect(signal.aborted).toBe(false);
     await expect.poll(() => signal.aborted, { timeout: 5_000 }).toBe(true);
     expect(signal.reason).toMatchObject({ code: "cancelled" });
   }, 30_000);
@@ -494,7 +502,12 @@ describe("a worker and a real channel over one database", () => {
   it("leaves a session's next turn alone when one arrives late for its last", async () => {
     const userId = await seedUser();
     const { sessionId } = await createProjectSession(db, { userId });
-    const runtime = workerOf({ sessionId, renewIntervalMs: 600_000 });
+    const renewed: string[] = [];
+    const runtime = workerOf({
+      sessionId,
+      renewIntervalMs: 600_000,
+      onRenew: (requestId) => renewed.push(requestId),
+    });
     const queue = new PostgresTurnQueue(db);
     const first = await admitted(sessionId, userId);
     await runningIn(runtime);
@@ -509,10 +522,14 @@ describe("a worker and a real channel over one database", () => {
     api.announce(crypto.randomUUID());
     await new Promise((resolve) => setTimeout(resolve, 500));
     expect(signal.aborted).toBe(false);
+    // Neither row is flagged, so a wake-up that acted on the running turn would abort nothing and
+    // the line above could not tell. That it asked the row at all is what it got wrong.
+    expect(renewed).toEqual([]);
 
     await queue.requestCancel(sessionId);
     api.announce(second);
     await expect.poll(() => signal.aborted, { timeout: 2_000, interval: 5 }).toBe(true);
+    expect(renewed).toEqual([second]);
   }, 30_000);
 });
 

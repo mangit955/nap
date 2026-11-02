@@ -1,3 +1,4 @@
+import { enqueueRequest } from "@nap/db/testing/enqueue-request";
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { FAKE_OWNER, InMemoryProjectStore } from "@nap/db/testing/in-memory-project-store";
@@ -14,6 +15,7 @@ import { TurnRegistry } from "./registry.ts";
 
 const SESSION = "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f";
 const UNKNOWN = "2d9fab30-5e4c-4f7d-9a8b-3c4d5e6f7081";
+const SOMEBODY_ELSES = "3e0abc41-6f5d-4a8e-8b9c-4d5e6f708192";
 const silent = () => createLogger({ level: "silent" }, { write: () => {} });
 
 /** A project carrying the default name, which is what the auto-namer looks for. */
@@ -60,7 +62,10 @@ function app(
         keys: async () => OPENROUTER_KEY,
         freeModel: FREE_MODEL,
         defaultModel: ALLOWED[0] ?? "",
-        sessions: new InMemorySessionStore([{ sessionId: SESSION, projectId: "project-1" }]),
+        sessions: new InMemorySessionStore([
+          { sessionId: SESSION, projectId: "project-1" },
+          { sessionId: SOMEBODY_ELSES, projectId: "project-2", userId: "somebody-else" },
+        ]),
       },
     }),
     registry,
@@ -276,8 +281,9 @@ describe("POST /sessions/:sessionId/turns/cancel", () => {
   });
 
   it("leaves alone a turn in this process that is not the request it flagged", async () => {
-    // What a session key used to get wrong: the flagged request had finished by the time the route
-    // looked, and the same session was on to a turn nobody had asked to stop.
+    // What a session key used to get wrong: whatever that session is running by the time the route
+    // looks can be a turn nobody asked to stop. The flagged request is still running here, beside
+    // the other entry, so one test can see the right one stop and the wrong one carry on.
     const queue = new InMemoryTurnQueue();
     const { app: hono, registry } = app(queue);
     await post(hono, `/sessions/${SESSION}/turns`, { message: "hello" });
@@ -361,14 +367,38 @@ describe("POST /sessions/:sessionId/turns/cancel", () => {
       expect(channel.told.map((entry) => entry.requestId)).toEqual([claimed?.id]);
     });
 
-    it("is not sent when there is nothing to cancel, or for somebody else's session", async () => {
+    it("is not sent when there is nothing to cancel", async () => {
       const queue = new InMemoryTurnQueue();
       const channel = recording(queue, "nobody");
       const { app: hono } = app(queue, undefined, undefined, undefined, undefined, channel);
 
       expect((await post(hono, `/sessions/${SESSION}/turns/cancel`)).status).toBe(409);
-      expect((await post(hono, "/sessions/nope/turns/cancel")).status).not.toBe(202);
+      expect((await post(hono, `/sessions/${UNKNOWN}/turns/cancel`)).status).toBe(404);
       expect(channel.told).toEqual([]);
+    });
+
+    it("is not sent for somebody else's session, whose turn is left running", async () => {
+      const queue = new InMemoryTurnQueue();
+      const channel = recording(queue, "their-pod");
+      const { app: hono } = app(queue, undefined, undefined, undefined, undefined, channel);
+      const { id } = await enqueueRequest(queue, {
+        sessionId: SOMEBODY_ELSES,
+        userId: "somebody-else",
+        kind: "turn",
+        message: "theirs",
+        model: ALLOWED[0] ?? "",
+        billsToUser: false,
+      });
+      await queue.claim("their-pod");
+
+      // 404 rather than 403, and rather than the 409 a stranger could read as "that session is idle".
+      expect((await post(hono, `/sessions/${SOMEBODY_ELSES}/turns/cancel`)).status).toBe(404);
+
+      expect(channel.told).toEqual([]);
+      await expect(queue.renew(id, "their-pod")).resolves.toEqual({
+        held: true,
+        cancelRequested: false,
+      });
     });
   });
 

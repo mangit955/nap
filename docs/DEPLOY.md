@@ -201,8 +201,8 @@ reconnects with `?afterSeq=` and gets exactly the gap.
 
 ### Turning it on
 
-`NAP_EVENT_BUS=postgres` swaps `InProcessEventBus` for `PostgresNotifyEventBus`. Two things to get
-right when you do:
+`NAP_EVENT_BUS=postgres` swaps `InProcessEventBus` for `PostgresNotifyEventBus`. Three things to
+know when you do:
 
 - **`LISTEN` cannot go through a connection pooler.** It is session state, and a transaction
   pooler hands the next statement to whichever backend is free — so the `LISTEN` lands on a
@@ -218,8 +218,7 @@ right when you do:
 - **The stop button rides on the same listener, and costs it no connection.** Cancel wake-ups
   share the socket the fanout already holds. A worker whose listener is down still stops a turn,
   at its next lease renewal rather than at once. A worker has no `/readyz`, so the only symptom
-  there is a slow stop button; on `NAP_EVENT_BUS=in-process` no listener exists and the same-process
-  registry does this job.
+  there is a slow stop button.
 
 ### What each process scales on
 
@@ -560,9 +559,10 @@ Those four, and the reaper being singular, and no credential appearing in a mani
 in `test/k8s.test.ts` rather than left to review — each one against a synthetic manifest that
 breaks it, since a check nobody has watched fail is not known to work.
 
-Two claims a file cannot make are checked by running it: `infra/k8s/proof/run.sh` brings up a kind
+Three claims a file cannot make are checked by running it: `infra/k8s/proof/run.sh` brings up a kind
 cluster at API 3 / workers 2 / reaper 1 and confirms that a turn submitted to one pod completes and
-streams to a socket on another, and that a rolling restart of the API loses no events. The pods
+streams to a socket on another, that a cancel pressed on one pod stops a turn on a worker well inside
+a renewal, and that a rolling restart of the API loses no events. The pods
 there run `apps/api/scripts/cluster-proof.ts` — the same composition and the same Postgres fanout,
 with a scripted model and an in-memory sandbox — so the run costs nothing and proves nothing about
 E2B or OpenRouter, which is what `bun run acceptance` is for.
