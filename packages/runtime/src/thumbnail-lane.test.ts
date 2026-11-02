@@ -205,6 +205,22 @@ describe("the bound on how many", () => {
         }),
     ).toThrow(RangeError);
   });
+
+  it.each([0, -1, 1.5])("refuses a queue bound of %s rather than never photographing", (n) => {
+    // Every request waits in the queue first, even with a browser free, so a queue of nought
+    // refuses all of them.
+    const sandbox = new InMemorySandboxManager();
+    expect(
+      () =>
+        new ThumbnailLane({
+          sandbox,
+          capture: new GatedPageCapture(),
+          objects: new InMemoryObjectStore(),
+          concurrency: 1,
+          maxQueued: n,
+        }),
+    ).toThrow(RangeError);
+  });
 });
 
 describe("a workspace that moves while a shot is in the lane", () => {

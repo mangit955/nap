@@ -160,6 +160,15 @@ describe("discoverChecks", () => {
       "$(./prepare.sh) tsc --noEmit",
       "./scripts/typecheck.sh",
       "something-else --noEmit",
+      // A boolean flag followed by `false` is turned off, so this one emits.
+      "tsc --noEmit false",
+      "tsc --noEmit false -p .",
+      // Never exits, so it would hold the lint's slot until the deadline.
+      "tsc --noEmit --watch",
+      "tsc --noEmit -w",
+      // Both write files into the project, which a linter beside it may be reading.
+      "tsc --noEmit --generateTrace trace",
+      "tsc --noEmit --generateCpuProfile profile.cpuprofile",
     ])("does not trust a typecheck of `%s`", (script) => {
       expect(readOnly("typecheck", script)).toBe(false);
     });
@@ -188,8 +197,48 @@ describe("discoverChecks", () => {
       "next lint",
       "eslint . && prettier --write .",
       "prettier --check .",
+      "eslint . -o report.json",
+      "eslint . --output-file report.json",
+      "eslint . --output-file=report.json",
+      "oxlint -o=report.json",
+      "biome check --write=true .",
+      "biome check --fix=true .",
+      "biome check --apply=true .",
     ])("does not trust a lint of `%s`", (script) => {
       expect(readOnly("lint", script)).toBe(false);
+    });
+
+    /** Whether `name` is trusted when the manifest declares `script` and these others beside it. */
+    const readOnlyBeside = (name: "typecheck" | "lint", script: string, others: object) => {
+      const check = checkNamed(discoverChecks(packageJson({ [name]: script, ...others })), name);
+      return check.state === "runnable" && check.readOnly === true;
+    };
+
+    it.each([
+      ["typecheck", "tsc --noEmit", { pretypecheck: "prisma generate" }],
+      ["typecheck", "tsc --noEmit", { posttypecheck: "rm -rf .cache" }],
+      ["lint", "eslint .", { prelint: "eslint --fix ." }],
+      ["lint", "eslint .", { postlint: "prettier --write ." }],
+    ] as const)(
+      "does not trust a %s of `%s` once %o is declared, because bun runs it too",
+      (name, script, others) => {
+        // `bun run lint` runs `prelint` first and `postlint` after, so what the check does is no
+        // longer only what its own script says.
+        expect(readOnlyBeside(name, script, others)).toBe(false);
+      },
+    );
+
+    it("is not put off by a lifecycle script that belongs to some other name", () => {
+      const others = {
+        prebuild: "rm -rf dist",
+        postbuild: "echo done",
+        pretest: "echo",
+        prelint: "",
+      };
+
+      expect(readOnlyBeside("typecheck", "tsc --noEmit", others)).toBe(true);
+      // Declared, but empty, so there is nothing for bun to run.
+      expect(readOnlyBeside("lint", "eslint .", others)).toBe(true);
     });
 
     it("never trusts a build or a test, whatever they are spelled", () => {

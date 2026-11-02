@@ -280,7 +280,9 @@ export type ComposedNap = {
   registry: TurnRegistry;
   /**
    * Already claiming, unless the role is `api`, in which case it never claims anything. The caller
-   * owns stopping it either way — on a signal, or at the end of a test.
+   * owns stopping it either way — on a signal, or at the end of a test. Stopping it drains the turns
+   * first and then stops the thumbnail lane, which can add up to the lane's own short grace for
+   * pictures still being taken.
    */
   worker: TurnWorker;
   /** Already sweeping, unless the role is `api`. The caller owns stopping it. */

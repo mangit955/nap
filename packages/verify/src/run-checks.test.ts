@@ -369,6 +369,144 @@ describe("a typecheck and a lint known to be independent", () => {
 
     expect(result.verdict).toBe("passed");
     expect(attempts).toBe(2);
+    // The typecheck beside it passed, and is not asked again.
+    expect(sandbox.commands(sandboxId)).toEqual([
+      "run-typecheck",
+      "run-lint",
+      "run-lint",
+      "run-build",
+      "run-test",
+    ]);
+  });
+
+  it("asks nothing more when the typecheck fails beside the lint", async () => {
+    // Alone, the typecheck would have been the only command. The lint already ran beside it, and
+    // running either again would only repeat an answer the run is about to stop on.
+    const { sandbox, sandboxId } = await sandboxWith();
+    sandbox.script("run-typecheck", { exitCode: 2, stderr: "TS2322" });
+
+    const result = await runChecks(sandbox, sandboxId, TRUSTED_ALL);
+
+    expect(sandbox.commands(sandboxId)).toEqual(["run-typecheck", "run-lint"]);
+    expect(result.verdict).toBe("failed");
+    expect(result.checks[1]?.detail).toBe("not run: typecheck failed first");
+  });
+
+  it("asks nothing more when the lint fails beside a passing typecheck", async () => {
+    const { sandbox, sandboxId } = await sandboxWith();
+    sandbox.script("run-lint", { exitCode: 1, stderr: "no-unused-vars" });
+
+    const result = await runChecks(sandbox, sandboxId, TRUSTED_ALL);
+
+    expect(sandbox.commands(sandboxId)).toEqual(["run-typecheck", "run-lint"]);
+    expect(result.verdict).toBe("failed");
+    expect(outcomes(result).slice(0, 2)).toEqual([
+      ["typecheck", "passed"],
+      ["lint", "failed"],
+    ]);
+  });
+
+  it("does not run again a check that could not be run at all", async () => {
+    // A command that never answered — the sandbox went, or the command timed out — would most
+    // likely not answer a second time either, and waiting for it twice doubles the wait.
+    const { sandbox, sandboxId } = await sandboxWith();
+    sandbox.script("run-typecheck", { error: { code: "timeout", message: "no answer" } });
+
+    const result = await runChecks(sandbox, sandboxId, TRUSTED_ALL);
+
+    expect(sandbox.commands(sandboxId)).toEqual(["run-typecheck", "run-lint"]);
+    expect(result.verdict).toBe("errored");
+    expect(result.checks[1]?.detail).toBe("not run: typecheck could not be run");
+  });
+
+  it("runs a killed typecheck again on its own, and uses what it says alone", async () => {
+    const { sandbox, sandboxId } = await sandboxWith();
+    let attempts = 0;
+    sandbox.script("run-typecheck", () => {
+      attempts += 1;
+      return attempts === 1 ? { exitCode: 134 } : { exitCode: 2, stderr: "TS2322" };
+    });
+
+    const result = await runChecks(sandbox, sandboxId, TRUSTED_ALL);
+
+    expect(sandbox.commands(sandboxId)).toEqual(["run-typecheck", "run-lint", "run-typecheck"]);
+    expect(result.checks[0]).toMatchObject({
+      name: "typecheck",
+      outcome: "failed",
+      detail: "exit 2",
+    });
+    expect(result.checks[1]?.detail).toBe("not run: typecheck failed first");
+  });
+
+  it("does not ask the passing lint again when only the typecheck beside it was killed", async () => {
+    const { sandbox, sandboxId } = await sandboxWith();
+    let attempts = 0;
+    sandbox.script("run-typecheck", () => {
+      attempts += 1;
+      return attempts === 1 ? { exitCode: 137 } : { exitCode: 0 };
+    });
+
+    const result = await runChecks(sandbox, sandboxId, TRUSTED_ALL);
+
+    expect(result.verdict).toBe("passed");
+    expect(sandbox.commands(sandboxId)).toEqual([
+      "run-typecheck",
+      "run-lint",
+      "run-typecheck",
+      "run-build",
+      "run-test",
+    ]);
+  });
+
+  describe("reports every pairing of answers exactly as running them apart would", () => {
+    /** What a check says on its own, and whether running it beside the other got it killed. */
+    type Side = { alone: "passes" | "fails" | "errors"; killedBeside: boolean };
+    const sides: Side[] = (["passes", "fails", "errors"] as const).flatMap((alone) => [
+      { alone, killedBeside: false },
+      { alone, killedBeside: true },
+    ]);
+    const answerAlone = (name: string, side: Side) =>
+      side.alone === "passes"
+        ? { exitCode: 0 }
+        : side.alone === "fails"
+          ? { exitCode: 1, stderr: `${name} said no` }
+          : { error: { code: "unavailable" as const, message: `${name} went away` } };
+    const label = (side: Side) => `${side.alone}${side.killedBeside ? " (killed beside)" : ""}`;
+
+    const pairings = sides.flatMap((typecheck) =>
+      sides.map((lint) => [label(typecheck), label(lint), typecheck, lint] as const),
+    );
+
+    it.each(pairings)("a typecheck that %s and a lint that %s", async (_t, _l, typecheck, lint) => {
+      const script = (sandbox: InMemorySandboxManager, together: boolean) => {
+        for (const [name, side] of [
+          ["typecheck", typecheck],
+          ["lint", lint],
+        ] as const) {
+          let calls = 0;
+          sandbox.script(`run-${name}`, () => {
+            calls += 1;
+            if (together && side.killedBeside && calls === 1) return { exitCode: 137 };
+            return answerAlone(name, side);
+          });
+        }
+      };
+
+      const together = await sandboxWith();
+      script(together.sandbox, true);
+      const apart = await sandboxWith();
+      script(apart.sandbox, false);
+
+      const pairResult = await runChecks(together.sandbox, together.sandboxId, TRUSTED_ALL);
+      const alone = await runChecks(apart.sandbox, apart.sandboxId, ALL);
+
+      expect(pairResult).toStrictEqual(alone);
+
+      // Both were started together, and only a killed one is ever asked again.
+      const reran = together.sandbox.commands(together.sandboxId).slice(2);
+      if (!typecheck.killedBeside) expect(reran).not.toContain("run-typecheck");
+      if (!lint.killedBeside) expect(reran).not.toContain("run-lint");
+    });
   });
 
   it("errors rather than fails when the sandbox goes away under the pair", async () => {

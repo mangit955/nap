@@ -787,8 +787,8 @@ simultaneous Chromium page loads in one pod.
 
 **Resolution: a per-worker semaphore, `NAP_CAPTURE_CONCURRENCY=1`.** One capture at a time per
 worker unless measurement proves more is safe. Capture is already best-effort — a failure is only a
-log line (`single-agent-runtime.ts:1013`) — so queueing behind a semaphore costs nothing a user can
-see, while five Chromiums in a 3Gi pod is an OOMKill.
+log line (now logged by `thumbnail-lane.ts`) — so queueing behind a semaphore costs nothing a user
+can see, while five Chromiums in a 3Gi pod is an OOMKill.
 
 *Revised by B-7.* The semaphore's queue had no limit and sat inside the lease. The bound now lives in
 `ThumbnailLane`, and the queue is capped at `NAP_WORKER_CONCURRENCY`.
@@ -807,14 +807,18 @@ for all of it.
   sandbox command, and hands it to the composition's `ThumbnailLane`. The lane reads the state again
   before launching a browser and before storing, and keeps the old picture if the workspace has
   moved. It holds one place per project, refuses new projects past its cap, keeps no sandbox alive
-  and makes no session busy. A stopped turn, or one with a repair still to come, asks for nothing,
-  which is what keeps invariant 10 true: nothing is photographed on behalf of a lost lease.
+  and makes no session busy. A stopped turn, or one with a repair still to come, asks for nothing.
+  That abort is checked once, before the request, so a lease lost after it can still let a shot
+  land. Invariant 10 is made harmless here rather than kept: the lane re-reads the workspace before
+  launching a browser and before storing, so what lands is a true picture of a workspace nobody has
+  since changed, and nothing the new owner did is overwritten.
 - **The snapshot stays under the lease.** A restore reads the newest snapshot row, two snapshots of
   one project are ordered only by never overlapping, and the idle sweep asks `anyLeased` before it
   destroys a sandbox. All three depend on the bundle being recorded before the lease goes back.
-- **Typecheck and lint run together** when both are recognisably read-only, and the result is used
-  only if both pass. Otherwise they run again one at a time, so the verdict and the event order do
-  not depend on timing. Build and test never run beside anything.
+- **Typecheck and lint run together** when both are recognisably read-only and neither has a
+  `pre`/`post` script. What each says is kept and read in check order, so the verdict and the
+  blame are what running them apart gives; only a check killed by a signal runs again, on its
+  own. Build and test never run beside anything.
 
 ---
 

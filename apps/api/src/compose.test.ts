@@ -631,17 +631,20 @@ describe("composeNap", () => {
     }
 
     it.each([1, 3])("opens only as many browsers as NAP_CAPTURE_CONCURRENCY=%i", async (limit) => {
-      const { capture } = await finished(5, { NAP_CAPTURE_CONCURRENCY: limit });
+      const { capture, composed } = await finished(5, { NAP_CAPTURE_CONCURRENCY: limit });
 
       await expect.poll(() => capture.waiting).toBe(limit);
       await new Promise((resolve) => setTimeout(resolve, 20));
       expect(capture.waiting).toBe(limit);
 
+      // Stopped before the release, or the lane would start the queued shots and leave them open.
+      const stopping = composed.worker.stop();
       capture.releaseAll();
+      await stopping;
     });
 
     it("keeps no more waiting than the worker can finish at once", async () => {
-      const { capture } = await finished(5, {
+      const { capture, composed } = await finished(5, {
         NAP_CAPTURE_CONCURRENCY: 1,
         NAP_WORKER_CONCURRENCY: 2,
       });
@@ -654,6 +657,8 @@ describe("composeNap", () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
 
       expect(capture.requests).toHaveLength(3);
+      expect(capture.waiting).toBe(0);
+      await composed.worker.stop();
     });
 
     it("is stopped by stopping the worker, which is what a shutdown calls", async () => {

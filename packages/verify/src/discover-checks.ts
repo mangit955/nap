@@ -38,7 +38,8 @@ export type DiscoveredCheck =
    * The project declares this script, and this is what running it once looks like.
    *
    * `readOnly` is present when the script is recognisably one command that writes nothing another
-   * check reads, which is what lets it run beside another. Absent means nobody can say.
+   * check reads, and no `pre` or `post` script runs around it, which is what lets it run beside
+   * another. Absent means nobody can say.
    */
   | { name: CheckName; state: "runnable"; command: string; readOnly?: true }
   /** The project does not declare it. Nobody will ask, and nothing failed. */
@@ -57,16 +58,27 @@ export function discoverChecks(packageJsonContents: string): DiscoveredCheck[] {
   const scripts = readScripts(packageJsonContents);
 
   return CHECK_NAMES.map((name) => {
-    const script = scripts[name];
-    if (typeof script !== "string" || script.trim() === "") return { name, state: "absent" };
+    const script = declared(scripts[name]);
+    if (script === undefined) return { name, state: "absent" };
+
+    // `bun run lint` runs `prelint` before and `postlint` after, so either one is part of what
+    // the check does — and neither is a script anything here has read.
+    const runsAlone =
+      declared(scripts[`pre${name}`]) === undefined &&
+      declared(scripts[`post${name}`]) === undefined;
 
     return {
       name,
       state: "runnable",
       command: commandFor(name, script),
-      ...(isReadOnly(name, script) ? { readOnly: true as const } : {}),
+      ...(runsAlone && isReadOnly(name, script) ? { readOnly: true as const } : {}),
     };
   });
+}
+
+/** A script's text when there is something to run, which an empty or malformed entry is not. */
+function declared(script: unknown): string | undefined {
+  return typeof script === "string" && script.trim() !== "" ? script : undefined;
 }
 
 /**
@@ -137,8 +149,16 @@ const READ_ONLY_TOOLS: Partial<Record<CheckName, RegExp>> = {
   lint: new RegExp(`${TOOL_PREFIX}(?:eslint|oxlint|biome\\s+(?:check|lint|ci))(?:\\s|$)`),
 };
 
-/** A linter told to rewrite the files `tsc` is reading, or a `tsc` told to emit. */
-const WRITES = /(?:^|\s)(?:--fix\S*|--write|--apply\S*|--unsafe|--build|-b)(?:\s|$)/;
+/**
+ * A linter told to rewrite the files `tsc` is reading or to write a report among them, a `tsc`
+ * told to emit or to write a trace, or either told to watch and so never finish. A `=value` on
+ * any of them changes nothing about what it does.
+ */
+const WRITES =
+  /(?:^|\s)(?:--fix\S*|--write\S*|--apply\S*|--unsafe\S*|--build\S*|-b|--watch\S*|-w|--generateTrace\S*|--generateCpuProfile\S*|-o(?:=\S*)?|--output-file\S*)(?:\s|$)/;
+
+/** `--noEmit false`: the TypeScript CLI reads a following `false` as the flag's value. */
+const EMIT_TURNED_BACK_ON = /(?:^|\s)--noEmit\s+false(?:\s|$)/;
 
 /**
  * Whether this script is known to leave alone everything another check reads.
@@ -155,7 +175,10 @@ function isReadOnly(name: CheckName, script: string): boolean {
   const line = script.trim();
   if (SHELL_SYNTAX.test(line) || WRITES.test(line) || !tool.test(line)) return false;
 
-  return name !== "typecheck" || /(?:^|\s)--noEmit(?:\s|$)/.test(line);
+  return (
+    name !== "typecheck" ||
+    (/(?:^|\s)--noEmit(?:\s|$)/.test(line) && !EMIT_TURNED_BACK_ON.test(line))
+  );
 }
 
 function readScripts(packageJsonContents: string): Record<string, unknown> {

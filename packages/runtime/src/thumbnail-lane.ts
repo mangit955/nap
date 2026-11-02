@@ -23,7 +23,11 @@
  *
  * **It keeps no sandbox alive and holds no slot of the ceiling.** It never creates, resumes or
  * extends one, and nothing here is `busy`: the idle sweep and a person closing the project go
- * straight past it, and the worst that does to a shot in flight is the skip above.
+ * straight past it, and the worst that does to a shot in flight is the skip above. "Never resumes
+ * or extends" rests on the E2B adapter's cached handle: an uncached one would `Sandbox.connect`,
+ * which resumes a paused sandbox and pushes a running one's timeout out. The lane runs in the
+ * process whose turn has just used the sandbox, so the handle is always cached here — feeding it
+ * requests from another process would break this.
  *
  * **A shutdown does not wait for it.** What is queued is dropped, and what is running gets a short
  * grace. Nothing here is written down anywhere, so a process that dies with shots outstanding
@@ -49,7 +53,10 @@ export type ThumbnailLaneOptions = {
   objects: ObjectStore;
   /** How many shots may be in flight. Must be at least one, or nothing is ever photographed. */
   concurrency: number;
-  /** How many projects may wait for a browser. Beyond this a request is refused. */
+  /**
+   * How many projects may wait for a browser. Beyond this a request is refused. At least one,
+   * since every request passes through the queue on its way to a browser.
+   */
   maxQueued: number;
   /** How long `stop` waits for shots already in flight. */
   stopGraceMs?: number;
@@ -88,8 +95,10 @@ export class ThumbnailLane {
       // silently never photographs anything, which looks exactly like a browser that is broken.
       throw new RangeError("a capture bound below one photographs nothing");
     }
-    if (!Number.isInteger(options.maxQueued) || options.maxQueued < 0) {
-      throw new RangeError("a queue bound must be a count");
+    if (!Number.isInteger(options.maxQueued) || options.maxQueued < 1) {
+      // The same deployment by another route: every request waits here first, even with a
+      // browser free, so a queue of nought refuses every one of them.
+      throw new RangeError("a queue bound below one photographs nothing");
     }
 
     this.#sandbox = options.sandbox;
@@ -112,10 +121,7 @@ export class ThumbnailLane {
     const logger = getLogger();
 
     const workspace = await this.#readWorkspace(target.sandboxId);
-    if (workspace === null) {
-      logger.warn({}, "could not read the workspace; no project thumbnail this time");
-      return;
-    }
+    if (workspace === null) return;
 
     // Asked again because the read above is the one moment a stop can land in between.
     if (this.#stopped) return;
@@ -191,11 +197,14 @@ export class ThumbnailLane {
 
     // A shot may have waited minutes behind other projects' pictures, so this is often where it
     // turns out nobody wants it — before a browser is launched for it rather than after.
-    if (!(await this.#unchanged(shot))) {
-      log.info({}, "the workspace moved on before its thumbnail was taken");
+    const before = await this.#readWorkspace(sandboxId);
+    if (before !== shot.workspace) {
+      // A sandbox that did not answer has already said so.
+      if (before !== null) log.info({}, "the workspace moved on before its thumbnail was taken");
       return;
     }
 
+    let gone = false;
     const taken = await captureThumbnail({
       sandbox: this.#sandbox,
       capture: this.#capture,
@@ -205,30 +214,42 @@ export class ThumbnailLane {
       port,
       // Last, because the picture just taken may show a half-finished edit or a dead sandbox's
       // error page, and this is the moment it would replace a good one.
-      beforeStore: () => this.#unchanged(shot),
+      beforeStore: async () => {
+        const now = await this.#readWorkspace(sandboxId);
+        gone = now === null;
+        return now === shot.workspace;
+      },
     });
 
     if (taken.ok) {
       log.info({ key: taken.value.key }, "project thumbnail captured");
     } else if (taken.error.superseded === true) {
-      log.info({}, "the workspace moved on while its thumbnail was being taken");
+      if (!gone) log.info({}, "the workspace moved on while its thumbnail was being taken");
     } else {
       log.warn({ reason: taken.error.message }, "could not capture a project thumbnail");
     }
   }
 
-  async #unchanged(shot: Shot): Promise<boolean> {
-    return (await this.#readWorkspace(shot.sandboxId)) === shot.workspace;
-  }
-
-  /** `null` for a sandbox that did not answer, which is a thing nobody can photograph anyway. */
+  /**
+   * `null` for a sandbox that did not answer, which is a thing nobody can photograph anyway.
+   *
+   * Logged here, once, and at `info`: now that a close and the idle sweep go straight past the
+   * lane, a sandbox destroyed under a waiting shot is an ordinary race rather than a fault.
+   */
   async #readWorkspace(sandboxId: string): Promise<WorkspaceState | null> {
     try {
       const state = await workspaceState(this.#sandbox, sandboxId);
-      return state.ok ? state.value : null;
+      if (state.ok) return state.value;
+      getLogger().info(
+        { reason: state.error.message },
+        "the sandbox did not answer; no project thumbnail this time",
+      );
     } catch (error) {
-      getLogger().warn({ err: error }, "could not read the workspace");
-      return null;
+      getLogger().info(
+        { err: error },
+        "the sandbox did not answer; no project thumbnail this time",
+      );
     }
+    return null;
   }
 }

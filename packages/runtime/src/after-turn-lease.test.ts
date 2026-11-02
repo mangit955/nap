@@ -5,6 +5,7 @@ import { StubContextEngine } from "@nap/context/testing/stub-context-engine";
 import { enqueueRequest } from "@nap/db/testing/enqueue-request";
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
+import { InMemoryProjectSandboxStore } from "@nap/db/testing/in-memory-project-sandbox-store";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
 import { InMemoryTurnQueue } from "@nap/db/testing/in-memory-turn-queue";
@@ -14,6 +15,7 @@ import { scriptGit } from "@nap/sandbox/testing/script-git";
 import type { PageCapture } from "@nap/shared/ports/page-capture";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { sweepIdleProjects } from "./reaper.ts";
 import { SingleAgentRuntime } from "./single-agent-runtime.ts";
 import { ThumbnailLane } from "./thumbnail-lane.ts";
 import { thumbnailKey } from "./turn-thumbnail.ts";
@@ -34,6 +36,7 @@ const PROJECT_ID = "4d5e6f70-1a2b-4c3d-8e9f-0a1b2c3d4e5f";
 const USER_ID = "7b1d9e60-3c2a-4f8b-9a0e-5d6c7b8a9f10";
 const FIRST_SHA = "1111111111111111111111111111111111111111";
 const SECOND_SHA = "2222222222222222222222222222222222222222";
+const LONG_AGO = "2000-01-01T00:00:00.000Z";
 
 const workers: TurnWorker[] = [];
 const releases: (() => void)[] = [];
@@ -138,19 +141,41 @@ describe("a photograph still being taken", () => {
     expect(stored).toEqual({ ok: true, value: new Uint8Array([2]) });
   });
 
-  it("does not make the session read as busy to the idle sweep", async () => {
-    // The sweep asks `anyLeased`. A project whose only activity is its own picture being taken
-    // must still be able to be put away, or a wedged browser would keep a sandbox running.
+  it("lets the idle sweep put the project away, and then stores nothing", async () => {
+    // The sweep asks `anyLeased`, as close and delete do. A project whose only activity is its own
+    // picture being taken must still be able to be put away, or a wedged browser would keep a
+    // sandbox running.
     const capture = new GatedPageCapture();
     releases.push(() => capture.releaseAll());
     const { sandbox } = movingSandbox();
-    const { queue, lane } = system(sandbox, capture);
+    const { queue, lane, objects, snapshots } = system(sandbox, capture);
 
     await enqueue(queue, "add a delete button");
     await vi.waitFor(() => expect(capture.waiting).toBe(1));
-
     await vi.waitFor(async () => expect(await queue.anyLeased([SESSION_ID])).toBe(false));
+
+    const listed = await sandbox.list();
+    const sandboxId = listed.ok ? listed.value[0]?.id : undefined;
+    if (sandboxId === undefined) throw new Error("the turn created no sandbox");
+    const swept = await sweepIdleProjects({
+      projects: new InMemoryProjectSandboxStore([
+        { projectId: PROJECT_ID, sandboxId, sessionIds: [SESSION_ID], lastActiveAt: LONG_AGO },
+      ]),
+      sandbox,
+      objects,
+      snapshots,
+      idleMs: 1,
+      isBusy: (project) => queue.anyLeased(project.sessionIds),
+    });
+
+    expect(swept.reaped).toEqual([PROJECT_ID]);
     expect(lane.pending).toBe(1);
+
+    // The shot in flight finds its sandbox gone, and keeps the old card rather than storing a
+    // dead machine's error page.
+    capture.releaseAll();
+    await vi.waitFor(() => expect(lane.pending).toBe(0));
+    expect(objects.keys()).not.toContain(thumbnailKey(PROJECT_ID));
   });
 
   it("does not hold up a worker's drain", async () => {

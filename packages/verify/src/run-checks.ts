@@ -120,11 +120,16 @@ export async function runChecks(
 /**
  * The typecheck and the lint at once, when both are known to write nothing the other reads.
  *
- * **This can only ever contribute a pass.** Anything else is thrown away and the loop above runs
- * them again one at a time, as if this had never happened. That costs a failing run one more
- * command and it buys two things: which check is blamed cannot depend on which finished first, and
- * a check that lost a fight for the sandbox's memory is not charged to the project, where it would
- * open a repair turn that a model pays for and nothing can fix.
+ * **What either says is kept, unless it was killed.** The loop above reads these by name, in the
+ * order it was handed, so the verdict, which check is blamed and what output is kept are already
+ * the ones a run one at a time would give: a failing typecheck still ends the run there, and the
+ * lint beside it is reported as never reached even though it ran. The only answer not kept is a
+ * command killed by a signal, an exit of 128 or more — 137 is the kernel's OOM killer, 134 an abort.
+ * Two compilers in a one-gigabyte sandbox can get one of them killed, and charging that to the
+ * project would open a repair turn that a model pays for and nothing can fix, so the loop runs a
+ * killed check again on its own. A command that could not be run at all is kept as it is: the
+ * sandbox going away or a command timing out is not contention, and asking again would only make
+ * the run wait for it twice.
  *
  * Only this pair. A build and a test share output directories, and a build beside a typecheck saves
  * under a tenth of a second on the template while spending the whole build on every type error.
@@ -143,9 +148,13 @@ async function passTogether(
   if (pair.length !== 2) return new Map();
 
   const attempts = await Promise.all(pair.map((check) => runOne(sandbox, sandboxId, check)));
-  if (attempts.some((attempt) => attempt.stopped !== undefined)) return new Map();
 
-  return new Map(pair.map((check, index) => [check.name, attempts[index] as Attempt]));
+  return new Map(
+    pair.flatMap((check, index) => {
+      const attempt = attempts[index] as Attempt;
+      return (attempt.exitCode ?? 0) >= KILLED_BY_SIGNAL ? [] : [[check.name, attempt] as const];
+    }),
+  );
 }
 
 /**
@@ -158,7 +167,15 @@ async function passTogether(
 type Stop = { verdict: "failed" | "errored"; by: RanCheckName };
 
 /** What running one thing produced, and what — if anything — it ends. */
-type Attempt = { check: RanCheck; stopped: Stop | undefined };
+type Attempt = {
+  check: RanCheck;
+  stopped: Stop | undefined;
+  /** The exit code of a command that ran and failed, which is how a killed one is told apart. */
+  exitCode?: number;
+};
+
+/** A shell reports a command killed by signal N as exiting 128 + N. */
+const KILLED_BY_SIGNAL = 128;
 
 async function runOne(
   sandbox: SandboxManager,
@@ -202,6 +219,7 @@ async function runOne(
       ...(output === undefined ? {} : { output }),
     },
     stopped: { verdict: "failed", by: check.name },
+    exitCode,
   };
 }
 
