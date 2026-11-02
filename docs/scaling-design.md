@@ -513,7 +513,7 @@ a rare crash path in exchange for leaving the store, the sink and the port exact
 
 `TurnRegistry` survives, keyed by **request id**, and stays in the API composition, where it spares
 the single-container arrangement a wait. Where steps 4 and 5 and this paragraph differ from the
-original design, `docs/adr/0021` says why.
+original design, `docs/adr/0022` says why.
 
 `isBusy` — used by project close, project delete and the reaper — stops reading the registry:
 

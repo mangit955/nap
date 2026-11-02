@@ -5,7 +5,7 @@
  * only tells whoever is running that request to go and read it now rather than in up to fifteen
  * seconds. That is the same bargain the event fanout makes — a notification is a wake-up signal and
  * the durable row is the truth — and it is why this port can promise so little. A wake-up may be
- * lost, duplicated or late, and every one of those costs latency at worst. See `docs/adr/0021`.
+ * lost, duplicated or late, and every one of those costs latency at worst. See `docs/adr/0022`.
  *
  * Separate from `EventBus` because it is about a request rather than a session. Naming the session
  * would be enough to find a worker and not enough to find the turn: by the time a wake-up lands,

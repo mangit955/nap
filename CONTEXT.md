@@ -87,6 +87,12 @@ transcript. A **compaction checkpoint** is the saved summary and the conversatio
 covers; it says nothing about whether the project's code is verified.
 _Avoid_: checkpoint without the compaction qualifier, deleting history.
 
+**Compaction history** — the conversation compaction summaries replaced, written as a plain-text
+file in the project's sandbox for the agent to search. Entries are named by event number, which
+the summary cites. A derived view of the session's events, like the **Transcript**: rebuilt from
+them whenever a sandbox lacks it, and never read back as a record. See ADR-0021.
+_Avoid_: history file without the compaction qualifier, transcript (that is the reader's view).
+
 **Checkpoint** — a *verified* commit, and the answer to "is this project in a valid state right
 now", which is `HEAD == last checkpoint` rather than a judgement anybody renders. Distinct from a
 **Snapshot**, which is a filesystem archived because a sandbox went away: a checkpoint is about
@@ -166,7 +172,7 @@ the catch-up read is what actually hands anything to a socket. The notification 
 **Cancel wake-up** — a notification that a turn request's `cancel_requested` has been committed,
 telling the worker running that request to renew now instead of at its next interval. It names a
 request, never a session, and cancels nothing itself: the renewal's answer does that, and a lost
-wake-up costs a wait of up to one renewal. See `docs/adr/0021`.
+wake-up costs a wait of up to one renewal. See `docs/adr/0022`.
 
 **Event** — one durable, ordered fact about a session, identified by its `seq`. Appended to the
 store *before* it is published to the bus, never the other way round.
