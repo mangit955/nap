@@ -136,6 +136,15 @@ export function Verification() {
         instructions. If compaction fails, the previous working context stays usable. If essential
         instructions still exceed the budget, the turn stops instead of silently shortening them.
       </P>
+      <P>
+        The conversation a summary replaces stays within the agent&rsquo;s reach. Each compaction
+        writes its messages, tool calls and tool results to a plain-text file in the project&rsquo;s
+        sandbox, outside the project folder, so it is never committed or served. Every entry is
+        numbered by its place in the session&rsquo;s event log. The summary cites those numbers, and
+        the agent is told where the file is so it can search for a detail the summary left out
+        instead of redoing the work. The file is rebuilt from the log whenever a sandbox does not
+        have it, such as after a project is reopened.
+      </P>
 
       <P>
         The failing session&rsquo;s event log is committed to the repository unedited, so the

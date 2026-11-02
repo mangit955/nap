@@ -1,8 +1,10 @@
 import { prepareCompaction, summaryRequest, textOnlyContext } from "@nap/context/compaction";
+import { compactionBoundaries } from "@nap/context/compaction-history";
 import { type CompactContext, estimateContextTokens } from "@nap/shared/compaction";
 import type { NapEvent, NapEventOf } from "@nap/shared/events";
 import type { BuiltContext } from "@nap/shared/ports/context-engine";
 import type { TokenUsage } from "@nap/shared/ports/llm-provider";
+import type { CompactionHistoryFile } from "./compaction-history.ts";
 
 /** Called only while the runtime owns the session lease, between complete tool batches. */
 type CompactionEvent = {
@@ -16,7 +18,14 @@ export function contextCompactor(options: {
   read: () => Promise<NapEvent[]>;
   emit: (event: CompactionEvent) => void;
   drain: () => Promise<void>;
-  rebuild: (history: NapEvent[]) => Promise<BuiltContext>;
+  /** `historyFile` is the path to tell the agent about, absent when the file was not written. */
+  rebuild: (history: NapEvent[], historyFile: string | undefined) => Promise<BuiltContext>;
+  /**
+   * Where the replaced conversation is kept in the sandbox. Written for API summaries only:
+   * a native session keeps its own history and writes its own summary, which cannot cite
+   * entries in a file it was never shown. See docs/compaction.md.
+   */
+  history: CompactionHistoryFile;
   budgetTokens: number;
   /** Manual operations are durable before runtime preparation starts. */
   startedId?: string;
@@ -74,11 +83,16 @@ export function contextCompactor(options: {
         Math.max(128, Math.floor((options.budgetTokens - outputTokens * 2 - 2_000) / 3)),
       );
       if (plan === null) throw new Error("There is no complete conversation to compact yet.");
-      let summary = "";
+      let summary = plan.previousSummary;
       for (const chunk of plan.chunks) {
         request.signal?.throwIfAborted();
         const result = await request.complete({
-          ...summaryRequest(chunk, summary, outputTokens),
+          ...summaryRequest({
+            chunk,
+            previousSummary: summary,
+            maxOutputTokens: outputTokens,
+            historyFile: options.history.path,
+          }),
           ...(request.signal === undefined ? {} : { signal: request.signal }),
         });
         usage = {
@@ -118,7 +132,18 @@ export function contextCompactor(options: {
           afterTokens: null,
         },
       };
-      const rebuilt = await options.rebuild([...history, completed]);
+      // Written before the event that commits its part, so the rebuilt context only names a
+      // file that exists. If the commit then fails, the file holds one part too many until the
+      // next turn's check rewrites it from the log. The log, not this file, is the record.
+      const written = await options.history.write(history, [
+        ...compactionBoundaries(history),
+        plan.coveredThrough,
+      ]);
+      request.signal?.throwIfAborted();
+      const rebuilt = await options.rebuild(
+        [...history, completed],
+        written ? options.history.path : undefined,
+      );
       const afterTokens = estimateContextTokens({
         systemPrompt: request.systemPrompt,
         messages: rebuilt.messages,
