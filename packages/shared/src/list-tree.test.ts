@@ -1,0 +1,145 @@
+import { execFile } from "node:child_process";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { promisify } from "node:util";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { listTreeCommand, listTreeViaExec, parseListTree } from "./list-tree.ts";
+import type { ExecResult, SandboxError, SandboxManager } from "./ports/sandbox-manager.ts";
+import type { Result } from "./result.ts";
+
+const run = promisify(execFile);
+
+/**
+ * This machine's environment minus git's own variables. A commit hook runs with `GIT_DIR` and
+ * `GIT_INDEX_FILE` exported, and a git started under them reads *this* repository whatever
+ * directory it is in — so the fixtures' git would list the repo's files, and their `find` would
+ * never run. A sandbox has no such variables.
+ */
+const env = Object.fromEntries(
+  Object.entries(process.env).filter(([name]) => !name.startsWith("GIT_")),
+);
+const EXCLUDE = ["node_modules", ".git", "dist"];
+
+/**
+ * A sandbox whose `exec` is real bash on this machine, counting what it was asked to run.
+ *
+ * Real rather than scripted because everything this module can get wrong lives in a shell —
+ * quoting, the git-then-find fallback, NUL separation — and a scripted answer would prove only
+ * which string was sent.
+ */
+function bash(): Pick<SandboxManager, "exec"> & { commands: string[] } {
+  const commands: string[] = [];
+  return {
+    commands,
+    async exec(_id, command): Promise<Result<ExecResult, SandboxError>> {
+      commands.push(command);
+      try {
+        const { stdout, stderr } = await run("bash", ["-c", command], { encoding: "utf8", env });
+        return { ok: true, value: { exitCode: 0, stdout, stderr } };
+      } catch (cause) {
+        const failed = cause as { code?: number; stdout?: string; stderr?: string };
+        return {
+          ok: true,
+          value: {
+            exitCode: failed.code ?? 1,
+            stdout: failed.stdout ?? "",
+            stderr: failed.stderr ?? "",
+          },
+        };
+      }
+    },
+  };
+}
+
+let root: string;
+
+async function put(relative: string): Promise<void> {
+  const path = join(root, relative);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, "x");
+}
+
+/** Names chosen to break a parser that splits on whitespace or newlines, or quotes badly. */
+const AWKWARD = ["src/my file.ts", "src/naïve.ts", "src/new\nline.ts", "src/it's.ts"];
+
+beforeEach(async () => {
+  root = await mkdtemp(join(tmpdir(), "list-tree-"));
+  for (const path of ["package.json", "src/App.tsx", "node_modules/react/index.js", "dist/a.js"])
+    await put(path);
+  for (const path of AWKWARD) await put(path);
+});
+
+afterEach(async () => {
+  await rm(root, { recursive: true, force: true });
+});
+
+async function listed(): Promise<string[]> {
+  const sandbox = bash();
+  const result = await listTreeViaExec(sandbox, "sbx", root, {
+    exclude: EXCLUDE,
+    timeoutMs: 10_000,
+  });
+  if (!result.ok) throw new Error(result.error.message);
+  expect(sandbox.commands).toHaveLength(1);
+  return result.value.map((path) => path.slice(root.length + 1)).sort();
+}
+
+describe("listTreeViaExec", () => {
+  it("lists a workspace that is not a repository with one command, through the fallback", async () => {
+    expect(await listed()).toEqual(["package.json", "src/App.tsx", ...AWKWARD].sort());
+  });
+
+  it("lists a repository with one command, honouring .gitignore and keeping uncommitted files", async () => {
+    await run("git", ["init", "-q"], { cwd: root, env });
+    await writeFile(join(root, ".gitignore"), "node_modules\nignored.log\n");
+    await put("ignored.log");
+    await run("git", ["add", "package.json", ".gitignore"], { cwd: root, env });
+    // `dist/` committed anyway: git lists it, and the exclusion must still hold.
+    await run("git", ["add", "-f", "dist/a.js"], { cwd: root, env });
+
+    expect(await listed()).toEqual(
+      [".gitignore", "package.json", "src/App.tsx", ...AWKWARD].sort(),
+    );
+  });
+
+  it("fails rather than listing nothing when the root does not exist", async () => {
+    const result = await listTreeViaExec(bash(), "sbx", join(root, "missing"), {
+      exclude: EXCLUDE,
+      timeoutMs: 10_000,
+    });
+
+    expect(result.ok).toBe(false);
+  });
+
+  it("passes the caller's timeout to the sandbox rather than the provider's default", async () => {
+    let seen: number | undefined;
+    await listTreeViaExec(
+      {
+        exec: async (_id, _command, _onOutput, options) => {
+          seen = options?.timeoutMs;
+          return { ok: true, value: { exitCode: 0, stdout: "", stderr: "" } };
+        },
+      },
+      "sbx",
+      "/home/user/app",
+      { exclude: [], timeoutMs: 4_321 },
+    );
+
+    expect(seen).toBe(4_321);
+  });
+});
+
+describe("parseListTree", () => {
+  it("drops a record the output ceiling cut in half", () => {
+    expect(parseListTree("/r", "a.ts\0b/c.ts\0d/partia", [])).toEqual(["/r/a.ts", "/r/b/c.ts"]);
+  });
+
+  it("lists a conflicted path once, though git prints it per merge stage", () => {
+    expect(parseListTree("/r", "a.ts\0a.ts\0a.ts\0", [])).toEqual(["/r/a.ts"]);
+  });
+
+  it("quotes the root, so a path with a quote in it cannot escape the command", () => {
+    expect(listTreeCommand("/tmp/it's", [])).toContain("cd '/tmp/it'\\''s'");
+  });
+});

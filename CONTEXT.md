@@ -65,7 +65,7 @@ verdict on purpose, and an all-absent payload folds to `verified`; the job ends 
 instead. `runChecks` in `@nap/verify` is where a verdict comes from, and it is branched on before
 anything is persisted rather than persisted itself.
 
-**Job brief** — the `<job>` section of the assembled prompt: the job's **objective**, and the
+**Job brief** — the `<job>` section of the **turn context**: the job's **objective**, and the
 verification failures already seen on it, oldest first. The second half is procedural memory done
 deterministically — a transcript shows the model confidently finishing, never that the finish was
 rejected, so without this each repair is free to make the last one again. Near-unevictable, and
@@ -74,13 +74,20 @@ exactly when the turn that stated the objective has fallen out of the window. Ha
 `ContextEngine` like `history` is, because the component that owns the token budget performs no
 I/O. `renderJobBrief` in `@nap/context` writes it.
 
-**Stale** — of a past turn in the assembled conversation: old enough that its tool traffic is
-emptied whether or not the budget needs the room. What survives is prose on both sides and each
+**Stale** — of a past turn in the assembled conversation: finished, so its tool traffic is
+emptied whether or not the budget needs the room — at the end of the turn that wrote it, so that
+history a cached request already sent is never rewritten later (ADR-0021). What survives is prose on both sides and each
 call's small arguments — which tool, against which path — so the turn still reads as something that
 happened; what goes is any argument large enough to be a file's contents, and everything the call
 printed. Distinct from **truncation**, which is the ladder `ContextEngine` climbs when a context
 does not *fit*: staleness runs first and runs always, because a turn re-sends its whole transcript
 on every round trip and a thing that fits can still be a thing not worth ten copies. See ADR-0011.
+
+**Turn context** — what the model is told that changes from one turn to the next: the file
+listing, the **job brief** and memories. It rides at the end of the turn's own message, never in the
+system prompt, so the system prompt and the settled history stay a prefix a provider can cache
+(ADR-0021). `turnContext` in `@nap/context` writes it.
+_Avoid_: system prompt, for any of it.
 
 **Compaction** — replacing older working conversation with a summary while retaining the original
 transcript. A **compaction checkpoint** is the saved summary and the conversation boundary it

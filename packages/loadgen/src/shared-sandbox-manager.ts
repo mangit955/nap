@@ -210,6 +210,9 @@ export function sharedSandboxManager(
     listFiles: (sandboxId, path): Promise<Result<FileNode[], SandboxError>> =>
       inner.listFiles(local(sandboxId), path),
 
+    listTree: (sandboxId, root, options): Promise<Result<string[], SandboxError>> =>
+      inner.listTree(local(sandboxId), root, options),
+
     exec: (
       sandboxId,
       command,

@@ -109,12 +109,11 @@ export function Verification() {
       </P>
 
       <P>
-        So tool traffic from any turn older than the most recent one is emptied{" "}
-        <Term>unconditionally</Term>, before the budget is consulted. The call keeps its shape —
-        which tool, against which path — so the turn still reads as something that happened; what
-        goes is any argument big enough to be a file&rsquo;s contents, and everything the call
-        printed. This cheap pruning preserves prose on both sides. Fitting was never the only test;
-        being worth repeatedly sending matters too.
+        So tool traffic from every finished turn is emptied <Term>unconditionally</Term>, before the
+        budget is consulted. The call keeps its shape — which tool, against which path — so the turn
+        still reads as something that happened; what goes is any argument big enough to be a
+        file&rsquo;s contents, and everything the call printed. This cheap pruning preserves prose
+        on both sides. Fitting was never the only test; being worth repeatedly sending matters too.
       </P>
 
       <P>

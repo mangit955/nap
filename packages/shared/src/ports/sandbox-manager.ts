@@ -65,6 +65,20 @@ export interface SandboxManager {
   listFiles(sandboxId: string, path: string): Promise<Result<FileNode[], SandboxError>>;
 
   /**
+   * Every file under `root`, as absolute paths in no particular order, in **one** call.
+   *
+   * One call is the contract, not an optimisation: a walk of `listFiles` is a round trip per
+   * folder, made one after another, and the context engine asks this on every model turn before
+   * anything reaches the model. Leaves out whatever version control ignores, and never returns
+   * a path with a segment named in `exclude` — nor spends time descending into one.
+   */
+  listTree(
+    sandboxId: string,
+    root: string,
+    options: { exclude: readonly string[]; timeoutMs: number },
+  ): Promise<Result<string[], SandboxError>>;
+
+  /**
    * A transport signal bounds waiting; it never certifies remote process completion.
    *
    * `timeoutMs` is how long the command may run before the provider stops it and the call fails

@@ -1,8 +1,7 @@
 import type { NapEvent } from "@nap/shared/events";
-import type { ContextRequest, FailedAttempt } from "@nap/shared/ports/context-engine";
+import type { BuiltContext, ContextRequest, FailedAttempt } from "@nap/shared/ports/context-engine";
 import type { LLMContentBlock, LLMMessage } from "@nap/shared/ports/llm-provider";
 import type { Memory, MemoryProvider } from "@nap/shared/ports/memory-provider";
-import type { FileNode } from "@nap/shared/ports/sandbox-manager";
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_BUDGET_TOKENS,
@@ -13,10 +12,11 @@ import {
   STALE_TOOL_INPUT,
   STALE_TOOL_OUTPUT,
 } from "./context-engine.ts";
+import { FILE_LIST_UNAVAILABLE } from "./file-tree.ts";
 import { NoopMemoryProvider } from "./noop-memory-provider.ts";
 import { SUBAGENT_PROMPTS } from "./subagent-prompts.ts";
 import { REPOSITORY_SYSTEM_PROMPT, SYSTEM_PROMPT } from "./system-prompt.ts";
-import { type FileTree, stubSandbox } from "./testing/stub-sandbox.ts";
+import { stubSandbox } from "./testing/stub-sandbox.ts";
 import { estimateTokens } from "./tokens.ts";
 
 const SESSION = "6f1c1d3e-2b7a-4c5e-8f9a-0d1e2f3a4b5c";
@@ -103,13 +103,8 @@ function writingTurn(turn: number, contentSize: number): NapEvent[] {
 }
 
 /** A project big enough that its listing is the largest thing in the prompt. */
-function hugeTree(fileCount: number): FileTree {
-  return {
-    [ROOT]: Array.from({ length: fileCount }, (_, i) => ({
-      path: `${ROOT}/component-with-a-long-name-${i}.tsx`,
-      type: "file" as const,
-    })),
-  };
+function hugeTree(fileCount: number): string[] {
+  return Array.from({ length: fileCount }, (_, i) => `${ROOT}/component-with-a-long-name-${i}.tsx`);
 }
 
 /** A turn that reads a file and reports back. `outputSize` drives the truncation tests. */
@@ -166,17 +161,32 @@ function totalTokens(systemPrompt: string, messages: LLMMessage[]): number {
   return estimateTokens(systemPrompt) + messageTokens;
 }
 
-function projectTree(): FileTree {
-  return {
-    [ROOT]: [
-      { path: `${ROOT}/src`, type: "directory" } satisfies FileNode,
-      { path: `${ROOT}/package.json`, type: "file" },
-    ],
-    [`${ROOT}/src`]: [
-      { path: `${ROOT}/src/App.tsx`, type: "file" },
-      { path: `${ROOT}/src/main.tsx`, type: "file" },
-    ],
-  };
+function projectTree(): string[] {
+  return [`${ROOT}/package.json`, `${ROOT}/src/App.tsx`, `${ROOT}/src/main.tsx`];
+}
+
+/**
+ * Everything the model is told, wherever it sits. Most assertions here are about *whether* the
+ * model hears something; where in the request it rides is pinned once, in "the system prompt".
+ */
+function told(context: BuiltContext): string {
+  return [context.systemPrompt, ...texts(context.messages)].join("\n");
+}
+
+/** What was said, in order, without the turn's context riding on the end of the last message. */
+function conversation(context: BuiltContext): string[] {
+  const all = texts(context.messages);
+  return turnContextOf(context) === "" ? all : all.slice(0, -1);
+}
+
+/** The text the turn's own message carries after the request itself: the turn's context. */
+function turnContextOf(context: BuiltContext): string {
+  const last = context.messages.at(-1);
+  if (last === undefined || typeof last.content === "string") return "";
+  return last.content
+    .slice(1)
+    .flatMap((block) => (block.type === "text" ? [block.text] : []))
+    .join("\n");
 }
 
 function request(overrides: Partial<ContextRequest> = {}): ContextRequest {
@@ -211,13 +221,39 @@ describe("NapContextEngine", () => {
       expect(context.systemPrompt).toContain(SYSTEM_PROMPT);
     });
 
-    it("comes first, so the cacheable part of the prompt is stable", async () => {
-      // Prompt caching matches on a byte-identical prefix. Anything that varies per turn —
-      // the file tree, retrieved memories — has to sit after the part that never changes,
-      // or the cache is invalidated on every request.
-      const context = await engine().build(request());
+    it("is the whole system prompt, so the cacheable prefix is the same on every turn", async () => {
+      // Prompt caching matches on a byte-identical prefix, rendered tools, then system, then
+      // messages. Anything that varies per turn — the file listing, a job brief, memories —
+      // anywhere in the system prompt invalidates the conversation behind it on every turn.
+      const plain = await engine().build(request());
+      const busy = await engine().build(
+        request({
+          sandbox: stubSandbox([...projectTree(), `${ROOT}/src/Added.tsx`]),
+          job: {
+            objective: "something else entirely",
+            attempts: [{ check: "test", detail: "exited 1", output: "FAIL" }],
+          },
+          memory: {
+            retrieve: async () => [{ id: "m1", content: "prefers tabs", score: 1 }],
+            write: async () => {},
+          },
+        }),
+      );
 
-      expect(context.systemPrompt.startsWith(SYSTEM_PROMPT)).toBe(true);
+      expect(plain.systemPrompt).toBe(SYSTEM_PROMPT);
+      expect(busy.systemPrompt).toBe(SYSTEM_PROMPT);
+    });
+
+    it("leaves what changes per turn to the turn's own message, after the request", async () => {
+      const context = await engine().build(
+        request({ job: { objective: "an older objective", attempts: [] } }),
+      );
+
+      const last = context.messages.at(-1);
+      expect(last?.role).toBe("user");
+      expect(texts(last === undefined ? [] : [last])[0]).toBe("add a dark mode toggle");
+      expect(turnContextOf(context)).toContain("<project_files>");
+      expect(turnContextOf(context)).toContain("<job>");
     });
 
     it("is present at the smallest permitted budget", async () => {
@@ -248,7 +284,7 @@ describe("NapContextEngine", () => {
 
       const context = await engine().build(request({ history }));
 
-      expect(texts(context.messages)).toEqual([
+      expect(conversation(context)).toEqual([
         "make it blue",
         "made it blue",
         "now bigger",
@@ -270,7 +306,7 @@ describe("NapContextEngine", () => {
         request({ history: [userMessage(1, "earlier"), agentMessage(1, "ok")] }),
       );
 
-      expect(texts(context.messages).at(-1)).toBe("add a dark mode toggle");
+      expect(conversation(context).at(-1)).toBe("add a dark mode toggle");
     });
 
     it("keeps the most recent exchanges and every original request once", async () => {
@@ -281,7 +317,7 @@ describe("NapContextEngine", () => {
 
       const context = await engine({ maxTurns: 2 }).build(request({ history }));
 
-      expect(texts(context.messages)).toEqual([
+      expect(conversation(context)).toEqual([
         "ask 1",
         "ask 2",
         "ask 3",
@@ -294,7 +330,9 @@ describe("NapContextEngine", () => {
     });
 
     it("carries tool calls and their results", async () => {
-      const context = await engine().build(request({ history: toolTurn(1, 20) }));
+      const context = await engine({ verbatimTurns: KEEP_EVERY_TURN }).build(
+        request({ history: toolTurn(1, 20) }),
+      );
 
       expect(toolUses(context.messages)).toHaveLength(1);
       expect(toolResults(context.messages)[0]?.content).toBe("x".repeat(20));
@@ -332,7 +370,7 @@ describe("NapContextEngine", () => {
 
       const context = await engine().build(request({ history }));
 
-      expect(texts(context.messages)).toEqual([
+      expect(conversation(context)).toEqual([
         "make it blue",
         "made it blue",
         "add a dark mode toggle",
@@ -351,7 +389,7 @@ describe("NapContextEngine", () => {
 
       const context = await engine().build(request({ history }));
 
-      expect(texts(context.messages)).toEqual([
+      expect(conversation(context)).toEqual([
         "make it blue",
         "I changed the header colour.",
         "add a dark mode toggle",
@@ -388,7 +426,7 @@ describe("NapContextEngine", () => {
 
       const context = await engine().build(request({ history }));
 
-      expect(texts(context.messages)).toEqual([
+      expect(conversation(context)).toEqual([
         "Reading the file.",
         "It renders a heading.",
         "add a dark mode toggle",
@@ -397,19 +435,28 @@ describe("NapContextEngine", () => {
   });
 
   describe("the project's files", () => {
-    it("are described in the system prompt", async () => {
+    it("are described to the model", async () => {
       const context = await engine().build(request());
 
-      expect(context.systemPrompt).toContain("src/App.tsx");
+      expect(told(context)).toContain("src/App.tsx");
     });
 
-    it("are omitted rather than faked when the sandbox cannot be read", async () => {
+    it("are said to be unavailable, not faked or failed, when the sandbox cannot list them", async () => {
       const context = await engine().build(
-        request({ sandbox: stubSandbox({}, { failing: [ROOT] }) }),
+        request({ sandbox: stubSandbox([], { failing: true }) }),
       );
 
-      expect(context.systemPrompt).toContain(SYSTEM_PROMPT);
-      expect(context.systemPrompt).not.toContain("<project_files>");
+      expect(context.systemPrompt).toBe(SYSTEM_PROMPT);
+      expect(turnContextOf(context)).toContain(FILE_LIST_UNAVAILABLE);
+    });
+
+    it("are listed with one sandbox call per build", async () => {
+      let calls = 0;
+      await engine().build(
+        request({ sandbox: stubSandbox(projectTree(), { onListTree: () => (calls += 1) }) }),
+      );
+
+      expect(calls).toBe(1);
     });
   });
 
@@ -426,7 +473,7 @@ describe("NapContextEngine", () => {
         }),
       );
 
-      expect(context.systemPrompt).toContain("the user prefers tabs");
+      expect(told(context)).toContain("the user prefers tabs");
     });
 
     it("leave no trace at all under the no-op", async () => {
@@ -435,14 +482,14 @@ describe("NapContextEngine", () => {
       // in v1, in exchange for nothing.
       const context = await engine().build(request({ memory: new NoopMemoryProvider() }));
 
-      expect(context.systemPrompt).not.toContain("memories");
+      expect(told(context)).not.toContain("memories");
     });
 
     it("produce byte-identical output to a provider that has nothing to say", async () => {
       const withNoop = await engine().build(request({ memory: new NoopMemoryProvider() }));
       const withEmpty = await engine().build(request({ memory: remembering([]) }));
 
-      expect(withNoop.systemPrompt).toBe(withEmpty.systemPrompt);
+      expect(told(withNoop)).toBe(told(withEmpty));
       expect(withNoop.estimatedTokens).toBe(withEmpty.estimatedTokens);
     });
 
@@ -455,7 +502,7 @@ describe("NapContextEngine", () => {
         request({ memory: remembering([{ id: "m1", content: "prefers tabs", score: 1 }]) }),
       );
 
-      expect(withMemory.systemPrompt).not.toBe(withNoop.systemPrompt);
+      expect(told(withMemory)).not.toBe(told(withNoop));
     });
   });
 
@@ -501,15 +548,17 @@ describe("NapContextEngine", () => {
 
       expect(context.estimatedTokens).toBeGreaterThan(MIN_BUDGET_TOKENS);
       expect(context.needsCompaction).toBe(true);
-      expect(texts(context.messages).at(-1)).toBe("z".repeat(200_000));
+      expect(texts(context.messages)).toContain("z".repeat(200_000));
       expect(context.systemPrompt).toContain(SYSTEM_PROMPT);
     });
 
     it("leaves everything intact when the budget is ample", async () => {
-      const context = await engine().build(request({ history: toolTurn(1, 400) }));
+      const context = await engine({ verbatimTurns: KEEP_EVERY_TURN }).build(
+        request({ history: toolTurn(1, 400) }),
+      );
 
       expect(toolResults(context.messages)[0]?.content).toBe("x".repeat(400));
-      expect(context.systemPrompt).toContain("src/App.tsx");
+      expect(told(context)).toContain("src/App.tsx");
     });
   });
 
@@ -574,7 +623,7 @@ describe("NapContextEngine", () => {
         request({ sandbox: stubSandbox(hugeTree(400)), history: heavy() }),
       );
 
-      expect(context.systemPrompt).not.toContain("<project_files>");
+      expect(told(context)).not.toContain("<project_files>");
       expect(context.systemPrompt).toContain(SYSTEM_PROMPT);
       expect(texts(context.messages).at(-1)).toBe("add a dark mode toggle");
     });
@@ -591,8 +640,8 @@ describe("NapContextEngine", () => {
         request({ sandbox: stubSandbox(hugeTree(400)), memory }),
       );
 
-      expect(context.systemPrompt).not.toContain("<project_files>");
-      expect(context.systemPrompt).toContain("the user prefers tabs");
+      expect(told(context)).not.toContain("<project_files>");
+      expect(told(context)).toContain("the user prefers tabs");
     });
   });
 
@@ -603,19 +652,42 @@ describe("NapContextEngine", () => {
     const roomy = () => engine({ budgetTokens: DEFAULT_BUDGET_TOKENS });
     const threeWrites = () => [1, 2, 3].flatMap((n) => writingTurn(n, 4_000));
 
-    it("drops what an older turn wrote, while the budget is nowhere near binding", async () => {
+    it("drops what every finished turn wrote, while the budget is nowhere near binding", async () => {
+      // The most recent one included. Emptying a turn one turn late would rewrite history the
+      // previous request had already cached, and every turn's first call would pay for all of
+      // it again (ADR-0021).
       const context = await roomy().build(request({ history: threeWrites() }));
 
       expect(context.estimatedTokens).toBeLessThan(DEFAULT_BUDGET_TOKENS);
       const written = toolUses(context.messages).map((b) => b.input.content);
-      expect(written.slice(0, -1)).toEqual([STALE_TOOL_INPUT, STALE_TOOL_INPUT]);
+      expect(written).toEqual([STALE_TOOL_INPUT, STALE_TOOL_INPUT, STALE_TOOL_INPUT]);
     });
 
-    it("keeps the most recent past turn word for word", async () => {
-      const context = await roomy().build(request({ history: threeWrites() }));
+    it("keeps the turn being continued word for word", async () => {
+      // A continuation rebuilds a turn that is still running, after a compaction; what it has
+      // just written is what it is about to need.
+      const context = await roomy().build(request({ history: threeWrites(), continuation: true }));
 
       expect(toolUses(context.messages).at(-1)?.input.content).toBe("c".repeat(4_000));
       expect(toolResults(context.messages).at(-1)?.content).toBe("y".repeat(4_000));
+      expect(toolUses(context.messages).at(-2)?.input.content).toBe(STALE_TOOL_INPUT);
+    });
+
+    it("never rewrites history a previous turn's request already sent", async () => {
+      // The cache's condition, at the level this class owns: the conversation the previous
+      // turn's first request carried is a prefix of this turn's, block for block.
+      const twoWrites = [1, 2].flatMap((n) => writingTurn(n, 4_000));
+      const before = await roomy().build(request({ history: twoWrites }));
+      const after = await roomy().build(request({ history: threeWrites() }));
+
+      const settled = before.messages
+        .slice(0, -1)
+        .map(({ cacheBreakpoint: _, ...message }) => message);
+      expect(
+        after.messages
+          .slice(0, settled.length)
+          .map(({ cacheBreakpoint: _, ...message }) => message),
+      ).toEqual(settled);
     });
 
     it("keeps the small arguments that say what an old call was about", async () => {
@@ -635,7 +707,7 @@ describe("NapContextEngine", () => {
       // recoverable from the workspace, so nothing here may touch it.
       const context = await roomy().build(request({ history: threeWrites() }));
 
-      expect(texts(context.messages)).toEqual([
+      expect(conversation(context)).toEqual([
         "change number 1",
         "done with 1",
         "change number 2",
@@ -652,12 +724,8 @@ describe("NapContextEngine", () => {
       // against truncation, so the two markers are not interchangeable.
       const context = await roomy().build(request({ history: threeWrites() }));
       const marks = [
-        ...toolResults(context.messages)
-          .slice(0, -1)
-          .map((b) => b.content),
-        ...toolUses(context.messages)
-          .slice(0, -1)
-          .map((b) => b.input.content),
+        ...toolResults(context.messages).map((b) => b.content),
+        ...toolUses(context.messages).map((b) => b.input.content),
       ];
 
       expect(marks).not.toContain(ELIDED_TOOL_OUTPUT);
@@ -740,7 +808,7 @@ describe("NapContextEngine", () => {
     it("is absent from the prompt for a caller that tracks none", async () => {
       const context = await engine().build(request());
 
-      expect(context.systemPrompt).not.toContain("<job>");
+      expect(told(context)).not.toContain("<job>");
     });
 
     it("leaves the prompt untouched when the turn's message is the objective itself", async () => {
@@ -751,14 +819,14 @@ describe("NapContextEngine", () => {
         request({ job: { objective: "add a dark mode toggle", attempts: [] } }),
       );
 
-      expect(withJob.systemPrompt).toBe(withoutJob.systemPrompt);
+      expect(told(withJob)).toBe(told(withoutJob));
     });
 
     it("states the objective on a turn whose message is not it", async () => {
       const context = await engine().build(request(repairing([])));
 
-      expect(context.systemPrompt).toContain("<job>");
-      expect(context.systemPrompt).toContain("add a dark mode toggle");
+      expect(told(context)).toContain("<job>");
+      expect(told(context)).toContain("add a dark mode toggle");
     });
 
     it("carries the failures already seen", async () => {
@@ -766,8 +834,8 @@ describe("NapContextEngine", () => {
         request(repairing([failure({ check: "typecheck", output: "error TS2322" })])),
       );
 
-      expect(context.systemPrompt).toContain("typecheck");
-      expect(context.systemPrompt).toContain("error TS2322");
+      expect(told(context)).toContain("typecheck");
+      expect(told(context)).toContain("error TS2322");
     });
 
     it("survives the budget that drops the conversation it came from", async () => {
@@ -780,8 +848,8 @@ describe("NapContextEngine", () => {
         request({ ...repairing([failure()]), history }),
       );
 
-      expect(context.systemPrompt).toContain("add a dark mode toggle");
-      expect(context.systemPrompt).toContain("FAIL src/App.test.tsx");
+      expect(told(context)).toContain("add a dark mode toggle");
+      expect(told(context)).toContain("FAIL src/App.test.tsx");
       expect(texts(context.messages).join("\n")).toContain("change number 1");
       expect(
         context.messages.filter((message) => message.role === "assistant").length,
@@ -804,9 +872,9 @@ describe("NapContextEngine", () => {
         }),
       );
 
-      expect(context.systemPrompt).not.toContain("<project_files>");
-      expect(context.systemPrompt).not.toContain("the user prefers tabs");
-      expect(context.systemPrompt).toContain("add a dark mode toggle");
+      expect(told(context)).not.toContain("<project_files>");
+      expect(told(context)).not.toContain("the user prefers tabs");
+      expect(told(context)).toContain("add a dark mode toggle");
     });
 
     it("gives up the oldest failures before the one being repaired now", async () => {
@@ -822,8 +890,8 @@ describe("NapContextEngine", () => {
         request(repairing(attempts)),
       );
 
-      expect(context.systemPrompt).toContain("the newest failure");
-      expect(context.systemPrompt).not.toContain("the oldest failure");
+      expect(told(context)).toContain("the newest failure");
+      expect(told(context)).not.toContain("the oldest failure");
     });
 
     it.each([MIN_BUDGET_TOKENS, MIN_BUDGET_TOKENS + 1_000, 10_000, DEFAULT_BUDGET_TOKENS])(
@@ -855,8 +923,8 @@ describe("NapContextEngine", () => {
         MIN_BUDGET_TOKENS,
       );
       // Still says what was asked and which check said no, having given up only the quote.
-      expect(context.systemPrompt).toContain("add a dark mode toggle");
-      expect(context.systemPrompt).toContain("test");
+      expect(told(context)).toContain("add a dark mode toggle");
+      expect(told(context)).toContain("test");
     });
   });
 

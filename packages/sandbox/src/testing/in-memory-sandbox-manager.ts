@@ -87,6 +87,8 @@ type SandboxState = {
   projectId: string;
   files: Map<string, string>;
   commands: string[];
+  /** How many times `listTree` was called, so a caller can be held to one per question. */
+  listings: number;
   /** Ports a test has declared to be serving; see `listen`. */
   listening: Set<number>;
   /** When `create` was called, as an ISO string, for the inventory to report. */
@@ -165,6 +167,7 @@ export class InMemorySandboxManager implements SandboxManager, SandboxInventory 
         Object.entries(this.#seed).map(([path, contents]) => [normalize(path), contents]),
       ),
       commands: [],
+      listings: 0,
       listening: new Set(this.#serves),
       timeoutMs: undefined,
       startedAt: new Date(this.#now()).toISOString(),
@@ -263,6 +266,37 @@ export class InMemorySandboxManager implements SandboxManager, SandboxInventory 
       ok: true,
       value: [...children].map(([childPath, type]) => ({ path: childPath, type })),
     };
+  }
+
+  /** Answered from the map, with no command: there is no shell here to run one in. */
+  async listTree(
+    sandboxId: string,
+    root: string,
+    options: { exclude: readonly string[]; timeoutMs: number },
+  ): Promise<Result<string[], SandboxError>> {
+    const found = this.#lookup(sandboxId);
+    if (!found.ok) return found;
+    found.value.listings += 1;
+
+    const dir = normalize(root);
+    const prefix = dir === "/" ? "/" : `${dir}/`;
+    const excluded = new Set(options.exclude);
+    return {
+      ok: true,
+      value: [...found.value.files.keys()].filter(
+        (path) =>
+          path.startsWith(prefix) &&
+          !path
+            .slice(prefix.length)
+            .split("/")
+            .some((segment) => excluded.has(segment)),
+      ),
+    };
+  }
+
+  /** How many times `listTree` has been asked about a sandbox — one call per question. */
+  listings(sandboxId: string): number {
+    return this.#sandboxes.get(sandboxId)?.listings ?? 0;
   }
 
   async exec(

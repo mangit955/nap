@@ -20,6 +20,7 @@ import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { listTreeViaExec } from "@nap/shared/list-tree";
 import type {
   ExecOutputHandler,
   ExecResult,
@@ -121,6 +122,15 @@ export class LocalShellSandbox implements SandboxManager {
     } catch {
       return { ok: false, error: { code: "file_not_found", message: `${path} does not exist` } };
     }
+  }
+
+  /** The production command, through real bash, so a test sees what a real sandbox would list. */
+  listTree(
+    sandboxId: string,
+    root: string,
+    options: { exclude: readonly string[]; timeoutMs: number },
+  ): Promise<Result<string[], SandboxError>> {
+    return listTreeViaExec(this, sandboxId, root, options);
   }
 
   exec(

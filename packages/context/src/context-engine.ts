@@ -26,6 +26,14 @@ import { MODEL_MEDIA_UNSUPPORTED, modelSupportsImages } from "@nap/shared/model-
  * question exists because the first cannot see the multiplier: a turn re-sends its whole
  * transcript on every round trip, so a kilobyte that fits comfortably is charged ten to forty
  * times against a ceiling this class does not own. See `DEFAULT_VERBATIM_TURNS` and ADR-0011.
+ *
+ * And under all of it, a layout the provider's prompt cache can read. A cache entry is matched by
+ * a byte-identical prefix, and the API renders tools, then the system prompt, then the messages —
+ * so anything that changes between turns poisons everything after it. The system prompt is
+ * therefore only the instructions this workspace runs under, identical for every user, session
+ * and turn; history is rewritten only when the budget forces a compaction; and what changes per
+ * turn — the file listing, the job brief, memories — rides in the turn's own message, after
+ * everything a later turn will repeat. See ADR-0021.
  */
 
 import { pruneComputerImages } from "@nap/shared/computer-context";
@@ -77,18 +85,24 @@ const ELISIONS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * How many past turns keep their tool traffic word for word.
+ * How many finished turns keep their tool traffic word for word: none.
  *
- * One, and the reason is arithmetic rather than taste. A turn is many model round trips and
- * every one re-sends the whole transcript, so a turn's bill is roughly the assembled size
- * *times* its step count. Fitting is therefore not the same as being worth sending, and on the
- * session this was measured against the ladder below never ran once. ADR-0011 has the numbers
- * and `packages/context/scripts/measure-audit-session.ts` reproduces them for free.
+ * Staleness is arithmetic rather than taste. A turn is many model round trips and every one
+ * re-sends the whole transcript, so a turn's bill is roughly the assembled size *times* its step
+ * count. Fitting is therefore not the same as being worth sending, and on the session this was
+ * measured against the ladder below never ran once. ADR-0011 has the numbers and
+ * `packages/context/scripts/measure-audit-session.ts` reproduces them for free.
  *
- * What an old turn is actually consulted for is what was asked and what the agent said back;
- * the file it wrote is on disk, one `read_file` away, and the command it ran can be run again.
+ * None rather than the most recent one, because a turn is emptied exactly once, at the boundary
+ * where the request already changes — the end of the turn that wrote it. Keeping the latest turn
+ * whole meant emptying it one turn later instead, in the middle of history that was otherwise
+ * settled, and every turn's first request lost the cached conversation from that point on
+ * (ADR-0021). The turn being *continued* after a compaction is not finished and keeps its traffic.
+ *
+ * What a finished turn is consulted for is what was asked and what the agent said back; the file
+ * it wrote is on disk, one `read_file` away, and the command it ran can be run again.
  */
-const DEFAULT_VERBATIM_TURNS = 1;
+const DEFAULT_VERBATIM_TURNS = 0;
 
 /**
  * How large an argument may be before staleness reaches it.
@@ -116,7 +130,11 @@ export type NapContextEngineOptions = {
   maxTurns?: number;
   root?: string;
   maxFileEntries?: number;
-  /** How many of the most recent past turns keep their tool traffic in full. */
+  /**
+   * How many of the most recent finished turns keep their tool traffic in full. Anything above
+   * the default costs every turn its cached conversation; tests of the truncation ladder raise it
+   * so that staleness has not already emptied what they assert on.
+   */
   verbatimTurns?: number;
 };
 
@@ -259,6 +277,8 @@ function toTurns(history: NapEvent[], media: MediaReplay): Turn[] {
 
 /** Conversation reconstruction shared by summary planning and normal context assembly. */
 export function historyMessages(history: NapEvent[], images = false): LLMMessage[] {
+  // Every turn but the last: this is the source a summary is written from, and the last turn is
+  // the one the summary has to let the agent carry on with.
   const turns = toTurns(history, images ? "images" : "references");
   for (const turn of turns.slice(0, -1)) makeStale(turn);
   return turns.flatMap((turn) => turn.messages);
@@ -400,20 +420,22 @@ export class NapContextEngine implements ContextEngine {
             ]),
       ];
     };
+    // Staleness, before the budget is consulted at all. Everything below this point reclaims
+    // tokens because the context does not fit; this reclaims them because carrying a finished
+    // turn's file contents is not worth what it costs even when it does. See
+    // `DEFAULT_VERBATIM_TURNS`. A continuation's last turn is the one still running.
+    const verbatim = this.#verbatimTurns + (request.continuation ? 1 : 0);
+    for (const turn of turns.slice(0, Math.max(turns.length - verbatim, 0))) {
+      makeStale(turn);
+    }
+    // After staleness, not before: the tail is the exchange a compaction kept word for word so
+    // the agent can carry on from it, and it was chosen for being needed, not for being recent.
     if (checkpoint !== undefined && checkpoint.tail.length > 0)
       turns.unshift({
         id: "compaction-tail",
         messages: pruneComputerImages(structuredClone(checkpoint.tail), 0),
       });
     let needsCompaction = allTurns.length > this.#maxTurns;
-
-    // Staleness, before the budget is consulted at all. Everything below this point reclaims
-    // tokens because the context does not fit; this reclaims them because carrying an old
-    // turn's file contents is not worth what it costs even when it does. See
-    // `DEFAULT_VERBATIM_TURNS`.
-    for (const turn of turns.slice(0, Math.max(turns.length - this.#verbatimTurns, 0))) {
-      makeStale(turn);
-    }
 
     let remembered: Memory[] = memories;
     const userMessage = request.continuation ? "" : request.userMessage;
@@ -443,8 +465,10 @@ export class NapContextEngine implements ContextEngine {
             ...(outputTokens === undefined ? {} : { outputTokens }),
           });
 
+    const instructions = basePrompt(request.workspace);
     const cost = (): number =>
-      estimateTokens(systemPrompt(digest, remembered, brief(), request.workspace)) +
+      estimateTokens(instructions) +
+      estimateTokens(turnContext(digest, remembered, brief())) +
       messagesTokens([...protectedMessages(), ...turns.flatMap((turn) => turn.messages)]) +
       estimateTokens(userMessage) +
       mediaTokens;
@@ -506,7 +530,8 @@ export class NapContextEngine implements ContextEngine {
       // what is currently spent — and with the turn's own message still paid for, so shrinking
       // a quote can never be what silences the instruction the turn is actually carrying.
       outputTokens = 0;
-      const floor = estimateTokens(systemPrompt(digest, remembered, brief(), request.workspace));
+      const floor =
+        estimateTokens(instructions) + estimateTokens(turnContext(digest, remembered, brief()));
       outputTokens = Math.max(
         this.#budgetTokens -
           floor -
@@ -520,22 +545,33 @@ export class NapContextEngine implements ContextEngine {
     // Essential instructions are not shortened to make a misleadingly small request.
     // The active loop can summarize history or stop with a context-budget failure.
 
-    const messages = [
-      ...protectedMessages(),
-      ...turns.flatMap((turn) => turn.messages),
-      ...(request.continuation
-        ? []
-        : [{ role: "user", content: [...media, textBlock(userMessage)] } satisfies LLMMessage]),
-    ];
-    const prompt = systemPrompt(digest, remembered, brief(), request.workspace);
+    const history = [...protectedMessages(), ...turns.flatMap((turn) => turn.messages)];
+    // The two places this request's history meets the cache: where the previous turn's first
+    // request ended its history, which this one reads, and where this one's ends, which the next
+    // turn reads. One turn's traffic is routinely more blocks than the API looks back from a
+    // breakpoint for an earlier entry, so the read needs a marker of its own. With the system
+    // prompt's and the provider's moving one at the end, that is the four the API allows.
+    const settledTurns = turns.filter((turn) => turn.messages.length > 0);
+    for (const turn of settledTurns.slice(-2)) {
+      const last = turn.messages.at(-1);
+      if (last !== undefined) last.cacheBreakpoint = true;
+    }
+    const messages = request.continuation
+      ? history
+      : [
+          ...history,
+          { role: "user", content: [...media, textBlock(userMessage)] } satisfies LLMMessage,
+        ];
+    const context = turnContext(digest, remembered, brief());
+    if (context !== "") appendToLastUserMessage(messages, context);
 
     return {
-      systemPrompt: prompt,
-      trustedInstructions: basePrompt(request.workspace),
+      systemPrompt: instructions,
+      trustedInstructions: instructions,
       budgetTokens: this.#budgetTokens,
       needsCompaction,
       messages,
-      estimatedTokens: estimateTokens(prompt) + messagesTokens(messages),
+      estimatedTokens: estimateTokens(instructions) + messagesTokens(messages),
       // Helpers earn their keep where a search would otherwise fill the context: an imported
       // repository. A Nap project is a handful of files listed in the prompt already, where a
       // helper is a second model paid to find what the first can see (ADR-0020).
@@ -552,26 +588,23 @@ function basePrompt(workspace?: "repository"): string {
 }
 
 /**
- * Stable content first, volatile content after — the order prompt caching requires, since a
- * cache entry is matched by a byte-identical prefix and anything above a change is lost.
- * Placing the cache breakpoint is the provider's job; leaving it somewhere worth placing is
- * this one's.
+ * What changes from one turn to the next: the file listing, the job brief and memories.
+ *
+ * Not in the system prompt, and the reason is the cache. The API renders tools, then the system
+ * prompt, then the messages, and a cache entry is a byte-identical prefix — so a listing that
+ * gains a file, or a brief that gains a failure, anywhere above the conversation makes every
+ * turn's first request re-write the whole conversation at the cache-write price before the model
+ * says a word. Here it rides in the turn's own message, the one thing in the request that is new
+ * anyway. It is also not trusted instructions: file names and quoted check output are project
+ * data, and the user's role is the honest place for them.
  */
-function systemPrompt(
-  digest: string,
-  memories: Memory[],
-  job: string,
-  workspace?: "repository",
-): string {
-  const sections = [basePrompt(workspace)];
+function turnContext(digest: string, memories: Memory[], job: string): string {
+  const sections: string[] = [];
 
   if (digest !== "") {
     sections.push(`<project_files>\n${digest}\n</project_files>`);
   }
 
-  // After the listing rather than before it: within a job the objective does not change and
-  // the failures grow, so putting this first would move the listing on every repair turn and
-  // lose the cached prefix even on the turns where nothing about the project's files changed.
   if (job !== "") {
     sections.push(job);
   }
@@ -584,4 +617,19 @@ function systemPrompt(
   }
 
   return sections.join("\n\n");
+}
+
+/**
+ * Adds the turn's context to the newest user message, or starts one when the conversation ends
+ * on the agent. Usually that message is the turn's own request; on a continuation it is whatever
+ * the agent is carrying on from. Either way it is after every breakpoint a later turn reads.
+ */
+function appendToLastUserMessage(messages: LLMMessage[], text: string): void {
+  const last = messages.at(-1);
+  if (last?.role !== "user") {
+    messages.push({ role: "user", content: [textBlock(text)] });
+    return;
+  }
+  const blocks = typeof last.content === "string" ? [textBlock(last.content)] : last.content;
+  messages[messages.length - 1] = { ...last, content: [...blocks, textBlock(text)] };
 }

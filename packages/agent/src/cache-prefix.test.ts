@@ -1,0 +1,217 @@
+/**
+ * The guard on prompt caching across turns: what one turn's first request cached, the next
+ * turn's first request must repeat byte for byte and read at a breakpoint.
+ *
+ * Both halves are real — the context engine that assembles a turn and the mapper that renders
+ * it for the API — because the regression this exists for lives in the seam between them. A
+ * file the agent wrote, a repair's job brief or a rewritten old turn, placed anywhere before a
+ * breakpoint, makes every turn's first call re-write the whole prefix at the cache-write price
+ * and wait for it, and nothing else in the suite notices: every answer is still correct.
+ *
+ * What counts as the prefix is what the cache keys on: tools, then system, then messages, with
+ * the markers themselves removed — a marker says where to cache, it is not part of what is.
+ */
+
+import type Anthropic from "@anthropic-ai/sdk";
+import { NapContextEngine } from "@nap/context/context-engine";
+import { NoopMemoryProvider } from "@nap/context/noop-memory-provider";
+import { stubSandbox } from "@nap/context/testing/stub-sandbox";
+import type { NapEvent, PromptSource } from "@nap/shared/events";
+import type { BuiltContext, JobContext } from "@nap/shared/ports/context-engine";
+import { describe, expect, it } from "vitest";
+import { toRequestParams } from "./claude-provider.ts";
+import { toolsetFor } from "./tools/toolset.ts";
+
+const SESSION = "6f1c1d3e-2b7a-4c5e-8f9a-0d1e2f3a4b5c";
+const ROOT = "/home/user/app";
+
+let seq = 0;
+function event<T extends NapEvent["type"]>(
+  type: T,
+  turn: number,
+  payload: Extract<NapEvent, { type: T }>["payload"],
+): NapEvent {
+  seq += 1;
+  return {
+    type,
+    sessionId: SESSION,
+    turnId: `1a2b3c4d-5e6f-4a8b-9c0d-1e2f3a4b5c${String(turn).padStart(2, "0")}`,
+    seq,
+    createdAt: "2026-11-03T12:00:00.000Z",
+    payload,
+  } as NapEvent;
+}
+
+/** One finished turn: asked, read a file, wrote one, answered. The writes are the bulk. */
+function turn(n: number, asked: string, wrote: string): NapEvent[] {
+  return [
+    event("user.message", n, { text: asked }),
+    event("tool.call", n, {
+      toolCallId: `read-${n}`,
+      toolName: "read_file",
+      input: { path: `${ROOT}/src/App.tsx` },
+    }),
+    event("tool.result", n, {
+      toolCallId: `read-${n}`,
+      toolName: "read_file",
+      ok: true,
+      output: "export function App() {\n  return null;\n}\n".repeat(40),
+    }),
+    event("tool.call", n, {
+      toolCallId: `write-${n}`,
+      toolName: "write_file",
+      input: { path: `${ROOT}/${wrote}`, content: `export const x${n} = ${n};\n`.repeat(80) },
+    }),
+    event("tool.result", n, {
+      toolCallId: `write-${n}`,
+      toolName: "write_file",
+      ok: true,
+      output: `wrote ${wrote}`,
+    }),
+    event("agent.message", n, { text: `Done with turn ${n}.` }),
+  ];
+}
+
+const BASE_FILES = [`${ROOT}/package.json`, `${ROOT}/index.html`, `${ROOT}/src/App.tsx`];
+const turn1 = turn(1, "Build a todo list.", "src/Todo.tsx");
+const turn2 = turn(2, "Add a dark mode toggle.", "src/Theme.tsx");
+const REPAIR = "The project's checks failed after your last change. Fix what they report.";
+const turn3 = turn(3, REPAIR, "src/Theme.test.tsx");
+
+const DARK_MODE: JobContext = { objective: "Add a dark mode toggle.", attempts: [] };
+const REPAIRING: JobContext = {
+  objective: "Add a dark mode toggle.",
+  attempts: [{ check: "typecheck", detail: "exit 2", output: "error TS2322: not assignable" }],
+};
+
+async function firstRequest(options: {
+  history: NapEvent[];
+  files: string[];
+  userMessage: string;
+  job?: JobContext;
+  /** Who asked: a repair turn is the project's checks asking, and is offered less. */
+  promptSource?: PromptSource;
+}): Promise<Anthropic.MessageStreamParams> {
+  const context: BuiltContext = await new NapContextEngine().build({
+    sessionId: SESSION,
+    sandboxId: "sbx_1",
+    userMessage: options.userMessage,
+    model: "openai/gpt-5.6-luna",
+    history: options.history.map((stored) => ({ ...stored })),
+    ...(options.job === undefined ? {} : { job: options.job }),
+    sandbox: stubSandbox(options.files),
+    memory: new NoopMemoryProvider(),
+  });
+  const tools = toolsetFor({
+    promptSource: options.promptSource ?? "user",
+    family: "gpt",
+    computer: false,
+    subagents: false,
+  });
+  return toRequestParams({ systemPrompt: context.systemPrompt, messages: context.messages, tools });
+}
+
+/** A body without its markers: the bytes a cache entry is keyed on. */
+function unmarked<T>(value: T): T {
+  return JSON.parse(
+    JSON.stringify(value, (key, inner) => (key === "cache_control" ? undefined : inner)),
+  );
+}
+
+function marked(block: unknown): boolean {
+  return typeof block === "object" && block !== null && "cache_control" in block;
+}
+
+/**
+ * The request rendered up to each block that carries a breakpoint, in order: every prefix this
+ * request writes to the cache, or reads from it.
+ */
+function cachedPrefixes(body: Anthropic.MessageStreamParams): string[] {
+  const tools = unmarked(body.tools);
+  const system = Array.isArray(body.system) ? body.system : [];
+  const prefixes: string[] = [];
+  system.forEach((block, index) => {
+    if (marked(block))
+      prefixes.push(JSON.stringify(unmarked({ tools, system: system.slice(0, index + 1) })));
+  });
+  body.messages.forEach((message, index) => {
+    const content = Array.isArray(message.content) ? message.content : [];
+    content.forEach((block, at) => {
+      if (!marked(block)) return;
+      const messages = [
+        ...body.messages.slice(0, index),
+        { role: message.role, content: content.slice(0, at + 1) },
+      ];
+      prefixes.push(JSON.stringify(unmarked({ tools, system, messages })));
+    });
+  });
+  return prefixes;
+}
+
+/**
+ * What one turn left in the cache that the next can use: the instructions, and the conversation
+ * up to its last breakpoint before the turn's own message. That message, and what rides in it,
+ * is the turn's alone.
+ */
+function settled(body: Anthropic.MessageStreamParams): string[] {
+  const prefixes = cachedPrefixes(body);
+  return [...new Set([prefixes[0] ?? "", prefixes.at(-2) ?? ""])];
+}
+
+describe("the prefix a turn caches, the next turn reads", () => {
+  const second = () =>
+    firstRequest({
+      history: turn1,
+      files: [...BASE_FILES, `${ROOT}/src/Todo.tsx`],
+      userMessage: "Add a dark mode toggle.",
+      job: DARK_MODE,
+    });
+  // Turn 2 added a file, and this turn repairs its job: both used to be in the system prompt.
+  const third = () =>
+    firstRequest({
+      history: [...turn1, ...turn2],
+      files: [...BASE_FILES, `${ROOT}/src/Todo.tsx`, `${ROOT}/src/Theme.tsx`],
+      userMessage: REPAIR,
+      job: REPAIRING,
+      promptSource: "verification",
+    });
+  const fourth = () =>
+    firstRequest({
+      history: [...turn1, ...turn2, ...turn3],
+      files: [
+        ...BASE_FILES,
+        `${ROOT}/src/Todo.tsx`,
+        `${ROOT}/src/Theme.tsx`,
+        `${ROOT}/src/Theme.test.tsx`,
+      ],
+      userMessage: "Make the toggle round.",
+    });
+
+  it("survives a turn that added a file and a repair turn's job brief", async () => {
+    const [b2, b3, b4] = [await second(), await third(), await fourth()];
+
+    for (const [before, after] of [
+      [b2, b3],
+      [b3, b4],
+    ] as const) {
+      const reads = cachedPrefixes(after);
+      for (const prefix of settled(before)) expect(reads).toContain(prefix);
+    }
+  });
+
+  it("caches the conversation, not only the instructions", async () => {
+    // Without this, a request with one breakpoint on the system prompt passes the test above
+    // while every turn re-writes its whole history.
+    const [b3, b4] = [await third(), await fourth()];
+
+    const history = settled(b3).at(-1) ?? "";
+    expect(history).toContain("Add a dark mode toggle.");
+    expect(cachedPrefixes(b4)).toContain(history);
+  });
+
+  it("stays inside the four breakpoints the API allows", async () => {
+    for (const body of [await second(), await third(), await fourth()]) {
+      expect(cachedPrefixes(body).length).toBeLessThanOrEqual(4);
+    }
+  });
+});

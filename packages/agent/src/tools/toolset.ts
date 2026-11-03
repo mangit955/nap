@@ -76,7 +76,19 @@ export function toolNamesFor(options: ToolsetOptions): Set<ToolName> {
   return offered;
 }
 
+/**
+ * The tools a turn *declares* — which is not quite the set it may use.
+ *
+ * Declarations are the head of every request, ahead of the system prompt and the conversation,
+ * so a declared set that differs between two turns of one session makes the second re-write its
+ * whole cached prefix. A repair turn is offered everything a person's turn is except `ask_user`,
+ * and declaring one fewer tool cost every repair, and the turn after it, the session's cache. So
+ * a repair declares the person's set, and the executor refuses `ask_user` there exactly as it
+ * refuses any tool a turn was not offered — an immediate answer, never a question left waiting.
+ */
 export function toolsetFor(options: ToolsetOptions): ToolDefinition[] {
-  const offered = toolNamesFor(options);
-  return TOOL_DEFINITIONS.filter((tool) => offered.has(tool.name));
+  const declared = toolNamesFor(
+    options.promptSource === "verification" ? { ...options, promptSource: "user" } : options,
+  );
+  return TOOL_DEFINITIONS.filter((tool) => declared.has(tool.name));
 }
