@@ -1,6 +1,6 @@
 # ADR-0011 — An old turn's tool traffic is not worth carrying, even when it fits
 
-**Status:** Accepted — 2026-08-24. Amended by [ADR-0021](0021-the-cached-prefix-is-never-rewritten.md):
+**Status:** Accepted — 2026-08-24. Amended by [ADR-0024](0024-the-cached-prefix-is-never-rewritten.md):
 every *finished* turn is now stale, the most recent one included, so that history a cached
 request already sent is never rewritten. `verbatimTurns` now defaults to zero.
 

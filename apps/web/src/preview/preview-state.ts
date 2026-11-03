@@ -1,9 +1,10 @@
 /**
  * What the preview pane should be showing, derived from the event log.
  *
- * The pane has exactly one job — show the user's app — and three ways of not doing it yet:
- * nothing has been asked for, a sandbox is coming up, or it failed to. Deriving that from the
- * same stream the chat renders keeps the two panes from disagreeing about what is happening.
+ * The pane has exactly one job — show the user's app — and four ways of not doing it yet:
+ * nothing has been asked for, a sandbox is coming up, it failed to, or somebody stopped it first.
+ * Deriving that from the same stream the chat renders keeps the two panes from disagreeing about
+ * what is happening.
  *
  * Two rules are worth stating because they are easy to get backwards:
  *
@@ -25,6 +26,8 @@ const PREVIEW_FAILURES: readonly FailureReason[] = ["sandbox_unavailable", "inte
 export type PreviewState =
   | { status: "idle" }
   | { status: "starting" }
+  /** A turn was stopped before it had a sandbox, so nothing is coming up and nothing is serving. */
+  | { status: "cancelled" }
   /**
    * `seq` identifies *which* announcement this is, which is what a reload keys on; `createdAt`
    * is when the server made it, which is what decides whether the project record read at mount
@@ -37,6 +40,13 @@ export type PreviewState =
 
 export function previewState(events: readonly StoredEvent[]): PreviewState {
   let state: PreviewState = { status: "idle" };
+  /** The log's last word on a sandbox was that it went away, so there is saved work to come back. */
+  let putAway = false;
+  /**
+   * A job has opened since the log last said the sandbox went away, so as far as the log can tell
+   * one is still there.
+   */
+  let hasSandbox = false;
 
   for (const event of events) {
     switch (event.type) {
@@ -48,6 +58,7 @@ export function previewState(events: readonly StoredEvent[]): PreviewState {
           seq: event.seq,
           createdAt: event.createdAt,
         };
+        putAway = false;
         break;
 
       // Unconditional, unlike every other transition here: a ready preview is exactly what
@@ -56,6 +67,12 @@ export function previewState(events: readonly StoredEvent[]): PreviewState {
       // the user's app.
       case "preview.stopped":
         state = { status: "stopped" };
+        putAway = true;
+        hasSandbox = false;
+        break;
+
+      case "job.started":
+        hasSandbox = true;
         break;
 
       case "user.message":
@@ -67,6 +84,10 @@ export function previewState(events: readonly StoredEvent[]): PreviewState {
       case "turn.failed":
         if (state.status !== "ready" && PREVIEW_FAILURES.includes(event.payload.reason)) {
           state = { status: "error", message: event.payload.message };
+        } else if (state.status === "starting" && event.payload.reason === "cancelled") {
+          // No later event will end this wait. With a sandbox in hand, nothing here can say the
+          // dev server failed, only that it has not been announced, so "starting" stays.
+          if (!hasSandbox) state = putAway ? { status: "stopped" } : { status: "cancelled" };
         }
         break;
 

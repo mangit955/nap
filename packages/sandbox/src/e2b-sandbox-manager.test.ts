@@ -8,15 +8,20 @@ import {
   SandboxNotFoundError,
   TimeoutError,
 } from "e2b";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
+import { groupedCommand, stopGroupCommand } from "./e2b-exec-group.ts";
 import type { E2BClient, E2BSandboxHandle, E2BSandboxSummary } from "./e2b-sandbox-manager.ts";
-import { E2BSandboxManager, toSandboxError } from "./e2b-sandbox-manager.ts";
+import { E2BSandboxManager, STOP_TIMEOUT_MS, toSandboxError } from "./e2b-sandbox-manager.ts";
 
 /**
  * A stub standing in for one E2B sandbox. Every method rejects unless the test
  * overrides it, so a case can only pass by exercising the path it names.
  */
-function stubHandle(overrides: Partial<E2BSandboxHandle> = {}): E2BSandboxHandle {
+function stubHandle(
+  overrides: Omit<Partial<E2BSandboxHandle>, "commands"> & {
+    commands?: Partial<E2BSandboxHandle["commands"]>;
+  } = {},
+): E2BSandboxHandle {
   return {
     sandboxId: "sbx_stub",
     files: {
@@ -24,12 +29,15 @@ function stubHandle(overrides: Partial<E2BSandboxHandle> = {}): E2BSandboxHandle
       write: () => Promise.reject(new Error("files.write not stubbed")),
       list: () => Promise.reject(new Error("files.list not stubbed")),
     },
-    commands: { run: () => Promise.reject(new Error("commands.run not stubbed")) },
     getHost: (port) => `${port}-sbx_stub.e2b.app`,
     getMetadata: () => Promise.resolve({ projectId: "project" }),
     setTimeout: () => Promise.resolve(),
     kill: () => Promise.resolve(true),
     ...overrides,
+    commands: {
+      run: () => Promise.reject(new Error("commands.run not stubbed")),
+      ...overrides.commands,
+    },
   };
 }
 
@@ -159,6 +167,238 @@ describe("E2BSandboxManager exec", () => {
       { stream: "stdout", data: "one\n" },
       { stream: "stderr", data: "two\n" },
     ]);
+  });
+
+  describe("a command to be stopped when the call gives up", () => {
+    const OPTIONS = { stopOnGiveUp: true };
+    const OK = { exitCode: 0, stdout: "", stderr: "" };
+
+    /** A `run` that answers the command with `answer`, and the stop that may follow with success. */
+    function runAnswering(answer: () => Promise<typeof OK>) {
+      return vi.fn<E2BSandboxHandle["commands"]["run"]>((command) =>
+        command.startsWith("touch ") ? Promise.resolve(OK) : answer(),
+      );
+    }
+
+    const stops = (run: ReturnType<typeof runAnswering>) =>
+      run.mock.calls.map(([command]) => command).filter((command) => command.startsWith("touch "));
+
+    /** The marker in a wrapped command, which is what ties a stop to the command it stops. */
+    function markerIn(run: ReturnType<typeof runAnswering>): string {
+      const marker = /\/tmp\/nap-exec-[\w-]+/.exec(run.mock.calls[0]?.[0] ?? "")?.[0];
+      if (marker === undefined) throw new Error("the command names no marker");
+      return marker;
+    }
+
+    it("runs the command inside the group, with its timeout, signal and output handlers", async () => {
+      const run = runAnswering(() => Promise.resolve(OK));
+      const { manager, sandboxId } = await managerWith(stubHandle({ commands: { run } }));
+      const { signal } = new AbortController();
+
+      await manager.exec(sandboxId, "bun run build", undefined, {
+        ...OPTIONS,
+        signal,
+        timeoutMs: 1_234,
+      });
+
+      const [command, opts] = run.mock.calls[0] ?? [];
+      expect(command).toBe(groupedCommand("bun run build", markerIn(run)));
+      expect(opts).toMatchObject({ signal, timeoutMs: 1_234 });
+    });
+
+    it("gives each command a marker of its own", async () => {
+      const run = runAnswering(() => Promise.resolve(OK));
+      const { manager, sandboxId } = await managerWith(stubHandle({ commands: { run } }));
+
+      await manager.exec(sandboxId, "one", undefined, OPTIONS);
+      await manager.exec(sandboxId, "two", undefined, OPTIONS);
+
+      expect(run.mock.calls[0]?.[0].match(/nap-exec-[\w-]+/)?.[0]).not.toBe(
+        run.mock.calls[1]?.[0].match(/nap-exec-[\w-]+/)?.[0],
+      );
+    });
+
+    it("forwards streamed output", async () => {
+      const run = vi.fn<E2BSandboxHandle["commands"]["run"]>((_command, opts) => {
+        opts?.onStdout?.("one\n");
+        return Promise.resolve(OK);
+      });
+      const { manager, sandboxId } = await managerWith(stubHandle({ commands: { run } }));
+      const chunks: unknown[] = [];
+
+      await manager.exec(sandboxId, "bun run build", (chunk) => chunks.push(chunk), OPTIONS);
+
+      expect(chunks).toEqual([{ stream: "stdout", data: "one\n" }]);
+    });
+
+    it("stops the group when the signal fires, and reports why the command did not finish", async () => {
+      const controller = new AbortController();
+      const run = runAnswering(() => {
+        controller.abort();
+        return Promise.reject(new TimeoutError("canceled"));
+      });
+      const { manager, sandboxId } = await managerWith(stubHandle({ commands: { run } }));
+
+      const result = await manager.exec(sandboxId, "bun run build", undefined, {
+        ...OPTIONS,
+        signal: controller.signal,
+      });
+
+      expect(result).toMatchObject({ ok: false, error: { code: "timeout" } });
+      expect(stops(run)).toEqual([stopGroupCommand(markerIn(run))]);
+    });
+
+    it("stops the group at the deadline, where no signal is involved", async () => {
+      const run = runAnswering(() => Promise.reject(new TimeoutError("deadline_exceeded")));
+      const { manager, sandboxId } = await managerWith(stubHandle({ commands: { run } }));
+
+      const result = await manager.exec(sandboxId, "bun run build", undefined, {
+        ...OPTIONS,
+        timeoutMs: 1_234,
+      });
+
+      expect(result).toMatchObject({ ok: false, error: { code: "timeout" } });
+      expect(stops(run)).toEqual([stopGroupCommand(markerIn(run))]);
+    });
+
+    it("stops the group on any other failure, such as the connection dropping", async () => {
+      const run = runAnswering(() => Promise.reject(new Error("socket closed")));
+      const { manager, sandboxId } = await managerWith(stubHandle({ commands: { run } }));
+
+      const result = await manager.exec(sandboxId, "bun run build", undefined, OPTIONS);
+
+      expect(result).toMatchObject({ ok: false, error: { code: "unavailable" } });
+      expect(stops(run)).toEqual([stopGroupCommand(markerIn(run))]);
+    });
+
+    it("waits for the stop, so the next turn cannot start on top of what it was stopping", async () => {
+      let stopped: (result: typeof OK) => void = () => {};
+      const run = vi.fn<E2BSandboxHandle["commands"]["run"]>((command) =>
+        command.startsWith("touch ")
+          ? new Promise((resolve) => {
+              stopped = resolve;
+            })
+          : Promise.reject(new TimeoutError("canceled")),
+      );
+      const { manager, sandboxId } = await managerWith(stubHandle({ commands: { run } }));
+      let returned = false;
+
+      const execution = manager
+        .exec(sandboxId, "bun run build", undefined, OPTIONS)
+        .then((result) => {
+          returned = true;
+          return result;
+        });
+      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2));
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(returned).toBe(false);
+      stopped(OK);
+      await execution;
+    });
+
+    it("gives up on a stop that never answers once its own bound passes, since the caller's signal has already fired", async () => {
+      // Node runs `AbortSignal.timeout` on a timer fake timers cannot reach, so this test stands in
+      // for the bound with a signal it fires itself, and checks the bound is the one asked for.
+      const bound = new AbortController();
+      const timeout = vi.spyOn(AbortSignal, "timeout").mockReturnValue(bound.signal);
+      onTestFinished(() => timeout.mockRestore());
+      const controller = new AbortController();
+      const run = vi.fn<E2BSandboxHandle["commands"]["run"]>((command, opts) => {
+        if (!command.startsWith("touch ")) {
+          controller.abort();
+          return Promise.reject(new TimeoutError("canceled"));
+        }
+        // A sandbox that has stopped answering: nothing but the stop's own signal ends the wait.
+        return new Promise((_resolve, reject) => {
+          opts?.signal?.addEventListener("abort", () => reject(new Error("stop abandoned")), {
+            once: true,
+          });
+        });
+      });
+      const { manager, sandboxId } = await managerWith(stubHandle({ commands: { run } }));
+      let returned = false;
+
+      const execution = manager
+        .exec(sandboxId, "bun run build", undefined, { ...OPTIONS, signal: controller.signal })
+        .then((result) => {
+          returned = true;
+          return result;
+        });
+      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2));
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(returned).toBe(false);
+      expect(timeout).toHaveBeenCalledWith(STOP_TIMEOUT_MS);
+      bound.abort();
+      // The command's own failure, not the stop's.
+      expect(await execution).toMatchObject({ ok: false, error: { code: "timeout" } });
+    });
+
+    it("reports the original failure when the stop fails as well", async () => {
+      const run = vi.fn<E2BSandboxHandle["commands"]["run"]>((command) =>
+        Promise.reject(
+          command.startsWith("touch ")
+            ? new SandboxNotFoundError("gone")
+            : new TimeoutError("deadline_exceeded"),
+        ),
+      );
+      const { manager, sandboxId } = await managerWith(stubHandle({ commands: { run } }));
+
+      const result = await manager.exec(sandboxId, "bun run build", undefined, OPTIONS);
+
+      expect(run).toHaveBeenCalledTimes(2);
+      expect(result).toMatchObject({ ok: false, error: { code: "timeout" } });
+    });
+
+    it("reports a command's non-zero exit as data, with nothing left to stop", async () => {
+      const run = runAnswering(() =>
+        Promise.reject(new CommandExitError({ exitCode: 3, stdout: "", stderr: "no" })),
+      );
+      const { manager, sandboxId } = await managerWith(stubHandle({ commands: { run } }));
+
+      const result = await manager.exec(sandboxId, "bun run build", undefined, OPTIONS);
+
+      expect(result).toMatchObject({ ok: true, value: { exitCode: 3, stderr: "no" } });
+      expect(stops(run)).toEqual([]);
+    });
+
+    it("does not report the provider killing the shell as the command having failed", async () => {
+      // How envd reports a process that died to a signal. The wrapper forwards the command's exit,
+      // so this is the wrapper itself dying, with the group still running underneath it.
+      const run = runAnswering(() =>
+        Promise.reject(
+          new CommandExitError({ exitCode: -1, stdout: "", stderr: "", error: "signal: killed" }),
+        ),
+      );
+      const { manager, sandboxId } = await managerWith(stubHandle({ commands: { run } }));
+
+      const result = await manager.exec(sandboxId, "bun run build", undefined, OPTIONS);
+
+      expect(result).toMatchObject({ ok: false, error: { code: "unavailable" } });
+      expect(stops(run)).toEqual([stopGroupCommand(markerIn(run))]);
+    });
+
+    it("stops nothing when the command finishes", async () => {
+      const run = runAnswering(() => Promise.resolve(OK));
+      const { manager, sandboxId } = await managerWith(stubHandle({ commands: { run } }));
+
+      await manager.exec(sandboxId, "bun run build", undefined, OPTIONS);
+
+      expect(run).toHaveBeenCalledOnce();
+    });
+
+    it("leaves the command as it is when the caller did not ask for it to be stopped", async () => {
+      // The desktop driver has to live long enough to release what it holds.
+      const run = runAnswering(() => Promise.reject(new TimeoutError("canceled")));
+      const { manager, sandboxId } = await managerWith(stubHandle({ commands: { run } }));
+      const { signal } = new AbortController();
+
+      await manager.exec(sandboxId, "node driver.mjs", undefined, { signal });
+
+      expect(run).toHaveBeenCalledOnce();
+      expect(run.mock.calls[0]?.[0]).toBe("node driver.mjs");
+    });
   });
 
   it("still reports a genuine infrastructure failure as an error", async () => {

@@ -117,6 +117,7 @@ const composed = composeNap({
   userKeys: new PostgresUserKeyStore(db),
   events,
   bus: new InProcessEventBus(),
+  cancels: null,
   sandbox,
   desktop: desktop.transport,
   computerAccess: { access: new PostgresProjectComputerAccess(db), secret },

@@ -1,4 +1,4 @@
-# ADR-0021 — The cached prefix is never rewritten
+# ADR-0024 — The cached prefix is never rewritten
 
 **Status:** Accepted — 2026-11-03. Amends [ADR-0011](0011-an-old-turns-tool-traffic-is-not-worth-carrying.md):
 *every finished turn* is stale, where it said *every turn older than the most recent one*.

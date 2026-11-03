@@ -25,6 +25,7 @@
 import { listTreeViaExec } from "@nap/shared/list-tree";
 import type { SandboxInventory, SandboxListing } from "@nap/shared/ports/sandbox-inventory";
 import type {
+  ExecOptions,
   ExecOutputHandler,
   ExecResult,
   FileNode,
@@ -42,6 +43,7 @@ import {
   SandboxNotFoundError,
   TimeoutError,
 } from "e2b";
+import { groupedCommand, stopGroupCommand } from "./e2b-exec-group.ts";
 
 /** The slice of an E2B sandbox this adapter uses. Narrow on purpose: it is what a stub must fake. */
 export type E2BSandboxHandle = {
@@ -153,6 +155,46 @@ function toFileNode(entry: E2BEntry): FileNode {
   // `type` is optional in the SDK, and our contract has no third kind: a symlink is
   // readable, so it presents as a file rather than vanishing from the listing.
   return { path: entry.path, type: entry.type === FileType.DIR ? "directory" : "file" };
+}
+
+/**
+ * How long a stop may take, within what the worker allows an aborted turn to finish in. Waited for,
+ * so the next turn cannot start on top of what it was meant to stop.
+ */
+export const STOP_TIMEOUT_MS = 5_000;
+
+/**
+ * Runs a command so that it stops, along with everything it started, if this call gives up on it.
+ *
+ * Giving up is any way of leaving without an answer from the command: `signal` firing, `timeoutMs`
+ * passing, or the connection going. The SDK's signal only drops the connection, its deadline kills
+ * one pid, and a dropped connection does nothing at all, so each leaves the work running. All three
+ * reject here, as does a signal firing before the command has told us its pid, so there is one path
+ * to the stop and it needs no pid. See `e2b-exec-group.ts`.
+ *
+ * A failed stop is swallowed because the sandbox may be gone, and what the caller needs to see is
+ * why the command did not finish.
+ */
+async function runStoppingOnGiveUp(
+  handle: E2BSandboxHandle,
+  command: string,
+  opts: Parameters<E2BSandboxHandle["commands"]["run"]>[1],
+): Promise<E2BCommandResult> {
+  const marker = `/tmp/nap-exec-${crypto.randomUUID()}`;
+  try {
+    return await handle.commands.run(groupedCommand(command, marker), opts);
+  } catch (cause) {
+    if (cause instanceof CommandExitError && cause.exitCode >= 0) throw cause;
+    await handle.commands
+      .run(stopGroupCommand(marker), { signal: AbortSignal.timeout(STOP_TIMEOUT_MS) })
+      .catch(() => {});
+    // The wrapper forwards the command's exit, which is never negative. Negative is how envd reports
+    // that it killed the wrapper, which can beat the SDK's own deadline to the connection. That says
+    // nothing about the command, and must not reach the caller as the command having failed.
+    throw cause instanceof CommandExitError
+      ? new Error(`The command's shell was killed: ${cause.message}`)
+      : cause;
+  }
 }
 
 /** Wraps the real `Sandbox` class in the narrow shape above. */
@@ -368,16 +410,20 @@ export class E2BSandboxManager implements SandboxManager, SandboxInventory {
     sandboxId: string,
     command: string,
     onOutput?: ExecOutputHandler,
-    options?: { signal?: AbortSignal | undefined; timeoutMs?: number | undefined },
+    options?: ExecOptions,
   ): Promise<Result<ExecResult, SandboxError>> {
     return this.#withSandbox(sandboxId, async (handle) => {
+      const opts = {
+        ...(options?.signal ? { signal: options.signal } : {}),
+        ...(options?.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+        onStdout: (data: string) => onOutput?.({ stream: "stdout", data }),
+        onStderr: (data: string) => onOutput?.({ stream: "stderr", data }),
+      };
       try {
-        const result = await handle.commands.run(command, {
-          ...(options?.signal ? { signal: options.signal } : {}),
-          ...(options?.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
-          onStdout: (data) => onOutput?.({ stream: "stdout", data }),
-          onStderr: (data) => onOutput?.({ stream: "stderr", data }),
-        });
+        const result =
+          options?.stopOnGiveUp === true
+            ? await runStoppingOnGiveUp(handle, command, opts)
+            : await handle.commands.run(command, opts);
         return { exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr };
       } catch (cause) {
         // A non-zero exit is an outcome, not a fault — see the module doc.

@@ -63,7 +63,8 @@ function wrap(manager: InMemorySandboxManager, over: Partial<SandboxManager>): S
     readFile: (sandboxId, path) => manager.readFile(sandboxId, path),
     listFiles: (sandboxId, options) => manager.listFiles(sandboxId, options),
     listTree: (sandboxId, root, options) => manager.listTree(sandboxId, root, options),
-    exec: (sandboxId, command, options) => manager.exec(sandboxId, command, options),
+    exec: (sandboxId, command, onOutput, options) =>
+      manager.exec(sandboxId, command, onOutput, options),
     getPreviewUrl: (sandboxId, port) => manager.getPreviewUrl(sandboxId, port),
     waitForPreview: (sandboxId, port, options) => manager.waitForPreview(sandboxId, port, options),
   };

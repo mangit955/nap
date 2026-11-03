@@ -19,6 +19,7 @@
 
 import type { SandboxInventory, SandboxListing } from "@nap/shared/ports/sandbox-inventory";
 import type {
+  ExecOptions,
   ExecOutputHandler,
   ExecResult,
   FileNode,
@@ -45,12 +46,27 @@ export type ScriptedExecResponse = {
    * it is stopped.
    */
   error?: SandboxError;
+  /**
+   * How long the command would take, on no real clock: nothing here sleeps.
+   *
+   * Past the deadline the caller gave it — or past E2B's, when the caller gave none — the call
+   * fails with `timeout`, the way the real one does. That makes a forgotten `timeoutMs` a failing
+   * test, where a fake that finished everything at once could never tell the difference.
+   */
+  runsForMs?: number;
 };
 
 export type ExecChunk = { stream: "stdout" | "stderr"; data: string };
 
+/** One `exec` as it was asked for: what to run, and the options it was given to run under. */
+export type ExecCall = { command: string; options: ExecOptions };
+
+/** What the E2B SDK gives a command when its caller names no timeout. */
+export const PROVIDER_DEFAULT_EXEC_TIMEOUT_MS = 60_000;
+
 export type ExecResponder = (
   command: string,
+  options: ExecOptions,
 ) => ScriptedExecResponse | Promise<ScriptedExecResponse>;
 
 export type InMemorySandboxManagerOptions = {
@@ -89,6 +105,7 @@ type SandboxState = {
   commands: string[];
   /** How many times `listTree` was called, so a caller can be held to one per question. */
   listings: number;
+  execs: ExecCall[];
   /** Ports a test has declared to be serving; see `listen`. */
   listening: Set<number>;
   /** When `create` was called, as an ISO string, for the inventory to report. */
@@ -159,6 +176,11 @@ export class InMemorySandboxManager implements SandboxManager, SandboxInventory 
     return [...(this.#sandboxes.get(sandboxId)?.commands ?? [])];
   }
 
+  /** As `commands`, with the options each was given: its timeout, its signal. */
+  execs(sandboxId: string): ExecCall[] {
+    return [...(this.#sandboxes.get(sandboxId)?.execs ?? [])];
+  }
+
   async create(projectId: string): Promise<Result<Sandbox, SandboxError>> {
     const id = crypto.randomUUID();
     this.#sandboxes.set(id, {
@@ -168,6 +190,7 @@ export class InMemorySandboxManager implements SandboxManager, SandboxInventory 
       ),
       commands: [],
       listings: 0,
+      execs: [],
       listening: new Set(this.#serves),
       timeoutMs: undefined,
       startedAt: new Date(this.#now()).toISOString(),
@@ -303,12 +326,12 @@ export class InMemorySandboxManager implements SandboxManager, SandboxInventory 
     sandboxId: string,
     command: string,
     onOutput?: ExecOutputHandler,
-    // Accepted so the signature is the port's; a scripted command finishes when it is answered.
-    _options?: { signal?: AbortSignal | undefined; timeoutMs?: number | undefined },
+    options: ExecOptions = {},
   ): Promise<Result<ExecResult, SandboxError>> {
     const found = this.#lookup(sandboxId);
     if (!found.ok) return found;
     found.value.commands.push(command);
+    found.value.execs.push({ command, options });
 
     const responder = this.#responderFor(command);
     if (responder === undefined) {
@@ -320,7 +343,7 @@ export class InMemorySandboxManager implements SandboxManager, SandboxInventory 
       );
     }
 
-    const response = await responder(command);
+    const response = await responder(command, options);
     const chunks = response.chunks ?? derivedChunks(response);
 
     let stdout = "";
@@ -331,6 +354,11 @@ export class InMemorySandboxManager implements SandboxManager, SandboxInventory 
       else stderr += chunk.data;
     }
     if (response.error !== undefined) return { ok: false, error: response.error };
+
+    const deadline = options.timeoutMs ?? PROVIDER_DEFAULT_EXEC_TIMEOUT_MS;
+    if (response.runsForMs !== undefined && response.runsForMs > deadline) {
+      return err("timeout", `the command was still running after ${deadline}ms and was stopped`);
+    }
 
     return { ok: true, value: { exitCode: response.exitCode ?? 0, stdout, stderr } };
   }

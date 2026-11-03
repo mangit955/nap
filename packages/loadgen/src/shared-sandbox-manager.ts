@@ -26,6 +26,7 @@
  */
 
 import type {
+  ExecOptions,
   ExecOutputHandler,
   ExecResult,
   FileNode,
@@ -217,7 +218,9 @@ export function sharedSandboxManager(
       sandboxId,
       command,
       onOutput?: ExecOutputHandler,
-    ): Promise<Result<ExecResult, SandboxError>> => inner.exec(local(sandboxId), command, onOutput),
+      options?: ExecOptions,
+    ): Promise<Result<ExecResult, SandboxError>> =>
+      inner.exec(local(sandboxId), command, onOutput, options),
 
     getPreviewUrl: async (sandboxId, port) =>
       atSharedId(sandboxId, await inner.getPreviewUrl(local(sandboxId), port)),

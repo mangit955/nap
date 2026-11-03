@@ -210,6 +210,7 @@ it("imports through the queue, publishes a verified dedicated branch, and retrie
       freeRate: new InMemoryTurnRateLimiter({ limit: 15, windowMs: 3_600_000 }),
     },
     bus: new InMemoryEventBus(),
+    cancels: null,
     objects: new InMemoryObjectStore(),
     encryptionKey: encryptionKeyFrom(Buffer.alloc(32, 7).toString("base64")),
     verifyKey: async () => ({ ok: true }),

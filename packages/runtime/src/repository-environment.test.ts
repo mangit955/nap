@@ -1,4 +1,7 @@
-import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
+import {
+  InMemorySandboxManager,
+  type ScriptedExecResponse,
+} from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import type { RepositorySource } from "@nap/shared/ports/repository-workspace";
 import { expect, it, vi } from "vitest";
 import { prepareRepositoryEnvironment } from "./repository-environment.ts";
@@ -116,4 +119,50 @@ it("terminates setup's process group and does not start preview when cancelled d
     ),
   ).toBe(true);
   expect(commands.some((command) => command.includes("nohup"))).toBe(false);
+});
+
+async function setupRunning(script: ScriptedExecResponse) {
+  const sandbox = new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0 }) }).script(
+    /setsid timeout/,
+    script,
+  );
+  const created = await sandbox.create("project");
+  if (!created.ok) throw new Error(created.error.message);
+  return { sandbox, sandboxId: created.value.id };
+}
+
+it("lets setup run for most of the ten minutes it was promised", async () => {
+  const { sandbox, sandboxId } = await setupRunning({ runsForMs: 9 * 60_000 });
+
+  expect(await prepareRepositoryEnvironment({ sandbox, sandboxId, source })).toMatchObject({
+    ok: true,
+  });
+});
+
+it("leaves the setup script's own ten-minute timeout to fire first, and reports it", async () => {
+  // `timeout 600s` signals at ten minutes, but exits with 124 only once what it signalled has died,
+  // a few seconds later. A provider deadline at or before ten minutes would end the call first, take
+  // the exit code with it and turn this into a generic failure.
+  const { sandbox, sandboxId } = await setupRunning({ runsForMs: 605_000, exitCode: 124 });
+
+  const result = await prepareRepositoryEnvironment({ sandbox, sandboxId, source });
+
+  expect(sandbox.commands(sandboxId).join("\n")).toContain("timeout 600s");
+  expect(result).toMatchObject({
+    ok: false,
+    error: { code: "unavailable", message: expect.stringContaining("10 minutes") },
+  });
+});
+
+it("stops waiting on setup when cancelled, leaving the stopping to the setup script's own kill", async () => {
+  const { sandbox, sandboxId } = await setupRunning({ exitCode: 0 });
+  const { signal } = new AbortController();
+
+  await prepareRepositoryEnvironment({ sandbox, sandboxId, source, signal });
+
+  const setup = sandbox.execs(sandboxId).find((exec) => /setsid timeout/.test(exec.command));
+  expect(setup?.options.signal).toBe(signal);
+  // The script kills the whole process group through its pid file; a provider kill of its shell
+  // could leave that group running, with nothing left holding the pid.
+  expect(setup?.options.stopOnGiveUp).toBeUndefined();
 });

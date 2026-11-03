@@ -24,6 +24,7 @@
 
 import { restoreBundle } from "@nap/sandbox/git";
 import { TEMPLATE_WORKDIR } from "@nap/sandbox/template";
+import { RESTORE_INSTALL_TIMEOUT_MS } from "@nap/shared/command-windows";
 import type { ObjectStore } from "@nap/shared/ports/object-store";
 import type { RepositorySource } from "@nap/shared/ports/repository-workspace";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
@@ -228,7 +229,12 @@ export async function openProject(
       return { ok: true, value: { sandboxId, restored: true, warning: null, installed: false } };
     }
 
-    const installed = await sandbox.exec(sandboxId, `cd ${TEMPLATE_WORKDIR} && bun install`);
+    const installed = await sandbox.exec(
+      sandboxId,
+      `cd ${TEMPLATE_WORKDIR} && bun install`,
+      undefined,
+      { signal: options.signal, stopOnGiveUp: true, timeoutMs: RESTORE_INSTALL_TIMEOUT_MS },
+    );
     if (!installed.ok || installed.value.exitCode !== 0) {
       return {
         ok: true,

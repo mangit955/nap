@@ -171,6 +171,7 @@ export async function bootLoadgenApi(options: BootOptions): Promise<BootedLoadge
     userKeys: new PostgresUserKeyStore(db),
     events: new PostgresEventStore(db),
     bus: new InProcessEventBus(),
+    cancels: null,
     // Slow *outside* shared, and that order is the point: the calibrated cold start belongs to
     // `create`, so a reattach through the store never pays one.
     sandbox: slowSandboxManager(

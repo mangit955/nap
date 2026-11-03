@@ -59,10 +59,14 @@ infra/k8s/proof/run.sh --down   # delete it
 ```
 
 It builds the image, loads it into kind, runs the real migration Job, and brings up API 3 /
-workers 2 / reaper 1 against a Postgres in the cluster. Then it checks the two things no manifest
-can assert: that a turn submitted to one API pod completes and streams to a socket on another, and
-that a rolling restart of the API loses no events — the client reconnects with its last `seq` and
-gets exactly the gap.
+workers 2 / reaper 1 against a Postgres in the cluster. Then it checks the three things no manifest
+can assert: that a turn submitted to one API pod completes and streams to a socket on another, that
+a cancel pressed on one pod stops a turn on a worker well inside a renewal, and that a rolling
+restart of the API loses no events — the client reconnects with its last `seq` and gets exactly the
+gap.
+
+`kubectl` 1.33 cannot render this overlay: its bundled kustomize 5.6.0 panics on the multi-document
+delete patch. 1.36.6, with kustomize 5.8.1, renders it.
 
 The pods run `apps/api/scripts/cluster-proof.ts` rather than the real entrypoint: the same
 composition, queue, log and `pg_notify` fanout, with a scripted model and an in-memory sandbox in

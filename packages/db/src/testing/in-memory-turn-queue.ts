@@ -189,16 +189,18 @@ export class InMemoryTurnQueue implements TurnQueue {
     );
     if (rows.length === 0) return { cancelled: false };
 
-    let was: "queued" | "leased" = "queued";
+    let leasedId: string | null = null;
     for (const row of rows) {
       row.cancelRequested = true;
-      if (row.state === "leased") was = "leased";
+      if (row.state === "leased") leasedId = row.id;
       else {
         row.state = "failed";
         row.finishedAt = this.#now();
       }
     }
-    return { cancelled: true, was };
+    return leasedId === null
+      ? { cancelled: true, was: "queued" }
+      : { cancelled: true, was: "leased", requestId: leasedId };
   }
 
   async orphanExpired(limit = ORPHAN_SWEEP_LIMIT): Promise<OrphanedTurnRequest[]> {

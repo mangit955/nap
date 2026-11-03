@@ -23,7 +23,7 @@ import type { PreviewState } from "../preview/preview-state.ts";
 export type ProjectPhase =
   /** Nothing knowable yet: the record is in flight, or the log of a running project is. */
   | { kind: "opening" }
-  /** Nothing has ever run here. The pane invites a first prompt. */
+  /** Nothing is running here and nothing is on its way. The pane invites a prompt. */
   | { kind: "idle" }
   /** A sandbox is coming up, or is about to be asked for. */
   | { kind: "starting" }
@@ -91,12 +91,12 @@ export function phaseOf({
   if (putAwayAt !== undefined && resumeError === undefined) return { kind: "starting" };
 
   if (!previewRequired && record === "running") return { kind: "no-preview" };
-  // A repository with no dev server never announces a preview, so a failed first start is the
-  // only preview news it gets — and "starting" over it would spin forever.
-  if (!previewRequired && record === "new")
-    return preview.status === "error"
-      ? { kind: "failed", message: preview.message }
-      : { kind: "starting" };
+  // A repository with no dev server never announces a preview, so a failed or stopped first start
+  // is the only preview news it gets — and "starting" over it would spin forever.
+  if (!previewRequired && record === "new") {
+    if (preview.status === "error") return { kind: "failed", message: preview.message };
+    return preview.status === "cancelled" ? { kind: "idle" } : { kind: "starting" };
+  }
 
   if (nothingIsServing(preview, putAwayAt)) return { kind: "put-away" };
 

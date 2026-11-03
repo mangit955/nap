@@ -66,3 +66,11 @@ export function fakeSandbox(): InMemorySandboxManager {
       .script(/git rev-parse HEAD/, { exitCode: 0, stdout: `${"0".repeat(40)}\n` })
   );
 }
+
+/**
+ * A prompt the proof's model holds until its signal fires, rather than answering as scripted.
+ *
+ * Shared between the pods and the client that checks them, so the check cannot ask for something
+ * the pod no longer recognises and read the resulting instant turn as a pass.
+ */
+export const HOLD_UNTIL_CANCELLED = "[proof] run until cancelled";

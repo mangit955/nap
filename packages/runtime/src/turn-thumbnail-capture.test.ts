@@ -1,5 +1,6 @@
 import { type AgentScript, completedTurn, ScriptedAgent } from "@nap/agent/testing/scripted-agent";
 import { FakePageCapture } from "@nap/capture/testing/fake-page-capture";
+import { GatedPageCapture } from "@nap/capture/testing/gated-page-capture";
 import { NoopMemoryProvider } from "@nap/context/noop-memory-provider";
 import { StubContextEngine } from "@nap/context/testing/stub-context-engine";
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
@@ -10,8 +11,9 @@ import { TEMPLATE_DEV_PORT } from "@nap/sandbox/template";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { scriptGit } from "@nap/sandbox/testing/script-git";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SingleAgentRuntime } from "./single-agent-runtime.ts";
+import { ThumbnailLane } from "./thumbnail-lane.ts";
 import { thumbnailKey } from "./turn-thumbnail.ts";
 
 /**
@@ -30,6 +32,7 @@ let sandbox: InMemorySandboxManager;
 let objects: InMemoryObjectStore;
 let capture: FakePageCapture;
 let sessions: InMemorySessionStore;
+let lane: ThumbnailLane;
 
 beforeEach(() => {
   // Every sandbox this test's runtime creates is serving, so `waitForPreview` resolves the way
@@ -38,7 +41,11 @@ beforeEach(() => {
   objects = new InMemoryObjectStore();
   capture = new FakePageCapture();
   sessions = new InMemorySessionStore([{ sessionId: SESSION_ID, projectId: PROJECT_ID }]);
+  lane = new ThumbnailLane({ sandbox, capture, objects, concurrency: 1, maxQueued: 8 });
 });
+
+/** The picture is taken after the turn has answered, so this is what "done" means here. */
+const settled = () => vi.waitFor(() => expect(lane.pending).toBe(0));
 
 function run(script: AgentScript = () => completedTurn(COMMIT_SHA), withCapture = true) {
   const runtime = new SingleAgentRuntime({
@@ -51,7 +58,7 @@ function run(script: AgentScript = () => completedTurn(COMMIT_SHA), withCapture 
     memory: new NoopMemoryProvider(),
     objects,
     snapshots: new InMemorySnapshotStore(),
-    ...(withCapture ? { capture } : {}),
+    ...(withCapture ? { thumbnails: lane } : {}),
   });
 
   return runtime.runTurn({
@@ -64,12 +71,14 @@ function run(script: AgentScript = () => completedTurn(COMMIT_SHA), withCapture 
 describe("a turn that changed something", () => {
   it("stores a picture of the project under its own key", async () => {
     await run();
+    await settled();
 
     expect(objects.keys()).toContain(thumbnailKey(PROJECT_ID));
   });
 
   it("photographs the preview rather than any other address", async () => {
     await run();
+    await settled();
 
     expect(capture.requests).toHaveLength(1);
     expect(capture.requests[0]?.url).toMatch(new RegExp(`^https://${TEMPLATE_DEV_PORT}-`));
@@ -81,6 +90,7 @@ describe("a turn with nothing new to show", () => {
     // The app on screen is the one already photographed, so a second identical capture would
     // be a browser launch and an upload for a byte-for-byte repeat.
     await run(() => completedTurn(null));
+    await settled();
 
     expect(capture.requests).toEqual([]);
     expect(objects.keys()).not.toContain(thumbnailKey(PROJECT_ID));
@@ -101,6 +111,7 @@ describe("when the capture fails", () => {
     capture.failWith({ code: "unavailable", message: "no browser at that path" });
 
     expect(await run()).toMatchObject({ ok: true, commitSha: COMMIT_SHA });
+    await settled();
   });
 
   it("leaves the turn's snapshot alone", async () => {
@@ -109,6 +120,7 @@ describe("when the capture fails", () => {
     capture.failWith({ code: "unavailable", message: "no browser at that path" });
 
     await run();
+    await settled();
 
     expect(objects.keys().some((key) => key.endsWith(".bundle"))).toBe(true);
   });
@@ -127,7 +139,7 @@ describe("a project coming back up", () => {
       memory: new NoopMemoryProvider(),
       objects,
       snapshots: new InMemorySnapshotStore(),
-      ...(withCapture ? { capture } : {}),
+      ...(withCapture ? { thumbnails: lane } : {}),
     });
 
     return runtime.resumeSession(SESSION_ID, { turnId: crypto.randomUUID() });
@@ -138,6 +150,7 @@ describe("a project coming back up", () => {
     // only other thing that would take one — so opening a project is the cheapest way for its
     // card to catch up, and it costs no model call.
     const outcome = await resume();
+    await settled();
 
     expect(outcome.ok).toBe(true);
     expect(objects.keys()).toContain(thumbnailKey(PROJECT_ID));
@@ -147,9 +160,11 @@ describe("a project coming back up", () => {
     // Nothing has changed since whatever last photographed it, so a second shot is a browser
     // launch for a byte-identical picture — the same reason the preview is not re-announced.
     await resume();
+    await settled();
     capture.requests.length = 0;
 
     await resume();
+    await settled();
 
     expect(capture.requests).toEqual([]);
   });
@@ -158,5 +173,96 @@ describe("a project coming back up", () => {
     capture.failWith({ code: "unavailable", message: "no browser at that path" });
 
     expect(await resume()).toMatchObject({ ok: true });
+    await settled();
+  });
+
+  it("does not wait for the picture before it answers", async () => {
+    // Everything after this point in a resume — a continuation, the next message — is behind the
+    // lease this is holding, so a browser here would hold all of it up.
+    const gated = new GatedPageCapture();
+    lane = new ThumbnailLane({ sandbox, capture: gated, objects, concurrency: 1, maxQueued: 8 });
+
+    expect(await resume()).toMatchObject({ ok: true });
+
+    await vi.waitFor(() => expect(gated.waiting).toBe(1));
+    gated.releaseAll();
+    await settled();
+  });
+});
+
+describe("a job that is not over yet", () => {
+  /** A project whose one check says no for as long as it is told to. */
+  function redProject(reds: number) {
+    let remaining = reds;
+    sandbox = scriptGit(
+      new InMemorySandboxManager({
+        serves: [TEMPLATE_DEV_PORT],
+        seed: {
+          "/home/user/app/package.json": JSON.stringify({ scripts: { typecheck: "tsc --noEmit" } }),
+        },
+      }),
+    ).script(/bun run typecheck/, () => {
+      if (remaining === 0) return { exitCode: 0 };
+      remaining -= 1;
+      return { exitCode: 1, stderr: "type error" };
+    });
+    lane = new ThumbnailLane({ sandbox, capture, objects, concurrency: 1, maxQueued: 8 });
+  }
+
+  it("takes no picture of a commit its checks called broken while a repair is on its way", async () => {
+    redProject(1);
+
+    expect(await run()).toMatchObject({ ok: true });
+    await settled();
+
+    // One, for the commit that passed, and none for the one before it.
+    expect(capture.requests).toHaveLength(1);
+  });
+
+  it("does take one when the repairs have run out, since that is what the project now is", async () => {
+    redProject(Number.POSITIVE_INFINITY);
+
+    expect(await run()).toMatchObject({ ok: true });
+    await settled();
+
+    expect(capture.requests).toHaveLength(1);
+  });
+
+  it("takes no picture for a turn that was stopped, which may have lost its lease", async () => {
+    const controller = new AbortController();
+    sandbox = scriptGit(
+      new InMemorySandboxManager({
+        serves: [TEMPLATE_DEV_PORT],
+        seed: {
+          "/home/user/app/package.json": JSON.stringify({ scripts: { typecheck: "tsc --noEmit" } }),
+        },
+      }),
+    ).script(/bun run typecheck/, () => {
+      controller.abort();
+      return { exitCode: 0 };
+    });
+    lane = new ThumbnailLane({ sandbox, capture, objects, concurrency: 1, maxQueued: 8 });
+    const runtime = new SingleAgentRuntime({
+      sessions,
+      sandbox,
+      context: new StubContextEngine(),
+      agent: new ScriptedAgent(() => completedTurn(COMMIT_SHA)),
+      events: new InMemoryEventStore(),
+      bus: new InMemoryEventBus(),
+      memory: new NoopMemoryProvider(),
+      objects,
+      snapshots: new InMemorySnapshotStore(),
+      thumbnails: lane,
+    });
+
+    await runtime.runTurn({
+      turnId: crypto.randomUUID(),
+      sessionId: SESSION_ID,
+      message: "add a delete button",
+      signal: controller.signal,
+    });
+    await settled();
+
+    expect(capture.requests).toEqual([]);
   });
 });

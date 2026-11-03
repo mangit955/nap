@@ -28,8 +28,9 @@ export const LEASE_TTL_MS = 60 * 1000;
 /**
  * How often a worker asks whether it still holds its lease.
  *
- * Also how quickly it hears about a cancellation, because one statement answers both: a worker
- * asking "am I still allowed to run?" is asking exactly one question.
+ * Also the longest it can take to hear about a cancellation, because one statement answers both: a
+ * worker asking "am I still allowed to run?" is asking exactly one question. Usually it hears far
+ * sooner, since a cancel wake-up makes it ask at once; this is the bound when that wake-up is lost.
  */
 export const LEASE_RENEWAL_INTERVAL_MS = 15 * 1000;
 

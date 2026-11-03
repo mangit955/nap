@@ -116,8 +116,9 @@ const BaseSchema = z.object({
   /**
    * Where the connections that need *session* mode go, when they cannot go where everything else
    * does — which is any deployment behind a transaction pooler. There are two: the `LISTEN` socket
-   * every API pod holds, and the reaper's advisory lock. `createListenerConnection` and
-   * `createLockConnection` in `@nap/db` each say why that is not optional for them.
+   * every process holds, which on a worker is also what the stop button rides on, and the reaper's
+   * advisory lock. `createListenerConnection` and `createLockConnection` in `@nap/db` each say why
+   * that is not optional for them.
    *
    * Absent means `DATABASE_URL`, which is right for a local Postgres and anything unpooled.
    */
@@ -321,9 +322,10 @@ const BaseSchema = z.object({
    *
    * Not the worker's concurrency, and that is the whole point: every committed turn is
    * photographed, so at 25 turns in flight this would otherwise be 25 simultaneous Chromium page
-   * loads in one container. A thumbnail is best-effort and nobody waits on it, so queueing costs
-   * a card that appears a few seconds later while the alternative is an OOMKill that costs every
-   * turn in flight. One until measurement says more is safe — `docs/scaling-design.md` §17 (B-6).
+   * loads in one container. A thumbnail is best-effort and taken after the session's lease is
+   * released, so nobody waits on it: queueing costs a card that appears later, or a stale one,
+   * while the alternative is an OOMKill that costs every turn in flight. One until measurement
+   * says more is safe — `docs/scaling-design.md` §17 (B-6, B-7).
    */
   NAP_CAPTURE_CONCURRENCY: z.coerce.number().int().positive().default(1),
 

@@ -22,6 +22,7 @@ import { NoopMemoryProvider } from "@nap/context/noop-memory-provider";
 import { expectEventSequence } from "@nap/db/testing/event-assertions";
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
+import { InMemorySandboxCapacity } from "@nap/db/testing/in-memory-sandbox-capacity";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
 import { FakeSandboxDesktop } from "@nap/sandbox/testing/fake-sandbox-desktop";
@@ -37,6 +38,7 @@ import type {
 import type { ObjectStore } from "@nap/shared/ports/object-store";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
+import { TurnAbortError } from "@nap/shared/turn-abort";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { commitMessage, SingleAgentRuntime } from "./single-agent-runtime.ts";
@@ -406,6 +408,72 @@ describe("SingleAgentRuntime", () => {
 
     gated.release();
     await turn;
+  });
+
+  describe("stopped while its workspace is coming up", () => {
+    /** The whole log, checked the way a client reads it: one ending, and it says stopped. */
+    async function expectOnlyACancelledEnding(outcome: { ok: boolean }) {
+      expect(outcome).toMatchObject({ ok: false, reason: "cancelled" });
+      const stored = await events.readFrom(SESSION_ID, 0);
+      expect(stored.map((event) => event.type)).toEqual(["user.message", "turn.failed"]);
+      // A cancelled acquire comes back as `unavailable`, which is a true thing to say to the
+      // acquisition's caller and a false thing to say to the person who pressed Stop: read as it
+      // stands, they are told the workspace could not start and offered a retry.
+      expect(stored[1]?.payload).toMatchObject({ reason: "cancelled" });
+      expect(JSON.stringify(stored[1]?.payload)).not.toMatch(/sandbox_unavailable|workspace/i);
+    }
+
+    it("reads as stopped, and gives back the sandbox and the capacity it was holding", async () => {
+      const gated = new GatedSandboxManager();
+      scriptGit(gated);
+      const capacity = new InMemorySandboxCapacity();
+      const agent = new ScriptedAgent(HAPPY_SCRIPT, true);
+      const controller = new AbortController();
+
+      const turn = new SingleAgentRuntime({
+        sessions,
+        sandbox: gated,
+        context,
+        agent,
+        events,
+        bus,
+        memory: new NoopMemoryProvider(),
+        capacity,
+      }).runTurn({
+        turnId: crypto.randomUUID(),
+        sessionId: SESSION_ID,
+        message: "build me a todo list",
+        signal: controller.signal,
+      });
+
+      await gated.asked;
+      expect(capacity.held()).toHaveLength(1);
+      controller.abort(new TurnAbortError("cancelled"));
+      gated.release();
+
+      await expectOnlyACancelledEnding(await turn);
+      expect(agent.calls).toBe(0);
+      // The creation finished after nobody wanted it. It costs money until it is destroyed, and a
+      // slot held for it is one somebody else could have had.
+      expect(await gated.list()).toMatchObject({ ok: true, value: [] });
+      expect(capacity.held()).toEqual([]);
+      expect((await sessions.get(SESSION_ID))?.sandboxId).toBeNull();
+    });
+
+    it("reads as stopped when the stop lands before anything was asked for", async () => {
+      // The few milliseconds between a claim and the acquisition, on any project at all.
+      const controller = new AbortController();
+      controller.abort(new TurnAbortError("cancelled"));
+
+      await expectOnlyACancelledEnding(
+        await runtime(new ScriptedAgent(HAPPY_SCRIPT, true)).runTurn({
+          turnId: crypto.randomUUID(),
+          sessionId: SESSION_ID,
+          message: "build me a todo list",
+          signal: controller.signal,
+        }),
+      );
+    });
   });
 
   it("fails the turn without invoking the agent when the sandbox cannot be created", async () => {
@@ -964,6 +1032,29 @@ describe("opening a project that has been put away", () => {
       expect(stored[0]?.payload).toMatchObject({ level: "warning" });
     });
 
+    it("says it stopped, rather than that it failed, when somebody stopped it", async () => {
+      // The same `unavailable` a failed acquire reports. "Couldn't start this project back up, try
+      // again" is not what somebody who just pressed Stop should read.
+      const gated = new GatedSandboxManager();
+      scriptGit(gated);
+      const controller = new AbortController();
+
+      const resuming = runtime(new ScriptedAgent(), { sandbox: gated }).resumeSession(SESSION_ID, {
+        turnId: crypto.randomUUID(),
+        signal: controller.signal,
+      });
+      await gated.asked;
+      controller.abort(new TurnAbortError("cancelled"));
+      gated.release();
+
+      expect(await resuming).toMatchObject({ ok: false });
+      const stored = await events.readFrom(SESSION_ID, 0);
+      expect(stored.map((event) => event.type)).toEqual(["system.notice"]);
+      expect(stored[0]?.payload).toMatchObject({ level: "info" });
+      expect(JSON.stringify(stored[0]?.payload)).not.toMatch(/couldn't|try again/i);
+      expect(await gated.list()).toMatchObject({ ok: true, value: [] });
+    });
+
     it("leaves a project that is already running alone", async () => {
       // Re-announcing would remount the iframe underneath somebody who is using the app.
       const created = await sandbox.create(PROJECT_ID);
@@ -1055,6 +1146,7 @@ describe("keeping a resumed sandbox alive", () => {
   it("uses the lifetime it was configured with", async () => {
     const created = await sandbox.create(PROJECT_ID);
     if (!created.ok) throw new Error("could not seed a sandbox");
+    const extended = vi.spyOn(sandbox, "extendTimeout");
 
     await new SingleAgentRuntime({
       sessions: new InMemorySessionStore([
@@ -1069,7 +1161,8 @@ describe("keeping a resumed sandbox alive", () => {
       sandboxTtlMs: 90_000,
     }).runTurn({ turnId: crypto.randomUUID(), sessionId: SESSION_ID, message: "carry on" });
 
-    expect(sandbox.timeoutOf(created.value.id)).toBe(90_000);
+    // The first call, because a round of checks may push it further once it starts.
+    expect(extended).toHaveBeenNthCalledWith(1, created.value.id, 90_000);
   });
 });
 

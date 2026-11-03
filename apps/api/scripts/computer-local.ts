@@ -200,6 +200,7 @@ try {
     userKeys: new PostgresUserKeyStore(db),
     events: new PostgresEventStore(db),
     bus: new InProcessEventBus(),
+    cancels: null,
     sandbox,
     desktop,
     recordings: desktop,

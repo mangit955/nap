@@ -27,7 +27,12 @@ processes on it. What is different here, and why:
 
 - **The worker drains in 270 seconds, not 600.** Render allows at most 300 between SIGTERM and
   SIGKILL (`maxShutdownDelaySeconds`), so `NAP_DRAIN_TIMEOUT_SECONDS` has to fit inside it. A
-  turn still running 270 seconds into a deploy is aborted rather than killed mid-write.
+  turn still running 270 seconds into a deploy is aborted rather than killed mid-write. Two fixed
+  tails come after the drain and have to fit too: the turn worker's 10-second grace for the turns
+  it aborts, then the thumbnail lane's 10-second grace for pictures in flight. 270 + 10 + 10 leaves
+  about 10 seconds for closing the listener and the database connections. Between the two graces
+  the worker stops listening for cancel wake-ups, which normally answers at once but is given up
+  after 5 seconds, so a channel that hangs there spends half of that margin.
 - **Migrations run as the API's pre-deploy command**, once per release and before the new API
   takes traffic, not at boot. A release that adds tables still needs the API deployed before the
   worker and the reaper, which would otherwise start against a schema that is not there yet.
@@ -171,7 +176,7 @@ live. **Its figures live there and are not repeated here.**
 | The old reason | What replaced it |
 |---|---|
 | **The in-process bus** — `InProcessEventBus` fanned events out to sockets inside one process, so a browser on pod A never saw a turn that ran on B | `PostgresNotifyEventBus`, under `NAP_EVENT_BUS=postgres`. The notification carries `{sessionId, seq}` and the pod reads the events out of the durable log; a 2s catch-up poll makes the notification optional for correctness. See `docs/adr/0010` |
-| **The in-memory registry** — `TurnRegistry` meant a cancel landing on pod A could not reach a turn on pod B, and `isBusy` went blind | Cancellation is a row. `cancel_requested` on `turn_requests` reaches an executing turn on any pod within one lease renewal (≤15s); the registry survives only as the same-process fast path. **Busy** is `TurnQueue.anyLeased` — a `state = 'leased'` query — so close, delete and the idle sweep all get the same answer cluster-wide |
+| **The in-memory registry** — `TurnRegistry` meant a cancel landing on pod A could not reach a turn on pod B, and `isBusy` went blind | Cancellation is a row. `cancel_requested` on `turn_requests` reaches an executing turn on any pod within one lease renewal (≤15s), and a `pg_notify` after the commit makes the worker renew at once (`docs/adr/0023`); the registry survives only as the same-process fast path. **Busy** is `TurnQueue.anyLeased` — a `state = 'leased'` query — so close, delete and the idle sweep all get the same answer cluster-wide |
 | **The in-memory queue** — `SessionQueue` serialised a session's turns inside one process, so two pods would run two turns for one session and the project would end up with two sandboxes | `turn_requests` plus per-session **leases**, exclusive by the partial unique index `unique (session_id) where state = 'leased'`. One in-flight turn per session cluster-wide, adjudicated by Postgres rather than by every caller remembering. See `docs/adr/0009` |
 | **The per-process rate limiter** — N pods meant N times the free-tier allowance | `turn_rate_events`: one row per accepted turn, counted over a rolling hour in Postgres. `NAP_FREE_TURNS_PER_HOUR=5` means five whether one process is running or twelve. The sandbox ceiling moved the same way, to `sandbox_reservations` taken *before* creation |
 | **The in-process reaper** — N pods meant N concurrent sweeps tearing the same project down twice | **Not retired: moved.** The sweeps left the API process entirely and became `apps/api/src/reaper.ts`, of which there is exactly one. That is what makes the row above it safe to scale — see below |
@@ -201,8 +206,8 @@ reconnects with `?afterSeq=` and gets exactly the gap.
 
 ### Turning it on
 
-`NAP_EVENT_BUS=postgres` swaps `InProcessEventBus` for `PostgresNotifyEventBus`. Two things to get
-right when you do:
+`NAP_EVENT_BUS=postgres` swaps `InProcessEventBus` for `PostgresNotifyEventBus`. Three things to
+know when you do:
 
 - **`LISTEN` cannot go through a connection pooler.** It is session state, and a transaction
   pooler hands the next statement to whichever backend is free — so the `LISTEN` lands on a
@@ -215,6 +220,10 @@ right when you do:
   connection reconnects on its own, and restarting the process would only drop the sockets it
   still had. A `503` from `/readyz` with `{"checks":{"database":"ok","listener":"down"}}` means
   exactly this, and usually means the listener is going through the pooler.
+- **The stop button rides on the same listener, and costs it no connection.** Cancel wake-ups
+  share the socket the fanout already holds. A worker whose listener is down still stops a turn,
+  at its next lease renewal rather than at once. A worker has no `/readyz`, so the only symptom
+  there is a slow stop button.
 
 ### What each process scales on
 
@@ -469,9 +478,13 @@ is affordable, and they are worth setting deliberately rather than inheriting:
   rather than being refused, so this changes latency and never who gets in. The default is
   derived in `docs/scaling-baseline.md` and deliberately below what that run licenses.
 - `NAP_CAPTURE_CONCURRENCY=1` — how many browsers a worker may have open at once. Every
-  committed turn is photographed, so this is *not* the worker's concurrency: unbounded it
+  committed turn asks for a picture unless it was stopped or has a repair still to come, so
+  this is *not* the worker's concurrency: unbounded it
   would be 25 simultaneous Chromiums in one container, and an OOM kill costs every turn in
-  flight rather than a thumbnail. Nobody waits on a card, so queueing costs nothing visible.
+  flight rather than a thumbnail. Pictures are taken after the session's lease goes back, so
+  a slow browser delays a card and never a follow-up message. At most `NAP_WORKER_CONCURRENCY`
+  projects wait for one. A project already waiting has its place taken over by its newer request;
+  a new project's request past that cap is dropped. A shutdown drops the queue.
 - `NAP_DRAIN_TIMEOUT_SECONDS=600` — how long a worker being taken away waits for the turns it
   is already running before aborting them. Keep it inside the platform's grace period.
 - `NAP_REAP_INTERVAL_SECONDS=60` — how often the reaper looks. The idle sweep and the janitor
@@ -555,9 +568,10 @@ Those four, and the reaper being singular, and no credential appearing in a mani
 in `test/k8s.test.ts` rather than left to review — each one against a synthetic manifest that
 breaks it, since a check nobody has watched fail is not known to work.
 
-Two claims a file cannot make are checked by running it: `infra/k8s/proof/run.sh` brings up a kind
+Three claims a file cannot make are checked by running it: `infra/k8s/proof/run.sh` brings up a kind
 cluster at API 3 / workers 2 / reaper 1 and confirms that a turn submitted to one pod completes and
-streams to a socket on another, and that a rolling restart of the API loses no events. The pods
+streams to a socket on another, that a cancel pressed on one pod stops a turn on a worker well inside
+a renewal, and that a rolling restart of the API loses no events. The pods
 there run `apps/api/scripts/cluster-proof.ts` — the same composition and the same Postgres fanout,
 with a scripted model and an in-memory sandbox — so the run costs nothing and proves nothing about
 E2B or OpenRouter, which is what `bun run acceptance` is for.

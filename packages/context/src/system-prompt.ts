@@ -7,7 +7,7 @@
  * survive every level of truncation, and a fixed prefix is the only thing a provider can
  * cache: prompt caching matches on a byte-identical prefix, so anything that changes between
  * turns stays out of the system prompt altogether — it rides in the turn's own message
- * (ADR-0021). (On its own this sits under the model's minimum cacheable
+ * (ADR-0024). (On its own this sits under the model's minimum cacheable
  * prefix; the cached span is the tool schemas plus this, which clears it comfortably.)
  *
  * **There is deliberately no instruction to verify, double-check, re-read, or test its own

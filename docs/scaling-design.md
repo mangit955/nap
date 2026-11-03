@@ -70,7 +70,7 @@ This is more than the brief assumed, and it is why the change is smaller than it
 | `TurnRegistry` | `apps/api/src/turns/registry.ts` | Cancel on pod A cannot reach a turn on pod B. Also feeds `isBusy` for project close/delete and the reaper, so both go blind. |
 | `TurnRateLimiter` ×2 | `apps/api/src/turns/rate-limiter.ts` | N pods = N× the limit. Free-tier spend multiplies by replica count. |
 | Reaper `setInterval` | `apps/api/src/compose.ts:283` | N pods = N concurrent sweeps tearing the same project down twice. |
-| `ChromePageCapture` | `apps/api/src/boot.ts` | One Chromium per process; ~1GB of image and a RAM spike per capture. Bounded by `BoundedPageCapture` since B-6. |
+| `ChromePageCapture` | `apps/api/src/boot.ts` | One Chromium per process; ~1GB of image and a RAM spike per capture. Bounded by the `ThumbnailLane` (B-6), which runs outside the lease since B-7. |
 | DB pool `max: 10` | `packages/db/src/client.ts:25` | Sized for one process doing everything. |
 | Sandbox quota TOCTOU | `apps/api/src/turns/sandbox-quota.ts` | Count-then-create. At 100 concurrent admissions the global cap is guaranteed to overshoot. |
 
@@ -503,16 +503,19 @@ a rare crash path in exchange for leaving the store, the sink and the port exact
 1. Authorize the session (unchanged — `findOwnedSession` first, so a 409 cannot leak whether a
    stranger's session is busy).
 2. `update turn_requests set cancel_requested = true where session_id = $1 and state in
-   ('queued','leased') returning state`. No row → `409`, exactly as today.
+   ('queued','leased') returning id, state`. No row → `409`, exactly as today. The id of the leased
+   row is what step 4 names.
 3. A `queued` row is never claimed — the claim query already excludes `cancel_requested`.
-4. A `leased` row: `pg_notify('nap_cancel', request_id)`. The owning worker listens and aborts its
-   local `AbortController`.
+4. A `leased` row: once the update has committed, `pg_notify('nap_cancel', request_id)`. The worker
+   running that request renews at once, and the renewal's answer is what aborts it. The notification
+   alone stops nothing.
 5. If the notification is missed, the next lease renewal (≤15s) returns `cancel_requested = true`
    and the worker aborts.
 
-`TurnRegistry` survives, unchanged in shape, but moves to the worker and is keyed by **request id**.
-Its own doc comment predicted this: *"the honest fix for that is a cancellation signal in the
-database rather than a shared map."*
+`TurnRegistry` survives, keyed by **request id**, and stays in the composition, where it spares a
+wait only for compositions running every role in one process, meaning scripts and tests. No entrypoint
+runs one, so in a deployed process it finds nothing. Where steps 4 and 5 and this paragraph differ
+from the original design, `docs/adr/0023` says why.
 
 `isBusy` — used by project close, project delete and the reaper — stops reading the registry:
 
@@ -669,7 +672,9 @@ Worker, on `SIGTERM`:
 3. **Keep renewing leases** of turns still running, so the janitor does not orphan progressing work.
 4. On completion, settle each request and release its lease.
 5. If the drain timeout expires: abort remaining turns via their `AbortController`. A cancelled turn
-   commits nothing and closes the Job `abandoned` — a clean stop, not a kill. Then exit.
+   commits nothing and closes the Job `abandoned` — a clean stop, not a kill.
+6. Stop the thumbnail lane: drop the pictures still queued and give the ones in flight a short
+   grace (B-7). Only after the drain, because a draining turn may still ask for one. Then exit.
 
 Sizing: a turn is 8–43s (`docs/napbench-first-real-run.md:159`), but a Job with verification and
 three repairs is minutes. 900s covers the tail.
@@ -785,8 +790,38 @@ simultaneous Chromium page loads in one pod.
 
 **Resolution: a per-worker semaphore, `NAP_CAPTURE_CONCURRENCY=1`.** One capture at a time per
 worker unless measurement proves more is safe. Capture is already best-effort — a failure is only a
-log line (`single-agent-runtime.ts:1013`) — so queueing behind a semaphore costs nothing a user can
-see, while five Chromiums in a 3Gi pod is an OOMKill.
+log line (now logged by `thumbnail-lane.ts`) — so queueing behind a semaphore costs nothing a user
+can see, while five Chromiums in a 3Gi pod is an OOMKill.
+
+*Revised by B-7.* The semaphore's queue had no limit and sat inside the lease. The bound now lives in
+`ThumbnailLane`, and the queue is capped at `NAP_WORKER_CONCURRENCY`.
+
+### B-7 — after-turn work held the lease, and a follow-up message waited for a browser
+
+Once the agent finished, the worker kept the session's lease through verification, the snapshot and
+the photograph, one after another. The photograph alone could take over 35s, and it queued behind
+every other project's photograph on the same worker, so at 25 turns finishing together the last
+lease was held until 24 browsers had come and gone. Every follow-up message to that session waited
+for all of it.
+
+**Resolution (ADR-0022):**
+
+- **The photograph leaves the lease.** Under the lease the turn reads the workspace's state, one
+  sandbox command, and hands it to the composition's `ThumbnailLane`. The lane reads the state again
+  before launching a browser and before storing, and keeps the old picture if the workspace has
+  moved. It holds one place per project, refuses new projects past its cap, keeps no sandbox alive
+  and makes no session busy. A stopped turn, or one with a repair still to come, asks for nothing.
+  That abort is checked once, before the request, so a lease lost after it can still let a shot
+  land. Invariant 10 is made harmless here rather than kept: the lane re-reads the workspace before
+  launching a browser and before storing, so what lands is a true picture of a workspace nobody has
+  since changed, and nothing the new owner did is overwritten.
+- **The snapshot stays under the lease.** A restore reads the newest snapshot row, two snapshots of
+  one project are ordered only by never overlapping, and the idle sweep asks `anyLeased` before it
+  destroys a sandbox. All three depend on the bundle being recorded before the lease goes back.
+- **Typecheck and lint run together** when both are recognisably read-only and neither has a
+  `pre`/`post` script. What each says is kept and read in check order, so the verdict and the
+  blame are what running them apart gives; only a check killed by a signal runs again, on its
+  own. Build and test never run beside anything.
 
 ---
 

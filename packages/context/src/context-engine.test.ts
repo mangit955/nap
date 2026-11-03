@@ -655,7 +655,7 @@ describe("NapContextEngine", () => {
     it("drops what every finished turn wrote, while the budget is nowhere near binding", async () => {
       // The most recent one included. Emptying a turn one turn late would rewrite history the
       // previous request had already cached, and every turn's first call would pay for all of
-      // it again (ADR-0021).
+      // it again (ADR-0024).
       const context = await roomy().build(request({ history: threeWrites() }));
 
       expect(context.estimatedTokens).toBeLessThan(DEFAULT_BUDGET_TOKENS);
@@ -1118,3 +1118,50 @@ it.each([MIN_BUDGET_TOKENS, 4000, DEFAULT_BUDGET_TOKENS])(
     }
   },
 );
+
+describe("the compaction history pointer", () => {
+  const HISTORY = "/home/user/.nap/history/session.txt";
+  const compacted = (): NapEvent[] => {
+    const before = [userMessage(1, "Keep it purple."), agentMessage(1, "Done.")];
+    const checkpoint = event("compaction.completed", 1, {
+      id: turnId(1),
+      result: {
+        kind: "api",
+        checkpoint: { coveredThrough: 2, summary: "Overview: themed (#2).", tail: [] },
+      },
+      usage: null,
+      beforeTokens: null,
+      afterTokens: null,
+    });
+    return [...before, checkpoint];
+  };
+  const summaryMessage = (messages: LLMMessage[]) =>
+    messages.find((message) => JSON.stringify(message).includes("Quoted session summary"));
+
+  it("tells the agent where the replaced conversation is and how to search it", async () => {
+    const built = await engine().build(request({ history: compacted(), historyFile: HISTORY }));
+    const message = summaryMessage(built.messages);
+    expect(message?.role).toBe("user");
+    const [quoted, pointer] = texts(message ? [message] : []);
+    // The pointer is the application speaking, not part of the quoted, untrusted summary.
+    expect(quoted).not.toContain(HISTORY);
+    expect(pointer).toContain(HISTORY);
+    expect(pointer).toContain("search_files");
+    expect(pointer).toContain("read_file");
+    expect(pointer).toContain('"^#42 "');
+  });
+
+  it("says the file is unavailable rather than pointing at one that was not written", async () => {
+    const built = await engine().build(request({ history: compacted() }));
+    expect(JSON.stringify(built.messages)).not.toContain(HISTORY);
+    expect(JSON.stringify(built.messages)).toContain("not available in this sandbox");
+  });
+
+  it("says nothing about a history file when nothing has been compacted", async () => {
+    const built = await engine().build(
+      request({ history: [userMessage(1, "hi"), agentMessage(1, "hello")], historyFile: HISTORY }),
+    );
+    expect(JSON.stringify(built.messages)).not.toContain(HISTORY);
+    expect(JSON.stringify(built.messages)).not.toContain("history file");
+  });
+});

@@ -74,10 +74,12 @@ export type CloseProjectOptions = {
 };
 
 /**
- * Closing deliberately does not take another thumbnail. A completed turn has already captured
- * the current app, and waiting for a browser at this point could hold the close request for
+ * Closing deliberately does not take another thumbnail. A completed turn has already asked for
+ * one of the current app, and waiting for a browser at this point could hold the close request for
  * eighteen seconds before teardown even starts. The dashboard needs the sandbox gone promptly;
- * its existing thumbnail remains the project's shelf image.
+ * its existing thumbnail remains the project's shelf image — which, for a project closed within
+ * seconds of its last turn, may be the picture from the turn before: the lane finds the sandbox gone
+ * and keeps what it has.
  */
 export async function putProjectAway(options: CloseProjectOptions): Promise<CloseOutcome> {
   const { projects, projectId, sandboxId } = options;
