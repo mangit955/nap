@@ -23,7 +23,7 @@ Leaving the lease means nothing holds the sandbox still, so the lane follows fou
 
 The workspace read uses `git --no-optional-locks status`. A plain `git status` takes `index.lock` to refresh the index, and a turn's `git add` that meets that lock fails, which fails the commit. Against a real repository, 4 of 300 `git add`s failed beside a plain status and none failed beside this one.
 
-A turn that was stopped, or whose checks failed with a repair still to come, asks for no picture. The first may have lost its lease (`docs/scaling-design.md` §21, 10). The second's app is one its own checks just called broken. The stop is checked once, before the request, so a lease lost after that check can still let a shot land. That is harmless rather than prevented: the lane reads the workspace again before launching a browser and before storing, so a shot that lands is a true picture of a workspace the new owner has not changed.
+A turn that was stopped, or whose checks failed with a repair still to come, asks for no picture. The first may have lost its lease (`docs/scaling-design.md` §21, 10). The second's app is one its own checks just called broken. The stop is checked once, before the request, so a lease lost after that check can still let a shot land. That is harmless rather than prevented: the lane reads the workspace again before launching a browser and before storing, so a shot that lands shows a commit and a set of changed files the new owner has not moved. It can still miss a further edit to a file that was already changed; see Known limitations.
 
 ### D2: The snapshot stays under the lease
 

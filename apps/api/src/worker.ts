@@ -28,8 +28,8 @@ const nap = await bootNap("worker");
 announce(nap, "worker claiming", {
   concurrency: nap.env.NAP_WORKER_CONCURRENCY,
   drainTimeoutSeconds: nap.env.NAP_DRAIN_TIMEOUT_SECONDS,
-  // Not the worker's concurrency, and the gap between the two is the point: every committed turn
-  // is photographed, and this is how many browsers may be open at once while it happens.
+  // Not the worker's concurrency, and the gap between the two is the point: nearly every committed
+  // turn asks for a picture, and this is how many browsers may be open at once to take them.
   captureConcurrency: nap.env.NAP_CAPTURE_CONCURRENCY,
   screenshots: nap.env.NAP_CHROME_PATH === undefined ? "off" : "on",
   // Not the reaper's idle threshold, which this process no longer acts on: this is how long the

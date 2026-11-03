@@ -472,7 +472,8 @@ is affordable, and they are worth setting deliberately rather than inheriting:
   rather than being refused, so this changes latency and never who gets in. The default is
   derived in `docs/scaling-baseline.md` and deliberately below what that run licenses.
 - `NAP_CAPTURE_CONCURRENCY=1` — how many browsers a worker may have open at once. Every
-  committed turn is photographed, so this is *not* the worker's concurrency: unbounded it
+  committed turn asks for a picture unless it was stopped or has a repair still to come, so
+  this is *not* the worker's concurrency: unbounded it
   would be 25 simultaneous Chromiums in one container, and an OOM kill costs every turn in
   flight rather than a thumbnail. Pictures are taken after the session's lease goes back, so
   a slow browser delays a card and never a follow-up message. At most `NAP_WORKER_CONCURRENCY`
