@@ -66,9 +66,23 @@ uses Vercel's deployment API with an explicit SHA instead of a branch-based depl
 another merge cannot change which frontend is deployed.
 
 `scripts/production-release.ts` checks both providers' credentials and confirms all three
-Render services have auto-deploy disabled before changing anything. It waits for the API to
-be live and `/readyz` to report `ok`, then waits for the reaper and worker before starting
-Vercel. It verifies each deployed commit and waits for Vercel to reach `READY`. Each deployment
+Render services have auto-deploy disabled before changing anything. It also requires the worker's
+Pre-Deploy Command to be `bun packages/db/scripts/migrate.ts`, read from Render's service
+configuration rather than assumed from `render.yaml`. Before merging this release, set that
+command on `nap-worker` in Render Settings. Triggering a deploy does not apply Blueprint changes;
+without this setting, the script stops before deploying any service.
+
+The script deploys the worker first. Its pre-deploy command applies pending migrations before
+new workers boot. It waits for that deployment to be `live`, then deploys the API, waits for
+`/readyz` to report `ok`, deploys the reaper, and starts Vercel. The API retains the same
+idempotent migration command as a safeguard for manual API deploys.
+[Render's deployment sequence](https://render.com/docs/deploys#zero-downtime-deploys) shuts down
+old instances before completing the deployment, including forced termination after the shutdown
+delay. Waiting for the worker deploy to complete therefore removes old claimers before the new
+API can admit a plan intent. This relies on Render's lifecycle contract; fakes test the order
+and wait, not the hosted shutdown behavior.
+
+The script verifies each deployed commit and waits for Vercel to reach `READY`. Each deployment
 has a twenty-minute timeout. A failed step stops the release; earlier successful steps remain
 deployed. Investigate the failed service before retrying. No database rollback runs automatically.
 
@@ -615,8 +629,23 @@ The desktop runtime uses Python 3 and libX11/libXtst for fixed full-keyboard and
 Plan mode adds the `turn_requests.plan` column (migration 0017), one event type (`plan.proposed`)
 and two optional payload fields (`user.message.plan`, `turn.completed.awaiting`). Every reader parses
 events strictly, so an old process or an open old browser tab rejects the new shapes. Old rows still
-parse, because both fields are optional. Release in this order: apply migration 0017, deploy the
-API and reaper, then the web, and only then the workers. Nothing writes the new shapes until someone
-turns on Plan mode in the new web bundle. An old worker never sees a plan intent, because the old
-API cannot admit one. Drain old workers as in the repair ownership rollout above before new ones
-claim. See [ADR-0024](adr/0024-plan-mode-proposes-and-the-next-message-decides.md).
+parse, because both fields are optional.
+
+The danger runs the other way too. An old worker claims a queued request without reading the
+`plan` column, so it would run a plan mode request as an ordinary turn with every tool, and an
+approval as a build with no plan in its prompt. Once the new API is up, anything can send a plan
+intent, so no old worker may still be claiming by then.
+
+For Render, configure the worker migration command before merging, as described in the release
+procedure above. CI then enforces migration and worker replacement before API admission. Its
+preflight refuses a missing or different migration command before any deploy. For a manual or
+non-Render rollout:
+
+1. Apply migration 0017. The column is nullable, so the old API and old workers carry on.
+2. Stop and drain every old worker as in the repair ownership rollout above, then deploy the new
+   workers. They write the new shapes only when handed a plan intent, and the old API cannot admit
+   one, so the old API and reaper never meet those shapes.
+3. Deploy the API and the reaper.
+4. Deploy the web.
+
+See [ADR-0024](adr/0024-plan-mode-proposes-and-the-next-message-decides.md).

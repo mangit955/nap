@@ -84,7 +84,7 @@ export function DictationButton({
       }
       disabled={disabled || !dictation.supported}
       onClick={dictation.toggle}
-      className={`${CONTROL_SHAPE} ${dictation.listening ? "bg-accent-tint text-accent-ink" : "text-muted"}`}
+      className={`composer-dictation ${CONTROL_SHAPE} ${dictation.listening ? "bg-accent-tint text-accent-ink" : "text-muted"}`}
     >
       <svg
         viewBox="0 0 24 24"
@@ -119,11 +119,13 @@ export function PlanModeButton({
   return (
     <button
       type="button"
+      // Named outright because the resting composer hides the visible label and keeps the icon.
+      aria-label="Plan mode"
       aria-pressed={pressed}
       title={pressed ? "Plan first: nothing is built until you approve" : "Plan before building"}
       disabled={disabled}
       onClick={onToggle}
-      className={`flex h-8 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-[12px] transition-colors duration-150 hover:bg-hover disabled:opacity-50 focus-visible:outline-accent ${
+      className={`composer-plan-mode flex h-8 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-[12px] transition-colors duration-150 hover:bg-hover disabled:opacity-50 focus-visible:outline-accent ${
         pressed ? "bg-accent-tint text-accent-ink" : "text-muted"
       }`}
     >
@@ -139,7 +141,7 @@ export function PlanModeButton({
         <path d="M9 6h11M9 12h11M9 18h11" />
         <path d="M4 6h.01M4 12h.01M4 18h.01" />
       </svg>
-      Plan mode
+      <span className="composer-plan-mode-label">Plan mode</span>
     </button>
   );
 }

@@ -52,15 +52,15 @@ const planned = (): StoredEvent[] => [
 
 function show(events: StoredEvent[], options: { busy?: boolean } = {}) {
   const approve = vi.fn();
-  const revise = vi.fn();
+  const propose = vi.fn();
   render(
     <ChatTranscript
       items={buildTranscript(events)}
       running={options.busy ?? false}
-      planActions={{ approve, revise }}
+      planActions={{ approve, propose }}
     />,
   );
-  return { approve, revise, card: screen.getByRole("region", { name: /Dark theme/ }) };
+  return { approve, propose, card: screen.getByRole("region", { name: /Dark theme/ }) };
 }
 
 afterEach(() => {
@@ -82,14 +82,40 @@ describe("a proposed plan", () => {
   });
 
   it("sends requested changes as the next plan mode message", () => {
-    const { revise, approve, card } = show(planned());
+    const { propose, approve, card } = show(planned());
     fireEvent.click(within(card).getByRole("button", { name: "Request changes" }));
     const box = within(card).getByRole("textbox", { name: "What should change?" });
     expect(within(card).getByRole("button", { name: "Send changes" })).toBeDisabled();
     fireEvent.change(box, { target: { value: "keep the light theme as default" } });
     fireEvent.click(within(card).getByRole("button", { name: "Send changes" }));
-    expect(revise).toHaveBeenCalledWith("keep the light theme as default");
+    expect(propose).toHaveBeenCalledWith("keep the light theme as default");
     expect(approve).not.toHaveBeenCalled();
+  });
+
+  it("moves focus into the box when changes are requested, and back when they are cancelled", () => {
+    const { card } = show(planned());
+    fireEvent.click(within(card).getByRole("button", { name: "Request changes" }));
+    expect(document.activeElement).toBe(
+      within(card).getByRole("textbox", { name: "What should change?" }),
+    );
+    fireEvent.click(within(card).getByRole("button", { name: "Cancel" }));
+    expect(document.activeElement).toBe(
+      within(card).getByRole("button", { name: "Request changes" }),
+    );
+  });
+
+  it("offers nothing while a message is on its way, before the log has it", () => {
+    const approve = vi.fn();
+    render(
+      <ChatTranscript
+        items={buildTranscript(planned())}
+        pending
+        planActions={{ approve, propose: vi.fn() }}
+      />,
+    );
+    const card = screen.getByRole("region", { name: /Dark theme/ });
+    expect(within(card).getByRole("button", { name: "Approve plan" })).toBeDisabled();
+    expect(within(card).getByRole("button", { name: "Request changes" })).toBeDisabled();
   });
 
   it("offers nothing while a turn is running", () => {

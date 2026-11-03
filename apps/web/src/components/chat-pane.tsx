@@ -461,7 +461,7 @@ export function LiveChatPane({
         planActions={{
           approve: (planTurnId) =>
             void submit(APPROVAL_MESSAGE, model, undefined, { intent: "approve", planTurnId }),
-          revise: (changes) => void submit(changes, model, undefined, PROPOSE),
+          propose: (message) => void submit(message, model, undefined, PROPOSE),
         }}
         onTestApp={(jobId) => void startTest(jobId, model ?? models?.fallback)}
         files={files ?? []}

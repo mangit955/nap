@@ -19,7 +19,7 @@
 import { randomUUID } from "node:crypto";
 import type { LLMToolCall } from "@nap/shared/ports/llm-provider";
 import { shellQuote } from "@nap/shared/shell";
-import { inspectCommand, inspectReadOnlyCommand } from "../safety/commands.ts";
+import { inspectCommand } from "../safety/commands.ts";
 import { emit, failed, type ToolContext, type ToolOutcome } from "./context.ts";
 import { PROJECT_ROOT, type ToolArgs } from "./definitions.ts";
 
@@ -41,15 +41,14 @@ export async function runCommand(
   // sent. The rules live in ../safety/commands.ts; the check is made at this chokepoint so
   // no caller can reach the sandbox around it, and so a refusal comes back as an ordinary
   // failed result the model can read and work with.
-  // A plan mode turn may only read (ADR-0024), and a background command is a process nothing in
-  // that turn could stop, since the tools that stop one are not offered there.
-  const verdict = (ctx.planning === true ? inspectReadOnlyCommand : inspectCommand)(args.command);
-  if (!verdict.allowed) return { ok: false, output: verdict.message };
-  if (args.background === true && ctx.planning === true)
+  if (ctx.planning === true)
     return {
       ok: false,
-      output: "Plan mode runs commands in the foreground only. Drop background and run it again.",
+      output:
+        "Commands are not available in plan mode. Use read_file, list_files, glob and search_files to investigate before proposing a plan.",
     };
+  const verdict = inspectCommand(args.command);
+  if (!verdict.allowed) return { ok: false, output: verdict.message };
 
   if (args.background === true) {
     if (ctx.backgroundShells === false)

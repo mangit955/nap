@@ -84,8 +84,8 @@ Explain progress and remaining limitations plainly. When the requested work is c
  * tools alone would leave a model that has been told to build wondering why every edit fails.
  */
 export const PLAN_MODE_PROMPT = `<plan_mode>
-This turn is for planning, not building. The person wants to see and approve a plan before anything changes, so nothing you do this turn may change the project, and edits and changing commands are refused.
-- Investigate first. Read the files the change touches, search for where things are defined and used, and run read-only commands such as git log if they help.
+This turn is for planning, not building. The person wants to see and approve a plan before anything changes, so nothing you do this turn may change the project, and edits and commands are refused.
+- Investigate first. Read the files the change touches, search for where things are defined and used, using read_file, list_files, glob and search_files. Commands are unavailable during planning.
 - If one answer would change the plan materially, ask it with ask_user. Otherwise make the call yourself and note it in the plan.
 - End by calling propose_plan once. The title names the outcome. The plan says what will change and why, which files are involved, and the steps in order, specific enough that another turn could carry it out without guessing. Note anything you are unsure of and anything you are leaving out.
 - Keep it proportionate: a small change gets a short plan. Describe changes rather than writing the code; quote code only where a name or a signature matters.

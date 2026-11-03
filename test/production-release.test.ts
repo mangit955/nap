@@ -13,6 +13,7 @@ function provider({
   existing = false,
   renderStatus = "live",
   webStatus = "READY",
+  workerMigration = "bun packages/db/scripts/migrate.ts",
 } = {}) {
   const calls: { url: string; method: string; body: unknown }[] = [];
   let clock = 0;
@@ -46,7 +47,10 @@ function provider({
           commit: { id: wrongCommit ? "b".repeat(40) : commit },
         };
       } else {
-        data = { autoDeploy: "no" };
+        data = {
+          autoDeploy: "no",
+          serviceDetails: { envSpecificDetails: { preDeployCommand: workerMigration } },
+        };
       }
       return Response.json(data);
     },
@@ -54,14 +58,14 @@ function provider({
 }
 
 describe("production release", () => {
-  it("waits for API, readiness, reaper and worker before publishing the exact web commit", async () => {
+  it("waits for the migrated worker, then API readiness and reaper before publishing the exact web commit", async () => {
     const io = provider();
     await releaseProduction(config, io);
     const writes = io.calls.filter((c) => c.method === "POST");
     expect(writes.map((c) => c.url)).toEqual([
+      "https://api.render.com/v1/services/srv-dbc2vg3rjlhs73al1lng/deploys",
       "https://api.render.com/v1/services/srv-dbc2u5m1egvs739agesg/deploys",
       "https://api.render.com/v1/services/srv-dbc2vg8n74is73f6cg10/deploys",
-      "https://api.render.com/v1/services/srv-dbc2vg3rjlhs73al1lng/deploys",
       "https://api.vercel.com/v13/deployments?teamId=team_wMX8jYWlNAfotw26ahY1ldcJ",
     ]);
     for (const c of writes.slice(0, 3)) expect(c.body).toEqual({ commitId: commit });
@@ -70,12 +74,64 @@ describe("production release", () => {
       gitSource: { ref: "main", sha: commit },
     });
     expect(io.calls.findIndex((c) => c.url.endsWith("/readyz"))).toBeLessThan(
-      io.calls.indexOf(writes[1]!),
+      io.calls.indexOf(writes[2]!),
     );
     for (const write of writes.slice(0, 3)) {
       const index = io.calls.indexOf(write);
       expect(io.calls[index + 1]?.url).toBe(`${write.url}/dep_release`);
     }
+  });
+
+  it.each(["", "echo skip migrations"])(
+    "refuses to deploy anything with worker migration command %j",
+    async (workerMigration) => {
+      const io = provider({ workerMigration });
+      await expect(releaseProduction(config, io)).rejects.toThrow();
+      expect(io.calls.some((call) => call.method === "POST")).toBe(false);
+    },
+  );
+
+  it("refuses an existing worker whose response has no migration setting", async () => {
+    const io = provider();
+    await expect(
+      releaseProduction(config, {
+        ...io,
+        request: async (url, init) => {
+          if (url.endsWith("/services/srv-dbc2vg3rjlhs73al1lng"))
+            return Response.json({ autoDeploy: "no" });
+          return io.request(url, init);
+        },
+      }),
+    ).rejects.toThrow();
+    expect(io.calls.some((call) => call.method === "POST")).toBe(false);
+  });
+
+  it("does not start the API while the worker is still replacing old processes", async () => {
+    const io = provider();
+    let checks = 0;
+    await releaseProduction(config, {
+      ...io,
+      sleep: async () => {
+        expect(
+          io.calls.some(
+            (call) => call.method === "POST" && call.url.includes("srv-dbc2u5m1egvs739agesg"),
+          ),
+        ).toBe(false);
+      },
+      request: async (url, init) => {
+        const response = await io.request(url, init);
+        if (url.endsWith("srv-dbc2vg3rjlhs73al1lng/deploys/dep_release")) {
+          checks += 1;
+          return Response.json({
+            id: "dep_release",
+            status: checks === 1 ? "update_in_progress" : "live",
+            commit: { id: commit },
+          });
+        }
+        return response;
+      },
+    });
+    expect(checks).toBe(2);
   });
 
   it("fails before starting any deployment when credentials are missing", async () => {
@@ -91,7 +147,7 @@ describe("production release", () => {
   });
 
   it("stops the release when a backend deployment fails without logging its response body", async () => {
-    const io = provider({ fail: "srv-dbc2vg8n74is73f6cg10/deploys/" });
+    const io = provider({ fail: "srv-dbc2u5m1egvs739agesg/deploys/" });
     await expect(releaseProduction(config, io)).rejects.toThrow("HTTP 500");
     expect(io.calls.filter((c) => c.method === "POST")).toHaveLength(2);
   });
@@ -118,7 +174,7 @@ describe("production release", () => {
   it("stops before the reaper when API readiness fails", async () => {
     const io = provider({ fail: "/readyz" });
     await expect(releaseProduction(config, io)).rejects.toThrow("HTTP 500");
-    expect(io.calls.filter((c) => c.method === "POST")).toHaveLength(1);
+    expect(io.calls.filter((c) => c.method === "POST")).toHaveLength(2);
   });
 
   it("rejects a failed Render deployment instead of continuing to the web", async () => {
@@ -154,5 +210,9 @@ describe("production release", () => {
     expect(
       render.services.map((service: { autoDeployTrigger: string }) => service.autoDeployTrigger),
     ).toEqual(["off", "off", "off"]);
+    const worker = render.services.find(
+      (service: { name: string }) => service.name === "nap-worker",
+    );
+    expect(worker.preDeployCommand).toBe("bun packages/db/scripts/migrate.ts");
   });
 });

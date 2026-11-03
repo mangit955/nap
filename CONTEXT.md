@@ -208,9 +208,10 @@ place in every reader.
 how one turn says what it is doing about it.
 
 **Plan mode** — a turn the person asked to plan rather than build. It may look (read, search,
-read-only commands, questions, explore helpers) and nothing else, enforced when each call runs, and
+questions, explore helpers) and nothing else, enforced when each call runs, and
 it ends on a **proposed plan**. It opens no **Job** and commits nothing. Chosen per prompt by whoever
-sends it, and carried on the prompt and its **turn request**, never a setting. See
+sends it, and carried on the prompt and its **turn request**, never a setting. The answer to a
+**question** a plan mode turn asked is a plan mode prompt too. See
 [ADR-0024](docs/adr/0024-plan-mode-proposes-and-the-next-message-decides.md).
 
 **Proposed plan** — what a plan mode turn ends on (`plan.proposed`): a title and a Markdown body
@@ -221,7 +222,8 @@ folded by `@nap/shared/plan-mode` for the chat pane and the runtime alike.
 
 **Approval** — a prompt that names the plan mode turn whose plan it approves. It opens the job that
 carries the plan out, named for the plan, and the plan rides in the system prompt of every turn of
-that job. An approval of a plan that is no longer awaiting builds nothing.
+that job. An approval of a plan that is no longer awaiting builds nothing, and settles nothing
+either. If the approving turn fails, the plan is awaiting again unless a newer request has replaced it.
 
 **Question** — a multiple-choice question the agent ends its turn on (`agent.question`). Its answer
 is not a field anywhere: it is the person's next message, whether they clicked an option or typed.

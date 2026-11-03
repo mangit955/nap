@@ -8,7 +8,10 @@
  *
  * The next message settles a plan, whatever it is. Approving it is one answer; asking for another
  * plan is another; saying anything else is moving on. That is the same rule a question follows,
- * and for the same reason: in a chat, the next thing somebody says *is* their answer.
+ * and for the same reason: in a chat, the next thing somebody says *is* their answer. Two
+ * exceptions keep the fold agreeing with what the runtime actually did: an approval of a plan
+ * that is not waiting settles nothing, because it builds nothing, and an approving turn that fails
+ * puts its plan back to waiting, so it can be approved again.
  */
 
 import type { ProposedPlan } from "./agent-plan.ts";
@@ -19,7 +22,10 @@ export type PlanStatus =
   | "drafting"
   /** The turn ended on it and nobody has said anything since. The one approvable state. */
   | "awaiting"
-  /** The next message approved it, which started the turn that carries it out. */
+  /**
+   * The next message approved it, which started the turn that carries it out. If that turn fails,
+   * the plan waits again unless a newer request has replaced it.
+   */
   | "approved"
   /** The next message asked for another plan. */
   | "revised"
@@ -35,6 +41,8 @@ export type PlanState = ProposedPlan & {
   /** The `seq` of the proposal, a stable key for whoever draws it. */
   seq: number;
   status: PlanStatus;
+  /** The turn whose prompt approved it, while `approved`; its failure puts the plan back. */
+  approvedBy?: string;
 };
 
 type Readable = Pick<NapEvent, "type" | "turnId" | "payload"> & { seq: number };
@@ -42,6 +50,7 @@ type Readable = Pick<NapEvent, "type" | "turnId" | "payload"> & { seq: number };
 /** Every plan in the log, keyed by the turn that proposed it, in the order they were proposed. */
 export function planStates(events: readonly Readable[]): Map<string, PlanState> {
   const states = new Map<string, PlanState>();
+  let latestAnswer: { turnId: string; planning: boolean } | undefined;
   for (const event of events) {
     switch (event.type) {
       case "plan.proposed": {
@@ -65,6 +74,19 @@ export function planStates(events: readonly Readable[]): Map<string, PlanState> 
         const state = states.get(event.turnId);
         if (state?.status === "drafting")
           state.status = event.type === "turn.completed" ? "awaiting" : "interrupted";
+        // Only the approving turn itself: a repair turn of the job it opened has its own id, and
+        // its failure leaves behind a plan that was carried out and committed.
+        if (event.type === "turn.failed")
+          for (const approved of states.values())
+            if (approved.status === "approved" && approved.approvedBy === event.turnId) {
+              approved.status =
+                latestAnswer?.turnId === event.turnId
+                  ? "awaiting"
+                  : latestAnswer?.planning
+                    ? "revised"
+                    : "superseded";
+              delete approved.approvedBy;
+            }
         break;
       }
       case "user.message": {
@@ -72,6 +94,12 @@ export function planStates(events: readonly Readable[]): Map<string, PlanState> 
         // A repair prompt is the verifier's, written inside a job; it answers nothing the person
         // was asked.
         if (repair !== undefined) break;
+        // An approval of a plan that is not waiting is refused under the lease and builds nothing,
+        // so it answers nothing either. Counting it would let a stale tab set aside the newer plan
+        // the person is looking at. Read before this message settles anything, which is the same
+        // history the runtime's check reads.
+        if (plan?.intent === "approve" && states.get(plan.planTurnId)?.status !== "awaiting") break;
+        latestAnswer = { turnId: event.turnId, planning: plan?.intent === "propose" };
         for (const state of states.values()) {
           if (state.turnId === event.turnId) continue;
           if (state.status !== "drafting" && state.status !== "awaiting") continue;
@@ -81,6 +109,7 @@ export function planStates(events: readonly Readable[]): Map<string, PlanState> 
               : plan?.intent === "propose"
                 ? "revised"
                 : "superseded";
+          if (state.status === "approved") state.approvedBy = event.turnId;
         }
         break;
       }

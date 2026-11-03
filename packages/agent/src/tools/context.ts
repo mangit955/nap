@@ -43,8 +43,8 @@ export type ToolContext = {
   signal?: AbortSignal | undefined;
   testMode?: boolean;
   /**
-   * A plan mode turn (ADR-0024). Narrows what runs as well as what is offered: commands answer to
-   * a read-only allowlist and helpers may only explore, whatever the toolset happened to include.
+   * A plan mode turn (ADR-0024). Narrows what runs as well as what is offered: commands are refused
+   * and helpers may only explore, whatever the toolset happened to include.
    */
   planning?: boolean;
   /**

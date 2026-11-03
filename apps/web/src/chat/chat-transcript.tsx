@@ -171,6 +171,9 @@ export function ChatTranscript({
             <div key={row.id} className={spacingBefore(row, before)}>
               <Row
                 busy={running}
+                // A card's click is a message, and one already on its way has not reached the log:
+                // until it does the card still looks open, and a second click would send it twice.
+                answering={running || pending}
                 row={row}
                 live={row.kind === "item" && row.item.key === liveKey}
                 compactionFailure={
@@ -224,6 +227,7 @@ function spacingBefore(row: TimelineRow, previous: TimelineRow | undefined): str
 
 function Row({
   busy,
+  answering,
   row,
   live,
   compactionFailure,
@@ -234,6 +238,8 @@ function Row({
   onToggleGroup,
 }: {
   busy: boolean;
+  /** Whether a message is in flight or running, so a card must not send another. */
+  answering: boolean;
   row: TimelineRow;
   live: boolean;
   compactionFailure: FailedTurn | undefined;
@@ -248,6 +254,7 @@ function Row({
       return (
         <Item
           busy={busy}
+          answering={answering}
           item={row.item}
           live={live}
           compactionFailure={compactionFailure}
@@ -280,6 +287,7 @@ function Row({
 
 function Item({
   busy,
+  answering,
   item,
   live,
   onRetry,
@@ -288,6 +296,7 @@ function Item({
   compactionFailure,
 }: {
   busy: boolean;
+  answering: boolean;
   item: PassThroughItem;
   compactionFailure?: FailedTurn | undefined;
   /** Whether this item can still be added to. Only ever true of the last one, mid-turn. */
@@ -463,7 +472,7 @@ function Item({
           title={item.title}
           plan={item.plan}
           status={item.status}
-          busy={busy}
+          busy={answering}
           actions={planActions}
         />
       );
@@ -475,8 +484,10 @@ function Item({
           options={item.options}
           multiSelect={item.multiSelect}
           answer={item.answer}
-          busy={busy}
-          onAnswer={onAnswer}
+          busy={answering}
+          // A plan mode turn's question is answered in plan mode: the person asked for nothing
+          // to be built, and an option clicked instead of typed must not quietly change that.
+          onAnswer={item.planning ? planActions?.propose : onAnswer}
         />
       );
   }

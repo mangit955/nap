@@ -159,6 +159,28 @@ describe("a plan mode turn", () => {
     expect(await commits()).toHaveLength(1);
   });
 
+  it("can be approved again after the turn approving it failed, and then builds it", async () => {
+    const { runtime, provider } = subject([
+      proposing,
+      [{ refusal: true }],
+      [{ text: "Built it." }],
+    ]);
+    const planned = await turn(runtime, "add a dark theme", { intent: "propose" });
+    const approval = { intent: "approve", planTurnId: planned.turnId } as const;
+
+    const first = await turn(runtime, "Approved. Build this plan.", approval);
+    expect(first.outcome).toMatchObject({ ok: false });
+    expect(await commits()).toEqual([]);
+
+    const { outcome } = await turn(runtime, "Approved. Build this plan.", approval);
+
+    expect(outcome).toMatchObject({ ok: true });
+    const building = provider.requests.at(-1);
+    expect(building?.systemPrompt).toContain("<approved_plan>");
+    expect(building?.systemPrompt).toContain(PLAN.plan);
+    expect(await commits()).toHaveLength(1);
+  });
+
   it("builds nothing when the plan an approval names was already settled", async () => {
     const { runtime, provider } = subject([proposing, [{ text: "ok" }]]);
     const planned = await turn(runtime, "add a dark theme", { intent: "propose" });

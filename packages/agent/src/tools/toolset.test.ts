@@ -39,7 +39,6 @@ describe("toolNamesFor", () => {
       "propose_plan",
       "read_file",
       "read_subagent",
-      "run_command",
       "run_subagent",
       "search_files",
       "shell_output",
@@ -49,6 +48,7 @@ describe("toolNamesFor", () => {
   it("keeps a plan mode turn read-only on every model family and without the computer", () => {
     const offered = toolNamesFor({ ...USER, family: "claude", mode: "plan" });
     for (const name of [
+      "run_command",
       "write_file",
       "edit_file",
       "apply_patch",

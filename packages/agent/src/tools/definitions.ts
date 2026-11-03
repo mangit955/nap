@@ -237,9 +237,8 @@ export const APP_TEST_TOOL_NAMES: readonly ToolName[] = [
  * What a plan mode turn may reach (ADR-0024): everything that looks and nothing that changes the
  * project, plus the tool that ends the turn with a plan.
  *
- * `run_command` is here under a read-only allowlist enforced when it runs (`safety/commands.ts`),
- * and `run_subagent` only for helpers that cannot write — both refused at execution, not merely
- * left out of this list. `shell_output` reads a command an earlier turn started. Absent on
+ * Commands are refused even if offered accidentally: readers can invoke repository-configured
+ * programs. `run_subagent` only permits helpers that cannot write, enforced at execution. `shell_output` reads a command an earlier turn started. Absent on
  * purpose: every edit tool, typing into or stopping a shell, the checklist (the plan *is* the
  * deliverable), and the computer, whose clicks change the running app's state.
  */
@@ -248,7 +247,6 @@ export const PLAN_MODE_TOOL_NAMES: readonly ToolName[] = [
   "list_files",
   "glob",
   "search_files",
-  "run_command",
   "shell_output",
   "ask_user",
   "run_subagent",

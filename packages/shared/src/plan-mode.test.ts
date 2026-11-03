@@ -94,11 +94,71 @@ describe("planStates", () => {
     expect(states.get(PLAN_TURN)?.status).toBe("superseded");
   });
 
-  it("is superseded by an approval that names a different plan", () => {
+  it("is not settled by an approval naming a plan that is not waiting, which builds nothing", () => {
+    // The runtime refuses that approval under the lease, so counting it as an answer would set
+    // aside the plan the person is actually looking at.
     const states = planStates(
       log(...planning(), ask(NEXT_TURN, { intent: "approve", planTurnId: OTHER_PLAN_TURN })),
     );
-    expect(states.get(PLAN_TURN)?.status).toBe("superseded");
+    expect(states.get(PLAN_TURN)?.status).toBe("awaiting");
+  });
+
+  it("is not set aside by a stale approval of an older plan that lands after a revision", () => {
+    const states = planStates(
+      log(
+        ...planning(),
+        ...planning(OTHER_PLAN_TURN),
+        ask(NEXT_TURN, { intent: "approve", planTurnId: PLAN_TURN }),
+        failed(NEXT_TURN),
+      ),
+    );
+    expect(states.get(PLAN_TURN)?.status).toBe("revised");
+    expect(states.get(OTHER_PLAN_TURN)?.status).toBe("awaiting");
+  });
+
+  it("is waiting again when the turn approving it fails, because that turn committed nothing", () => {
+    const events = log(
+      ...planning(),
+      ask(NEXT_TURN, { intent: "approve", planTurnId: PLAN_TURN }),
+      failed(NEXT_TURN),
+    );
+    expect(planStates(events).get(PLAN_TURN)?.status).toBe("awaiting");
+    expect(pendingPlan(events, PLAN_TURN)).toMatchObject({ title: "Dark theme" });
+  });
+
+  it("does not reopen an older plan when another request arrived before the approval failed", () => {
+    const states = planStates(
+      log(
+        ...planning(),
+        ask(NEXT_TURN, { intent: "approve", planTurnId: PLAN_TURN }),
+        ...planning(OTHER_PLAN_TURN),
+        failed(NEXT_TURN),
+      ),
+    );
+    expect(states.get(PLAN_TURN)?.status).toBe("revised");
+    expect(states.get(OTHER_PLAN_TURN)?.status).toBe("awaiting");
+  });
+
+  it("stays approved when a repair turn of the job it opened fails later", () => {
+    const REPAIR_TURN = "5d4c3b2a-1f0e-4d9c-8b7a-6f5e4d3c2b1a";
+    const repair: Entry = {
+      type: "user.message",
+      turnId: REPAIR_TURN,
+      payload: {
+        text: "typecheck failed",
+        repair: { requestId: NEXT_TURN, jobId: OTHER_PLAN_TURN },
+      },
+    };
+    const states = planStates(
+      log(
+        ...planning(),
+        ask(NEXT_TURN, { intent: "approve", planTurnId: PLAN_TURN }),
+        completed(NEXT_TURN),
+        repair,
+        failed(REPAIR_TURN),
+      ),
+    );
+    expect(states.get(PLAN_TURN)?.status).toBe("approved");
   });
 
   it("stays settled: a later approval cannot reach a plan the person already moved past", () => {

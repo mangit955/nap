@@ -126,6 +126,11 @@ export type TranscriptItem =
       options: QuestionOption[];
       multiSelect: boolean;
       answer: string | null;
+      /**
+       * Whether a plan mode turn asked it. Its answer then goes out as another plan mode message:
+       * the person asked for nothing to be built, and clicking an option must not change that.
+       */
+      planning: boolean;
     }
   /**
    * A plan mode turn's proposal (ADR-0024). `status` is `planStates`'s answer over the whole log,
@@ -193,6 +198,7 @@ type TurnOutcome =
     };
 
 type Step = Extract<TranscriptItem, { kind: "step" }>;
+type FailedTurnItem = Extract<TranscriptItem, { kind: "turn-end"; outcome: "failed" }>;
 
 /**
  * The turns a failed check prompted, by id.
@@ -246,6 +252,8 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
   const plans = new Map<string, Extract<TranscriptItem, { kind: "plan" }>>();
   const openQuestions: Extract<TranscriptItem, { kind: "question" }>[] = [];
   const proposals = new Map<string, Extract<TranscriptItem, { kind: "proposed-plan" }>>();
+  // Failed turns whose retry would approve a plan, checked against the whole log at the end.
+  const approvalRetries: FailedTurnItem[] = [];
   // The step a `file.changed` belongs to: the last one opened that has not been answered yet.
   let openStep: Step | undefined;
   type RetryRequest = NapEventOf<"user.message">["payload"];
@@ -495,6 +503,7 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
           options: event.payload.options,
           multiSelect: event.payload.multiSelect,
           answer: null,
+          planning: retryByTurn.get(event.turnId)?.plan?.intent === "propose",
         };
         openQuestions.push(question);
         items.push(question);
@@ -634,7 +643,7 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
           }
 
         const retry = retryByTurn.get(event.turnId);
-        items.push({
+        const failure: FailedTurnItem = {
           kind: "turn-end",
           key,
           at: event.createdAt,
@@ -646,17 +655,31 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
           ...(compactionFailureKey === undefined ? {} : { compactionFailureKey }),
           ...(retry?.attachments === undefined ? {} : { retryAttachments: retry.attachments }),
           ...(retry?.plan === undefined ? {} : { retryPlan: retry.plan }),
-        });
+        };
+        items.push(failure);
+        if (retry?.plan?.intent === "approve") approvalRetries.push(failure);
         break;
       }
     }
   }
 
   // Settled by what came after, so decided once the whole log has been read.
-  if (proposals.size > 0) {
+  if (proposals.size > 0 || approvalRetries.length > 0) {
     const states = planStates(events);
     for (const proposal of proposals.values())
       proposal.status = states.get(proposal.turnId)?.status ?? proposal.status;
+    // Retrying an approval is approving again, which the server accepts only while the plan
+    // waits. A failed approving turn puts its plan back, so that retry works; a stale approval,
+    // or a repair inside a job the plan already opened, could only be refused, and a control
+    // that cannot help is worse than none.
+    for (const failure of approvalRetries) {
+      const plan = failure.retryPlan;
+      if (plan?.intent !== "approve" || states.get(plan.planTurnId)?.status === "awaiting")
+        continue;
+      failure.retryMessage = undefined;
+      delete failure.retryPlan;
+      delete failure.retryAttachments;
+    }
   }
 
   return items;

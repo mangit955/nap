@@ -345,7 +345,10 @@ export function ChatInput({
     sentMedia.current = media.attachments;
     media.setAttachments([]);
     const sent = sentMedia.current.map((item) => item.media);
-    if (planning) onSubmit(message, sent.length === 0 ? undefined : sent, "plan");
+    // `/compact` is a command about the conversation, not a request to plan or build anything,
+    // and the server refuses it with a plan intent, so the switch does not apply to it.
+    if (planning && message !== "/compact")
+      onSubmit(message, sent.length === 0 ? undefined : sent, "plan");
     else if (sent.length === 0) onSubmit(message);
     else onSubmit(message, sent);
   };

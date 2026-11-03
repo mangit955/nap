@@ -11,7 +11,7 @@
 import type { PlanItem, QuestionOption } from "@nap/shared/agent-plan";
 import type { PlanStatus } from "@nap/shared/plan-mode";
 import { Check, Circle, CircleDot } from "lucide-react";
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { ChatMarkdown } from "./chat-markdown.tsx";
 
 /**
@@ -203,6 +203,21 @@ export function ProposedPlanCard({
   const [changes, setChanges] = useState("");
   const open = status === "awaiting" && actions !== undefined;
   const settled = status !== "awaiting";
+  // The button that opens the box and the box itself swap places, so focus would fall to the page
+  // on both clicks. It follows the swap instead: into the box, and back to the button that opened
+  // it. Skipped on mount, so drawing a card never pulls focus from wherever somebody is.
+  const box = useRef<HTMLTextAreaElement>(null);
+  const requestChanges = useRef<HTMLButtonElement>(null);
+  const toggled = useRef(false);
+  useEffect(() => {
+    if (!toggled.current) return;
+    if (revising) box.current?.focus();
+    else requestChanges.current?.focus();
+  }, [revising]);
+  const revise = (next: boolean) => {
+    toggled.current = true;
+    setRevising(next);
+  };
 
   return (
     <section
@@ -234,7 +249,7 @@ export function ProposedPlanCard({
             event.preventDefault();
             const text = changes.trim();
             if (text === "" || busy) return;
-            actions.revise(text);
+            actions.propose(text);
             setChanges("");
             setRevising(false);
           }}
@@ -243,6 +258,7 @@ export function ProposedPlanCard({
             What should change?
           </label>
           <textarea
+            ref={box}
             id={changesId}
             value={changes}
             onChange={(event) => setChanges(event.target.value)}
@@ -259,7 +275,7 @@ export function ProposedPlanCard({
             </button>
             <button
               type="button"
-              onClick={() => setRevising(false)}
+              onClick={() => revise(false)}
               className="rounded-chip border border-edge px-2.5 py-1 text-[12px] text-ink transition-colors hover:bg-hover"
             >
               Cancel
@@ -278,9 +294,10 @@ export function ProposedPlanCard({
             Approve plan
           </button>
           <button
+            ref={requestChanges}
             type="button"
             disabled={busy}
-            onClick={() => setRevising(true)}
+            onClick={() => revise(true)}
             className="rounded-chip border border-edge px-3 py-1 text-[12px] text-ink transition-colors hover:bg-hover disabled:opacity-50"
           >
             Request changes
@@ -291,8 +308,12 @@ export function ProposedPlanCard({
   );
 }
 
-/** What a plan card can do: approve the plan a turn proposed, or ask for another with changes. */
+/**
+ * What a plan card can do: approve the plan a turn proposed, or send words as another plan mode
+ * message. Requested changes go out through `propose`, and so does the answer to a question a plan
+ * mode turn asked, because neither may start a build.
+ */
 export type PlanActions = {
   approve: (planTurnId: string) => void;
-  revise: (changes: string) => void;
+  propose: (message: string) => void;
 };

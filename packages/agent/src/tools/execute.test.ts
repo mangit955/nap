@@ -522,19 +522,21 @@ describe("a plan mode turn", () => {
     expect((await manager.readFile(sandboxId, APP)).ok).toBe(false);
   });
 
-  it("runs a command that only reads", async () => {
-    manager.script(/git log/, { stdout: "abc123 first\n" });
-    await executeTool(call("run_command", { command: "git log --oneline -5" }), planning());
-    expect(manager.commands(sandboxId)).toEqual([`cd ${PROJECT_ROOT} && git log --oneline -5`]);
-  });
-
-  it("refuses a command that changes the project, before anything reaches the sandbox", async () => {
-    const result = await executeTool(
-      call("run_command", { command: "ls && touch src/new.ts" }),
-      planning(),
-    );
-    expect(result).toMatchObject({ ok: false });
-    expect(result.output).toContain("`touch src/new.ts`");
+  it.each([
+    "git log --oneline -5",
+    "git diff",
+    "git status",
+    "./git log",
+    "GIT_EXTERNAL_DIFF='touch pwned; true' git diff HEAD~1",
+    "git grep --open-files-in-pager='touch pwned #' .",
+    "sort --compress-program=sh words.txt",
+    "rg --hostname-bin=./x foo",
+    "ls && touch src/new.ts",
+  ])("refuses every command in plan mode before it reaches the sandbox: %s", async (command) => {
+    manager.script(/.*/, { stdout: "would run" });
+    const result = await executeTool(call("run_command", { command }), planning());
+    expect(result.ok).toBe(false);
+    expect(result.output).toMatch(/plan mode/i);
     expect(manager.commands(sandboxId)).toEqual([]);
   });
 

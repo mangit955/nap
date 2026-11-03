@@ -1016,6 +1016,15 @@ describe("plan mode", () => {
     expect(onSubmit).toHaveBeenLastCalledWith("now build it");
   });
 
+  it("sends /compact as the command it is, never as a request for a plan", () => {
+    const onSubmit = vi.fn();
+    show({ onSubmit });
+    fireEvent.click(screen.getByRole("button", { name: "Plan mode" }));
+    type("/compact");
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(onSubmit).toHaveBeenLastCalledWith("/compact");
+  });
+
   it("says what the next message will do in the box itself", () => {
     show();
     fireEvent.click(screen.getByRole("button", { name: "Plan mode" }));
