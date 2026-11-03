@@ -29,7 +29,6 @@ import type { SessionStartStore } from "@nap/shared/ports/session-start-store";
  */
 
 import { NapAgentService } from "@nap/agent/agent-service";
-import { BoundedPageCapture } from "@nap/capture/bounded-page-capture";
 import { NapContextEngine } from "@nap/context/context-engine";
 import { NoopMemoryProvider } from "@nap/context/noop-memory-provider";
 import { sweepOrphanedRequests } from "@nap/runtime/janitor";
@@ -37,6 +36,7 @@ import { sweepIdleProjects } from "@nap/runtime/reaper";
 import { readRepositoryPreviewPort } from "@nap/runtime/repository-environment";
 import { SingleAgentRuntime } from "@nap/runtime/single-agent-runtime";
 import { startSweeping } from "@nap/runtime/sweep-schedule";
+import { ThumbnailLane } from "@nap/runtime/thumbnail-lane";
 import { startTurnWorker, type TurnWorker } from "@nap/runtime/turn-worker";
 import { TEMPLATE_DEV_PORT } from "@nap/sandbox/template";
 import type { Logger } from "@nap/shared/logging";
@@ -280,7 +280,9 @@ export type ComposedNap = {
   registry: TurnRegistry;
   /**
    * Already claiming, unless the role is `api`, in which case it never claims anything. The caller
-   * owns stopping it either way — on a signal, or at the end of a test.
+   * owns stopping it either way — on a signal, or at the end of a test. Stopping it drains the turns
+   * first and then stops the thumbnail lane, which can add up to the lane's own short grace for
+   * pictures still being taken.
    */
   worker: TurnWorker;
   /** Already sweeping, unless the role is `api`. The caller owns stopping it. */
@@ -356,6 +358,25 @@ export function composeNap(deps: NapDeps): ComposedNap {
       return true;
     }
   };
+  /**
+   * A picture of each finished job, and of each project coming back up, taken outside the lease.
+   *
+   * The two numbers are this composition's to choose because both depend on the worker: a browser
+   * is about a gigabyte of images and a memory spike per page load, so at 25 turns in flight
+   * photographing them all at once is an OOM kill that costs every one of those turns, and
+   * `NAP_WORKER_CONCURRENCY` is the most that can finish together and so the most worth keeping in
+   * line. A worker with more waiting than that is falling behind, and a stale card costs nothing.
+   */
+  const thumbnails =
+    deps.capture === undefined
+      ? undefined
+      : new ThumbnailLane({
+          sandbox: deps.sandbox,
+          capture: deps.capture,
+          objects: deps.objects,
+          concurrency: config.NAP_CAPTURE_CONCURRENCY,
+          maxQueued: config.NAP_WORKER_CONCURRENCY,
+        });
   const runtime = new SingleAgentRuntime({
     ...(github === undefined ? {} : { repository: github }),
     sessions: deps.sessions,
@@ -373,17 +394,7 @@ export function composeNap(deps: NapDeps): ComposedNap {
     // from its last snapshot rather than starting again from an empty template.
     objects: deps.objects,
     snapshots: deps.snapshots,
-    // A picture of each finished turn, and of each project coming back up — behind a semaphore,
-    // because this runs after *every* committed turn and a worker holding 25 at once would
-    // otherwise launch 25 Chromiums in one container. Capture is best-effort and nobody waits on
-    // it, so queueing costs a card that appears late where the alternative costs the whole pod.
-    ...(deps.capture === undefined
-      ? {}
-      : {
-          capture: new BoundedPageCapture(deps.capture, {
-            concurrency: config.NAP_CAPTURE_CONCURRENCY,
-          }),
-        }),
+    ...(thumbnails === undefined ? {} : { thumbnails }),
     // Where the ceiling is really enforced: at the point a sandbox is created, not at the route
     // that asked for one.
     capacity: deps.capacity,
@@ -757,7 +768,7 @@ export function composeNap(deps: NapDeps): ComposedNap {
    * worker through the durable queue rather than through anything in this process. Started after
    * the app so the registry it writes to is the same one the cancel route reads.
    */
-  const worker = !executes
+  const claiming = !executes
     ? NOT_CLAIMING
     : startTurnWorker({
         queue: deps.queue,
@@ -776,6 +787,18 @@ export function composeNap(deps: NapDeps): ComposedNap {
         // A worker has no port, so this loop coming round is the only liveness signal there is.
         ...(deps.onClaimTick === undefined ? {} : { onClaimTick: deps.onClaimTick }),
       });
+
+  /**
+   * Stopping a worker stops what its turns left behind them, and in this order: a turn still
+   * draining may yet ask for a picture, and only once none can is the lane's own short wait the
+   * last thing between this process and its exit.
+   */
+  const worker: TurnWorker = {
+    stop: async () => {
+      await claiming.stop();
+      await thumbnails?.stop();
+    },
+  };
 
   /**
    * The other half of a worker dying: the request it was holding, and the chat pane waiting on a

@@ -52,7 +52,6 @@ import type { EventStore, PendingEvent, StoredEvent } from "@nap/shared/ports/ev
 import type { ModelCredentials } from "@nap/shared/ports/llm-provider";
 import type { MemoryProvider } from "@nap/shared/ports/memory-provider";
 import type { ObjectStore } from "@nap/shared/ports/object-store";
-import type { PageCapture } from "@nap/shared/ports/page-capture";
 import type { RepositorySource, RepositoryWorkspace } from "@nap/shared/ports/repository-workspace";
 import type {
   ContinueOptions,
@@ -85,7 +84,7 @@ import { repairCommitSubject, repairPrompt } from "./repair-prompt.ts";
 import { SessionQueue } from "./session-queue.ts";
 import { captureSnapshot } from "./teardown.ts";
 import { testPrompt } from "./test-prompt.ts";
-import { captureThumbnail } from "./turn-thumbnail.ts";
+import type { ThumbnailLane } from "./thumbnail-lane.ts";
 import { type CheckFailure, failureOf, toVerifiedChecks, verifyTurn } from "./verify-turn.ts";
 
 type Payload<T extends NapEvent["type"]> = NapEventOf<T>["payload"];
@@ -222,14 +221,12 @@ export type SingleAgentRuntimeOptions = {
   objects?: ObjectStore;
   snapshots?: SnapshotStore;
   /**
-   * A browser, for the picture of the project the dashboard puts on its card.
+   * Where to ask for the picture of the project the dashboard puts on its card.
    *
    * Optional and independent of the pair above: a deployment with no browser to drive still
    * runs turns and still keeps the work — it just shows a colour where a screenshot would be.
-   * It needs `objects` to have anywhere to put the bytes, so both must be present or nothing
-   * is captured.
    */
-  capture?: PageCapture;
+  thumbnails?: ThumbnailLane;
   /**
    * The ceiling on how many sandboxes exist at once, claimed at the moment one is created.
    *
@@ -422,8 +419,8 @@ export class SingleAgentRuntime implements Runtime {
       // condition as the announcement above: a sandbox that was already serving has not
       // changed since whatever last photographed it.
       //
-      // Last, and after the outcome is already decided: resuming is what the caller asked for,
-      // and a browser launch must not be able to delay or fail it.
+      // Only asked for here, because the lease is held until the continuation below is done and
+      // a browser launch must not be able to delay that, or the resume, or the next message.
       if (acquired.value.created && previewPort !== null)
         await this.#photograph(session.projectId, acquired.value.id, previewPort);
 
@@ -995,11 +992,19 @@ export class SingleAgentRuntime implements Runtime {
         // storage before the process died, and re-bundling it would pay for the same bytes
         // twice — and photograph an application nothing has changed since the last shot.
         if (fresh) {
+          // Under the lease, unlike the picture below, and that is load-bearing: see the note on
+          // `#preserve`.
           await this.#preserve(session.projectId, sandboxId, outcome.commitSha);
-          // After the snapshot, deliberately: the work reaching storage is what must not be
-          // delayed by a browser launch, and a picture is the one thing here nobody would miss.
-          // Only when the turn changed something — an unchanged app photographs identically.
-          if (outcome.commitSha !== null && run.previewPort !== null)
+          // Only when the turn changed something — an unchanged app photographs identically — and
+          // when no repair is about to edit it, since the app on screen is one its own checks just
+          // called broken. Not for a turn that was stopped: a worker that has lost its lease does
+          // nothing further on this session's behalf (`docs/scaling-design.md` §21, 10).
+          if (
+            outcome.commitSha !== null &&
+            run.previewPort !== null &&
+            settings.signal?.aborted !== true &&
+            (failed === null || run.repairs >= MAX_REPAIR_ATTEMPTS)
+          )
             await this.#photograph(session.projectId, sandboxId, run.previewPort);
         }
 
@@ -1469,6 +1474,11 @@ export class SingleAgentRuntime implements Runtime {
    * problem would be the worse trade. It is not told to the user either — there is no action
    * for them to take, and a warning nobody can act on is what teaches people to ignore the
    * warnings that matter.
+   *
+   * **It finishes before the lease goes back, which is the one thing here a person pays for and
+   * the reason it is not beside the photograph.** The next turn may start on any worker, and the
+   * only thing that orders two snapshots of one project, or a snapshot against the restore a
+   * lost sandbox triggers, is that they never overlap. See `docs/scaling-design.md` §17 (B-7).
    */
   async #preserve(projectId: string, sandboxId: string, commitSha: string | null): Promise<void> {
     if (this.#restore === null || commitSha === null) return;
@@ -1493,43 +1503,23 @@ export class SingleAgentRuntime implements Runtime {
   }
 
   /**
-   * Photographs the project while it is still up, for the dashboard's card.
+   * Asks for a picture of the project while it is still up, for the dashboard's card.
    *
    * **A picture can only be taken while a sandbox lives**, and the card is looked at days
    * later, when nothing is running to point a browser at. So every moment the project is
    * known to be serving is a chance worth taking: the end of a turn that changed something,
-   * and a project coming back up. Putting one away takes its own shot from `close-project.ts`,
-   * on the way past.
+   * and a project coming back up.
    *
    * Whoever calls decides *whether* there is anything new to see — a turn that committed
    * nothing, or a sandbox that was already serving, has not changed since the last shot. What
-   * this owns is that a failure is only ever a log line: a missing screenshot costs a card its
-   * picture, and nothing here is worth failing a turn or a resume over.
+   * happens after that is the lane's, and none of it is under the lease.
    */
   async #photograph(
     projectId: string,
     sandboxId: string,
     previewPort = this.#previewPort,
   ): Promise<void> {
-    const capture = this.#options.capture;
-    const objects = this.#options.objects;
-    if (capture === undefined || objects === undefined) return;
-
-    const shot = await captureThumbnail({
-      sandbox: this.#options.sandbox,
-      capture,
-      objects,
-      projectId,
-      sandboxId,
-      port: previewPort,
-    }).catch((error: unknown) => ({ ok: false as const, error: { message: String(error) } }));
-
-    if (shot.ok) {
-      getLogger().info({ key: shot.value.key }, "project thumbnail captured");
-      return;
-    }
-
-    getLogger().warn({ reason: shot.error.message }, "could not capture a project thumbnail");
+    await this.#options.thumbnails?.request({ projectId, sandboxId, port: previewPort });
   }
 
   /**

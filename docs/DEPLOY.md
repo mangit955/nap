@@ -27,7 +27,10 @@ processes on it. What is different here, and why:
 
 - **The worker drains in 270 seconds, not 600.** Render allows at most 300 between SIGTERM and
   SIGKILL (`maxShutdownDelaySeconds`), so `NAP_DRAIN_TIMEOUT_SECONDS` has to fit inside it. A
-  turn still running 270 seconds into a deploy is aborted rather than killed mid-write.
+  turn still running 270 seconds into a deploy is aborted rather than killed mid-write. Two fixed
+  tails come after the drain and have to fit too: the turn worker's 10-second grace for the turns
+  it aborts, then the thumbnail lane's 10-second grace for pictures in flight. 270 + 10 + 10 leaves
+  about 10 seconds for closing the listener and the database connections.
 - **Migrations run as the API's pre-deploy command**, once per release and before the new API
   takes traffic, not at boot. A release that adds tables still needs the API deployed before the
   worker and the reaper, which would otherwise start against a schema that is not there yet.
@@ -469,9 +472,13 @@ is affordable, and they are worth setting deliberately rather than inheriting:
   rather than being refused, so this changes latency and never who gets in. The default is
   derived in `docs/scaling-baseline.md` and deliberately below what that run licenses.
 - `NAP_CAPTURE_CONCURRENCY=1` — how many browsers a worker may have open at once. Every
-  committed turn is photographed, so this is *not* the worker's concurrency: unbounded it
+  committed turn asks for a picture unless it was stopped or has a repair still to come, so
+  this is *not* the worker's concurrency: unbounded it
   would be 25 simultaneous Chromiums in one container, and an OOM kill costs every turn in
-  flight rather than a thumbnail. Nobody waits on a card, so queueing costs nothing visible.
+  flight rather than a thumbnail. Pictures are taken after the session's lease goes back, so
+  a slow browser delays a card and never a follow-up message. At most `NAP_WORKER_CONCURRENCY`
+  projects wait for one. A project already waiting has its place taken over by its newer request;
+  a new project's request past that cap is dropped. A shutdown drops the queue.
 - `NAP_DRAIN_TIMEOUT_SECONDS=600` — how long a worker being taken away waits for the turns it
   is already running before aborting them. Keep it inside the platform's grace period.
 - `NAP_REAP_INTERVAL_SECONDS=60` — how often the reaper looks. The idle sweep and the janitor

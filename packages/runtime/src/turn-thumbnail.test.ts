@@ -63,6 +63,54 @@ describe("capturing a thumbnail", () => {
   });
 });
 
+describe("a caller with the last word on storing it", () => {
+  it("leaves the picture already stored in place when the answer is no", async () => {
+    await run();
+    capture.returning(new Uint8Array([1, 2, 3]));
+    const preview = await sandbox.create(PROJECT_ID);
+    if (!preview.ok) throw new Error(preview.error.message);
+    sandbox.listen(preview.value.id, PORT);
+    const before = await objects.get(thumbnailKey(PROJECT_ID));
+
+    const result = await captureThumbnail({
+      sandbox,
+      capture,
+      objects,
+      projectId: PROJECT_ID,
+      sandboxId: preview.value.id,
+      port: PORT,
+      beforeStore: async () => false,
+    });
+
+    expect(result).toMatchObject({ ok: false, error: { superseded: true } });
+    expect(await objects.get(thumbnailKey(PROJECT_ID))).toEqual(before);
+  });
+
+  it("is not asked until the picture exists", async () => {
+    // Asked earlier, it would answer about a workspace the browser has not looked at yet.
+    let capturedWhenAsked = -1;
+    const preview = await sandbox.create(PROJECT_ID);
+    if (!preview.ok) throw new Error(preview.error.message);
+    sandbox.listen(preview.value.id, PORT);
+
+    await captureThumbnail({
+      sandbox,
+      capture,
+      objects,
+      projectId: PROJECT_ID,
+      sandboxId: preview.value.id,
+      port: PORT,
+      beforeStore: async () => {
+        capturedWhenAsked = capture.requests.length;
+        return true;
+      },
+    });
+
+    expect(capturedWhenAsked).toBe(1);
+    expect(objects.keys()).toEqual([thumbnailKey(PROJECT_ID)]);
+  });
+});
+
 describe("when there is nothing to photograph", () => {
   it("stores nothing when the preview never answers", async () => {
     // Screenshotting the address anyway would put a picture of an error page on the dashboard,

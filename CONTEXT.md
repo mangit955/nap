@@ -258,6 +258,11 @@ the work has got.
 
 **Snapshot** — the archived filesystem of a put-away project; what a restore rebuilds from.
 
+**Thumbnail lane** — where a project's dashboard picture is taken, after the turn that asked for it
+has given its lease back. Best-effort and bounded by dropping: a picture that is late, skipped or
+kept from the turn before is a stale card and nothing more. It never keeps a sandbox alive or makes
+a session *busy*. See ADR-0022.
+
 **Preview** — the user's app, running in a sandbox and reachable at a URL announced by
 `preview.ready`. The `seq` of that announcement, not its URL, is what identifies *which* preview:
 a project put away and restarted has two announcements and only one live sandbox.

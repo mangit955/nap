@@ -30,7 +30,13 @@ const TEMPLATE_PACKAGE_JSON = readFileSync(
 describe("a freshly created project", () => {
   it("can be typechecked and built, and is not asked for lint or tests", () => {
     expect(discoverChecks(TEMPLATE_PACKAGE_JSON)).toEqual([
-      { name: "typecheck", state: "runnable", command: "cd /home/user/app && bun run typecheck" },
+      {
+        name: "typecheck",
+        state: "runnable",
+        command: "cd /home/user/app && bun run typecheck",
+        // A lone `tsc --noEmit`, so it could run beside a lint — if this template ever had one.
+        readOnly: true,
+      },
       { name: "lint", state: "absent" },
       { name: "build", state: "runnable", command: "cd /home/user/app && bun run build" },
       { name: "test", state: "absent" },
