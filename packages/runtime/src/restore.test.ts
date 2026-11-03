@@ -71,8 +71,8 @@ beforeEach(() => {
   snapshots = new InMemorySnapshotStore();
 });
 
-function open() {
-  return openProject({ sandbox, objects, snapshots, projectId: PROJECT });
+function open(options: { signal?: AbortSignal } = {}) {
+  return openProject({ sandbox, objects, snapshots, projectId: PROJECT, ...options });
 }
 
 /** A project that was torn down once: a row pointing at a bundle that is really there. */
@@ -135,6 +135,30 @@ describe("dependencies", () => {
     expect(sandbox.commands(opened.value.sandboxId).filter((c) => /bun install/.test(c))).toEqual([
       `cd ${TEMPLATE_WORKDIR} && bun install`,
     ]);
+  });
+
+  it("lets an install run past the provider's one-minute default", async () => {
+    await seedSnapshot();
+    restoreChangesTheLockfile(sandbox);
+    sandbox.script(/bun install/, { exitCode: 0, runsForMs: 4 * 60_000 });
+
+    const opened = await open();
+
+    expect(opened).toMatchObject({ ok: true, value: { installed: true, warning: null } });
+  });
+
+  it("stops the install when the open is cancelled", async () => {
+    await seedSnapshot();
+    restoreChangesTheLockfile(sandbox);
+    const { signal } = new AbortController();
+
+    const opened = await open({ signal });
+    if (!opened.ok) throw new Error("expected the open to succeed");
+
+    const install = sandbox
+      .execs(opened.value.sandboxId)
+      .find((exec) => /bun install/.test(exec.command));
+    expect(install?.options).toMatchObject({ signal, stopOnGiveUp: true });
   });
 
   it("skips the install when the lockfile is unchanged", async () => {

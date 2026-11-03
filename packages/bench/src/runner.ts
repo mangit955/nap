@@ -19,6 +19,7 @@
  * `async` function that also creates sandboxes is a rule nobody can check.
  */
 
+import { CHECK_TIMEOUT_MS } from "@nap/shared/command-windows";
 import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
 import type { EventStore } from "@nap/shared/ports/event-store";
 import type { Runtime } from "@nap/shared/ports/runtime";
@@ -603,7 +604,11 @@ async function runCommandCheck(
   sandboxId: string,
   check: CommandCheck,
 ): Promise<CheckResult> {
-  const result = await sandbox.exec(sandboxId, check.command);
+  // The limit a real turn's checks run under. Past the provider's default instead, a slow build
+  // would be recorded as a broken one, which is a wrong score rather than an aborted run.
+  const result = await sandbox.exec(sandboxId, check.command, undefined, {
+    timeoutMs: CHECK_TIMEOUT_MS,
+  });
 
   const declared = {
     checkId: check.id,

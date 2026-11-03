@@ -34,6 +34,44 @@ describe("InMemorySandboxManager exec scripting", () => {
     return created.value.id;
   }
 
+  it("stops a command at the provider's one-minute default when the caller names no timeout", async () => {
+    const manager = new InMemorySandboxManager().script("slow", { runsForMs: 60_001 });
+    const sandboxId = await sandboxIn(manager);
+
+    expect(await manager.exec(sandboxId, "slow")).toMatchObject({
+      ok: false,
+      error: { code: "timeout" },
+    });
+  });
+
+  it("lets a command run as long as the timeout its caller named", async () => {
+    const manager = new InMemorySandboxManager().script("slow", { runsForMs: 90_000 });
+    const sandboxId = await sandboxIn(manager);
+
+    const within = await manager.exec(sandboxId, "slow", undefined, { timeoutMs: 90_000 });
+    const past = await manager.exec(sandboxId, "slow", undefined, { timeoutMs: 89_999 });
+
+    expect(within).toMatchObject({ ok: true });
+    expect(past).toMatchObject({ ok: false, error: { code: "timeout" } });
+  });
+
+  it("records the options each command was given, and hands them to its responder", async () => {
+    const seen: AbortSignal[] = [];
+    const manager = new InMemorySandboxManager().script("run", (_command, options) => {
+      if (options.signal !== undefined) seen.push(options.signal);
+      return { exitCode: 0 };
+    });
+    const sandboxId = await sandboxIn(manager);
+    const { signal } = new AbortController();
+
+    await manager.exec(sandboxId, "run", undefined, { signal, timeoutMs: 5 });
+
+    expect(seen).toEqual([signal]);
+    expect(manager.execs(sandboxId)).toEqual([
+      { command: "run", options: { signal, timeoutMs: 5 } },
+    ]);
+  });
+
   it("throws on a command no test scripted, naming the command", async () => {
     // Programmer error, not a Result: a test that runs an unscripted command is
     // asserting on a response nobody defined. Returning a bland success would let

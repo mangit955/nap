@@ -13,10 +13,10 @@
  *
  * **Three verdicts, because one of them is not the project's fault.** `failed` means a check the
  * project asked for said no — that is a repair turn. `errored` means the run learned nothing:
- * the sandbox refused the command, or the preview is listening but unreachable from out here.
- * Opening a repair turn on either would spend tokens asking a model to fix a machine it cannot
- * see, so the checks involved come back *absent*. Same reading as `diagnosePreview`, and the
- * same one `CheckOutcome` was given three values for.
+ * the sandbox refused the command, a check ran past its limit or was cancelled, or the preview is
+ * listening but unreachable from out here. Opening a repair turn on any of those would spend tokens
+ * on something a model cannot fix, so the checks involved come back *absent*. Same reading as
+ * `diagnosePreview`, and the same one `CheckOutcome` was given three values for.
  *
  * **`errored` is not a verification, and must never be recorded as one.** This is the sharp
  * edge on this module. `verification.completed` carries checks and no verdict on purpose — a
@@ -24,11 +24,12 @@
  * payload as `verified`, correctly, because an unasked check is not a failed one. So a caller
  * that emitted the event for an errored run would tell the log that a commit nothing ran
  * against had been checked, and `job.checkpointed` would follow. An errored run is the job
- * ending as **abandoned**: the sandbox went away, which `JobOutcome` already has a word for.
+ * ending as **abandoned**: nothing can be said for that commit, which `JobOutcome` has a word for.
  * The verdict exists to be branched on before anything is written, not to be persisted.
  */
 
 import type { CheckOutcome } from "@nap/shared/check-outcome";
+import { CHECK_TIMEOUT_MS } from "@nap/shared/command-windows";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import { type CommandOutput, captureCommandOutput } from "./command-output.ts";
 import type { CheckName, DiscoveredCheck } from "./discover-checks.ts";
@@ -75,6 +76,13 @@ export type RunChecksOptions = {
    * rather than defaulted to a port — a check nobody asked for must not be able to fail.
    */
   preview?: PreviewProbe;
+  /**
+   * Cancelling this stops the running check and starts nothing further.
+   *
+   * The preview wait is not interrupted: it is skipped if the signal has already fired, and once
+   * begun it runs to its own limit.
+   */
+  signal?: AbortSignal | undefined;
 };
 
 export async function runChecks(
@@ -86,7 +94,7 @@ export async function runChecks(
   const ran: RanCheck[] = [];
   /** What ended the run, once something has. Everything after it is recorded unasked. */
   let stopped: Stop | undefined;
-  const passed = await passTogether(sandbox, sandboxId, checks);
+  const passed = await passTogether(sandbox, sandboxId, checks, options.signal);
 
   for (const check of checks) {
     if (check.state === "absent") {
@@ -99,7 +107,16 @@ export async function runChecks(
       continue;
     }
 
-    const attempt = passed.get(check.name) ?? (await runOne(sandbox, sandboxId, check));
+    // A check the pair already finished keeps its answer, as it would have had it run first and the
+    // cancel come after; one the pair cut short came back from `runOne` as cancelled.
+    const paired = passed.get(check.name);
+    if (paired === undefined && options.signal?.aborted) {
+      ran.push({ name: check.name, outcome: "absent", detail: CANCELLED_BEFORE_RUNNING });
+      stopped = { verdict: "errored", by: check.name };
+      continue;
+    }
+
+    const attempt = paired ?? (await runOne(sandbox, sandboxId, check, options.signal));
     ran.push(attempt.check);
     stopped = attempt.stopped;
   }
@@ -107,6 +124,9 @@ export async function runChecks(
   if (options.preview !== undefined) {
     if (stopped !== undefined) {
       ran.push({ name: PREVIEW_CHECK_NAME, outcome: "absent", detail: notReached(stopped) });
+    } else if (options.signal?.aborted) {
+      ran.push({ name: PREVIEW_CHECK_NAME, outcome: "absent", detail: CANCELLED_BEFORE_RUNNING });
+      stopped = { verdict: "errored", by: PREVIEW_CHECK_NAME };
     } else {
       const attempt = await probePreview(sandbox, sandboxId, options.preview);
       ran.push(attempt.check);
@@ -138,6 +158,7 @@ async function passTogether(
   sandbox: SandboxManager,
   sandboxId: string,
   checks: readonly DiscoveredCheck[],
+  signal: AbortSignal | undefined,
 ): Promise<Map<CheckName, Attempt>> {
   const pair = checks.filter(
     (check): check is DiscoveredCheck & { state: "runnable" } =>
@@ -145,9 +166,11 @@ async function passTogether(
       check.state === "runnable" &&
       check.readOnly === true,
   );
-  if (pair.length !== 2) return new Map();
+  if (pair.length !== 2 || signal?.aborted) return new Map();
 
-  const attempts = await Promise.all(pair.map((check) => runOne(sandbox, sandboxId, check)));
+  const attempts = await Promise.all(
+    pair.map((check) => runOne(sandbox, sandboxId, check, signal)),
+  );
 
   return new Map(
     pair.flatMap((check, index) => {
@@ -181,8 +204,24 @@ async function runOne(
   sandbox: SandboxManager,
   sandboxId: string,
   check: DiscoveredCheck & { state: "runnable" },
+  signal: AbortSignal | undefined,
 ): Promise<Attempt> {
-  const result = await sandbox.exec(sandboxId, check.command);
+  const result = await sandbox.exec(sandboxId, check.command, undefined, {
+    signal,
+    // Neither the signal nor the deadline would stop it: the work would go on running in the sandbox,
+    // where the next turn would be working around a build nobody is waiting for.
+    stopOnGiveUp: true,
+    timeoutMs: CHECK_TIMEOUT_MS,
+  });
+
+  // Whatever the command came back with, a cancel is why it stopped. Stopping one makes it exit
+  // non-zero, and a check saying no is what opens a repair turn.
+  if (signal?.aborted && !(result.ok && result.value.exitCode === 0)) {
+    return {
+      check: { name: check.name, outcome: "absent", detail: "cancelled while it was running" },
+      stopped: { verdict: "errored", by: check.name },
+    };
+  }
 
   if (!result.ok) {
     // Absent, not failed: the command never produced an answer about the project. NapBench
@@ -255,6 +294,8 @@ async function probePreview(
     stopped: { verdict: "errored", by: PREVIEW_CHECK_NAME },
   };
 }
+
+const CANCELLED_BEFORE_RUNNING = "not run: cancelled first";
 
 const notDeclared = (name: CheckName) => `the project declares no ${name} script`;
 

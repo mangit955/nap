@@ -44,7 +44,8 @@ export function slowSandboxManager(inner: SandboxManager, options: SlowOptions =
     writeFile: (sandboxId, path, contents) => inner.writeFile(sandboxId, path, contents),
     readFile: (sandboxId, path) => inner.readFile(sandboxId, path),
     listFiles: (sandboxId, path) => inner.listFiles(sandboxId, path),
-    exec: (sandboxId, command, onOutput) => inner.exec(sandboxId, command, onOutput),
+    exec: (sandboxId, command, onOutput, options) =>
+      inner.exec(sandboxId, command, onOutput, options),
     // Composing an address costs nothing in a real deployment either — it is string work.
     getPreviewUrl: (sandboxId, port) => inner.getPreviewUrl(sandboxId, port),
     waitForPreview: async (sandboxId, port, opts) => {

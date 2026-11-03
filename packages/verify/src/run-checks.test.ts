@@ -5,8 +5,9 @@
  */
 
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
+import { CHECK_TIMEOUT_MS, VERIFICATION_ROUND_LIMIT_MS } from "@nap/shared/command-windows";
 import { describe, expect, it } from "vitest";
-import type { DiscoveredCheck } from "./discover-checks.ts";
+import { CHECK_NAMES, type DiscoveredCheck } from "./discover-checks.ts";
 import { runChecks } from "./run-checks.ts";
 
 const PORT = 5173;
@@ -516,5 +517,167 @@ describe("a typecheck and a lint known to be independent", () => {
 
     expect(result.verdict).toBe("errored");
     expect(result.checks[1]?.detail).toBe("not run: typecheck could not be run");
+  });
+
+  it("gives both of the pair the signal, and asks for each command itself to be stopped", async () => {
+    const { sandbox, sandboxId } = await sandboxWith();
+    const { signal } = new AbortController();
+
+    await runChecks(sandbox, sandboxId, TRUSTED_ALL, { signal });
+
+    const pair = sandbox.execs(sandboxId).slice(0, 2);
+    expect(pair.map((exec) => exec.command)).toEqual(["run-typecheck", "run-lint"]);
+    for (const exec of pair) {
+      // By identity: `toMatchObject` reads an AbortSignal as an empty object, and passes on none.
+      expect(exec.options.signal).toBe(signal);
+      expect(exec.options.stopOnGiveUp).toBe(true);
+    }
+  });
+
+  it("starts neither of the pair once the signal has fired", async () => {
+    const { sandbox, sandboxId } = await sandboxWith();
+
+    const result = await runChecks(sandbox, sandboxId, TRUSTED_ALL, {
+      signal: AbortSignal.abort(),
+    });
+
+    expect(sandbox.commands(sandboxId)).toEqual([]);
+    expect(result.verdict).toBe("errored");
+    expect(result.checks[0]?.detail).toBe("not run: cancelled first");
+  });
+
+  it("keeps what a finished one said when the cancel lands during the pair", async () => {
+    const { sandbox, sandboxId } = await sandboxWith();
+    const controller = new AbortController();
+    sandbox.script("run-typecheck", { exitCode: 0 });
+    // Stopping the lint makes it exit as killed, which must neither blame the project nor be
+    // mistaken for the contention a killed pair member is run again for.
+    sandbox.script("run-lint", () => {
+      controller.abort();
+      return { exitCode: 143 };
+    });
+
+    const result = await runChecks(sandbox, sandboxId, TRUSTED_ALL, {
+      signal: controller.signal,
+    });
+
+    expect(result.verdict).toBe("errored");
+    expect(outcomes(result).slice(0, 2)).toEqual([
+      ["typecheck", "passed"],
+      ["lint", "absent"],
+    ]);
+    expect(result.checks[1]?.detail).toMatch(/cancel/);
+    expect(sandbox.commands(sandboxId)).toEqual(["run-typecheck", "run-lint"]);
+  });
+});
+
+describe("how long a check may run", () => {
+  it("fits every check a project can declare inside the round the sandbox is kept alive for", () => {
+    expect(CHECK_NAMES.length * CHECK_TIMEOUT_MS).toBeLessThan(VERIFICATION_ROUND_LIMIT_MS);
+  });
+
+  it("lets a check run past the provider's one-minute default", async () => {
+    const { sandbox, sandboxId } = await sandboxWith();
+    sandbox.script("run-build", { runsForMs: 90_000 });
+
+    const result = await runChecks(sandbox, sandboxId, ALL);
+
+    expect(result.verdict).toBe("passed");
+    expect(sandbox.commands(sandboxId)).toContain("run-test");
+  });
+
+  it("treats a check that outlives its limit as a run that learned nothing", async () => {
+    const { sandbox, sandboxId } = await sandboxWith();
+    sandbox.script("run-build", { runsForMs: 6 * 60_000 });
+
+    const result = await runChecks(sandbox, sandboxId, ALL);
+
+    expect(result.verdict).toBe("errored");
+    expect(outcomes(result)).toContainEqual(["build", "absent"]);
+    expect(sandbox.commands(sandboxId)).not.toContain("run-test");
+  });
+});
+
+describe("cancelling a run of checks", () => {
+  it("gives every check the signal, and asks for the command itself to be stopped", async () => {
+    const { sandbox, sandboxId } = await sandboxWith();
+    const { signal } = new AbortController();
+
+    await runChecks(sandbox, sandboxId, [runnable("build")], { signal });
+
+    const options = sandbox.execs(sandboxId)[0]?.options;
+    // By identity: `toMatchObject` reads an AbortSignal as an empty object, and passes on none.
+    expect(options?.signal).toBe(signal);
+    expect(options?.stopOnGiveUp).toBe(true);
+  });
+
+  it("starts nothing once the signal has fired", async () => {
+    const { sandbox, sandboxId } = await sandboxWith();
+
+    const result = await runChecks(sandbox, sandboxId, ALL, { signal: AbortSignal.abort() });
+
+    expect(sandbox.commands(sandboxId)).toEqual([]);
+    expect(result.verdict).toBe("errored");
+  });
+
+  it("starts no further check when the cancel lands during one that passes", async () => {
+    const { sandbox, sandboxId } = await sandboxWith();
+    const controller = new AbortController();
+    sandbox.script("run-typecheck", () => {
+      controller.abort();
+      return { exitCode: 0 };
+    });
+
+    const result = await runChecks(sandbox, sandboxId, ALL, { signal: controller.signal });
+
+    expect(sandbox.commands(sandboxId)).toEqual(["run-typecheck"]);
+    expect(result.verdict).toBe("errored");
+    expect(outcomes(result)).toContainEqual(["typecheck", "passed"]);
+  });
+
+  it("does not probe the preview once the signal has fired", async () => {
+    const { sandbox, sandboxId } = await sandboxWith();
+
+    const result = await runChecks(sandbox, sandboxId, [], {
+      preview: { port: PORT },
+      signal: AbortSignal.abort(),
+    });
+
+    expect(sandbox.commands(sandboxId)).toEqual([]);
+    expect(result.verdict).toBe("errored");
+    expect(outcomes(result)).toEqual([["preview", "absent"]]);
+  });
+
+  it("does not blame the project for a check the cancel killed", async () => {
+    // Stopping a command makes it exit non-zero, which reads exactly like a check saying no. That
+    // reading would open a repair turn on a job somebody has just cancelled.
+    const { sandbox, sandboxId } = await sandboxWith();
+    const controller = new AbortController();
+    sandbox.script("run-typecheck", () => {
+      controller.abort();
+      return { exitCode: 137 };
+    });
+
+    const result = await runChecks(sandbox, sandboxId, ALL, { signal: controller.signal });
+
+    expect(result.verdict).toBe("errored");
+    expect(outcomes(result)).toContainEqual(["typecheck", "absent"]);
+    expect(result.checks[0]?.detail).toMatch(/cancel/);
+  });
+
+  it("says a check was cancelled rather than that the sandbox refused it", async () => {
+    const { sandbox, sandboxId } = await sandboxWith();
+    const controller = new AbortController();
+    sandbox.script("run-typecheck", () => {
+      controller.abort();
+      return { error: { code: "timeout", message: "exceeding requestTimeoutMs" } };
+    });
+
+    const result = await runChecks(sandbox, sandboxId, ALL, { signal: controller.signal });
+
+    expect(result.verdict).toBe("errored");
+    // E2B reports its own connection being dropped as a timeout, which is not what happened.
+    expect(result.checks[0]?.detail).toMatch(/cancel/);
+    expect(result.checks[0]?.detail).not.toMatch(/timeout/i);
   });
 });
