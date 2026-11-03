@@ -199,6 +199,10 @@ function resumeFailureNotice(error: SandboxError): string {
   );
 }
 
+/** Somebody asked for this, so it is neither a warning nor an invitation to try again. */
+const RESUME_CANCELLED_NOTICE =
+  "Stopped starting this project back up. Nothing has been lost — its files are still saved.";
+
 export type SingleAgentRuntimeOptions = {
   sessions: SessionStore;
   sandbox: SandboxManager;
@@ -393,9 +397,18 @@ export class SingleAgentRuntime implements Runtime {
         // A notice, not a `turn.failed`. No turn ran, so a failed one would put a retry button
         // under a conversation that never happened — and the preview pane reads a sandbox
         // failure as the state of the *last turn*, which nothing here is.
-        emit("system.notice", { level: "warning", text: resumeFailureNotice(acquired.error) });
+        const cancelled = options.signal?.aborted === true;
+        emit(
+          "system.notice",
+          cancelled
+            ? { level: "info", text: RESUME_CANCELLED_NOTICE }
+            : { level: "warning", text: resumeFailureNotice(acquired.error) },
+        );
         await sink.drain();
-        getLogger().warn({ reason: acquired.error.code }, "could not resume the project");
+        getLogger().warn(
+          { reason: acquired.error.code, cancelled },
+          "could not resume the project",
+        );
         return { ok: false, reason: "sandbox_unavailable", message: acquired.error.message };
       }
 
@@ -819,6 +832,9 @@ export class SingleAgentRuntime implements Runtime {
 
       const sandboxId = await this.#acquire(session, request.signal);
       if (!sandboxId.ok) {
+        // A cancelled acquire reports itself as `unavailable`, the one code it has. Whoever is told
+        // that was asked to stop rather than let down, so it ends the way any other abort does.
+        request.signal?.throwIfAborted();
         emit("turn.failed", { reason: "sandbox_unavailable", message: sandboxId.error.message });
         await sink.drain();
         return {

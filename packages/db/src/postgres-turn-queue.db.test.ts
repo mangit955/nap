@@ -581,7 +581,11 @@ describe("requestCancel", () => {
     const { id } = await enqueueTurn(seed);
     await queue.claim("worker-1");
 
-    expect(await queue.requestCancel(seed.sessionId)).toEqual({ cancelled: true, was: "leased" });
+    expect(await queue.requestCancel(seed.sessionId)).toEqual({
+      cancelled: true,
+      was: "leased",
+      requestId: id,
+    });
     const row = await rowOf(id);
     expect(row?.state).toBe("leased");
     expect(row?.cancelRequested).toBe(true);
@@ -603,13 +607,33 @@ describe("requestCancel", () => {
 
   it("still reports a cancel for a leased request that was already cancelled", async () => {
     const seed = await seedSession();
-    await enqueueTurn(seed);
+    const { id } = await enqueueTurn(seed);
     await queue.claim("worker-1");
     await queue.requestCancel(seed.sessionId);
 
-    // A second click, inside the fifteen seconds before the worker's next renewal. Answering
-    // "there is nothing to cancel" would be the opposite of what is true: the turn is running.
-    expect(await queue.requestCancel(seed.sessionId)).toEqual({ cancelled: true, was: "leased" });
+    // A second click, before the worker has stopped. Answering "there is nothing to cancel" would
+    // be the opposite of what is true: the turn is running.
+    expect(await queue.requestCancel(seed.sessionId)).toEqual({
+      cancelled: true,
+      was: "leased",
+      requestId: id,
+    });
+  });
+
+  it("names the running request, not the follow-up it failed behind it", async () => {
+    // A notification is only as good as this id. The queued row is flagged by the same statement,
+    // and naming it instead would wake nobody and leave the turn running until its next renewal.
+    const seed = await seedSession();
+    const running = await enqueueTurn(seed);
+    await queue.claim("worker-1");
+    const followUp = await enqueueTurn(seed);
+
+    expect(await queue.requestCancel(seed.sessionId)).toEqual({
+      cancelled: true,
+      was: "leased",
+      requestId: running.id,
+    });
+    expect((await rowOf(followUp.id))?.state).toBe("failed");
   });
 
   it("touches no other session", async () => {

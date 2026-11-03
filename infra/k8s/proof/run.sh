@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Brings up the whole deployment on a laptop and checks the two things a manifest cannot assert.
+# Brings up the whole deployment on a laptop and checks the things a manifest cannot assert.
 #
 #   infra/k8s/proof/run.sh            # create the cluster if needed, deploy, check
 #   infra/k8s/proof/run.sh --down     # delete the cluster and stop paying for the RAM
@@ -10,7 +10,8 @@
 #
 # What it is for is the last two acceptance criteria of the manifests: at API 3 / workers 2 /
 # reaper 1, a turn submitted to any pod completes and streams to a socket on any other pod, and a
-# rolling restart of the API loses no events. Everything else about the manifests is asserted for
+# rolling restart of the API loses no events. It also checks that a cancel pressed on one pod stops
+# a turn on a worker well inside a renewal. Everything else about the manifests is asserted for
 # free in `test/k8s.test.ts`, which needs no cluster.
 set -euo pipefail
 
@@ -75,7 +76,10 @@ kubectl -n "$NAMESPACE" get pods -o wide
 step "port-forwards"
 # Two *individual* pods, because the whole question is whether it matters which one you talk to.
 # The ingress covers the other half, where it deliberately does not matter.
-pods=($(kubectl -n "$NAMESPACE" get pods -l app.kubernetes.io/component=api -o name))
+# Not the ones still on their way out: a rollout counts as finished while its old pods drain, and a
+# port-forward to one of those dies with it.
+pods=($(kubectl -n "$NAMESPACE" get pods -l app.kubernetes.io/component=api \
+  -o go-template='{{range .items}}{{if not .metadata.deletionTimestamp}}pod/{{.metadata.name}}{{"\n"}}{{end}}{{end}}'))
 if [[ ${#pods[@]} -lt 2 ]]; then
   echo "need at least two API pods, found ${#pods[@]}" >&2
   exit 1

@@ -44,7 +44,7 @@ const OWNERSHIP = [
   },
   {
     component: "TurnWorker",
-    owns: "Claiming a request, renewing its lease, running it through the Runtime, settling the row — and aborting the moment a renewal says the lease is gone. Draining on shutdown.",
+    owns: "Claiming a request, renewing its lease, running it through the Runtime, settling the row — and aborting the moment a renewal says the lease is gone or the turn was cancelled. Draining on shutdown.",
     never: "Admission, ceilings, model access. Deciding what a turn does. Serving anything.",
   },
   {

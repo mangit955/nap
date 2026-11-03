@@ -1,9 +1,11 @@
+import { enqueueRequest } from "@nap/db/testing/enqueue-request";
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { FAKE_OWNER, InMemoryProjectStore } from "@nap/db/testing/in-memory-project-store";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { InMemoryTurnQueue } from "@nap/db/testing/in-memory-turn-queue";
 import { InMemoryTurnRateLimiter } from "@nap/db/testing/in-memory-turn-rate-limiter";
+import type { CancelChannel } from "@nap/shared/ports/cancel-channel";
 import { UNTITLED_PROJECT } from "@nap/shared/project-title";
 import type { Hono } from "hono";
 import { describe, expect, it } from "vitest";
@@ -13,6 +15,7 @@ import { TurnRegistry } from "./registry.ts";
 
 const SESSION = "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f";
 const UNKNOWN = "2d9fab30-5e4c-4f7d-9a8b-3c4d5e6f7081";
+const SOMEBODY_ELSES = "3e0abc41-6f5d-4a8e-8b9c-4d5e6f708192";
 const silent = () => createLogger({ level: "silent" }, { write: () => {} });
 
 /** A project carrying the default name, which is what the auto-namer looks for. */
@@ -35,6 +38,7 @@ function app(
   logger = silent(),
   projects = unnamedProject(),
   store = new InMemoryEventStore(),
+  cancels?: Pick<CancelChannel, "announce">,
 ) {
   return {
     projects,
@@ -50,6 +54,7 @@ function app(
       turns: {
         queue,
         registry,
+        ...(cancels === undefined ? {} : { cancels }),
         projects,
         allowedModels: ALLOWED,
         // Somebody who brought their own key, which is what most of these tests are about —
@@ -57,7 +62,10 @@ function app(
         keys: async () => OPENROUTER_KEY,
         freeModel: FREE_MODEL,
         defaultModel: ALLOWED[0] ?? "",
-        sessions: new InMemorySessionStore([{ sessionId: SESSION, projectId: "project-1" }]),
+        sessions: new InMemorySessionStore([
+          { sessionId: SESSION, projectId: "project-1" },
+          { sessionId: SOMEBODY_ELSES, projectId: "project-2", userId: "somebody-else" },
+        ]),
       },
     }),
     registry,
@@ -263,12 +271,135 @@ describe("POST /sessions/:sessionId/turns/cancel", () => {
     const queue = new InMemoryTurnQueue();
     const { app: hono, registry } = app(queue);
     await post(hono, `/sessions/${SESSION}/turns`, { message: "hello" });
+    const claimed = await queue.claim("this-pod");
     const controller = new AbortController();
-    registry.adopt(SESSION, controller);
+    registry.adopt(claimed?.id ?? "", controller);
 
     await post(hono, `/sessions/${SESSION}/turns/cancel`);
 
     expect(controller.signal.aborted).toBe(true);
+  });
+
+  it("leaves alone a turn in this process that is not the request it flagged", async () => {
+    // What a session key used to get wrong: whatever that session is running by the time the route
+    // looks can be a turn nobody asked to stop. The flagged request is still running here, beside
+    // the other entry, so one test can see the right one stop and the wrong one carry on.
+    const queue = new InMemoryTurnQueue();
+    const { app: hono, registry } = app(queue);
+    await post(hono, `/sessions/${SESSION}/turns`, { message: "hello" });
+    const flagged = await queue.claim("this-pod");
+    const flaggedController = new AbortController();
+    registry.adopt(flagged?.id ?? "", flaggedController);
+    const next = new AbortController();
+    registry.adopt("a-request-admitted-after-the-cancel", next);
+
+    await post(hono, `/sessions/${SESSION}/turns/cancel`);
+
+    expect(flaggedController.signal.aborted).toBe(true);
+    expect(next.signal.aborted).toBe(false);
+  });
+
+  describe("the wake-up", () => {
+    /** A channel that records what the row said at the moment it was told. */
+    function recording(queue: InMemoryTurnQueue, owner: string) {
+      const told: { requestId: string; flagged: Promise<unknown> }[] = [];
+      return {
+        told,
+        announce: (requestId: string) => {
+          told.push({ requestId, flagged: queue.renew(requestId, owner) });
+        },
+      };
+    }
+
+    it("names the request it flagged, once that flag is durable", async () => {
+      const queue = new InMemoryTurnQueue();
+      const channel = recording(queue, "some-other-pod");
+      const { app: hono } = app(queue, undefined, undefined, undefined, undefined, channel);
+      await post(hono, `/sessions/${SESSION}/turns`, { message: "hello" });
+      const claimed = await queue.claim("some-other-pod");
+
+      await post(hono, `/sessions/${SESSION}/turns/cancel`);
+
+      expect(channel.told.map((entry) => entry.requestId)).toEqual([claimed?.id]);
+      await expect(channel.told[0]?.flagged).resolves.toEqual({
+        held: true,
+        cancelRequested: true,
+      });
+    });
+
+    it("is sent again on a second click, which is one more chance at a lost one", async () => {
+      const queue = new InMemoryTurnQueue();
+      const channel = recording(queue, "some-other-pod");
+      const { app: hono } = app(queue, undefined, undefined, undefined, undefined, channel);
+      await post(hono, `/sessions/${SESSION}/turns`, { message: "hello" });
+      await queue.claim("some-other-pod");
+
+      await post(hono, `/sessions/${SESSION}/turns/cancel`);
+      const second = await post(hono, `/sessions/${SESSION}/turns/cancel`);
+
+      expect(second.status).toBe(202);
+      expect(channel.told).toHaveLength(2);
+    });
+
+    it("is not sent for a request nobody has claimed, because nobody holds it", async () => {
+      const queue = new InMemoryTurnQueue();
+      const channel = recording(queue, "nobody");
+      const { app: hono } = app(queue, undefined, undefined, undefined, undefined, channel);
+      await post(hono, `/sessions/${SESSION}/turns`, { message: "hello" });
+
+      const res = await post(hono, `/sessions/${SESSION}/turns/cancel`);
+
+      expect(res.status).toBe(202);
+      expect(channel.told).toEqual([]);
+      expect(await queue.claim("worker-1")).toBeNull();
+    });
+
+    it("names the running request when a follow-up is queued behind it", async () => {
+      const queue = new InMemoryTurnQueue();
+      const channel = recording(queue, "some-other-pod");
+      const { app: hono } = app(queue, undefined, undefined, undefined, undefined, channel);
+      await post(hono, `/sessions/${SESSION}/turns`, { message: "hello" });
+      const claimed = await queue.claim("some-other-pod");
+      await post(hono, `/sessions/${SESSION}/turns`, { message: "and then this" });
+
+      await post(hono, `/sessions/${SESSION}/turns/cancel`);
+
+      expect(channel.told.map((entry) => entry.requestId)).toEqual([claimed?.id]);
+    });
+
+    it("is not sent when there is nothing to cancel", async () => {
+      const queue = new InMemoryTurnQueue();
+      const channel = recording(queue, "nobody");
+      const { app: hono } = app(queue, undefined, undefined, undefined, undefined, channel);
+
+      expect((await post(hono, `/sessions/${SESSION}/turns/cancel`)).status).toBe(409);
+      expect((await post(hono, `/sessions/${UNKNOWN}/turns/cancel`)).status).toBe(404);
+      expect(channel.told).toEqual([]);
+    });
+
+    it("is not sent for somebody else's session, whose turn is left running", async () => {
+      const queue = new InMemoryTurnQueue();
+      const channel = recording(queue, "their-pod");
+      const { app: hono } = app(queue, undefined, undefined, undefined, undefined, channel);
+      const { id } = await enqueueRequest(queue, {
+        sessionId: SOMEBODY_ELSES,
+        userId: "somebody-else",
+        kind: "turn",
+        message: "theirs",
+        model: ALLOWED[0] ?? "",
+        billsToUser: false,
+      });
+      await queue.claim("their-pod");
+
+      // 404 rather than 403, and rather than the 409 a stranger could read as "that session is idle".
+      expect((await post(hono, `/sessions/${SOMEBODY_ELSES}/turns/cancel`)).status).toBe(404);
+
+      expect(channel.told).toEqual([]);
+      await expect(queue.renew(id, "their-pod")).resolves.toEqual({
+        held: true,
+        cancelRequested: false,
+      });
+    });
   });
 
   it("409s when the turn already ended", async () => {

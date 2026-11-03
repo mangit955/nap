@@ -83,6 +83,15 @@ export function Scale() {
         claiming, keeps renewing what it holds, and aborts only what is left at the deadline.
       </P>
 
+      <P>
+        Stopping a turn works the same way. The stop button sets a flag on the request, and that
+        flag is the cancel: the worker would find it at its next renewal, up to fifteen seconds
+        away. So once the flag is committed, the API also sends a notification naming the request,
+        and <Term>the worker holding it renews straight away</Term> and acts on the answer. The
+        notification stops nothing itself, so one that arrives late or names another worker&rsquo;s
+        request cannot stop the wrong turn, and one that never arrives costs only the wait.
+      </P>
+
       <Sub>Then the events have to cross too</Sub>
 
       <P>
