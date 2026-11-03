@@ -13,6 +13,13 @@
  * command, so the fallback costs no second round trip. Output is NUL-separated on both
  * branches: a path may hold a space, a quote, a non-ASCII name or a newline, and a NUL is the
  * one byte none of them can.
+ *
+ * Git's index is not the disk, though. A file the agent deleted or moved this turn keeps its
+ * index entry until the turn commits, so `--cached` alone would list a path that is gone, and a
+ * moved file twice. The git branch therefore prints what the index has that the disk does not
+ * first, then an empty record — two NULs in a row, which no path can produce — then the listing,
+ * and the parser takes the first part away from the second. Deleted paths come first so that the
+ * byte ceiling, which cuts from the end, can only ever cut the listing.
  */
 
 import type { ExecResult, SandboxError, SandboxManager } from "./ports/sandbox-manager.ts";
@@ -26,35 +33,57 @@ import { shellQuote } from "./shell.ts";
  */
 const MAX_OUTPUT_BYTES = 1_048_576;
 
-/** The command that lists every file under `root`, relative to it, NUL-separated. */
-export function listTreeCommand(root: string, exclude: readonly string[]): string {
+/**
+ * The command that lists every file under `root`, relative to it, NUL-separated.
+ *
+ * `--exclude` reaches git as well as `find`, and has to: git walks untracked folders whatever the
+ * parser later throws away, so a `node_modules` nobody listed in `.gitignore` would be walked, and
+ * printed before the tracked files — enough of it to fill the byte ceiling and cut every file the
+ * project actually owns. A pattern with no slash matches a name at any depth, as `-name` does.
+ *
+ * `maxBytes` is a parameter only so a test can reach the ceiling with a handful of files.
+ */
+export function listTreeCommand(
+  root: string,
+  exclude: readonly string[],
+  maxBytes: number = MAX_OUTPUT_BYTES,
+): string {
   const pruned =
     exclude.length === 0
       ? ""
       : `\\( ${exclude.map((name) => `-name ${shellQuote(name)}`).join(" -o ")} \\) -prune -o `;
-  const git = "git ls-files -z --cached --others --exclude-standard 2>/dev/null";
+  const excluded = exclude.map((name) => ` --exclude=${shellQuote(name)}`).join("");
+  const git =
+    "{ git ls-files -z --deleted && printf '\\0' && " +
+    `git ls-files -z --cached --others --exclude-standard${excluded}; } 2>/dev/null`;
   const find = `find . -mindepth 1 ${pruned}-type f -print0`;
-  return `cd ${shellQuote(root)} && { ${git} || ${find}; } | head -c ${MAX_OUTPUT_BYTES}`;
+  return `cd ${shellQuote(root)} && { ${git} || ${find}; } | head -c ${maxBytes}`;
 }
 
 /**
- * Absolute paths from what the command printed, without duplicates or excluded segments.
+ * Absolute paths from what the command printed, without duplicates, excluded segments, or files
+ * the disk no longer has.
  *
  * Duplicates, because git lists a conflicted path once per merge stage. Excluded segments are
- * filtered here as well as pruned in `find`, because git lists anything that is committed, and
- * a committed `dist/` is still a build product nobody should be shown.
+ * filtered here as well as left out by the command, because git lists anything that is
+ * committed, and a committed `dist/` is still a build product nobody should be shown. Missing
+ * files, because the git branch lists the index: whatever precedes its empty record is what the
+ * index has and the disk does not. `find` prints no empty record, so its output is all listing.
  */
 export function parseListTree(root: string, stdout: string, exclude: readonly string[]): string[] {
   const records = stdout.split("\0");
   // The last record is complete only if the output ended on a separator; otherwise the byte
   // ceiling cut it, and half a path is worse than no path.
   records.pop();
+  const separator = records.indexOf("");
+  const deleted = new Set(separator === -1 ? [] : records.slice(0, separator));
+  const listing = separator === -1 ? records : records.slice(separator + 1);
   const excluded = new Set(exclude);
   const prefix = root.endsWith("/") ? root : `${root}/`;
   const paths = new Set<string>();
-  for (const record of records) {
+  for (const record of listing) {
     const relative = record.startsWith("./") ? record.slice(2) : record;
-    if (relative === "") continue;
+    if (relative === "" || deleted.has(relative)) continue;
     if (relative.split("/").some((segment) => excluded.has(segment))) continue;
     paths.add(`${prefix}${relative}`);
   }
@@ -72,14 +101,22 @@ export async function listTreeViaExec(
     sandboxId,
     listTreeCommand(root, options.exclude),
     undefined,
-    { timeoutMs: options.timeoutMs },
+    // Stopped, not just abandoned, at the deadline: otherwise the provider kills only the shell
+    // it started and a `git` or `find` over a large tree carries on for nobody.
+    { timeoutMs: options.timeoutMs, stopOnGiveUp: true },
   );
   if (!ran.ok) return ran;
-  // `head` decides the pipeline's status, so a non-zero exit here is the `cd` — no such root.
+  // `head` decides the pipeline's status, so a non-zero exit is usually the `cd` — no such root.
+  // Not only that, though: a provider can report a shell it killed as a negative exit, and a
+  // profile that sets `pipefail` makes a cut-off `git` fail the pipeline. Whichever it was, what
+  // came out is not a listing anybody should trust.
   if (ran.value.exitCode !== 0) {
     return {
       ok: false,
-      error: { code: "file_not_found", message: `cannot list ${root}: ${ran.value.stderr.trim()}` },
+      error: {
+        code: ran.value.exitCode < 0 ? "exec_failed" : "file_not_found",
+        message: `cannot list ${root}: exit ${ran.value.exitCode} ${ran.value.stderr.trim()}`,
+      },
     };
   }
   return { ok: true, value: parseListTree(root, ran.value.stdout, options.exclude) };

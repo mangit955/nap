@@ -46,6 +46,7 @@ import type {
 } from "@nap/shared/ports/context-engine";
 import type { LLMContentBlock, LLMMessage } from "@nap/shared/ports/llm-provider";
 import type { Memory } from "@nap/shared/ports/memory-provider";
+import { TOOL_KINDS, type ToolKind } from "@nap/shared/tool-kinds";
 import { buildFileTreeDigest } from "./file-tree.ts";
 import { renderJobBrief } from "./job-brief.ts";
 import { SUBAGENT_PROMPTS } from "./subagent-prompts.ts";
@@ -97,7 +98,13 @@ const ELISIONS: ReadonlySet<string> = new Set([
  * where the request already changes — the end of the turn that wrote it. Keeping the latest turn
  * whole meant emptying it one turn later instead, in the middle of history that was otherwise
  * settled, and every turn's first request lost the cached conversation from that point on
- * (ADR-0024). The turn being *continued* after a compaction is not finished and keeps its traffic.
+ * (ADR-0024).
+ *
+ * *Finished* is a fact in the log, not a position in it: a turn is finished once its
+ * `turn.completed` or `turn.failed` is there. So the turn still running — rebuilt after a
+ * compaction in its middle, or an app test rebuilt with its prompt re-added — keeps its traffic
+ * whatever the caller calls the build, and the exchange a compaction kept follows the turn it
+ * came from.
  *
  * What a finished turn is consulted for is what was asked and what the agent said back; the file
  * it wrote is on disk, one `read_file` away, and the command it ran can be run again.
@@ -131,9 +138,10 @@ export type NapContextEngineOptions = {
   root?: string;
   maxFileEntries?: number;
   /**
-   * How many of the most recent finished turns keep their tool traffic in full. Anything above
-   * the default costs every turn its cached conversation; tests of the truncation ladder raise it
-   * so that staleness has not already emptied what they assert on.
+   * How many of the most recent finished turns keep their tool traffic in full. A turn still
+   * running always does. Anything above the default costs every turn its cached conversation;
+   * tests of the truncation ladder raise it so that staleness has not already emptied what they
+   * assert on.
    */
   verbatimTurns?: number;
 };
@@ -142,6 +150,8 @@ export type NapContextEngineOptions = {
 type Turn = {
   id: string;
   messages: LLMMessage[];
+  /** Whether the log holds its end. Only a finished turn goes stale: `DEFAULT_VERBATIM_TURNS`. */
+  finished: boolean;
 };
 
 type MediaReplay = "images" | "references" | "unsupported";
@@ -270,15 +280,45 @@ function toTurns(history: NapEvent[], media: MediaReplay): Turn[] {
     existing.push(event);
   }
 
+  const finished = finishedTurns(history);
   return [...byTurn.entries()]
-    .map(([id, events]) => ({ id, messages: toMessages(events, media) }))
+    .map(([id, events]) => ({
+      id,
+      messages: toMessages(events, media),
+      finished: finished.has(id),
+    }))
     .filter((turn) => turn.messages.length > 0);
+}
+
+/** The turns whose end is in the log: a `turn.completed`, or a `turn.failed` for any reason. */
+function finishedTurns(history: NapEvent[]): Set<string> {
+  return new Set(
+    history.flatMap((event) =>
+      event.type === "turn.completed" || event.type === "turn.failed" ? [event.turnId] : [],
+    ),
+  );
+}
+
+/**
+ * Whether the turn a compaction's kept exchange came from has finished.
+ *
+ * Found through the call it kept, since the tail is messages rather than events. A tail whose
+ * call is not in the log any more is treated as finished: nothing still running could have lost it.
+ */
+function tailFinished(tail: LLMMessage[], history: NapEvent[]): boolean {
+  const call = blocksOf(tail).find((block) => block.type === "tool_use");
+  if (call?.type !== "tool_use") return true;
+  const owner = history.find(
+    (event) => event.type === "tool.call" && event.payload.toolCallId === call.id,
+  );
+  return owner === undefined || finishedTurns(history).has(owner.turnId);
 }
 
 /** Conversation reconstruction shared by summary planning and normal context assembly. */
 export function historyMessages(history: NapEvent[], images = false): LLMMessage[] {
-  // Every turn but the last: this is the source a summary is written from, and the last turn is
-  // the one the summary has to let the agent carry on with.
+  // Every turn but the last: a compaction picks the exchange it keeps word for word from these,
+  // and the last turn is the one the summary has to let the agent carry on with. The summary
+  // itself is written from the rendered history, not from here.
   const turns = toTurns(history, images ? "images" : "references");
   for (const turn of turns.slice(0, -1)) makeStale(turn);
   return turns.flatMap((turn) => turn.messages);
@@ -305,7 +345,7 @@ function blockTokens(block: LLMContentBlock): number {
 }
 
 /**
- * Strips the bulk out of a turn that is no longer the one being continued.
+ * Strips the bulk out of a turn that has finished.
  *
  * The call stays, with its shape intact — which tool, against which path — so the transcript
  * still reads as a sequence of things that happened. What goes is everything large enough to
@@ -313,6 +353,13 @@ function blockTokens(block: LLMContentBlock): number {
  * facts about a workspace that has since been committed over, and the model can re-read the
  * current one for a fraction of what carrying the old one across every remaining round trip
  * costs.
+ *
+ * Except a question to the person. Its arguments are conversation, like prose: the asking turn
+ * ends on it, the answer arrives as the next turn's message — often just the label of the option
+ * picked — and the question and what each option meant are in no file the model could re-read.
+ * Exempt by kind rather than by name, so a second way of asking is covered without anyone
+ * remembering this line. What the call printed back is only that the question was shown, and
+ * goes like any other output.
  */
 function makeStale(turn: Turn): void {
   for (const block of blocksOf(turn.messages)) {
@@ -320,7 +367,7 @@ function makeStale(turn: Turn): void {
       block.content = STALE_TOOL_OUTPUT;
       continue;
     }
-    if (block.type !== "tool_use") continue;
+    if (block.type !== "tool_use" || kindOf(block.name) === "ask") continue;
     block.input = Object.fromEntries(
       Object.entries(block.input).map(([key, value]) => [
         key,
@@ -328,6 +375,12 @@ function makeStale(turn: Turn): void {
       ]),
     );
   }
+}
+
+/** A tool's kind, or nothing for a name this build does not know — an old log can hold one. */
+function kindOf(name: string): ToolKind | undefined {
+  const kinds: Partial<Record<string, ToolKind>> = TOOL_KINDS;
+  return Object.hasOwn(kinds, name) ? kinds[name] : undefined;
 }
 
 /**
@@ -421,21 +474,23 @@ export class NapContextEngine implements ContextEngine {
             ]),
       ];
     };
-    // Staleness, before the budget is consulted at all. Everything below this point reclaims
-    // tokens because the context does not fit; this reclaims them because carrying a finished
-    // turn's file contents is not worth what it costs even when it does. See
-    // `DEFAULT_VERBATIM_TURNS`. A continuation's last turn is the one still running.
-    const verbatim = this.#verbatimTurns + (request.continuation ? 1 : 0);
-    for (const turn of turns.slice(0, Math.max(turns.length - verbatim, 0))) {
-      makeStale(turn);
-    }
-    // After staleness, not before: the tail is the exchange a compaction kept word for word so
-    // the agent can carry on from it, and it was chosen for being needed, not for being recent.
+    // The exchange a compaction kept word for word, so the turn it came from can carry on from
+    // it. It belongs to that turn, and goes stale with it below: kept for every later turn, it
+    // would be one full tool exchange re-sent on every step until the next compaction.
     if (checkpoint !== undefined && checkpoint.tail.length > 0)
       turns.unshift({
         id: "compaction-tail",
         messages: pruneComputerImages(structuredClone(checkpoint.tail), 0),
+        finished: tailFinished(checkpoint.tail, request.history),
       });
+    // Staleness, before the budget is consulted at all. Everything below this point reclaims
+    // tokens because the context does not fit; this reclaims them because carrying a finished
+    // turn's file contents is not worth what it costs even when it does. A turn still running is
+    // never reached. See `DEFAULT_VERBATIM_TURNS`.
+    const finished = turns.filter((turn) => turn.finished);
+    for (const turn of finished.slice(0, Math.max(finished.length - this.#verbatimTurns, 0))) {
+      makeStale(turn);
+    }
     let needsCompaction = allTurns.length > this.#maxTurns;
 
     let remembered: Memory[] = memories;
@@ -639,10 +694,14 @@ function turnContext(digest: string, memories: Memory[], job: string): string {
  * Adds the turn's context to the newest user message, or starts one when the conversation ends
  * on the agent. Usually that message is the turn's own request; on a continuation it is whatever
  * the agent is carrying on from. Either way it is after every breakpoint a later turn reads.
+ *
+ * Also starts one when the newest message ends settled history and carries its breakpoint, as
+ * the kept exchange does after a compaction: extended, the breakpoint would land on this turn's
+ * context, and the next turn — whose context differs — could not read what was written there.
  */
 function appendToLastUserMessage(messages: LLMMessage[], text: string): void {
   const last = messages.at(-1);
-  if (last?.role !== "user") {
+  if (last?.role !== "user" || last.cacheBreakpoint === true) {
     messages.push({ role: "user", content: [textBlock(text)] });
     return;
   }

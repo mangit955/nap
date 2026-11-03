@@ -542,8 +542,11 @@ describe("ending a turn", () => {
     expect(provider.requests[0]?.tools.map((tool) => tool.name)).toContain("ask_user");
     expect(types()).not.toContain("agent.question");
     expect(provider.requests).toHaveLength(2);
+    // Told that nobody will answer, not merely that the tool is missing — which invites another
+    // way of asking rather than a decision.
     const answered = provider.requests[1]?.messages.at(-1);
-    expect(JSON.stringify(answered)).toContain("not available in this turn");
+    expect(JSON.stringify(answered)).toContain("Nobody is watching this turn");
+    expect(JSON.stringify(answered)).toContain("continue");
   });
 
   it("lets a stop hook delay the end at most twice", async () => {

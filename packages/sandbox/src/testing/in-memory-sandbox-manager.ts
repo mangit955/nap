@@ -103,8 +103,6 @@ type SandboxState = {
   projectId: string;
   files: Map<string, string>;
   commands: string[];
-  /** How many times `listTree` was called, so a caller can be held to one per question. */
-  listings: number;
   execs: ExecCall[];
   /** Ports a test has declared to be serving; see `listen`. */
   listening: Set<number>;
@@ -189,7 +187,6 @@ export class InMemorySandboxManager implements SandboxManager, SandboxInventory 
         Object.entries(this.#seed).map(([path, contents]) => [normalize(path), contents]),
       ),
       commands: [],
-      listings: 0,
       execs: [],
       listening: new Set(this.#serves),
       timeoutMs: undefined,
@@ -299,7 +296,6 @@ export class InMemorySandboxManager implements SandboxManager, SandboxInventory 
   ): Promise<Result<string[], SandboxError>> {
     const found = this.#lookup(sandboxId);
     if (!found.ok) return found;
-    found.value.listings += 1;
 
     const dir = normalize(root);
     const prefix = dir === "/" ? "/" : `${dir}/`;
@@ -315,11 +311,6 @@ export class InMemorySandboxManager implements SandboxManager, SandboxInventory 
             .some((segment) => excluded.has(segment)),
       ),
     };
-  }
-
-  /** How many times `listTree` has been asked about a sandbox — one call per question. */
-  listings(sandboxId: string): number {
-    return this.#sandboxes.get(sandboxId)?.listings ?? 0;
   }
 
   async exec(

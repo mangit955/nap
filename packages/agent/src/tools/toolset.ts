@@ -16,8 +16,9 @@
  *    the tools that talk to the person or start further helpers.
  *
  * The order of the result follows the registry, not the order of the rules below, so the tool
- * block — the head of every cached prefix — is byte-identical between two turns offered the
- * same set.
+ * block — the head of every cached prefix — is byte-identical between two turns that declare the
+ * same set. Declared and offered are not always the same set: a repair turn declares `ask_user`
+ * and is not offered it, so its declarations match a person's turn (`toolsetFor`, ADR-0024).
  */
 
 import type { SubagentProfile } from "@nap/shared/agent-plan";

@@ -1,3 +1,4 @@
+import { type Logger, withLogContext } from "@nap/shared/logging";
 import type { FileNode, SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import { describe, expect, it } from "vitest";
 import { buildFileTreeDigest, FILE_LIST_UNAVAILABLE } from "./file-tree.ts";
@@ -163,7 +164,8 @@ describe("buildFileTreeDigest", () => {
   });
 
   it("renders exactly what the folder-by-folder walk rendered, for the same tree", async () => {
-    // The model must not see a different digest because of how it was gathered.
+    // The walk must not render the same files differently because of how they were gathered.
+    // Which files a listing holds is the sandbox's question, pinned in list-tree.test.ts.
     const folders = awkwardTree();
     for (const opts of [{}, { maxEntries: 3 }, { maxEntries: 40 }, { maxDepth: 2 }]) {
       const digest = await buildFileTreeDigest(workspace(folders), SANDBOX, {
@@ -214,6 +216,26 @@ describe("buildFileTreeDigest", () => {
     await expect(buildFileTreeDigest(sandbox, SANDBOX, { root: ROOT })).resolves.toBe(
       FILE_LIST_UNAVAILABLE,
     );
+  });
+
+  it("reports a failed listing to the log by its code, without the path", async () => {
+    // Otherwise a listing that times out on every turn would show up only in what the model read.
+    const lines: { fields: object; message: string }[] = [];
+    const recorder: Logger = {
+      child: () => recorder,
+      debug: () => {},
+      info: () => {},
+      warn: (fields: object | string, message?: string) => {
+        if (typeof fields === "object") lines.push({ fields, message: message ?? "" });
+      },
+      error: () => {},
+    };
+    const sandbox = stubSandbox(filesOf(projectTree()), { failing: true });
+
+    await withLogContext(recorder, {}, () => buildFileTreeDigest(sandbox, SANDBOX, { root: ROOT }));
+
+    expect(lines).toEqual([{ fields: { code: "timeout" }, message: expect.any(String) }]);
+    expect(JSON.stringify(lines)).not.toContain(ROOT);
   });
 
   it("returns an empty digest for an empty project", async () => {

@@ -1,11 +1,16 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { listTreeCommand, listTreeViaExec, parseListTree } from "./list-tree.ts";
-import type { ExecResult, SandboxError, SandboxManager } from "./ports/sandbox-manager.ts";
+import type {
+  ExecOptions,
+  ExecResult,
+  SandboxError,
+  SandboxManager,
+} from "./ports/sandbox-manager.ts";
 import type { Result } from "./result.ts";
 
 const run = promisify(execFile);
@@ -103,6 +108,38 @@ describe("listTreeViaExec", () => {
     );
   });
 
+  it("leaves out what the agent deleted or moved and has not committed yet", async () => {
+    // The index still names both until the turn commits; the disk is what the model will read.
+    await run("git", ["init", "-q"], { cwd: root, env });
+    await put("src/gone.ts");
+    await put("src/before.ts");
+    await run("git", ["add", "package.json", "src/gone.ts", "src/before.ts"], { cwd: root, env });
+    await rm(join(root, "src/gone.ts"));
+    await rename(join(root, "src/before.ts"), join(root, "src/after.ts"));
+
+    expect(await listed()).toEqual(
+      ["package.json", "src/App.tsx", "src/after.ts", ...AWKWARD].sort(),
+    );
+  });
+
+  it("keeps the project's own files when an unignored node_modules is bigger than the ceiling", async () => {
+    // No `.gitignore`, as in an imported repository that never had one: git would walk and
+    // print every dependency before a single tracked file, and the ceiling would keep only those.
+    await run("git", ["init", "-q"], { cwd: root, env });
+    await run("git", ["add", "package.json", "src/App.tsx"], { cwd: root, env });
+    for (let n = 0; n < 40; n += 1) await put(`node_modules/some-package/module-${n}.js`);
+    const ceiling = 400;
+
+    const { stdout } = await run("bash", ["-c", listTreeCommand(root, EXCLUDE, ceiling)], {
+      encoding: "utf8",
+      env,
+    });
+    const paths = parseListTree(root, stdout, EXCLUDE).map((path) => path.slice(root.length + 1));
+
+    expect(paths).toContain("package.json");
+    expect(paths).toContain("src/App.tsx");
+  });
+
   it("fails rather than listing nothing when the root does not exist", async () => {
     const result = await listTreeViaExec(bash(), "sbx", join(root, "missing"), {
       exclude: EXCLUDE,
@@ -112,12 +149,12 @@ describe("listTreeViaExec", () => {
     expect(result.ok).toBe(false);
   });
 
-  it("passes the caller's timeout to the sandbox rather than the provider's default", async () => {
-    let seen: number | undefined;
+  it("passes the caller's timeout to the sandbox, and has it stop the listing at the deadline", async () => {
+    let seen: ExecOptions | undefined;
     await listTreeViaExec(
       {
         exec: async (_id, _command, _onOutput, options) => {
-          seen = options?.timeoutMs;
+          seen = options;
           return { ok: true, value: { exitCode: 0, stdout: "", stderr: "" } };
         },
       },
@@ -126,13 +163,19 @@ describe("listTreeViaExec", () => {
       { exclude: [], timeoutMs: 4_321 },
     );
 
-    expect(seen).toBe(4_321);
+    expect(seen?.timeoutMs).toBe(4_321);
+    // Without it the provider kills only the shell it started, and `git` or `find` carries on.
+    expect(seen?.stopOnGiveUp).toBe(true);
   });
 });
 
 describe("parseListTree", () => {
   it("drops a record the output ceiling cut in half", () => {
     expect(parseListTree("/r", "a.ts\0b/c.ts\0d/partia", [])).toEqual(["/r/a.ts", "/r/b/c.ts"]);
+  });
+
+  it("takes away what the git branch listed before its empty record", () => {
+    expect(parseListTree("/r", "gone.ts\0\0gone.ts\0kept.ts\0", [])).toEqual(["/r/kept.ts"]);
   });
 
   it("lists a conflicted path once, though git prints it per merge stage", () => {

@@ -91,8 +91,10 @@ export interface SandboxManager {
    *
    * One call is the contract, not an optimisation: a walk of `listFiles` is a round trip per
    * folder, made one after another, and the context engine asks this on every model turn before
-   * anything reaches the model. Leaves out whatever version control ignores, and never returns
-   * a path with a segment named in `exclude` — nor spends time descending into one.
+   * anything reaches the model. Lists what is on disk, so a file deleted but not yet committed is
+   * absent; leaves out what git ignores when `root` is a repository; and never returns a path with
+   * a segment named in `exclude` — nor spends time descending into one. Not a promise of every
+   * file: an implementation may cap a very large tree, and a symlink may or may not be listed.
    */
   listTree(
     sandboxId: string,

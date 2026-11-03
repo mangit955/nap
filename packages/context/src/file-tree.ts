@@ -14,6 +14,7 @@
  * asked for, and the agent can always list the project itself.
  */
 
+import { getLogger } from "@nap/shared/logging";
 import type { FileNode, SandboxManager } from "@nap/shared/ports/sandbox-manager";
 
 /**
@@ -74,8 +75,11 @@ function toFolders(root: string, paths: readonly string[]): Map<string, FileNode
  * Breadth-first, so a shallow entry is never displaced by a deep one when the limit bites:
  * `src/App.tsx` matters more than the tenth level of a nested component tree.
  *
- * The walk is the one that used to make a sandbox call per folder, now reading folders out of a
- * single listing — kept as it was so the model sees exactly the digest it always did.
+ * The walk and its limits are the ones that used to make a sandbox call per folder, now reading
+ * folders out of a single listing. What that listing holds is not quite what the old walk saw:
+ * a repository's gitignored files are left out by design, the fallback for a workspace without
+ * git lists regular files only — no symlinks — and a listing cut at its byte ceiling is an
+ * alphabetical prefix of the project rather than its shallowest files.
  */
 export async function buildFileTreeDigest(
   sandbox: SandboxManager,
@@ -90,8 +94,13 @@ export async function buildFileTreeDigest(
     exclude: [...EXCLUDED],
     timeoutMs: LIST_TIMEOUT_MS,
   });
-  // A failure here is a gap, not an error — see the note above.
-  if (!listed.ok) return FILE_LIST_UNAVAILABLE;
+  // A failure here is a gap, not an error — see the note above. Logged, because a listing that
+  // fails on every turn would otherwise show up nowhere but in what the model was told. The code
+  // only: the message names the project's path.
+  if (!listed.ok) {
+    getLogger().warn({ code: listed.error.code }, "the file listing was unavailable");
+    return FILE_LIST_UNAVAILABLE;
+  }
   const folders = toFolders(root, listed.value);
 
   const paths: string[] = [];

@@ -1,6 +1,6 @@
 # ADR-0020 — The agent loop grows a tool registry and seams
 
-**Status:** Accepted, 2026-10-27. Built and tested on fakes and real local shells (macOS and Debian). No real model or real E2B sandbox has run any of it yet, so what it does for agent quality is unmeasured. A funded NapBench comparison is the next step and needs its own approval.
+**Status:** Accepted, 2026-10-27. Built and tested on fakes and real local shells (macOS and Debian). No real model or real E2B sandbox has run any of it yet, so what it does for agent quality is unmeasured. A funded NapBench comparison is the next step and needs its own approval. Amended by [ADR-0024](0024-the-cached-prefix-is-never-rewritten.md): a repair turn now *declares* the person's tool set, `ask_user` included, and is still not *offered* it, so the executor refuses the call.
 
 ## Context
 

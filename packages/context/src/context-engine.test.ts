@@ -77,12 +77,23 @@ const toolCall = (turn: number, id: string, input: Record<string, unknown> = {})
 const toolResult = (turn: number, id: string, output: string, ok = true) =>
   event("tool.result", turn, { toolCallId: id, toolName: "read_file", ok, output });
 
+/** The end of a turn. Only a turn whose end is in the log is finished, and can go stale. */
+const completed = (turn: number) =>
+  event("turn.completed", turn, {
+    usage: { inputTokens: 1, outputTokens: 1 },
+    durationMs: 1,
+    commitSha: null,
+  });
+
 /** A turn made of prose alone, so it can only be reclaimed by dropping the whole turn. */
 function wordyTurn(turn: number, size: number): NapEvent[] {
   return [userMessage(turn, `change number ${turn}`), agentMessage(turn, "w".repeat(size))];
 }
 
-/** A turn that writes a whole file — the shape that dominates a real session's transcript. */
+/**
+ * A finished turn that writes a whole file — the shape that dominates a real session's
+ * transcript.
+ */
 function writingTurn(turn: number, contentSize: number): NapEvent[] {
   const id = `wc_${turn}`;
   return [
@@ -99,6 +110,7 @@ function writingTurn(turn: number, contentSize: number): NapEvent[] {
       output: "y".repeat(contentSize),
     }),
     agentMessage(turn, `done with ${turn}`),
+    completed(turn),
   ];
 }
 
@@ -116,11 +128,7 @@ function toolTurn(turn: number, outputSize: number): NapEvent[] {
     toolCall(turn, id, { path: "src/App.tsx" }),
     toolResult(turn, id, "x".repeat(outputSize)),
     agentMessage(turn, `done with ${turn}`),
-    event("turn.completed", turn, {
-      usage: { inputTokens: 1, outputTokens: 1 },
-      durationMs: 1,
-      commitSha: null,
-    }),
+    completed(turn),
   ];
 }
 
@@ -663,14 +671,66 @@ describe("NapContextEngine", () => {
       expect(written).toEqual([STALE_TOOL_INPUT, STALE_TOOL_INPUT, STALE_TOOL_INPUT]);
     });
 
-    it("keeps the turn being continued word for word", async () => {
-      // A continuation rebuilds a turn that is still running, after a compaction; what it has
-      // just written is what it is about to need.
-      const context = await roomy().build(request({ history: threeWrites(), continuation: true }));
+    it.each([true, false])(
+      "keeps a turn still running word for word, with continuation %s",
+      async (continuation) => {
+        // A rebuild in the middle of a turn sees that turn's events and no end for them. What it
+        // has just written is what it is about to need — and an app test's rebuild re-adds its
+        // prompt, so it is not a continuation, and its turn is running all the same.
+        const running = writingTurn(3, 4_000).slice(0, -1);
+        const history = [...writingTurn(1, 4_000), ...writingTurn(2, 4_000), ...running];
 
-      expect(toolUses(context.messages).at(-1)?.input.content).toBe("c".repeat(4_000));
-      expect(toolResults(context.messages).at(-1)?.content).toBe("y".repeat(4_000));
-      expect(toolUses(context.messages).at(-2)?.input.content).toBe(STALE_TOOL_INPUT);
+        const context = await roomy().build(request({ history, continuation }));
+
+        expect(toolUses(context.messages).at(-1)?.input.content).toBe("c".repeat(4_000));
+        expect(toolResults(context.messages).at(-1)?.content).toBe("y".repeat(4_000));
+        expect(toolUses(context.messages).at(-2)?.input.content).toBe(STALE_TOOL_INPUT);
+      },
+    );
+
+    it("counts a turn that failed or was cancelled as finished", async () => {
+      const cancelled = [
+        ...writingTurn(1, 4_000).slice(0, -1),
+        event("turn.failed", 1, { reason: "cancelled", message: "stopped" }),
+      ];
+
+      const context = await roomy().build(request({ history: cancelled }));
+
+      expect(toolUses(context.messages)[0]?.input.content).toBe(STALE_TOOL_INPUT);
+      expect(toolResults(context.messages)[0]?.content).toBe(STALE_TOOL_OUTPUT);
+    });
+
+    it("keeps a question to the person whole on the turn that answers it", async () => {
+      // The answer arrives as the next turn's message, and is often only the label of the option
+      // picked. The question and what each option meant are in no file the model could re-read.
+      const question = `Which layout should the dashboard use? ${"It shows revenue and churn. ".repeat(4)}`;
+      const options = [
+        { label: "Grid", description: `Cards in a responsive grid. ${"Dense. ".repeat(10)}` },
+        { label: "List", description: `One metric per row, full width. ${"Calm. ".repeat(10)}` },
+      ];
+      const asking = [
+        userMessage(1, "build me a dashboard"),
+        event("tool.call", 1, {
+          toolCallId: "ask_1",
+          toolName: "ask_user",
+          input: { question, options, multiSelect: false },
+        }),
+        event("tool.result", 1, {
+          toolCallId: "ask_1",
+          toolName: "ask_user",
+          ok: true,
+          output: "Question shown to the user.",
+        }),
+        completed(1),
+      ];
+
+      const context = await roomy().build(request({ history: asking, userMessage: "Grid" }));
+
+      expect(toolUses(context.messages)[0]?.input).toEqual({
+        question,
+        options,
+        multiSelect: false,
+      });
     });
 
     it("never rewrites history a previous turn's request already sent", async () => {
@@ -744,6 +804,7 @@ describe("NapContextEngine", () => {
           input: { paths: Array.from({ length: 200 }, (_, i) => `src/component-${i}.tsx`) },
         }),
         event("tool.result", 1, { toolCallId: id, toolName: "write_file", ok: true, output: "" }),
+        completed(1),
         ...writingTurn(2, 100),
       ];
 
@@ -788,6 +849,122 @@ describe("NapContextEngine", () => {
       await roomy().build(request({ history }));
 
       expect(JSON.stringify(history)).toBe(before);
+    });
+  });
+
+  describe("the exchange a compaction kept", () => {
+    const TAIL = "tail_write";
+    const written = "c".repeat(4_000);
+    const printed = "y".repeat(4_000);
+
+    /** Turn 1, compacted in its middle, keeping its last write word for word to carry on from. */
+    function compactedMidTurn(): NapEvent[] {
+      const events = [
+        userMessage(1, "build it"),
+        event("tool.call", 1, {
+          toolCallId: TAIL,
+          toolName: "write_file",
+          input: { path: "src/App.tsx", content: written },
+        }),
+        event("tool.result", 1, {
+          toolCallId: TAIL,
+          toolName: "write_file",
+          ok: true,
+          output: printed,
+        }),
+      ];
+      const coveredThrough = events.at(-1)?.seq ?? 0;
+      return [
+        ...events,
+        event("compaction.completed", 1, {
+          id: turnId(1),
+          result: {
+            kind: "api",
+            checkpoint: {
+              coveredThrough,
+              summary: "Wrote the app shell.",
+              tail: [
+                {
+                  role: "assistant",
+                  content: [
+                    {
+                      type: "tool_use",
+                      id: TAIL,
+                      name: "write_file",
+                      input: { path: "src/App.tsx", content: written },
+                    },
+                  ],
+                },
+                {
+                  role: "user",
+                  content: [
+                    { type: "tool_result", toolCallId: TAIL, content: printed, isError: false },
+                  ],
+                },
+              ],
+            },
+          },
+          usage: null,
+          beforeTokens: null,
+          afterTokens: null,
+        }),
+      ];
+    }
+
+    const tailOf = (context: BuiltContext) => ({
+      input: toolUses(context.messages).find((block) => block.id === TAIL)?.input.content,
+      output: toolResults(context.messages).find((block) => block.toolCallId === TAIL)?.content,
+    });
+
+    it.each([true, false])(
+      "stays word for word while its turn is still running, with continuation %s",
+      async (continuation) => {
+        const context = await engine().build(
+          request({ history: compactedMidTurn(), continuation }),
+        );
+
+        expect(tailOf(context)).toEqual({ input: written, output: printed });
+      },
+    );
+
+    it("goes stale with its turn once that turn has finished", async () => {
+      // Kept for every later turn instead, it is one whole tool exchange re-sent on every step
+      // until the next compaction.
+      const history = [
+        ...compactedMidTurn(),
+        agentMessage(1, "done"),
+        completed(1),
+        ...writingTurn(2, 100),
+      ];
+
+      const context = await engine().build(request({ history }));
+
+      expect(tailOf(context)).toEqual({ input: STALE_TOOL_INPUT, output: STALE_TOOL_OUTPUT });
+    });
+
+    it("is treated as finished when the call it kept is not in the log", async () => {
+      const history = compactedMidTurn().filter((stored) => stored.type === "compaction.completed");
+
+      const context = await engine().build(request({ history }));
+
+      expect(tailOf(context)).toEqual({ input: STALE_TOOL_INPUT, output: STALE_TOOL_OUTPUT });
+    });
+
+    it("leaves its breakpoint on settled history, not on this turn's context", async () => {
+      // A rebuild ends on the kept exchange. Extending that message with the turn's context would
+      // put the breakpoint on bytes the next turn does not repeat, so nothing written there could
+      // ever be read.
+      const context = await engine().build(
+        request({ history: compactedMidTurn(), continuation: true }),
+      );
+      const marked = context.messages.filter((message) => message.cacheBreakpoint === true);
+      const last = context.messages.at(-1);
+
+      expect(marked.length).toBeGreaterThan(0);
+      for (const message of marked)
+        expect(JSON.stringify(message)).not.toContain("<project_files>");
+      expect(last?.cacheBreakpoint).toBeUndefined();
+      expect(texts(last === undefined ? [] : [last]).join("\n")).toContain("<project_files>");
     });
   });
 

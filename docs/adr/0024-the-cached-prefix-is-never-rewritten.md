@@ -1,7 +1,9 @@
 # ADR-0024 — The cached prefix is never rewritten
 
 **Status:** Accepted — 2026-11-03. Amends [ADR-0011](0011-an-old-turns-tool-traffic-is-not-worth-carrying.md):
-*every finished turn* is stale, where it said *every turn older than the most recent one*.
+*every finished turn* is stale, where it said *every turn older than the most recent one*. Amends
+[ADR-0020](0020-the-agent-loop-grows-a-registry-and-seams.md): a repair turn declares a tool it is
+not offered.
 
 ## Context
 
@@ -36,7 +38,12 @@ practice paid the same way.
   turn's own message, the one part of the request that is new anyway. That is also the honest role
   for them: file names and quoted check output are project data, not trusted instructions.
 - **Every finished turn is stale**, emptied at the end of the turn that wrote it, where the request
-  changes anyway. Only the turn being continued after a compaction keeps its traffic.
+  changes anyway. *Finished* is read from the log — the turn's `turn.completed` or `turn.failed` is
+  there — not from its position or from what the caller calls the build, so a turn still running
+  keeps its traffic through any rebuild in its middle, and the exchange a compaction kept belongs to
+  the turn it came from and goes stale with it. A question to the person is exempt: an `ask`-kind
+  tool's arguments are conversation, and the turn that answers is the first one on which the asking
+  turn is finished.
 - **A repair turn declares a person's tool set.** The executor already refuses any tool a turn was
   not offered; it refuses `ask_user` there with an immediate answer, so nothing waits on a question.
 - **The context engine marks settled history** with `cacheBreakpoint` on two messages: the end of the
@@ -54,8 +61,10 @@ the one remaining rewrite is the one that replaces history with a summary anyway
 (`bun packages/context/scripts/measure-audit-session.ts apps/web/src/testing/audit-session.json`,
 local estimates, which run about half the provider's count), turn 4 assembles to 2,465 tokens
 instead of 7,249, and re-sends 34,510 across its fourteen steps instead of 101,486. The price is the
-one ADR-0011 already accepted, paid a turn earlier: the agent may re-read a file it touched in the
-previous turn. That is a round trip, paid only when the contents matter.
+one ADR-0011 already accepted, paid a turn earlier, and it is wider than file contents: the agent may
+re-read a file it touched in the previous turn, a helper's report from that turn is gone and costs
+another helper run to recover, and a plan left open at the end of a turn is gone on the turn that
+continues it. Each is paid only when the contents matter.
 
 **`packages/agent/src/cache-prefix.test.ts` is the guard.** It assembles the first request of three
 consecutive turns of one session — one after a turn that added a file, one a repair with a job brief
@@ -63,9 +72,28 @@ consecutive turns of one session — one after a turn that added a file, one a r
 cached is repeated byte for byte at a breakpoint of the later one, history included. Each of the
 three causes above fails it.
 
+Cross-turn reuse pays only when the next turn starts inside the cache's lifetime, five minutes on
+Anthropic models. A repair starts at once and is where this pays most; a person who reads the preview
+for longer before replying gets the system prompt from another session's entry, and history from
+nothing.
+
+**A repair turn can spend a step on a question nobody can answer.** It declares `ask_user` and is not
+offered it, so a model that calls it anyway gets an immediate refusal saying so and a round trip is
+gone. The tool's description says it is only for a turn a person started, in bytes every turn shares.
+
+**App-test turns still declare a different set**, read-only by design, so an app test's own requests
+and the person's turn after it miss the history cache. Declaring every tool and refusing all but the
+test's at execution would fix it and touch the app test's look-but-don't-touch guarantee, so it needs
+its own decision.
+
 **The listing is unavailable rather than absent when it fails.** It moved into the same change for
 the same first-token reason: it is now one sandbox call (`SandboxManager.listTree`) with a five-second
 deadline, and a failure tells the model to list the project itself rather than reading as an empty one.
+The walk over it and its limits are unchanged; what it is fed is not quite the old walk's view. A
+repository's gitignored files are left out, by design. A file deleted or moved and not yet committed
+is listed where it is on disk, not where the index says. The fallback for a workspace without git
+lists regular files only, so symlinks are gone. And a listing cut at its byte ceiling is an
+alphabetical prefix, not the shallowest files.
 
 **Measured once on the default model, for about a cent.** Three short turns in one session on
 `openai/gpt-5.6-luna` through OpenRouter, in-memory sandbox, before and after this change. Before,

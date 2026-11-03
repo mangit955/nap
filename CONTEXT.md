@@ -76,12 +76,14 @@ exactly when the turn that stated the objective has fallen out of the window. Ha
 `ContextEngine` like `history` is, because the component that owns the token budget performs no
 I/O. `renderJobBrief` in `@nap/context` writes it.
 
-**Stale** — of a past turn in the assembled conversation: finished, so its tool traffic is
-emptied whether or not the budget needs the room — at the end of the turn that wrote it, so that
-history a cached request already sent is never rewritten later (ADR-0024). What survives is prose on both sides and each
-call's small arguments — which tool, against which path — so the turn still reads as something that
-happened; what goes is any argument large enough to be a file's contents, and everything the call
-printed. Distinct from **truncation**, which is the ladder `ContextEngine` climbs when a context
+**Stale** — of a past turn in the assembled conversation: finished — its `turn.completed` or
+`turn.failed` is in the log — so its tool traffic is emptied whether or not the budget needs the
+room, from the first build after it ended, so that history a cached request already sent is never
+rewritten later (ADR-0024). A turn still running never is, and nor is the exchange a compaction kept
+from it. What survives is prose on both sides, each call's small arguments — which tool, against
+which path — and the whole of a question put to the person, so the turn still reads as something
+that happened; what goes is any other argument large enough to be a file's contents, and everything
+the call printed. Distinct from **truncation**, which is the ladder `ContextEngine` climbs when a context
 does not *fit*: staleness runs first and runs always, because a turn re-sends its whole transcript
 on every round trip and a thing that fits can still be a thing not worth ten copies. See ADR-0011.
 

@@ -21,6 +21,7 @@
 
 import { type ToolName, ToolNameSchema } from "@nap/shared/events";
 import type { LLMToolCall } from "@nap/shared/ports/llm-provider";
+import { TOOL_KINDS } from "@nap/shared/tool-kinds";
 import type { z } from "zod";
 import { runComputer } from "./computer.ts";
 import { emit, type ToolContext, type ToolHandler, type ToolOutcome } from "./context.ts";
@@ -88,12 +89,19 @@ export async function executeTool(call: LLMToolCall, ctx: ToolContext): Promise<
   // A real tool this turn was not offered is a different thing: the attempt is worth having in
   // the log — an app test that tried to write a file is evidence about that test — so it is
   // recorded as a call and refused as its result, and nothing runs.
+  //
+  // A question gets a refusal of its own, because it is declared where it cannot be used: a
+  // repair turn declares the person's tools so the cached prefix survives it (ADR-0024). "Not
+  // available" alone invites the model to try another way of asking; what it needs to hear is
+  // that nobody will answer, so it should decide.
   const refusal =
     ctx.offered === undefined || ctx.offered.has(name.data)
       ? undefined
       : ctx.testMode
         ? "App tests can read source and use the computer. Source changes and commands require a separate repair turn."
-        : `${name.data} is not available in this turn. Available tools: ${[...ctx.offered].join(", ")}.`;
+        : TOOL_KINDS[name.data] === "ask"
+          ? "Nobody is watching this turn to answer a question: a person did not start it. Choose the reading the request or the failure points to, and continue."
+          : `${name.data} is not available in this turn. Available tools: ${[...ctx.offered].join(", ")}.`;
 
   emit(ctx, {
     type: "tool.call",

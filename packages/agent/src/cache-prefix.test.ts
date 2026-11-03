@@ -69,6 +69,12 @@ function turn(n: number, asked: string, wrote: string): NapEvent[] {
       output: `wrote ${wrote}`,
     }),
     event("agent.message", n, { text: `Done with turn ${n}.` }),
+    // Its end, without which it is still running and nothing in it is stale yet.
+    event("turn.completed", n, {
+      usage: { inputTokens: 1, outputTokens: 1 },
+      durationMs: 1,
+      commitSha: null,
+    }),
   ];
 }
 
