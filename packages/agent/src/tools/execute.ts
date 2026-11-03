@@ -93,14 +93,15 @@ export async function executeTool(call: LLMToolCall, ctx: ToolContext): Promise<
   // A question gets a refusal of its own, because it is declared where it cannot be used: a
   // repair turn declares the person's tools so the cached prefix survives it (ADR-0024). "Not
   // available" alone invites the model to try another way of asking; what it needs to hear is
-  // that nobody will answer, so it should decide.
+  // that nobody will answer, so it should decide. Worded to be true wherever it is reached — a
+  // repair turn, or a helper, which runs inside a person's turn but cannot talk to them.
   const refusal =
     ctx.offered === undefined || ctx.offered.has(name.data)
       ? undefined
       : ctx.testMode
         ? "App tests can read source and use the computer. Source changes and commands require a separate repair turn."
         : TOOL_KINDS[name.data] === "ask"
-          ? "Nobody is watching this turn to answer a question: a person did not start it. Choose the reading the request or the failure points to, and continue."
+          ? "Nobody can answer a question from here. Decide on the most reasonable reading of what you were asked, and continue."
           : `${name.data} is not available in this turn. Available tools: ${[...ctx.offered].join(", ")}.`;
 
   emit(ctx, {

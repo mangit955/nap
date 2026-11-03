@@ -950,6 +950,22 @@ describe("NapContextEngine", () => {
       expect(tailOf(context)).toEqual({ input: STALE_TOOL_INPUT, output: STALE_TOOL_OUTPUT });
     });
 
+    it("belongs to the newest call with its id, should an earlier finished turn have reused it", async () => {
+      // Real providers mint unique ids; a scripted one may not. The kept exchange is the latest.
+      const earlier = [
+        userMessage(0, "an earlier turn"),
+        toolCall(0, TAIL, { path: "src/App.tsx" }),
+        toolResult(0, TAIL, "old"),
+        completed(0),
+      ];
+
+      const context = await engine().build(
+        request({ history: [...earlier, ...compactedMidTurn()], continuation: true }),
+      );
+
+      expect(tailOf(context)).toEqual({ input: written, output: printed });
+    });
+
     it("leaves its breakpoint on settled history, not on this turn's context", async () => {
       // A rebuild ends on the kept exchange. Extending that message with the turn's context would
       // put the breakpoint on bytes the next turn does not repeat, so nothing written there could

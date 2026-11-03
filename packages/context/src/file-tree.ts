@@ -78,8 +78,9 @@ function toFolders(root: string, paths: readonly string[]): Map<string, FileNode
  * The walk and its limits are the ones that used to make a sandbox call per folder, now reading
  * folders out of a single listing. What that listing holds is not quite what the old walk saw:
  * a repository's gitignored files are left out by design, the fallback for a workspace without
- * git lists regular files only — no symlinks — and a listing cut at its byte ceiling is an
- * alphabetical prefix of the project rather than its shallowest files.
+ * git lists regular files only — no symlinks — and a listing cut at its byte ceiling is whatever
+ * the command printed first rather than the shallowest files: from git, every tracked file before
+ * any untracked one, each in git's own order; from the fallback, the order the directories hold.
  */
 export async function buildFileTreeDigest(
   sandbox: SandboxManager,

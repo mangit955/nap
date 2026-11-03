@@ -19,7 +19,9 @@
  * moved file twice. The git branch therefore prints what the index has that the disk does not
  * first, then an empty record — two NULs in a row, which no path can produce — then the listing,
  * and the parser takes the first part away from the second. Deleted paths come first so that the
- * byte ceiling, which cuts from the end, can only ever cut the listing.
+ * byte ceiling, which cuts from the end, can only ever cut the listing — and within the listing,
+ * the files the project tracks come before the ones it does not, so the ceiling cuts untracked
+ * files before any tracked one.
  */
 
 import type { ExecResult, SandboxError, SandboxManager } from "./ports/sandbox-manager.ts";
@@ -36,10 +38,12 @@ const MAX_OUTPUT_BYTES = 1_048_576;
 /**
  * The command that lists every file under `root`, relative to it, NUL-separated.
  *
- * `--exclude` reaches git as well as `find`, and has to: git walks untracked folders whatever the
- * parser later throws away, so a `node_modules` nobody listed in `.gitignore` would be walked, and
- * printed before the tracked files — enough of it to fill the byte ceiling and cut every file the
- * project actually owns. A pattern with no slash matches a name at any depth, as `-name` does.
+ * Tracked and untracked files are two git calls, tracked first. One call with both flags prints
+ * the untracked ones first, so an unignored `vendor/` or `build/` of any size would fill the byte
+ * ceiling and cut every file the project actually owns. `--exclude` reaches the untracked call as
+ * well as `find`, because git walks untracked folders whatever the parser later throws away, and a
+ * `node_modules` nobody listed in `.gitignore` is a long walk for nothing. A pattern with no slash
+ * matches a name at any depth, as `-name` does.
  *
  * `maxBytes` is a parameter only so a test can reach the ceiling with a handful of files.
  */
@@ -54,8 +58,8 @@ export function listTreeCommand(
       : `\\( ${exclude.map((name) => `-name ${shellQuote(name)}`).join(" -o ")} \\) -prune -o `;
   const excluded = exclude.map((name) => ` --exclude=${shellQuote(name)}`).join("");
   const git =
-    "{ git ls-files -z --deleted && printf '\\0' && " +
-    `git ls-files -z --cached --others --exclude-standard${excluded}; } 2>/dev/null`;
+    "{ git ls-files -z --deleted && printf '\\0' && git ls-files -z --cached && " +
+    `git ls-files -z --others --exclude-standard${excluded}; } 2>/dev/null`;
   const find = `find . -mindepth 1 ${pruned}-type f -print0`;
   return `cd ${shellQuote(root)} && { ${git} || ${find}; } | head -c ${maxBytes}`;
 }

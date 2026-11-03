@@ -77,6 +77,17 @@ Anthropic models. A repair starts at once and is where this pays most; a person 
 for longer before replying gets the system prompt from another session's entry, and history from
 nothing.
 
+**A compaction costs one more, smaller write on the turn after it.** The exchange a compaction kept
+is sent verbatim while its turn runs and stale once that turn has finished, so the next turn's first
+request diverges just after the summary and writes it again, with the stale stubs behind it — a few
+thousand tokens, since history was just compacted. The turn after that reads it back.
+
+**A turn whose end is written late, or never, stays verbatim until it is closed.** After a worker
+crash the janitor writes the turn's `turn.failed` on its next tick, and a build in that gap sends the
+dead turn's tool traffic whole; once the failure lands, the next build empties that turn and rewrites
+history from it onward, once. A turn that is never closed keeps its traffic for good, in bytes that
+do not change, until the window or a compaction drops it.
+
 **A repair turn can spend a step on a question nobody can answer.** It declares `ask_user` and is not
 offered it, so a model that calls it anyway gets an immediate refusal saying so and a round trip is
 gone. The tool's description says it is only for a turn a person started, in bytes every turn shares.
@@ -92,8 +103,9 @@ deadline, and a failure tells the model to list the project itself rather than r
 The walk over it and its limits are unchanged; what it is fed is not quite the old walk's view. A
 repository's gitignored files are left out, by design. A file deleted or moved and not yet committed
 is listed where it is on disk, not where the index says. The fallback for a workspace without git
-lists regular files only, so symlinks are gone. And a listing cut at its byte ceiling is an
-alphabetical prefix, not the shallowest files.
+lists regular files only, so symlinks are gone. And a listing cut at its byte ceiling is whatever
+was printed first, not the shallowest files: from git, the tracked files before any untracked one,
+each in git's order; from the fallback, directory order.
 
 **Measured once on the default model, for about a cent.** Three short turns in one session on
 `openai/gpt-5.6-luna` through OpenRouter, in-memory sandbox, before and after this change. Before,

@@ -545,7 +545,7 @@ describe("ending a turn", () => {
     // Told that nobody will answer, not merely that the tool is missing — which invites another
     // way of asking rather than a decision.
     const answered = provider.requests[1]?.messages.at(-1);
-    expect(JSON.stringify(answered)).toContain("Nobody is watching this turn");
+    expect(JSON.stringify(answered)).toContain("Nobody can answer a question from here");
     expect(JSON.stringify(answered)).toContain("continue");
   });
 

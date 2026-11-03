@@ -308,7 +308,8 @@ function finishedTurns(history: NapEvent[]): Set<string> {
 function tailFinished(tail: LLMMessage[], history: NapEvent[]): boolean {
   const call = blocksOf(tail).find((block) => block.type === "tool_use");
   if (call?.type !== "tool_use") return true;
-  const owner = history.find(
+  // The newest, should an id ever repeat: the tail is the latest exchange, never an older one.
+  const owner = history.findLast(
     (event) => event.type === "tool.call" && event.payload.toolCallId === call.id,
   );
   return owner === undefined || finishedTurns(history).has(owner.turnId);

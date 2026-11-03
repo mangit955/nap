@@ -122,12 +122,31 @@ describe("listTreeViaExec", () => {
     );
   });
 
-  it("keeps the project's own files when an unignored node_modules is bigger than the ceiling", async () => {
-    // No `.gitignore`, as in an imported repository that never had one: git would walk and
-    // print every dependency before a single tracked file, and the ceiling would keep only those.
+  it("keeps the files nobody has committed yet when an unignored node_modules is bigger than the ceiling", async () => {
+    // No `.gitignore`, as in an imported repository that never had one: the untracked call would
+    // print every dependency, and the ceiling would cut the files the agent wrote this turn.
     await run("git", ["init", "-q"], { cwd: root, env });
     await run("git", ["add", "package.json", "src/App.tsx"], { cwd: root, env });
     for (let n = 0; n < 40; n += 1) await put(`node_modules/some-package/module-${n}.js`);
+    const ceiling = 400;
+
+    const { stdout } = await run("bash", ["-c", listTreeCommand(root, EXCLUDE, ceiling)], {
+      encoding: "utf8",
+      env,
+    });
+    const paths = parseListTree(root, stdout, EXCLUDE).map((path) => path.slice(root.length + 1));
+
+    expect(paths).toContain("package.json");
+    expect(paths).toContain("src/App.tsx");
+    expect(paths).toContain("src/my file.ts");
+  });
+
+  it("keeps the project's own files when an unignored folder nobody excluded is bigger than the ceiling", async () => {
+    // `vendor/` is not one of the names excluded, and nothing ignores it. Untracked bulk of any
+    // name must be what the ceiling cuts, not the tracked files after it.
+    await run("git", ["init", "-q"], { cwd: root, env });
+    await run("git", ["add", "package.json", "src/App.tsx"], { cwd: root, env });
+    for (let n = 0; n < 40; n += 1) await put(`vendor/some-library/module-${n}.js`);
     const ceiling = 400;
 
     const { stdout } = await run("bash", ["-c", listTreeCommand(root, EXCLUDE, ceiling)], {
