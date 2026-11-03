@@ -16,7 +16,7 @@ const PHASES = `open        working ──► verifying ──► repairing ─�
 closed      verified     checks passed — the commit is a checkpoint
             unverified   the turn changed no files, so there was nothing to check
             exhausted    3 repairs spent, checks still red
-            abandoned    the turn it was riding on was cancelled or refused`;
+            abandoned    the turn was cancelled or refused, or its checks learned nothing`;
 
 export function DurableJobs() {
   return (

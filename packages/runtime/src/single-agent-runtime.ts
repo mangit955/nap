@@ -1,3 +1,4 @@
+import { VERIFICATION_ROUND_LIMIT_MS } from "@nap/shared/command-windows";
 import type { QueueLeaseIdentity } from "@nap/shared/ports/project-computer-access";
 import type { ProjectComputer } from "./project-computer.ts";
 /**
@@ -985,6 +986,7 @@ export class SingleAgentRuntime implements Runtime {
           commitSha: outcome.commitSha,
           announce,
           previewPort: run.previewPort,
+          signal: settings.signal,
         });
         // Every round after the first is one this loop began itself.
         announce = true;
@@ -1357,6 +1359,7 @@ export class SingleAgentRuntime implements Runtime {
      */
     announce: boolean;
     previewPort: number | null;
+    signal: AbortSignal | undefined;
   }): Promise<CheckFailure | null> {
     const { scope, jobId, sandboxId, commitSha, announce } = options;
     const { sink, emit } = scope;
@@ -1376,7 +1379,7 @@ export class SingleAgentRuntime implements Runtime {
     if (announce) emit("verification.started", { jobId });
     await sink.drain();
 
-    const verified = await this.#runChecks(sandboxId, options.previewPort);
+    const verified = await this.#runChecks(sandboxId, options.previewPort, options.signal);
 
     if (verified === null || verified.verdict === "errored") {
       emit("job.completed", { jobId, outcome: "abandoned" });
@@ -1422,13 +1425,21 @@ export class SingleAgentRuntime implements Runtime {
   async #runChecks(
     sandboxId: string,
     previewPort: number | null,
+    signal: AbortSignal | undefined,
   ): Promise<VerificationResult | null> {
     try {
+      // Not checked, for the reason the keepalive at acquisition is not: the sandbox is about to be
+      // asked to do something, and that answers whether it is still there.
+      await this.#options.sandbox.extendTimeout(
+        sandboxId,
+        Math.max(this.#sandboxTtlMs, VERIFICATION_ROUND_LIMIT_MS),
+      );
       return await verifyTurn({
         sandbox: this.#options.sandbox,
         sandboxId,
         previewPort,
         previewTimeoutMs: this.#previewTimeoutMs,
+        signal,
       });
     } catch (error) {
       getLogger().warn({ err: error }, "the checks could not be run");

@@ -153,6 +153,18 @@ describe("sharedSandboxManager", () => {
     await expect(second.exec(sandboxId, "npm run build")).resolves.toMatchObject({ ok: true });
   });
 
+  it("hands a command's options through to the sandbox that runs it", async () => {
+    const store = new InMemorySharedSandboxStore();
+    const inner = scriptedManager();
+    const manager = sharedSandboxManager(inner, store);
+    const sandboxId = await created(manager);
+    const options = { signal: new AbortController().signal, timeoutMs: 1_234, stopOnGiveUp: true };
+
+    await manager.exec(sandboxId, "npm run build", undefined, options);
+
+    expect(inner.execs(sandboxId).at(-1)?.options).toEqual(options);
+  });
+
   it("does not find a sandbox nobody created", async () => {
     const store = new InMemorySharedSandboxStore();
 
