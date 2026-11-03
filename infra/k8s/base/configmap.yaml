@@ -60,7 +60,7 @@ data:
   # the answer to a busy pod is another pod, and a lower number per pod is what makes the queue
   # depth a scaling signal rather than a latency the autoscaler cannot see.
   NAP_WORKER_CONCURRENCY: "5"
-  # Not the worker's concurrency, deliberately: every committed turn is photographed, and five
+  # Not the worker's concurrency, deliberately: nearly every committed turn asks for a picture, and five
   # simultaneous Chromiums in one container is an OOM kill that costs every turn in flight.
   NAP_CAPTURE_CONCURRENCY: "1"
   # How long a worker being taken away waits for the turns it is already running. It must stay

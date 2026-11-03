@@ -22,7 +22,11 @@ import type { PageCapture } from "@nap/shared/ports/page-capture";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { Result } from "@nap/shared/result";
 
-export type ThumbnailError = { message: string };
+export type ThumbnailError = {
+  message: string;
+  /** `beforeStore` said no: nothing went wrong, and this picture is simply not wanted. */
+  superseded?: true;
+};
 
 export type CaptureThumbnailOptions = {
   sandbox: SandboxManager;
@@ -48,6 +52,13 @@ export type CaptureThumbnailOptions = {
    * on it wants both cut short.
    */
   captureTimeoutMs?: number;
+  /**
+   * Asked once the picture exists, before it overwrites the one already stored.
+   *
+   * There is exactly one key per project, so storing a picture is also deleting the last one, and
+   * a caller that cannot hold the sandbox still needs a last word on whether that is a good trade.
+   */
+  beforeStore?: () => Promise<boolean>;
 };
 
 const DEFAULT_PREVIEW_TIMEOUT_MS = 15_000;
@@ -77,6 +88,10 @@ export async function captureThumbnail(
   );
   if (!shot.ok) {
     return { ok: false, error: { message: `could not capture the page: ${shot.error.message}` } };
+  }
+
+  if (options.beforeStore !== undefined && !(await options.beforeStore())) {
+    return { ok: false, error: { message: "the picture is out of date", superseded: true } };
   }
 
   const key = thumbnailKey(projectId);

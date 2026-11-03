@@ -49,7 +49,7 @@ const OWNERSHIP = [
   },
   {
     component: "Runtime",
-    owns: "The turn lifecycle: acquire sandbox, build context, run agent, persist, publish, commit, verify, snapshot, photograph. Budgets, cancellation, recovery. Opening and closing the job a turn belongs to.",
+    owns: "The turn lifecycle: acquire sandbox, build context, run agent, persist, publish, commit, verify, snapshot, all under the session's lease, then ask for a photograph that is taken after the lease goes back. Budgets, cancellation, recovery. Opening and closing the job a turn belongs to.",
     never: "Prompt content, model parameters, tool implementations. Deciding which checks exist.",
   },
   {

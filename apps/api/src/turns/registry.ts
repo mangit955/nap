@@ -14,7 +14,7 @@
  * acts on within one renewal interval, or at once if the cancel wake-up reaches it. This spares that
  * wait only for a composition running every role in one process, meaning scripts and tests, which
  * pass no channel. In a deployed process it finds nothing: an API pod runs no turns and a worker pod
- * serves no route. No entrypoint can run the roles together (`docs/adr/0022`, D6).
+ * serves no route. No entrypoint can run the roles together (`docs/adr/0023`, D6).
  *
  * **Keyed by request, because that is what was flagged.** A session key would abort whatever is
  * running on that session by the time this is called, which can be a turn admitted after the cancel

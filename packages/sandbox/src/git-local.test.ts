@@ -1,12 +1,12 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import type { ExecResult, SandboxError } from "@nap/shared/ports/sandbox-manager";
 import type { Result } from "@nap/shared/result";
-import { afterEach, beforeEach, expect, it } from "vitest";
-import { bundle, restoreBundle } from "./git.ts";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { bundle, restoreBundle, workspaceState } from "./git.ts";
 import { InMemorySandboxManager } from "./testing/in-memory-sandbox-manager.ts";
 import { localGitEnvironment } from "./testing/local-git-environment.ts";
 
@@ -93,4 +93,55 @@ it("rejects an invalid bundle without changing the live repository", async () =>
   expect(result.ok).toBe(false);
   expect(await git(target, "rev-parse", "HEAD")).toBe(before);
   expect(await readFile(join(target, "file"), "utf8")).toBe("template");
+});
+
+describe("workspaceState", () => {
+  async function stateOf(cwd: string) {
+    const state = await workspaceState(new LocalSandbox(), "ignored", { cwd });
+    if (!state.ok) throw new Error(state.error.message);
+    return state.value;
+  }
+
+  it("reads the same for a workspace nobody has touched, untracked leftovers included", async () => {
+    await writeFile(join(source, "leftover.tsbuildinfo"), "written by a check");
+
+    expect(await stateOf(source)).toBe(await stateOf(source));
+  });
+
+  it("changes on an edit nobody has committed yet", async () => {
+    const before = await stateOf(source);
+
+    await writeFile(join(source, "file"), "half written");
+
+    expect(await stateOf(source)).not.toBe(before);
+  });
+
+  it("changes on a new file", async () => {
+    const before = await stateOf(source);
+
+    await writeFile(join(source, "new.ts"), "export {};");
+
+    expect(await stateOf(source)).not.toBe(before);
+  });
+
+  it("changes when a commit moves HEAD, even to a clean tree", async () => {
+    const before = await stateOf(source);
+
+    await git(source, "commit", "--allow-empty", "-m", "another");
+
+    expect(await stateOf(source)).not.toBe(before);
+  });
+
+  it("does not touch the index, which a turn's own git add may be about to lock", async () => {
+    // A plain `git status` refreshes the index when a file's stat has moved, and rewriting it is
+    // exactly what takes the lock this exists not to take: comparing the file itself is what tells
+    // the two apart, because the lock is gone again by the time anything could look for it.
+    await writeFile(join(source, "file"), "repository");
+    const before = await stat(join(source, ".git", "index"));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    await stateOf(source);
+
+    expect((await stat(join(source, ".git", "index"))).mtimeMs).toBe(before.mtimeMs);
+  });
 });

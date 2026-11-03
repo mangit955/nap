@@ -38,7 +38,8 @@ A job is *working*, *verifying* or *repairing* while it is open, and once closed
 ended: **verified** (checks passed, so the commit is a checkpoint), **unverified** (the turn changed
 no files, so there was nothing to check — not a failure and not a success), **exhausted** (three
 repairs spent with checks still red) or **abandoned** (the turn it was riding on was cancelled or
-refused). `foldJobs` in `@nap/shared` is the one function that decides all of it.
+refused, or its checks came to an errored verdict). `foldJobs` in `@nap/shared` is the one function
+that decides all of it.
 
 **Verification** — what the system finds, as against what the model claims. A turn that changed the
 workspace is committed and then checked: the project's own checks, cheapest first, stopping at the
@@ -58,8 +59,9 @@ one layer lower still, in `@nap/shared`, because `verification.completed` carrie
 **Verdict** — what a whole *run* of the checks came to, as against the outcome of any one of them:
 **passed**, **failed**, or **errored**. The third is the one worth the word. Failed is the project's
 and opens a repair turn; errored means nothing was learned about the project — the sandbox refused
-the command, or the preview listens inside and is unreachable from outside — and a repair turn on
-that would ask a model to fix a machine it cannot see, so its checks come back *absent*. **An
+the command, a check ran past its limit or was cancelled, or the preview listens inside and is
+unreachable from outside — and a repair turn on that would ask a model to fix something it cannot,
+so its checks come back *absent*. **An
 errored run is never written as a verification.** `verification.completed` carries checks and no
 verdict on purpose, and an all-absent payload folds to `verified`; the job ends **abandoned**
 instead. `runChecks` in `@nap/verify` is where a verdict comes from, and it is branched on before
@@ -172,7 +174,7 @@ the catch-up read is what actually hands anything to a socket. The notification 
 **Cancel wake-up** — a notification that a turn request's `cancel_requested` has been committed,
 telling the worker running that request to renew now instead of at its next interval. It names a
 request, never a session, and cancels nothing itself: the renewal's answer does that, and a lost
-wake-up costs a wait of up to one renewal. See `docs/adr/0022`.
+wake-up costs a wait of up to one renewal. See `docs/adr/0023`.
 
 **Event** — one durable, ordered fact about a session, identified by its `seq`. Appended to the
 store *before* it is published to the bus, never the other way round.
@@ -260,6 +262,11 @@ question about a different thing: this one is whether the project is *running*, 
 the work has got.
 
 **Snapshot** — the archived filesystem of a put-away project; what a restore rebuilds from.
+
+**Thumbnail lane** — where a project's dashboard picture is taken, after the turn that asked for it
+has given its lease back. Best-effort and bounded by dropping: a picture that is late, skipped or
+kept from the turn before is a stale card and nothing more. It never keeps a sandbox alive or makes
+a session *busy*. See ADR-0022.
 
 **Preview** — the user's app, running in a sandbox and reachable at a URL announced by
 `preview.ready`. The `seq` of that announcement, not its URL, is what identifies *which* preview:

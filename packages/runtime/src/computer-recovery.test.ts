@@ -17,6 +17,7 @@ import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store
 import { expect, it, vi } from "vitest";
 import { SingleAgentRuntime } from "./single-agent-runtime.ts";
 import { isolatedProjectComputer } from "./testing/isolated-project-computer.ts";
+import { ThumbnailLane } from "./thumbnail-lane.ts";
 
 const sessionId = "2a3f8a24-6c1b-4e0e-9b6f-3a5c0a1d9e77";
 const projectId = "4d5e6f70-1a2b-4c3d-8e9f-0a1b2c3d4e5f";
@@ -173,7 +174,13 @@ async function fixture(
     events,
     snapshots,
     objects,
-    capture: { capture },
+    thumbnails: new ThumbnailLane({
+      sandbox,
+      capture: { capture },
+      objects,
+      concurrency: 1,
+      maxQueued: 1,
+    }),
     bus: new InMemoryEventBus(),
     context: new StubContextEngine(),
     memory: new NoopMemoryProvider(),

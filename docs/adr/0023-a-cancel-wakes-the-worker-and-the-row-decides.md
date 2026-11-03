@@ -1,4 +1,4 @@
-# ADR-0022 — A cancel wakes the worker, and the row decides
+# ADR-0023 — A cancel wakes the worker, and the row decides
 
 **Status:** Accepted, 2026-11-02. Amends `docs/scaling-design.md` §9, which sketched this and was only half delivered.
 
