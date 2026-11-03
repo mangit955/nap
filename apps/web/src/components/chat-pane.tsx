@@ -16,8 +16,9 @@ import {
 import { ApiKeyPanel } from "../account/api-key-panel.tsx";
 import { useApiKey } from "../account/use-api-key.ts";
 import { NapMark } from "../brand/nap-mark.tsx";
+import type { PlanActions } from "../chat/agent-cards.tsx";
 import { ChatInput } from "../chat/chat-input.tsx";
-import { ChatTranscript } from "../chat/chat-transcript.tsx";
+import { ChatTranscript, type RetryHandler } from "../chat/chat-transcript.tsx";
 import { ContextControl } from "../chat/context-control.tsx";
 import type { FirstPrompt } from "../chat/first-prompt.ts";
 import { modelInUse } from "../chat/model-picker.tsx";
@@ -68,6 +69,7 @@ export function ChatPane({
   onSubmit = () => {},
   onCancel = () => {},
   onRetry,
+  planActions,
   onTestApp,
   files,
   models,
@@ -99,10 +101,12 @@ export function ChatPane({
   /** Opens a file in the Code tab, from a path in a reply or a changed-files card. */
   onOpenFile?: ((path: string) => void) | undefined;
   onOpenChanges?: (() => void) | undefined;
-  onSubmit?: (message: string, attachments?: MediaAttachment[]) => void;
+  onSubmit?: (message: string, attachments?: MediaAttachment[], mode?: "plan") => void;
   onCancel?: () => void;
   /** Re-sends a failed turn's message. Optional so the many render tests need not supply one. */
-  onRetry?: ((message: string, attachments?: MediaAttachment[]) => void) | undefined;
+  onRetry?: RetryHandler | undefined;
+  /** Approving or revising a proposed plan (ADR-0024). Absent, plan cards are read-only. */
+  planActions?: PlanActions | undefined;
   onTestApp?: ((jobId: string) => void) | undefined;
   /** The project's files, for the composer's `@` menu. */
   files?: readonly string[] | undefined;
@@ -197,6 +201,7 @@ export function ChatPane({
                     startedAt={startedAt}
                     onRetry={onRetry}
                     onAnswer={onRetry === undefined ? undefined : (text) => onRetry(text)}
+                    planActions={planActions}
                     files={files}
                     onOpenFile={onOpenFile}
                     onOpenChanges={onOpenChanges}
@@ -339,6 +344,10 @@ function EmptyState() {
   );
 }
 
+/** What approving a plan says in the transcript: the approval itself is the plan intent beside it. */
+const APPROVAL_MESSAGE = "Approved. Build this plan.";
+const PROPOSE = { intent: "propose" } as const;
+
 export function LiveChatPane({
   ownerId,
   active = true,
@@ -439,14 +448,21 @@ export function LiveChatPane({
         firstPrompt={firstPrompt}
         onOpenFile={onOpenFile}
         onOpenChanges={onOpenChanges}
-        onSubmit={(message, attachments) => {
+        onSubmit={(message, attachments, mode) => {
           setFirstPrompt(undefined);
-          void submit(message, model, attachments);
+          void submit(message, model, attachments, mode === "plan" ? PROPOSE : undefined);
         }}
         onCancel={() => void cancel()}
         // The same submission path as the input: a retry is an ordinary turn, and routing it
         // anywhere else would give it different rate-limit and optimistic-message behaviour.
-        onRetry={(message, attachments) => void submit(message, model, attachments)}
+        onRetry={(message, attachments, plan) => void submit(message, model, attachments, plan)}
+        // Approving and revising are messages too, through the same path, so a plan card's click
+        // gets the composer's optimistic message, rate limit and refusal wording (ADR-0024).
+        planActions={{
+          approve: (planTurnId) =>
+            void submit(APPROVAL_MESSAGE, model, undefined, { intent: "approve", planTurnId }),
+          revise: (changes) => void submit(changes, model, undefined, PROPOSE),
+        }}
         onTestApp={(jobId) => void startTest(jobId, model ?? models?.fallback)}
         files={files ?? []}
         models={models?.models ?? []}

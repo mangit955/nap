@@ -326,6 +326,7 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
         : {
             message: request.message,
             ...(request.attachments === undefined ? {} : { attachments: request.attachments }),
+            ...(request.plan === undefined ? {} : { plan: request.plan }),
           }),
       signal,
       model: request.model,

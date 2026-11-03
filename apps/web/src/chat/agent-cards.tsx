@@ -1,15 +1,18 @@
 "use client";
 
 /**
- * The two things the agent hands the person rather than the project: its plan, and a question.
+ * The things the agent hands the person rather than the project: its checklist, a question, and
+ * a plan proposed for approval.
  *
- * Both are drawn from validated events (`plan.updated`, `agent.question`), never from a tool
- * call's arguments, so what renders here is exactly what the agent was allowed to send.
+ * All drawn from validated events (`plan.updated`, `agent.question`, `plan.proposed`), never from
+ * a tool call's arguments, so what renders here is exactly what the agent was allowed to send.
  */
 
 import type { PlanItem, QuestionOption } from "@nap/shared/agent-plan";
+import type { PlanStatus } from "@nap/shared/plan-mode";
 import { Check, Circle, CircleDot } from "lucide-react";
 import { useId, useState } from "react";
+import { ChatMarkdown } from "./chat-markdown.tsx";
 
 /**
  * The checklist, as a list a screen reader counts. Status is said in words as well as shapes,
@@ -161,3 +164,135 @@ function OptionText({ option }: { option: QuestionOption }) {
     </span>
   );
 }
+
+const PLAN_STATUS_WORDS: Record<Exclude<PlanStatus, "awaiting">, string> = {
+  drafting: "Still being written",
+  approved: "Approved",
+  revised: "Changes requested",
+  superseded: "Set aside",
+  interrupted: "This plan was never finished",
+};
+
+/**
+ * A plan proposed for approval (ADR-0024). Nothing is built until the person approves it here.
+ *
+ * Approve sends the approval as the next message; Request changes opens a box whose words go out
+ * as the next plan mode message, so the agent plans again with them. Typing anything else in the
+ * composer moves on, and the card settles as set aside — the next message is the answer, as it is
+ * for a question. Whether it is still open is `status`, folded from the log, never local state:
+ * reloading, or opening the session in another tab, draws the same card.
+ */
+export function ProposedPlanCard({
+  turnId,
+  title,
+  plan,
+  status,
+  busy,
+  actions,
+}: {
+  turnId: string;
+  title: string;
+  plan: string;
+  status: PlanStatus;
+  busy: boolean;
+  actions?: PlanActions | undefined;
+}) {
+  const heading = useId();
+  const changesId = useId();
+  const [revising, setRevising] = useState(false);
+  const [changes, setChanges] = useState("");
+  const open = status === "awaiting" && actions !== undefined;
+  const settled = status !== "awaiting";
+
+  return (
+    <section
+      aria-labelledby={heading}
+      className={`flex flex-col gap-2.5 rounded-xl border px-3.5 py-3 ${
+        settled ? "border-edge bg-field/30" : "border-accent/40 bg-field/60"
+      }`}
+    >
+      <header className="flex flex-col gap-0.5">
+        <p className="font-medium text-[11.5px] text-muted uppercase tracking-wide">Plan</p>
+        <h3 id={heading} className="text-[14px] text-ink leading-snug">
+          {title}
+        </h3>
+      </header>
+      <div className={`text-[13px] ${settled ? "text-muted" : "text-ink"}`}>
+        <ChatMarkdown text={plan} streaming={false} />
+      </div>
+      {settled ? (
+        <p className="text-[12px] text-muted">{PLAN_STATUS_WORDS[status]}</p>
+      ) : (
+        <p className="text-[12px] text-muted">
+          Waiting for your approval. Nothing is built until then.
+        </p>
+      )}
+      {open && revising && (
+        <form
+          className="flex flex-col gap-1.5"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const text = changes.trim();
+            if (text === "" || busy) return;
+            actions.revise(text);
+            setChanges("");
+            setRevising(false);
+          }}
+        >
+          <label htmlFor={changesId} className="text-[12px] text-muted">
+            What should change?
+          </label>
+          <textarea
+            id={changesId}
+            value={changes}
+            onChange={(event) => setChanges(event.target.value)}
+            rows={3}
+            className="w-full resize-y rounded-lg border border-edge bg-surface px-2.5 py-1.5 text-[13px] text-ink outline-none focus-visible:border-accent"
+          />
+          <div className="flex gap-1.5">
+            <button
+              type="submit"
+              disabled={busy || changes.trim() === ""}
+              className="rounded-chip bg-accent px-2.5 py-1 text-[12px] text-white transition-colors disabled:opacity-50"
+            >
+              Send changes
+            </button>
+            <button
+              type="button"
+              onClick={() => setRevising(false)}
+              className="rounded-chip border border-edge px-2.5 py-1 text-[12px] text-ink transition-colors hover:bg-hover"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+      {open && !revising && (
+        <div className="flex gap-1.5">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => actions.approve(turnId)}
+            className="rounded-chip bg-accent px-3 py-1 text-[12px] text-white transition-colors disabled:opacity-50"
+          >
+            Approve plan
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => setRevising(true)}
+            className="rounded-chip border border-edge px-3 py-1 text-[12px] text-ink transition-colors hover:bg-hover disabled:opacity-50"
+          >
+            Request changes
+          </button>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** What a plan card can do: approve the plan a turn proposed, or ask for another with changes. */
+export type PlanActions = {
+  approve: (planTurnId: string) => void;
+  revise: (changes: string) => void;
+};

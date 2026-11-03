@@ -127,6 +127,10 @@ function detail(event: NapEvent): Record<string, unknown> {
     case "agent.question":
       return { toolCallId: event.payload.toolCallId, options: event.payload.options.length };
 
+    case "plan.proposed":
+      // How long, never what: a plan quotes the project and the person's request.
+      return { toolCallId: event.payload.toolCallId, planChars: event.payload.plan.length };
+
     case "subagent.started":
       return {
         toolCallId: event.payload.toolCallId,
@@ -171,6 +175,7 @@ function detail(event: NapEvent): Record<string, unknown> {
         inputTokens: event.payload.usage.inputTokens,
         outputTokens: event.payload.usage.outputTokens,
         commitSha: event.payload.commitSha,
+        ...(event.payload.awaiting === undefined ? {} : { awaiting: event.payload.awaiting }),
       };
 
     case "turn.failed":

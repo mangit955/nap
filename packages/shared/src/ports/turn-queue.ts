@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { PlanIntent } from "../agent-plan.ts";
 import type { MediaAttachment } from "../media.ts";
 /**
  * The durable queue of turn requests, and the per-session leases that make one of them exclusive.
@@ -83,6 +84,11 @@ export type EnqueueTurnRequest = {
   /** The prompt for a turn, the approved job ID for a test, or null for a resume. */
   message: string | null;
   attachments?: MediaAttachment[] | undefined;
+  /**
+   * Whether the prompt asks for a plan or approves one (ADR-0024). Carried with the request because
+   * it is the asker's choice for this one turn, exactly like the prompt beside it.
+   */
+  plan?: PlanIntent | undefined;
   /** Resolved at admission, because which models somebody may name is the route's fact. */
   model: string;
   /**

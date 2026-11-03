@@ -24,12 +24,14 @@ import type { MediaAttachment } from "@nap/shared/media";
  */
 
 import type {
+  PlanIntent,
   PlanItem,
   QuestionOption,
   SubagentOutcome,
   SubagentProfile,
 } from "@nap/shared/agent-plan";
 import type { NapEventOf, PromptSource, ToolName } from "@nap/shared/events";
+import { type PlanStatus, planStates } from "@nap/shared/plan-mode";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { type AppTestState, foldAppTests } from "../computer/app-test-state.ts";
 
@@ -83,6 +85,8 @@ export type TranscriptItem =
       from: Speaker;
       text: string;
       attachments?: MediaAttachment[] | undefined;
+      /** Whether this prompt asked for a plan or approved one, so the bubble can say so. */
+      plan?: PlanIntent | undefined;
     }
   | CompactionItem
   | { kind: "app-test"; key: number; test: AppTestState }
@@ -122,6 +126,20 @@ export type TranscriptItem =
       options: QuestionOption[];
       multiSelect: boolean;
       answer: string | null;
+    }
+  /**
+   * A plan mode turn's proposal (ADR-0024). `status` is `planStates`'s answer over the whole log,
+   * the same fold the runtime refuses a stale approval by, so a card that offers Approve is a card
+   * the server will accept an approval for. Only `awaiting` is actionable; every other status is
+   * drawn settled, which is what replaying an old session shows.
+   */
+  | {
+      kind: "proposed-plan";
+      key: number;
+      turnId: string;
+      title: string;
+      plan: string;
+      status: PlanStatus;
     }
   | { kind: "computer-recording"; key: number; text: "Started recording" | "Stopped recording" }
   | { kind: "computer-frame"; key: number; frame: NapEventOf<"computer.screenshot"> }
@@ -165,6 +183,11 @@ type TurnOutcome =
        */
       retryMessage: string | undefined;
       retryAttachments?: MediaAttachment[] | undefined;
+      /**
+       * Whether the retried prompt asked for or approved a plan. A plan mode turn retried as an
+       * ordinary one would build what nobody approved, so the intent goes back with the words.
+       */
+      retryPlan?: PlanIntent | undefined;
       /** A matching immediate compaction terminal, or the running compaction this failure ends. */
       compactionFailureKey?: number;
     };
@@ -222,6 +245,7 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
   const helpers = new Map<string, Step>();
   const plans = new Map<string, Extract<TranscriptItem, { kind: "plan" }>>();
   const openQuestions: Extract<TranscriptItem, { kind: "question" }>[] = [];
+  const proposals = new Map<string, Extract<TranscriptItem, { kind: "proposed-plan" }>>();
   // The step a `file.changed` belongs to: the last one opened that has not been answered yet.
   let openStep: Step | undefined;
   type RetryRequest = NapEventOf<"user.message">["payload"];
@@ -338,6 +362,7 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
           ...(event.payload.attachments === undefined
             ? {}
             : { attachments: event.payload.attachments }),
+          ...(event.payload.plan === undefined ? {} : { plan: event.payload.plan }),
         });
         // Remembered for the turn this opens, so a failure downstream knows what to offer to
         // send again — and only when a person wrote it. Retrying means re-sending the request,
@@ -442,6 +467,23 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
         plan.items = event.payload.items;
         plans.set(event.turnId, plan);
         items.push(plan);
+        break;
+      }
+
+      case "plan.proposed": {
+        // A turn that proposed twice meant the second, and is drawn once, where it last proposed.
+        const earlier = proposals.get(event.turnId);
+        if (earlier !== undefined) items.splice(items.indexOf(earlier), 1);
+        const proposal = {
+          kind: "proposed-plan" as const,
+          key,
+          turnId: event.turnId,
+          title: event.payload.title,
+          plan: event.payload.plan,
+          status: "drafting" as PlanStatus,
+        };
+        proposals.set(event.turnId, proposal);
+        items.push(proposal);
         break;
       }
 
@@ -603,10 +645,18 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
           retryMessage: retry?.text,
           ...(compactionFailureKey === undefined ? {} : { compactionFailureKey }),
           ...(retry?.attachments === undefined ? {} : { retryAttachments: retry.attachments }),
+          ...(retry?.plan === undefined ? {} : { retryPlan: retry.plan }),
         });
         break;
       }
     }
+  }
+
+  // Settled by what came after, so decided once the whole log has been read.
+  if (proposals.size > 0) {
+    const states = planStates(events);
+    for (const proposal of proposals.values())
+      proposal.status = states.get(proposal.turnId)?.status ?? proposal.status;
   }
 
   return items;

@@ -103,6 +103,48 @@ export function DictationButton({
 }
 
 /**
+ * Plan mode, as a switch beside the model (ADR-0024): while it is pressed, a message asks for a
+ * plan to approve instead of being built straight away. A labelled toggle rather than a menu row,
+ * because whether the next message will change the project is not something to hide a click away.
+ */
+export function PlanModeButton({
+  pressed,
+  disabled,
+  onToggle,
+}: {
+  pressed: boolean;
+  disabled: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={pressed}
+      title={pressed ? "Plan first: nothing is built until you approve" : "Plan before building"}
+      disabled={disabled}
+      onClick={onToggle}
+      className={`flex h-8 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-[12px] transition-colors duration-150 hover:bg-hover disabled:opacity-50 focus-visible:outline-accent ${
+        pressed ? "bg-accent-tint text-accent-ink" : "text-muted"
+      }`}
+    >
+      <svg
+        viewBox="0 0 24 24"
+        className="size-4"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        aria-hidden="true"
+      >
+        <path d="M9 6h11M9 12h11M9 18h11" />
+        <path d="M4 6h.01M4 12h.01M4 18h.01" />
+      </svg>
+      Plan mode
+    </button>
+  );
+}
+
+/**
  * What is attached, as T3 Code's composer shows it (MIT — see `apps/web/THIRD_PARTY_NOTICES.md`):
  * a row of 64px tiles, each with its own remove control in the corner. The name is the tile's
  * accessible name and its tooltip rather than a caption, so a row of references stays one tile

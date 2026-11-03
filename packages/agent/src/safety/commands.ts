@@ -32,7 +32,8 @@ export type CommandRule =
   | "outside-project"
   | "global-install"
   | "network-egress"
-  | "host-control";
+  | "host-control"
+  | "plan-mode";
 
 export type CommandVerdict =
   | { allowed: true }
@@ -179,6 +180,138 @@ export function inspectCommand(command: string): CommandVerdict {
   }
 
   return { allowed: true };
+}
+
+/**
+ * The commands a plan mode turn may run: ones that read the project and change nothing
+ * (ADR-0024).
+ *
+ * An allowlist, where the guard above is a denylist, because the promise is different. The guard
+ * above keeps a building turn inside the project; this keeps a planning turn from changing the
+ * project at all, and "nothing outside this short list" is a promise a reader can check where
+ * "nothing on that long list" is not. So it answers to the guard above first, and then every
+ * segment — after `&&`, inside `$(…)`, behind `xargs` or `sudo` — must start with a reader, carry
+ * none of the few flags that turn a reader into a writer or a launcher, and redirect output nowhere.
+ * Anything it cannot read the shape of, such as a subshell, is refused.
+ *
+ * Conservative on purpose. A refused read costs the model one more call with `read_file` or
+ * `search_files`; an allowed write breaks the one thing plan mode says.
+ */
+export function inspectReadOnlyCommand(command: string): CommandVerdict {
+  const guarded = inspectCommand(command);
+  if (!guarded.allowed) return guarded;
+  for (const segment of splitSegments(command)) {
+    const reason = readOnlyRefusal(segment);
+    if (reason !== undefined) return blocked("plan-mode", reason, segment);
+  }
+  return { allowed: true };
+}
+
+/** Commands that only read. Nothing here can write a file or start another program. */
+const READERS = new Set([
+  "basename",
+  "cat",
+  "cut",
+  "diff",
+  "dirname",
+  "du",
+  "echo",
+  "egrep",
+  "fgrep",
+  "find",
+  "git",
+  "grep",
+  "head",
+  "ls",
+  "pwd",
+  "realpath",
+  "rg",
+  "sort",
+  "stat",
+  "tail",
+  "tree",
+  "wc",
+  "which",
+]);
+
+/** Git subcommands that read history and the tree without moving either. */
+const GIT_READS = new Set([
+  "blame",
+  "cat-file",
+  "describe",
+  "diff",
+  "grep",
+  "log",
+  "ls-files",
+  "ls-tree",
+  "rev-parse",
+  "shortlog",
+  "show",
+  "status",
+]);
+
+/** Flags that turn a reader into something that writes a file or runs a program. */
+const WRITING_FLAGS: Record<string, readonly string[]> = {
+  find: [
+    "-delete",
+    "-exec",
+    "-execdir",
+    "-ok",
+    "-okdir",
+    "-fprint",
+    "-fprint0",
+    "-fprintf",
+    "-fls",
+  ],
+  rg: ["--pre", "-z", "--search-zip"],
+  sort: ["-o", "--output"],
+  tree: ["-o"],
+  git: ["--output"],
+};
+
+const PLAN_MODE_ADVICE =
+  "plan mode only runs commands that read, such as ls, cat, grep, rg, find or git log; use read_file and search_files, and leave changes for the plan";
+
+function readOnlyRefusal(segment: string): string | undefined {
+  if (hasUnquotedParen(segment)) return `a subshell is not something ${PLAN_MODE_ADVICE}`;
+  const tokens = tokenize(segment);
+  if (tokens.some((token) => token.op && token.value.startsWith(">")))
+    return `it writes to a file, and ${PLAN_MODE_ADVICE}`;
+  const words = strip(tokens.filter((token) => !token.op).map((token) => token.value));
+  const head = words[0];
+  if (head === undefined) return undefined;
+  const name = basename(head);
+  const args = words.slice(1);
+  if (!READERS.has(name)) return PLAN_MODE_ADVICE;
+  if (name === "git" && !GIT_READS.has(args[0] ?? ""))
+    return `git ${args[0] ?? "without a subcommand"} is not a read, and ${PLAN_MODE_ADVICE}`;
+  const flag = args.find((arg) =>
+    (WRITING_FLAGS[name] ?? []).some(
+      (writing) =>
+        arg === writing ||
+        arg.startsWith(`${writing}=`) ||
+        (writing.length === 2 && arg.startsWith(writing)),
+    ),
+  );
+  if (flag !== undefined)
+    return `${name} ${flag} writes or runs something, and ${PLAN_MODE_ADVICE}`;
+  return undefined;
+}
+
+/** A `(` or `)` outside quotes: a subshell, a process substitution or a function definition. */
+function hasUnquotedParen(segment: string): boolean {
+  let quote: '"' | "'" | null = null;
+  for (let i = 0; i < segment.length; i += 1) {
+    const ch = segment[i];
+    if (quote !== null) {
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === "\\") i += 1;
+    else if (ch === '"' || ch === "'") quote = ch;
+    else if (ch === "(" || ch === ")") return true;
+  }
+  return false;
 }
 
 function inspectSegment(segment: string): CommandVerdict {

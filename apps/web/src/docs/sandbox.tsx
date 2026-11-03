@@ -13,7 +13,7 @@ const TOOLS = `read      read_file
 edit      write_file · edit_file · apply_patch (GPT models)
 search    list_files · glob · search_files
 execute   run_command · shell_output · shell_input · shell_kill
-plan      todo_write
+plan      todo_write · propose_plan (plan mode)
 ask       ask_user
 delegate  run_subagent · read_subagent (imported repositories)
 computer  computer (image models, when a desktop is composed)
@@ -48,6 +48,27 @@ export function Sandbox() {
         test can only look, a repair has nobody to answer a question, and a model is offered the
         editing format it was trained on. Reads run side by side; anything that changes the project
         runs alone, in order. A file has to be read in a turn before that turn may change it.
+      </P>
+
+      <P>
+        A person can also ask for a plan first. A turn sent in <Term>plan mode</Term> is offered
+        only the tools that look — reads, searches, read-only commands such as <Code>git log</Code>,
+        questions, and helpers that cannot write — plus <Code>propose_plan</Code>. The narrowing is
+        enforced when a call runs, not only in what the model is shown: an edit is refused and
+        logged, and every command must start with one of a short list of readers and redirect
+        nothing. The turn ends on the proposal (a title and up to 12,000 characters of Markdown),
+        opens no job, commits nothing and is not snapshotted. If the model tries to stop without
+        proposing, it is reminded once.
+      </P>
+
+      <P>
+        The plan appears in the chat as a card. Approving it sends a message naming the turn that
+        proposed it; that turn opens a job named for the plan, and every turn of the job, repairs
+        included, carries the approved plan in its system prompt, never cut to fit. Asking for
+        changes sends another plan mode message. Whether a plan is waiting, approved, revised or set
+        aside is not stored anywhere: it is whatever the next message did, folded from the event
+        log. The card and the server both use that fold, so an approval of a plan that has already
+        been settled is refused on admission and again under the lease.
       </P>
 
       <P>

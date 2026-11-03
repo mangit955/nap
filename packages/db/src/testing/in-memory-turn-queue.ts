@@ -78,6 +78,7 @@ export class InMemoryTurnQueue implements TurnQueue {
       ...(request.attachments === undefined
         ? {}
         : { attachments: structuredClone(request.attachments) }),
+      ...(request.plan === undefined ? {} : { plan: structuredClone(request.plan) }),
       model: request.model,
       billsToUser: request.billsToUser,
       state: "queued",
@@ -143,6 +144,7 @@ export class InMemoryTurnQueue implements TurnQueue {
       ...(candidate.attachments === undefined
         ? {}
         : { attachments: structuredClone(candidate.attachments) }),
+      ...(candidate.plan === undefined ? {} : { plan: structuredClone(candidate.plan) }),
       model: candidate.model,
       billsToUser: candidate.billsToUser,
     };
@@ -265,6 +267,7 @@ export class InMemoryTurnQueue implements TurnQueue {
       kind: row.kind,
       message: row.message,
       ...(row.attachments === undefined ? {} : { attachments: structuredClone(row.attachments) }),
+      ...(row.plan === undefined ? {} : { plan: structuredClone(row.plan) }),
       model: row.model,
       billsToUser: row.billsToUser,
     }));

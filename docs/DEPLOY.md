@@ -609,3 +609,14 @@ Existing VMs do not receive a rebuilt template. Close and reopen a project throu
 Prevent mixed old/new claim code while enabling scoped input. Block owner input at ingress, stop and drain all old workers, and wait for their exit. Deploy the migration and matching API, reaper, and worker code before reopening owner input. Pending queue requests may wait. Do not clear a reservation to expedite rollout, or delete one by hand: when a machine is gone for good, its owner abandons it from the chat, which also forgets the machine so it is never given input again, and loses anything not in the project's last snapshot. Before a machine's first reservation, input asks its driver which protocol it speaks. A VM created before scoped input could never drain a reservation, so it gets no reservation and no input, and the project otherwise keeps working; close and reopen it to get a machine with the new driver. Existing VMs do not receive a new driver by publishing a template. Production publication and integrated cloud validation remain separate approval gates.
 
 The desktop runtime uses Python 3 and libX11/libXtst for fixed full-keyboard and button release and state queries. These are explicit template dependencies. Verify the real installed input binary retains the inherited descriptor with the L2 production-driver probe before claiming the mechanism works. Cooperative fixed input programs, not arbitrary processes, are the containment boundary. Local time budgets do not expire admission reservations.
+
+## Plan mode rollout
+
+Plan mode adds the `turn_requests.plan` column (migration 0017), one event type (`plan.proposed`)
+and two optional payload fields (`user.message.plan`, `turn.completed.awaiting`). Every reader parses
+events strictly, so an old process or an open old browser tab rejects the new shapes. Old rows still
+parse, because both fields are optional. Release in this order: apply migration 0017, deploy the
+API and reaper, then the web, and only then the workers. Nothing writes the new shapes until someone
+turns on Plan mode in the new web bundle. An old worker never sees a plan intent, because the old
+API cannot admit one. Drain old workers as in the repair ownership rollout above before new ones
+claim. See [ADR-0024](adr/0024-plan-mode-proposes-and-the-next-message-decides.md).

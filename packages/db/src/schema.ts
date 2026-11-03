@@ -1,3 +1,4 @@
+import type { PlanIntent } from "@nap/shared/agent-plan";
 import type {
   GitHubInstallation,
   RepositoryFeedback,
@@ -434,6 +435,11 @@ export const turnRequests = pgTable(
     /** The prompt. Null for `resume`, which asks for no new work. */
     message: text("message"),
     attachments: jsonb("attachments").$type<MediaAttachment[]>(),
+    /**
+     * Asking for a plan or approving one (ADR-0024). Null for an ordinary turn. jsonb because it is
+     * a small tagged union validated by `PlanIntentSchema` on the way out, like `attachments`.
+     */
+    plan: jsonb("plan").$type<PlanIntent>(),
     /** Resolved at admission: which models somebody may name is a fact about who is asking. */
     model: text("model").notNull(),
     /**

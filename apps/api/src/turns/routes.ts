@@ -1,6 +1,8 @@
+import { PlanIntentSchema } from "@nap/shared/agent-plan";
 import { appTestTarget } from "@nap/shared/app-testing";
 import { MediaAttachmentsSchema } from "@nap/shared/media";
 import { MODEL_MEDIA_UNSUPPORTED, modelSupportsImages } from "@nap/shared/model-capabilities";
+import { pendingPlan } from "@nap/shared/plan-mode";
 /**
  * Starting and stopping a turn.
  *
@@ -131,6 +133,11 @@ const TurnBodySchema = z.object({
    * models are the ones they would choose.
    */
   model: z.string().min(1).optional(),
+  /**
+   * Asking for a plan, or approving one (ADR-0024). Absent is an ordinary turn. The asker's
+   * choice for this turn alone, so it travels with the prompt onto the queued request.
+   */
+  plan: PlanIntentSchema.optional(),
 });
 
 export function registerTurnRoutes(
@@ -211,8 +218,22 @@ export function registerTurnRoutes(
     if (body.data.message === "/compact") {
       if (body.data.attachments?.length)
         return c.json({ error: "Send /compact without attachments." }, 400);
+      if (body.data.plan !== undefined)
+        return c.json({ error: "Send /compact as an ordinary message, not in plan mode." }, 400);
       if (await deps.queue.anyLeased([found.value.sessionId]))
         return c.json({ error: "Wait for the current turn to finish before compacting." }, 409);
+    }
+
+    // An approval has to name the plan that is waiting, and nothing may be queued ahead of it:
+    // whatever runs first is the next message, and the next message settles the plan. Refused
+    // here, before any allowance is spent, and checked again under the lease, where the log stops
+    // moving (`pendingPlan`, ADR-0024).
+    if (body.data.plan?.intent === "approve") {
+      const { sessionId } = found.value;
+      if (await deps.queue.hasPending(sessionId))
+        return c.json({ error: "Wait for the current turn to finish before approving." }, 409);
+      if (pendingPlan(await events.readFrom(sessionId, 0), body.data.plan.planTurnId) === undefined)
+        return c.json({ error: "That plan is no longer waiting for approval." }, 409);
     }
 
     // Whose account this turn is billed to, which is also what decides which models they may
@@ -264,6 +285,7 @@ export function registerTurnRoutes(
       kind: "turn",
       message: body.data.message,
       ...(body.data.attachments === undefined ? {} : { attachments: body.data.attachments }),
+      ...(body.data.plan === undefined ? {} : { plan: body.data.plan }),
       // Concrete by now. The resolver always returns a model rather than leaving a default to be
       // applied later, because the default that would be applied is a *paid* one and forgetting
       // it is this deployment buying tokens for a stranger.

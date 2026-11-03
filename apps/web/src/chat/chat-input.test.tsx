@@ -992,3 +992,33 @@ it("resumes workspace draft persistence when its authenticated owner returns aft
     vi.unstubAllGlobals();
   }
 });
+
+describe("plan mode", () => {
+  it("sends the message as a request for a plan while the switch is on, and keeps it on", () => {
+    const onSubmit = vi.fn();
+    show({ onSubmit });
+    const toggle = screen.getByRole("button", { name: "Plan mode" });
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+    type("add a dark theme");
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(onSubmit).toHaveBeenLastCalledWith("add a dark theme", undefined, "plan");
+    expect(screen.getByRole("button", { name: "Plan mode" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Plan mode" }));
+    type("now build it");
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(onSubmit).toHaveBeenLastCalledWith("now build it");
+  });
+
+  it("says what the next message will do in the box itself", () => {
+    show();
+    fireEvent.click(screen.getByRole("button", { name: "Plan mode" }));
+    expect(box()).toHaveAttribute("placeholder", expect.stringMatching(/plan/i));
+  });
+});

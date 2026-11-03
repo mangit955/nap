@@ -1,3 +1,4 @@
+import type { ProposedPlan } from "../agent-plan.ts";
 import type { MediaAttachment } from "../media.ts";
 /**
  * Assembles what the model sees, and owns the context token budget.
@@ -47,6 +48,11 @@ export type JobContext = {
    * work — which is the half of this the model cannot derive for itself.
    */
   attempts: readonly FailedAttempt[];
+  /**
+   * The plan the person approved, when this job carries one out (ADR-0024). Rendered on every turn
+   * of the job, repairs included, and never cut to fit.
+   */
+  plan?: ProposedPlan | undefined;
 };
 
 export type ContextRequest = {
@@ -57,6 +63,8 @@ export type ContextRequest = {
   workspace?: "repository";
   /** The message this turn is being built for. */
   userMessage: string;
+  /** `plan` builds a plan mode turn's prompt (ADR-0024). Absent is an ordinary turn. */
+  mode?: "plan" | undefined;
   /** The resolved selection. Unknown or absent models receive text-only context. */
   model?: string | undefined;
   attachments?: MediaAttachment[] | undefined;

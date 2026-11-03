@@ -54,3 +54,46 @@ export type SubagentProfile = z.infer<typeof SubagentProfileSchema>;
 
 export const SubagentOutcomeSchema = z.enum(["completed", "failed", "cancelled"]);
 export type SubagentOutcome = z.infer<typeof SubagentOutcomeSchema>;
+
+/**
+ * A plan proposed for approval, as the agent writes it and as the person reads it.
+ *
+ * Different from the checklist above, which tracks work in flight and is replaced as it moves. A
+ * proposal is prose — what will change, where, and in what order — written before anything has
+ * changed, and it is the thing the person says yes or no to (ADR-0024). The title is what the
+ * card and the job that carries it out are called; the body is Markdown.
+ *
+ * The body's ceiling is a reading limit and a prompt limit at once: an approved plan rides in the
+ * system prompt of every turn of the job that carries it out, and is never cut to fit.
+ */
+export const ProposedPlanSchema = z.strictObject({
+  title: z
+    .string()
+    .trim()
+    .min(1)
+    .max(120)
+    .describe("What the plan achieves, in a few words, like a commit subject"),
+  plan: z
+    .string()
+    .trim()
+    .min(1)
+    .max(12_000)
+    .describe(
+      "The plan in Markdown: what will change and why, the files involved, and the steps in order",
+    ),
+});
+export type ProposedPlan = z.infer<typeof ProposedPlanSchema>;
+
+/**
+ * What a turn does about plans, chosen by whoever sends the prompt. Absent is an ordinary turn.
+ *
+ * `propose` runs the turn in plan mode: it may read and search, and it ends by proposing a plan
+ * instead of changing anything. `approve` names the plan mode turn whose proposal this prompt
+ * approves, and runs an ordinary turn with that plan carried into its context. A per-turn fact
+ * about who asked, like the model — never a deployment setting.
+ */
+export const PlanIntentSchema = z.discriminatedUnion("intent", [
+  z.strictObject({ intent: z.literal("propose") }),
+  z.strictObject({ intent: z.literal("approve"), planTurnId: z.uuid() }),
+]);
+export type PlanIntent = z.infer<typeof PlanIntentSchema>;

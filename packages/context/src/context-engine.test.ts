@@ -15,7 +15,7 @@ import {
 } from "./context-engine.ts";
 import { NoopMemoryProvider } from "./noop-memory-provider.ts";
 import { SUBAGENT_PROMPTS } from "./subagent-prompts.ts";
-import { REPOSITORY_SYSTEM_PROMPT, SYSTEM_PROMPT } from "./system-prompt.ts";
+import { PLAN_MODE_PROMPT, REPOSITORY_SYSTEM_PROMPT, SYSTEM_PROMPT } from "./system-prompt.ts";
 import { type FileTree, stubSandbox } from "./testing/stub-sandbox.ts";
 import { estimateTokens } from "./tokens.ts";
 
@@ -40,6 +40,52 @@ it("offers an imported repository helpers and its root rules, and a Nap project 
   const project = await new NapContextEngine().build(request());
   expect(project.subagentPrompts).toBeUndefined();
   expect(project.rootRules).toBeUndefined();
+});
+
+describe("plan mode", () => {
+  const approved = { title: "Dark theme", plan: "1. Add colour tokens\n2. Add a toggle" };
+
+  it("tells a plan mode turn it is planning, after the cached head, and an ordinary turn nothing", async () => {
+    const planning = await engine().build(request({ mode: "plan" }));
+    const building = await engine().build(request());
+    expect(planning.systemPrompt.startsWith(SYSTEM_PROMPT)).toBe(true);
+    expect(planning.systemPrompt).toContain(PLAN_MODE_PROMPT);
+    expect(planning.systemPrompt.endsWith(PLAN_MODE_PROMPT)).toBe(true);
+    expect(building.systemPrompt).not.toContain(PLAN_MODE_PROMPT);
+    // The trusted half compaction keeps is the workspace's own instructions, not the mode's.
+    expect(planning.trustedInstructions).toBe(SYSTEM_PROMPT);
+  });
+
+  it("plans for an imported repository too", async () => {
+    const built = await engine().build(request({ mode: "plan", workspace: "repository" }));
+    expect(built.systemPrompt.startsWith(REPOSITORY_SYSTEM_PROMPT)).toBe(true);
+    expect(built.systemPrompt).toContain(PLAN_MODE_PROMPT);
+  });
+
+  it("hands the turn that carries out a plan the plan itself, word for word", async () => {
+    const built = await engine().build(
+      request({
+        userMessage: "Approved. Build this plan.",
+        job: { objective: "Dark theme", attempts: [], plan: approved },
+      }),
+    );
+    expect(built.systemPrompt).toContain("<approved_plan>");
+    expect(built.systemPrompt).toContain(approved.plan);
+    expect(built.systemPrompt).not.toContain(PLAN_MODE_PROMPT);
+  });
+
+  it("keeps the approved plan on a repair turn, when the budget has cut everything it can", async () => {
+    const attempts: FailedAttempt[] = [
+      { check: "typecheck", detail: "exit 2", output: "x".repeat(40_000) },
+    ];
+    const built = await engine({ budgetTokens: MIN_BUDGET_TOKENS + 400 }).build(
+      request({
+        userMessage: "typecheck failed",
+        job: { objective: "Dark theme", attempts, plan: approved },
+      }),
+    );
+    expect(built.systemPrompt).toContain(approved.plan);
+  });
 });
 
 // ---------------------------------------------------------------------------

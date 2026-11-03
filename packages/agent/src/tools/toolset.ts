@@ -6,7 +6,8 @@
  * function of them (ADR-0020):
  *
  *  - **Who asked.** An app test may look but not touch. A repair turn has nobody watching, so a
- *    question would wait forever for an answer.
+ *    question would wait forever for an answer. A person who asked for a plan gets a turn that
+ *    may look, ask and propose, and nothing that edits (ADR-0024).
  *  - **What is wired.** The computer needs a desktop and an image-capable model; delegation
  *    needs a runner.
  *  - **Which model family.** Models are trained on different editing tools. GPT models were
@@ -22,7 +23,12 @@
 
 import type { SubagentProfile } from "@nap/shared/agent-plan";
 import type { PromptSource, ToolName } from "@nap/shared/events";
-import { APP_TEST_TOOL_NAMES, TOOL_DEFINITIONS, type ToolDefinition } from "./definitions.ts";
+import {
+  APP_TEST_TOOL_NAMES,
+  PLAN_MODE_TOOL_NAMES,
+  TOOL_DEFINITIONS,
+  type ToolDefinition,
+} from "./definitions.ts";
 
 export type ModelFamily = "gpt" | "claude";
 
@@ -44,6 +50,8 @@ export type ToolsetOptions = {
   subagents: boolean;
   /** Set when choosing for a helper rather than for a turn. */
   subagent?: SubagentProfile | undefined;
+  /** A plan mode turn: chosen per prompt by whoever sent it. Absent is an ordinary turn. */
+  mode?: "plan" | undefined;
 };
 
 const EXPLORE: readonly ToolName[] = ["read_file", "list_files", "glob", "search_files"];
@@ -63,8 +71,12 @@ export function toolNamesFor(options: ToolsetOptions): Set<ToolName> {
         ? GENERAL
         : options.promptSource === "test"
           ? APP_TEST_TOOL_NAMES
-          : TOOL_DEFINITIONS.map((tool) => tool.name),
+          : options.mode === "plan"
+            ? PLAN_MODE_TOOL_NAMES
+            : TOOL_DEFINITIONS.map((tool) => tool.name),
   );
+  // The one tool that ends a turn with a plan belongs to the turn that was asked for one.
+  if (options.mode !== "plan" || options.subagent !== undefined) offered.delete("propose_plan");
   if (!options.computer) offered.delete("computer");
   if (!options.subagents || options.subagent !== undefined) {
     offered.delete("run_subagent");

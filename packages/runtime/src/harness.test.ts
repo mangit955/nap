@@ -73,7 +73,19 @@ describe("parseHarnessArgs", () => {
       maxSteps: 3,
       budgetTokens: 20_000,
       keep: true,
+      plan: "off",
     });
+  });
+
+  it("runs a plan mode turn on --plan, and approves its plan on --approve as well", () => {
+    expect(parsed("hi").plan).toBe("off");
+    expect(parsed("--plan", "hi").plan).toBe("propose");
+    expect(parsed("--plan", "--approve", "hi").plan).toBe("approve");
+    expect(parsed("--plan", "hi").real).toBe(false);
+  });
+
+  it("refuses --approve without --plan: there would be no plan to approve", () => {
+    expect(rejected("--approve", "hi")).toMatch(/--approve needs --plan/);
   });
 
   it("bills OpenRouter unless told otherwise, on the cheap model", () => {

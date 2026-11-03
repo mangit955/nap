@@ -226,6 +226,11 @@ const TREATMENTS = [
     shows: /Grid or list\?.*Grid.*Cards in columns.*List/,
   },
   {
+    type: "plan.proposed",
+    payload: { toolCallId: "p1", title: "Dark theme", plan: "1. Add colour tokens" },
+    shows: /Dark theme.*Add colour tokens/,
+  },
+  {
     type: "subagent.started",
     payload: {
       toolCallId: "s1",

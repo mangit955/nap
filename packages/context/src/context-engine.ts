@@ -41,7 +41,12 @@ import type { Memory } from "@nap/shared/ports/memory-provider";
 import { buildFileTreeDigest } from "./file-tree.ts";
 import { renderJobBrief } from "./job-brief.ts";
 import { SUBAGENT_PROMPTS } from "./subagent-prompts.ts";
-import { REPOSITORY_SYSTEM_PROMPT, SYSTEM_PROMPT } from "./system-prompt.ts";
+import {
+  PLAN_MODE_PROMPT,
+  REPOSITORY_SYSTEM_PROMPT,
+  renderApprovedPlan,
+  SYSTEM_PROMPT,
+} from "./system-prompt.ts";
 import { estimateTokens } from "./tokens.ts";
 
 /**
@@ -423,6 +428,15 @@ export class NapContextEngine implements ContextEngine {
     if (mediaTokens + MIN_BUDGET_TOKENS > this.#budgetTokens)
       throw new Error("Attachments exceed the context budget. Send fewer images.");
     let attempts: readonly FailedAttempt[] = request.job?.attempts ?? [];
+    /**
+     * What this turn's mode adds to the prompt. Never cut: a planning turn that forgot it was
+     * planning, or a job that forgot the plan it was approved to build, is the failure plan mode
+     * exists to prevent (ADR-0024).
+     */
+    const planning: PlanSections = {
+      approved: request.job?.plan === undefined ? "" : renderApprovedPlan(request.job.plan),
+      mode: request.mode === "plan" ? PLAN_MODE_PROMPT : "",
+    };
     /** A ceiling on each quoted failure. Uncapped until the last resort below applies one. */
     let outputTokens: number | undefined;
 
@@ -434,9 +448,12 @@ export class NapContextEngine implements ContextEngine {
      * tells the model something it has just been told. Compared trimmed, because an objective
      * is a tidied copy of the message and whitespace is not a difference worth a section.
      */
+    // Also nothing on the opening turn of a job that carries out a plan: the plan section below
+    // says what was asked, at length, and an objective that repeats its title adds nothing.
     const brief = (): string =>
       request.job === undefined ||
-      (attempts.length === 0 && request.job.objective === request.userMessage.trim())
+      (attempts.length === 0 &&
+        (request.job.objective === request.userMessage.trim() || request.job.plan !== undefined))
         ? ""
         : renderJobBrief({
             objective: request.job.objective,
@@ -445,7 +462,7 @@ export class NapContextEngine implements ContextEngine {
           });
 
     const cost = (): number =>
-      estimateTokens(systemPrompt(digest, remembered, brief(), request.workspace)) +
+      estimateTokens(systemPrompt(digest, remembered, brief(), request.workspace, planning)) +
       messagesTokens([...protectedMessages(), ...turns.flatMap((turn) => turn.messages)]) +
       estimateTokens(userMessage) +
       mediaTokens;
@@ -507,7 +524,9 @@ export class NapContextEngine implements ContextEngine {
       // what is currently spent — and with the turn's own message still paid for, so shrinking
       // a quote can never be what silences the instruction the turn is actually carrying.
       outputTokens = 0;
-      const floor = estimateTokens(systemPrompt(digest, remembered, brief(), request.workspace));
+      const floor = estimateTokens(
+        systemPrompt(digest, remembered, brief(), request.workspace, planning),
+      );
       outputTokens = Math.max(
         this.#budgetTokens -
           floor -
@@ -528,7 +547,7 @@ export class NapContextEngine implements ContextEngine {
         ? []
         : [{ role: "user", content: [...media, textBlock(userMessage)] } satisfies LLMMessage]),
     ];
-    const prompt = systemPrompt(digest, remembered, brief(), request.workspace);
+    const prompt = systemPrompt(digest, remembered, brief(), request.workspace, planning);
 
     return {
       systemPrompt: prompt,
@@ -573,11 +592,14 @@ function basePrompt(workspace?: "repository"): string {
  * Placing the cache breakpoint is the provider's job; leaving it somewhere worth placing is
  * this one's.
  */
+type PlanSections = { approved: string; mode: string };
+
 function systemPrompt(
   digest: string,
   memories: Memory[],
   job: string,
-  workspace?: "repository",
+  workspace: "repository" | undefined,
+  planning: PlanSections,
 ): string {
   const sections = [basePrompt(workspace)];
 
@@ -592,12 +614,18 @@ function systemPrompt(
     sections.push(job);
   }
 
+  // Beside the job it belongs to, and constant across every turn of it.
+  if (planning.approved !== "") sections.push(planning.approved);
+
   // Absent, not empty, when there is nothing to say — an empty section is a section the
   // model reads on every turn in exchange for nothing.
   if (memories.length > 0) {
     const rendered = memories.map((memory) => `- ${memory.content}`).join("\n");
     sections.push(`<memories>\n${rendered}\n</memories>`);
   }
+
+  // Last, so a planning turn shares every byte of its prefix with a building one.
+  if (planning.mode !== "") sections.push(planning.mode);
 
   return sections.join("\n\n");
 }

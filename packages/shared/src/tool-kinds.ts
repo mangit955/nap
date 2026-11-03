@@ -32,6 +32,7 @@ export const TOOL_KINDS: Record<ToolName, ToolKind> = {
   shell_input: "execute",
   shell_kill: "execute",
   todo_write: "plan",
+  propose_plan: "plan",
   ask_user: "ask",
   run_subagent: "delegate",
   read_subagent: "delegate",
