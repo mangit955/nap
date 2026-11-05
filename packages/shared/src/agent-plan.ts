@@ -60,7 +60,7 @@ export type SubagentOutcome = z.infer<typeof SubagentOutcomeSchema>;
  *
  * Different from the checklist above, which tracks work in flight and is replaced as it moves. A
  * proposal is prose — what will change, where, and in what order — written before anything has
- * changed, and it is the thing the person says yes or no to (ADR-0024). The title is what the
+ * changed, and it is the thing the person says yes or no to (ADR-0025). The title is what the
  * card and the job that carries it out are called; the body is Markdown.
  *
  * The body's ceiling is a reading limit and a prompt limit at once: an approved plan rides in the

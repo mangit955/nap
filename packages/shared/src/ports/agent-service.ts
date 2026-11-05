@@ -53,7 +53,7 @@ export type AgentTurnRequest = {
   promptSource?: PromptSource | undefined;
   /**
    * `plan` runs the turn in plan mode: read-only tools, and it ends by proposing a plan rather
-   * than changing anything (ADR-0024). Absent is an ordinary turn. Chosen per prompt by whoever
+   * than changing anything (ADR-0025). Absent is an ordinary turn. Chosen per prompt by whoever
    * sent it, so it is carried like `promptSource` rather than configured on the service.
    */
   mode?: "plan" | undefined;

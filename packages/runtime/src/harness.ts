@@ -70,7 +70,7 @@ export type HarnessOptions = {
   keep: boolean;
   /**
    * `propose` runs the prompt as a plan mode turn; `approve` also approves the plan it proposes
-   * and runs the turn that carries it out, in the same session (ADR-0024).
+   * and runs the turn that carries it out, in the same session (ADR-0025).
    */
   plan: "off" | "propose" | "approve";
 };

@@ -436,7 +436,7 @@ export const turnRequests = pgTable(
     message: text("message"),
     attachments: jsonb("attachments").$type<MediaAttachment[]>(),
     /**
-     * Asking for a plan or approving one (ADR-0024). Null for an ordinary turn. jsonb because it is
+     * Asking for a plan or approving one (ADR-0025). Null for an ordinary turn. jsonb because it is
      * a small tagged union validated by `PlanIntentSchema` on the way out, like `attachments`.
      */
     plan: jsonb("plan").$type<PlanIntent>(),

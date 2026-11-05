@@ -229,7 +229,7 @@ describe("what a repair turn is told about its job", () => {
 
   it("carries the approved plan into every repair of the job that carries it out", async () => {
     // A plan the person approved is the job's brief: a repair that lost it would be fixing a
-    // build against an objective of one title (ADR-0024).
+    // build against an objective of one title (ADR-0025).
     const PLAN_TURN = "d00d0000-1111-4222-8333-444455556666";
     const plan = { title: "Delete button", plan: "1. Add the button\n2. Wire it to the store" };
     for (const event of [

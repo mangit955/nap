@@ -37,7 +37,7 @@ bun run test:integration  # needs something external; run at milestone boundarie
                           # skip without one. Each file's doc comment says what it requires.
 bun run harness "<prompt>"        # one turn, printing the event stream — fakes, free, no network
 bun run harness --plan "<prompt>" # the same turn in plan mode, ending on a proposed plan — fakes, free
-                          # add --approve to approve it and run the turn that builds it (ADR-0024)
+                          # add --approve to approve it and run the turn that builds it (ADR-0025)
 bun run harness --real "<prompt>" # the same turn against real E2B + a real model; this spends money
 bun run harness --real --model=anthropic/claude-opus-5 "<prompt>"  # the demo model, ~20x the cost
 bun run ws:smoke          # drives /ws over a real Bun socket — fakes, free, no database

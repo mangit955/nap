@@ -189,7 +189,7 @@ const DESCRIPTIONS: Record<ToolName, string> = {
   todo_write:
     "Keep a short checklist of the work, visible to the person watching. Use it for work with three or more distinct steps: write the list first, mark one item in_progress while you work on it, and mark items completed as soon as they are done. Send the whole list each time. Skip it for small requests.",
   ask_user:
-    "Ask the person a multiple-choice question, and end your turn to wait for the answer. Only when two readings of the request lead to materially different work and you cannot reasonably choose; otherwise decide and proceed.",
+    "Ask the person a multiple-choice question, and end your turn to wait for the answer. Only when two readings of the request lead to materially different work and you cannot reasonably choose; otherwise decide and proceed. Only on a turn a person started: it is refused on turns the project's checks started.",
   run_subagent:
     "Hand a self-contained task to a helper with its own fresh context, and get back its final report. Use explore to search a large codebase for where something lives, so the search does not fill your own context; several explore helpers can run at once. Do not use it for a file or two you could read yourself.",
   read_subagent:
@@ -234,7 +234,7 @@ export const APP_TEST_TOOL_NAMES: readonly ToolName[] = [
 ];
 
 /**
- * What a plan mode turn may reach (ADR-0024): everything that looks and nothing that changes the
+ * What a plan mode turn may reach (ADR-0025): everything that looks and nothing that changes the
  * project, plus the tool that ends the turn with a plan.
  *
  * Commands are refused even if offered accidentally: readers can invoke repository-configured

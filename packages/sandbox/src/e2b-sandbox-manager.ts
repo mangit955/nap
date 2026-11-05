@@ -22,6 +22,7 @@
  * and no network.
  */
 
+import { listTreeViaExec } from "@nap/shared/list-tree";
 import type { SandboxInventory, SandboxListing } from "@nap/shared/ports/sandbox-inventory";
 import type {
   ExecOptions,
@@ -390,6 +391,19 @@ export class E2BSandboxManager implements SandboxManager, SandboxInventory {
       const entries = await handle.files.list(path, { depth: 1 });
       return entries.map(toFileNode);
     });
+  }
+
+  /**
+   * One command rather than `files.list` with a depth: that walk is server-side but answers in
+   * directories, has no notion of `.gitignore`, and would hand back every `node_modules` path
+   * before anything could filter it.
+   */
+  async listTree(
+    sandboxId: string,
+    root: string,
+    options: { exclude: readonly string[]; timeoutMs: number },
+  ): Promise<Result<string[], SandboxError>> {
+    return listTreeViaExec(this, sandboxId, root, options);
   }
 
   async exec(

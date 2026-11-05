@@ -55,7 +55,7 @@ export type TurnSubmission = {
     message: string,
     model?: string,
     attachments?: MediaAttachment[],
-    /** Asking for a plan, or approving one (ADR-0024). Absent is an ordinary turn. */
+    /** Asking for a plan, or approving one (ADR-0025). Absent is an ordinary turn. */
     plan?: PlanIntent,
   ) => Promise<boolean>;
   startTest: (jobId: string, model?: string) => Promise<boolean>;

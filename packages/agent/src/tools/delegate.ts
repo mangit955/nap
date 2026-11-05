@@ -17,7 +17,7 @@ export async function runSubagent(
   ctx: ToolContext,
 ): Promise<ToolOutcome> {
   if (ctx.subagents === undefined) return UNAVAILABLE;
-  // A plan mode turn changes nothing, and a helper it starts is no exception (ADR-0024).
+  // A plan mode turn changes nothing, and a helper it starts is no exception (ADR-0025).
   if (ctx.planning === true && args.profile !== "explore")
     return {
       ok: false,

@@ -648,4 +648,4 @@ non-Render rollout:
 3. Deploy the API and the reaper.
 4. Deploy the web.
 
-See [ADR-0024](adr/0024-plan-mode-proposes-and-the-next-message-decides.md).
+See [ADR-0025](adr/0025-plan-mode-proposes-and-the-next-message-decides.md).

@@ -11,9 +11,11 @@ import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
+import { TEMPLATE_DEV_PORT } from "@nap/sandbox/template";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { scriptGit } from "@nap/sandbox/testing/script-git";
 import { latestCheckpoint } from "@nap/shared/compaction";
+import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
 import type { LLMProvider, LLMRequest, LLMTurnResult } from "@nap/shared/ports/llm-provider";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import { describe, expect, it } from "vitest";
@@ -223,6 +225,80 @@ it("compacts within a tool loop, preserves complete pairs, and charges summary c
   expect(
     resumed.flatMap((block) => (block.type === "tool_result" ? [block.toolCallId] : [])),
   ).toEqual([...retained, ...fresh]);
+});
+
+it("puts a repair's job brief back in front of the model after compacting in its middle", async () => {
+  // The brief is turn context, which rides in the messages rather than the system prompt, and a
+  // compaction replaces the messages. So the rebuild is the only way it reaches the rest of a long
+  // repair — exactly where "what this is for, and what already failed" matters most.
+  const sandbox = scriptGit(
+    new InMemorySandboxManager({
+      serves: [TEMPLATE_DEV_PORT],
+      seed: {
+        "/home/user/app/large.txt": "tool-output\n".repeat(2200),
+        [`${PROJECT_ROOT_PATH}/package.json`]: JSON.stringify({
+          scripts: { typecheck: "tsc --noEmit" },
+        }),
+      },
+    }),
+  );
+  let checked = 0;
+  sandbox.script(/bun run typecheck/, () => {
+    checked += 1;
+    return checked >= 2
+      ? { exitCode: 0, stdout: "", stderr: "" }
+      : { exitCode: 2, stdout: "", stderr: "src/App.tsx: error TS2304" };
+  });
+  const requests: LLMRequest[] = [];
+  let turns = 0;
+  const provider: LLMProvider = {
+    startTurn() {
+      // The person's turn answers at once; the repair reads the large file until it must compact.
+      const repairing = ++turns > 1;
+      let reads = 0;
+      return {
+        usage: () => ({ inputTokens: 0, outputTokens: 0 }),
+        async complete(request) {
+          const { signal: _s, onThinkingDelta: _t, onTextDelta: _d, ...recorded } = request;
+          requests.push(structuredClone(recorded));
+          const summarizing = request.purpose === "compaction";
+          const read = repairing && !summarizing && reads++ < 4;
+          return {
+            type: "message",
+            text: summarizing ? "Read the file. Continue the repair." : read ? "" : "Fixed.",
+            toolCalls: read
+              ? [
+                  {
+                    id: `r${reads}`,
+                    name: "read_file",
+                    input: { path: "/home/user/app/large.txt" },
+                  },
+                ]
+              : [],
+            usage: { inputTokens: summarizing ? 100 : 10_000, outputTokens: 10 },
+          };
+        },
+      };
+    },
+  };
+  const runtime = new SingleAgentRuntime({
+    events: new InMemoryEventStore(),
+    bus: new InMemoryEventBus(),
+    sessions: new InMemorySessionStore([{ sessionId: SESSION, projectId: PROJECT }]),
+    sandbox,
+    memory: new NoopMemoryProvider(),
+    context: new NapContextEngine({ budgetTokens: 24_000 }),
+    agent: new NapAgentService({ provider, budget: { maxTokens: 400_000, maxSteps: 24 } }),
+  });
+
+  await runtime.runTurn({ turnId: crypto.randomUUID(), sessionId: SESSION, message: EARLY });
+
+  const summary = requests.findIndex((request) => request.purpose === "compaction");
+  expect(summary).toBeGreaterThan(-1);
+  const after = requests.slice(summary + 1).find((request) => request.purpose !== "compaction");
+  const sent = JSON.stringify(after?.messages);
+  expect(sent).toContain("<job>");
+  expect(sent).toContain("error TS2304");
 });
 
 it("keeps the previous checkpoint on a failed summary and records its spent usage", async () => {

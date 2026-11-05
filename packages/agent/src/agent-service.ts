@@ -746,7 +746,7 @@ class Turn {
     await this.#helpers?.settle();
     // Awaited before the event rather than after, so a turn is never reported done while
     // the work it did is still uncommitted. A turn that ended on a proposal was not meant to
-    // change anything, and its commit is the caller's to skip as well as this one's (ADR-0024).
+    // change anything, and its commit is the caller's to skip as well as this one's (ADR-0025).
     const finalized =
       this.#awaiting === undefined ? await this.#request.finalize?.() : { commitSha: null };
     const helpers = this.#helpers?.usage() ?? { inputTokens: 0, outputTokens: 0 };

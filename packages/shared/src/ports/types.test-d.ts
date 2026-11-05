@@ -82,6 +82,7 @@ const sandboxStub: SandboxManager = {
   writeFile: async () => ({ ok: true, value: undefined }),
   readFile: async () => ({ ok: true, value: "contents" }),
   listFiles: async () => ({ ok: true, value: [] }),
+  listTree: async () => ({ ok: true, value: [] }),
   exec: async () => ({ ok: true, value: { exitCode: 0, stdout: "", stderr: "" } }),
   getPreviewUrl: async () => ({ ok: true, value: "https://5173-abc.e2b.dev" }),
   waitForPreview: async () => ({ ok: true, value: "https://5173-abc.e2b.dev" }),

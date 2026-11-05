@@ -1,6 +1,6 @@
 /**
  * Plan mode through the whole composition: a real agent, a real context engine and the runtime,
- * with the model scripted and the sandbox in memory (ADR-0024).
+ * with the model scripted and the sandbox in memory (ADR-0025).
  *
  * What is asserted is what the person relies on. A plan mode turn changes nothing — no job, no
  * commit, no snapshot — and ends waiting on them. Approving it opens a job that carries the plan
@@ -152,8 +152,12 @@ describe("a plan mode turn", () => {
     const opened = log.find((event) => event.type === "job.started");
     expect(opened?.payload).toMatchObject({ objective: PLAN.title });
     const building = provider.requests[1];
-    expect(building?.systemPrompt).toContain("<approved_plan>");
-    expect(building?.systemPrompt).toContain(PLAN.plan);
+    expect(building?.systemPrompt).not.toContain("<approved_plan>");
+    expect(building?.messages.at(-1)?.content).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "text", text: expect.stringContaining(PLAN.plan) }),
+      ]),
+    );
     expect(building?.systemPrompt).not.toContain(PLAN_MODE_PROMPT);
     expect(building?.tools.map((tool) => tool.name)).toContain("write_file");
     expect(await commits()).toHaveLength(1);
@@ -176,8 +180,12 @@ describe("a plan mode turn", () => {
 
     expect(outcome).toMatchObject({ ok: true });
     const building = provider.requests.at(-1);
-    expect(building?.systemPrompt).toContain("<approved_plan>");
-    expect(building?.systemPrompt).toContain(PLAN.plan);
+    expect(building?.systemPrompt).not.toContain("<approved_plan>");
+    expect(building?.messages.at(-1)?.content).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "text", text: expect.stringContaining(PLAN.plan) }),
+      ]),
+    );
     expect(await commits()).toHaveLength(1);
   });
 

@@ -53,7 +53,7 @@ export type TurnRequest = TurnRequestBase &
         kind?: "user";
         message: string;
         /**
-         * Asking for a plan, or approving one (ADR-0024). Absent is an ordinary turn. Admission has
+         * Asking for a plan, or approving one (ADR-0025). Absent is an ordinary turn. Admission has
          * validated its shape; whether an approved plan is still waiting is checked again under the
          * lease, where the log cannot move.
          */

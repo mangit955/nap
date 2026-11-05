@@ -105,7 +105,7 @@ export function ChatPane({
   onCancel?: () => void;
   /** Re-sends a failed turn's message. Optional so the many render tests need not supply one. */
   onRetry?: RetryHandler | undefined;
-  /** Approving or revising a proposed plan (ADR-0024). Absent, plan cards are read-only. */
+  /** Approving or revising a proposed plan (ADR-0025). Absent, plan cards are read-only. */
   planActions?: PlanActions | undefined;
   onTestApp?: ((jobId: string) => void) | undefined;
   /** The project's files, for the composer's `@` menu. */
@@ -457,7 +457,7 @@ export function LiveChatPane({
         // anywhere else would give it different rate-limit and optimistic-message behaviour.
         onRetry={(message, attachments, plan) => void submit(message, model, attachments, plan)}
         // Approving and revising are messages too, through the same path, so a plan card's click
-        // gets the composer's optimistic message, rate limit and refusal wording (ADR-0024).
+        // gets the composer's optimistic message, rate limit and refusal wording (ADR-0025).
         planActions={{
           approve: (planTurnId) =>
             void submit(APPROVAL_MESSAGE, model, undefined, { intent: "approve", planTurnId }),

@@ -133,7 +133,7 @@ export type TranscriptItem =
       planning: boolean;
     }
   /**
-   * A plan mode turn's proposal (ADR-0024). `status` is `planStates`'s answer over the whole log,
+   * A plan mode turn's proposal (ADR-0025). `status` is `planStates`'s answer over the whole log,
    * the same fold the runtime refuses a stale approval by, so a card that offers Approve is a card
    * the server will accept an approval for. Only `awaiting` is actionable; every other status is
    * drawn settled, which is what replaying an old session shows.

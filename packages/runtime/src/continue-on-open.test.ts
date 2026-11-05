@@ -382,7 +382,7 @@ describe("a job left in repair", () => {
 describe("a job carrying out an approved plan", () => {
   it("finds the plan again from the log and gives it to the repair it continues with", async () => {
     // Nothing stores the plan on the job: the approving prompt opened it in the same turn, and
-    // names the plan mode turn that proposed it (ADR-0024).
+    // names the plan mode turn that proposed it (ADR-0025).
     const PLAN_TURN = "e1e1e1e1-2222-4333-8444-555566667777";
     const plan = { title: "Delete button", plan: "1. Add the button\n2. Wire it to the store" };
     for (const event of [

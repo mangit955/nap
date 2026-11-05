@@ -103,7 +103,7 @@ export function DictationButton({
 }
 
 /**
- * Plan mode, as a switch beside the model (ADR-0024): while it is pressed, a message asks for a
+ * Plan mode, as a switch beside the model (ADR-0025): while it is pressed, a message asks for a
  * plan to approve instead of being built straight away. A labelled toggle rather than a menu row,
  * because whether the next message will change the project is not something to hide a click away.
  */

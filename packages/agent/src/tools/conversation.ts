@@ -57,7 +57,7 @@ export async function askUser(
 }
 
 /**
- * A plan mode turn's answer: the plan, in front of the person, and the turn over (ADR-0024).
+ * A plan mode turn's answer: the plan, in front of the person, and the turn over (ADR-0025).
  *
  * Refused outside plan mode even though the toolset already leaves it out there, because the
  * consequence of a stray call is not small: a turn that ended "awaiting approval" skips its

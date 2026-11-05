@@ -64,7 +64,7 @@ export function Sandbox() {
       <P>
         The plan appears in the chat as a card. Approving it sends a message naming the turn that
         proposed it; that turn opens a job named for the plan, and every turn of the job, repairs
-        included, carries the approved plan in its system prompt, never cut to fit. Asking for
+        included, carries the approved plan in its turn context, never cut to fit. Asking for
         changes sends another plan mode message, and so does answering a question the planning turn
         asked. Whether a plan is waiting, approved, revised or set aside is not stored anywhere: it
         is whatever the next message did, folded from the event log. The card and the server both

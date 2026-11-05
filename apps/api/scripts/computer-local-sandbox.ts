@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import { basename, join, posix, relative, resolve, sep } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
+import { listTreeViaExec } from "@nap/shared/list-tree";
 import type {
   ExecOutputHandler,
   ExecResult,
@@ -748,6 +749,14 @@ export class LocalDockerSandboxManager implements SandboxManager {
     if (!files.success || files.data.some((file) => allowedSandboxPath(file.path) === undefined))
       return failure("unavailable", "Local Docker file helper returned an invalid listing.");
     return success(files.data);
+  }
+
+  listTree(
+    sandboxId: string,
+    root: string,
+    options: { exclude: readonly string[]; timeoutMs: number },
+  ): Promise<Result<string[], SandboxError>> {
+    return listTreeViaExec(this, sandboxId, root, options);
   }
 
   async exec(

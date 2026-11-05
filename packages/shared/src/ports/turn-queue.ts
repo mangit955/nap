@@ -85,7 +85,7 @@ export type EnqueueTurnRequest = {
   message: string | null;
   attachments?: MediaAttachment[] | undefined;
   /**
-   * Whether the prompt asks for a plan or approves one (ADR-0024). Carried with the request because
+   * Whether the prompt asks for a plan or approves one (ADR-0025). Carried with the request because
    * it is the asker's choice for this one turn, exactly like the prompt beside it.
    */
   plan?: PlanIntent | undefined;

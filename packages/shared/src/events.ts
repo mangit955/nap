@@ -194,7 +194,7 @@ export const NapEventSchema = z.discriminatedUnion("type", [
     // Absent in legacy logs; absence does not establish ownership of a verification turn.
     repair: z.strictObject({ requestId: z.uuid(), jobId: z.uuid() }).optional(),
     /**
-     * Whether this prompt asked for a plan, or approved one (ADR-0024). Absent in every log
+     * Whether this prompt asked for a plan, or approved one (ADR-0025). Absent in every log
      * written before plan mode existed, and on any ordinary prompt since — which is the fact.
      */
     plan: PlanIntentSchema.optional(),
@@ -226,7 +226,7 @@ export const NapEventSchema = z.discriminatedUnion("type", [
     multiSelect: z.boolean(),
   }),
   /**
-   * A plan mode turn's proposal, for the person to approve before anything changes (ADR-0024).
+   * A plan mode turn's proposal, for the person to approve before anything changes (ADR-0025).
    *
    * The turn ends on it. What became of it — approved, revised, set aside — is not recorded here
    * or anywhere else: it is whatever the next message said, folded by `plan-mode.ts`.

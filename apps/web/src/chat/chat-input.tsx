@@ -67,7 +67,7 @@ export function ChatInput({
   timeline?: RefObject<HTMLElement | null> | undefined;
   error: string | undefined;
   firstPrompt?: FirstPrompt | undefined;
-  /** `mode` is `"plan"` when the person asked for a plan before anything is built (ADR-0024). */
+  /** `mode` is `"plan"` when the person asked for a plan before anything is built (ADR-0025). */
   onSubmit: (message: string, attachments?: MediaAttachment[], mode?: "plan") => void;
   onCancel: () => void;
   /**

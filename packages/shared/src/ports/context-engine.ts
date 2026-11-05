@@ -49,7 +49,7 @@ export type JobContext = {
    */
   attempts: readonly FailedAttempt[];
   /**
-   * The plan the person approved, when this job carries one out (ADR-0024). Rendered on every turn
+   * The plan the person approved, when this job carries one out (ADR-0025). Rendered on every turn
    * of the job, repairs included, and never cut to fit.
    */
   plan?: ProposedPlan | undefined;
@@ -63,7 +63,7 @@ export type ContextRequest = {
   workspace?: "repository";
   /** The message this turn is being built for. */
   userMessage: string;
-  /** `plan` builds a plan mode turn's prompt (ADR-0024). Absent is an ordinary turn. */
+  /** `plan` builds a plan mode turn's prompt (ADR-0025). Absent is an ordinary turn. */
   mode?: "plan" | undefined;
   /** The resolved selection. Unknown or absent models receive text-only context. */
   model?: string | undefined;

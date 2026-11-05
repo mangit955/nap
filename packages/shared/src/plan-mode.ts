@@ -2,7 +2,7 @@
  * Where every proposed plan stands, read off the event log.
  *
  * There is no plans table and no approval flag anywhere: a plan is a `plan.proposed` event, and
- * what became of it is whatever the person said next (ADR-0024). Folding that here, once, is what
+ * what became of it is whatever the person said next (ADR-0025). Folding that here, once, is what
  * lets the chat pane draw a card as settled and the runtime refuse a stale approval *by the same
  * rule* — two folds would be two opinions about which plan is still open.
  *
@@ -130,7 +130,7 @@ export function pendingPlan(
 }
 
 /**
- * The plan a job was opened to carry out, if one was (ADR-0024).
+ * The plan a job was opened to carry out, if one was (ADR-0025).
  *
  * Read back from the log rather than stored on the job, because the log already says it: the
  * job opens in the same turn as the prompt that approved the plan, and that prompt names the turn

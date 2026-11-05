@@ -134,7 +134,7 @@ const TurnBodySchema = z.object({
    */
   model: z.string().min(1).optional(),
   /**
-   * Asking for a plan, or approving one (ADR-0024). Absent is an ordinary turn. The asker's
+   * Asking for a plan, or approving one (ADR-0025). Absent is an ordinary turn. The asker's
    * choice for this turn alone, so it travels with the prompt onto the queued request.
    */
   plan: PlanIntentSchema.optional(),
@@ -227,7 +227,7 @@ export function registerTurnRoutes(
     // An approval has to name the plan that is waiting, and nothing may be queued ahead of it:
     // whatever runs first is the next message, and the next message settles the plan. Refused
     // here, before any allowance is spent, and checked again under the lease, where the log stops
-    // moving (`pendingPlan`, ADR-0024).
+    // moving (`pendingPlan`, ADR-0025).
     if (body.data.plan?.intent === "approve") {
       const { sessionId } = found.value;
       if (await deps.queue.hasPending(sessionId))

@@ -1,12 +1,12 @@
 /**
- * A `SandboxManager` that can only list files.
+ * A `SandboxManager` that can only list a workspace, once per question.
  *
  * Assembling context is a read-only act: it looks at the shape of the project and nothing
- * else. Every method other than `listFiles` therefore throws, and those throws are the point
+ * else. Every method other than `listTree` therefore throws, and those throws are the point
  * rather than a shortcut — they turn "the assembler must not run commands, read file
- * contents, or mutate the workspace" from a claim in a comment into something the test suite
- * fails on. A stub that quietly returned empty results for `exec` would let that regression
- * through unnoticed.
+ * contents, mutate the workspace, or walk it a folder at a time" from a claim in a comment into
+ * something the test suite fails on. A stub that quietly returned empty results for `exec` or
+ * `listFiles` would let that regression through unnoticed.
  *
  * This lives here, small and local, instead of reaching for the full in-memory fake next
  * door: the fake belongs to the sandbox package, and this package is not allowed to depend
@@ -22,32 +22,53 @@ import type {
 } from "@nap/shared/ports/sandbox-manager";
 import type { Result, VoidResult } from "@nap/shared/result";
 
-/** Directory path → its direct children, matching what a real `listFiles` returns. */
-export type FileTree = Record<string, FileNode[]>;
+/** Every file in the workspace, by absolute path — what a real sandbox holds, before filtering. */
+export type Workspace = readonly string[];
+
+/** One `listTree` call, as it was asked. */
+export type ListTreeCall = { root: string; exclude: readonly string[]; timeoutMs: number };
 
 export type StubSandboxOptions = {
-  /** Paths whose listing fails, so a caller's degradation path can be exercised. */
-  failing?: string[];
-  /** Receives every path a caller asks to list, so a test can assert on the walk itself. */
-  onList?: (path: string) => void;
+  /** The listing fails, so a caller's degradation path can be exercised. */
+  failing?: boolean;
+  /** Receives every listing a caller asks for, so a test can hold it to one per build. */
+  onListTree?: (call: ListTreeCall) => void;
 };
 
 function unreachable(method: string): never {
   throw new Error(`assembling context must not call SandboxManager.${method}`);
 }
 
-export function stubSandbox(tree: FileTree, opts: StubSandboxOptions = {}): SandboxManager {
-  const failing = new Set(opts.failing ?? []);
-
+export function stubSandbox(workspace: Workspace, opts: StubSandboxOptions = {}): SandboxManager {
   return {
-    async listFiles(_sandboxId: string, path: string): Promise<Result<FileNode[], SandboxError>> {
-      opts.onList?.(path);
-      if (failing.has(path)) {
-        return { ok: false, error: { code: "unavailable", message: `cannot list ${path}` } };
+    async listTree(
+      _sandboxId: string,
+      root: string,
+      options: { exclude: readonly string[]; timeoutMs: number },
+    ): Promise<Result<string[], SandboxError>> {
+      opts.onListTree?.({ root, exclude: options.exclude, timeoutMs: options.timeoutMs });
+      if (opts.failing === true) {
+        return { ok: false, error: { code: "timeout", message: `listing ${root} timed out` } };
       }
-      return { ok: true, value: tree[path] ?? [] };
+      // The port's promise, kept here too: nothing under an excluded segment comes back.
+      const prefix = root.endsWith("/") ? root : `${root}/`;
+      const excluded = new Set(options.exclude);
+      return {
+        ok: true,
+        value: workspace.filter(
+          (path) =>
+            path.startsWith(prefix) &&
+            !path
+              .slice(prefix.length)
+              .split("/")
+              .some((segment) => excluded.has(segment)),
+        ),
+      };
     },
 
+    async listFiles(): Promise<Result<FileNode[], SandboxError>> {
+      return unreachable("listFiles");
+    },
     async create(): Promise<Result<Sandbox, SandboxError>> {
       return unreachable("create");
     },

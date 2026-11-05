@@ -1,4 +1,4 @@
-# ADR-0024 — Plan mode proposes, and the next message decides
+# ADR-0025 — Plan mode proposes, and the next message decides
 
 **Status:** Accepted, 2026-11-03. Built and tested on fakes, the in-memory sandbox and a real Postgres. No real model or E2B sandbox has run it, so whether models plan well under these prompts is unmeasured. Closes the "plan mode" item ADR-0020 deferred.
 
@@ -58,11 +58,11 @@ A turn that proposes twice keeps the last proposal. Repair prompts settle nothin
 
 Two consumers share this fold, and that is why it is one function. The chat pane draws the card from it, so replaying a session draws a settled card as settled. The server refuses stale approvals with it twice. At admission it returns a 409 when the plan is not awaiting, or when any request is still queued for the session (that request would run first and settle the plan). Under the lease, `pendingPlan` checks again against the history read before the prompt was logged, because only there has the log stopped moving. If two tabs both approve, one builds and the other gets `turn.failed` with a sentence saying why. The reason is `internal`, which is not quite right. A new failure reason would change every exhaustive consumer to cover a race that admission already makes narrow.
 
-### D6: The approved plan rides in the system prompt of the whole job
+### D6: The approved plan rides in the context of the whole job
 
-An approval opens a job whose objective is the plan's title, so "Approved" never names a job. Its commit subject is the title too. `JobContext.plan` carries the plan into the context engine, which renders `<approved_plan>` after the job brief on every turn of the job, repair turns included, and never cuts it to fit. The proposal's own `tool_use` is also in the history, but staleness and compaction may trim that copy. A job a restart continues finds its plan again with `approvedPlanOfJob`, read from the log: the job opens in the same turn as the approving prompt, and that prompt names the proposing turn. Nothing new is written.
+An approval opens a job whose objective is the plan's title, so "Approved" never names a job. Its commit subject is the title too. `JobContext.plan` carries the plan into the context engine, which renders `<approved_plan>` after the job brief in the turn context on every turn of the job, repair turns included, and never cuts it to fit. Like the job brief, the approved plan rides in the current user message rather than the system prompt, preserving ADR-0024's stable cached prefix. The proposal's own `tool_use` is also in the history, but staleness and compaction may trim that copy. A job a restart continues finds its plan again with `approvedPlanOfJob`, read from the log: the job opens in the same turn as the approving prompt, and that prompt names the proposing turn. Nothing new is written.
 
-`PLAN_MODE_PROMPT` comes last in a plan mode turn's system prompt, after memories. A planning turn therefore shares every byte of its cached prefix with a building one. The prompt explicitly overrides the contract's "finish the whole task", so a model told to build does not have to work out why every edit fails.
+`PLAN_MODE_PROMPT` comes after the workspace instructions in a plan mode turn's system prompt. It is stable across planning turns. Switching between planning and building changes the tool declarations and this system suffix, so those turns cannot share the entire cached prefix. File listings, memories and approved plans remain in turn context as ADR-0024 requires. The prompt explicitly overrides the contract's "finish the whole task", so a model told to build does not have to work out why every edit fails.
 
 ### D7: The card, the composer, and retries
 

@@ -138,7 +138,7 @@ type JobRun = {
   sandboxId: string;
   jobId: string;
   objective: string;
-  /** The approved plan this job carries out, for every turn of it (ADR-0024). */
+  /** The approved plan this job carries out, for every turn of it (ADR-0025). */
   plan?: ProposedPlan | undefined;
   /** Failures already responded to, oldest first — the one thing a repair cannot rederive. */
   attempts: FailedAttempt[];
@@ -875,7 +875,7 @@ export class SingleAgentRuntime implements Runtime {
 
       // A plan mode turn opens no job, as a compaction does not: it is not meant to change
       // anything, so there is no commit to arbitrate, nothing to snapshot or photograph, and
-      // nothing an open could find unfinished and continue (ADR-0024). The approval opens the job.
+      // nothing an open could find unfinished and continue (ADR-0025). The approval opens the job.
       if (request.plan?.intent === "propose") {
         for (const notice of sandboxId.value.notices) emit("system.notice", notice);
         const repository = sandboxId.value.repository;
@@ -1187,7 +1187,7 @@ export class SingleAgentRuntime implements Runtime {
     manualCompaction?: { id: string; onSettled: () => void };
     appTest?: { run: AppTestRun; clock?: AppTestRecordingClock };
     previewPort: number | null;
-    /** A plan mode turn: read-only, ending on a proposal, and never committed (ADR-0024). */
+    /** A plan mode turn: read-only, ending on a proposal, and never committed (ADR-0025). */
     mode?: "plan";
   }): Promise<TurnOutcome> {
     const { settings, scope, sandboxId, prompt, promptSource, commitSubject, history, job } =

@@ -174,7 +174,7 @@ const PLAN_STATUS_WORDS: Record<Exclude<PlanStatus, "awaiting">, string> = {
 };
 
 /**
- * A plan proposed for approval (ADR-0024). Nothing is built until the person approves it here.
+ * A plan proposed for approval (ADR-0025). Nothing is built until the person approves it here.
  *
  * Approve sends the approval as the next message; Request changes opens a box whose words go out
  * as the next plan mode message, so the agent plans again with them. Typing anything else in the

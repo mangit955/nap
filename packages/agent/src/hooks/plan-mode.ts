@@ -1,5 +1,5 @@
 /**
- * Holding a plan mode turn to its one job: ending with a plan (ADR-0024).
+ * Holding a plan mode turn to its one job: ending with a plan (ADR-0025).
  *
  * A turn asked for a plan that stops with a paragraph of findings has left the person with
  * nothing to approve. This refuses that stop once, saying how to end instead. Once, because the
