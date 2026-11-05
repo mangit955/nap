@@ -47,6 +47,13 @@ describe("toolNamesFor", () => {
     expect(toolNamesFor({ ...USER, promptSource: "verification" }).has("write_file")).toBe(true);
   });
 
+  it("declares on a repair turn exactly what a person's turn declares, so the cache survives it", () => {
+    // Offered and declared differ by `ask_user` alone: the executor refuses it on a repair.
+    const repair = { ...USER, promptSource: "verification" as const };
+    expect(JSON.stringify(toolsetFor(repair))).toBe(JSON.stringify(toolsetFor(USER)));
+    expect(toolNamesFor(repair).has("ask_user")).toBe(false);
+  });
+
   it("lets an app test look but not touch", () => {
     expect(names({ ...USER, promptSource: "test" })).toEqual([
       "computer",

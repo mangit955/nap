@@ -38,6 +38,7 @@ function boundSandbox(manager: SandboxManager): SandboxManager {
     writeFile: (id, path, contents) => manager.writeFile(id, path, contents),
     readFile: (id, path) => manager.readFile(id, path),
     listFiles: (id, path) => manager.listFiles(id, path),
+    listTree: (id, root, options) => manager.listTree(id, root, options),
     exec: (id, command, onOutput) => manager.exec(id, command, onOutput),
     getPreviewUrl: (id, port) => manager.getPreviewUrl(id, port),
     waitForPreview: (id, port, opts) => manager.waitForPreview(id, port, opts),

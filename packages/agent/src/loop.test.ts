@@ -522,6 +522,33 @@ describe("ending a turn", () => {
     ]);
   });
 
+  it("refuses a question on a repair turn at once, though the tool is declared", async () => {
+    // A repair declares the person's tool set so the cached prefix survives it; nobody is
+    // watching, so the call must come straight back refused rather than ask and wait.
+    const QUESTION = {
+      question: "Grid or list?",
+      options: [
+        { label: "Grid", description: null },
+        { label: "List", description: null },
+      ],
+      multiSelect: false,
+    };
+    const { agent, provider } = run([
+      [{ toolCalls: [call("ask_user", QUESTION, "ask")] }, { text: "Fixed it." }],
+    ]);
+
+    await agent.runTurn(request({ promptSource: "verification" }));
+
+    expect(provider.requests[0]?.tools.map((tool) => tool.name)).toContain("ask_user");
+    expect(types()).not.toContain("agent.question");
+    expect(provider.requests).toHaveLength(2);
+    // Told that nobody will answer, not merely that the tool is missing — which invites another
+    // way of asking rather than a decision.
+    const answered = provider.requests[1]?.messages.at(-1);
+    expect(JSON.stringify(answered)).toContain("Nobody can answer a question from here");
+    expect(JSON.stringify(answered)).toContain("continue");
+  });
+
   it("lets a stop hook delay the end at most twice", async () => {
     const stubborn: TurnHook = { beforeStop: async () => "Not yet." };
     const { agent, provider } = run([[{ text: "1" }, { text: "2" }, { text: "3" }]], {

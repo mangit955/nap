@@ -90,7 +90,7 @@ async function main(): Promise<void> {
   const log = loadLog();
   const turnIds = [...new Set(log.map((event) => event.turnId))];
   const engine = new NapContextEngine({ budgetTokens: DEPLOYED_CONTEXT_BUDGET });
-  const sandbox = stubSandbox({});
+  const sandbox = stubSandbox([]);
   const memory = new NoopMemoryProvider();
 
   const composition: Row[] = [];

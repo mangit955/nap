@@ -288,6 +288,31 @@ export class InMemorySandboxManager implements SandboxManager, SandboxInventory 
     };
   }
 
+  /** Answered from the map, with no command: there is no shell here to run one in. */
+  async listTree(
+    sandboxId: string,
+    root: string,
+    options: { exclude: readonly string[]; timeoutMs: number },
+  ): Promise<Result<string[], SandboxError>> {
+    const found = this.#lookup(sandboxId);
+    if (!found.ok) return found;
+
+    const dir = normalize(root);
+    const prefix = dir === "/" ? "/" : `${dir}/`;
+    const excluded = new Set(options.exclude);
+    return {
+      ok: true,
+      value: [...found.value.files.keys()].filter(
+        (path) =>
+          path.startsWith(prefix) &&
+          !path
+            .slice(prefix.length)
+            .split("/")
+            .some((segment) => excluded.has(segment)),
+      ),
+    };
+  }
+
   async exec(
     sandboxId: string,
     command: string,

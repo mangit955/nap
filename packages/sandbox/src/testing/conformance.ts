@@ -147,6 +147,26 @@ export function describeSandboxManagerConformance(harness: SandboxManagerHarness
       });
     });
 
+    it("lists every file under a directory in one call, leaving excluded folders out", async () => {
+      await withSandbox(async ({ manager, sandboxId, dir }) => {
+        await manager.writeFile(sandboxId, `${dir}/top.txt`, "top");
+        await manager.writeFile(sandboxId, `${dir}/nested/deeper/deepest.txt`, "deepest");
+        await manager.writeFile(sandboxId, `${dir}/node_modules/pkg/index.js`, "vendored");
+
+        const listed = await manager.listTree(sandboxId, dir, {
+          exclude: ["node_modules"],
+          timeoutMs: 30_000,
+        });
+
+        expect(listed.ok).toBe(true);
+        if (!listed.ok) return;
+        expect([...listed.value].sort()).toEqual([
+          `${dir}/nested/deeper/deepest.txt`,
+          `${dir}/top.txt`,
+        ]);
+      });
+    });
+
     it("streams exec output in order, then resolves with the exit code", async () => {
       await withSandbox(async ({ manager, sandboxId }) => {
         const chunks: Array<{ stream: string; data: string }> = [];

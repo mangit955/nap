@@ -257,14 +257,18 @@ export function toTokenUsage(usage: AnthropicMessage["usage"] | undefined): Toke
 }
 
 /**
- * Where a cache breakpoint goes, and why there are exactly two.
+ * Where a cache breakpoint goes, and why there are at most four.
  *
  * Caching is a *prefix* match, and the API renders a request as `tools` → `system` →
  * `messages`. So a marker on the system block covers the tool schemas as well, and a marker on
- * the final message covers everything before it. Two markers, against a ceiling of four:
+ * a message covers everything before it. Four is the API's ceiling, and this uses it exactly:
  *
- *  - **The system block.** The runtime builds one prompt per turn and the agent loop sends it
- *    unchanged on every step, so a twelve-step turn pays for it once and reads it eleven times.
+ *  - **The system block.** It is the application's instructions and nothing else — the context
+ *    engine keeps everything that varies out of it — so it is the same bytes for every turn of
+ *    every session, and only the first request after a quiet five minutes pays to write it.
+ *  - **Up to two messages the context engine marks** with `cacheBreakpoint`: where the previous
+ *    turn's history ended, which this request reads, and where this one's ends, which the next
+ *    turn reads. Only the engine knows which history is settled, so it says; this places them.
  *  - **The last block of the last message.** Each step appends the tool calls it made and the
  *    results it got, then re-sends the lot. Without this, a file read early in a turn is
  *    re-billed at full price on every step that follows it.
@@ -349,6 +353,14 @@ function withConversationBreakpoint(messages: ApiMessage[]): ApiMessage[] {
   return messages;
 }
 
+/** A message in the API's shape, carrying the context engine's breakpoint on its last block. */
+function toApiMessage(message: LLMMessage): ApiMessage {
+  const content = toApiContent(message.content);
+  const last = content.at(-1);
+  if (message.cacheBreakpoint === true && last !== undefined) last.cache_control = CACHE_BREAKPOINT;
+  return { role: message.role, content };
+}
+
 /** Builds the request body. Exported because it is cheap to test and easy to get wrong. */
 export function toRequestParams(
   request: LLMRequest,
@@ -364,12 +376,7 @@ export function toRequestParams(
           thinking: { type: "adaptive" as const, display: "summarized" as const },
         }),
     system: [{ type: "text", text: request.systemPrompt, cache_control: CACHE_BREAKPOINT }],
-    messages: withConversationBreakpoint(
-      request.messages.map((message) => ({
-        role: message.role,
-        content: toApiContent(message.content),
-      })),
-    ),
+    messages: withConversationBreakpoint(request.messages.map(toApiMessage)),
     tools: request.tools.map((tool) => ({
       name: tool.name,
       description: tool.description,

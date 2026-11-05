@@ -39,6 +39,10 @@ exports[`the system prompt > matches the reviewed snapshot 1`] = `
 - Do not narrate routine steps, restate the request, list every file you touched, or explain how you decided. One or two sentences is usually the whole message.
 </response>
 
+=== the turn's own message ===
+
+add a dark mode toggle
+
 <project_files>
 - index.html
 - package.json
@@ -88,6 +92,10 @@ exports[`the system prompt > matches the reviewed snapshot on a repair turn 1`] 
 - Lead with the outcome: what the app does now that it did not before.
 - Do not narrate routine steps, restate the request, list every file you touched, or explain how you decided. One or two sentences is usually the whole message.
 </response>
+
+=== the turn's own message ===
+
+The \`typecheck\` check failed (exited 2). Find the cause and fix it.
 
 <project_files>
 - index.html

@@ -6,8 +6,10 @@
  * rather than something assembled per turn for two reasons. It is the one section that must
  * survive every level of truncation, and a fixed prefix is the only thing a provider can
  * cache: prompt caching matches on a byte-identical prefix, so anything that changes between
- * turns has to come after this. (On its own this sits under the model's minimum cacheable
- * prefix; the cached span is the tool schemas plus this, which clears it comfortably.)
+ * turns stays out of the system prompt altogether — it rides in the turn's own message
+ * (ADR-0024). (On its own this sits under the model's minimum cacheable
+ * prefix; the cached span is the tool schemas plus this — how close that runs to the minimum is
+ * in docs/GOTCHAS.md, "Model and provider".)
  *
  * **There is deliberately no instruction to verify, double-check, re-read, or test its own
  * work, and adding one is a regression rather than an improvement.** On this model such
