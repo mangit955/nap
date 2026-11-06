@@ -396,7 +396,7 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
         // keyed to the `seq` it opened with. Only ever joined to the *agent's* own prose —
         // a step in between means the model said two things, and folding across one would
         // attribute the second half to before the tool ran.
-        const open = items.at(-1);
+        const open = continued(items);
         if (open?.kind === "message" && open.from === "agent") open.text += event.payload.text;
         else items.push({ kind: "message", key, from: "agent", text: event.payload.text });
         break;
@@ -408,7 +408,7 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
         // the passage keeps the `seq` it opened with, because that key is what React renders
         // it under: keyed to the newest event instead, the element would remount on every
         // frame the model is thinking and restart the reveal of every word already on screen.
-        const open = items.at(-1);
+        const open = continued(items);
         if (open?.kind === "thinking") open.text += event.payload.text;
         else items.push({ kind: "thinking", key, text: event.payload.text });
         break;
@@ -683,6 +683,20 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
   }
 
   return items;
+}
+
+/**
+ * The item a streamed piece of prose would continue: the last one, looking past the preview's
+ * announcement. A new sandbox's `preview.ready` is written whenever its dev server answers, which
+ * can be halfway through a sentence, and a line about the app is no reason to break what the agent
+ * was saying in two. The line stays where it landed, after the passage it interrupted.
+ */
+function continued(items: readonly TranscriptItem[]): TranscriptItem | undefined {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index];
+    if (item?.kind !== "preview") return item;
+  }
+  return undefined;
 }
 
 /**

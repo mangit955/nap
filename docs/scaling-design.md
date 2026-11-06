@@ -1172,6 +1172,8 @@ answered by this section being edited to agree with the code.
    "fixes" it in a panic, but worth measuring at 100 concurrent sessions in step 0. **Measured at
    step 0** (`docs/scaling-baseline.md`): no measurable contention, and none expected — at 1,200
    sessions a collision is predicted once in every ~6,000 runs and costs two sessions ~0.2ms.
+   **Moot since ADR-0026:** the append no longer takes this lock but its own session's counter
+   row, which no two sessions share, so the ramp's probe now measures the design it replaced.
 5. **Whether `/readyz` should fail on a lost LISTEN connection or merely warn.** Failing it removes a
    pod that can still serve HTTP and can still replay from the log — the poll covers fanout. Leaning
    toward: fail, because a pod with a dead LISTEN has 2s-latency streaming and another pod does not.

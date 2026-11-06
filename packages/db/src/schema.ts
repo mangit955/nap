@@ -273,7 +273,9 @@ export const sessions = pgTable("sessions", {
     .references(() => projects.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
   /**
-   * The highest `seq` handed out in this session's log — what makes an append one statement.
+   * The highest `seq` this counter has handed out in the session's log — what makes an append one
+   * statement. Not `PostgresEventStore.headSeq()`, which reads `max(events.seq)`: a session older
+   * than this column starts it at 0, unbackfilled, and its first append catches it up.
    *
    * `PostgresEventStore.append` increments it and inserts the event in a single statement, and
    * the row lock that increment takes is the per-session serialization: a second writer waits on

@@ -4,9 +4,9 @@
  * The announcement is written whenever the dev server answers, so its position among a turn's
  * events is the dev server's timing rather than a contract — an instant fake puts it after
  * `turn.started` today, and any extra `await` before the agent would move it. What *is* the
- * contract is that it comes after the prompt and before the ending of the turn that announced it
- * (`SingleAgentRuntime#startPreviewAnnouncement`). This checks exactly that and hands back the
- * rest of the log, so a test can go on asserting the exact order of everything else.
+ * contract is that it comes after the prompt and before the first ending emitted after it was
+ * started (`SingleAgentRuntime#startPreviewAnnouncement`). This checks exactly that and hands
+ * back the rest of the log, so a test can go on asserting the exact order of everything else.
  */
 
 import type { NapEventType } from "@nap/shared/events";

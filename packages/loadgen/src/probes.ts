@@ -7,7 +7,9 @@
  *   - **item 4, `hashtext` collisions.** `pg_advisory_xact_lock(hashtext(session_id))` maps
  *     uuids into int4, so two unrelated sessions can serialize on one lock. A collision count
  *     from a run means nothing on its own — the question is whether it is more than chance —
- *     so the report carries the birthday expectation beside it.
+ *     so the report carries the birthday expectation beside it. The append took that lock when
+ *     the question was asked and no longer does (`docs/adr/0026`): it serializes on the
+ *     session's own row, so the answer is now about the previous design.
  *   - **item 2, catch-up poll cost.** Whether polling every session independently is affordable
  *     is a rate and a share of a connection, not a feeling, and the comparison against the
  *     batched design is the whole point of asking.

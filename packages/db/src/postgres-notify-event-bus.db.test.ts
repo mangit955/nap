@@ -144,9 +144,10 @@ describe("events crossing a process boundary", () => {
     socket.subscribe(sessionId, (event) => received.push(event));
     await socket.tick();
 
-    // A failing transaction, in the shape `append` uses one. `publish` is unreachable from
-    // here — `EventSink` records the failure and stops the chain — which is the whole reason
-    // `pg_notify` is not inside the append transaction.
+    // A failing transaction, in the shape a retried `append` uses one (an ordinary append is a
+    // single statement, which fails the same way). `publish` is unreachable from here —
+    // `EventSink` records the failure and stops the chain — which is the whole reason
+    // `pg_notify` is not inside the append.
     await expect(
       db.transaction(async (tx) => {
         await tx

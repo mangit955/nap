@@ -199,6 +199,17 @@ async function loggedTypes(): Promise<NapEventType[]> {
   return stored.map((event) => event.type);
 }
 
+/** What the turn that created `sandboxId` left in the log: its announcement. */
+async function announced(sandboxId: string, port = 5173): Promise<void> {
+  await events.append({
+    type: "preview.ready",
+    sessionId: SESSION_ID,
+    turnId: crypto.randomUUID(),
+    createdAt: new Date().toISOString(),
+    payload: { url: `https://${port}-${sandboxId}.sandbox.invalid`, port },
+  });
+}
+
 async function onlySandboxId(): Promise<string> {
   const record = await sessions.get(SESSION_ID);
   if (record?.sandboxId == null) throw new Error("expected a sandbox to have been recorded");
@@ -805,6 +816,7 @@ describe("telling the client where the preview is", () => {
     const serving = scriptGit(new InMemorySandboxManager({ serves: [PORT] }));
     const created = await serving.create(PROJECT_ID);
     if (!created.ok) throw new Error("could not seed a sandbox");
+    await announced(created.value.id);
 
     const agent = new ScriptedAgent(HAPPY_SCRIPT);
     await runtime(agent, {
@@ -818,7 +830,7 @@ describe("telling the client where the preview is", () => {
       message: "add a delete button",
     });
 
-    expect(await loggedTypes()).not.toContain("preview.ready");
+    expect((await loggedTypes()).filter((type) => type === "preview.ready")).toHaveLength(1);
   });
 
   it("still runs the turn when the dev server never comes up", async () => {
@@ -1061,6 +1073,7 @@ describe("opening a project that has been put away", () => {
       // Re-announcing would remount the iframe underneath somebody who is using the app.
       const created = await sandbox.create(PROJECT_ID);
       if (!created.ok) throw new Error("could not seed a sandbox");
+      await announced(created.value.id);
       const running = new InMemorySessionStore([
         { sessionId: SESSION_ID, projectId: PROJECT_ID, sandboxId: created.value.id },
       ]);
@@ -1070,7 +1083,8 @@ describe("opening a project that has been put away", () => {
       }).resumeSession(SESSION_ID, { turnId: crypto.randomUUID() });
 
       expect(outcome).toMatchObject({ ok: true, created: false, sandboxId: created.value.id });
-      expect(await loggedTypes()).toEqual([]);
+      // Only the announcement its creating turn wrote.
+      expect(await loggedTypes()).toEqual(["preview.ready"]);
       // Still worth doing: someone came back to it, so its deadline moves.
       expect(sandbox.timeoutOf(created.value.id)).toBe(30 * 60 * 1000);
     });

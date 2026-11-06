@@ -26,9 +26,9 @@
  * `preview.ready` waits on a dev server that can take twenty seconds, and the agent has no use
  * for it. `eventually` takes the promise of such an event and writes it the moment it is known,
  * wherever the stream has got to. Two places it may never land, and the sink enforces both rather
- * than leaving them to call sites: **after an ending** — a `turn.completed`, `turn.failed` or
- * `job.completed` emitted while one is outstanding is held, with everything emitted after it,
- * until it is known — and **after its owner has stopped writing**, which is what `settle` is for:
+ * than leaving them to call sites: **after an ending** — the first `turn.completed`, `turn.failed`
+ * or `job.completed` emitted while one is outstanding is held, with everything emitted after it,
+ * until it is known, whichever turn or job that ending belongs to — and **after its owner has stopped writing**, which is what `settle` is for:
  * the runtime settles before it returns, because a write after that is a write without a lease.
  * `drain` waits for one only when an ending is held behind it, since drain is called all through
  * a turn and waiting there would be the very wait this removes.

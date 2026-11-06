@@ -22,17 +22,27 @@
  * counter — the previous release's append during a rolling deploy, or a fixture inserting rows
  * directly — and a counter left behind the log would hand out a `seq` that already exists, on
  * every append, for the rest of that session's life. Taking the greater of the two catches up
- * instead. It is one backward step on the `(session_id, seq)` index, and it is never the
- * serialization: concurrent writers that both skipped the counter can still collide, which is
- * what `unique(session_id, seq)` is there to refuse — the database's backstop, never expected to
- * fire.
+ * instead. That is also how every session older than the counter is caught up: the migration
+ * leaves their `head_seq` at 0 rather than backfilling it under the `ALTER`'s lock, and their
+ * first append here starts from `max(seq)`. It is one backward step on the `(session_id, seq)`
+ * index, and it is never the serialization: a writer that skipped the counter can still collide
+ * with another writer, which is what `unique(session_id, seq)` is there to refuse — the
+ * database's backstop, never expected to fire.
  *
  * A retried append is the one that stays a transaction, because it has a question to answer
  * before it writes. A caller whose first attempt failed without a knowable outcome passes
  * `retryAfterSeq`, and the store then locks the same counter row, which waits out the interrupted
- * attempt if it is somehow still in flight, and only then looks for the event above that
- * watermark. Looking without the lock would race the very writer being asked about. Retries are
- * rare, so the extra round trips there cost nothing that matters.
+ * attempt if it already holds that row or is queued for it ahead of the retry, and only then
+ * looks for the event above that watermark. Looking without the lock would race the very writer
+ * being asked about. Retries are rare, so the extra round trips there cost nothing that matters.
+ *
+ * **What the lock cannot wait out is an attempt that has not reached the row yet.** One statement
+ * runs to commit once the server has it, whether or not its client is still there, so an attempt
+ * still queued behind another writer of the same session — or held in a pooler — when the retry
+ * takes the row can commit after the retry has inserted, and the event is then logged twice.
+ * `seq` stays gapless. It takes a transient client-side failure, which is what triggers a retry,
+ * while another writer contends for the same session; the advisory lock it replaced did not have
+ * this gap, because its insert was only sent once the lock was held. See `docs/adr/0026`.
  *
  * Both methods read `created_at` back from the row rather than echoing what the caller
  * passed. The column is `timestamptz` and the contract is an ISO-8601 string, so the value
@@ -179,6 +189,12 @@ export class PostgresEventStore implements EventStore, EventTailReader {
     return rows.map(toEvent);
   }
 
+  /**
+   * The newest `seq` in the session's log — `max(events.seq)`, not the `sessions.head_seq`
+   * counter. The two agree once a session has been appended to under the counter, but a session
+   * older than it reads 0 there until its first such append, and the log is what a subscriber's
+   * cursor has to line up with.
+   */
   async headSeq(sessionId: string): Promise<number> {
     const [row] = await this.#db
       .select({ head: max(events.seq) })
