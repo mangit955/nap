@@ -663,6 +663,11 @@ export class LocalDockerSandboxManager implements SandboxManager {
     if (!found.ok) return found;
     const resource = found.value;
     if (resource.state !== "live") return failure("destroyed", "Sandbox is being destroyed.");
+    // Before asking Docker anything, so the timer cannot fire while Docker answers, and lengthened,
+    // never shortened, as E2B's resume does. A resume that then fails leaves a sandbox nothing will
+    // use living longer, which `destroy` and `close` still end.
+    if (keepAliveMs !== undefined && Date.now() + keepAliveMs > resource.expiresAt)
+      this.#resetTimer(resource, keepAliveMs);
     const inspected = await this.#inspect(resource.id);
     const labels = inspected?.Config.Labels;
     if (
@@ -674,14 +679,6 @@ export class LocalDockerSandboxManager implements SandboxManager {
     ) {
       return failure("unavailable", "Local Docker sandbox identity could not be verified.");
     }
-    // Lengthened, never shortened, as E2B's resume does. The state is asked again because the
-    // timer may have fired while Docker was answering, and a removal must not be rescheduled.
-    if (
-      keepAliveMs !== undefined &&
-      resource.state === "live" &&
-      Date.now() + keepAliveMs > resource.expiresAt
-    )
-      this.#resetTimer(resource, keepAliveMs);
     return success({ id: resource.id, projectId: resource.projectId });
   }
 
