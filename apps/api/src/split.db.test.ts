@@ -19,6 +19,7 @@ import { ControllableRuntime } from "@nap/runtime/testing/controllable-runtime";
 import { startTurnWorker, type TurnWorker } from "@nap/runtime/turn-worker";
 import { TEMPLATE_DEV_PORT } from "@nap/sandbox/template";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
+import { COMMIT_COMMAND, NOTHING_COMMITTED } from "@nap/sandbox/testing/script-git";
 import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
 import { LEASE_RENEWAL_INTERVAL_MS } from "@nap/shared/lease-windows";
 import type { LLMProvider, LLMRequest, LLMTurnResult } from "@nap/shared/ports/llm-provider";
@@ -129,7 +130,9 @@ function turnableSandbox(): InMemorySandboxManager {
     defaultExec: () => ({ exitCode: 0, stdout: "" }),
     serves: [TEMPLATE_DEV_PORT],
     seed: { [`${PROJECT_ROOT_PATH}/package.json`]: JSON.stringify({ scripts: {} }) },
-  }).script(/git rev-parse HEAD/, { exitCode: 0, stdout: `${"0".repeat(40)}\n` });
+  })
+    .script(/git rev-parse HEAD/, { exitCode: 0, stdout: `${"0".repeat(40)}\n` })
+    .script(COMMIT_COMMAND, NOTHING_COMMITTED);
 }
 
 /**

@@ -59,11 +59,13 @@ describeSandboxManagerConformance({
           }
           return result;
         },
-        resume: (id) => manager.resume(id),
+        resume: (id, options) => manager.resume(id, options),
         destroy: (id) => manager.destroy(id),
         extendTimeout: (id, ms) => manager.extendTimeout(id, ms),
         writeFile: (id, path, contents) => manager.writeFile(id, path, contents),
         readFile: (id, path) => manager.readFile(id, path),
+        writeFileBytes: (id, path, contents) => manager.writeFileBytes(id, path, contents),
+        readFileBytes: (id, path) => manager.readFileBytes(id, path),
         listFiles: (id, path) => manager.listFiles(id, path),
         listTree: (id, root, options) => manager.listTree(id, root, options),
         exec: (id, command, onOutput, options) => manager.exec(id, command, onOutput, options),

@@ -4,6 +4,7 @@ import { InMemoryProjectSandboxStore } from "@nap/db/testing/in-memory-project-s
 import { InMemorySandboxCapacity } from "@nap/db/testing/in-memory-sandbox-capacity";
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
+import { BUNDLE_COMMAND, bundled } from "@nap/sandbox/testing/script-git";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import { beforeEach, describe, expect, it } from "vitest";
 import { putProjectAway } from "./close-project.ts";
@@ -26,10 +27,7 @@ let sandboxId: string;
 beforeEach(async () => {
   sandbox = new InMemorySandboxManager()
     .script(/git rev-parse HEAD/, { exitCode: 0, stdout: `${SHA}\n` })
-    .script(/git bundle create/, {
-      exitCode: 0,
-      stdout: Buffer.from("PACK-bundle-bytes").toString("base64"),
-    });
+    .script(BUNDLE_COMMAND, bundled());
   objects = new InMemoryObjectStore();
   snapshots = new InMemorySnapshotStore();
   events = new InMemoryEventStore();

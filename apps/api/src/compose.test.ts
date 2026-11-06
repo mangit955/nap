@@ -19,6 +19,7 @@ import { ABANDONED_COMPUTER_NOTICE } from "@nap/runtime/project-computer";
 import { TEMPLATE_DEV_PORT } from "@nap/sandbox/template";
 import { FakeSandboxDesktop } from "@nap/sandbox/testing/fake-sandbox-desktop";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
+import { COMMIT_COMMAND, committed, NOTHING_COMMITTED } from "@nap/sandbox/testing/script-git";
 import { ComputerControlGrantSchema } from "@nap/shared/computer-access";
 import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
 import { ABANDON_AFTER_MS } from "@nap/shared/ports/project-computer-access";
@@ -86,7 +87,9 @@ function turnableSandbox(): InMemorySandboxManager {
     defaultExec: () => ({ exitCode: 0, stdout: "" }),
     serves: [TEMPLATE_DEV_PORT],
     seed: { [`${PROJECT_ROOT_PATH}/package.json`]: JSON.stringify({ scripts: {} }) },
-  }).script(/git rev-parse HEAD/, { exitCode: 0, stdout: `${"0".repeat(40)}\n` });
+  })
+    .script(/git rev-parse HEAD/, { exitCode: 0, stdout: `${"0".repeat(40)}\n` })
+    .script(COMMIT_COMMAND, NOTHING_COMMITTED);
 }
 
 /** A project that owns one session, which is what the admission route's checks look for. */
@@ -656,7 +659,7 @@ describe("composeNap", () => {
         role: "api",
         capture,
         sessions: new InMemorySessionStore(ids),
-        sandbox: turnableSandbox().script(/git diff --cached --quiet/, { exitCode: 1 }),
+        sandbox: turnableSandbox().script(COMMIT_COMMAND, committed("0".repeat(40))),
         provider: new ScriptedLLMProvider(
           ids.map(() => [{ text: "Done." }, { stopReason: "end_turn" }]),
         ),

@@ -87,6 +87,12 @@ export function stubSandbox(workspace: Workspace, opts: StubSandboxOptions = {})
     async readFile(): Promise<Result<string, SandboxError>> {
       return unreachable("readFile");
     },
+    async writeFileBytes(): Promise<VoidResult<SandboxError>> {
+      return unreachable("writeFileBytes");
+    },
+    async readFileBytes(): Promise<Result<Uint8Array, SandboxError>> {
+      return unreachable("readFileBytes");
+    },
     async exec(): Promise<Result<ExecResult, SandboxError>> {
       return unreachable("exec");
     },

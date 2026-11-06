@@ -11,7 +11,12 @@ import {
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { groupedCommand, stopGroupCommand } from "./e2b-exec-group.ts";
 import type { E2BClient, E2BSandboxHandle, E2BSandboxSummary } from "./e2b-sandbox-manager.ts";
-import { E2BSandboxManager, STOP_TIMEOUT_MS, toSandboxError } from "./e2b-sandbox-manager.ts";
+import {
+  E2BSandboxManager,
+  HANDLE_CACHE_LIMIT,
+  STOP_TIMEOUT_MS,
+  toSandboxError,
+} from "./e2b-sandbox-manager.ts";
 
 /**
  * A stub standing in for one E2B sandbox. Every method rejects unless the test
@@ -25,12 +30,12 @@ function stubHandle(
   return {
     sandboxId: "sbx_stub",
     files: {
+      readBytes: () => Promise.reject(new Error("files.readBytes not stubbed")),
       read: () => Promise.reject(new Error("files.read not stubbed")),
       write: () => Promise.reject(new Error("files.write not stubbed")),
       list: () => Promise.reject(new Error("files.list not stubbed")),
     },
     getHost: (port) => `${port}-sbx_stub.e2b.app`,
-    getMetadata: () => Promise.resolve({ projectId: "project" }),
     setTimeout: () => Promise.resolve(),
     kill: () => Promise.resolve(true),
     ...overrides,
@@ -523,6 +528,7 @@ describe("E2BSandboxManager filesystem", () => {
     const { manager, sandboxId } = await managerWith(
       stubHandle({
         files: {
+          readBytes: () => Promise.reject(new Error("files.readBytes not stubbed")),
           read: () => Promise.reject(new Error("unused")),
           write: () => Promise.resolve(),
           list: () =>
@@ -553,6 +559,7 @@ describe("E2BSandboxManager filesystem", () => {
     const { manager, sandboxId } = await managerWith(
       stubHandle({
         files: {
+          readBytes: () => Promise.reject(new Error("files.readBytes not stubbed")),
           read: () => Promise.reject(new Error("unused")),
           write: () => Promise.resolve(),
           list: () => Promise.resolve([{ name: "odd", path: "/home/user/odd" }]),
@@ -569,6 +576,7 @@ describe("E2BSandboxManager filesystem", () => {
     const { manager, sandboxId } = await managerWith(
       stubHandle({
         files: {
+          readBytes: () => Promise.reject(new Error("files.readBytes not stubbed")),
           read: () => Promise.reject(new FileNotFoundError("/home/user/nope.txt")),
           write: () => Promise.resolve(),
           list: () => Promise.resolve([]),
@@ -584,6 +592,48 @@ describe("E2BSandboxManager filesystem", () => {
   });
 });
 
+describe("E2BSandboxManager file bytes", () => {
+  it("reads a file as bytes in one request, with nothing decoding it on the way", async () => {
+    const { client, requests } = countingProvider();
+    const manager = new E2BSandboxManager({ client });
+    const created = await manager.create("project");
+    if (!created.ok) throw new Error(created.error.message);
+    requests.length = 0;
+
+    const read = await manager.readFileBytes(created.value.id, "/tmp/nap-snapshot.bundle");
+
+    expect(read).toEqual({ ok: true, value: new Uint8Array([0, 255]) });
+    expect(requests).toEqual(["files.readBytes"]);
+  });
+
+  it("writes bytes as a Blob, which the SDK uploads exactly as it is", async () => {
+    const written: unknown[] = [];
+    const { manager, sandboxId } = await managerWith(
+      stubHandle({
+        files: {
+          read: () => Promise.reject(new Error("unused")),
+          readBytes: () => Promise.reject(new Error("unused")),
+          write: (_path, data) => {
+            written.push(data);
+            return Promise.resolve();
+          },
+          list: () => Promise.reject(new Error("unused")),
+        },
+      }),
+    );
+    const bytes = Uint8Array.from({ length: 256 }, (_, index) => index);
+
+    const result = await manager.writeFileBytes(sandboxId, "/tmp/nap-snapshot.bundle", bytes);
+
+    expect(result).toEqual({ ok: true, value: undefined });
+    expect(written).toHaveLength(1);
+    const [data] = written;
+    expect(data).toBeInstanceOf(Blob);
+    if (!(data instanceof Blob)) return;
+    expect(new Uint8Array(await data.arrayBuffer())).toEqual(bytes);
+  });
+});
+
 describe("E2BSandboxManager lifecycle", () => {
   it("carries the project id on the sandbox it creates", async () => {
     const manager = new E2BSandboxManager({ client: stubClient() });
@@ -593,20 +643,6 @@ describe("E2BSandboxManager lifecycle", () => {
     expect(created.ok).toBe(true);
     if (!created.ok) return;
     expect(created.value).toEqual({ id: "sbx_stub", projectId: "project-42" });
-  });
-
-  it("recovers the project id on resume from sandbox metadata", async () => {
-    // Nothing else persists the association, so a resume in a later process can only
-    // learn which project a sandbox belongs to from what E2B stored at create time.
-    const manager = new E2BSandboxManager({
-      client: stubClient(stubHandle({ getMetadata: () => Promise.resolve({ projectId: "p-7" }) })),
-    });
-
-    const resumed = await manager.resume("sbx_stub");
-
-    expect(resumed.ok).toBe(true);
-    if (!resumed.ok) return;
-    expect(resumed.value.projectId).toBe("p-7");
   });
 
   it("reports an unknown sandbox as not_found", async () => {
@@ -657,6 +693,7 @@ describe("E2BSandboxManager lifecycle", () => {
     let connects = 0;
     const handle = stubHandle({
       files: {
+        readBytes: () => Promise.reject(new Error("files.readBytes not stubbed")),
         read: () => Promise.resolve("contents"),
         write: () => Promise.resolve(),
         list: () => Promise.resolve([]),
@@ -688,6 +725,7 @@ describe("E2BSandboxManager lifecycle", () => {
     let connects = 0;
     const handle = stubHandle({
       files: {
+        readBytes: () => Promise.reject(new Error("files.readBytes not stubbed")),
         read: () => Promise.resolve("contents"),
         write: () => Promise.resolve(),
         list: () => Promise.resolve([]),
@@ -773,6 +811,242 @@ describe("keeping a sandbox alive", () => {
     const result = await manager.extendTimeout(sandboxId, 60_000);
 
     expect(result).toMatchObject({ ok: false, error: { code: "not_found" } });
+  });
+});
+
+/**
+ * A provider that writes down every request the adapter makes to it, in order.
+ *
+ * Everything on the client and the handle is a round trip except `getHost`, which only formats a
+ * string, so everything else is counted. The point is the count: a turn resumes its sandbox before
+ * anything else happens, so each extra request here is latency every turn pays.
+ */
+function countingProvider(overrides: Partial<E2BClient> = {}) {
+  const requests: string[] = [];
+  const handle = (sandboxId: string): E2BSandboxHandle => ({
+    sandboxId,
+    files: {
+      readBytes: () => {
+        requests.push("files.readBytes");
+        return Promise.resolve(new Uint8Array([0, 255]));
+      },
+      read: () => {
+        requests.push("files.read");
+        return Promise.resolve("contents");
+      },
+      write: () => {
+        requests.push("files.write");
+        return Promise.resolve();
+      },
+      list: () => {
+        requests.push("files.list");
+        return Promise.resolve([]);
+      },
+    },
+    commands: {
+      run: () => {
+        requests.push("commands.run");
+        return Promise.resolve({ exitCode: 0, stdout: "", stderr: "" });
+      },
+    },
+    getHost: (port) => `${port}-${sandboxId}.e2b.app`,
+    setTimeout: (ms) => {
+      requests.push(`setTimeout(${ms})`);
+      return Promise.resolve();
+    },
+    kill: () => {
+      requests.push("kill");
+      return Promise.resolve(true);
+    },
+  });
+  const client: E2BClient = {
+    create: () => {
+      requests.push("create");
+      return Promise.resolve(handle("sbx_counted"));
+    },
+    connect: (sandboxId, opts) => {
+      requests.push(`connect(${opts?.timeoutMs})`);
+      return Promise.resolve(handle(sandboxId));
+    },
+    ping: () => Promise.reject(new Error("unused")),
+    list: () => Promise.reject(new Error("unused")),
+    ...overrides,
+  };
+  return { client, requests };
+}
+
+describe("resuming a sandbox", () => {
+  it("resumes one it is holding, and pushes its deadline out, in one request", async () => {
+    // Every turn starts here. Before, a held sandbox cost a metadata read and then a separate
+    // keepalive, two round trips one after the other, with nothing reading the metadata.
+    const { client, requests } = countingProvider();
+    const manager = new E2BSandboxManager({ client });
+    const created = await manager.create("project");
+    if (!created.ok) throw new Error(created.error.message);
+    requests.length = 0;
+
+    const resumed = await manager.resume(created.value.id, { keepAliveMs: 90_000 });
+
+    expect(resumed).toEqual({ ok: true, value: { id: "sbx_counted" } });
+    expect(requests).toEqual(["connect(90000)"]);
+  });
+
+  it("resumes one it has never seen, a worker picking up another's project, in one request", async () => {
+    const { client, requests } = countingProvider();
+    const manager = new E2BSandboxManager({ client });
+
+    const resumed = await manager.resume("sbx_elsewhere", { keepAliveMs: 90_000 });
+
+    expect(resumed).toEqual({ ok: true, value: { id: "sbx_elsewhere" } });
+    expect(requests).toEqual(["connect(90000)"]);
+  });
+
+  it("leaves the deadline to the provider when no keepalive is asked for", async () => {
+    const { client, requests } = countingProvider();
+    const manager = new E2BSandboxManager({ client });
+
+    await manager.resume("sbx_elsewhere");
+
+    expect(requests).toEqual(["connect(undefined)"]);
+  });
+
+  it("works through the handle the resume made, with no further connect", async () => {
+    const { client, requests } = countingProvider();
+    const manager = new E2BSandboxManager({ client });
+
+    await manager.resume("sbx_elsewhere", { keepAliveMs: 90_000 });
+    await manager.readFile("sbx_elsewhere", "/home/user/a.txt");
+
+    expect(requests).toEqual(["connect(90000)", "files.read"]);
+  });
+});
+
+describe("the handles it keeps", () => {
+  /** A provider whose handles each answer one read with `outcome`, then read normally. */
+  function flakyProvider(outcome: () => Promise<string>) {
+    let connects = 0;
+    const client: E2BClient = {
+      create: () => Promise.reject(new Error("unused")),
+      connect: (sandboxId) => {
+        connects += 1;
+        let first = connects === 1;
+        return Promise.resolve(
+          stubHandle({
+            sandboxId,
+            files: {
+              readBytes: () => Promise.reject(new Error("files.readBytes not stubbed")),
+              read: () => {
+                if (!first) return Promise.resolve("contents");
+                first = false;
+                return outcome();
+              },
+              write: () => Promise.resolve(),
+              list: () => Promise.resolve([]),
+            },
+          }),
+        );
+      },
+      ping: () => Promise.reject(new Error("unused")),
+      list: () => Promise.reject(new Error("unused")),
+    };
+    return { client, connects: () => connects };
+  }
+
+  it("forgets a handle whose sandbox has gone, so the next call reconnects rather than failing through it", async () => {
+    // The reaper is another process and E2B's own timer kills sandboxes nobody here destroyed, so
+    // a cached handle can outlive its sandbox. Kept, every later call would fail through it.
+    const { client, connects } = flakyProvider(() =>
+      Promise.reject(new SandboxNotFoundError("Sandbox is probably not running anymore")),
+    );
+    const manager = new E2BSandboxManager({ client });
+
+    expect(await manager.readFile("sbx_a", "/home/user/a.txt")).toMatchObject({
+      ok: false,
+      error: { code: "not_found" },
+    });
+    expect(await manager.readFile("sbx_a", "/home/user/a.txt")).toEqual({
+      ok: true,
+      value: "contents",
+    });
+    expect(connects()).toBe(2);
+  });
+
+  it("forgets one on a timeout too, which is how E2B reports a file operation on a dead sandbox", async () => {
+    const { client, connects } = flakyProvider(() =>
+      Promise.reject(new TimeoutError("502: This error is likely due to sandbox timeout")),
+    );
+    const manager = new E2BSandboxManager({ client });
+
+    await manager.readFile("sbx_a", "/home/user/a.txt");
+    await manager.readFile("sbx_a", "/home/user/a.txt");
+
+    expect(connects()).toBe(2);
+  });
+
+  it("keeps one through a failure that says nothing about the sandbox", async () => {
+    const { client, connects } = flakyProvider(() =>
+      Promise.reject(new FileNotFoundError("no such file")),
+    );
+    const manager = new E2BSandboxManager({ client });
+
+    await manager.readFile("sbx_a", "/home/user/a.txt");
+    await manager.readFile("sbx_a", "/home/user/a.txt");
+
+    expect(connects()).toBe(1);
+  });
+
+  it("forgets one when a keepalive finds the sandbox gone", async () => {
+    let connects = 0;
+    const manager = new E2BSandboxManager({
+      client: {
+        create: () => Promise.reject(new Error("unused")),
+        connect: (sandboxId) => {
+          connects += 1;
+          return Promise.resolve(
+            stubHandle({
+              sandboxId,
+              setTimeout: () => Promise.reject(new SandboxNotFoundError("gone")),
+            }),
+          );
+        },
+        ping: () => Promise.reject(new Error("unused")),
+        list: () => Promise.reject(new Error("unused")),
+      },
+    });
+
+    await manager.extendTimeout("sbx_a", 60_000);
+    await manager.extendTimeout("sbx_a", 60_000);
+
+    expect(connects).toBe(2);
+  });
+
+  it("holds at most a bounded number, dropping the one used longest ago", async () => {
+    // A worker lives for days and serves thousands of projects. Without a bound, every sandbox it
+    // ever touched would stay in this map, handle and all.
+    const { client, requests } = countingProvider();
+    const manager = new E2BSandboxManager({ client });
+    for (let index = 0; index <= HANDLE_CACHE_LIMIT; index += 1) {
+      await manager.readFile(`sbx_${index}`, "/home/user/a.txt");
+    }
+    // The second, read again just now, is the most recently used and so is not the one dropped.
+    await manager.readFile("sbx_1", "/home/user/a.txt");
+    await manager.readFile(`sbx_${HANDLE_CACHE_LIMIT + 1}`, "/home/user/a.txt");
+    requests.length = 0;
+
+    await manager.readFile("sbx_1", "/home/user/a.txt");
+    await manager.readFile(`sbx_${HANDLE_CACHE_LIMIT + 1}`, "/home/user/a.txt");
+    expect(requests).toEqual(["files.read", "files.read"]);
+
+    await manager.readFile("sbx_0", "/home/user/a.txt");
+    await manager.readFile("sbx_2", "/home/user/a.txt");
+    expect(requests).toEqual([
+      "files.read",
+      "files.read",
+      "connect(undefined)",
+      "files.read",
+      "connect(undefined)",
+      "files.read",
+    ]);
   });
 });
 

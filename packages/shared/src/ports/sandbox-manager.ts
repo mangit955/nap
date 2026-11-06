@@ -67,9 +67,28 @@ export type ExecOptions = {
   stopOnGiveUp?: boolean | undefined;
 };
 
+export type ResumeOptions = {
+  /**
+   * Keep the sandbox alive for at least this long from now, in the same request as the resume.
+   *
+   * Part of the resume rather than an `extendTimeout` after it, because a turn does both before
+   * anything else and the second would be one more round trip, made after the first, on every turn.
+   * "At least" because E2B's resume only ever lengthens a deadline. Absent, the deadline is the
+   * provider's business, which on E2B may still mean being lengthened to its five-minute default.
+   */
+  keepAliveMs?: number | undefined;
+};
+
 export interface SandboxManager {
   create(projectId: string): Promise<Result<Sandbox, SandboxError>>;
-  resume(sandboxId: string): Promise<Result<Sandbox, SandboxError>>;
+  /**
+   * The sandbox, if it is still there. Answers with its id and nothing else: what project it was
+   * made for is the session's to know, and asking the provider for it would be another request.
+   */
+  resume(
+    sandboxId: string,
+    options?: ResumeOptions,
+  ): Promise<Result<Pick<Sandbox, "id">, SandboxError>>;
   destroy(sandboxId: string): Promise<VoidResult<SandboxError>>;
 
   /**
@@ -84,6 +103,20 @@ export interface SandboxManager {
 
   writeFile(sandboxId: string, path: string, contents: string): Promise<VoidResult<SandboxError>>;
   readFile(sandboxId: string, path: string): Promise<Result<string, SandboxError>>;
+
+  /**
+   * As `writeFile` and `readFile`, for contents that are not text: exactly these bytes, both ways.
+   *
+   * For what has to arrive unchanged and would be larger in any text encoding, which today is a
+   * snapshot's git bundle. Before these, the bundle was carried as base64 through a command's
+   * output: a third larger, and streamed through the command channel, on every turn.
+   */
+  writeFileBytes(
+    sandboxId: string,
+    path: string,
+    contents: Uint8Array,
+  ): Promise<VoidResult<SandboxError>>;
+  readFileBytes(sandboxId: string, path: string): Promise<Result<Uint8Array, SandboxError>>;
   listFiles(sandboxId: string, path: string): Promise<Result<FileNode[], SandboxError>>;
 
   /**

@@ -56,11 +56,14 @@ function deps(sandbox: SandboxManager, options: { restore?: boolean } = {}) {
 function wrap(manager: InMemorySandboxManager, over: Partial<SandboxManager>): SandboxManager {
   const bound: SandboxManager = {
     create: (projectId) => manager.create(projectId),
-    resume: (sandboxId) => manager.resume(sandboxId),
+    resume: (sandboxId, options) => manager.resume(sandboxId, options),
     destroy: (sandboxId) => manager.destroy(sandboxId),
     extendTimeout: (sandboxId, ms) => manager.extendTimeout(sandboxId, ms),
     writeFile: (sandboxId, path, contents) => manager.writeFile(sandboxId, path, contents),
     readFile: (sandboxId, path) => manager.readFile(sandboxId, path),
+    writeFileBytes: (sandboxId, path, contents) =>
+      manager.writeFileBytes(sandboxId, path, contents),
+    readFileBytes: (sandboxId, path) => manager.readFileBytes(sandboxId, path),
     listFiles: (sandboxId, options) => manager.listFiles(sandboxId, options),
     listTree: (sandboxId, root, options) => manager.listTree(sandboxId, root, options),
     exec: (sandboxId, command, onOutput, options) =>
@@ -72,17 +75,26 @@ function wrap(manager: InMemorySandboxManager, over: Partial<SandboxManager>): S
   return { ...bound, ...over };
 }
 
-/** Records the keepalive, which is the one call here whose result is deliberately ignored. */
-function withExtendRecorder(manager: InMemorySandboxManager) {
+/**
+ * Records how a held sandbox is woken: each resume with what it asked for, and any separate
+ * keepalive. The second list is the one that must stay empty — a keepalive after the resume is a
+ * second round trip to the provider, made one after the other, at the start of every turn.
+ */
+function withResumeRecorder(manager: InMemorySandboxManager) {
+  const resumed: { id: string; keepAliveMs: number | undefined }[] = [];
   const extended: { id: string; ms: number }[] = [];
-  const extendTimeout = manager.extendTimeout.bind(manager);
 
   return {
+    resumed,
     extended,
     sandbox: wrap(manager, {
-      extendTimeout: async (id: string, ms: number) => {
+      resume: async (id, options) => {
+        resumed.push({ id, keepAliveMs: options?.keepAliveMs });
+        return await manager.resume(id, options);
+      },
+      extendTimeout: async (id, ms) => {
         extended.push({ id, ms });
-        return await extendTimeout(id, ms);
+        return await manager.extendTimeout(id, ms);
       },
     }),
   };
@@ -105,11 +117,22 @@ describe("a session that already has a sandbox", () => {
     const manager = new InMemorySandboxManager();
     const created = await manager.create(PROJECT_ID);
     if (!created.ok) throw new Error("could not seed a sandbox");
-    const { sandbox, extended } = withExtendRecorder(manager);
+
+    await acquireSandbox(deps(manager), session(created.value.id));
+
+    expect(manager.timeoutOf(created.value.id)).toBe(TTL_MS);
+  });
+
+  it("pushes it out as part of the resume, not as a second request after it", async () => {
+    const manager = new InMemorySandboxManager();
+    const created = await manager.create(PROJECT_ID);
+    if (!created.ok) throw new Error("could not seed a sandbox");
+    const { sandbox, resumed, extended } = withResumeRecorder(manager);
 
     await acquireSandbox(deps(sandbox), session(created.value.id));
 
-    expect(extended).toEqual([{ id: created.value.id, ms: TTL_MS }]);
+    expect(resumed).toEqual([{ id: created.value.id, keepAliveMs: TTL_MS }]);
+    expect(extended).toEqual([]);
   });
 });
 

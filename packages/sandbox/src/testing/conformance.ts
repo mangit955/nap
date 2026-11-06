@@ -254,6 +254,47 @@ export function describeSandboxManagerConformance(harness: SandboxManagerHarness
     // here. It is covered where a real dev server exists — see the template integration
     // test — and by the fake's own tests.
 
+    it("writes and reads bytes back exactly, including bytes that are not text", async () => {
+      await withSandbox(async ({ manager, sandboxId, dir }) => {
+        // Every value a byte can take: a channel that decoded them as text on either side would
+        // mangle the ones that are not UTF-8, and a snapshot is exactly such a file.
+        const bytes = Uint8Array.from({ length: 256 }, (_, index) => index);
+        const path = `${dir}/bytes.bin`;
+
+        expect(await manager.writeFileBytes(sandboxId, path, bytes)).toEqual({
+          ok: true,
+          value: undefined,
+        });
+        const read = await manager.readFileBytes(sandboxId, path);
+
+        expect(read.ok).toBe(true);
+        if (!read.ok) return;
+        expect(Array.from(read.value)).toEqual(Array.from(bytes));
+      });
+    });
+
+    it("reads a text file's bytes as its UTF-8", async () => {
+      await withSandbox(async ({ manager, sandboxId, dir }) => {
+        await manager.writeFile(sandboxId, `${dir}/text.txt`, "héllo");
+
+        const read = await manager.readFileBytes(sandboxId, `${dir}/text.txt`);
+
+        expect(read.ok).toBe(true);
+        if (!read.ok) return;
+        expect(Array.from(read.value)).toEqual(Array.from(new TextEncoder().encode("héllo")));
+      });
+    });
+
+    it("reports reading the bytes of a missing file as file_not_found", async () => {
+      await withSandbox(async ({ manager, sandboxId, dir }) => {
+        const read = await manager.readFileBytes(sandboxId, `${dir}/missing.bin`);
+
+        expect(read.ok).toBe(false);
+        if (read.ok) return;
+        expect(read.error.code).toBe("file_not_found");
+      });
+    });
+
     it("resumes a sandbox it created", async () => {
       await withSandbox(async ({ manager, sandboxId }) => {
         const resumed = await manager.resume(sandboxId);
@@ -261,6 +302,17 @@ export function describeSandboxManagerConformance(harness: SandboxManagerHarness
         expect(resumed.ok).toBe(true);
         if (!resumed.ok) return;
         expect(resumed.value.id).toBe(sandboxId);
+      });
+    });
+
+    it("resumes a sandbox and keeps it alive in the same call", async () => {
+      await withSandbox(async ({ manager, sandboxId, dir }) => {
+        // As above, a provider does not report its deadline back, so the answer is what is
+        // asserted — and that the sandbox is still usable through whatever the resume left behind.
+        const resumed = await manager.resume(sandboxId, { keepAliveMs: 5 * 60 * 1000 });
+
+        expect(resumed).toEqual({ ok: true, value: { id: sandboxId } });
+        expect((await manager.writeFile(sandboxId, `${dir}/after.txt`, "after")).ok).toBe(true);
       });
     });
 
@@ -287,6 +339,8 @@ export function describeSandboxManagerConformance(harness: SandboxManagerHarness
         const results = [
           await manager.readFile(sandboxId, `${dir}/before.txt`),
           await manager.writeFile(sandboxId, `${dir}/after.txt`, "after"),
+          await manager.readFileBytes(sandboxId, `${dir}/before.txt`),
+          await manager.writeFileBytes(sandboxId, `${dir}/after.bin`, new Uint8Array([1])),
           await manager.listFiles(sandboxId, dir),
           await manager.exec(sandboxId, harness.commands.streamsOutput),
           await manager.getPreviewUrl(sandboxId, 5173),
@@ -294,6 +348,7 @@ export function describeSandboxManagerConformance(harness: SandboxManagerHarness
           // sat and polled a dead address until the deadline.
           await manager.waitForPreview(sandboxId, 5173, { timeoutMs: 1_000 }),
           await manager.resume(sandboxId),
+          await manager.resume(sandboxId, { keepAliveMs: 60_000 }),
           await manager.extendTimeout(sandboxId, 60_000),
         ];
 

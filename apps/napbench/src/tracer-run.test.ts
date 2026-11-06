@@ -35,6 +35,7 @@ import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { SingleAgentRuntime } from "@nap/runtime/single-agent-runtime";
 import { TEMPLATE_DEV_PORT } from "@nap/sandbox/template";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
+import { COMMIT_COMMAND, committed } from "@nap/sandbox/testing/script-git";
 import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { writeBenchReport, writeBenchTrajectory } from "./write-report.ts";
@@ -79,16 +80,13 @@ function scriptedModel() {
 
 /** A sandbox answering the commands a turn runs, plus whatever the task's check asks. */
 function sandboxWhereBuildSucceeds(buildExitCode: number) {
-  return (
-    new InMemorySandboxManager({
-      defaultExec: () => ({ exitCode: 0, stdout: "" }),
-      serves: [TEMPLATE_DEV_PORT],
-    })
-      // Non-zero means the index differs from HEAD, which is what makes a commit happen.
-      .script(/git diff --cached --quiet/, { exitCode: 1 })
-      .script(/git rev-parse HEAD/, { exitCode: 0, stdout: `${"0".repeat(40)}\n` })
-      .script(/bun run build/, { exitCode: buildExitCode, stdout: "vite build" })
-  );
+  return new InMemorySandboxManager({
+    defaultExec: () => ({ exitCode: 0, stdout: "" }),
+    serves: [TEMPLATE_DEV_PORT],
+  })
+    .script(COMMIT_COMMAND, committed("0".repeat(40)))
+    .script(/git rev-parse HEAD/, { exitCode: 0, stdout: `${"0".repeat(40)}\n` })
+    .script(/bun run build/, { exitCode: buildExitCode, stdout: "vite build" });
 }
 
 function composeRuntime(sandbox: InMemorySandboxManager, sessionId: string) {
