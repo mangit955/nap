@@ -31,9 +31,12 @@ export type GitOptions = {
   signal?: AbortSignal | undefined;
 };
 
-/** Where the bundle and its base64 transport land inside the sandbox. */
-const BUNDLE_PATH = "/tmp/nap-snapshot.bundle";
-const BUNDLE_B64_PATH = "/tmp/nap-snapshot.bundle.b64";
+/**
+ * Where a snapshot's bundle is written inside the sandbox, on the way out and on the way in.
+ *
+ * Exported for the fakes that stand in for `git bundle create`: they leave the bundle here.
+ */
+export const BUNDLE_PATH = "/tmp/nap-snapshot.bundle";
 
 /**
  * Committer identity, passed per command rather than written to the repository's config.
@@ -185,37 +188,37 @@ export async function workspaceState(
 /**
  * The whole repository as a git bundle — a single file holding every ref and all history.
  *
- * Carried out as base64 because a bundle is binary and both `exec` stdout and `readFile`
- * are text. That costs a third in size and puts the payload in a command's output, which
- * is fine for projects of the size this builds and is worth revisiting if they grow.
+ * One command writes the bundle and prints which ref or commit HEAD is, and the bundle is then
+ * read back as a file, byte for byte. It used to be read back through that command's output as
+ * base64: a third larger, streamed through the command channel, on every turn. It is still the
+ * whole history every time, deliberately — a restore that needed a chain of earlier bundles would
+ * depend on every one of them surviving, which is the thing a snapshot exists not to depend on.
+ *
+ * `rev-parse --verify` rather than `rev-parse HEAD`, so a fake answering `currentSha` by pattern
+ * cannot answer this too — see `commitScript`.
  */
 export async function bundle(
   manager: SandboxManager,
   sandboxId: string,
   options?: GitOptions,
 ): Promise<Result<Uint8Array, SandboxError>> {
+  // HEAD is explicit because detached commits need not be reachable from a named ref.
   const head = await git(
     manager,
     sandboxId,
-    "git symbolic-ref -q HEAD || git rev-parse HEAD",
+    `{ git symbolic-ref -q HEAD || git rev-parse --verify HEAD; } && git bundle create ${BUNDLE_PATH} --all HEAD`,
     options,
   );
   if (!head.ok) return head;
-  // HEAD is explicit because detached commits need not be reachable from a named ref.
-  const result = await git(
-    manager,
-    sandboxId,
-    `git bundle create ${BUNDLE_PATH} --all HEAD && base64 < ${BUNDLE_PATH}`,
-    options,
-  );
-  if (!result.ok) return result;
 
-  // Tolerant of wrapping: -w0 asks for one line, but not every base64 honours it.
-  const encoded = result.value.replaceAll(/\s/g, "");
-  return {
-    ok: true,
-    value: encodeRepositoryBundle(Buffer.from(encoded, "base64"), head.value.trim()),
-  };
+  if (options?.signal?.aborted) return cancelled();
+  const bytes = await manager.readFileBytes(sandboxId, BUNDLE_PATH);
+  if (!bytes.ok) return bytes;
+
+  // The first line: git writes its progress to stderr, so nothing should follow, but nothing that
+  // did could change which ref was checked out.
+  const ref = head.value.trimStart().split("\n")[0]?.trim() ?? "";
+  return { ok: true, value: encodeRepositoryBundle(bytes.value, ref) };
 }
 
 /**
@@ -233,20 +236,8 @@ export async function restoreBundle(
   if (options?.signal?.aborted) return cancelled();
   const decodedBundle = decodeRepositoryBundle(bytes);
   if (!decodedBundle.ok) return decodedBundle;
-  const written = await manager.writeFile(
-    sandboxId,
-    BUNDLE_B64_PATH,
-    Buffer.from(decodedBundle.value.bundle).toString("base64"),
-  );
+  const written = await manager.writeFileBytes(sandboxId, BUNDLE_PATH, decodedBundle.value.bundle);
   if (!written.ok) return written;
-
-  const decoded = await git(
-    manager,
-    sandboxId,
-    `base64 -d < ${BUNDLE_B64_PATH} > ${BUNDLE_PATH}`,
-    options,
-  );
-  if (!decoded.ok) return decoded;
 
   const directory = "/tmp/nap-snapshot.git";
   const fetched = await git(

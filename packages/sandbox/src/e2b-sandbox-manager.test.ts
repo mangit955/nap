@@ -30,6 +30,7 @@ function stubHandle(
   return {
     sandboxId: "sbx_stub",
     files: {
+      readBytes: () => Promise.reject(new Error("files.readBytes not stubbed")),
       read: () => Promise.reject(new Error("files.read not stubbed")),
       write: () => Promise.reject(new Error("files.write not stubbed")),
       list: () => Promise.reject(new Error("files.list not stubbed")),
@@ -527,6 +528,7 @@ describe("E2BSandboxManager filesystem", () => {
     const { manager, sandboxId } = await managerWith(
       stubHandle({
         files: {
+          readBytes: () => Promise.reject(new Error("files.readBytes not stubbed")),
           read: () => Promise.reject(new Error("unused")),
           write: () => Promise.resolve(),
           list: () =>
@@ -557,6 +559,7 @@ describe("E2BSandboxManager filesystem", () => {
     const { manager, sandboxId } = await managerWith(
       stubHandle({
         files: {
+          readBytes: () => Promise.reject(new Error("files.readBytes not stubbed")),
           read: () => Promise.reject(new Error("unused")),
           write: () => Promise.resolve(),
           list: () => Promise.resolve([{ name: "odd", path: "/home/user/odd" }]),
@@ -573,6 +576,7 @@ describe("E2BSandboxManager filesystem", () => {
     const { manager, sandboxId } = await managerWith(
       stubHandle({
         files: {
+          readBytes: () => Promise.reject(new Error("files.readBytes not stubbed")),
           read: () => Promise.reject(new FileNotFoundError("/home/user/nope.txt")),
           write: () => Promise.resolve(),
           list: () => Promise.resolve([]),
@@ -585,6 +589,48 @@ describe("E2BSandboxManager filesystem", () => {
     expect(read.ok).toBe(false);
     if (read.ok) return;
     expect(read.error.code).toBe("file_not_found");
+  });
+});
+
+describe("E2BSandboxManager file bytes", () => {
+  it("reads a file as bytes in one request, with nothing decoding it on the way", async () => {
+    const { client, requests } = countingProvider();
+    const manager = new E2BSandboxManager({ client });
+    const created = await manager.create("project");
+    if (!created.ok) throw new Error(created.error.message);
+    requests.length = 0;
+
+    const read = await manager.readFileBytes(created.value.id, "/tmp/nap-snapshot.bundle");
+
+    expect(read).toEqual({ ok: true, value: new Uint8Array([0, 255]) });
+    expect(requests).toEqual(["files.readBytes"]);
+  });
+
+  it("writes bytes as a Blob, which the SDK uploads exactly as it is", async () => {
+    const written: unknown[] = [];
+    const { manager, sandboxId } = await managerWith(
+      stubHandle({
+        files: {
+          read: () => Promise.reject(new Error("unused")),
+          readBytes: () => Promise.reject(new Error("unused")),
+          write: (_path, data) => {
+            written.push(data);
+            return Promise.resolve();
+          },
+          list: () => Promise.reject(new Error("unused")),
+        },
+      }),
+    );
+    const bytes = Uint8Array.from({ length: 256 }, (_, index) => index);
+
+    const result = await manager.writeFileBytes(sandboxId, "/tmp/nap-snapshot.bundle", bytes);
+
+    expect(result).toEqual({ ok: true, value: undefined });
+    expect(written).toHaveLength(1);
+    const [data] = written;
+    expect(data).toBeInstanceOf(Blob);
+    if (!(data instanceof Blob)) return;
+    expect(new Uint8Array(await data.arrayBuffer())).toEqual(bytes);
   });
 });
 
@@ -647,6 +693,7 @@ describe("E2BSandboxManager lifecycle", () => {
     let connects = 0;
     const handle = stubHandle({
       files: {
+        readBytes: () => Promise.reject(new Error("files.readBytes not stubbed")),
         read: () => Promise.resolve("contents"),
         write: () => Promise.resolve(),
         list: () => Promise.resolve([]),
@@ -678,6 +725,7 @@ describe("E2BSandboxManager lifecycle", () => {
     let connects = 0;
     const handle = stubHandle({
       files: {
+        readBytes: () => Promise.reject(new Error("files.readBytes not stubbed")),
         read: () => Promise.resolve("contents"),
         write: () => Promise.resolve(),
         list: () => Promise.resolve([]),
@@ -778,6 +826,10 @@ function countingProvider(overrides: Partial<E2BClient> = {}) {
   const handle = (sandboxId: string): E2BSandboxHandle => ({
     sandboxId,
     files: {
+      readBytes: () => {
+        requests.push("files.readBytes");
+        return Promise.resolve(new Uint8Array([0, 255]));
+      },
       read: () => {
         requests.push("files.read");
         return Promise.resolve("contents");
@@ -882,6 +934,7 @@ describe("the handles it keeps", () => {
           stubHandle({
             sandboxId,
             files: {
+              readBytes: () => Promise.reject(new Error("files.readBytes not stubbed")),
               read: () => {
                 if (!first) return Promise.resolve("contents");
                 first = false;

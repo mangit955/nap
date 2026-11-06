@@ -203,6 +203,12 @@ export function sharedSandboxManager(
 
     extendTimeout: (sandboxId, ms) => inner.extendTimeout(local(sandboxId), ms),
 
+    // Not written through to the store, which holds a project's text files. Bytes here are a
+    // snapshot's bundle on its way in or out, read back by the same pod in the same call.
+    writeFileBytes: (sandboxId, path, contents) =>
+      inner.writeFileBytes(local(sandboxId), path, contents),
+    readFileBytes: (sandboxId, path) => inner.readFileBytes(local(sandboxId), path),
+
     writeFile: async (sandboxId, path, contents): Promise<VoidResult<SandboxError>> => {
       const written = await inner.writeFile(local(sandboxId), path, contents);
       if (!written.ok) return written;

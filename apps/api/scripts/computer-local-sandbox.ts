@@ -709,6 +709,19 @@ export class LocalDockerSandboxManager implements SandboxManager {
     path: string,
     contents: string,
   ): Promise<Result<void, SandboxError>> {
+    return await this.writeFileBytes(sandboxId, path, Buffer.from(contents));
+  }
+
+  async readFile(sandboxId: string, path: string): Promise<Result<string, SandboxError>> {
+    const read = await this.readFileBytes(sandboxId, path);
+    return read.ok ? success(Buffer.from(read.value).toString("utf8")) : read;
+  }
+
+  async writeFileBytes(
+    sandboxId: string,
+    path: string,
+    contents: Uint8Array,
+  ): Promise<Result<void, SandboxError>> {
     const normalized = allowedSandboxPath(path);
     if (normalized === undefined)
       return failure("exec_failed", "Sandbox file path is outside the app.");
@@ -729,7 +742,7 @@ export class LocalDockerSandboxManager implements SandboxManager {
       : failure("unavailable", "Local Docker file helper returned an invalid reply.");
   }
 
-  async readFile(sandboxId: string, path: string): Promise<Result<string, SandboxError>> {
+  async readFileBytes(sandboxId: string, path: string): Promise<Result<Uint8Array, SandboxError>> {
     const normalized = allowedSandboxPath(path);
     if (normalized === undefined)
       return failure("exec_failed", "Sandbox file path is outside the app.");
@@ -747,7 +760,7 @@ export class LocalDockerSandboxManager implements SandboxManager {
       !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded.data)
     )
       return failure("unavailable", "Local Docker file helper returned invalid file bytes.");
-    return success(Buffer.from(encoded.data, "base64").toString("utf8"));
+    return success(new Uint8Array(Buffer.from(encoded.data, "base64")));
   }
 
   async listFiles(sandboxId: string, path: string): Promise<Result<FileNode[], SandboxError>> {

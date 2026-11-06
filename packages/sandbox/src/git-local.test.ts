@@ -7,6 +7,7 @@ import type { ExecResult, SandboxError } from "@nap/shared/ports/sandbox-manager
 import type { Result } from "@nap/shared/result";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { bundle, commitAll, restoreBundle, workspaceState } from "./git.ts";
+import { decodeRepositoryBundle } from "./git-bundle.ts";
 import { InMemorySandboxManager } from "./testing/in-memory-sandbox-manager.ts";
 import { localGitEnvironment } from "./testing/local-git-environment.ts";
 
@@ -22,20 +23,30 @@ class LocalSandbox extends InMemorySandboxManager {
   override async exec(_id: string, command: string): Promise<Result<ExecResult, SandboxError>> {
     this.issued.push(command);
     try {
-      const result = await exec(
-        "bash",
-        ["-c", command.replaceAll("/tmp/nap-snapshot", join(directory, "transport"))],
-        { env: localGitEnvironment(directory) },
-      );
+      const result = await exec("bash", ["-c", transported(command)], {
+        env: localGitEnvironment(directory),
+      });
       return { ok: true, value: { ...result, exitCode: 0 } };
     } catch (error) {
       return { ok: true, value: { exitCode: 1, stdout: "", stderr: String(error) } };
     }
   }
   override async writeFile(_id: string, path: string, contents: string) {
-    await writeFile(path.replaceAll("/tmp/nap-snapshot", join(directory, "transport")), contents);
+    await writeFile(transported(path), contents);
     return { ok: true as const, value: undefined };
   }
+  override async writeFileBytes(_id: string, path: string, contents: Uint8Array) {
+    await writeFile(transported(path), contents);
+    return { ok: true as const, value: undefined };
+  }
+  override async readFileBytes(_id: string, path: string) {
+    return { ok: true as const, value: new Uint8Array(await readFile(transported(path))) };
+  }
+}
+
+/** Where a path the snapshot code writes in the sandbox's `/tmp` lands on this machine instead. */
+function transported(path: string): string {
+  return path.replaceAll("/tmp/nap-snapshot", join(directory, "transport"));
 }
 
 async function git(cwd: string, ...args: string[]) {
@@ -202,5 +213,44 @@ describe("commitAll", () => {
 
     expect(result).toMatchObject({ ok: false, error: { code: "exec_failed" } });
     expect(await git(source, "rev-parse", "HEAD")).toBe(before);
+  });
+});
+
+describe("a snapshot's bytes", () => {
+  // Every value a byte can take, so a text channel or an encoding anywhere on the way corrupts it.
+  const BINARY = Uint8Array.from({ length: 256 }, (_, index) => index);
+
+  it("round-trip byte for byte, a binary file in the repository included", async () => {
+    await writeFile(join(source, "logo.bin"), BINARY);
+    await git(source, "add", ".");
+    await git(source, "commit", "-m", "Add a binary file");
+    const manager = new LocalSandbox();
+
+    const captured = await bundle(manager, "sandbox", { cwd: source });
+    if (!captured.ok) throw new Error(captured.error.message);
+    // Exactly the file git wrote: nothing re-encoded it between the sandbox and here.
+    const decoded = decodeRepositoryBundle(captured.value);
+    if (!decoded.ok) throw new Error(decoded.error.message);
+    expect(Buffer.from(decoded.value.bundle)).toEqual(
+      await readFile(join(directory, "transport.bundle")),
+    );
+
+    const restored = await restoreBundle(manager, "sandbox", captured.value, { cwd: target });
+    if (!restored.ok) throw new Error(restored.error.message);
+    expect(new Uint8Array(await readFile(join(target, "logo.bin")))).toEqual(BINARY);
+    expect(await git(target, "rev-parse", "HEAD")).toBe(await git(source, "rev-parse", "HEAD"));
+  });
+
+  it("are captured in one command, and travel as bytes rather than through any command's output", async () => {
+    const manager = new LocalSandbox();
+
+    const captured = await bundle(manager, "sandbox", { cwd: source });
+    if (!captured.ok) throw new Error(captured.error.message);
+    expect(manager.issued).toHaveLength(1);
+    expect(manager.issued[0]).toContain("git bundle create");
+
+    const restored = await restoreBundle(manager, "sandbox", captured.value, { cwd: target });
+    if (!restored.ok) throw new Error(restored.error.message);
+    expect(manager.issued.some((command) => command.includes("base64"))).toBe(false);
   });
 });

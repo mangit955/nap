@@ -8,7 +8,8 @@
  * this file, which both implementations run.
  *
  * The filesystem is a flat `Map` from absolute path to contents; directories are
- * inferred from the paths, so writing a nested file implicitly creates its parents.
+ * inferred from the paths, so writing a nested file implicitly creates its parents. Contents are
+ * kept as they were written, text or bytes, and converted as UTF-8 when read the other way.
  *
  * `exec` cannot be faked the same way — there is no shell here — so responses are
  * scripted per command. A command nobody scripted *throws*: a test running an
@@ -55,6 +56,12 @@ export type ScriptedExecResponse = {
    * test, where a fake that finished everything at once could never tell the difference.
    */
   runsForMs?: number;
+  /**
+   * Files the command leaves behind, by absolute path — as `git bundle create` leaves the bundle
+   * for a later `readFileBytes`. Written only when the command finishes, as a failed one leaves
+   * nothing a caller should read.
+   */
+  writes?: Readonly<Record<string, string | Uint8Array>>;
 };
 
 export type ExecChunk = { stream: "stdout" | "stderr"; data: string };
@@ -102,7 +109,7 @@ export type InMemorySandboxManagerOptions = {
 
 type SandboxState = {
   projectId: string;
-  files: Map<string, string>;
+  files: Map<string, string | Uint8Array>;
   commands: string[];
   execs: ExecCall[];
   /** Ports a test has declared to be serving; see `listen`. */
@@ -267,7 +274,37 @@ export class InMemorySandboxManager implements SandboxManager, SandboxInventory 
 
     const contents = found.value.files.get(normalize(path));
     if (contents === undefined) return err("file_not_found", `no such file: ${path}`);
-    return { ok: true, value: contents };
+    return {
+      ok: true,
+      value: typeof contents === "string" ? contents : new TextDecoder().decode(contents),
+    };
+  }
+
+  async writeFileBytes(
+    sandboxId: string,
+    path: string,
+    contents: Uint8Array,
+  ): Promise<VoidResult<SandboxError>> {
+    const found = this.#lookup(sandboxId);
+    if (!found.ok) return found;
+    // A copy, so a caller reusing its buffer cannot change what the sandbox holds.
+    found.value.files.set(normalize(path), Uint8Array.from(contents));
+    return { ok: true, value: undefined };
+  }
+
+  async readFileBytes(sandboxId: string, path: string): Promise<Result<Uint8Array, SandboxError>> {
+    const found = this.#lookup(sandboxId);
+    if (!found.ok) return found;
+
+    const contents = found.value.files.get(normalize(path));
+    if (contents === undefined) return err("file_not_found", `no such file: ${path}`);
+    return {
+      ok: true,
+      value:
+        typeof contents === "string"
+          ? new TextEncoder().encode(contents)
+          : Uint8Array.from(contents),
+    };
   }
 
   async listFiles(sandboxId: string, path: string): Promise<Result<FileNode[], SandboxError>> {
@@ -357,6 +394,10 @@ export class InMemorySandboxManager implements SandboxManager, SandboxInventory 
     const deadline = options.timeoutMs ?? PROVIDER_DEFAULT_EXEC_TIMEOUT_MS;
     if (response.runsForMs !== undefined && response.runsForMs > deadline) {
       return err("timeout", `the command was still running after ${deadline}ms and was stopped`);
+    }
+
+    for (const [path, contents] of Object.entries(response.writes ?? {})) {
+      found.value.files.set(normalize(path), contents);
     }
 
     return { ok: true, value: { exitCode: response.exitCode ?? 0, stdout, stderr } };

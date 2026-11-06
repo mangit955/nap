@@ -51,7 +51,10 @@ export type E2BSandboxHandle = {
   sandboxId: string;
   files: {
     read(path: string): Promise<string>;
-    write(path: string, data: string): Promise<unknown>;
+    /** The file exactly as stored: one download, with no text decoding on the way. */
+    readBytes(path: string): Promise<Uint8Array>;
+    /** Text is written as UTF-8; a `Blob` is written exactly as it is. */
+    write(path: string, data: string | Blob): Promise<unknown>;
     list(path: string, opts?: { depth?: number }): Promise<E2BEntry[]>;
   };
   commands: {
@@ -223,6 +226,7 @@ function realClient(template: string | undefined): E2BClient {
     sandboxId: sandbox.sandboxId,
     files: {
       read: (path) => sandbox.files.read(path),
+      readBytes: (path) => sandbox.files.read(path, { format: "bytes" }),
       write: (path, data) => sandbox.files.write(path, data),
       list: (path, opts) => sandbox.files.list(path, opts),
     },
@@ -408,6 +412,23 @@ export class E2BSandboxManager implements SandboxManager, SandboxInventory {
 
   async readFile(sandboxId: string, path: string): Promise<Result<string, SandboxError>> {
     return this.#withSandbox(sandboxId, (handle) => handle.files.read(path));
+  }
+
+  async writeFileBytes(
+    sandboxId: string,
+    path: string,
+    contents: Uint8Array,
+  ): Promise<VoidResult<SandboxError>> {
+    return this.#withSandbox(sandboxId, async (handle) => {
+      // A `Blob` because the SDK uploads one as it is. Copied into a buffer of its own, because a
+      // `Blob` cannot be built over a view whose memory might be shared.
+      await handle.files.write(path, new Blob([new Uint8Array(contents)]));
+      return undefined;
+    });
+  }
+
+  async readFileBytes(sandboxId: string, path: string): Promise<Result<Uint8Array, SandboxError>> {
+    return this.#withSandbox(sandboxId, (handle) => handle.files.readBytes(path));
   }
 
   async listFiles(sandboxId: string, path: string): Promise<Result<FileNode[], SandboxError>> {

@@ -892,7 +892,6 @@ describe("opening a project that has been put away", () => {
   /** Everything a restore runs, answered the way a real project would answer it. */
   function scriptRestore(manager: InMemorySandboxManager): InMemorySandboxManager {
     return manager
-      .script(/base64 -d/, { exitCode: 0 })
       .script(/git bundle verify/, { exitCode: 0 })
       .script(/config --remove-section remote.origin/, { exitCode: 0 })
       .script(/git reset --hard/, { exitCode: 0 })

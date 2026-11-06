@@ -14,7 +14,12 @@ import { InMemoryUserKeyStore } from "@nap/db/testing/in-memory-user-key-store";
 import { decodeRepositoryBundle } from "@nap/sandbox/git-bundle";
 import { TEMPLATE_DEV_PORT } from "@nap/sandbox/template";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
-import { COMMIT_COMMAND, committed } from "@nap/sandbox/testing/script-git";
+import {
+  BUNDLE_COMMAND,
+  bundled,
+  COMMIT_COMMAND,
+  committed,
+} from "@nap/sandbox/testing/script-git";
 import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
 import { foldJobs } from "@nap/shared/job-state";
 import type { SessionRecord, SessionStore } from "@nap/shared/ports/session-store";
@@ -114,10 +119,9 @@ it("imports through the queue, publishes a verified dedicated branch, and retrie
       sha = sha === "a".repeat(40) ? "b".repeat(40) : "c".repeat(40);
       return committed(sha);
     })
-    .script(/git bundle create/, {
-      exitCode: 0,
-      stdout: Buffer.from("repository bundle").toString("base64"),
-    });
+    .script(BUNDLE_COMMAND, () =>
+      bundled(`refs/heads/${branch}`, new TextEncoder().encode("repository bundle")),
+    );
   const provider = new ScriptedLLMProvider([
     [{ text: "Updated repository." }],
     [{ text: "Built template." }],

@@ -70,6 +70,10 @@ expectTypeOf<SandboxManager["exec"]>().returns.resolves.toEqualTypeOf<
 >();
 expectTypeOf<ExecResult["exitCode"]>().toEqualTypeOf<number>();
 
+expectTypeOf<SandboxManager["readFileBytes"]>().returns.resolves.toEqualTypeOf<
+  Result<Uint8Array, SandboxError>
+>();
+
 expectTypeOf<SandboxManager["listFiles"]>().returns.resolves.toEqualTypeOf<
   Result<FileNode[], SandboxError>
 >();
@@ -81,6 +85,8 @@ const sandboxStub: SandboxManager = {
   extendTimeout: async () => ({ ok: true, value: undefined }),
   writeFile: async () => ({ ok: true, value: undefined }),
   readFile: async () => ({ ok: true, value: "contents" }),
+  writeFileBytes: async () => ({ ok: true, value: undefined }),
+  readFileBytes: async () => ({ ok: true, value: new Uint8Array() }),
   listFiles: async () => ({ ok: true, value: [] }),
   listTree: async () => ({ ok: true, value: [] }),
   exec: async () => ({ ok: true, value: { exitCode: 0, stdout: "", stderr: "" } }),

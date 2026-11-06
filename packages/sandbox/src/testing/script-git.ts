@@ -11,14 +11,28 @@
  * commit, and whether a bundle can be produced.
  */
 
-import { NOTHING_TO_COMMIT } from "../git.ts";
+import { BUNDLE_PATH, NOTHING_TO_COMMIT } from "../git.ts";
 import type { InMemorySandboxManager, ScriptedExecResponse } from "./in-memory-sandbox-manager.ts";
 
 /** A plausible sha. Fixed, because tests assert on it and a random one reads as meaningful. */
 export const FAKE_COMMIT_SHA = "9e107d9d372bb6826bd81d3542a419d6c2b0f5a1";
 
-/** What `git bundle create` writes, as the base64 the exec fake hands back. */
-export const FAKE_BUNDLE_B64 = Buffer.from("PACK-bundle-bytes").toString("base64");
+/** What `git bundle create` writes. Not a real bundle: nothing in a fake reads inside one. */
+export const FAKE_BUNDLE = new TextEncoder().encode("PACK-bundle-bytes");
+
+/** Matches the one command `bundle` sends, which writes the bundle and prints which ref HEAD is. */
+export const BUNDLE_COMMAND = /git bundle create/;
+
+/**
+ * That command's answer: HEAD's ref on stdout, and the bundle left where `bundle` reads it from.
+ * A fake answering with only stdout leaves nothing to read, and the snapshot fails.
+ */
+export function bundled(
+  head = "refs/heads/main",
+  bytes: Uint8Array = FAKE_BUNDLE,
+): ScriptedExecResponse {
+  return { exitCode: 0, stdout: `${head}\n`, writes: { [BUNDLE_PATH]: bytes } };
+}
 
 /**
  * The one command `commitAll` sends — stage, check, commit and read the sha, in a single script.
@@ -42,12 +56,12 @@ export const NOTHING_COMMITTED: ScriptedExecResponse = {
 
 export function scriptGit(
   manager: InMemorySandboxManager,
-  options: { dirty?: boolean; sha?: string; bundle?: string } = {},
+  options: { dirty?: boolean; sha?: string; bundle?: Uint8Array } = {},
 ): InMemorySandboxManager {
-  const { dirty = true, sha = FAKE_COMMIT_SHA, bundle = FAKE_BUNDLE_B64 } = options;
+  const { dirty = true, sha = FAKE_COMMIT_SHA, bundle = FAKE_BUNDLE } = options;
 
   return manager
     .script(COMMIT_COMMAND, dirty ? committed(sha) : NOTHING_COMMITTED)
     .script(/git rev-parse HEAD/, { exitCode: 0, stdout: `${sha}\n` })
-    .script(/git bundle create/, { exitCode: 0, stdout: bundle });
+    .script(BUNDLE_COMMAND, bundled("refs/heads/main", bundle));
 }

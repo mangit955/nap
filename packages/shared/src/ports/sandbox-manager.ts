@@ -103,6 +103,20 @@ export interface SandboxManager {
 
   writeFile(sandboxId: string, path: string, contents: string): Promise<VoidResult<SandboxError>>;
   readFile(sandboxId: string, path: string): Promise<Result<string, SandboxError>>;
+
+  /**
+   * As `writeFile` and `readFile`, for contents that are not text: exactly these bytes, both ways.
+   *
+   * For what has to arrive unchanged and would be larger in any text encoding, which today is a
+   * snapshot's git bundle. Before these, the bundle was carried as base64 through a command's
+   * output: a third larger, and streamed through the command channel, on every turn.
+   */
+  writeFileBytes(
+    sandboxId: string,
+    path: string,
+    contents: Uint8Array,
+  ): Promise<VoidResult<SandboxError>>;
+  readFileBytes(sandboxId: string, path: string): Promise<Result<Uint8Array, SandboxError>>;
   listFiles(sandboxId: string, path: string): Promise<Result<FileNode[], SandboxError>>;
 
   /**

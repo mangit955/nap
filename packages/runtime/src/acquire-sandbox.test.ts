@@ -61,6 +61,9 @@ function wrap(manager: InMemorySandboxManager, over: Partial<SandboxManager>): S
     extendTimeout: (sandboxId, ms) => manager.extendTimeout(sandboxId, ms),
     writeFile: (sandboxId, path, contents) => manager.writeFile(sandboxId, path, contents),
     readFile: (sandboxId, path) => manager.readFile(sandboxId, path),
+    writeFileBytes: (sandboxId, path, contents) =>
+      manager.writeFileBytes(sandboxId, path, contents),
+    readFileBytes: (sandboxId, path) => manager.readFileBytes(sandboxId, path),
     listFiles: (sandboxId, options) => manager.listFiles(sandboxId, options),
     listTree: (sandboxId, root, options) => manager.listTree(sandboxId, root, options),
     exec: (sandboxId, command, onOutput, options) =>

@@ -47,7 +47,6 @@ let snapshots: InMemorySnapshotStore;
 /** Every command a restore runs, answered the way a real project would answer it. */
 function scriptRestore(manager: CountingSandboxManager): CountingSandboxManager {
   return manager
-    .script(/base64 -d/, { exitCode: 0 })
     .script(/git bundle verify/, { exitCode: 0 })
     .script(/config --remove-section remote.origin/, { exitCode: 0 })
     .script(/git reset --hard/, { exitCode: 0 })
@@ -117,9 +116,7 @@ describe("a project with a snapshot", () => {
     // Order, not membership: resetting before the fetch would reset onto the template's own
     // HEAD and report a successful restore of nothing.
     const commands = sandbox.commands(opened.value.sandboxId).join("\n");
-    expect(commands).toMatch(
-      /base64 -d[\s\S]*git bundle verify[\s\S]*git reset --hard[\s\S]*git clean/,
-    );
+    expect(commands).toMatch(/git bundle verify[\s\S]*git reset --hard[\s\S]*git clean/);
   });
 });
 
