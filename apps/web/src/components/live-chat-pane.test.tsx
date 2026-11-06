@@ -1215,40 +1215,52 @@ describe("LiveChatPane steering a running turn", () => {
     expect(turns).toEqual([]);
   });
 
-  it("offers a steer back once the session is seen idle with it unread", async () => {
-    // The log alone still shows the turn running, with the steer waiting on it. What says the
-    // turn is over is the server's activity read, and only that can turn the steer into one that
-    // was never sent.
-    const events = [
-      ...running().events,
-      ev("steer.received", { steerId: crypto.randomUUID(), text: "Use Postgres instead" }, 3),
-    ];
-    const server = async (url: string, init?: RequestInit): Promise<Response> => {
-      if (url.includes("/activity"))
-        return Response.json({ sessionId: SESSION_ID, throughSeq: 3, active: false });
-      return fetchJson(url, init);
-    };
-    render(
-      <LiveChatPane
-        sessionId={SESSION_ID}
-        log={{ ...running(), events, lastSeq: 3, jobs: jobView(events) }}
-        fetchJson={server}
-      />,
-    );
-    expect(
-      await screen.findByRole("group", { name: "Sent while the agent worked" }),
-    ).toHaveTextContent("Waiting for the agent's next step");
+  it.each([false, true])(
+    "offers an unread steer back with its original planning intent (%s)",
+    async (planning) => {
+      // The log alone still shows the turn running, with the steer waiting on it. What says the
+      // turn is over is the server's activity read, and only that can turn the steer into one that
+      // was never sent.
+      const events = [
+        ev(
+          "user.message",
+          {
+            text: "Build a notes app",
+            ...(planning ? { plan: { intent: "propose" as const } } : {}),
+          },
+          1,
+        ),
+        ev("turn.started", { source: "user" }, 2),
+        ev("steer.received", { steerId: crypto.randomUUID(), text: "Use Postgres instead" }, 3),
+      ];
+      const server = async (url: string, init?: RequestInit): Promise<Response> => {
+        if (url.includes("/activity"))
+          return Response.json({ sessionId: SESSION_ID, throughSeq: 3, active: false });
+        return fetchJson(url, init);
+      };
+      render(
+        <LiveChatPane
+          sessionId={SESSION_ID}
+          log={{ ...running(), events, lastSeq: 3, jobs: jobView(events) }}
+          fetchJson={server}
+        />,
+      );
+      expect(
+        await screen.findByRole("group", { name: "Sent while the agent worked" }),
+      ).toHaveTextContent("Waiting for the agent's next step");
 
-    await waitFor(
-      () =>
-        expect(
-          screen.getByRole("group", { name: "Sent while the agent worked" }),
-        ).toHaveTextContent("Not sent: nothing read it before the turn ended."),
-      { timeout: 3000 },
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Send again" }));
-    await waitFor(() =>
-      expect(turns.map((turn) => turn.message)).toEqual(["Use Postgres instead"]),
-    );
-  });
+      await waitFor(
+        () =>
+          expect(
+            screen.getByRole("group", { name: "Sent while the agent worked" }),
+          ).toHaveTextContent("Not sent: nothing read it before the turn ended."),
+        { timeout: 3000 },
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Send again" }));
+      await waitFor(() =>
+        expect(turns.map((turn) => turn.message)).toEqual(["Use Postgres instead"]),
+      );
+      expect(turns[0]?.plan).toEqual(planning ? { intent: "propose" } : undefined);
+    },
+  );
 });

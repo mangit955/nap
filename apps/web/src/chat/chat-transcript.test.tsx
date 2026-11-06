@@ -942,6 +942,29 @@ describe("messages sent while a turn ran", () => {
     expect(within(steer).queryByRole("button")).toBeNull();
   });
 
+  it("resends an undelivered planning steer as a plan request", () => {
+    const onRetry = vi.fn();
+    const events = [
+      ev("user.message", { text: "Plan a dark theme", plan: { intent: "propose" } }),
+      ev("steer.received", { steerId: STEER, text: "plan tags too" }),
+      ev("turn.completed", {
+        usage: { inputTokens: 0, outputTokens: 0 },
+        durationMs: 0,
+        commitSha: null,
+      }),
+    ];
+    render(
+      <ChatTranscript
+        items={buildTranscript(events, { idleThroughSeq: events.at(-1)?.seq })}
+        onRetry={onRetry}
+      />,
+    );
+
+    const steer = screen.getByRole("group", { name: "Sent while the agent worked" });
+    fireEvent.click(within(steer).getByRole("button", { name: "Send again" }));
+    expect(onRetry).toHaveBeenCalledWith("plan tags too", undefined, { intent: "propose" });
+  });
+
   it("offers one that was dropped back, with the plan intent of the turn it was sent to", () => {
     const onRetry = vi.fn();
     nextSeq = 1;

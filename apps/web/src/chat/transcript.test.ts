@@ -1176,6 +1176,20 @@ describe("steers", () => {
     },
   );
 
+  it("keeps plan intent when an unread planning steer is offered back after idle", () => {
+    const events = [
+      ev("user.message", { text: "Plan a dark theme", plan: { intent: "propose" } }),
+      received("plan tags too"),
+      ended(),
+    ];
+
+    expect(buildTranscript(events, { idleThroughSeq: events.at(-1)?.seq }).at(-1)).toMatchObject({
+      kind: "steer",
+      status: "undelivered",
+      retryPlan: { intent: "propose" },
+    });
+  });
+
   it("calls a waiting steer undelivered once the session was seen idle past it", () => {
     const events = [ev("user.message", { text: "Build" }), received(), ended()];
     const idle = events.at(-1)?.seq ?? 0;

@@ -782,6 +782,7 @@ export function buildTranscript(
     running === undefined ? undefined : (requestOfRepair.get(running) ?? running);
   for (const [steerId, { key, text, requestId }] of steersWaiting) {
     if (steersDrawn.has(steerId) || prompted.has(steerId)) continue;
+    const plan = retryByTurn.get(requestId)?.plan;
     items.push({
       kind: "steer",
       key,
@@ -789,6 +790,7 @@ export function buildTranscript(
       text,
       status:
         key <= idleThroughSeq ? "undelivered" : runningRequest === requestId ? "waiting" : "queued",
+      ...(plan?.intent === "propose" ? { retryPlan: plan } : {}),
     });
   }
 
