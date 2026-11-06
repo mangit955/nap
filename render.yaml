@@ -35,6 +35,8 @@ services:
     maxShutdownDelaySeconds: 60
     numInstances: 1
     envVars: &env
+      - key: NAP_WORKER_FALLBACK_POLL_SECONDS
+        value: "5"
       - key: NAP_EVENT_BUS
         value: postgres
       - key: NODE_ENV

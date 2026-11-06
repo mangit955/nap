@@ -115,14 +115,12 @@ async function acquireAuthorizedSandbox(
   if (options.signal?.aborted) return cancelledAcquire();
   if (session.sandboxId === null) return await open(options, session);
 
-  const resumed = await options.sandbox.resume(session.sandboxId);
+  // Every provider kills a sandbox on a timer that starts when it was created, not when it was last
+  // used, so a conversation that runs longer than the budget would lose its workspace mid-sentence.
+  // A turn is exactly the signal that someone is still here. The keepalive rides on the resume
+  // rather than following it, because a second request here is one every turn waits for.
+  const resumed = await options.sandbox.resume(session.sandboxId, { keepAliveMs: options.ttlMs });
   if (resumed.ok) {
-    // Every provider kills a sandbox on a timer that starts when it was created, not when it was
-    // last used, so a conversation that runs longer than the budget would lose its workspace
-    // mid-sentence. A turn is exactly the signal that someone is still here. The result is
-    // deliberately not checked: the sandbox has just answered a resume, and failing a turn over a
-    // keepalive would trade a small risk for a certain outage.
-    await options.sandbox.extendTimeout(resumed.value.id, options.ttlMs);
     return { ok: true, value: { id: resumed.value.id, created: false, notices: [] } };
   }
 

@@ -19,6 +19,7 @@ import { ABANDONED_COMPUTER_NOTICE } from "@nap/runtime/project-computer";
 import { TEMPLATE_DEV_PORT } from "@nap/sandbox/template";
 import { FakeSandboxDesktop } from "@nap/sandbox/testing/fake-sandbox-desktop";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
+import { COMMIT_COMMAND, committed, NOTHING_COMMITTED } from "@nap/sandbox/testing/script-git";
 import { ComputerControlGrantSchema } from "@nap/shared/computer-access";
 import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
 import { ABANDON_AFTER_MS } from "@nap/shared/ports/project-computer-access";
@@ -59,6 +60,7 @@ const CONFIG: NapDeps["config"] = {
   NAP_REAP_INTERVAL_SECONDS: 60,
   NAP_JANITOR_INTERVAL_SECONDS: 60,
   NAP_WORKER_CONCURRENCY: 4,
+  NAP_WORKER_FALLBACK_POLL_SECONDS: 5,
   // Short, because a test that leaves a turn hanging should fail rather than wait ten minutes for
   // the teardown's drain.
   NAP_DRAIN_TIMEOUT_SECONDS: 1,
@@ -87,7 +89,9 @@ function turnableSandbox(): InMemorySandboxManager {
     defaultExec: () => ({ exitCode: 0, stdout: "" }),
     serves: [TEMPLATE_DEV_PORT],
     seed: { [`${PROJECT_ROOT_PATH}/package.json`]: JSON.stringify({ scripts: {} }) },
-  }).script(/git rev-parse HEAD/, { exitCode: 0, stdout: `${"0".repeat(40)}\n` });
+  })
+    .script(/git rev-parse HEAD/, { exitCode: 0, stdout: `${"0".repeat(40)}\n` })
+    .script(COMMIT_COMMAND, NOTHING_COMMITTED);
 }
 
 /** A project that owns one session, which is what the admission route's checks look for. */
@@ -157,6 +161,7 @@ function compose(overrides: Partial<NapDeps> = {}) {
     events: new InMemoryEventStore(),
     bus: new InMemoryEventBus(),
     cancels: null,
+    claims: null,
     sandbox: new InMemorySandboxManager(),
     objects: new InMemoryObjectStore(),
     provider: new ScriptedLLMProvider([]),
@@ -374,6 +379,22 @@ describe("composeNap", () => {
     // channel on a socket, so an API pod or a reaper paying it would be paying for nothing.
     const listen = vi.fn(async () => async () => {});
     const composed = compose({ role, cancels: { announce: () => {}, listen } });
+
+    await vi.waitFor(() => expect(listen).toHaveBeenCalledTimes(expected));
+    await composed.worker.stop();
+    expect(listen).toHaveBeenCalledTimes(expected);
+  });
+
+  it.each([
+    ["worker", 1],
+    ["all", 1],
+    ["api", 0],
+    ["reaper", 0],
+  ] as const)("as %s, listens for claim wake-ups %i time(s)", async (role, expected) => {
+    // A worker given no channel still claims everything, a tenth of a second late, while asking
+    // the database ten times a second for ever, so no test of a turn would notice it missing.
+    const listen = vi.fn(async () => async () => {});
+    const composed = compose({ role, claims: { announce: () => {}, listen, hearing: () => true } });
 
     await vi.waitFor(() => expect(listen).toHaveBeenCalledTimes(expected));
     await composed.worker.stop();
@@ -662,7 +683,7 @@ describe("composeNap", () => {
         role: "api",
         capture,
         sessions: new InMemorySessionStore(ids),
-        sandbox: turnableSandbox().script(/git diff --cached --quiet/, { exitCode: 1 }),
+        sandbox: turnableSandbox().script(COMMIT_COMMAND, committed("0".repeat(40))),
         provider: new ScriptedLLMProvider(
           ids.map(() => [{ text: "Done." }, { stopReason: "end_turn" }]),
         ),

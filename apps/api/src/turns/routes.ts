@@ -146,7 +146,7 @@ const TurnBodySchema = z.object({
 });
 
 /**
- * A message sent while a turn runs (ADR-0027). Its id is the client's, so a retry is the same
+ * A message sent while a turn runs (ADR-0028). Its id is the client's, so a retry is the same
  * message. No attachments: images take the media path a prompt takes, so the client sends those as
  * a turn. No approval: an approval names a waiting plan, and nothing waits while a turn runs.
  */
@@ -328,7 +328,7 @@ export function registerTurnRoutes(
 
   /**
    * A message sent while a turn runs: it joins that turn at its next step, or, when nothing can take
-   * it, becomes the next turn (ADR-0027).
+   * it, becomes the next turn (ADR-0028).
    *
    * **Admitted exactly as a prompt is**, in the same order — ownership, model access, the sandbox
    * quota, then the rate limit, which records — and charged whichever way it lands. Charging only a

@@ -34,6 +34,7 @@ import { E2BSandboxManager } from "@nap/sandbox/e2b-sandbox-manager";
 import { NAP_TEMPLATE, TEMPLATE_DEV_PORT, TEMPLATE_WORKDIR } from "@nap/sandbox/template";
 import { FakeSandboxDesktop } from "@nap/sandbox/testing/fake-sandbox-desktop";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
+import { COMMIT_COMMAND, committed } from "@nap/sandbox/testing/script-git";
 import { loadEnvFile } from "@nap/shared/env-file";
 import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
 import type { LLMProvider, LLMRequest } from "@nap/shared/ports/llm-provider";
@@ -171,22 +172,19 @@ const TEMPLATE_MANIFEST = { scripts: { build: "vite build", dev: "vite --host" }
 
 /** An in-memory sandbox answering the commands a turn actually runs, git included. */
 function fakeSandbox(): InMemorySandboxManager {
-  return (
-    new InMemorySandboxManager({
-      // Anything unscripted gets a plausible success: this sandbox is a stand-in, not the
-      // subject of the run.
-      defaultExec: () => ({ exitCode: 0, stdout: "" }),
-      // Serving from the start, so the dry run shows the `preview.ready` a real one emits.
-      serves: [TEMPLATE_DEV_PORT],
-      // And a manifest, so the dry run shows the verification a real one runs. Without it the
-      // verifier finds nothing to discover checks from and every dry run ends `abandoned`,
-      // which is the harness lying about the shape of a turn.
-      seed: { [`${PROJECT_ROOT_PATH}/package.json`]: JSON.stringify(TEMPLATE_MANIFEST) },
-    })
-      // Non-zero means the index differs from HEAD, which is what makes a commit happen.
-      .script(/git diff --cached --quiet/, { exitCode: 1 })
-      .script(/git rev-parse HEAD/, { exitCode: 0, stdout: `${"0".repeat(40)}\n` })
-  );
+  return new InMemorySandboxManager({
+    // Anything unscripted gets a plausible success: this sandbox is a stand-in, not the
+    // subject of the run.
+    defaultExec: () => ({ exitCode: 0, stdout: "" }),
+    // Serving from the start, so the dry run shows the `preview.ready` a real one emits.
+    serves: [TEMPLATE_DEV_PORT],
+    // And a manifest, so the dry run shows the verification a real one runs. Without it the
+    // verifier finds nothing to discover checks from and every dry run ends `abandoned`,
+    // which is the harness lying about the shape of a turn.
+    seed: { [`${PROJECT_ROOT_PATH}/package.json`]: JSON.stringify(TEMPLATE_MANIFEST) },
+  })
+    .script(COMMIT_COMMAND, committed("0".repeat(40)))
+    .script(/git rev-parse HEAD/, { exitCode: 0, stdout: `${"0".repeat(40)}\n` });
 }
 
 let sandbox: SandboxManager;

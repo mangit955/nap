@@ -8,7 +8,7 @@
  * piece leans on. A hook can add words and can delay the end; it cannot emit a terminal event,
  * persist anything or reorder a batch, because none of those are on this interface.
  *
- * Five seams, each with a user today (ADR-0020, and ADR-0027 for the fifth). Hooks run in the order
+ * Five seams, each with a user today (ADR-0020, and ADR-0028 for the fifth). Hooks run in the order
  * they were given, and each sees the outcome the one before it produced.
  */
 

@@ -60,7 +60,7 @@ export type TurnRequest = TurnRequestBase &
          */
         plan?: PlanIntent | undefined;
         /**
-         * Messages sent to this request while it runs (ADR-0027). Read at the step boundaries of
+         * Messages sent to this request while it runs (ADR-0028). Read at the step boundaries of
          * every turn it runs, its repairs included, and closed once its last turn has ended:
          * whatever was never read becomes the next turn, or is dropped if the request was stopped.
          * Absent, as for anything not run from the queue, nothing joins it.

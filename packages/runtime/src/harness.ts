@@ -75,7 +75,7 @@ export type HarnessOptions = {
    */
   plan: "off" | "propose" | "approve";
   /**
-   * A message sent while the first turn runs, which joins it at its next step (ADR-0027). Sent
+   * A message sent while the first turn runs, which joins it at its next step (ADR-0028). Sent
    * during the turn's first model call, so the dry run always shows it read after a tool result.
    */
   steer: string | undefined;

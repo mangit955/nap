@@ -245,6 +245,10 @@ code.
 There is **no `attempts` column and no requeue path.** A request is claimed at most once. That is
 §6's at-most-once execution guarantee, expressed in the schema.
 
+How often a worker runs the claim, and what makes it run one sooner, is not in this design:
+[ADR-0027](adr/0027-an-idle-worker-waits-to-be-told.md) replaced a 100 ms poll with a wake-up
+announced by every writer of a claimable request, and a five-second poll behind it.
+
 ### Lease renewal and fencing
 
 Lease expiry does not, by itself, stop a worker. A worker can lose its lease while still alive — a
@@ -851,7 +855,7 @@ for all of it.
 **There is no edge back to `queued`.** Lease loss never requeues. That is decision 1, expressed as a
 state machine, and it is the reason execution is at-most-once.
 
-**A request can also be admitted by another request's end.** Since steering (ADR-0027), a message
+**A request can also be admitted by another request's end.** Since steering (ADR-0028), a message
 sent to a running request that the request never read is queued as a turn when that request closes,
 under the message's own id. That is a new row, not a requeue: its message was admitted, and charged,
 by the steer route, and it has never run. A request that was stopped or orphaned queues none.

@@ -37,7 +37,7 @@ beforeAll(() => {
     connection: { application_name: inputApplication, lock_timeout: 2000 },
   });
   db = drizzle(client);
-  queue = new PostgresTurnQueue(db);
+  queue = new PostgresTurnQueue(db, { claims: null });
 });
 beforeEach(async () => {
   await db.delete(projectComputerOperations);
@@ -78,7 +78,7 @@ async function fixture(transport?: DesktopInputTransport) {
     ])
     .returning();
   const desktop = new FakeSandboxDesktop({ bytes: new Uint8Array(), width: 1024, height: 768 });
-  const guard = new PostgresProjectComputerAccess(drizzle(inputClient));
+  const guard = new PostgresProjectComputerAccess(drizzle(inputClient), { claims: null });
   const app = createApp({
     logger: createLogger({ level: "silent" }, { write: () => {} }),
     authenticate: async () => ({ userId: user!.id, isAnonymous: false }),
@@ -315,7 +315,7 @@ it.each(TURN_REQUEST_KINDS)(
     });
     // A different pool/store represents the next process. A returned HTTP failure and
     // a released transaction are not permission for any project session to execute.
-    const nextProcess = new PostgresTurnQueue(drizzle(client));
+    const nextProcess = new PostgresTurnQueue(drizzle(client), { claims: null });
     expect(await nextProcess.claim("successor")).toBeNull();
     expect(
       await nextProcess.getStatus({
@@ -420,9 +420,9 @@ it("refuses abandonment to a stranger and from another site", async () => {
     computerAccess: {
       sessions: new PostgresSessionStore(db),
       desktop: f.desktop,
-      access: new PostgresProjectComputerAccess(drizzle(inputClient)),
+      access: new PostgresProjectComputerAccess(drizzle(inputClient), { claims: null }),
       computer: new ProjectComputer({
-        access: new PostgresProjectComputerAccess(drizzle(inputClient)),
+        access: new PostgresProjectComputerAccess(drizzle(inputClient), { claims: null }),
         transport: f.desktop.transport,
       }),
       secret: "integration-secret",
@@ -493,5 +493,7 @@ it("keeps admission fenced after the dispatching database session is terminated"
     model: "anthropic/claude-sonnet-5",
     billsToUser: false,
   });
-  expect(await new PostgresTurnQueue(drizzle(client)).claim("after-api-db-loss")).toBeNull();
+  expect(
+    await new PostgresTurnQueue(drizzle(client), { claims: null }).claim("after-api-db-loss"),
+  ).toBeNull();
 });

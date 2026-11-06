@@ -22,6 +22,7 @@ import type {
   ExecOutputHandler,
   ExecResult,
   FileNode,
+  ResumeOptions,
   Sandbox,
   SandboxError,
   SandboxManager,
@@ -124,6 +125,11 @@ const ExecStatusSchema = z.strictObject({ exitCode: z.int().min(0).max(255) });
 
 function success<T>(value: T): Result<T, SandboxError> {
   return { ok: true, value };
+}
+
+/** What E2B accepts for a sandbox's lifetime, held to here so a local run fails the same way. */
+function validTtl(ms: number): boolean {
+  return Number.isInteger(ms) && ms >= 1 && ms <= 86_400_000;
 }
 
 function failure(code: SandboxError["code"], message: string): Result<never, SandboxError> {
@@ -649,11 +655,19 @@ export class LocalDockerSandboxManager implements SandboxManager {
     }
   }
 
-  async resume(sandboxId: string): Promise<Result<Sandbox, SandboxError>> {
+  async resume(sandboxId: string, options?: ResumeOptions): Promise<Result<Sandbox, SandboxError>> {
+    const keepAliveMs = options?.keepAliveMs;
+    if (keepAliveMs !== undefined && !validTtl(keepAliveMs))
+      return failure("exec_failed", "Sandbox TTL must be an integer from 1 to 86400000 ms.");
     const found = this.#find(sandboxId);
     if (!found.ok) return found;
     const resource = found.value;
     if (resource.state !== "live") return failure("destroyed", "Sandbox is being destroyed.");
+    // Before asking Docker anything, so the timer cannot fire while Docker answers, and lengthened,
+    // never shortened, as E2B's resume does. A resume that then fails leaves a sandbox nothing will
+    // use living longer, which `destroy` and `close` still end.
+    if (keepAliveMs !== undefined && Date.now() + keepAliveMs > resource.expiresAt)
+      this.#resetTimer(resource, keepAliveMs);
     const inspected = await this.#inspect(resource.id);
     const labels = inspected?.Config.Labels;
     if (
@@ -678,7 +692,7 @@ export class LocalDockerSandboxManager implements SandboxManager {
   }
 
   async extendTimeout(sandboxId: string, ms: number): Promise<Result<void, SandboxError>> {
-    if (!Number.isInteger(ms) || ms < 1 || ms > 86_400_000)
+    if (!validTtl(ms))
       return failure("exec_failed", "Sandbox TTL must be an integer from 1 to 86400000 ms.");
     const found = this.#find(sandboxId);
     if (!found.ok) return found;
@@ -691,6 +705,19 @@ export class LocalDockerSandboxManager implements SandboxManager {
     sandboxId: string,
     path: string,
     contents: string,
+  ): Promise<Result<void, SandboxError>> {
+    return await this.writeFileBytes(sandboxId, path, Buffer.from(contents));
+  }
+
+  async readFile(sandboxId: string, path: string): Promise<Result<string, SandboxError>> {
+    const read = await this.readFileBytes(sandboxId, path);
+    return read.ok ? success(Buffer.from(read.value).toString("utf8")) : read;
+  }
+
+  async writeFileBytes(
+    sandboxId: string,
+    path: string,
+    contents: Uint8Array,
   ): Promise<Result<void, SandboxError>> {
     const normalized = allowedSandboxPath(path);
     if (normalized === undefined)
@@ -712,7 +739,7 @@ export class LocalDockerSandboxManager implements SandboxManager {
       : failure("unavailable", "Local Docker file helper returned an invalid reply.");
   }
 
-  async readFile(sandboxId: string, path: string): Promise<Result<string, SandboxError>> {
+  async readFileBytes(sandboxId: string, path: string): Promise<Result<Uint8Array, SandboxError>> {
     const normalized = allowedSandboxPath(path);
     if (normalized === undefined)
       return failure("exec_failed", "Sandbox file path is outside the app.");
@@ -730,7 +757,7 @@ export class LocalDockerSandboxManager implements SandboxManager {
       !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded.data)
     )
       return failure("unavailable", "Local Docker file helper returned invalid file bytes.");
-    return success(Buffer.from(encoded.data, "base64").toString("utf8"));
+    return success(new Uint8Array(Buffer.from(encoded.data, "base64")));
   }
 
   async listFiles(sandboxId: string, path: string): Promise<Result<FileNode[], SandboxError>> {

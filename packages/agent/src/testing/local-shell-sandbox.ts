@@ -109,6 +109,25 @@ export class LocalShellSandbox implements SandboxManager {
     }
   }
 
+  async writeFileBytes(
+    _sandboxId: string,
+    path: string,
+    contents: Uint8Array,
+  ): Promise<VoidResult<SandboxError>> {
+    const target = this.host(path);
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, contents);
+    return { ok: true, value: undefined };
+  }
+
+  async readFileBytes(_sandboxId: string, path: string): Promise<Result<Uint8Array, SandboxError>> {
+    try {
+      return { ok: true, value: new Uint8Array(await readFile(this.host(path))) };
+    } catch {
+      return { ok: false, error: { code: "file_not_found", message: `${path} does not exist` } };
+    }
+  }
+
   async listFiles(_sandboxId: string, path: string): Promise<Result<FileNode[], SandboxError>> {
     try {
       const entries = await readdir(this.host(path), { withFileTypes: true });

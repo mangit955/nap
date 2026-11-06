@@ -1,3 +1,4 @@
+import type { ClaimAnnouncer } from "@nap/shared/ports/claim-channel";
 import { ScopeDrainProofSchema } from "@nap/shared/ports/desktop-input-transport";
 import {
   ABANDON_AFTER_MS,
@@ -35,7 +36,10 @@ const denied = (code: ComputerAdmissionError["code"]): Result<never, ComputerAdm
 });
 
 export class PostgresProjectComputerAccess implements ProjectComputerAccess {
-  constructor(readonly db: PostgresJsDatabase) {}
+  constructor(
+    readonly db: PostgresJsDatabase,
+    readonly options: { claims: ClaimAnnouncer | null },
+  ) {}
 
   async occupied(projectId: string): Promise<boolean> {
     const [row] = await this.db
@@ -57,7 +61,7 @@ export class PostgresProjectComputerAccess implements ProjectComputerAccess {
         .where(and(eq(projects.id, request.projectId), eq(projects.userId, request.userId)))
         .for("update");
       if (!project) return denied("not_found");
-      if (await new PostgresProjectComputerAccess(tx).occupied(request.projectId))
+      if (await new PostgresProjectComputerAccess(tx, { claims: null }).occupied(request.projectId))
         return denied("recovery_pending");
       const leased = await tx
         .select({ id: turnRequests.id })
@@ -107,7 +111,9 @@ export class PostgresProjectComputerAccess implements ProjectComputerAccess {
           .for("update");
         if (!project || (actor.kind === "owner" && project.userId !== actor.binding.userId))
           return denied("not_found");
-        if (await new PostgresProjectComputerAccess(tx).occupied(request.projectId))
+        if (
+          await new PostgresProjectComputerAccess(tx, { claims: null }).occupied(request.projectId)
+        )
           return denied("recovery_pending");
         if (project.sandboxId !== request.sandboxId) return denied("stale_grant");
         if (actor.kind === "owner") {
@@ -171,7 +177,7 @@ export class PostgresProjectComputerAccess implements ProjectComputerAccess {
   async clear(request: Parameters<ProjectComputerAccess["clear"]>[0]): Promise<boolean> {
     const proof = ScopeDrainProofSchema.parse(request.proof);
     if (proof.scopeId !== request.scopeId || proof.sandboxId !== request.sandboxId) return false;
-    return this.db.transaction(async (tx) => {
+    const cleared = await this.db.transaction(async (tx) => {
       await tx
         .select({ id: projects.id })
         .from(projects)
@@ -183,6 +189,8 @@ export class PostgresProjectComputerAccess implements ProjectComputerAccess {
         .returning();
       return removed.length === 1;
     });
+    if (cleared) this.options.claims?.announce();
+    return cleared;
   }
 
   async recoverable(limit: number): Promise<ComputerReservation[]> {
@@ -231,7 +239,7 @@ export class PostgresProjectComputerAccess implements ProjectComputerAccess {
       ok: false as const,
       error: { code },
     });
-    return this.db.transaction<Awaited<ReturnType<ProjectComputerAccess["abandon"]>>>(
+    const result = await this.db.transaction<Awaited<ReturnType<ProjectComputerAccess["abandon"]>>>(
       async (tx) => {
         // The project lock first, as reserve, clear and markRecovering take it.
         const [project] = await tx
@@ -263,6 +271,8 @@ export class PostgresProjectComputerAccess implements ProjectComputerAccess {
         return { ok: true, value: { released } };
       },
     );
+    if (result.ok) this.options.claims?.announce();
+    return result;
   }
 
   async defer(scope: ComputerScopeIdentity): Promise<void> {

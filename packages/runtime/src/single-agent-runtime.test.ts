@@ -27,7 +27,7 @@ import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
 import { FakeSandboxDesktop } from "@nap/sandbox/testing/fake-sandbox-desktop";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
-import { scriptGit } from "@nap/sandbox/testing/script-git";
+import { COMMIT_COMMAND, scriptGit } from "@nap/sandbox/testing/script-git";
 import { NapEventSchema, type NapEventType } from "@nap/shared/events";
 import type {
   AppendOptions,
@@ -53,7 +53,7 @@ function delay(ms: number): Promise<void> {
 }
 
 function commitCommands(manager: InMemorySandboxManager, sandboxId: string): string[] {
-  return manager.commands(sandboxId).filter((command) => /git .*commit -m/.test(command));
+  return manager.commands(sandboxId).filter((command) => COMMIT_COMMAND.test(command));
 }
 
 /** A sandbox manager that cannot hand out sandboxes, for the acquisition-failure path. */
@@ -626,10 +626,10 @@ describe("SingleAgentRuntime", () => {
   });
 
   it("fails the turn when the commit itself fails, and never reports completion", async () => {
-    sandbox = new InMemorySandboxManager()
-      .script(/git add -A/, { exitCode: 0 })
-      .script(/git diff --cached --quiet/, { exitCode: 1 })
-      .script(/git .*commit -m/, { exitCode: 128, stderr: "fatal: unable to write" });
+    sandbox = new InMemorySandboxManager().script(COMMIT_COMMAND, {
+      exitCode: 128,
+      stderr: "fatal: unable to write",
+    });
 
     const outcome = await runtime(new ScriptedAgent(HAPPY_SCRIPT, true), { sandbox }).runTurn({
       turnId: crypto.randomUUID(),
@@ -892,7 +892,6 @@ describe("opening a project that has been put away", () => {
   /** Everything a restore runs, answered the way a real project would answer it. */
   function scriptRestore(manager: InMemorySandboxManager): InMemorySandboxManager {
     return manager
-      .script(/base64 -d/, { exitCode: 0 })
       .script(/git bundle verify/, { exitCode: 0 })
       .script(/config --remove-section remote.origin/, { exitCode: 0 })
       .script(/git reset --hard/, { exitCode: 0 })
@@ -1162,7 +1161,7 @@ describe("keeping a resumed sandbox alive", () => {
   it("uses the lifetime it was configured with", async () => {
     const created = await sandbox.create(PROJECT_ID);
     if (!created.ok) throw new Error("could not seed a sandbox");
-    const extended = vi.spyOn(sandbox, "extendTimeout");
+    const resumed = vi.spyOn(sandbox, "resume");
 
     await new SingleAgentRuntime({
       sessions: new InMemorySessionStore([
@@ -1177,8 +1176,8 @@ describe("keeping a resumed sandbox alive", () => {
       sandboxTtlMs: 90_000,
     }).runTurn({ turnId: crypto.randomUUID(), sessionId: SESSION_ID, message: "carry on" });
 
-    // The first call, because a round of checks may push it further once it starts.
-    expect(extended).toHaveBeenNthCalledWith(1, created.value.id, 90_000);
+    // On the resume itself: a round of checks may push it further once it starts.
+    expect(resumed).toHaveBeenNthCalledWith(1, created.value.id, { keepAliveMs: 90_000 });
   });
 });
 

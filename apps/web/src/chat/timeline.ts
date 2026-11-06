@@ -294,7 +294,7 @@ function changedFiles(items: readonly TranscriptItem[], turn: Turn): FileChange[
 }
 
 /**
- * Messages the person sent mid-turn that have not landed (ADR-0027) are drawn last, after the live
+ * Messages the person sent mid-turn that have not landed (ADR-0028) are drawn last, after the live
  * row. `buildTranscript` puts them at the end of the items, which is where they read — and the end
  * of the items is also where the live row finds the run the agent is in, so they are set aside
  * before anything else looks, rather than ending that run early.

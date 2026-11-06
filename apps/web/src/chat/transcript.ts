@@ -148,7 +148,7 @@ export type TranscriptItem =
       status: PlanStatus;
     }
   /**
-   * A message the person sent while a turn ran (ADR-0027), drawn as theirs wherever it landed.
+   * A message the person sent while a turn ran (ADR-0028), drawn as theirs wherever it landed.
    *
    * `read` is drawn where the agent read it, which is the point of drawing it at all: everything
    * above it the agent did without it. `dropped` is drawn where it was given up, offering the words

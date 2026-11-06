@@ -14,6 +14,12 @@ import { InMemoryUserKeyStore } from "@nap/db/testing/in-memory-user-key-store";
 import { decodeRepositoryBundle } from "@nap/sandbox/git-bundle";
 import { TEMPLATE_DEV_PORT } from "@nap/sandbox/template";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
+import {
+  BUNDLE_COMMAND,
+  bundled,
+  COMMIT_COMMAND,
+  committed,
+} from "@nap/sandbox/testing/script-git";
 import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
 import { foldJobs } from "@nap/shared/job-state";
 import type { SessionRecord, SessionStore } from "@nap/shared/ports/session-store";
@@ -45,6 +51,7 @@ const config: NapDeps["config"] = {
   NAP_REAP_INTERVAL_SECONDS: 60,
   NAP_JANITOR_INTERVAL_SECONDS: 60,
   NAP_WORKER_CONCURRENCY: 1,
+  NAP_WORKER_FALLBACK_POLL_SECONDS: 5,
   NAP_DRAIN_TIMEOUT_SECONDS: 1,
   NAP_CAPTURE_CONCURRENCY: 1,
 };
@@ -109,15 +116,13 @@ it("imports through the queue, publishes a verified dedicated branch, and retrie
       branch = match[1];
       return { exitCode: 0 };
     })
-    .script(/git diff --cached --quiet/, { exitCode: 1 })
-    .script(/user.name=Nap commit/, () => {
+    .script(COMMIT_COMMAND, () => {
       sha = sha === "a".repeat(40) ? "b".repeat(40) : "c".repeat(40);
-      return { exitCode: 0 };
+      return committed(sha);
     })
-    .script(/git bundle create/, {
-      exitCode: 0,
-      stdout: Buffer.from("repository bundle").toString("base64"),
-    });
+    .script(BUNDLE_COMMAND, () =>
+      bundled(`refs/heads/${branch}`, new TextEncoder().encode("repository bundle")),
+    );
   const provider = new ScriptedLLMProvider([
     [{ text: "Updated repository." }],
     [{ text: "Built template." }],
@@ -211,6 +216,7 @@ it("imports through the queue, publishes a verified dedicated branch, and retrie
     },
     bus: new InMemoryEventBus(),
     cancels: null,
+    claims: null,
     objects: new InMemoryObjectStore(),
     encryptionKey: encryptionKeyFrom(Buffer.alloc(32, 7).toString("base64")),
     verifyKey: async () => ({ ok: true }),

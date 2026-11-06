@@ -1,6 +1,6 @@
 /**
  * Steering through the whole composition: a real agent, a real context engine and the runtime, a
- * scripted model, and a queue holding a real lease (ADR-0027).
+ * scripted model, and a queue holding a real lease (ADR-0028).
  *
  * What is asserted is what the person relies on: a message sent mid-turn is recorded at the step
  * where the agent read it, durably, before the model that reads it is called; a message the turn

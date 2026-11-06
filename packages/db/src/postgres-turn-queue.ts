@@ -34,6 +34,7 @@ import { MediaAttachmentsSchema } from "@nap/shared/media";
  */
 
 import { LEASE_GRACE_MS, LEASE_TTL_MS, ORPHAN_SWEEP_LIMIT } from "@nap/shared/lease-windows";
+import type { ClaimAnnouncer } from "@nap/shared/ports/claim-channel";
 import {
   type ClosedSteers,
   MAX_WAITING_STEERS,
@@ -109,12 +110,28 @@ const STEER_ADMISSION_LOCK = "nap:steer-admission";
 /** What a lease occupies. Terminal states hold nothing and are excluded from every predicate. */
 const IN_FLIGHT = ["queued", "leased"] as const;
 
+export type PostgresTurnQueueOptions = {
+  /**
+   * Told, after the commit, about every write here that can make a request claimable: an enqueue,
+   * a settle that gives a session back, and the janitor reclaiming a lease. Idle workers wait for it
+   * rather than polling the queue several times a second (`docs/adr/0027`).
+   *
+   * Required and nullable, like `NapDeps.cancels`, so a new construction site has to decide: null
+   * leaves every request to the workers' fallback poll — seconds late, and nothing else is wrong,
+   * which is exactly why it must not be something a caller forgets. Always null for a queue built
+   * on a transaction, where "after this write" would be before the commit.
+   */
+  claims: ClaimAnnouncer | null;
+};
+
 export class PostgresTurnQueue implements TurnQueue, SteerQueue {
   readonly #db: PostgresJsDatabase;
+  readonly #claims: ClaimAnnouncer | null;
 
   /** Takes a database rather than a URL, for the reason `PostgresEventStore` does. */
-  constructor(db: PostgresJsDatabase) {
+  constructor(db: PostgresJsDatabase, options: PostgresTurnQueueOptions) {
     this.#db = db;
+    this.#claims = options.claims;
   }
 
   async enqueue(request: EnqueueTurnRequest): Promise<void> {
@@ -131,6 +148,7 @@ export class PostgresTurnQueue implements TurnQueue, SteerQueue {
       model: request.model,
       billsToUser: request.billsToUser,
     });
+    this.#claims?.announce();
   }
 
   async getStatus(request: {
@@ -346,7 +364,11 @@ export class PostgresTurnQueue implements TurnQueue, SteerQueue {
       )
       .returning({ id: turnRequests.id });
 
-    return rows.length > 0;
+    if (rows.length === 0) return false;
+    // The session is free again, so whatever was queued behind this turn can now be claimed — by
+    // any worker, which is why the worker settling it is not the only one that needs to know.
+    this.#claims?.announce();
+    return true;
   }
 
   async anyLeased(sessionIds: readonly string[]): Promise<boolean> {
@@ -401,7 +423,7 @@ export class PostgresTurnQueue implements TurnQueue, SteerQueue {
   }
 
   async orphanExpired(limit = ORPHAN_SWEEP_LIMIT): Promise<OrphanedTurnRequest[]> {
-    return await this.#db
+    const orphaned = await this.#db
       .update(turnRequests)
       .set({ state: "orphaned" })
       // `for update skip locked` is what makes two janitors ticking at once safe: whichever holds
@@ -434,6 +456,10 @@ export class PostgresTurnQueue implements TurnQueue, SteerQueue {
         kind: turnRequests.kind,
         message: turnRequests.message,
       });
+    // Each of those sessions is free again. Only when there were some: every tick of a healthy
+    // deployment finds none, and a wake-up per tick would be a poll by another name.
+    if (orphaned.length > 0) this.#claims?.announce();
+    return orphaned;
   }
 
   async unannouncedOrphans(limit = ORPHAN_SWEEP_LIMIT): Promise<OrphanedTurnRequest[]> {
@@ -453,7 +479,7 @@ export class PostgresTurnQueue implements TurnQueue, SteerQueue {
   /**
    * Admission, as one transaction that holds the leased request's row while it decides.
    *
-   * The lock is the fence (ADR-0027). `close` updates the same row, and the two conflict, so either
+   * The lock is the fence (ADR-0028). `close` updates the same row, and the two conflict, so either
    * this commits first and `close` resolves the steer it inserted, or `close` commits first and this
    * re-reads the row — Postgres re-checks a locked row's predicate once the lock is released — finds
    * it closed, and queues a turn instead. `no key update` rather than `share` because it also
@@ -471,8 +497,9 @@ export class PostgresTurnQueue implements TurnQueue, SteerQueue {
     const earlier = await this.find(request);
     if (earlier !== null) return earlier;
 
+    let queued = false;
     try {
-      return await this.#db.transaction(async (tx) => {
+      const admitted = await this.#db.transaction(async (tx) => {
         // The two-key form, whose key space Postgres keeps apart from the one-key form every other
         // advisory lock here uses (`hashtext` of a name, held by the sweeper for its whole life):
         // an id hashing onto one of those would otherwise wait on it. Two ids sharing a hash merely
@@ -540,8 +567,11 @@ export class PostgresTurnQueue implements TurnQueue, SteerQueue {
           model: request.model,
           billsToUser: request.billsToUser,
         });
+        queued = true;
         return { as: "turn" } as const;
       });
+      if (queued) this.#claims?.announce();
+      return admitted;
     } catch (error) {
       // A retry of the same message committed first. Whatever it did is the answer.
       if (!isSubmissionTaken(error)) throw error;
@@ -586,7 +616,7 @@ export class PostgresTurnQueue implements TurnQueue, SteerQueue {
     owner: string,
     disposition: "defer" | "drop",
   ): Promise<ClosedSteers> {
-    return await this.#db.transaction(async (tx) => {
+    const closed = await this.#db.transaction(async (tx) => {
       // The other half of the fence: this update conflicts with admission's lock, so no steer can
       // join between it and the resolution below.
       const [held] = await tx
@@ -644,6 +674,8 @@ export class PostgresTurnQueue implements TurnQueue, SteerQueue {
         .onConflictDoNothing({ target: turnRequests.id });
       return { deferred: waiting.map(({ id, message }) => ({ id, text: message })), dropped: [] };
     });
+    if (closed.deferred.length > 0) this.#claims?.announce();
+    return closed;
   }
 
   async steersOf(requestId: string): Promise<(Steer & { state: SteerState })[]> {

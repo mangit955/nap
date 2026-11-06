@@ -652,7 +652,7 @@ const STEER_STATUS: Record<Exclude<SteerStatus, "dropped">, string> = {
 };
 
 /**
- * A message the person sent while a turn ran (ADR-0027), in their bubble, with a line saying what
+ * A message the person sent while a turn ran (ADR-0028), in their bubble, with a line saying what
  * became of it.
  *
  * Their bubble because they are their words wherever they landed, and a second shape for the same

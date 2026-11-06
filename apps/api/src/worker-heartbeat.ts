@@ -18,10 +18,11 @@ import { writeFileSync } from "node:fs";
 /**
  * How often the file is actually written, however often the loop ticks.
  *
- * The loop comes round several times a second when the queue is empty, and a write per tick would
- * be thousands of pointless syscalls an hour for a signal whose whole resolution is "within the
- * last two minutes". Five seconds is twenty-four times finer than the probe's threshold, so the
- * throttle can never be what makes a healthy worker look dead.
+ * An idle loop comes round once per fallback poll (five seconds by default) while it can hear claim
+ * wake-ups, and ten times a second while it cannot, and a busy one comes round on every wake-up. A
+ * write per tick would be thousands of pointless syscalls an hour at the fast end, for a signal
+ * whose whole resolution is "within the last two minutes". Five seconds is twenty-four times finer
+ * than the probe's threshold, so the throttle can never be what makes a healthy worker look dead.
  */
 export const HEARTBEAT_WRITE_INTERVAL_MS = 5_000;
 

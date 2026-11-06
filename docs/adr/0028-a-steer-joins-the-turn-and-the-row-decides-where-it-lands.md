@@ -1,4 +1,4 @@
-# ADR-0027 — A steer joins the running turn at its next step, and the row decides where it lands
+# ADR-0028 — A steer joins the running turn at its next step, and the row decides where it lands
 
 **Status:** Accepted, 2026-11-06. Built and tested on fakes, the in-memory sandbox and a real Postgres. No real model, no real E2B sandbox and no multi-pod deployment has run it, so whether models act on a steer well, and how quickly one is read across pods under load, are unmeasured. Closes the "steering a running turn" item ADR-0020 deferred.
 

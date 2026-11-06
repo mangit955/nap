@@ -72,7 +72,7 @@ export type JanitorOptions = {
   queue: TurnQueue;
   /**
    * Where a reclaimed request's steers are, so the ones it never read can be handed back
-   * (ADR-0027). Absent, as in a deployment that admits none, there is nothing to answer for.
+   * (ADR-0028). Absent, as in a deployment that admits none, there is nothing to answer for.
    */
   steers?: Pick<SteerQueue, "steersOf">;
   events: EventStore;

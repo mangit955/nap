@@ -5,6 +5,7 @@ import { FAKE_OWNER, InMemoryProjectStore } from "@nap/db/testing/in-memory-proj
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
 import { InMemoryTurnQueue } from "@nap/db/testing/in-memory-turn-queue";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
+import { BUNDLE_COMMAND, bundled } from "@nap/sandbox/testing/script-git";
 import type { ProjectSummary } from "@nap/shared/ports/project-store";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -54,10 +55,7 @@ function summary(overrides: Partial<ProjectSummary> = {}): ProjectSummary {
 beforeEach(async () => {
   sandbox = new InMemorySandboxManager()
     .script(/git rev-parse HEAD/, { exitCode: 0, stdout: `${SHA}\n` })
-    .script(/git bundle create/, {
-      exitCode: 0,
-      stdout: Buffer.from("PACK-bundle-bytes").toString("base64"),
-    });
+    .script(BUNDLE_COMMAND, bundled());
   const sb = await sandbox.create(PROJECT);
   if (!sb.ok) throw new Error("could not create a sandbox");
   sandboxId = sb.value.id;

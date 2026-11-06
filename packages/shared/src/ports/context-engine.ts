@@ -118,7 +118,7 @@ export type BuiltContext = {
    */
   rootRules?: boolean | undefined;
   /**
-   * How a message the person sent mid-turn is put to the model (ADR-0027) — the same words the
+   * How a message the person sent mid-turn is put to the model (ADR-0028) — the same words the
    * engine replays it with from the log. Absent, the turn is offered no steers: a caller that
    * cannot say how one reads has no business handing one over, and they wait to become the next
    * turn instead.

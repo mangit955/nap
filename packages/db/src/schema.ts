@@ -471,7 +471,7 @@ export const turnRequests = pgTable(
     cancelRequested: boolean("cancel_requested").notNull().default(false),
     /**
      * Set by the worker when it resolves this request's steers, just before settling it: from then
-     * on a message sent to the session is the next turn, not part of this one (ADR-0027). A column
+     * on a message sent to the session is the next turn, not part of this one (ADR-0028). A column
      * rather than a state, because the request is still leased — still running its last
      * housekeeping — and the partial unique index must go on seeing it as such.
      */
@@ -509,7 +509,7 @@ export const turnRequests = pgTable(
 export const steerState = pgEnum("steer_state", STEER_STATES);
 
 /**
- * Messages sent while a turn runs, each joined to the request it was admitted to (ADR-0027).
+ * Messages sent while a turn runs, each joined to the request it was admitted to (ADR-0028).
  *
  * **The row is the decision, the log is the record.** Whether a steer was read, deferred or dropped
  * is settled here, by one conditional update each, so it happens at most once; the `steer.*` events
@@ -545,7 +545,7 @@ export const turnSteers = pgTable(
   (t) => [
     // What a worker reads at every step, and what admission counts: the steers still waiting on one
     // request. Partial, so it holds only pending rows rather than every steer ever — what is waiting
-    // now, plus the few left pending by a request that ended without closing (ADR-0027), which
+    // now, plus the few left pending by a request that ended without closing (ADR-0028), which
     // nothing reads again and nothing cleans up.
     index("turn_steers_waiting").on(t.requestId, t.createdAt).where(sql`${t.state} = 'pending'`),
     index("turn_steers_request").on(t.requestId, t.createdAt),

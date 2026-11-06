@@ -38,11 +38,13 @@ export function slowSandboxManager(inner: SandboxManager, options: SlowOptions =
     },
     // A resume is a sandbox that already exists being reattached to, which the recorded run
     // never timed separately — so it is left alone rather than given an invented figure.
-    resume: (sandboxId) => inner.resume(sandboxId),
+    resume: (sandboxId, options) => inner.resume(sandboxId, options),
     destroy: (sandboxId) => inner.destroy(sandboxId),
     extendTimeout: (sandboxId, ms) => inner.extendTimeout(sandboxId, ms),
     writeFile: (sandboxId, path, contents) => inner.writeFile(sandboxId, path, contents),
     readFile: (sandboxId, path) => inner.readFile(sandboxId, path),
+    writeFileBytes: (sandboxId, path, contents) => inner.writeFileBytes(sandboxId, path, contents),
+    readFileBytes: (sandboxId, path) => inner.readFileBytes(sandboxId, path),
     listFiles: (sandboxId, path) => inner.listFiles(sandboxId, path),
     listTree: (sandboxId, root, options) => inner.listTree(sandboxId, root, options),
     exec: (sandboxId, command, onOutput, options) =>

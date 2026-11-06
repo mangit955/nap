@@ -1,5 +1,5 @@
 /**
- * Git operations on a project, driven entirely through `SandboxManager.exec`.
+ * Git operations on a project, using sandbox commands and byte file I/O.
  *
  * Every project is a git repository from the moment it is created — the template bakes in
  * `git init` and one commit — and two things need to act on it: a turn commits its own
@@ -31,9 +31,12 @@ export type GitOptions = {
   signal?: AbortSignal | undefined;
 };
 
-/** Where the bundle and its base64 transport land inside the sandbox. */
-const BUNDLE_PATH = "/tmp/nap-snapshot.bundle";
-const BUNDLE_B64_PATH = "/tmp/nap-snapshot.bundle.b64";
+/**
+ * Where a snapshot's bundle is written inside the sandbox, on the way out and on the way in.
+ *
+ * Exported for the fakes that stand in for `git bundle create`: they leave the bundle here.
+ */
+export const BUNDLE_PATH = "/tmp/nap-snapshot.bundle";
 
 /**
  * Committer identity, passed per command rather than written to the repository's config.
@@ -83,10 +86,43 @@ function cancelled(): Result<never, SandboxError> {
 }
 
 /**
+ * What the commit script prints, in place of a sha, when the tree had nothing to commit.
+ *
+ * Exported for the fakes that stand in for the script: they answer it with this or a sha.
+ */
+export const NOTHING_TO_COMMIT = "nap: nothing to commit";
+
+/** A full object id, SHA-1 or SHA-256. Anything else on the last line is not a commit. */
+const OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+
+/**
+ * The whole of `commitAll`, as one command, so a turn's commit is one round trip and not four.
+ *
+ * `diff --quiet --cached` exits 0 when the index matches HEAD, and that is the one case that
+ * commits nothing; any other exit commits, so a diff that itself failed lets the commit say why.
+ * Staging and committing are joined with `&&` so either failing fails the script, and the sha is
+ * read only after the commit, on the last line, where nothing git printed before it can shadow it.
+ *
+ * Spelled `--all`, `--quiet --cached`, `--verify` and `--message=` on purpose. Fakes answer commands
+ * by pattern, and tests across the repo still hold patterns for the four commands this replaced —
+ * `/git rev-parse HEAD/` most of all, which also answers `currentSha`. Different spellings mean
+ * none of those can answer this script by accident and pass a test that exercised nothing.
+ */
+export function commitScript(message: string): string {
+  return (
+    "git add --all && " +
+    `if git diff --quiet --cached; then echo ${shellQuote(NOTHING_TO_COMMIT)}; ` +
+    `else git ${IDENTITY} commit --message=${shellQuote(message)} && git rev-parse --verify HEAD; fi`
+  );
+}
+
+/**
  * Stages everything and commits it, or does nothing if there is nothing to commit.
  *
  * A clean tree is an ordinary outcome, not a failure: plenty of turns only read files, and
- * failing those would turn "the agent answered a question" into "the turn errored".
+ * failing those would turn "the agent answered a question" into "the turn errored". A commit
+ * that fails is a failure, never "nothing to commit": the script exits non-zero, and only the
+ * marker it prints on purpose reads as a clean tree.
  */
 export async function commitAll(
   manager: SandboxManager,
@@ -94,28 +130,19 @@ export async function commitAll(
   message: string,
   options?: GitOptions,
 ): Promise<Result<CommitResult, SandboxError>> {
-  const staged = await git(manager, sandboxId, "git add -A", options);
-  if (!staged.ok) return staged;
-
-  // `--quiet` makes the exit code the whole answer: 0 means the index matches HEAD, so
-  // there is nothing to commit. Readable as data only because the sandbox layer reports
-  // non-zero exits rather than throwing them.
-  const changes = await run(manager, sandboxId, "git diff --cached --quiet", options);
-  if (!changes.ok) return changes;
-  if (changes.value.exitCode === 0) return { ok: true, value: { committed: false, sha: null } };
-
-  const committed = await git(
-    manager,
-    sandboxId,
-    `git ${IDENTITY} commit -m ${shellQuote(message)}`,
-    options,
-  );
+  const committed = await git(manager, sandboxId, commitScript(message), options);
   if (!committed.ok) return committed;
 
-  const sha = await currentSha(manager, sandboxId, options);
-  if (!sha.ok) return sha;
-
-  return { ok: true, value: { committed: true, sha: sha.value } };
+  const last = committed.value.trimEnd().split("\n").at(-1)?.trim() ?? "";
+  if (last === NOTHING_TO_COMMIT) return { ok: true, value: { committed: false, sha: null } };
+  if (OBJECT_ID.test(last)) return { ok: true, value: { committed: true, sha: last } };
+  return {
+    ok: false,
+    error: {
+      code: "exec_failed",
+      message: `the commit finished without saying what it committed: ${JSON.stringify(last)}`,
+    },
+  };
 }
 
 /** The commit currently checked out. A repository with no commits is an error, not "". */
@@ -161,37 +188,37 @@ export async function workspaceState(
 /**
  * The whole repository as a git bundle — a single file holding every ref and all history.
  *
- * Carried out as base64 because a bundle is binary and both `exec` stdout and `readFile`
- * are text. That costs a third in size and puts the payload in a command's output, which
- * is fine for projects of the size this builds and is worth revisiting if they grow.
+ * One command writes the bundle and prints which ref or commit HEAD is, and the bundle is then
+ * read back as a file, byte for byte. It used to be read back through that command's output as
+ * base64: a third larger, streamed through the command channel, on every turn. It is still the
+ * whole history every time, deliberately — a restore that needed a chain of earlier bundles would
+ * depend on every one of them surviving, which is the thing a snapshot exists not to depend on.
+ *
+ * `rev-parse --verify` rather than `rev-parse HEAD`, so a fake answering `currentSha` by pattern
+ * cannot answer this too — see `commitScript`.
  */
 export async function bundle(
   manager: SandboxManager,
   sandboxId: string,
   options?: GitOptions,
 ): Promise<Result<Uint8Array, SandboxError>> {
+  // HEAD is explicit because detached commits need not be reachable from a named ref.
   const head = await git(
     manager,
     sandboxId,
-    "git symbolic-ref -q HEAD || git rev-parse HEAD",
+    `{ git symbolic-ref -q HEAD || git rev-parse --verify HEAD; } && git bundle create ${BUNDLE_PATH} --all HEAD`,
     options,
   );
   if (!head.ok) return head;
-  // HEAD is explicit because detached commits need not be reachable from a named ref.
-  const result = await git(
-    manager,
-    sandboxId,
-    `git bundle create ${BUNDLE_PATH} --all HEAD && base64 < ${BUNDLE_PATH}`,
-    options,
-  );
-  if (!result.ok) return result;
 
-  // Tolerant of wrapping: -w0 asks for one line, but not every base64 honours it.
-  const encoded = result.value.replaceAll(/\s/g, "");
-  return {
-    ok: true,
-    value: encodeRepositoryBundle(Buffer.from(encoded, "base64"), head.value.trim()),
-  };
+  if (options?.signal?.aborted) return cancelled();
+  const bytes = await manager.readFileBytes(sandboxId, BUNDLE_PATH);
+  if (!bytes.ok) return bytes;
+
+  // The first line: git writes its progress to stderr, so nothing should follow, but nothing that
+  // did could change which ref was checked out.
+  const ref = head.value.trimStart().split("\n")[0]?.trim() ?? "";
+  return { ok: true, value: encodeRepositoryBundle(bytes.value, ref) };
 }
 
 /**
@@ -209,20 +236,8 @@ export async function restoreBundle(
   if (options?.signal?.aborted) return cancelled();
   const decodedBundle = decodeRepositoryBundle(bytes);
   if (!decodedBundle.ok) return decodedBundle;
-  const written = await manager.writeFile(
-    sandboxId,
-    BUNDLE_B64_PATH,
-    Buffer.from(decodedBundle.value.bundle).toString("base64"),
-  );
+  const written = await manager.writeFileBytes(sandboxId, BUNDLE_PATH, decodedBundle.value.bundle);
   if (!written.ok) return written;
-
-  const decoded = await git(
-    manager,
-    sandboxId,
-    `base64 -d < ${BUNDLE_B64_PATH} > ${BUNDLE_PATH}`,
-    options,
-  );
-  if (!decoded.ok) return decoded;
 
   const directory = "/tmp/nap-snapshot.git";
   const fetched = await git(

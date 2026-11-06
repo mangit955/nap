@@ -826,7 +826,7 @@ export class SingleAgentRuntime implements Runtime {
   }
 
   /**
-   * Ends steering for a request whose last turn is over (ADR-0027).
+   * Ends steering for a request whose last turn is over (ADR-0028).
    *
    * After the job loop rather than after the person's turn, so a repair can still read what was
    * sent while the checks ran. Whatever nothing read becomes the next turn — unless the request was
@@ -1526,7 +1526,7 @@ export class SingleAgentRuntime implements Runtime {
    *
    * A queue that cannot be asked is not that: the next step asks again. Usually the steers are
    * still waiting for it, but not always — a take that committed and whose answer was lost on the
-   * way back has marked them read with no event, and nothing offers those back (ADR-0027 D4).
+   * way back has marked them read with no event, and nothing offers those back (ADR-0028 D4).
    */
   #steeringFor(
     steering: RequestSteering,
@@ -1711,8 +1711,8 @@ export class SingleAgentRuntime implements Runtime {
     signal: AbortSignal | undefined,
   ): Promise<VerificationResult | null> {
     try {
-      // Not checked, for the reason the keepalive at acquisition is not: the sandbox is about to be
-      // asked to do something, and that answers whether it is still there.
+      // Best effort: the verification operation that follows establishes whether the sandbox
+      // is still usable.
       await this.#options.sandbox.extendTimeout(
         sandboxId,
         Math.max(this.#sandboxTtlMs, VERIFICATION_ROUND_LIMIT_MS),

@@ -59,7 +59,7 @@ export type AgentTurnRequest = {
    */
   mode?: "plan" | undefined;
   /**
-   * Messages the person sent while this turn runs (ADR-0027). `take` hands over the ones not read
+   * Messages the person sent while this turn runs (ADR-0028). `take` hands over the ones not read
    * yet, each already recorded in the log at the point it is being read; the loop asks only between
    * model calls, and only with a step left to answer. Absent, the turn hears nothing until it ends,
    * and whatever was sent becomes the next turn.

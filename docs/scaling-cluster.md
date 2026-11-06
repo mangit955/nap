@@ -1,5 +1,7 @@
 # Scaling on a cluster: the same ramp, nine pods later
 
+These measurements predate [ADR-0027](adr/0027-an-idle-worker-waits-to-be-told.md). Re-run the Kubernetes ramp before treating its claim load or admission-to-start figures as measurements of the wake-up implementation.
+
 **23 August 2026.** The `docs/scaling-design.md` §23 ramp, run against a Kubernetes cluster with
 both autoscalers live — three API pods, two-to-four worker pods, one reaper and an in-cluster
 Postgres, KEDA on queue depth, an HPA on open sockets — and compared stage by stage against

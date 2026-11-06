@@ -58,6 +58,12 @@ function scriptedManager(): InMemorySandboxManager {
 }
 
 /** One worker pod: its own in-memory sandboxes, the shared store underneath. */
+/** The ids a fake is holding, which after a reattach are local ids no caller was handed. */
+async function localIds(manager: InMemorySandboxManager): Promise<string[]> {
+  const listed = await manager.list();
+  return listed.ok ? listed.value.map((sandbox) => sandbox.id) : [];
+}
+
 function pod(store: SharedSandboxStore): SandboxManager {
   return sharedSandboxManager(scriptedManager(), store);
 }
@@ -95,10 +101,25 @@ describe("sharedSandboxManager", () => {
 
     const sandboxId = await created(first);
 
-    await expect(second.resume(sandboxId)).resolves.toEqual({
-      ok: true,
-      value: { id: sandboxId, projectId: "project-1" },
-    });
+    await expect(second.resume(sandboxId)).resolves.toEqual({ ok: true, value: { id: sandboxId } });
+  });
+
+  it("carries a resume's keepalive through to the sandbox it lands on, reattached or not", async () => {
+    // The runtime's only keepalive at the start of a turn rides on the resume, so a wrapper that
+    // dropped it would let the sandbox's deadline lapse under a conversation still going on.
+    const store = new InMemorySharedSandboxStore();
+    const local = scriptedManager();
+    const first = sharedSandboxManager(local, store);
+    const elsewhere = scriptedManager();
+    const second = sharedSandboxManager(elsewhere, store);
+    const sandboxId = await created(first);
+
+    await first.resume(sandboxId, { keepAliveMs: 90_000 });
+    await second.resume(sandboxId, { keepAliveMs: 60_000 });
+
+    expect(local.timeoutOf(sandboxId)).toBe(90_000);
+    const [reattached] = await localIds(elsewhere);
+    expect(elsewhere.timeoutOf(reattached ?? "")).toBe(60_000);
   });
 
   it("carries the files across, so a project's work is not lost with its pod", async () => {

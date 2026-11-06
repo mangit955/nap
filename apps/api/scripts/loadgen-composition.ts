@@ -75,6 +75,9 @@ export function loadgenConfig(users: number): NapConfig {
     // Sized like the ceilings above rather than like production's: a worker that could only run
     // ten turns at once would make every ramp above ten a measurement of this number.
     NAP_WORKER_CONCURRENCY: users * 2,
+    // Unread: this composition hears no claim wake-ups (`claims: null` below), so its worker polls
+    // at the fast interval, which is the cadence every baseline in `docs/scaling-baseline.md` ran at.
+    NAP_WORKER_FALLBACK_POLL_SECONDS: 5,
     // A run ends by killing the harness, so nothing here ever drains; short enough that a
     // teardown which does reach it does not hold the process open.
     NAP_DRAIN_TIMEOUT_SECONDS: 5,
@@ -166,12 +169,13 @@ export async function bootLoadgenApi(options: BootOptions): Promise<BootedLoadge
     },
     // The real queue, against the ramp's own Postgres. Every turn the ramp sends is admitted
     // through it and claimed off it, which is precisely the hot path the ramp exists to measure.
-    queue: new PostgresTurnQueue(db),
+    queue: new PostgresTurnQueue(db, { claims: null }),
     snapshots: new PostgresSnapshotStore(db),
     userKeys: new PostgresUserKeyStore(db),
     events: new PostgresEventStore(db),
     bus: new InProcessEventBus(),
     cancels: null,
+    claims: null,
     // Slow *outside* shared, and that order is the point: the calibrated cold start belongs to
     // `create`, so a reattach through the store never pays one.
     sandbox: slowSandboxManager(

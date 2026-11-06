@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { ProjectRepositorySchema } from "@nap/shared/github-protocol";
+import type { ClaimAnnouncer } from "@nap/shared/ports/claim-channel";
 import type {
   AdmittedSessionStart,
   SessionStartStore,
@@ -18,8 +19,25 @@ import {
   users,
 } from "./schema.ts";
 
+export type PostgresSessionStartStoreOptions = {
+  /**
+   * Told once a start has committed its first request, because that request is the first thing a
+   * new project's author is waiting on. Required and nullable for the reason it is on
+   * `PostgresTurnQueue`.
+   */
+  // Use a pooled database: a nested transaction only commits a savepoint.
+  claims: ClaimAnnouncer | null;
+};
+
 export class PostgresSessionStartStore implements SessionStartStore {
-  constructor(private readonly db: PostgresJsDatabase) {}
+  readonly #claims: ClaimAnnouncer | null;
+
+  constructor(
+    private readonly db: PostgresJsDatabase,
+    options: PostgresSessionStartStoreOptions,
+  ) {
+    this.#claims = options.claims;
+  }
 
   async find(userId: string, operationId: string): Promise<StartReceipt | null> {
     const [row] = await this.db
@@ -38,6 +56,14 @@ export class PostgresSessionStartStore implements SessionStartStore {
   }
 
   async start(input: AdmittedSessionStart): Promise<StartResult> {
+    const result = await this.#admit(input);
+    // After the commit, and on a retry that found its earlier start as well: a wake-up that names
+    // nothing new costs one claim query, and one that was lost the first time is replaced.
+    if (result.kind === "created") this.#claims?.announce();
+    return result;
+  }
+
+  async #admit(input: AdmittedSessionStart): Promise<StartResult> {
     return this.db.transaction(async (tx): Promise<StartResult> => {
       // A short owner lock serializes retries across API replicas. No remote work runs here.
       await tx.select({ id: users.id }).from(users).where(eq(users.id, input.userId)).for("update");

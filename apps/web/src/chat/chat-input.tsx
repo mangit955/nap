@@ -64,7 +64,7 @@ export function ChatInput({
   running: boolean;
   queueing?: boolean;
   /**
-   * Whether the turn that is running takes messages (ADR-0027). Sending then steers it: the agent
+   * Whether the turn that is running takes messages (ADR-0028). Sending then steers it: the agent
    * reads the message at its next step, rather than it waiting for the turn to end. Words only —
    * attachments cannot be added while a turn runs, and a message with images is the next turn.
    */

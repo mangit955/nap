@@ -14,6 +14,7 @@
 
 import { TEMPLATE_DEV_PORT, TEMPLATE_WORKDIR } from "@nap/sandbox/template";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
+import { COMMIT_COMMAND, committed } from "@nap/sandbox/testing/script-git";
 import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
 
 /** What the project template declares, so the verifier finds checks to run. */
@@ -55,16 +56,13 @@ export function scriptedTurn() {
 
 /** An in-memory sandbox answering the commands a turn actually runs, git included. */
 export function fakeSandbox(): InMemorySandboxManager {
-  return (
-    new InMemorySandboxManager({
-      defaultExec: () => ({ exitCode: 0, stdout: "" }),
-      serves: [TEMPLATE_DEV_PORT],
-      seed: { [`${PROJECT_ROOT_PATH}/package.json`]: JSON.stringify(TEMPLATE_MANIFEST) },
-    })
-      // Non-zero means the index differs from HEAD, which is what makes a commit happen.
-      .script(/git diff --cached --quiet/, { exitCode: 1 })
-      .script(/git rev-parse HEAD/, { exitCode: 0, stdout: `${"0".repeat(40)}\n` })
-  );
+  return new InMemorySandboxManager({
+    defaultExec: () => ({ exitCode: 0, stdout: "" }),
+    serves: [TEMPLATE_DEV_PORT],
+    seed: { [`${PROJECT_ROOT_PATH}/package.json`]: JSON.stringify(TEMPLATE_MANIFEST) },
+  })
+    .script(COMMIT_COMMAND, committed("0".repeat(40)))
+    .script(/git rev-parse HEAD/, { exitCode: 0, stdout: `${"0".repeat(40)}\n` });
 }
 
 /**

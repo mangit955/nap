@@ -201,7 +201,7 @@ export const NapEventSchema = z.discriminatedUnion("type", [
   }),
   /**
    * A message somebody sent while a turn was running, admitted to join it rather than wait behind
-   * it (ADR-0027). Written by the API the moment admission commits, under the id of the request it
+   * it (ADR-0028). Written by the API the moment admission commits, under the id of the request it
    * joined, so every tab can show it waiting. It is not yet something the agent has read: that is
    * `steer.applied`, wherever in the turn the agent reached a step boundary.
    *

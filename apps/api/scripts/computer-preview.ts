@@ -97,14 +97,14 @@ const config = {
   NAP_CONTEXT_BUDGET_TOKENS: 80_000,
 };
 const events = new PostgresEventStore(db);
-const queue = new PostgresTurnQueue(db);
+const queue = new PostgresTurnQueue(db, { claims: null });
 const composed = composeNap({
   config,
   auth,
   logger: createLogger({ level: "warn" }),
   sessions: new PostgresSessionStore(db),
   projects: new PostgresProjectStore(db),
-  sessionStarts: new PostgresSessionStartStore(db),
+  sessionStarts: new PostgresSessionStartStore(db, { claims: null }),
   sessionNavigation: new PostgresSessionNavigationStore(db),
   projectSandboxes: new PostgresProjectSandboxStore(db),
   capacity: new PostgresSandboxCapacity(db, { perUser: 2, total: 4 }),
@@ -118,9 +118,10 @@ const composed = composeNap({
   events,
   bus: new InProcessEventBus(),
   cancels: null,
+  claims: null,
   sandbox,
   desktop: desktop.transport,
-  computerAccess: { access: new PostgresProjectComputerAccess(db), secret },
+  computerAccess: { access: new PostgresProjectComputerAccess(db, { claims: null }), secret },
   objects: new InMemoryObjectStore(),
   provider: computerPreviewProvider(350),
   encryptionKey: encryptionKeyFrom(Buffer.alloc(32, 7).toString("base64")),
