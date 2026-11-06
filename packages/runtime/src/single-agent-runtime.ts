@@ -80,6 +80,7 @@ import { contextCompactor } from "./compaction.ts";
 import { continuationFor } from "./continue-job.ts";
 import { EventSink } from "./event-sink.ts";
 import { repairCommitSubject, repairPrompt } from "./repair-prompt.ts";
+import { SessionHistory } from "./session-history.ts";
 import { SessionQueue } from "./session-queue.ts";
 import { captureSnapshot } from "./teardown.ts";
 import { testPrompt } from "./test-prompt.ts";
@@ -99,6 +100,11 @@ type TurnScope = {
   sandboxStopped?: boolean;
   session: SessionRecord;
   sink: EventSink;
+  /**
+   * The log as this runtime call has read it. Shared by every turn of the job, like the sink,
+   * so a repair tops up what the prompt's turn read instead of reading the session again.
+   */
+  history: SessionHistory;
   turnId: string;
   emit: <T extends NapEvent["type"]>(type: T, payload: Payload<T>) => void;
 };
@@ -360,17 +366,24 @@ export class SingleAgentRuntime implements Runtime {
     addLogContext({ projectId: session.projectId });
 
     const sink = new EventSink(this.#options.events, this.#options.bus);
+    const history = new SessionHistory(this.#options.events, sessionId);
 
-    return this.#scopeFor(session, sink, sessionId, turnId);
+    return this.#scopeFor(session, sink, history, sessionId, turnId);
   }
 
-  /** The same session and the same sink, under a different turn — what a repair runs in. */
-  #scopeFor(session: SessionRecord, sink: EventSink, sessionId: string, turnId: string): TurnScope {
+  /** The same session, sink and history, under a different turn — what a repair runs in. */
+  #scopeFor(
+    session: SessionRecord,
+    sink: EventSink,
+    history: SessionHistory,
+    sessionId: string,
+    turnId: string,
+  ): TurnScope {
     const emit = <T extends NapEvent["type"]>(type: T, payload: Payload<T>): void => {
       sink.emit({ type, payload, sessionId, turnId, createdAt: this.#now() } as PendingEvent);
     };
 
-    return { session, sink, turnId, emit };
+    return { session, sink, history, turnId, emit };
   }
 
   async #resumeLogged(
@@ -464,8 +477,7 @@ export class SingleAgentRuntime implements Runtime {
     repository?: RepositorySource,
   ): Promise<void> {
     const { session, sink } = scope;
-    const history = await this.#options.events.readFrom(session.sessionId, 0);
-    const state = foldJobs(history);
+    const state = foldJobs(await scope.history.read());
 
     // Asked before HEAD is read, because reading it is a round trip into the sandbox and most
     // opens have nothing open to continue. `continuationFor` answers `none` for these anyway —
@@ -604,7 +616,7 @@ export class SingleAgentRuntime implements Runtime {
       if (!this.#options.computer || !modelSupportsImages(request.model))
         throw new Error("App tests need an available computer and an image-capable model.");
       request.signal?.throwIfAborted();
-      const history = await this.#options.events.readFrom(sessionId, 0);
+      const history = await scope.history.read();
       const target = appTestTarget(history);
       if (!target || target.jobId !== request.jobId)
         throw new Error("The approved job is no longer the latest completed checkpoint.");
@@ -753,7 +765,7 @@ export class SingleAgentRuntime implements Runtime {
       }
       // Read before the message is logged: the context engine appends the turn's own message
       // itself, so finding it in the history too would send it to the model twice.
-      const history = await this.#options.events.readFrom(request.sessionId, 0);
+      const history = await scope.history.read();
 
       if (manualCompactionId !== undefined) {
         request.signal?.throwIfAborted();
@@ -1047,7 +1059,7 @@ export class SingleAgentRuntime implements Runtime {
       // id names the Turn it began, and a repair is not that Turn. The repair prompt records
       // both identities so recovery can close this child without closing a later request.
       const repairTurnId = this.#newTurnId();
-      run.turn = this.#scopeFor(session, sink, settings.sessionId, repairTurnId);
+      run.turn = this.#scopeFor(session, sink, run.turn.history, settings.sessionId, repairTurnId);
       const repaired = failed;
       outcome = await withLogContext(getLogger(), { turnId: repairTurnId }, () =>
         this.#repair({
@@ -1175,7 +1187,7 @@ export class SingleAgentRuntime implements Runtime {
           budgetTokens: context.budgetTokens ?? 80_000,
           read: async () => {
             await sink.drain();
-            return this.#options.events.readFrom(settings.sessionId, 0);
+            return scope.history.read();
           },
           emit: (event) => {
             switch (event.type) {
@@ -1284,7 +1296,7 @@ export class SingleAgentRuntime implements Runtime {
 
     // Read before the prompt is logged, for the same reason the user's turn does it: the
     // context engine appends this turn's own message itself.
-    const history = await this.#options.events.readFrom(settings.sessionId, 0);
+    const history = await scope.history.read();
     scope.emit("user.message", {
       text: prompt,
       repair: { requestId: options.requestId, jobId: options.jobId },
@@ -1573,7 +1585,7 @@ export class SingleAgentRuntime implements Runtime {
     if (this.#options.repository === undefined || options.scope.sandboxStopped) return;
     const { scope, sandboxId, jobId, requestId, signal } = options;
     try {
-      const history = await this.#options.events.readFrom(scope.session.sessionId, 0);
+      const history = await scope.history.read();
       const completed = history.findLast(
         (event) => event.type === "job.completed" && event.payload.jobId === jobId,
       );

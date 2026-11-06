@@ -47,7 +47,9 @@ This is more than the brief assumed, and it is why the change is smaller than it
 - **`seq` allocation.** `PostgresEventStore.append` (`packages/db/src/postgres-event-store.ts:58`)
   takes `pg_advisory_xact_lock(hashtext(session_id))` and derives `seq` inside the insert
   statement. Its own doc comment already reasons about "several API processes".
-  `unique(session_id, seq)` is the database-level backstop.
+  `unique(session_id, seq)` is the database-level backstop. *Since replaced: an append is now one
+  statement serialized on a per-session counter row rather than an advisory lock — see
+  `docs/adr/0021`.*
 - **Job state is derived, not stored.** There is no jobs table. `foldJobs` reads the event log and
   `continuationFor` (`packages/runtime/src/continue-job.ts`) decides what an interrupted job needs.
   **A half-executed turn is already recoverable from Postgres alone** — the single most valuable
@@ -759,6 +761,9 @@ one kills a whole turn — including its repair budget.
 > so a retry must first re-read `max(seq)` for the session under the same advisory lock and abort if
 > the intended event is already present. `unique(session_id, seq)` is the backstop that turns any
 > remaining race into a hard error rather than a duplicated message in somebody's chat.
+>
+> *Since ADR-0021 the retry locks the session's counter row rather than an advisory lock; the
+> watermark check above it is unchanged.*
 
 ### B-4 — `NAP_MAX_SANDBOXES_TOTAL` is documented as per-process
 

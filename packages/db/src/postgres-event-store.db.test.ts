@@ -6,7 +6,7 @@ import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
 import { InProcessEventBus } from "./in-process-event-bus.ts";
 import { PostgresEventStore } from "./postgres-event-store.ts";
-import { projects, sessions, users } from "./schema.ts";
+import { events, projects, sessions, users } from "./schema.ts";
 import { expectEventSequence } from "./testing/event-assertions.ts";
 
 /**
@@ -154,6 +154,107 @@ describe("concurrent appends", () => {
     // And the log agrees with what the writers were told.
     const read = await store.readFrom(sessionId, 0);
     expect(read.map((event) => event.seq)).toEqual(seqs);
+  });
+});
+
+describe("one session, several connections", () => {
+  it("hands writers on separate connections a gapless, unique, ordered sequence", async () => {
+    // Separate clients rather than one pool, so the appends really are different backends
+    // racing for the same session — which is what several workers and an API pod are.
+    const sessionId = await seedSession();
+    const turnId = randomUUID();
+    const clients = Array.from({ length: 4 }, () => postgres(inject("postgresUrl"), { max: 5 }));
+
+    try {
+      const writers = clients.map((client) => new PostgresEventStore(drizzle(client)));
+      const stored = (
+        await Promise.all(
+          writers.map((writer, w) =>
+            Promise.all(
+              Array.from({ length: 50 }, (_, i) =>
+                writer.append(message(sessionId, turnId, `writer ${w}, event ${i}`)),
+              ),
+            ),
+          ),
+        )
+      ).flat();
+
+      const seqs = stored.map((event) => event.seq).sort((a, b) => a - b);
+      expect(seqs).toEqual(Array.from({ length: 200 }, (_, i) => i + 1));
+
+      // Every writer was told the truth: the row at each seq is the event it was handed back.
+      const read = await store.readFrom(sessionId, 0);
+      expect(read.map((event) => event.seq)).toEqual(seqs);
+      const bySeq = new Map(read.map((event) => [event.seq, event]));
+      for (const event of stored) expect(bySeq.get(event.seq)).toStrictEqual(event);
+
+      // And the counter ended where the log did, so the next append continues it.
+      expect((await store.append(message(sessionId, turnId, "after"))).seq).toBe(201);
+    } finally {
+      await Promise.all(clients.map((client) => client.end()));
+    }
+  });
+});
+
+describe("the cost of an append", () => {
+  it("is one statement on the wire", async () => {
+    // The reason the append is shaped the way it is. Each event used to be BEGIN, an advisory
+    // lock, the insert and COMMIT — four round trips, paid one event at a time because the
+    // sink appends in order, so every millisecond of database latency was four milliseconds of
+    // delay on every streamed token and tool call.
+    const sessionId = await seedSession();
+    const sent: string[] = [];
+    const client = postgres(inject("postgresUrl"), {
+      max: 1,
+      debug: (_connection, query) => sent.push(query),
+    });
+
+    try {
+      const counted = new PostgresEventStore(drizzle(client));
+      // A connection's first query is preceded by postgres.js fetching the array types, once.
+      // That is the connection's cost rather than the append's, so it is spent before counting.
+      await counted.append(message(sessionId, randomUUID(), "warm-up"));
+      sent.length = 0;
+
+      await counted.append(message(sessionId, randomUUID(), "one"));
+      await counted.append(message(sessionId, randomUUID(), "two"));
+
+      expect(sent).toHaveLength(2);
+    } finally {
+      await client.end();
+    }
+  });
+});
+
+describe("a writer that did not keep the counter", () => {
+  it("cannot wedge the session: the next append continues after it", async () => {
+    // A row written by anything that bypassed the counter — the previous release during a
+    // rolling deploy, which assigned seq from max(seq) under an advisory lock, or a fixture
+    // inserting rows directly. Without the catch-up, every later append would be handed a seq
+    // that already exists and fail on the unique index for the rest of the session's life.
+    const sessionId = await seedSession();
+    const turnId = randomUUID();
+    await store.append(message(sessionId, turnId, "one"));
+    await db.insert(events).values({
+      sessionId,
+      turnId,
+      seq: 2,
+      type: "agent.message",
+      payload: { text: "written past the counter" },
+    });
+
+    const third = await store.append(message(sessionId, turnId, "three"));
+
+    expect(third.seq).toBe(3);
+    expect((await store.readFrom(sessionId, 0)).map((event) => event.seq)).toEqual([1, 2, 3]);
+  });
+
+  it("still reports a session that does not exist as the foreign key it violates", async () => {
+    // 23503 is what the sink treats as permanent rather than worth retrying, so an append to a
+    // missing session must keep failing that way and not as some other constraint.
+    await expect(store.append(message(randomUUID(), randomUUID(), "nobody"))).rejects.toMatchObject(
+      { cause: { code: "23503" } },
+    );
   });
 });
 

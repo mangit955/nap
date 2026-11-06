@@ -271,6 +271,22 @@ export const sessions = pgTable("sessions", {
     .notNull()
     .references(() => projects.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
+  /**
+   * The highest `seq` handed out in this session's log — what makes an append one statement.
+   *
+   * `PostgresEventStore.append` increments it and inserts the event in a single statement, and
+   * the row lock that increment takes is the per-session serialization: a second writer waits on
+   * it and then sees the incremented value, so it cannot be handed the same `seq`. An advisory
+   * lock cannot do this in one statement, because the statement's snapshot is taken before the
+   * lock is granted and a `max(seq)` read through it would be stale.
+   *
+   * On the session rather than in a table of its own because nothing else writes this row during
+   * a turn, so the lock is uncontended, and a session that exists has its counter by
+   * construction. The append also takes `max(seq)` into account, so a row inserted without
+   * advancing this — the previous release mid-deploy, a fixture — is caught up with rather than
+   * collided with.
+   */
+  headSeq: integer("head_seq").notNull().default(0),
   createdAt,
 });
 
