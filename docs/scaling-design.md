@@ -846,6 +846,25 @@ for all of it.
 **There is no edge back to `queued`.** Lease loss never requeues. That is decision 1, expressed as a
 state machine, and it is the reason execution is at-most-once.
 
+**A request can also be admitted by another request's end.** Since steering (ADR-0026), a message
+sent to a running request that the request never read is queued as a turn when that request closes,
+under the message's own id. That is a new row, not a requeue: its message was admitted, and charged,
+by the steer route, and it has never run. A request that was stopped or orphaned queues none.
+
+### Steer
+
+```
+   admit (row lock on the leased request) ──► pending ──take, at a step boundary──► applied
+                                                │
+                                                ├──close, request ended normally──► deferred ─► a queued turn request, same id
+                                                └──close, request stopped──────────► dropped
+```
+
+Admission and `close` both hold the leased request's row, and `close` sets `steering_closed` on it,
+so a steer either joined before the close and is resolved by it, or arrived after and was queued as a
+turn. An orphaned request's steers stay as they were; the janitor writes `steer.dropped` for each the
+log does not show read, and queues none of them.
+
 ### Lease
 
 ```

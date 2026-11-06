@@ -39,6 +39,7 @@ export function ChatInput({
   visible = true,
   running,
   queueing = false,
+  steering = false,
   queued,
   contextControl,
   timeline,
@@ -62,6 +63,12 @@ export function ChatInput({
   visible?: boolean;
   running: boolean;
   queueing?: boolean;
+  /**
+   * Whether the turn that is running takes messages (ADR-0026). Sending then steers it: the agent
+   * reads the message at its next step, rather than it waiting for the turn to end. Words only —
+   * attachments cannot be added while a turn runs, and a message with images is the next turn.
+   */
+  steering?: boolean;
   queued?: Pick<FirstPrompt, "text" | "attachments"> | undefined;
   contextControl?: ReactNode;
   timeline?: RefObject<HTMLElement | null> | undefined;
@@ -229,7 +236,9 @@ export function ChatInput({
   const root = useRef<HTMLDivElement>(null);
   const surface = useRef<HTMLFieldSetElement>(null);
   const [multiline, setMultiline] = useState(false);
-  const token = running && !queueing ? undefined : parseToken(text);
+  /** A running turn still takes what is typed: queued behind a compaction, or steering it. */
+  const accepting = queueing || steering;
+  const token = running && !accepting ? undefined : parseToken(text);
   const rows = token === undefined ? [] : menuRows(token, files);
   const open = token !== undefined && rows.length > 0 && dismissed !== text;
   const scroll = useComposerScroll({
@@ -330,7 +339,7 @@ export function ChatInput({
     if (
       !draftReady ||
       message === "" ||
-      (running && !queueing) ||
+      (running && !accepting) ||
       media.processing ||
       incompatibleMedia
     )
@@ -500,7 +509,7 @@ export function ChatInput({
             onPointerDown={scroll.expand}
             onFocus={scroll.focusEditor}
             value={text}
-            disabled={!draftReady || (running && !queueing)}
+            disabled={!draftReady || (running && !accepting)}
             onPaste={(event) => {
               const files = Array.from(event.clipboardData.files);
               if (files.length && !running) {
@@ -549,11 +558,13 @@ export function ChatInput({
             placeholder={
               queueing
                 ? "Queue a message after compaction…"
-                : running
-                  ? "Working…"
-                  : planning
-                    ? "Describe what to plan — nothing is built until you approve…"
-                    : "Ask a follow-up…"
+                : running && steering
+                  ? "Steer the agent — it reads this at its next step…"
+                  : running
+                    ? "Working…"
+                    : planning
+                      ? "Describe what to plan — nothing is built until you approve…"
+                      : "Ask a follow-up…"
             }
             className="block min-h-12 w-full min-w-0 resize-none bg-transparent text-sm leading-relaxed text-ink outline-none placeholder:text-muted disabled:text-muted"
           />
@@ -606,12 +617,14 @@ export function ChatInput({
                 </svg>
               </button>
             )}
-            {(!running || (queueing && !empty)) && (
+            {(!running || (accepting && !empty)) && (
               <button
                 type="button"
                 onClick={send}
                 disabled={!draftReady || empty || media.processing || incompatibleMedia}
-                aria-label={queueing ? "Queue message" : "Send"}
+                aria-label={
+                  queueing ? "Queue message" : running ? "Send to the running turn" : "Send"
+                }
                 className="composer-send relative isolate flex size-9 items-center justify-center overflow-hidden rounded-full bg-accent text-white transition-all duration-150 enabled:cursor-pointer disabled:pointer-events-none disabled:opacity-64 sm:size-8 focus-visible:outline-accent [&_svg]:pointer-events-none"
               >
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">

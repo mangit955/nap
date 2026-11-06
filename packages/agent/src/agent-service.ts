@@ -45,6 +45,7 @@ import { DirectoryRules } from "./hooks/directory-rules.ts";
 import type { TurnHook } from "./hooks/hook.ts";
 import { PlanMode } from "./hooks/plan-mode.ts";
 import { PlanTracking } from "./hooks/plan-tracking.ts";
+import { Steering } from "./hooks/steering.ts";
 import { TurnBudget, type TurnBudgetOptions } from "./safety/budget.ts";
 import { appendText, SubagentPool } from "./subagents.ts";
 import type { ToolDefinition } from "./tools/definitions.ts";
@@ -205,6 +206,11 @@ class Turn {
       }),
       ...(this.#offered.has("todo_write") ? [new PlanTracking()] : []),
       ...(request.mode === "plan" ? [new PlanMode()] : []),
+      // Only with both halves: somewhere the steers come from, and the engine's word on how one
+      // reads. A turn with neither hears nothing until it ends, and what was sent becomes the next.
+      ...(request.steering !== undefined && request.context.renderSteer !== undefined
+        ? [new Steering(request.steering, request.context.renderSteer)]
+        : []),
       ...(options.hooks?.(request) ?? []),
     ];
   }
@@ -232,6 +238,12 @@ class Turn {
     }
 
     for (;;) {
+      if (this.#cancelled()) return this.#fail("cancelled", "The turn was cancelled.");
+
+      // A safe point: the last batch is answered, in one message, and nothing is running. What the
+      // person sent meanwhile goes after those results, in that message — so it never separates a
+      // result from its call, and it lands after everything the cache already holds (ADR-0024).
+      for (const text of await this.#interjections()) appendText(this.#messages, text);
       if (this.#cancelled()) return this.#fail("cancelled", "The turn was cancelled.");
 
       const contextFailure = await this.#checkContext();
@@ -385,6 +397,22 @@ class Turn {
           );
           continue;
         }
+        // The model is finished with what it was asked; somebody may have asked for more since.
+        // Answered with the turn's next step rather than left for a turn behind this one, which
+        // would begin by rebuilding the context this one already holds.
+        const steered = await this.#interjections();
+        if (this.#cancelled()) return this.#fail("cancelled", "The turn was cancelled.");
+        if (steered.length > 0) {
+          this.#messages.push({
+            role: "assistant",
+            content: result.text === "" ? "(no reply)" : result.text,
+          });
+          this.#messages.push({
+            role: "user",
+            content: steered.map((text) => ({ type: "text", text })),
+          });
+          continue;
+        }
         const objection = await this.#objection();
         if (objection !== undefined) {
           this.#continueWith(result.text, objection);
@@ -414,6 +442,20 @@ class Turn {
         : await this.#firstStopReason();
     if (reason !== undefined) this.#stopRefusals += 1;
     return reason;
+  }
+
+  /**
+   * The person's words since the model last heard from them, from every hook that has any.
+   *
+   * Asked only with a step left to answer them. Taking a steer marks it read for good, so one taken
+   * by a turn that then could not call the model would be a message nobody ever answered; left
+   * untaken, it becomes the next turn when this one ends.
+   */
+  async #interjections(): Promise<string[]> {
+    if (this.#budget.remaining().steps < 1 || this.#cancelled()) return [];
+    const said: string[] = [];
+    for (const hook of this.#hooks) said.push(...((await hook.interject?.()) ?? []));
+    return said;
   }
 
   async #firstStopReason(): Promise<string | undefined> {

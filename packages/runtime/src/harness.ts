@@ -41,6 +41,7 @@ export const HARNESS_USAGE = [
   "  --keep                  Leave the sandbox running instead of destroying it",
   "  --plan                  Run the prompt in plan mode: read-only, ending on a proposed plan",
   "  --approve               With --plan, approve that plan and run the turn that builds it",
+  "  --steer=<message>       Send a message while the turn runs; it joins at the next step",
   "",
   "Without --real it runs on a scripted model and an in-memory sandbox, and is free.",
 ].join("\n");
@@ -73,6 +74,11 @@ export type HarnessOptions = {
    * and runs the turn that carries it out, in the same session (ADR-0025).
    */
   plan: "off" | "propose" | "approve";
+  /**
+   * A message sent while the first turn runs, which joins it at its next step (ADR-0026). Sent
+   * during the turn's first model call, so the dry run always shows it read after a tool result.
+   */
+  steer: string | undefined;
 };
 
 /**
@@ -94,6 +100,7 @@ export function parseHarnessArgs(argv: readonly string[]): Result<HarnessOptions
     "keep",
     "plan",
     "approve",
+    "steer",
   ]);
   const flags = new Map<string, string>();
   const words: string[] = [];
@@ -103,8 +110,11 @@ export function parseHarnessArgs(argv: readonly string[]): Result<HarnessOptions
       words.push(arg);
       continue;
     }
-    const [name, value] = arg.slice(2).split("=");
-    if (name === undefined || !known.has(name)) return { ok: false, error: `unknown flag ${arg}` };
+    // At the first `=` only: a message can hold one.
+    const separator = arg.indexOf("=");
+    const name = separator === -1 ? arg.slice(2) : arg.slice(2, separator);
+    const value = separator === -1 ? undefined : arg.slice(separator + 1);
+    if (!known.has(name)) return { ok: false, error: `unknown flag ${arg}` };
     flags.set(name, value ?? "true");
   }
 
@@ -123,6 +133,11 @@ export function parseHarnessArgs(argv: readonly string[]): Result<HarnessOptions
 
   if (flags.has("approve") && !flags.has("plan"))
     return { ok: false, error: "--approve needs --plan: there is no plan to approve without one" };
+
+  const steer = flags.get("steer");
+  // A bare `--steer` reads as "true", which nobody meant to send.
+  if (steer !== undefined && (steer === "true" || steer.trim() === ""))
+    return { ok: false, error: '--steer needs the message, as --steer="use Postgres instead"' };
 
   const maxSteps = positiveInt(flags.get("max-steps"), HARNESS_DEFAULTS.maxSteps, "max-steps");
   if (!maxSteps.ok) return maxSteps;
@@ -146,6 +161,7 @@ export function parseHarnessArgs(argv: readonly string[]): Result<HarnessOptions
       budgetTokens: budgetTokens.value,
       keep: flags.has("keep"),
       plan: flags.has("approve") ? "approve" : flags.has("plan") ? "propose" : "off",
+      steer: steer?.trim(),
     },
   };
 }
@@ -218,6 +234,12 @@ function detail(event: NapEvent): string {
       return `${oneLine(event.payload.question)} — ${event.payload.options.map((option) => option.label).join(" / ")}`;
     case "plan.proposed":
       return `${oneLine(event.payload.title)} — ${event.payload.plan.split("\n").length} lines, awaiting approval`;
+    case "steer.received":
+      return `waiting: ${oneLine(event.payload.text)}`;
+    case "steer.applied":
+      return `read: ${oneLine(event.payload.text)}`;
+    case "steer.dropped":
+      return `${event.payload.reason}: ${oneLine(event.payload.text)}`;
     case "subagent.started":
       return `${event.payload.subagentId} ${event.payload.profile}: ${oneLine(event.payload.task)}`;
     case "subagent.completed":

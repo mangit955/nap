@@ -45,6 +45,7 @@ import { getLogger } from "@nap/shared/logging";
 import type { CancelChannel, StopListening } from "@nap/shared/ports/cancel-channel";
 import type { ModelCredentials } from "@nap/shared/ports/llm-provider";
 import type { Runtime } from "@nap/shared/ports/runtime";
+import type { RequestSteering, SteerQueue } from "@nap/shared/ports/steer-queue";
 import type { LeasedTurnRequest, TurnQueue } from "@nap/shared/ports/turn-queue";
 import { TurnAbortError } from "@nap/shared/turn-abort";
 
@@ -140,6 +141,12 @@ export type TurnWorkerOptions = {
    * quietly holding up the next claim.
    */
   onClaimTick?: () => void;
+  /**
+   * Where messages sent to a running turn wait (ADR-0026). Each turn request's steering is bound to
+   * the lease this worker holds on it, so it reads and resolves that request's and nobody else's.
+   * Absent means a message sent mid-turn waits for the turn to end, which is what it did before.
+   */
+  steers?: Pick<SteerQueue, "take" | "close">;
   /** A publication retry uses the session lease and cancellation without spending model tokens. */
   publish?: (request: LeasedTurnRequest, signal: AbortSignal) => Promise<boolean>;
 };
@@ -186,6 +193,18 @@ const ABORT_GRACE_MS = 10_000;
  * driver sets no limit of its own. Short enough that a turn accepted meanwhile barely notices.
  */
 const LISTEN_TIMEOUT_MS = 5_000;
+
+/** One request's steering, bound to the lease this worker holds on it. */
+function steeringOf(
+  steers: Pick<SteerQueue, "take" | "close">,
+  requestId: string,
+  owner: string,
+): RequestSteering {
+  return {
+    take: () => steers.take(requestId, owner),
+    close: (disposition) => steers.close(requestId, owner, disposition),
+  };
+}
 
 export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
   const {
@@ -327,6 +346,9 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
             message: request.message,
             ...(request.attachments === undefined ? {} : { attachments: request.attachments }),
             ...(request.plan === undefined ? {} : { plan: request.plan }),
+            ...(options.steers === undefined
+              ? {}
+              : { steering: steeringOf(options.steers, request.id, owner) }),
           }),
       signal,
       model: request.model,

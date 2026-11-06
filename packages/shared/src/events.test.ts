@@ -542,6 +542,56 @@ const CASES = [
     issuePath: ["payload", "title"],
   },
   {
+    type: "steer.received",
+    valid: {
+      ...ENVELOPE,
+      type: "steer.received",
+      payload: { steerId: "5b0e4f7a-6a8c-4c43-9e44-2d8b3a7f0c11", text: "Use Postgres instead" },
+    },
+    malformed: {
+      ...ENVELOPE,
+      type: "steer.received",
+      payload: { steerId: "not-a-uuid", text: "Use Postgres instead" },
+    },
+    issuePath: ["payload", "steerId"],
+  },
+  {
+    type: "steer.applied",
+    valid: {
+      ...ENVELOPE,
+      type: "steer.applied",
+      payload: { steerId: "5b0e4f7a-6a8c-4c43-9e44-2d8b3a7f0c11", text: "Use Postgres instead" },
+    },
+    malformed: {
+      ...ENVELOPE,
+      type: "steer.applied",
+      payload: { steerId: "5b0e4f7a-6a8c-4c43-9e44-2d8b3a7f0c11", text: "" },
+    },
+    issuePath: ["payload", "text"],
+  },
+  {
+    type: "steer.dropped",
+    valid: {
+      ...ENVELOPE,
+      type: "steer.dropped",
+      payload: {
+        steerId: "5b0e4f7a-6a8c-4c43-9e44-2d8b3a7f0c11",
+        text: "Use Postgres instead",
+        reason: "stopped",
+      },
+    },
+    malformed: {
+      ...ENVELOPE,
+      type: "steer.dropped",
+      payload: {
+        steerId: "5b0e4f7a-6a8c-4c43-9e44-2d8b3a7f0c11",
+        text: "Use Postgres instead",
+        reason: "expired",
+      },
+    },
+    issuePath: ["payload", "reason"],
+  },
+  {
     type: "subagent.started",
     valid: {
       ...ENVELOPE,

@@ -24,7 +24,7 @@
  * time a tool answered.
  */
 
-import type { FileChange, TranscriptItem } from "./transcript.ts";
+import { type FileChange, type TranscriptItem, UNLANDED_STEERS } from "./transcript.ts";
 import {
   entryFailed,
   formatDuration,
@@ -293,10 +293,29 @@ function changedFiles(items: readonly TranscriptItem[], turn: Turn): FileChange[
   return [...byPath.values()];
 }
 
+/**
+ * Messages the person sent mid-turn that have not landed (ADR-0026) are drawn last, after the live
+ * row. `buildTranscript` puts them at the end of the items, which is where they read — and the end
+ * of the items is also where the live row finds the run the agent is in, so they are set aside
+ * before anything else looks, rather than ending that run early.
+ */
 export function buildTimeline(
   items: readonly TranscriptItem[],
   options: TimelineOptions,
 ): TimelineRow[] {
+  let end = items.length;
+  for (;;) {
+    const last = items[end - 1];
+    if (last?.kind !== "steer" || !UNLANDED_STEERS.has(last.status)) break;
+    end -= 1;
+  }
+  const rows = timelineOf(items.slice(0, end), options);
+  for (const item of items.slice(end))
+    if (item.kind === "steer") rows.push({ kind: "item", id: `item:${item.key}`, item });
+  return rows;
+}
+
+function timelineOf(items: readonly TranscriptItem[], options: TimelineOptions): TimelineRow[] {
   const { running, pending = false, expandedFolds, expandedGroups } = options;
   const folds = deriveTurnFolds(items);
   const foldAt = new Map(folds.map((fold) => [fold.anchor, fold]));

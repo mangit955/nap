@@ -359,7 +359,8 @@ export function createApp(deps: AppDeps): Hono<{ Variables: AuthVariables }> {
   if (deps.account !== undefined) registerAccountRoutes(app, deps.account);
   if (deps.providers !== undefined) registerProviderRoutes(app, deps.providers);
   if (deps.files !== undefined) registerFileRoutes(app, deps.files);
-  if (deps.turns !== undefined) registerTurnRoutes(app, deps.turns, deps.stream.store);
+  if (deps.turns !== undefined)
+    registerTurnRoutes(app, deps.turns, deps.stream.store, deps.stream.bus);
   if (deps.models !== undefined) registerModelRoutes(app, deps.models);
   if (deps.projects !== undefined) registerProjectRoutes(app, deps.projects);
 

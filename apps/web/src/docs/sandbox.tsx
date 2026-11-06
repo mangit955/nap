@@ -75,6 +75,21 @@ export function Sandbox() {
       </P>
 
       <P>
+        A message sent while a turn is running <Term>steers</Term> it rather than waiting behind it.
+        The message is admitted like any prompt, with the same ownership checks, model access,
+        sandbox quota and rate limit, and charged whatever becomes of it. It then waits in a row
+        joined to the running request. The agent reads it only at a step boundary: once the last
+        batch of tool calls has been answered, or when the model stops with a step left. It is
+        appended after those results, never between a result and its call, and never into the cached
+        part of the conversation. The log records it where it was read, durably, before the model
+        sees it. At most three wait on one turn; a fourth is queued as the next turn. A turn that
+        finishes without reading a message queues it as the next turn, under the same id. A turn
+        that was stopped, or whose worker died, runs none of them, and each is offered back to send
+        again. Which of these happens is decided under a lock on the running request&rsquo;s row,
+        which its end takes too, so no message is read twice or lost between the two.
+      </P>
+
+      <P>
         A command that keeps running — a server, a watcher — runs as a background shell whose
         output, exit code and process group are files in the sandbox. The agent comes back to it by
         id, and it outlives the turn that started it, because nothing about it lives in our

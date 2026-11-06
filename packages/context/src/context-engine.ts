@@ -49,6 +49,7 @@ import type { Memory } from "@nap/shared/ports/memory-provider";
 import { TOOL_KINDS, type ToolKind } from "@nap/shared/tool-kinds";
 import { buildFileTreeDigest } from "./file-tree.ts";
 import { renderJobBrief } from "./job-brief.ts";
+import { renderSteer } from "./steer.ts";
 import { SUBAGENT_PROMPTS } from "./subagent-prompts.ts";
 import {
   PLAN_MODE_PROMPT,
@@ -235,6 +236,12 @@ function toMessages(events: NapEvent[], media: MediaReplay): LLMMessage[] {
           }
         }
         push("user", textBlock(event.payload.text));
+        break;
+      case "steer.applied":
+        // Where the agent read it, in the same user message as the results it followed — the
+        // shape the loop sent it in. Still waiting, or dropped, it was never part of the
+        // conversation, and a steer that became a turn is that turn's `user.message`.
+        push("user", textBlock(renderSteer(event.payload.text)));
         break;
       case "agent.message":
         // Appended to the block already there when the previous event was also prose, rather
@@ -459,8 +466,9 @@ export class NapContextEngine implements ContextEngine {
       return [
         ...toMessages(
           request.history.filter(
+            // A steer is a request too: what somebody said mid-turn outlives the work it changed.
             (event) =>
-              event.type === "user.message" &&
+              (event.type === "user.message" || event.type === "steer.applied") &&
               (event.seq <= (checkpoint?.coveredThrough ?? 0) || !retained.has(event.turnId)),
           ),
           "references",
@@ -645,6 +653,7 @@ export class NapContextEngine implements ContextEngine {
       needsCompaction,
       messages,
       estimatedTokens: estimateTokens(instructions) + messagesTokens(messages),
+      renderSteer,
       // Helpers earn their keep where a search would otherwise fill the context: an imported
       // repository. A Nap project is a handful of files listed in the prompt already, where a
       // helper is a second model paid to find what the first can see (ADR-0020).

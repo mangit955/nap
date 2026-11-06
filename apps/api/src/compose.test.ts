@@ -22,6 +22,7 @@ import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-m
 import { ComputerControlGrantSchema } from "@nap/shared/computer-access";
 import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
 import { ABANDON_AFTER_MS } from "@nap/shared/ports/project-computer-access";
+import type { SteerQueue } from "@nap/shared/ports/steer-queue";
 import type { TurnQueue } from "@nap/shared/ports/turn-queue";
 import type { TurnRateLimiter } from "@nap/shared/ports/turn-rate-limit";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
@@ -435,7 +436,7 @@ describe("composeNap", () => {
     // expired leases and pass every other test in this file.
     const queue = new InMemoryTurnQueue();
     let looks = 0;
-    const counting: TurnQueue = {
+    const counting: TurnQueue & SteerQueue = {
       orphanExpired: async (limit) => {
         looks += 1;
         return await queue.orphanExpired(limit);
@@ -452,6 +453,11 @@ describe("composeNap", () => {
       anyLeased: (sessionIds) => queue.anyLeased(sessionIds),
       unannouncedOrphans: (limit) => queue.unannouncedOrphans(limit),
       markOrphanAnnounced: (requestId) => queue.markOrphanAnnounced(requestId),
+      steer: (request) => queue.steer(request),
+      find: (request) => queue.find(request),
+      take: (requestId, owner) => queue.take(requestId, owner),
+      close: (requestId, owner, disposition) => queue.close(requestId, owner, disposition),
+      steersOf: (requestId) => queue.steersOf(requestId),
     };
 
     compose({

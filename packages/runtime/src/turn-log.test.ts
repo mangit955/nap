@@ -210,6 +210,21 @@ const ONE_OF_EACH: Record<NapEventType, StoredEvent> = {
     type: "plan.proposed",
     payload: { toolCallId: "plan", title: "private title", plan: "private plan" },
   }),
+  "steer.received": stored({
+    ...base(102),
+    type: "steer.received",
+    payload: { steerId: JOB, text: "private steer" },
+  }),
+  "steer.applied": stored({
+    ...base(103),
+    type: "steer.applied",
+    payload: { steerId: JOB, text: "private steer" },
+  }),
+  "steer.dropped": stored({
+    ...base(104),
+    type: "steer.dropped",
+    payload: { steerId: JOB, text: "private steer", reason: "stopped" },
+  }),
   "subagent.started": stored({
     ...base(42),
     type: "subagent.started",
@@ -350,6 +365,8 @@ describe("eventLogLine", () => {
       "private description",
       "private task",
       "private summary",
+      // A message sent mid-turn is a prompt like any other.
+      "private steer",
     ];
 
     for (const event of Object.values(ONE_OF_EACH)) {

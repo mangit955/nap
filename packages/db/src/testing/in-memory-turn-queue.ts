@@ -15,6 +15,15 @@ import type { InMemoryProjectComputerAccess } from "./in-memory-project-computer
  */
 
 import { LEASE_GRACE_MS, LEASE_TTL_MS, ORPHAN_SWEEP_LIMIT } from "@nap/shared/lease-windows";
+import {
+  type ClosedSteers,
+  MAX_WAITING_STEERS,
+  type Steer,
+  type SteerAdmission,
+  type SteerQueue,
+  type SteerRequest,
+  type SteerState,
+} from "@nap/shared/ports/steer-queue";
 import type {
   CancelOutcome,
   EnqueueTurnRequest,
@@ -35,6 +44,16 @@ type Row = EnqueueTurnRequest & {
   createdAt: number;
   /** When this row's terminal events reached the log. Null on an orphan nobody has announced. */
   finishedAt: number | null;
+  /** Set once the worker has resolved this request's steers; nothing joins it after. */
+  steeringClosed: boolean;
+};
+
+type SteerRow = Omit<SteerRequest, "message"> & {
+  text: string;
+  requestId: string;
+  state: SteerState;
+  /** When it was sent, which is also where a turn it falls back to sorts in the queue. */
+  createdAt: number;
 };
 
 export type InMemoryTurnQueueOptions = {
@@ -46,8 +65,10 @@ export type InMemoryTurnQueueOptions = {
   leaseGraceMs?: number;
 };
 
-export class InMemoryTurnQueue implements TurnQueue {
+export class InMemoryTurnQueue implements TurnQueue, SteerQueue {
   readonly #rows: Row[] = [];
+  /** Oldest first, which is the order a request reads them in. */
+  readonly #steers: SteerRow[] = [];
   readonly #now: () => number;
   readonly #leaseTtlMs: number;
   readonly #leaseGraceMs: number;
@@ -86,6 +107,7 @@ export class InMemoryTurnQueue implements TurnQueue {
       leaseOwner: null,
       leaseExpiresAt: null,
       finishedAt: null,
+      steeringClosed: false,
       // The sequence, not the clock: two requests enqueued in the same millisecond still have an
       // order, and a test that injected a frozen clock would otherwise have none.
       createdAt: this.#sequence,
@@ -237,6 +259,113 @@ export class InMemoryTurnQueue implements TurnQueue {
     if (row !== undefined) row.finishedAt = this.#now();
   }
 
+  async steer(request: SteerRequest): Promise<SteerAdmission> {
+    const earlier = await this.find(request);
+    if (earlier !== null) return earlier;
+
+    // The same conditions the Postgres statement holds the row for. Single-threaded, so checking
+    // and inserting cannot be split by a close the way two statements could be.
+    const target = this.#rows.find(
+      (row) =>
+        row.sessionId === request.sessionId &&
+        row.state === "leased" &&
+        row.kind === "turn" &&
+        row.message?.trim() !== "/compact" &&
+        !row.cancelRequested &&
+        !row.steeringClosed &&
+        (row.plan?.intent === "propose") === (request.plan?.intent === "propose") &&
+        this.#steers.filter((one) => one.requestId === row.id && one.state === "pending").length <
+          MAX_WAITING_STEERS,
+    );
+    if (target === undefined) {
+      await this.enqueue({ ...request, kind: "turn" });
+      return { as: "turn" };
+    }
+
+    const { message, ...rest } = request;
+    this.#sequence += 1;
+    this.#steers.push({
+      createdAt: this.#sequence,
+      ...rest,
+      ...(request.plan === undefined ? {} : { plan: structuredClone(request.plan) }),
+      text: message,
+      requestId: target.id,
+      state: "pending",
+    });
+    return { as: "steer", requestId: target.id };
+  }
+
+  async find(
+    request: Pick<SteerRequest, "id" | "sessionId" | "userId">,
+  ): Promise<SteerAdmission | null> {
+    const steer = this.#steers.find((one) => one.id === request.id);
+    const turn = this.#rows.find((row) => row.id === request.id);
+    const found = steer ?? turn;
+    if (found === undefined) return null;
+    if (found.sessionId !== request.sessionId || found.userId !== request.userId)
+      return { as: "conflict" };
+    return steer === undefined ? { as: "turn" } : { as: "steer", requestId: steer.requestId };
+  }
+
+  async take(requestId: string, owner: string): Promise<Steer[]> {
+    if (this.#held(requestId, owner) === undefined) return [];
+    const waiting = this.#steers.filter(
+      (one) => one.requestId === requestId && one.state === "pending",
+    );
+    for (const one of waiting) one.state = "applied";
+    return waiting.map(asSteer);
+  }
+
+  async close(
+    requestId: string,
+    owner: string,
+    disposition: "defer" | "drop",
+  ): Promise<ClosedSteers> {
+    const request = this.#held(requestId, owner);
+    if (request === undefined || request.steeringClosed) return { deferred: [], dropped: [] };
+    request.steeringClosed = true;
+
+    const waiting = this.#steers.filter(
+      (one) => one.requestId === requestId && one.state === "pending",
+    );
+    for (const one of waiting) {
+      one.state = disposition === "defer" ? "deferred" : "dropped";
+      if (disposition === "defer") {
+        await this.enqueue({
+          id: one.id,
+          sessionId: one.sessionId,
+          userId: one.userId,
+          kind: "turn",
+          message: one.text,
+          ...(one.plan === undefined ? {} : { plan: structuredClone(one.plan) }),
+          model: one.model,
+          billsToUser: one.billsToUser,
+        });
+        // Queued in the order it was sent rather than the order it was resolved in, as Postgres
+        // does: several deferred at once would otherwise have no order between them.
+        const queued = this.#rows.at(-1);
+        if (queued !== undefined) queued.createdAt = one.createdAt;
+      }
+    }
+    const resolved = waiting.map(asSteer);
+    return disposition === "defer"
+      ? { deferred: resolved, dropped: [] }
+      : { deferred: [], dropped: resolved };
+  }
+
+  async steersOf(requestId: string): Promise<(Steer & { state: SteerState })[]> {
+    return this.#steers
+      .filter((one) => one.requestId === requestId)
+      .map((one) => ({ ...asSteer(one), state: one.state }));
+  }
+
+  /** The request, if `owner` holds its lease — the predicate every steering write is under. */
+  #held(requestId: string, owner: string): Row | undefined {
+    return this.#rows.find(
+      (row) => row.id === requestId && row.leaseOwner === owner && row.state === "leased",
+    );
+  }
+
   /** What state a request is in, for tests that assert on the queue rather than through it. */
   stateOf(requestId: string): TurnRequestState | null {
     return this.#rows.find((row) => row.id === requestId)?.state ?? null;
@@ -298,6 +427,10 @@ export class InMemoryTurnQueue implements TurnQueue {
   #isLeased(row: Row): boolean {
     return row.state === "leased";
   }
+}
+
+function asSteer(row: SteerRow): Steer {
+  return { id: row.id, text: row.text };
 }
 
 function asOrphan(row: Row): OrphanedTurnRequest {

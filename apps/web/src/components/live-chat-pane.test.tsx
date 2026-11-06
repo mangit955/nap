@@ -775,13 +775,21 @@ it("shares reconciled legacy activity with composer, Context and the visible clo
   );
   try {
     expect(screen.getByRole("status", { name: "Agent is working" })).toBeInTheDocument();
-    expect(screen.getByRole("textbox", { name: "Message" })).toBeDisabled();
+    // Working: what is typed now steers the running turn rather than starting one.
+    expect(screen.getByRole("textbox", { name: "Message" })).toHaveAttribute(
+      "placeholder",
+      expect.stringMatching(/next step/),
+    );
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1000);
     });
     expect(screen.queryByRole("status", { name: "Agent is working" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Message" })).toBeEnabled();
+    expect(screen.getByRole("textbox", { name: "Message" })).not.toHaveAttribute(
+      "placeholder",
+      expect.stringMatching(/next step/),
+    );
     expect(onActivity).toHaveBeenLastCalledWith({
       sessionId: SESSION_ID,
       running: false,
@@ -1087,5 +1095,58 @@ describe("LiveChatPane computer recovery", () => {
 
   it("keeps a reader's scrolled-up position when recovery appears after the transcript settles", async () => {
     expect(await latePause(() => 400)).toBe(400);
+  });
+});
+
+describe("LiveChatPane steering a running turn", () => {
+  const running = (): SessionLog => {
+    const events = [
+      ev("user.message", { text: "Build a notes app" }, 1),
+      ev("turn.started", { source: "user" }, 2),
+    ];
+    return { ...failedTurn(), events, lastSeq: 2, jobs: jobView(events) };
+  };
+
+  it("sends a message into the running turn and shows it waiting, once", async () => {
+    const steers: { id: string; message: string }[] = [];
+    const server = async (url: string, init?: RequestInit): Promise<Response> => {
+      if (url.endsWith("/steers") && init?.method === "POST") {
+        const body = JSON.parse(String(init.body)) as { id: string; message: string };
+        steers.push(body);
+        return Response.json({ accepted: true, requestId: body.id, as: "steer" }, { status: 202 });
+      }
+      return fetchJson(url, init);
+    };
+    const view = render(<LiveChatPane sessionId={SESSION_ID} log={running()} fetchJson={server} />);
+    const box = await screen.findByRole("textbox", { name: "Message" });
+    await waitFor(() => expect(box).toBeEnabled());
+
+    fireEvent.change(box, { target: { value: "Use Postgres instead" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send to the running turn" }));
+
+    await waitFor(() => expect(steers).toHaveLength(1));
+    expect(turns).toEqual([]);
+    const waiting = await screen.findByRole("group", { name: "Sent while the agent worked" });
+    expect(waiting).toHaveTextContent("Use Postgres instead");
+
+    // The log catches up: the waiting message is the log's now, and there is still only one.
+    const log = running();
+    const events = [
+      ...log.events,
+      ev("steer.received", { steerId: steers[0]?.id ?? "", text: "Use Postgres instead" }, 3),
+    ];
+    view.rerender(
+      <LiveChatPane
+        sessionId={SESSION_ID}
+        log={{ ...log, events, lastSeq: 3, jobs: jobView(events) }}
+        fetchJson={server}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getAllByRole("group", { name: "Sent while the agent worked" })).toHaveLength(1),
+    );
+    expect(screen.getByRole("group", { name: "Sent while the agent worked" })).toHaveTextContent(
+      "Waiting for the agent's next step",
+    );
   });
 });

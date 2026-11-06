@@ -34,6 +34,15 @@ import { MediaAttachmentsSchema } from "@nap/shared/media";
  */
 
 import { LEASE_GRACE_MS, LEASE_TTL_MS, ORPHAN_SWEEP_LIMIT } from "@nap/shared/lease-windows";
+import {
+  type ClosedSteers,
+  MAX_WAITING_STEERS,
+  type Steer,
+  type SteerAdmission,
+  type SteerQueue,
+  type SteerRequest,
+  type SteerState,
+} from "@nap/shared/ports/steer-queue";
 import type {
   CancelOutcome,
   EnqueueTurnRequest,
@@ -44,9 +53,15 @@ import type {
   TurnRequestSettlement,
   TurnRequestStatus,
 } from "@nap/shared/ports/turn-queue";
-import { and, asc, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
+import { and, asc, count, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { projectComputerOperations, projects, sessions, turnRequests } from "./schema.ts";
+import {
+  projectComputerOperations,
+  projects,
+  sessions,
+  turnRequests,
+  turnSteers,
+} from "./schema.ts";
 
 /**
  * How long a claim is good for, as a Postgres interval.
@@ -82,10 +97,16 @@ const UNIQUE_VIOLATION = "23505";
 /** The partial unique index that *is* the one-in-flight-per-session rule. */
 const ONE_LEASED_PER_SESSION = "turn_requests_one_leased_per_session";
 
+/**
+ * The primary keys a steer's id can collide on: its own row, or the turn request it fell back to.
+ * Two retries of one message racing is the only ordinary way to reach either.
+ */
+const SUBMISSION_KEYS = new Set(["turn_steers_pkey", "turn_requests_pkey"]);
+
 /** What a lease occupies. Terminal states hold nothing and are excluded from every predicate. */
 const IN_FLIGHT = ["queued", "leased"] as const;
 
-export class PostgresTurnQueue implements TurnQueue {
+export class PostgresTurnQueue implements TurnQueue, SteerQueue {
   readonly #db: PostgresJsDatabase;
 
   /** Takes a database rather than a URL, for the reason `PostgresEventStore` does. */
@@ -426,6 +447,194 @@ export class PostgresTurnQueue implements TurnQueue {
       .limit(limit);
   }
 
+  /**
+   * Admission, as one transaction that holds the leased request's row while it decides.
+   *
+   * The lock is the fence (ADR-0026). `close` updates the same row, and the two conflict, so either
+   * this commits first and `close` resolves the steer it inserted, or `close` commits first and this
+   * re-reads the row — Postgres re-checks a locked row's predicate once the lock is released — finds
+   * it closed, and queues a turn instead. `no key update` rather than `share` because it also
+   * serializes two admissions with each other, which is what keeps the backlog count honest; a
+   * renewal waits behind one for the length of an insert.
+   */
+  async steer(request: SteerRequest): Promise<SteerAdmission> {
+    const earlier = await this.find(request);
+    if (earlier !== null) return earlier;
+
+    try {
+      return await this.#db.transaction(async (tx) => {
+        const planning = request.plan?.intent === "propose";
+        const [target] = await tx
+          .select({ id: turnRequests.id })
+          .from(turnRequests)
+          .where(
+            and(
+              eq(turnRequests.sessionId, request.sessionId),
+              eq(turnRequests.state, "leased"),
+              eq(turnRequests.kind, "turn"),
+              sql`btrim(coalesce(${turnRequests.message}, '')) <> '/compact'`,
+              eq(turnRequests.cancelRequested, false),
+              eq(turnRequests.steeringClosed, false),
+              // A planning turn takes planning messages, and a building turn the rest.
+              planning
+                ? sql`${turnRequests.plan}->>'intent' = 'propose'`
+                : sql`coalesce(${turnRequests.plan}->>'intent', '') <> 'propose'`,
+            ),
+          )
+          .for("no key update");
+
+        if (target !== undefined) {
+          const [waiting] = await tx
+            .select({ n: count() })
+            .from(turnSteers)
+            .where(and(eq(turnSteers.requestId, target.id), eq(turnSteers.state, "pending")));
+          if ((waiting?.n ?? 0) < MAX_WAITING_STEERS) {
+            await tx.insert(turnSteers).values({
+              id: request.id,
+              sessionId: request.sessionId,
+              userId: request.userId,
+              requestId: target.id,
+              message: request.message,
+              plan: request.plan ?? null,
+              model: request.model,
+              billsToUser: request.billsToUser,
+            });
+            return { as: "steer", requestId: target.id } as const;
+          }
+        }
+
+        await tx.insert(turnRequests).values({
+          id: request.id,
+          sessionId: request.sessionId,
+          userId: request.userId,
+          kind: "turn",
+          message: request.message,
+          plan: request.plan ?? null,
+          model: request.model,
+          billsToUser: request.billsToUser,
+        });
+        return { as: "turn" } as const;
+      });
+    } catch (error) {
+      // A retry of the same message committed first. Whatever it did is the answer.
+      if (!isSubmissionTaken(error)) throw error;
+      const found = await this.find(request);
+      if (found === null) throw error;
+      return found;
+    }
+  }
+
+  async find(
+    request: Pick<SteerRequest, "id" | "sessionId" | "userId">,
+  ): Promise<SteerAdmission | null> {
+    const [steer] = await this.#db
+      .select({
+        sessionId: turnSteers.sessionId,
+        userId: turnSteers.userId,
+        requestId: turnSteers.requestId,
+      })
+      .from(turnSteers)
+      .where(eq(turnSteers.id, request.id));
+    // Checked first: a deferred steer has a turn request under the same id as well, and what the
+    // first attempt did was join.
+    if (steer !== undefined)
+      return steer.sessionId === request.sessionId && steer.userId === request.userId
+        ? { as: "steer", requestId: steer.requestId }
+        : { as: "conflict" };
+
+    const [turn] = await this.#db
+      .select({ sessionId: turnRequests.sessionId, userId: turnRequests.userId })
+      .from(turnRequests)
+      .where(eq(turnRequests.id, request.id));
+    if (turn === undefined) return null;
+    return turn.sessionId === request.sessionId && turn.userId === request.userId
+      ? { as: "turn" }
+      : { as: "conflict" };
+  }
+
+  async take(requestId: string, owner: string): Promise<Steer[]> {
+    const rows = await this.#db
+      .update(turnSteers)
+      .set({ state: "applied", resolvedAt: sql`now()` })
+      .where(
+        and(
+          eq(turnSteers.requestId, requestId),
+          eq(turnSteers.state, "pending"),
+          // The fencing renewal uses: a worker that lost its lease reads nobody's words.
+          sql`exists (
+            select 1 from ${turnRequests}
+            where ${turnRequests.id} = ${requestId}
+              and ${turnRequests.leaseOwner} = ${owner}
+              and ${turnRequests.state} = 'leased'
+          )`,
+        ),
+      )
+      .returning({ id: turnSteers.id, text: turnSteers.message, createdAt: turnSteers.createdAt });
+    return oldestFirst(rows).map(({ id, text }) => ({ id, text }));
+  }
+
+  async close(
+    requestId: string,
+    owner: string,
+    disposition: "defer" | "drop",
+  ): Promise<ClosedSteers> {
+    return await this.#db.transaction(async (tx) => {
+      // The other half of the fence: this update conflicts with admission's lock, so no steer can
+      // join between it and the resolution below.
+      const [held] = await tx
+        .update(turnRequests)
+        .set({ steeringClosed: true })
+        .where(
+          and(
+            eq(turnRequests.id, requestId),
+            eq(turnRequests.leaseOwner, owner),
+            eq(turnRequests.state, "leased"),
+            eq(turnRequests.steeringClosed, false),
+          ),
+        )
+        .returning({ id: turnRequests.id });
+      if (held === undefined) return { deferred: [], dropped: [] };
+
+      const waiting = oldestFirst(
+        await tx
+          .update(turnSteers)
+          .set({ state: disposition === "defer" ? "deferred" : "dropped", resolvedAt: sql`now()` })
+          .where(and(eq(turnSteers.requestId, requestId), eq(turnSteers.state, "pending")))
+          .returning(),
+      );
+      if (disposition === "drop" || waiting.length === 0)
+        return {
+          deferred: [],
+          dropped: waiting.map(({ id, message }) => ({ id, text: message })),
+        };
+
+      // Each becomes the turn it would have been had nothing been running: same id, same words,
+      // same model and payer, queued in the order it was sent.
+      await tx.insert(turnRequests).values(
+        waiting.map((steer) => ({
+          id: steer.id,
+          sessionId: steer.sessionId,
+          userId: steer.userId,
+          kind: "turn" as const,
+          message: steer.message,
+          plan: steer.plan,
+          model: steer.model,
+          billsToUser: steer.billsToUser,
+          createdAt: steer.createdAt,
+        })),
+      );
+      return { deferred: waiting.map(({ id, message }) => ({ id, text: message })), dropped: [] };
+    });
+  }
+
+  async steersOf(requestId: string): Promise<(Steer & { state: SteerState })[]> {
+    return await this.#db
+      .select({ id: turnSteers.id, text: turnSteers.message, state: turnSteers.state })
+      .from(turnSteers)
+      .where(eq(turnSteers.requestId, requestId))
+      .orderBy(asc(turnSteers.createdAt));
+  }
+
   async markOrphanAnnounced(requestId: string): Promise<void> {
     await this.#db
       .update(turnRequests)
@@ -434,6 +643,27 @@ export class PostgresTurnQueue implements TurnQueue {
       // janitor's own rows are terminal with a null `finished_at`.
       .where(and(eq(turnRequests.id, requestId), eq(turnRequests.state, "orphaned")));
   }
+}
+
+/** `returning` carries no order, and the order a person sent their messages in is the point. */
+function oldestFirst<T extends { createdAt: Date }>(rows: T[]): T[] {
+  return rows.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+}
+
+/** Whether this failure is a message's id already being taken, by a retry of the same message. */
+function isSubmissionTaken(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; depth < 8 && current !== null && current !== undefined; depth += 1) {
+    if (typeof current !== "object") return false;
+    const { code, constraint_name: constraint } = current as {
+      code?: unknown;
+      constraint_name?: unknown;
+    };
+    if (code === UNIQUE_VIOLATION && typeof constraint === "string")
+      return SUBMISSION_KEYS.has(constraint);
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
 }
 
 /**

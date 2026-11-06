@@ -6,6 +6,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, inject, it } from "v
 import { PostgresTurnQueue } from "./postgres-turn-queue.ts";
 import { projects, sessions, turnRequests, users } from "./schema.ts";
 import { enqueueRequest } from "./testing/enqueue-request.ts";
+import { steerQueueContract } from "./testing/steer-queue-contract.ts";
 
 /**
  * The queue against a real Postgres, because the thing being tested cannot be observed anywhere
@@ -977,4 +978,86 @@ it("persists and claims an app test's job identity through a fresh adapter", asy
     billsToUser: true,
   });
   expect(await restarted.anyLeased([owner.sessionId])).toBe(true);
+});
+
+steerQueueContract("PostgresTurnQueue", () => ({ queue, session: seedSession }));
+
+describe("steering against the end of a request", () => {
+  /** Polls until this many statements are waiting on a lock, so an interleaving is staged, not hoped for. */
+  async function waiters(atLeast: number): Promise<void> {
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      const [row] = await sql<{ n: number }[]>`
+        select count(*)::int as n from pg_locks where not granted`;
+      if ((row?.n ?? 0) >= atLeast) return;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    throw new Error(`fewer than ${atLeast} statements ever waited on a lock`);
+  }
+
+  it("never admits a steer to a request that is closing without resolving it", async () => {
+    // The window that matters: an admission has read the request as open and not yet inserted
+    // its row, while the worker closes the request. A blocker holding an uncommitted row with the
+    // steer's own id parks the admission exactly there — its insert waits on the primary key.
+    const seed = await seedSession();
+    const { id: requestId } = await enqueueTurn(seed);
+    await queue.claim("worker-a");
+    const steerId = randomUUID();
+
+    const blocker = await sql.reserve();
+    try {
+      await blocker`begin`;
+      await blocker`
+        insert into turn_steers (id, session_id, user_id, request_id, message, model)
+        values (${steerId}, ${seed.sessionId}, ${seed.userId}, ${requestId}, 'blocker', 'm')`;
+
+      const admitting = queue.steer({
+        id: steerId,
+        ...seed,
+        message: "use Postgres instead",
+        model: "openai/gpt-5-mini",
+        billsToUser: false,
+      });
+      await waiters(1);
+
+      // Admission holds the request's row, so the close waits for it rather than resolving the
+      // steers it can see now — which do not yet include this one.
+      const closing = queue.close(requestId, "worker-a", "defer");
+      await Promise.race([waiters(2), closing]);
+      await blocker`rollback`;
+
+      const [admitted, closed] = await Promise.all([admitting, closing]);
+      expect(admitted).toEqual({ as: "steer", requestId });
+      expect(closed.deferred.map((steer) => steer.id)).toEqual([steerId]);
+      expect(await queue.steersOf(requestId)).toEqual([
+        { id: steerId, text: "use Postgres instead", state: "deferred" },
+      ]);
+    } finally {
+      blocker.release();
+    }
+  });
+
+  it("lands every message of a burst exactly once while the request closes under it", async () => {
+    const seed = await seedSession();
+    const { id: requestId } = await enqueueTurn(seed);
+    await queue.claim("worker-a");
+    const ids = Array.from({ length: 12 }, () => randomUUID());
+
+    const admissions = ids.map((id) =>
+      queue.steer({ id, ...seed, message: id, model: "openai/gpt-5-mini", billsToUser: false }),
+    );
+    const closed = await queue.close(requestId, "worker-a", "defer");
+    const admitted = await Promise.all(admissions);
+
+    const deferred = new Set(closed.deferred.map((steer) => steer.id));
+    for (const [index, id] of ids.entries()) {
+      const status = await queue.getStatus({ id, ...seed });
+      // A steer the close resolved, or a turn of its own: never both, never neither.
+      if (admitted[index]?.as === "steer") expect(deferred.has(id)).toBe(true);
+      else expect(deferred.has(id)).toBe(false);
+      expect(status?.state).toBe("queued");
+    }
+    expect((await queue.steersOf(requestId)).filter((steer) => steer.state === "pending")).toEqual(
+      [],
+    );
+  });
 });

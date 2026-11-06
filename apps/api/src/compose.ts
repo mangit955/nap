@@ -57,6 +57,7 @@ import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SandboxRecordings } from "@nap/shared/ports/sandbox-recordings";
 import type { SessionStore } from "@nap/shared/ports/session-store";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
+import type { SteerQueue } from "@nap/shared/ports/steer-queue";
 import type { SweepLock } from "@nap/shared/ports/sweep-lock";
 import type { TurnQueue } from "@nap/shared/ports/turn-queue";
 import type { TurnRateLimiter } from "@nap/shared/ports/turn-rate-limit";
@@ -175,8 +176,12 @@ export type NapDeps = {
    * Required, and the reason it cannot be optional is the one `capacity` gives: a composition
    * without it would type-check, boot, accept turns and run none of them. **One queue per
    * database, never per process** — the whole point is that the lease is visible to every replica.
+   *
+   * It steers too (ADR-0026), and that is one dependency rather than two because it has to be one
+   * store: admitting a message to a running turn is fenced against the end of that turn on the
+   * turn request's own row, which a second store could not see.
    */
-  queue: TurnQueue;
+  queue: TurnQueue & SteerQueue;
   /**
    * How the reaper puts back capacity nothing gave back, if this composition can offer it.
    *
@@ -796,6 +801,8 @@ export function composeNap(deps: NapDeps): ComposedNap {
         credentialsFor: openCallerKey,
         running: registry,
         ...(deps.cancels === null ? {} : { cancels: deps.cancels }),
+        // Messages sent to a turn this worker runs are read from the same queue it was claimed from.
+        steers: deps.queue,
         // A worker has no port, so this loop coming round is the only liveness signal there is.
         ...(deps.onClaimTick === undefined ? {} : { onClaimTick: deps.onClaimTick }),
       });
@@ -841,6 +848,7 @@ export function composeNap(deps: NapDeps): ComposedNap {
         sweep: async () => {
           const result = await sweepOrphanedRequests({
             queue: deps.queue,
+            steers: deps.queue,
             ...(deps.recordings
               ? { computer: { recordings: deps.recordings, sessions: deps.sessions } }
               : {}),

@@ -34,6 +34,7 @@ import type { EventBus } from "@nap/shared/ports/event-bus";
 import type { EventStore } from "@nap/shared/ports/event-store";
 import type { SandboxRecordings } from "@nap/shared/ports/sandbox-recordings";
 import type { SessionStore } from "@nap/shared/ports/session-store";
+import type { SteerQueue } from "@nap/shared/ports/steer-queue";
 import type { OrphanedTurnRequest, TurnQueue } from "@nap/shared/ports/turn-queue";
 import { EventSink } from "./event-sink.ts";
 
@@ -69,6 +70,11 @@ export type JanitorResult = {
 export type JanitorOptions = {
   computer?: { recordings: SandboxRecordings; sessions: SessionStore };
   queue: TurnQueue;
+  /**
+   * Where a reclaimed request's steers are, so the ones it never read can be handed back
+   * (ADR-0026). Absent, as in a deployment that admits none, there is nothing to answer for.
+   */
+  steers?: Pick<SteerQueue, "steersOf">;
   events: EventStore;
   bus: EventBus;
   /** How many requests one tick will close out. The queue's own default when absent. */
@@ -178,6 +184,30 @@ async function announce(
         turnId,
         createdAt,
       });
+    }
+    // Messages sent to the dead request that it never recorded reading are handed back, never
+    // re-run: running a person's words on the janitor's say-so is the autonomous spend `Continue`
+    // forbids, and they were written for a turn that no longer exists. A steer the worker already
+    // deferred is a queued turn of its own and says nothing here; one it read but did not record
+    // never reached a model, since recording comes first. The log is what makes a retry harmless.
+    if (request.kind === "turn" && options.steers !== undefined) {
+      const recorded = new Set(
+        history.flatMap((event) =>
+          event.type === "steer.applied" || event.type === "steer.dropped"
+            ? [event.payload.steerId]
+            : [],
+        ),
+      );
+      for (const steer of await options.steers.steersOf(request.id)) {
+        if (steer.state === "deferred" || recorded.has(steer.id)) continue;
+        sink.emit({
+          type: "steer.dropped",
+          payload: { steerId: steer.id, text: steer.text, reason: "interrupted" },
+          sessionId: request.sessionId,
+          turnId: request.id,
+          createdAt,
+        });
+      }
     }
     if (request.kind === "test") {
       if (options.computer) {

@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { enqueueRequest } from "./enqueue-request.ts";
 import { InMemoryTurnQueue } from "./in-memory-turn-queue.ts";
+import { steerQueueContract } from "./steer-queue-contract.ts";
+
+steerQueueContract("InMemoryTurnQueue", () => ({
+  queue: new InMemoryTurnQueue(),
+  session: async () => ({ sessionId: crypto.randomUUID(), userId: crypto.randomUUID() }),
+}));
 
 /**
  * The fake is production-quality code that every worker test depends on, so it is tested for the

@@ -231,6 +231,25 @@ const TREATMENTS = [
     shows: /Dark theme.*Add colour tokens/,
   },
   {
+    type: "steer.received",
+    payload: { steerId: "5b0e4f7a-6a8c-4c43-9e44-2d8b3a7f0c11", text: "Use Postgres" },
+    shows: /Use Postgres/,
+  },
+  {
+    type: "steer.applied",
+    payload: { steerId: "5b0e4f7a-6a8c-4c43-9e44-2d8b3a7f0c11", text: "Use Postgres" },
+    shows: /Use Postgres.*Read at this step/,
+  },
+  {
+    type: "steer.dropped",
+    payload: {
+      steerId: "5b0e4f7a-6a8c-4c43-9e44-2d8b3a7f0c11",
+      text: "Use Postgres",
+      reason: "interrupted",
+    },
+    shows: /Use Postgres.*Not sent: the turn was interrupted/,
+  },
+  {
     type: "subagent.started",
     payload: {
       toolCallId: "s1",
@@ -893,5 +912,53 @@ describe("the agent's plan", () => {
         .getAllByRole("listitem")
         .map((item) => item.textContent),
     ).toEqual(["Done: Build", "In progress: Style", "To do: Ship"]);
+  });
+});
+
+describe("messages sent while a turn ran", () => {
+  const STEER = "5b0e4f7a-6a8c-4c43-9e44-2d8b3a7f0c11";
+
+  it("shows one the agent read as the person's own words, marked as read mid-turn", () => {
+    showRunning(
+      ev("user.message", { text: "Build a notes app" }),
+      ev("turn.started", { source: "user" }),
+      ev("steer.applied", { steerId: STEER, text: "Use Postgres instead" }),
+    );
+
+    const steer = screen.getByRole("group", { name: "Sent while the agent worked" });
+    expect(steer).toHaveTextContent("You: Use Postgres instead");
+    expect(within(steer).getByText("Read at this step")).toBeInTheDocument();
+  });
+
+  it("says one is waiting for the agent's next step while the turn runs", () => {
+    showRunning(
+      ev("user.message", { text: "Build a notes app" }),
+      ev("turn.started", { source: "user" }),
+      ev("steer.received", { steerId: STEER, text: "Use Postgres instead" }),
+    );
+
+    const steer = screen.getByRole("group", { name: "Sent while the agent worked" });
+    expect(within(steer).getByText("Waiting for the agent's next step")).toBeInTheDocument();
+    expect(within(steer).queryByRole("button")).toBeNull();
+  });
+
+  it("offers one that was dropped back, with the plan intent of the turn it was sent to", () => {
+    const onRetry = vi.fn();
+    nextSeq = 1;
+    render(
+      <ChatTranscript
+        items={buildTranscript([
+          ev("user.message", { text: "Plan a dark theme", plan: { intent: "propose" } }),
+          ev("turn.failed", { reason: "cancelled", message: "The turn was cancelled." }),
+          ev("steer.dropped", { steerId: STEER, text: "plan tags too", reason: "stopped" }),
+        ])}
+        onRetry={onRetry}
+      />,
+    );
+
+    const steer = screen.getByRole("group", { name: "Sent while the agent worked" });
+    expect(steer).toHaveTextContent("Not sent: you stopped the turn before the agent read it.");
+    fireEvent.click(within(steer).getByRole("button", { name: "Send again" }));
+    expect(onRetry).toHaveBeenCalledWith("plan tags too", undefined, { intent: "propose" });
   });
 });

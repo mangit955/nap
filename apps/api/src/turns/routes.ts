@@ -32,10 +32,12 @@ import { pendingPlan } from "@nap/shared/plan-mode";
 
 import { getLogger } from "@nap/shared/logging";
 import type { CancelChannel } from "@nap/shared/ports/cancel-channel";
+import type { EventBus } from "@nap/shared/ports/event-bus";
 import type { EventStore } from "@nap/shared/ports/event-store";
 import type { ModelCredentials } from "@nap/shared/ports/llm-provider";
 import type { ProjectStore } from "@nap/shared/ports/project-store";
 import type { SessionRecord, SessionStore } from "@nap/shared/ports/session-store";
+import type { SteerQueue } from "@nap/shared/ports/steer-queue";
 import type { TurnQueue } from "@nap/shared/ports/turn-queue";
 import type { TurnRateLimiter } from "@nap/shared/ports/turn-rate-limit";
 import { isUnnamed, titleFromPrompt } from "@nap/shared/project-title";
@@ -48,8 +50,11 @@ import type { TurnRegistry } from "./registry.ts";
 import { checkSandboxQuota, type SandboxLimits } from "./sandbox-quota.ts";
 
 export type TurnRouteDeps = {
-  /** Where an admitted turn goes. A worker takes it from here; this route never runs one. */
-  queue: TurnQueue;
+  /**
+   * Where an admitted turn goes, and where a message sent to a running one waits for it. A worker
+   * takes both from here; this route never runs anything.
+   */
+  queue: TurnQueue & SteerQueue;
   /**
    * Which turns are running *in this process*, which only a composition running every role at once
    * has any of: scripts and tests. Never the durable answer. See `./registry.ts`.
@@ -140,10 +145,31 @@ const TurnBodySchema = z.object({
   plan: PlanIntentSchema.optional(),
 });
 
+/**
+ * A message sent while a turn runs (ADR-0026). Its id is the client's, so a retry is the same
+ * message. No attachments: images take the media path a prompt takes, so the client sends those as
+ * a turn. No approval: an approval names a waiting plan, and nothing waits while a turn runs.
+ */
+const SteerBodySchema = z.strictObject({
+  id: z.uuid(),
+  message: z
+    .string()
+    .transform((text) => text.trim())
+    .refine((text) => text.length > 0, { message: "message must not be empty" })
+    .refine((text) => text !== "/compact", {
+      message: "Send /compact once the turn has finished.",
+    }),
+  model: z.string().min(1).optional(),
+  plan: PlanIntentSchema.optional().refine((plan) => plan?.intent !== "approve", {
+    message: "Approve a plan from its card, once the turn has finished.",
+  }),
+});
+
 export function registerTurnRoutes(
   app: Hono<{ Variables: AuthVariables }>,
   deps: TurnRouteDeps,
   events: EventStore,
+  bus: EventBus,
 ): void {
   app.post("/sessions/:sessionId/tests", async (c) => {
     const found = await findOwnedSession(deps.sessions, c.req.param("sessionId"), c.get("userId"));
@@ -298,6 +324,82 @@ export function registerTurnRoutes(
     getLogger().info({ requestId: id, sessionId }, "turn request queued");
 
     return c.json({ accepted: true, requestId: id }, 202);
+  });
+
+  /**
+   * A message sent while a turn runs: it joins that turn at its next step, or, when nothing can take
+   * it, becomes the next turn (ADR-0026).
+   *
+   * **Admitted exactly as a prompt is**, in the same order — ownership, model access, the sandbox
+   * quota, then the rate limit, which records — and charged whichever way it lands. Charging only a
+   * message that becomes a turn would let anybody turn steers into free turns by sending them as a
+   * turn ends, which is when the ones nothing read are queued. Where it lands is the queue's
+   * decision, made under a lock on the running request; the route only reports it.
+   *
+   * A retried id is answered from what the first attempt did, before anything is charged.
+   */
+  app.post("/sessions/:sessionId/steers", async (c) => {
+    const found = await findOwnedSession(deps.sessions, c.req.param("sessionId"), c.get("userId"));
+    if (!found.ok) return c.json({ error: found.error.message }, found.error.status);
+    const body = SteerBodySchema.safeParse(await readJson(c.req.raw));
+    if (!body.success)
+      return c.json({ error: body.error.issues.map((issue) => issue.message).join("; ") }, 400);
+
+    const { sessionId } = found.value;
+    const userId = c.get("userId");
+    const { id } = body.data;
+    const conflict = () =>
+      c.json({ error: "That message id is already in use.", code: "message_id_in_use" }, 409);
+
+    const earlier = await deps.queue.find({ id, sessionId, userId });
+    if (earlier?.as === "conflict") return conflict();
+    if (earlier !== null) return c.json({ accepted: true, requestId: id, as: earlier.as }, 202);
+
+    const key = (await deps.keys?.(userId)) ?? null;
+    const access = resolveTurnAccess({
+      requested: body.data.model,
+      key,
+      allowed: deps.allowedModels,
+      freeModel: deps.freeModel,
+      defaultModel: deps.defaultModel,
+    });
+    if (!access.ok)
+      return c.json({ error: access.message, code: access.code }, refusalStatus(access.code));
+    const refusal = await refuse(deps, found.value, userId, key !== null);
+    if (refusal !== undefined) return refusal(c);
+
+    const admitted = await deps.queue.steer({
+      id,
+      sessionId,
+      userId,
+      message: body.data.message,
+      ...(body.data.plan === undefined ? {} : { plan: body.data.plan }),
+      model: access.model,
+      billsToUser: access.credentials !== undefined,
+    });
+    if (admitted.as === "conflict") return conflict();
+
+    if (admitted.as === "steer") {
+      // After the admission commits, so the log never shows a steer the queue does not hold. The
+      // worker may record reading it before this lands; every reader of the log allows for that.
+      // Under the request it joined, which is the turn it will be read in or answered for. A
+      // failure here loses only the waiting bubble in other tabs: the steer is admitted either way.
+      try {
+        const received = await events.append({
+          type: "steer.received",
+          sessionId,
+          turnId: admitted.requestId,
+          createdAt: new Date().toISOString(),
+          payload: { steerId: id, text: body.data.message },
+        });
+        await bus.publish(received);
+      } catch (error) {
+        getLogger().warn({ err: error, steerId: id }, "a steer was admitted but not announced");
+      }
+    }
+
+    getLogger().info({ steerId: id, sessionId, as: admitted.as }, "steer admitted");
+    return c.json({ accepted: true, requestId: id, as: admitted.as }, 202);
   });
 
   app.get("/sessions/:sessionId/turns/:requestId", async (c) => {

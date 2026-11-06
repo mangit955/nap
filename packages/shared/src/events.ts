@@ -199,6 +199,35 @@ export const NapEventSchema = z.discriminatedUnion("type", [
      */
     plan: PlanIntentSchema.optional(),
   }),
+  /**
+   * A message somebody sent while a turn was running, admitted to join it rather than wait behind
+   * it (ADR-0026). Written by the API the moment admission commits, under the id of the request it
+   * joined, so every tab can show it waiting. It is not yet something the agent has read: that is
+   * `steer.applied`, wherever in the turn the agent reached a step boundary.
+   *
+   * `steerId` is the client's id for the message, and also the id of the turn it becomes if the
+   * running one ends without reading it. Each of the three `steer.*` events carries the text, so
+   * none depends on another having been written first: they come from different processes, and
+   * the order they land in is not guaranteed.
+   */
+  event("steer.received", { steerId: z.uuid(), text: z.string().min(1) }),
+  /**
+   * The agent read a steer here: everything above it was written before the model saw it, and
+   * everything below it after. This is the message's place in the conversation, for the transcript
+   * and for every later rebuild of the context.
+   */
+  event("steer.applied", { steerId: z.uuid(), text: z.string().min(1) }),
+  /**
+   * A steer the agent never read, and that will not run. `stopped`: somebody stopped the turn first.
+   * `interrupted`: the worker running it died, and nothing re-runs a person's words unwatched.
+   * A steer the turn simply finished without reading has no event of its own: it becomes the next
+   * turn, under its own id, and that turn's `user.message` is its record.
+   */
+  event("steer.dropped", {
+    steerId: z.uuid(),
+    text: z.string().min(1),
+    reason: z.enum(["stopped", "interrupted"]),
+  }),
   /** Summarized reasoning, not raw thinking — the model is run with `display: "summarized"`. */
   event("agent.thinking", text),
   event("agent.message", text),

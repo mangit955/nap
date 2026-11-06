@@ -131,6 +131,14 @@ function detail(event: NapEvent): Record<string, unknown> {
       // How long, never what: a plan quotes the project and the person's request.
       return { toolCallId: event.payload.toolCallId, planChars: event.payload.plan.length };
 
+    // The steer's id, which is the request it becomes if it falls back, and its length — never its
+    // words, which are a prompt.
+    case "steer.received":
+    case "steer.applied":
+      return { steerId: event.payload.steerId, chars: event.payload.text.length };
+    case "steer.dropped":
+      return { steerId: event.payload.steerId, reason: event.payload.reason };
+
     case "subagent.started":
       return {
         toolCallId: event.payload.toolCallId,

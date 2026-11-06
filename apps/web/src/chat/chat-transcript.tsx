@@ -33,7 +33,7 @@ import { ChatMarkdown, ProjectFiles } from "./chat-markdown.tsx";
 import { CompactionRow } from "./compaction-row.tsx";
 import { OutputBlock } from "./output-block.tsx";
 import { buildTimeline, type PassThroughItem, type TimelineRow } from "./timeline.ts";
-import type { TranscriptItem } from "./transcript.ts";
+import type { SteerStatus, TranscriptItem } from "./transcript.ts";
 import {
   LiveWorkRow,
   TurnFoldRow,
@@ -462,6 +462,9 @@ function Item({
     case "turn-end":
       return item.outcome === "completed" ? null : <TurnFailure item={item} onRetry={onRetry} />;
 
+    case "steer":
+      return <SteerMessage item={item} onRetry={onRetry} />;
+
     case "plan":
       return <PlanCard items={item.items} />;
 
@@ -637,6 +640,72 @@ function TurnFailure({
         </button>
       )}
     </div>
+  );
+}
+
+/** What became of a message sent mid-turn, said under it. */
+const STEER_STATUS: Record<Exclude<SteerStatus, "dropped">, string> = {
+  read: "Read at this step",
+  waiting: "Waiting for the agent's next step",
+  queued: "Queued as your next message",
+  undelivered: "Not sent: nothing read it before the turn ended.",
+};
+
+/**
+ * A message the person sent while a turn ran (ADR-0026), in their bubble, with a line saying what
+ * became of it.
+ *
+ * Their bubble because they are their words wherever they landed, and a second shape for the same
+ * speaker would read as somebody else talking. What differs is said in words under it rather than
+ * by colour alone: read here, still waiting, queued as the next message, or not sent. One that was
+ * not sent is offered back, with the plan intent of the turn it was sent to, so a planning message
+ * sent again still plans.
+ */
+function SteerMessage({
+  item,
+  onRetry,
+}: {
+  item: Extract<TranscriptItem, { kind: "steer" }>;
+  onRetry?: RetryHandler | undefined;
+}) {
+  const status =
+    item.status !== "dropped"
+      ? STEER_STATUS[item.status]
+      : item.reason === "interrupted"
+        ? "Not sent: the turn was interrupted before the agent read it."
+        : "Not sent: you stopped the turn before the agent read it.";
+  const unsent = item.status === "dropped" || item.status === "undelivered";
+  return (
+    // A fieldset for the group role it carries natively, its default box reset. One accessible name
+    // for every status, so a reader finds the message by what it is rather than by what became of it.
+    <fieldset
+      aria-label="Sent while the agent worked"
+      className="m-0 flex min-w-0 flex-col items-end gap-1 border-0 p-0 pt-1"
+    >
+      <div
+        className={`chat-user-message ${item.status === "read" ? "" : "opacity-70"}`}
+        data-steer-status={item.status}
+      >
+        <p className="whitespace-pre-wrap">
+          <span className="sr-only">You: </span>
+          {item.text}
+        </p>
+      </div>
+      <p className={`text-[11px] ${unsent ? "text-warning" : "text-muted"}`}>{status}</p>
+      {unsent && onRetry !== undefined && (
+        <button
+          type="button"
+          onClick={() =>
+            item.retryPlan === undefined
+              ? onRetry(item.text)
+              : onRetry(item.text, undefined, item.retryPlan)
+          }
+          className="rounded-chip border border-edge px-2 py-1 text-[11px] text-ink-2 transition-colors hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
+        >
+          Send again
+        </button>
+      )}
+    </fieldset>
   );
 }
 
